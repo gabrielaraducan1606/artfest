@@ -1,0 +1,74 @@
+@import "../../styles/variables.css";
+
+.section {
+  padding: 3rem 1.5rem;
+  background-color: var(--color-bg);
+}
+
+.heading {
+  font-size: 1.75rem;
+  font-weight: bold;
+  text-align: center;
+  color: var(--color-text);
+  margin-bottom: 2.5rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+
+.card {
+  background-color: var(--color-cream, #fdf6f0);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.06);
+  text-align: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+}
+
+.image {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  margin-bottom: 0.75rem;
+}
+
+.name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--color-text);
+  margin-bottom: 0.5rem;
+}
+
+.price {
+  color: var(--color-mint);
+  font-weight: bold;
+  margin-bottom: 0.75rem;
+}
+
+.button {
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.link {
+  display: inline-block;
+  font-size: 0.875rem;
+  color: var(--color-accent);
+  margin-top: 0.25rem;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.link:hover {
+  color: var(--color-hover);
+  text-decoration: underline;
+}

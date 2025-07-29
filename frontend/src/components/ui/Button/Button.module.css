@@ -1,0 +1,28 @@
+/* src/components/ui/Button.module.css */
+.button {
+  padding: 0.5rem 1.2rem;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease-in-out;
+  background-color: #A3B18A; /* verde salvie */
+  color: #fff;
+}
+
+.button:hover {
+  background-color: #B3926A; /* maro deschis */
+  color: #fff;
+}
+
+.outline {
+  background-color: transparent;
+  color: #A3B18A;
+  border: 2px solid #A3B18A;
+}
+
+.outline:hover {
+  background-color: #A3B18A;
+  color: white;
+}

@@ -1,0 +1,74 @@
+.container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 4rem 1rem;
+  background-color: #fff;
+}
+
+.form {
+  background-color: #fefaf6; /* crem deschis */
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form h2 {
+  font-size: 1.75rem;
+  margin-bottom: 1rem;
+  color: #5c3a21; /* maro deschis */
+  text-align: center;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+input[type="checkbox"] {
+  margin-right: 0.5rem;
+  transform: scale(1.2);
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.link {
+  color: #5c3a21; /* maro deschis */
+  text-decoration: underline;
+  margin-left: 0.25rem;
+}
+
+.submitButton {
+  background-color: #5c3a21; /* maro deschis */
+  color: white;
+  border: none;
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.submitButton:hover {
+  background-color: #774e2c; /* maro mai închis la hover */
+}
+
+@media (max-width: 480px) {
+  .form {
+    padding: 1.5rem;
+  }
+}

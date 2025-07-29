@@ -1,0 +1,13 @@
+/* src/styles/variables.css */
+:root {
+  --color-bg: #F9F6F1;         /* crem deschis */
+  --color-primary: #C1E1C1;    /* mentă pastel */
+  --color-accent: #BAA378;     /* maro-bej pastel pentru hover */
+  --color-text: #3F3F3F;       /* text – gri închis */
+  --color-hover: #A8B8A5;      /* salvie pentru hover */
+  --color-border: #D2B48C; 
+  --color-text: #3F3F3F;    
+
+  --font-base: 'Inter', sans-serif;
+  --radius: 6px;
+}
