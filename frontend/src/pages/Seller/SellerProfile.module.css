@@ -1,0 +1,84 @@
+.container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 4rem 1rem;
+  background-color: #fff;
+}
+
+.form {
+  background-color: #fefaf6; /* crem deschis */
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.title {
+  font-size: 1.75rem;
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  color: #5c3a21;
+  text-align: center;
+}
+
+input,
+textarea,
+select {
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+  background-color: #fff;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #333;
+}
+
+button {
+  background-color: #5c3a21;
+  color: white;
+  border: none;
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+button:hover {
+  background-color: #774e2c;
+}
+
+.skipButton {
+  background: transparent;
+  color: #5c3a21;
+  font-weight: 500;
+  margin-top: 0.5rem;
+  text-decoration: underline;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+}
+
+.skipButton:hover {
+  color: white;
+}
+
+@media (max-width: 480px) {
+  .form {
+    padding: 1.5rem;
+  }
+}

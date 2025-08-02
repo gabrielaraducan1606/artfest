@@ -45,10 +45,11 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
     res.json({
-      token,
-      cart: user.cart || [],
-      favorites: user.favorites || []
-    });
+  token,
+  role: user.role, 
+  cart: user.cart || [],
+  favorites: user.favorites || []
+});
   } catch (err) {
     res.status(500).json({ msg: 'Eroare la logare!' });
   }

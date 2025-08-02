@@ -6,8 +6,9 @@ import RegisterForm from "../src/pages/RegisterForm/RegisterForm";
 import Termeni from "../src/pages/Termeni/Termeni";
 import GDPR from "./pages/PoliticaGDPR/PoliticaGDPR";
 import SellerDashboard from './pages/VanzatorDashboard/VanzatorDashboard';
-import CompleteProfile from './pages/Seller/CompleteProfile';
-import SendOnboarding from "./pages/Seller/SendOnboarding/SendOnboarding";
+import CompleteProfile from './pages/Seller/SellerProfile';
+import SendOnboarding from "./pages/Seller/Payments/Payments";
+import ContractPage from "./pages/Seller/ContractPage/ContractPage";
 
 export default function App() {
   return (
@@ -20,6 +21,8 @@ export default function App() {
        <Route path="/vanzator/completare-profil" element={<CompleteProfile />} />
        <Route path="/vanzator/sendonboarding" element={<SendOnboarding />} />
        <Route path="/vanzator/dashboard" element={<SellerDashboard />} />
+       <Route path="/vanzator/contract/:id" element={<ContractPage />} />
+
     </Routes>
   );
 }
