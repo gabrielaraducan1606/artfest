@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+// src/pages/Vanzator/ContractPage.jsx
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../api';
 import Navbar from '../../../components/Navbar/Navbar';
@@ -103,6 +104,7 @@ function SignaturePad({ onChange }) {
 const ContractPage = () => {
   const { id } = useParams(); // contract id
   const navigate = useNavigate();
+  const token = useMemo(() => localStorage.getItem('authToken'), []);
   const [contract, setContract] = useState(null);
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
@@ -110,12 +112,16 @@ const ContractPage = () => {
   const [signerEmail, setSignerEmail] = useState('');
   const [signatureDataUrl, setSignatureDataUrl] = useState(null);
 
+  // Gard minim: fără token -> login
+  useEffect(() => {
+    if (!token) navigate('/login', { replace: true });
+  }, [token, navigate]);
+
+  // Preîncarcă date semnatar din profil
   useEffect(() => {
     const preload = async () => {
       try {
-        const { data } = await api.get('/seller/me', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
-        });
+        const { data } = await api.get('/seller/me');
         if (data?.email && !signerEmail) setSignerEmail(data.email);
         if (data?.shopName && !signerName) setSignerName(data.shopName);
       } catch {/* ok */}
@@ -124,12 +130,11 @@ const ContractPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Încarcă contractul
   useEffect(() => {
     const load = async () => {
       try {
-        const { data } = await api.get(`/contracts/${id}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
-        });
+        const { data } = await api.get(`/contracts/${id}`);
         setContract(data);
       } catch {
         alert('Nu am putut încărca contractul.');
@@ -148,11 +153,11 @@ const ContractPage = () => {
     }
     setSigning(true);
     try {
-      const { data } = await api.post(
-        `/contracts/${id}/sign`,
-        { signerName, signerEmail, signatureImageBase64: signatureDataUrl },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` } }
-      );
+      const { data } = await api.post(`/contracts/${id}/sign`, {
+        signerName,
+        signerEmail,
+        signatureImageBase64: signatureDataUrl,
+      });
 
       alert('Contract semnat cu succes!');
       setContract((c) => ({
@@ -172,10 +177,7 @@ const ContractPage = () => {
   const handleDownload = async () => {
     try {
       const url = contract?.pdfUrl || `/contracts/${id}/download`;
-      const { data } = await api.get(url, {
-        responseType: 'blob',
-        headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
-      });
+      const { data } = await api.get(url, { responseType: 'blob' });
       const blob = new Blob([data], { type: 'application/pdf' });
 
       if ('showSaveFilePicker' in window) {

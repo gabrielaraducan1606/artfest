@@ -13,6 +13,8 @@ import sellerRoutes from './routes/sellerRoutes.js';
 import productRoutes from './routes/productRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import contractRoutes from './routes/contractRoutes.js';
+import reviewRoutes from './routes/reviewRoutes.js';
+import visitorRoutes from './routes/visitorRoutes.js';
 
 dotenv.config();
 
@@ -83,6 +85,9 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static(path.join(process.cwd(), 'storage')));
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/visitors', visitorRoutes);
 
 // Asigură existența folderului pentru contracte
 const CONTRACTS_DIR = path.resolve('storage/contracts');

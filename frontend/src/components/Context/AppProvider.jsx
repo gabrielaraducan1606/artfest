@@ -1,105 +1,66 @@
 // src/components/Context/AppProvider.jsx
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api, { getToken, setToken, clearToken } from '../../api';
 import { AppContext } from './context';
 
 export const AppProvider = ({ children }) => {
   const [favorites, setFavorites] = useState([]);
   const [cart, setCart] = useState([]);
-  const [token, setToken] = useState(localStorage.getItem('authToken'));
+  const [token, setTokenState] = useState(getToken());
 
+  // Încarcă datele utilizatorului dacă avem token
   useEffect(() => {
-  const loadUserData = async () => {
-    const storedToken = localStorage.getItem('authToken');
-    if (!storedToken) return;
-
-    try {
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/users/login-token`,
-        {},
-        { headers: { Authorization: `Bearer ${storedToken}` } }
-      );
-      setFavorites(res.data.favorites || []);
-      setCart(res.data.cart || []);
-      setToken(storedToken);
-    } catch (err) {
-      console.error('Eroare la încărcarea datelor utilizatorului', err);
-      localStorage.removeItem('authToken');
-    }
-  };
-
-  loadUserData();
-}, [token]); 
-
-
-  const saveToBackend = async (cartData = cart, favData = favorites) => {
-    if (!token) return;
-    try {
-      await axios.post(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/users/save-data`,
-        { cart: cartData, favorites: favData },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-    } catch (err) {
-      console.error('Eroare la salvarea datelor:', err);
-    }
-  };
-
-  const addToFavorites = (product) => {
-    setFavorites((prev) => {
-      if (!prev.some((p) => p.id === product.id)) {
-        const updated = [...prev, product];
-        saveToBackend(cart, updated);
-        return updated;
+    const loadUserData = async () => {
+      const t = getToken();
+      if (!t) return;
+      try {
+        const res = await api.post('/users/login-token'); // Authorization este atașat de interceptor
+        setFavorites(res.data.favorites || []);
+        setCart(res.data.cart || []);
+        setTokenState(t);
+      } catch (err) {
+        console.error('Eroare la încărcarea datelor utilizatorului', err);
+        clearToken();
+        setTokenState(null);
       }
-      return prev;
-    });
+    };
+    loadUserData();
+  }, [token]);
+
+  // Sincronizare între tab-uri (login/logout)
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'authToken') {
+        // reîncarcă pentru a reflecta noua stare
+        window.location.reload();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const loginWithToken = (newToken, persist = true) => {
+    setToken(newToken, persist);
+    setTokenState(newToken);
   };
 
-  const removeFromFavorites = (id) => {
-    const updated = favorites.filter((item) => item.id !== id);
-    setFavorites(updated);
-    saveToBackend(cart, updated);
-  };
-
-  const addToCart = (product) => {
-    setCart((prev) => {
-      const exists = prev.find((p) => p.id === product.id);
-      let updated;
-      if (exists) {
-        updated = prev.map((p) =>
-          p.id === product.id ? { ...p, quantity: p.quantity + 1 } : p
-        );
+  const logout = () => {
+    try {
+      clearToken();
+      setTokenState(null);
+      setCart([]);
+      setFavorites([]);
+      // Curățări opționale pentru draft-uri de onboarding, dacă există
+      localStorage.removeItem('seller_wizard_draft');
+      sessionStorage.clear();
+    } finally {
+      if (window.location.pathname !== '/login') {
+        window.location.replace('/login');
       } else {
-        updated = [...prev, { ...product, quantity: 1 }];
+        // dacă ești deja pe login, forțează rerender
+        window.location.reload();
       }
-      saveToBackend(updated, favorites);
-      return updated;
-    });
-  };
-
-  const removeFromCart = (id) => {
-    const updated = cart.filter((item) => item.id !== id);
-    setCart(updated);
-    saveToBackend(updated, favorites);
-  };
-
-  const increaseQuantity = (id) => {
-    const updated = cart.map((item) =>
-      item.id === id ? { ...item, quantity: item.quantity + 1 } : item
-    );
-    setCart(updated);
-    saveToBackend(updated, favorites);
-  };
-
-  const decreaseQuantity = (id) => {
-    const updated = cart.map((item) =>
-      item.id === id && item.quantity > 1
-        ? { ...item, quantity: item.quantity - 1 }
-        : item
-    );
-    setCart(updated);
-    saveToBackend(updated, favorites);
+    }
   };
 
   return (
@@ -109,13 +70,9 @@ export const AppProvider = ({ children }) => {
         favorites,
         setCart,
         setFavorites,
-      setToken,
-        addToCart,
-        addToFavorites,
-        removeFromCart,
-        removeFromFavorites,
-        increaseQuantity,
-        decreaseQuantity
+        // expune utilitare
+        setToken: loginWithToken,
+        logout,
       }}
     >
       {children}

@@ -45,11 +45,11 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
     res.json({
-  token,
-  role: user.role, 
-  cart: user.cart || [],
-  favorites: user.favorites || []
-});
+      token,
+      role: user.role,
+      cart: user.cart || [],
+      favorites: user.favorites || []
+    });
   } catch (err) {
     res.status(500).json({ msg: 'Eroare la logare!' });
   }
@@ -96,6 +96,7 @@ router.post('/save-data', auth, async (req, res) => {
   }
 });
 
+// 🔍 Profil complet
 router.get('/profil', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -106,6 +107,20 @@ router.get('/profil', auth, async (req, res) => {
   } catch (err) {
     console.error('❌ Eroare la obținerea profilului:', err);
     res.status(500).json({ msg: 'Eroare la obținerea profilului' });
+  }
+});
+
+// ✅ Nou: datele utilizatorului logat
+router.get('/me', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ msg: 'Utilizatorul nu a fost găsit' });
+    }
+    res.json(user);
+  } catch (err) {
+    console.error('❌ Eroare la obținerea datelor utilizatorului:', err);
+    res.status(500).json({ msg: 'Eroare la obținerea datelor utilizatorului' });
   }
 });
 

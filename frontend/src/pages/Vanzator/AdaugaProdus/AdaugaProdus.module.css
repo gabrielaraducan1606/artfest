@@ -1,0 +1,74 @@
+@import "../../../styles//variables.css";
+
+.container {
+  padding: 20px;
+  background: var(--color-bg);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+
+.card {
+  background: white;
+  padding: 30px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  width: 100%;
+  max-width: 500px;
+  box-shadow: 0px 4px 10px rgba(0,0,0,0.05);
+}
+
+.title {
+  margin-bottom: 20px;
+  font-size: 1.5rem;
+  color: var(--color-text);
+}
+
+.form label {
+  display: block;
+  margin-bottom: 15px;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.form input,
+.form textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  margin-top: 5px;
+  font-family: var(--font-base);
+}
+
+textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.preview {
+  margin: 15px 0;
+  text-align: center;
+}
+
+.preview img {
+  max-width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.submitBtn {
+  width: 100%;
+  background: var(--color-primary);
+  color: var(--color-text);
+  padding: 12px;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.submitBtn:hover {
+  background: var(--color-hover);
+}

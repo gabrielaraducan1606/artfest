@@ -1,3 +1,4 @@
+// src/pages/login.jsx
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
@@ -8,9 +9,10 @@ import { useAppContext } from '../../components/Context/useAppContext';
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(true); // ✅ opțiune de persistență
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const { setCart, setFavorites } = useAppContext();
+  const { setCart, setFavorites, setToken } = useAppContext();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -19,13 +21,15 @@ const Login = () => {
 
     try {
       const res = await api.post('/users/login', { email, password });
+      const token = res.data.token;
+      setToken(token, remember); // ✅ salvează token-ul (LS dacă remember=true)
 
-      localStorage.setItem('authToken', res.data.token);
       if (Array.isArray(res.data.cart)) setCart(res.data.cart);
       if (Array.isArray(res.data.favorites)) setFavorites(res.data.favorites);
 
-      // 🔄 Forțează reload pentru a reactiva contextul (dacă nu e sincron)
-      window.location.replace(res.data.role === 'seller' ? '/vanzator/dashboard' : '/profil');
+      // Redirect în funcție de rol
+      const target = res.data.role === 'seller' ? '/vanzator/dashboard' : '/profil';
+      window.location.replace(target);
     } catch (err) {
       setErrorMsg(err.response?.data?.msg || 'Eroare la autentificare');
     } finally {
@@ -42,6 +46,12 @@ const Login = () => {
           {errorMsg && <p className={styles.error}>{errorMsg}</p>}
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required />
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Parolă" required />
+
+          <label className={styles.checkbox}>
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            Ține-mă minte pe acest dispozitiv
+          </label>
+
           <button type="submit" disabled={submitting}>
             {submitting ? 'Se autentifică...' : 'Loghează-te'}
           </button>

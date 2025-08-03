@@ -40,7 +40,7 @@ function validateSellerBody(body) {
 
 // GET /api/seller/me
 router.get('/me', auth, async (req, res) => {
-  const seller = await Seller.findOne({ userId: req.user._id });
+  const seller = await Seller.findOne({ userId: req.user.id });
   if (!seller) return res.status(404).json({ msg: 'Not found' });
   res.json(seller);
 });
@@ -71,13 +71,13 @@ router.post(
       if (req.files?.profileImage?.[0]) {
         profileImageUrl = await uploadToStorage(
           req.files.profileImage[0],
-          `sellers/${req.user._id}/profile.png`
+          `sellers/${req.user.id}/profile.png`
         );
       }
       if (req.files?.coverImage?.[0]) {
         coverImageUrl = await uploadToStorage(
           req.files.coverImage[0],
-          `sellers/${req.user._id}/cover.png`
+          `sellers/${req.user.id}/cover.png`
         );
       }
 
@@ -102,12 +102,12 @@ router.post(
         cui: req.body.cui,
         registrationNumber: req.body.registrationNumber,
         iban: req.body.iban,
-        userId: req.user._id,
+        userId: req.user.id,
       };
 
       // upsert — creează dacă nu există, altfel actualizează
       const seller = await Seller.findOneAndUpdate(
-        { userId: req.user._id },
+        { userId: req.user.id },
         { $set: payload },
         { new: true, upsert: true, runValidators: true }
       );

@@ -118,6 +118,34 @@
   font-size: 1.2rem;
 }
 
+.actionsRight {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.iconWrapper {
+  position: relative;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.iconWrapper:hover {
+  color: var(--color-accent);
+}
+
+.badge {
+  position: absolute;
+  top: -5px;
+  right: -8px;
+  background: red;
+  color: white;
+  font-size: 0.7rem;
+  padding: 2px 5px;
+  border-radius: 50%;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .nav {
@@ -140,3 +168,4 @@
     display: block;
   }
 }
+

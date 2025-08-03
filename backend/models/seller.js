@@ -28,7 +28,7 @@ const sellerSchema = new mongoose.Schema(
     registrationNumber: { type: String, required: true },
     iban: { type: String, required: true },
 
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', unique: true, index: true },
   },
   { timestamps: true }
 );

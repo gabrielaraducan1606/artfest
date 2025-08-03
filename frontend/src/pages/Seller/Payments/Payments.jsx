@@ -1,34 +1,58 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../../components/Navbar/Navbar';
 import styles from './Payments.module.css';
 import api from '../../../api';
 
 const Payments = () => {
-  const [form, setForm] = useState({
-    // Identitate / firmă
-    entityType: 'pfa',       // doar pfa | srl
-    legalName: '',
-    cui: '',                 // doar CUI (fără CNP)
-    country: 'România',
-    city: '',
-    address: '',
-    // Plăți / decontare
-    emailFinance: '',
-    phone: '',
-    iban: '',                // IBAN pentru încasarea banilor
-    // KYC (opțional acum; devine obligatoriu dacă vei folosi Stripe/PayPal)
-    kycDoc: null,
-    kycDocUrl: '',
-    addressProof: null,
-    addressProofUrl: '',
-    // Abonament (prima lună gratuită la orice plan)
-    subscriptionPlan: 'start', // start | growth | pro
-    termsAccepted: false,
+  const navigate = useNavigate();
+  const token = useMemo(() => localStorage.getItem('authToken'), []);
+  const draftKey = useMemo(
+    () => `seller_payments_draft:${token?.slice(0, 8) || 'anon'}`,
+    [token]
+  );
+
+  const [form, setForm] = useState(() => {
+    const saved = localStorage.getItem(draftKey);
+    return saved
+      ? JSON.parse(saved)
+      : {
+          // Identitate / firmă
+          entityType: 'pfa',       // pfa | srl
+          legalName: '',
+          cui: '',
+          country: 'România',
+          city: '',
+          address: '',
+          // Plăți / decontare
+          emailFinance: '',
+          phone: '',
+          iban: '',
+          // KYC
+          kycDoc: null,
+          kycDocUrl: '',
+          addressProof: null,
+          addressProofUrl: '',
+          // Abonament
+          subscriptionPlan: 'start', // start | growth | pro
+          termsAccepted: false,
+        };
   });
 
   const [submitting, setSubmitting] = useState(false);
-  const navigate = useNavigate();
+
+  // Gard minim
+  useEffect(() => {
+    if (!token) navigate('/login', { replace: true });
+  }, [token, navigate]);
+
+  // Persistă draft (fără fișiere) și evită ESLint „unused vars”
+  useEffect(() => {
+    const rest = { ...form };
+    delete rest.kycDoc;
+    delete rest.addressProof;
+    localStorage.setItem(draftKey, JSON.stringify(rest));
+  }, [form, draftKey]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -36,8 +60,12 @@ const Payments = () => {
   };
 
   const handleFileChange = (e) => {
-    const { name, files } = e.target;
-    setForm((prev) => ({ ...prev, [name]: files[0] || null }));
+    const input = e.target;
+    if (!input) return;
+    const { name } = input;
+    const file = input.files?.[0] ?? null;
+    if (!name) return;
+    setForm((prev) => ({ ...prev, [name]: file }));
   };
 
   const handleSubmit = async (e) => {
@@ -50,7 +78,6 @@ const Payments = () => {
 
     setSubmitting(true);
     try {
-      // normalizări minime
       const normalized = {
         ...form,
         entityType: String(form.entityType || '').toLowerCase(), // pfa | srl
@@ -61,22 +88,15 @@ const Payments = () => {
         if (value !== null && value !== undefined) formData.append(key, value);
       });
 
-      // salvează profilul de plăți
       await api.post('/payments/sellers/setup', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${localStorage.getItem('authToken')}`,
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      // după salvare -> redirecționează spre pagina contractului
-      // fie direct pe o rută de UI, fie generezi un draft imediat:
-      const { data } = await api.post('/contracts/preview', 
-        { version: 'v1.0' }, 
-        { headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` } }
-      );
+      const { data } = await api.post('/contracts/preview', { version: 'v1.0' });
 
-      // mergi la pagina care afișează contractul generat
+      // curăță draft-ul DOAR la succes
+      localStorage.removeItem(draftKey);
+
       navigate(`/vanzator/contract/${data._id}`);
     } catch (err) {
       alert('Eroare la salvare: ' + (err.response?.data?.msg || err.message));
@@ -87,10 +107,7 @@ const Payments = () => {
 
   const handleGenerateContract = async () => {
     try {
-      const { data } = await api.post('/contracts/preview', 
-        { version: 'v1.0' }, 
-        { headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` } }
-      );
+      const { data } = await api.post('/contracts/preview', { version: 'v1.0' });
       navigate(`/vanzator/contract/${data._id}`);
     } catch (err) {
       alert('Nu am putut genera contractul: ' + (err.response?.data?.msg || err.message));
@@ -196,7 +213,7 @@ const Payments = () => {
             />
           </label>
 
-          {/* KYC – opțional acum; devine necesar dacă integrezi Stripe/PayPal */}
+          {/* KYC */}
           <div>
             <p style={{ color: '#555', margin: '0 0 .5rem' }}>
               Documente KYC (opțional în acest moment). Dacă alegi ulterior procesatori de plăți
@@ -267,11 +284,7 @@ const Payments = () => {
             {submitting ? 'Se salvează…' : 'Salvează și generează contractul'}
           </button>
 
-          <button
-            type="button"
-            className={styles.skipButton}
-            onClick={handleGenerateContract}
-          >
+          <button type="button" className={styles.skipButton} onClick={handleGenerateContract}>
             Generează contract (pas opțional)
           </button>
         </form>

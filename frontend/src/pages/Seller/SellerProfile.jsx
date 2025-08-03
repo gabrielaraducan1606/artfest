@@ -1,38 +1,47 @@
-// src/pages/SellerProfile.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../../api';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../components/Navbar/Navbar';
 import styles from './SellerProfile.module.css';
 
 const SellerProfile = () => {
-  const [formData, setFormData] = useState({
-    shopName: '',
-    username: '',
-    email: '',
-    password: '',
-    confirmPassword: '',   // ✅ nou
-    phone: '',
-    publicPhone: false,
-    profileImage: null,
-    coverImage: null,
-    shortDescription: '',
-    brandStory: '',
-    category: '',
-    city: '',
-    country: 'România',
-    // Politicile standard vor fi în contract/T&C.
-    // Lăsăm doar note opționale care se vor afișa sub politica standard:
-    deliveryNotes: '',     // ✅ opțional
-    returnNotes: '',       // ✅ opțional
-    entityType: 'pfa',     // ✅ doar pfa | srl
-    companyName: '',
-    cui: '',
-    registrationNumber: '',
-    iban: '',
-  });
-
   const navigate = useNavigate();
+
+  // token doar pentru a separa draft-urile per utilizator
+  const token = useMemo(() => localStorage.getItem('authToken'), []);
+  const draftKey = useMemo(
+    () => `seller_wizard_draft:${token?.slice(0, 8) || 'anon'}`,
+    [token]
+  );
+
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem(draftKey);
+    return saved
+      ? JSON.parse(saved)
+      : {
+          shopName: '',
+          username: '',
+          email: '',
+          password: '',
+          confirmPassword: '',
+          phone: '',
+          publicPhone: false,
+          profileImage: null,
+          coverImage: null,
+          shortDescription: '',
+          brandStory: '',
+          category: '',
+          city: '',
+          country: 'România',
+          deliveryNotes: '',
+          returnNotes: '',
+          entityType: 'pfa', // pfa | srl
+          companyName: '',
+          cui: '',
+          registrationNumber: '',
+          iban: '',
+        };
+  });
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -43,15 +52,50 @@ const SellerProfile = () => {
   };
 
   const handleFileChange = (e) => {
-    const { name, files } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: files[0] || null }));
+    const input = e.target;
+    if (!input) return;
+    const { name } = input;
+    const file = input.files?.[0] ?? null;
+    if (!name) return;
+    setFormData((prev) => ({ ...prev, [name]: file }));
   };
+
+  // Salvează draft-ul (fără fișiere) la fiecare modificare
+// în SellerProfile.jsx, în locul useEffect-ului care salvează draftul:
+useEffect(() => {
+  const rest = { ...formData };
+  delete rest.profileImage;
+  delete rest.coverImage;
+  localStorage.setItem(draftKey, JSON.stringify(rest));
+}, [formData, draftKey]);
+
+
+  // Gard minim: fără token -> /login; dacă profilul există -> /vanzator/dashboard
+  useEffect(() => {
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    const checkSellerProfile = async () => {
+      try {
+        const res = await api.get('/seller/me'); // Authorization e adăugat automat
+        if (res.data) navigate('/vanzator/dashboard');
+      } catch (err) {
+        if (err?.response?.status !== 404) {
+          alert('Eroare la verificarea profilului vânzător.');
+        }
+      }
+    };
+    checkSellerProfile();
+  }, [navigate, token]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // ✅ validare parolă = confirmare
-    if ((formData.password || formData.confirmPassword) && formData.password !== formData.confirmPassword) {
+    if (
+      (formData.password || formData.confirmPassword) &&
+      formData.password !== formData.confirmPassword
+    ) {
       alert('Parola și confirmarea parolei nu coincid.');
       return;
     }
@@ -70,11 +114,9 @@ const SellerProfile = () => {
 
     try {
       await api.post('/seller', formDataToSend, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${localStorage.getItem('authToken')}`,
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
+      localStorage.removeItem(draftKey); // curăță draft-ul DOAR la succes
       alert('Profilul de vânzător a fost completat!');
       navigate('/vanzator/sendonboarding');
     } catch (err) {
@@ -83,24 +125,6 @@ const SellerProfile = () => {
     }
   };
 
-  useEffect(() => {
-    const checkSellerProfile = async () => {
-      try {
-        const res = await api.get('/seller/me', {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('authToken')}`,
-          },
-        });
-        if (res.data) navigate('/vanzator/dashboard');
-      } catch (err) {
-        if (err.response?.status !== 404) {
-          alert('Eroare la verificarea profilului vânzător.');
-        }
-      }
-    };
-    checkSellerProfile();
-  }, [navigate]);
-
   return (
     <>
       <Navbar />
@@ -108,8 +132,9 @@ const SellerProfile = () => {
         <form className={styles.form} onSubmit={handleSubmit}>
           <h2 className={styles.title}>Completează profilul tău de vânzător</h2>
           <p style={{ fontSize: '0.9rem', color: '#555', marginBottom: '1rem' }}>
-            Informațiile de mai jos vor fi folosite la configurarea contului și vor apărea pe pagina ta publică de prezentare,
-            pentru ca clienții să îți poată descoperi brandul și produsele.
+            Informațiile de mai jos vor fi folosite la configurarea contului și vor apărea pe
+            pagina ta publică de prezentare, pentru ca clienții să îți poată descoperi brandul
+            și produsele.
           </p>
 
           {/* Date cont */}
@@ -121,7 +146,6 @@ const SellerProfile = () => {
             placeholder="Nume magazin"
             required
           />
-
           <input
             type="text"
             name="username"
@@ -151,7 +175,6 @@ const SellerProfile = () => {
             placeholder="Parolă"
             required
           />
-
           <input
             type="password"
             name="confirmPassword"
@@ -182,7 +205,6 @@ const SellerProfile = () => {
           {/* Media */}
           <label>Logo / poză de profil:</label>
           <input type="file" name="profileImage" onChange={handleFileChange} />
-
           <label>Fotografie de copertă:</label>
           <input type="file" name="coverImage" onChange={handleFileChange} />
 
@@ -195,7 +217,6 @@ const SellerProfile = () => {
             rows={3}
             required
           />
-
           <textarea
             name="brandStory"
             value={formData.brandStory}
@@ -237,7 +258,7 @@ const SellerProfile = () => {
             required
           />
 
-          {/* Note opționale ce se afișează sub politica standard */}
+          {/* Note opționale */}
           <textarea
             name="deliveryNotes"
             value={formData.deliveryNotes}
@@ -253,7 +274,7 @@ const SellerProfile = () => {
             rows={3}
           />
 
-          {/* Date firmă (fără persoană fizică) */}
+          {/* Date firmă */}
           <label>Tip entitate:</label>
           <select
             name="entityType"
