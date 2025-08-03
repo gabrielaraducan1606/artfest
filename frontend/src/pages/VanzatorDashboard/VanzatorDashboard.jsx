@@ -9,38 +9,89 @@ export default function VanzatorDashboard() {
   const [products, setProducts] = useState([]);
   const navigate = useNavigate();
 
+  // util: ești în dev?
+  const isDev =
+    typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.MODE !== 'production';
+
+  // ✅ logout curat
+  const handleLogout = () => {
+    try {
+      // 1) șterge tokenul
+      localStorage.removeItem('authToken');
+
+      // 2) curăță headerul Authorization, dacă a fost setat
+      if (api?.defaults?.headers?.common?.Authorization) {
+        delete api.defaults.headers.common.Authorization;
+      }
+
+      // 3) curățări opționale
+      localStorage.removeItem('appUser'); // dacă folosești
+      sessionStorage.clear();             // dacă folosești
+
+      // 4) redirect
+      navigate('/login', { replace: true });
+      // sau: navigate('/vanzator/completare-profil', { replace: true });
+    } catch (e) {
+      if (isDev) console.debug('Logout cleanup warning:', e);
+    }
+  };
+
   useEffect(() => {
     const fetchSellerData = async () => {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        navigate('/login', { replace: true });
+        return;
+      }
+
       try {
-        const token = localStorage.getItem('authToken');
+        // profilul vânzătorului
         const sellerRes = await api.get('/seller/me', {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
         setSellerData(sellerRes.data);
 
+        // produsele asociate vânzătorului
         const prodRes = await api.get('/products/my', {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
-        setProducts(prodRes.data);
+        setProducts(Array.isArray(prodRes.data) ? prodRes.data : []);
       } catch (err) {
-  console.error('❌ Eroare dashboard:', err);
-  setSellerData(null); // Nu forțăm redirect
-}
+        const status = err?.response?.status;
+        if (status === 404) {
+          // nu există profil -> mergi la formularul de completare
+          navigate('/vanzator/completare-profil', { replace: true });
+          return;
+        }
+        if (status === 401) {
+          // token invalid/expirat -> login
+          handleLogout();
+          return;
+        }
+        console.error('❌ Eroare dashboard:', err);
+        setSellerData(null);
+        setProducts([]);
+      }
     };
 
     fetchSellerData();
-  }, [navigate]);
+  }, [navigate]); // dependență pe navigate e ok
 
   return (
     <>
       <Navbar />
       <div className={styles.container}>
-        <h2>Bun venit în dashboard, {sellerData?.storeName || 'Vânzător'}!</h2>
+        <div className={styles.headerRow}>
+          <h2>Bun venit în dashboard, {sellerData?.storeName || sellerData?.shopName || 'Vânzător'}!</h2>
+          <button className={styles.logoutBtn} onClick={handleLogout}>Logout</button>
+        </div>
 
         <div className={styles.infoBox}>
-          <p><strong>Email:</strong> {sellerData?.email}</p>
+          <p><strong>Email:</strong> {sellerData?.email || '-'}</p>
           <p><strong>Telefon:</strong> {sellerData?.phone || '-'}</p>
-          <p><strong>Descriere magazin:</strong> {sellerData?.description || '-'}</p>
+          <p><strong>Descriere magazin:</strong> {sellerData?.description || sellerData?.shortDescription || '-'}</p>
         </div>
 
         <div className={styles.actions}>
@@ -54,11 +105,13 @@ export default function VanzatorDashboard() {
           ) : (
             products.map((prod) => (
               <div key={prod._id} className={styles.productCard}>
-                <img src={prod.image} alt={prod.title} />
+                {prod.image ? <img src={prod.image} alt={prod.title} /> : <div className={styles.placeholder} />}
                 <div>
                   <h4>{prod.title}</h4>
                   <p>{prod.price} lei</p>
-                  <button onClick={() => navigate(`/vanzator/editeaza-produs/${prod._id}`)}>✏️ Editează</button>
+                  <button onClick={() => navigate(`/vanzator/editeaza-produs/${prod._id}`)}>
+                    ✏️ Editează
+                  </button>
                 </div>
               </div>
             ))
