@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import bcrypt from 'bcryptjs';
-import Seller from '../models/Seller.js';
+import Seller from '../models/seller.js';
 import auth from '../middleware/auth.js';
 import { uploadToStorage } from '../utils/storage.js';
 

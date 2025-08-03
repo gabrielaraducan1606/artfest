@@ -1,44 +1,54 @@
-// src/routes/paymentRoutes.js
 import express from 'express';
 import multer from 'multer';
 import PaymentProfile from '../models/paymentProfile.js';
-import Seller from '../models/Seller.js';
-import  auth  from '../middleware/auth.js';
+import Seller from '../models/seller.js';
+import auth from '../middleware/auth.js';
 import { uploadToStorage } from '../utils/storage.js';
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 4 }, // 10MB, max 4 fișiere
+});
 
 router.post('/sellers/setup', auth, upload.any(), async (req, res) => {
   try {
-    const seller = await Seller.findOne({ userId: req.user._id });
+    const userId = req.user?._id || req.user?.id;
+    const seller = await Seller.findOne({ userId });
     if (!seller) return res.status(400).json({ msg: 'Creează mai întâi profilul de vânzător' });
 
     // uploads opționale
     let kycDocUrl, addressProofUrl;
-    const kycDoc = req.files?.find(f => f.fieldname === 'kycDoc');
-    if (kycDoc) kycDocUrl = await uploadToStorage(kycDoc, `sellers/${req.user._id}/kycDoc`);
-    const addressProof = req.files?.find(f => f.fieldname === 'addressProof');
-    if (addressProof) addressProofUrl = await uploadToStorage(addressProof, `sellers/${req.user._id}/addressProof`);
+    const kycDoc = req.files?.find((f) => f.fieldname === 'kycDoc');
+    if (kycDoc) kycDocUrl = await uploadToStorage(kycDoc, `sellers/${userId}/kycDoc`);
+    const addressProof = req.files?.find((f) => f.fieldname === 'addressProof');
+    if (addressProof) addressProofUrl = await uploadToStorage(addressProof, `sellers/${userId}/addressProof`);
 
     // câmpuri permise din payload
     const body = {
-      iban: req.body.iban,
-      emailFinance: req.body.emailFinance?.toLowerCase(),
-      phone: req.body.phone,
-      subscriptionPlan: (req.body.subscriptionPlan || 'start').toLowerCase(),
-      // KYC (dacă nu sunt upload, pot veni ca link)
+      iban: (req.body.iban || '').trim(),
+      emailFinance: (req.body.emailFinance || '').toLowerCase().trim(),
+      phone: (req.body.phone || '').trim(),
+      subscriptionPlan: (req.body.subscriptionPlan || 'start').toLowerCase().trim(),
       kycDocUrl: req.body.kycDocUrl || kycDocUrl,
       addressProofUrl: req.body.addressProofUrl || addressProofUrl,
     };
 
-    if (!['start', 'growth', 'pro'].includes(body.subscriptionPlan)) {
+    const allowedPlans = ['start', 'growth', 'pro'];
+    if (!allowedPlans.includes(body.subscriptionPlan)) {
       return res.status(400).json({ msg: 'subscriptionPlan invalid' });
     }
     if (!body.iban) return res.status(400).json({ msg: 'IBAN este obligatoriu' });
     if (!body.emailFinance) return res.status(400).json({ msg: 'emailFinance este obligatoriu' });
 
-    // create/update cu setarea trial-ului dacă nu există
+    // validare IBAN (simplă)
+    const ibanRe = /^[A-Z]{2}[0-9A-Z]{13,32}$/i;
+    if (!ibanRe.test(body.iban)) {
+      return res.status(400).json({ msg: 'IBAN invalid' });
+    }
+
+    // create/update
     let payment = await PaymentProfile.findOne({ sellerId: seller._id });
     if (!payment) {
       payment = await PaymentProfile.create({
@@ -49,7 +59,6 @@ router.post('/sellers/setup', auth, upload.any(), async (req, res) => {
         status: 'active',
       });
     } else {
-      // dacă s-a schimbat planul, poți decide să reinițializezi trialul sau nu — aici NU îl resetăm
       payment.iban = body.iban;
       payment.emailFinance = body.emailFinance;
       payment.phone = body.phone;
@@ -59,10 +68,13 @@ router.post('/sellers/setup', auth, upload.any(), async (req, res) => {
       await payment.save();
     }
 
-    res.status(201).json(payment);
+    return res.status(201).json(payment);
   } catch (err) {
-    console.warn(err);
-    res.status(400).json({ msg: 'Payment setup failed', error: err.message });
+    console.warn('[payments/sellers/setup] error:', err);
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ msg: 'Fișier prea mare (max 10MB)' });
+    }
+    return res.status(400).json({ msg: 'Payment setup failed', error: err.message });
   }
 });
 

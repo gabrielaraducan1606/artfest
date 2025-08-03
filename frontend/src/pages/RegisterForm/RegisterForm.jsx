@@ -1,4 +1,3 @@
-// src/pages/RegisterForm/RegisterForm.jsx
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
@@ -102,4 +101,4 @@ const RegisterForm = () => {
   );
 };
 
-export default RegisterForm;
+export default RegisterForm; 

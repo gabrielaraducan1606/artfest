@@ -62,7 +62,7 @@ const Payments = () => {
       });
 
       // salvează profilul de plăți
-      await api.post('/api/payments/sellers/setup', formData, {
+      await api.post('/payments/sellers/setup', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${localStorage.getItem('authToken')}`,
@@ -71,7 +71,7 @@ const Payments = () => {
 
       // după salvare -> redirecționează spre pagina contractului
       // fie direct pe o rută de UI, fie generezi un draft imediat:
-      const { data } = await api.post('/api/contracts/preview', 
+      const { data } = await api.post('/contracts/preview', 
         { version: 'v1.0' }, 
         { headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` } }
       );
@@ -87,7 +87,7 @@ const Payments = () => {
 
   const handleGenerateContract = async () => {
     try {
-      const { data } = await api.post('/api/contracts/preview', 
+      const { data } = await api.post('/contracts/preview', 
         { version: 'v1.0' }, 
         { headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` } }
       );

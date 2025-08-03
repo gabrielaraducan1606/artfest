@@ -1,4 +1,3 @@
-// src/pages/ContractPage.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../api';
@@ -14,7 +13,6 @@ function SignaturePad({ onChange }) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    // HiDPI scaling
     const ratio = window.devicePixelRatio || 1;
     const cssWidth = 600;
     const cssHeight = 200;
@@ -57,7 +55,6 @@ function SignaturePad({ onChange }) {
       onChange(canvas.toDataURL('image/png'));
     };
 
-    // Memorize handlers to remove correctly
     const onMouseDown = (e) => start(e);
     const onMouseMove = (e) => move(e);
     const onMouseUp   = (e) => end(e);
@@ -113,27 +110,24 @@ const ContractPage = () => {
   const [signerEmail, setSignerEmail] = useState('');
   const [signatureDataUrl, setSignatureDataUrl] = useState(null);
 
-  // (opțional) precompletare din profil
   useEffect(() => {
     const preload = async () => {
       try {
-        const { data } = await api.get('/api/seller/me', {
+        const { data } = await api.get('/seller/me', {
           headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
         });
         if (data?.email && !signerEmail) setSignerEmail(data.email);
         if (data?.shopName && !signerName) setSignerName(data.shopName);
-      } catch {
-        // e ok dacă nu avem profil
-      }
+      } catch {/* ok */}
     };
     preload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // doar o dată
+  }, []);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const { data } = await api.get(`/api/contracts/${id}`, {
+        const { data } = await api.get(`/contracts/${id}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
         });
         setContract(data);
@@ -155,7 +149,7 @@ const ContractPage = () => {
     setSigning(true);
     try {
       const { data } = await api.post(
-        `/api/contracts/${id}/sign`,
+        `/contracts/${id}/sign`,
         { signerName, signerEmail, signatureImageBase64: signatureDataUrl },
         { headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` } }
       );
@@ -164,13 +158,51 @@ const ContractPage = () => {
       setContract((c) => ({
         ...c,
         status: 'signed',
-        pdfUrl: data.pdfUrl,
+        pdfUrl: data.pdfUrl, // /api/contracts/:id/download
         signedAt: new Date().toISOString(),
       }));
     } catch (err) {
       alert('Eroare la semnare: ' + (err.response?.data?.msg || err.message));
     } finally {
       setSigning(false);
+    }
+  };
+
+  // Download autenticat + "Save As" unde e posibil
+  const handleDownload = async () => {
+    try {
+      const url = contract?.pdfUrl || `/contracts/${id}/download`;
+      const { data } = await api.get(url, {
+        responseType: 'blob',
+        headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
+      });
+      const blob = new Blob([data], { type: 'application/pdf' });
+
+      if ('showSaveFilePicker' in window) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: `contract-${id}.pdf`,
+            types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (e) {
+          if (e?.name === 'AbortError') return;
+        }
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `contract-${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      alert('Eroare la descărcare: ' + (err.response?.data?.msg || err.message));
     }
   };
 
@@ -185,9 +217,9 @@ const ContractPage = () => {
 
           {contract?.pdfUrl ? (
             <div className={styles.preview}>
-              <a href={contract.pdfUrl} target="_blank" rel="noreferrer">
-                Deschide PDF
-              </a>
+              <button type="button" className={styles.downloadBtn} onClick={handleDownload}>
+                Descarcă PDF
+              </button>
             </div>
           ) : (
             <p>Nu există încă un PDF generat.</p>
@@ -235,14 +267,9 @@ const ContractPage = () => {
               <p style={{ color: 'green' }}>
                 Contract semnat pe {new Date(contract.signedAt).toLocaleString()}
               </p>
-              <a
-                className={styles.downloadBtn}
-                href={contract.pdfUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <button type="button" className={styles.downloadBtn} onClick={handleDownload}>
                 Descarcă PDF semnat
-              </a>
+              </button>
               <button
                 type="button"
                 className={styles.skipButton}
