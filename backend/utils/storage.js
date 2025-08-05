@@ -1,5 +1,9 @@
+// utils/storage.js
 import path from 'path';
 import fs from 'fs';
+
+const API_URL = process.env.API_URL || "http://localhost:5000";
+const isProduction = process.env.NODE_ENV === "production";
 
 export async function uploadToStorage(file, key) {
   // Calea locală unde salvăm fișierul (în storage/)
@@ -11,12 +15,6 @@ export async function uploadToStorage(file, key) {
   // Scriem fișierul local
   fs.writeFileSync(storagePath, file.buffer);
 
-  // Returnăm URL-ul corect în funcție de mediu
-  if (isProduction) {
-    // Domeniul real din producție
-    return `${API_URL}/uploads/${encodeURIComponent(key)}`;
-  } else {
-    // Localhost pentru dezvoltare
-    return `http://localhost:5000/uploads/${encodeURIComponent(key)}`;
-  }
+  // Returnăm URL-ul absolut corect
+  return `${API_URL}/uploads/${encodeURIComponent(key)}`;
 }

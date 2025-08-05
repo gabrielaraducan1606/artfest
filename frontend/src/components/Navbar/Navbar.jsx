@@ -1,90 +1,105 @@
-// src/components/Navbar/Navbar.jsx
 import React, { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import styles from "./Navbar.module.css";
 import logo from "../../assets/logoArtfest.png";
-import { FaUserCircle, FaShoppingCart, FaHeart } from "react-icons/fa";
+import { FaUserCircle, FaShoppingCart, FaHeart, FaChevronDown, FaSearch } from "react-icons/fa";
 import { useAppContext } from "../Context/useAppContext";
 import api from "../../api";
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [role, setRole] = useState(null);
-  const [cartCount, setCartCount] = useState(0);
-  const [wishlistCount, setWishlistCount] = useState(0);
-  const { logout } = useAppContext();
+  const [searchTerm, setSearchTerm] = useState("");
+  const { logout, cart, favorites } = useAppContext();
   const location = useLocation();
   const navigate = useNavigate();
 
   const isAuthed = !!localStorage.getItem("authToken");
   const isSellerSection = location.pathname.startsWith("/vanzator");
 
-  // 📌 Preluăm rolul userului logat
+  // Obținem rolul utilizatorului logat
   useEffect(() => {
-    const fetchUserRole = async () => {
-      if (!isAuthed) return;
-      try {
-        const res = await api.get("/users/me", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
-        });
-        setRole(res.data.role);
-      } catch (err) {
-        console.error("❌ Eroare la obținerea rolului:", err);
-      }
-    };
-    fetchUserRole();
+    if (!isAuthed) return;
+    api
+      .get("/users/me", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
+      })
+      .then((res) => setRole(res.data.role))
+      .catch((err) => console.error("❌ Eroare la obținerea rolului:", err));
   }, [isAuthed]);
 
-  // 📌 Setăm numărul de produse din coș și wishlist din localStorage
-  useEffect(() => {
-    const cart = JSON.parse(localStorage.getItem("cart") || "[]");
-    const wishlist = JSON.parse(localStorage.getItem("wishlist") || "[]");
-    setCartCount(cart.length);
-    setWishlistCount(wishlist.length);
-  }, [location]); // actualizează la schimbare de pagină
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (searchTerm.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchTerm)}`);
+      setSearchTerm("");
+    }
+  };
 
   const publicMenu = (
     <>
-      <NavLink to="/produse" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Produse
-      </NavLink>
-      <NavLink to="/servicii-digitale" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Servicii Digitale
-      </NavLink>
-      <NavLink to="/despre" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Despre
-      </NavLink>
-      <NavLink to="/contact" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Contact
-      </NavLink>
-      {isAuthed && role === "seller" && (
-        <NavLink to="/vanzator/dashboard" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-          Dashboard
+      <div className={styles.dropdown}>
+        <NavLink
+          to="/servicii-digitale"
+          className={({ isActive }) =>
+            isActive ? `${styles.navLink} ${styles.active}` : styles.navLink
+          }
+        >
+          Servicii Digitale <FaChevronDown className={styles.dropdownIcon} />
         </NavLink>
-      )}
+        <div className={styles.dropdownContent}>
+          <NavLink to="/servicii-digitale">Invitație tip site</NavLink>
+          <NavLink to="/servicii-digitale?categorie=invitații">Planificare mese</NavLink>
+          <NavLink to="/servicii-digitale?categorie=marturii">Poze QR</NavLink>
+        </div>
+      </div>
+
+      <div className={styles.dropdown}>
+        <NavLink
+          to="/produse"
+          className={({ isActive }) =>
+            isActive ? `${styles.navLink} ${styles.active}` : styles.navLink
+          }
+        >
+          Produse <FaChevronDown className={styles.dropdownIcon} />
+        </NavLink>
+        <div className={styles.dropdownContent}>
+          <NavLink to="/produse">Toate produsele</NavLink>
+          <NavLink to="/produse?categorie=invitații">Invitații</NavLink>
+          <NavLink to="/produse?categorie=marturii">Mărturii</NavLink>
+          <NavLink to="/produse?categorie=trusouri">Trusouri</NavLink>
+          <NavLink to="/produse?categorie=altele">Altele</NavLink>
+        </div>
+      </div>
+
+      <div className={styles.dropdown}>
+        <NavLink
+          to="/magazine"
+          className={({ isActive }) =>
+            isActive ? `${styles.navLink} ${styles.active}` : styles.navLink
+          }
+        >
+          Magazine <FaChevronDown className={styles.dropdownIcon} />
+        </NavLink>
+        <div className={styles.dropdownContent}>
+          <NavLink to="/magazine">Toate magazinele</NavLink>
+          <NavLink to="/magazine?categorie=invitații">Invitații</NavLink>
+          <NavLink to="/magazine?categorie=marturii">Mărturii</NavLink>
+          <NavLink to="/magazine?categorie=trusouri">Trusouri</NavLink>
+          <NavLink to="/magazine?categorie=altele">Altele</NavLink>
+        </div>
+      </div>
     </>
   );
 
   const sellerMenu = (
     <>
-      <NavLink to="/vanzator/dashboard" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Profilul meu
-      </NavLink>
-      <NavLink to="/vanzator/produse" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Produsele mele
-      </NavLink>
-      <NavLink to="/vanzator/comenzi" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Comenzile mele
-      </NavLink>
-      <NavLink to="/vanzator/vizitatori" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Vizitatori
-      </NavLink>
-      <NavLink to="/vanzator/asistenta" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Asistență tehnică
-      </NavLink>
-      <NavLink to="/vanzator/setari" className={({ isActive }) => isActive ? `${styles.navLink} ${styles.active}` : styles.navLink}>
-        Setări
-      </NavLink>
+      <NavLink to="/vanzator/dashboard">Profilul meu</NavLink>
+      <NavLink to="/vanzator/produse">Produsele mele</NavLink>
+      <NavLink to="/vanzator/comenzi">Comenzile mele</NavLink>
+      <NavLink to="/vanzator/vizitatori">Vizitatori</NavLink>
+      <NavLink to="/vanzator/asistenta">Asistență tehnică</NavLink>
+      <NavLink to="/vanzator/setari">Setări</NavLink>
     </>
   );
 
@@ -95,7 +110,10 @@ export default function Navbar() {
           <img src={logo} alt="Artfest Logo" className={styles.logo} />
         </NavLink>
 
-        <button className={styles.burger} onClick={() => setMenuOpen(!menuOpen)}>
+        <button
+          className={styles.burger}
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
           ☰
         </button>
 
@@ -103,16 +121,40 @@ export default function Navbar() {
           {role === "seller" && isSellerSection ? sellerMenu : publicMenu}
         </nav>
 
+        {/* Search bar */}
+        <form onSubmit={handleSearch} className={styles.search}>
+          <input
+            type="text"
+            placeholder="Caută produse, magazin..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className={styles.input}
+          />
+          <button type="submit" className={styles.searchBtn}>
+            <FaSearch />
+          </button>
+        </form>
+
         <div className={styles.actionsRight}>
           {role !== "seller" && (
             <>
-              <div className={styles.iconWrapper} onClick={() => navigate("/wishlist")}>
+              <div
+                className={styles.iconWrapper}
+                onClick={() => navigate("/wishlist")}
+              >
                 <FaHeart />
-                {wishlistCount > 0 && <span className={styles.badge}>{wishlistCount}</span>}
+                {favorites.length > 0 && (
+                  <span className={styles.badge}>{favorites.length}</span>
+                )}
               </div>
-              <div className={styles.iconWrapper} onClick={() => navigate("/cos")}>
+              <div
+                className={styles.iconWrapper}
+                onClick={() => navigate("/cos")}
+              >
                 <FaShoppingCart />
-                {cartCount > 0 && <span className={styles.badge}>{cartCount}</span>}
+                {cart.length > 0 && (
+                  <span className={styles.badge}>{cart.length}</span>
+                )}
               </div>
             </>
           )}
@@ -122,7 +164,13 @@ export default function Navbar() {
               <span>Contul Meu</span>
             </NavLink>
           ) : (
-            <button onClick={() => { logout(); navigate("/"); }} className={styles.accountBtn} title="Delogare">
+            <button
+              onClick={() => {
+                logout();
+                navigate("/");
+              }}
+              className={styles.accountBtn}
+            >
               <FaUserCircle className={styles.icon} />
               <span>Logout</span>
             </button>

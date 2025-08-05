@@ -4,11 +4,16 @@ import bcrypt from 'bcryptjs';
 import Seller from '../models/seller.js';
 import auth from '../middleware/auth.js';
 import { uploadToStorage } from '../utils/storage.js';
+import Product from "../models/product.js";
+import Review from "../models/review.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-/** Validator minim inline — mută-l în utils/validators.js dacă vrei */
+// 📌 URL public API pentru imagini
+const API_URL = process.env.API_URL || "http://localhost:5000";
+
+/** Validator minim inline */
 function validateSellerBody(body) {
   const errors = [];
   const reqd = (k, label = k) => {
@@ -38,23 +43,22 @@ function validateSellerBody(body) {
   return errors;
 }
 
-// GET /api/seller/me
+// 📌 GET /api/seller/me
 router.get('/me', auth, async (req, res) => {
   const seller = await Seller.findOne({ userId: req.user.id });
   if (!seller) return res.status(404).json({ msg: 'Not found' });
   res.json(seller);
 });
 
-// POST /api/seller
+// 📌 POST /api/seller
 router.post(
   '/',
   auth,
   upload.fields([
     { name: 'profileImage', maxCount: 1 },
-    { name: 'coverImage',  maxCount: 1 },
+    { name: 'coverImage', maxCount: 1 },
   ]),
   async (req, res) => {
-    // validare devreme (clarifică utilizatorului ce lipsește)
     const errors = validateSellerBody(req.body);
     if (errors.length) {
       return res.status(400).json({ msg: 'Validare eșuată', errors });
@@ -62,11 +66,8 @@ router.post(
 
     try {
       const entityType = String(req.body.entityType || '').toLowerCase();
+      const passwordHash = await bcrypt.hash(req.body.password, 10);
 
-      const password = req.body.password;
-      const passwordHash = await bcrypt.hash(password, 10);
-
-      // uploads (opționale)
       let profileImageUrl, coverImageUrl;
       if (req.files?.profileImage?.[0]) {
         profileImageUrl = await uploadToStorage(
@@ -105,7 +106,6 @@ router.post(
         userId: req.user.id,
       };
 
-      // upsert — creează dacă nu există, altfel actualizează
       const seller = await Seller.findOneAndUpdate(
         { userId: req.user.id },
         { $set: payload },
@@ -114,13 +114,163 @@ router.post(
 
       res.status(201).json(seller);
     } catch (err) {
-      // E11000 = unique index (username deja folosit)
       if (err?.code === 11000) {
         return res.status(409).json({ msg: 'Username deja folosit' });
       }
-      return res.status(400).json({ msg: 'Seller validation failed', error: err.message });
+      res.status(400).json({ msg: 'Seller validation failed', error: err.message });
     }
   }
 );
+
+// 📌 GET /api/seller/settings
+router.get('/settings', auth, async (req, res) => {
+  try {
+    const seller = await Seller.findOne({ userId: req.user.id });
+    if (!seller) {
+      return res.status(404).json({ msg: 'Profil vânzător inexistent' });
+    }
+    res.json(seller);
+  } catch (err) {
+    console.error('Eroare GET /seller/settings:', err);
+    res.status(500).json({ msg: 'Eroare server' });
+  }
+});
+
+// 📌 PATCH /api/seller/settings
+router.patch(
+  '/settings',
+  auth,
+  upload.fields([
+    { name: 'profileImage', maxCount: 1 },
+    { name: 'coverImage', maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      let seller = await Seller.findOne({ userId: req.user.id });
+      if (!seller) {
+        return res.status(404).json({ msg: 'Profil vânzător inexistent' });
+      }
+
+      Object.keys(req.body).forEach((key) => {
+        if (req.body[key] !== "" && req.body[key] !== null) {
+          seller[key] = req.body[key];
+        }
+      });
+
+      if (req.files?.profileImage?.[0]) {
+        seller.profileImageUrl = await uploadToStorage(
+          req.files.profileImage[0],
+          `sellers/${req.user.id}/profile-${Date.now()}.png`
+        );
+      }
+      if (req.files?.coverImage?.[0]) {
+        seller.coverImageUrl = await uploadToStorage(
+          req.files.coverImage[0],
+          `sellers/${req.user.id}/cover-${Date.now()}.png`
+        );
+      }
+
+      await seller.save();
+      res.json({ msg: '✅ Setări salvate cu succes', seller });
+    } catch (err) {
+      console.error('❌ Eroare PATCH /seller/settings:', err);
+      res.status(500).json({ msg: 'Eroare server', error: err.message });
+    }
+  }
+);
+
+// 📌 GET /api/seller/public
+router.get("/public", async (req, res) => {
+  try {
+    let sellers = await Seller.aggregate([
+      {
+        $lookup: {
+          from: "products",
+          localField: "userId",
+          foreignField: "sellerId",
+          as: "products"
+        }
+      },
+      {
+        $lookup: {
+          from: "reviews",
+          localField: "userId",
+          foreignField: "sellerId",
+          as: "reviews"
+        }
+      },
+      {
+        $addFields: {
+          productCount: { $size: "$products" },
+          rating: { $avg: "$reviews.rating" }
+        }
+      },
+      {
+        $project: {
+          shopName: 1,
+          shortDescription: 1,
+          city: 1,
+          country: 1,
+          profileImageUrl: 1,
+          coverImageUrl: 1,
+          category: 1,
+          productCount: 1,
+          rating: { $ifNull: ["$rating", 0] }
+        }
+      }
+    ]);
+
+    sellers = sellers.map(seller => {
+      if (seller.profileImageUrl && !seller.profileImageUrl.startsWith("http")) {
+        seller.profileImageUrl = `${API_URL}/${seller.profileImageUrl}`;
+      }
+      if (seller.coverImageUrl && !seller.coverImageUrl.startsWith("http")) {
+        seller.coverImageUrl = `${API_URL}/${seller.coverImageUrl}`;
+      }
+      return seller;
+    });
+
+    res.json(sellers);
+  } catch (err) {
+    console.error("❌ Eroare /seller/public:", err);
+    res.status(500).json({ msg: "Eroare server" });
+  }
+});
+
+// 📌 GET /api/seller/public/:id
+router.get("/public/:id", async (req, res) => {
+  try {
+    const seller = await Seller.findById(req.params.id)
+      .select("shopName shortDescription city country profileImageUrl coverImageUrl category brandStory userId");
+
+    if (!seller) {
+      return res.status(404).json({ msg: "Vânzător inexistent" });
+    }
+
+ if (seller.profileImageUrl && !seller.profileImageUrl.startsWith("http")) {
+  seller.profileImageUrl = `${API_URL}${seller.profileImageUrl}`;
+}
+if (seller.coverImageUrl && !seller.coverImageUrl.startsWith("http")) {
+  seller.coverImageUrl = `${API_URL}${seller.coverImageUrl}`;
+}
+
+    const productCount = await Product.countDocuments({ sellerId: seller.userId });
+
+    const reviews = await Review.find({ sellerId: seller.userId });
+    const rating =
+      reviews.length > 0
+        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+        : 0;
+
+    res.json({
+      ...seller.toObject(),
+      productCount,
+      rating: Number(rating.toFixed(1)),
+    });
+  } catch (err) {
+    console.error("❌ Eroare /seller/public/:id:", err);
+    res.status(500).json({ msg: "Eroare server", error: err.message });
+  }
+});
 
 export default router;

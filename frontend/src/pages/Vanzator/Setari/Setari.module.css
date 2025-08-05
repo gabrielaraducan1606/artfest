@@ -1,0 +1,55 @@
+@import "../../../styles/variables.css";
+
+.container {
+  padding: 20px;
+  max-width: 900px;
+  margin: auto;
+  background: var(--color-bg);
+}
+
+.tabMenu {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.tabBtn {
+  background: var(--color-primary);
+  border: 1px solid var(--color-border);
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.tabBtn.active {
+  background: var(--color-accent);
+  color: white;
+}
+
+.tabContent {
+  background: white;
+  border: 1px solid var(--color-border);
+  padding: 20px;
+  border-radius: var(--radius);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+input, textarea, select, button {
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+button {
+  background: var(--color-primary);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--color-hover);
+}

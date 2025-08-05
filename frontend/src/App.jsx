@@ -19,6 +19,11 @@ import AdaugaProdus from "./pages/Vanzator/AdaugaProdus/AdaugaProdus";
 import EditeazaProdus from "./pages/Vanzator/EditeazaProdus/EditeazaProdus";
 import VanzatorDashboard from "./pages/Vanzator/VanzatorDashboard/VanzatorDashboard";
 import DetaliiProdus from "./pages/DetaliiProdus/DetaliiProdus";
+import Wishlist from "./pages/Wishlist/Wishlist";
+import Cart from "./pages/Cart/Cart";
+import Magazine from "./pages/Magazine/Magazine/Magazine";
+import PublicMagazin from "./pages/Magazine/ProfilMagazinPublic/ProfilMagazinPublic";
+import ProductsPage from "./pages/ProductsPage/ProductsPage";
 
 export default function App() {
   return (
@@ -33,6 +38,11 @@ export default function App() {
        <Route path="/vanzator/dashboard" element={<VanzatorDashboard />} />
        <Route path="/vanzator/contract/:id" element={<ContractPage />} />
        <Route path="/produs/:id" element={<DetaliiProdus />} />
+       <Route path="/cos" element={<Cart />} />
+      <Route path="/wishlist" element={<Wishlist />} />
+      <Route path="/magazine" element={<Magazine />} />
+      <Route path="/magazin/:id" element={<PublicMagazin />} />
+      <Route path="/produse" element={<ProductsPage />} />
 
        <Route
   path="/vanzator/produse"

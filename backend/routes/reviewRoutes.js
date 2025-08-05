@@ -42,4 +42,23 @@ router.post("/seller/:id", auth, async (req, res) => {
   }
 });
 
+// Rating mediu pentru un vânzător
+router.get("/seller/:id/average", async (req, res) => {
+  try {
+    const reviews = await Review.find({ sellerId: req.params.id });
+
+    if (reviews.length === 0) {
+      return res.json({ average: 0, count: 0 });
+    }
+
+    const average =
+      reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length;
+
+    res.json({ average: parseFloat(average.toFixed(1)), count: reviews.length });
+  } catch (err) {
+    console.error("Eroare GET /reviews/seller/:id/average:", err);
+    res.status(500).json({ msg: "Eroare server" });
+  }
+});
+
 export default router;
