@@ -1,0 +1,32 @@
+.pageContainer {
+  background: var(--inv-bg);
+  color: var(--inv-text);
+  border: 1px solid var(--inv-border);
+  border-radius: var(--inv-radius);
+  padding: 2rem;
+  font-family: var(--inv-font-text);
+}
+
+.pageTitle {
+  font-size: 1.6rem;
+  font-family: var(--inv-font-title);
+  color: var(--inv-accent-2);
+  margin-bottom: 1rem;
+}
+
+.cardsContainer {
+  display: grid;
+  gap: 1rem;
+}
+
+.card {
+  background: var(--inv-bg);
+  border: 1px solid var(--inv-border);
+  border-radius: calc(var(--inv-radius) - 4px);
+  padding: 1rem;
+}
+
+.cardTitle {
+  color: var(--inv-accent-2);
+  font-family: var(--inv-font-title);
+}

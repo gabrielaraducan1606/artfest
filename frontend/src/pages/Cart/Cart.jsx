@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import Navbar from "../../components/Navbar/Navbar";
 import Footer from "../../components/Footer/Footer";
-import api from "../../api";
+import api from "../../../api/api";
 
 export default function Cart() {
   const [cart, setCart] = useState([]);

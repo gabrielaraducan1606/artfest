@@ -1,7 +1,7 @@
 // src/pages/vanzator/VanzatorDashboard.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../../api";
+import api from "../../../../api/api";
 import Navbar from "../../../components/Navbar/Navbar";
 import Footer from "../../../components/Footer/Footer"; // ✅ import footer
 import styles from "./VanzatorDashboard.module.css";

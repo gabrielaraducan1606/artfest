@@ -1,0 +1,267 @@
+/* src/components/InvitatieInstant/Home/Home.module.css */
+
+/* ——— Fonts (ideal mută-le într-un global.css odată) ——— */
+@import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400..700&family=EB+Garamond:ital,wght@0,400..800;1,400..800&display=swap');
+
+/* ——— Design tokens ——— */
+:root {
+  --brand: #E9967A;
+  --ink: #2F3E46;
+  --overlay: rgba(0, 0, 0, 0.5);
+}
+
+/* ——— Container pagină ——— */
+.pageContainer {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  text-align: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* ——— Overlay ——— */
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--overlay);
+  backdrop-filter: blur(5px);
+  z-index: 1;
+}
+
+/* ——— Titlu & subtitlu ——— */
+.pageTitle {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  /* fluid type: între 36px și 56px */
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  font-weight: 700;
+  font-family: "Dancing Script", serif;
+  color: var(--brand);
+  letter-spacing: 0.5px;
+}
+
+.pageContent {
+  position: relative;
+  z-index: 2;
+  margin: 1rem 0 0;
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  font-family: "EB Garamond", serif;
+}
+
+/* ——— Inimioară ——— */
+.iconWrap {
+  position: relative;
+  z-index: 2;
+  margin-top: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+}
+
+.iconHeart {
+  animation: pulse 2s infinite;
+}
+
+/* Fallback unicode dacă <use xlinkHref="#icon-logo-heart" /> nu găsește simbolul */
+.iconHeartFallback {
+  position: absolute;
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0; /* ascuns când SVG-ul există */
+}
+
+.iconHeart:where(:not(:defined)) + .iconHeartFallback,
+.iconHeart[href=""] + .iconHeartFallback {
+  opacity: 1;
+}
+
+/* ——— Pulse ——— */
+@keyframes pulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.5); }
+  100% { transform: scale(1); }
+}
+
+/* Respectă preferința userului pentru mai puțină animație */
+@media (prefers-reduced-motion: reduce) {
+  .iconHeart { animation: none; }
+}
+
+/* ——— Form styles (dacă acest modul e folosit și pe pagini cu formulare) ——— */
+.formContainer {
+  max-width: 500px;
+  margin: 3rem auto;
+  background-color: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  color: #333;
+  text-align: center;
+  border: 1px solid rgba(0,0,0,0.1);
+  box-sizing: border-box;
+}
+
+h2 {
+  font-family: "Dancing Script", serif;
+  font-size: 2.5rem;
+  color: var(--brand);
+  margin-bottom: 1rem;
+}
+
+.formLabel {
+  display: block;
+  font-family: "EB Garamond", serif;
+  font-size: 1.2rem;
+  text-align: left;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+.formInput,
+.formSelect,
+.formTextarea {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 1rem;
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  font-size: 1rem;
+  background: #f4f4f4;
+  color: var(--ink);
+  font-family: "EB Garamond", serif;
+  box-sizing: border-box;
+}
+
+.formInput::placeholder,
+.formTextarea::placeholder {
+  color: rgba(0,0,0,0.5);
+}
+
+/* Checkbox */
+.checkboxContainer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--brand);
+  font-family: "EB Garamond", serif;
+  margin-bottom: 1rem;
+}
+
+.formCheckbox { display: none; }
+
+.checkboxCustom {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--brand);
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  transition: all 0.3s ease;
+}
+
+.formCheckbox:checked + .checkboxCustom {
+  background-color: var(--brand);
+  border-color: var(--brand);
+}
+
+.formCheckbox:checked + .checkboxCustom::after {
+  content: "✓";
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+}
+
+/* Submit */
+.submitButton {
+  width: 100%;
+  padding: 12px;
+  font-size: 1.2rem;
+  font-family: "EB Garamond", serif;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease-in-out;
+}
+
+.submitButton:hover {
+  background: var(--ink);
+  color: #fff;
+  box-shadow: 0 0 15px rgba(0,0,0,0.1);
+}
+
+/* Loader cu inimă */
+.loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: #ffe6e6;
+  color: #d6336c;
+  font-family: "EB Garamond", serif;
+  font-size: 1.5rem;
+}
+
+.heart {
+  width: 100px;
+  height: 100px;
+  background-color: #d6336c;
+  position: relative;
+  transform: rotate(45deg);
+  animation: pulse 1s infinite;
+}
+
+.heart::before,
+.heart::after {
+  content: "";
+  width: 100px;
+  height: 100px;
+  background-color: #d6336c;
+  border-radius: 50%;
+  position: absolute;
+}
+
+.heart::before { top: -50px; left: 0; }
+.heart::after  { left: 50px; top: 0; }
+
+/* ——— Responsive ——— */
+@media (max-width: 600px) {
+  .formContainer { width: 90%; padding: 1.5rem; margin: 2rem auto; }
+  h2 { font-size: 2rem; }
+  .formLabel { font-size: 1rem; }
+  .formInput, .formSelect, .formTextarea { padding: 10px; font-size: 0.9rem; }
+  .submitButton { padding: 10px; font-size: 1rem; }
+
+  .loader { font-size: 1.2rem; }
+  .heart { width: 80px; height: 80px; }
+  .heart::before, .heart::after { width: 80px; height: 80px; }
+
+  .pageContainer { padding: 20px; }
+}
+
+@media (max-width: 400px) {
+  .formContainer { padding: 1rem; }
+  h2 { font-size: 1.8rem; }
+  .formInput, .formSelect, .formTextarea { font-size: 0.85rem; padding: 8px; }
+  .submitButton { font-size: 0.9rem; padding: 8px; }
+
+  .loader { font-size: 1rem; }
+  .heart { width: 60px; height: 60px; }
+  .heart::before, .heart::after { width: 60px; height: 60px; }
+}

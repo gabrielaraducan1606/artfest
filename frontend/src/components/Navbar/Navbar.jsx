@@ -4,7 +4,7 @@ import styles from "./Navbar.module.css";
 import logo from "../../assets/logoArtfest.png";
 import { FaUserCircle, FaShoppingCart, FaHeart, FaChevronDown, FaSearch } from "react-icons/fa";
 import { useAppContext } from "../Context/useAppContext";
-import api from "../../api";
+import api from "../../../api/api";
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -39,20 +39,27 @@ export default function Navbar() {
   const publicMenu = (
     <>
       <div className={styles.dropdown}>
-        <NavLink
-          to="/servicii-digitale"
-          className={({ isActive }) =>
-            isActive ? `${styles.navLink} ${styles.active}` : styles.navLink
-          }
-        >
-          Servicii Digitale <FaChevronDown className={styles.dropdownIcon} />
-        </NavLink>
-        <div className={styles.dropdownContent}>
-          <NavLink to="/servicii-digitale">Invitație tip site</NavLink>
-          <NavLink to="/servicii-digitale?categorie=invitații">Planificare mese</NavLink>
-          <NavLink to="/servicii-digitale?categorie=marturii">Poze QR</NavLink>
-        </div>
-      </div>
+  <NavLink
+    to="/servicii-digitale"
+    className={({ isActive }) =>
+      isActive ? `${styles.navLink} ${styles.active}` : styles.navLink
+    }
+    aria-label="Servicii Digitale"
+  >
+    Servicii Digitale <FaChevronDown className={styles.dropdownIcon} />
+  </NavLink>
+  <div className={styles.dropdownContent}>
+    <NavLink to="/servicii-digitale/invitatie-instant" title="Creează site-ul invitației în câteva secunde">
+      Invitație Instant
+    </NavLink>
+    <NavLink to="/servicii-digitale/seating-sms" title="Planifică mesele și trimite SMS automat">
+      Seating & SMS
+    </NavLink>
+    <NavLink to="/servicii-digitale/album-qr" title="Colectează poze prin cod QR">
+      Album QR
+    </NavLink>
+  </div>
+</div>
 
       <div className={styles.dropdown}>
         <NavLink

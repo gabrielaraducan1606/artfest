@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { FaMapMarkerAlt, FaStar } from "react-icons/fa";
 import Navbar from "../../../components/Navbar/Navbar";
 import Footer from "../../../components/Footer/Footer";
-import api from "../../../api";
+import api from "../../../../api/api";
 import styles from "./ProfilMagazinPublic.module.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";

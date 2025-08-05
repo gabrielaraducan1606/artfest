@@ -1,0 +1,45 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+input, textarea {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+label {
+  font-size: 0.9rem;
+  color: #444;
+}
+
+h2 {
+  margin-bottom: 0.5rem;
+}
+
+h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.themeOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.themeOption {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--inv-border, #ccc);
+  border-radius: 6px;
+  background: var(--inv-bg, #fff);
+  cursor: pointer;
+}
+
+.themeOption:hover {
+  background: var(--inv-hover, #f4f4f4);
+}

@@ -19,6 +19,7 @@ import reviewRoutes from './routes/reviewRoutes.js';
 import visitorRoutes from './routes/visitorRoutes.js';
 import cartRoutes from './routes/cartRoutes.js';
 import wishlistRoutes from './routes/wishListRoutes.js';
+import invitationsRoutes from "./routes/invitationsRoutes.js";
 
 dotenv.config();
 
@@ -101,6 +102,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use("/api/invitations", invitationsRoutes);
 
 // Healthcheck
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

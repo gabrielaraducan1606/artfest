@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import api from "../../../api";
+import api from "../../../../api/api";
 import Navbar from "../../../components/Navbar/Navbar";
 import styles from "./EditeazaProdus.module.css";
 

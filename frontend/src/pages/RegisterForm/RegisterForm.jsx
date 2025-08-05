@@ -1,7 +1,7 @@
 // src/pages/RegisterForm.jsx
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../../api';
+import api from '../../../api/api';
 import Navbar from '../../components/Navbar/Navbar';
 import styles from './RegisterForm.module.css';
 import { useAppContext } from '../../components/Context/useAppContext';

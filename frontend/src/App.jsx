@@ -25,6 +25,10 @@ import Magazine from "./pages/Magazine/Magazine/Magazine";
 import PublicMagazin from "./pages/Magazine/ProfilMagazinPublic/ProfilMagazinPublic";
 import ProductsPage from "./pages/ProductsPage/ProductsPage";
 
+import InvitatieInstantLanding from "./pages/ServiciiDigitale/InvitatieInstant/servcii/InvitationLanding/InvitationLanding";
+import InvitatieInstantEditor from "./pages/ServiciiDigitale/InvitatieInstant/servcii/InvitatieInstantEditor/InvitatieInstantEditor";
+import { InvitationProvider } from "../invitation/InvitationProvider";
+
 export default function App() {
   return (
     <Routes>
@@ -43,6 +47,18 @@ export default function App() {
       <Route path="/magazine" element={<Magazine />} />
       <Route path="/magazin/:id" element={<PublicMagazin />} />
       <Route path="/produse" element={<ProductsPage />} />
+
+  <Route path="/servicii-digitale/invitatie-instant" element={<InvitatieInstantLanding />} />
+      <Route
+        path="/servicii-digitale/invitatie-instant/editor/:draftId"
+        element={
+          <InvitationProvider>
+            <InvitatieInstantEditor />
+          </InvitationProvider>
+        }
+      />
+      {/* public view: nu are nevoie de provider */}
+      {/* <Route path="/i/:slug" element={<InvitatiePublicView />} /> */}
 
        <Route
   path="/vanzator/produse"

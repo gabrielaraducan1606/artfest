@@ -1,0 +1,13 @@
+.container {
+  background: var(--inv-bg);
+  color: var(--inv-text);
+  font-family: var(--inv-font-text);
+  border: 1px solid var(--inv-border);
+  border-radius: var(--inv-radius);
+  padding: 1.5rem;
+}
+
+.question {
+  font-weight: bold;
+  color: var(--inv-accent-2);
+}

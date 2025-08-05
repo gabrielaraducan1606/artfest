@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import api from "../../api";
+import api from "../../../api/api";
 
 export default function ProtectedSellerRoute({ children }) {
   const [loading, setLoading] = useState(true);

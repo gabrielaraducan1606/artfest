@@ -1,0 +1,11 @@
+.countdown {
+  display: inline-flex;
+  gap: .6rem;
+  background: var(--inv-accent);
+  padding: .6rem .9rem;
+  border-radius: 999px;
+  border: 1px solid var(--inv-border);
+  color: var(--inv-text);
+  font-weight: 700;
+  font-family: var(--inv-font-text);
+}

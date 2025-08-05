@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Navbar from "../../../components/Navbar/Navbar";
 import Footer from "../../../components/Footer/Footer";
 import styles from "./Vizitatori.module.css";
-import api from "../../../api";
+import api from "../../../../api/api";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function Vizitatori() {

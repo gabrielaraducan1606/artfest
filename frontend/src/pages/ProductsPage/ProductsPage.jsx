@@ -1,10 +1,16 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { FaFilter, FaSort, FaStar, FaHeart, FaShoppingCart } from "react-icons/fa";
-import { useNavigate } from "react-router-dom";
+import {
+  FaFilter,
+  FaSort,
+  FaStar,
+  FaHeart,
+  FaShoppingCart,
+} from "react-icons/fa";
+import { useNavigate, useLocation } from "react-router-dom";
 import Navbar from "../../components/Navbar/Navbar";
 import Footer from "../../components/Footer/Footer";
 import styles from "./ProductsPage.module.css";
-import api from "../../api";
+import api from "../../../api/api";
 import FilterModal from "./Modal/FilterModal";
 import SortModal from "./Modal/SortModal";
 import { toast, ToastContainer } from "react-toastify";
@@ -25,12 +31,23 @@ export default function ProductsPage() {
   const { cart, setCart, favorites, setFavorites } = useAppContext();
   const isAuthed = !!localStorage.getItem("authToken");
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const urlCategory = params.get("categorie") || "";
+    setCategory(urlCategory);
+  }, [location.search]);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await api.get("/products/public", {
-        params: { search: search || undefined, category: category || undefined, sort },
+        params: {
+          search: search || undefined,
+          category: category || undefined,
+          sort,
+        },
       });
       setProducts(data.products);
     } catch (err) {
@@ -40,22 +57,24 @@ export default function ProductsPage() {
     }
   }, [search, category, sort]);
 
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
   const fetchSuggestions = async (query) => {
     if (!query.trim()) {
       setSuggestions([]);
       return;
     }
     try {
-      const { data } = await api.get("/products/suggestions", { params: { query } });
+      const { data } = await api.get("/products/suggestions", {
+        params: { query },
+      });
       setSuggestions(data);
     } catch (err) {
       console.error("❌ Eroare la sugestii:", err);
     }
   };
-
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
 
   const handleSearchChange = (e) => {
     const value = e.target.value;
@@ -79,7 +98,9 @@ export default function ProductsPage() {
         : [...favorites, product];
       setFavorites(updated);
       localStorage.setItem("wishlist", JSON.stringify(updated));
-      toast.success(exists ? "Produs scos din lista de dorințe!" : "Produs adăugat la lista de dorințe!");
+      toast.success(
+        exists ? "Produs scos din lista de dorințe!" : "Produs adăugat la lista de dorințe!"
+      );
       return;
     }
 
@@ -91,7 +112,9 @@ export default function ProductsPage() {
       }
       const { data } = await api.get("/wishlist");
       setFavorites(data);
-      toast.success(exists ? "Produs scos din lista de dorințe!" : "Produs adăugat la lista de dorințe!");
+      toast.success(
+        exists ? "Produs scos din lista de dorințe!" : "Produs adăugat la lista de dorințe!"
+      );
     } catch {
       toast.error("A apărut o problemă cu lista de dorințe.");
     }
@@ -122,7 +145,15 @@ export default function ProductsPage() {
       <div className={styles.container}>
         <h1>Produse</h1>
 
-        {/* Bara de căutare */}
+        <div className={styles.actions}>
+          <button onClick={() => setShowFilter(true)}>
+            <FaFilter /> Filtrare
+          </button>
+          <button onClick={() => setShowSort(true)}>
+            <FaSort /> Sortare
+          </button>
+        </div>
+
         <div className={styles.searchBar}>
           <input
             type="text"
@@ -134,7 +165,10 @@ export default function ProductsPage() {
             <ul className={styles.suggestions}>
               {suggestions.map((s) => (
                 <li key={s._id} onClick={() => navigate(`/produs/${s._id}`)}>
-                  <img src={s.images?.[0] || "https://via.placeholder.com/50"} alt={s.title} />
+                  <img
+                    src={s.images?.[0] || "https://via.placeholder.com/50"}
+                    alt={s.title}
+                  />
                   <span
                     dangerouslySetInnerHTML={{
                       __html: s.title.replace(
@@ -149,17 +183,6 @@ export default function ProductsPage() {
           )}
         </div>
 
-        {/* Butoane Filtrare & Sortare */}
-        <div className={styles.actions}>
-          <button onClick={() => setShowFilter(true)}>
-            <FaFilter /> Filtrare
-          </button>
-          <button onClick={() => setShowSort(true)}>
-            <FaSort /> Sortare
-          </button>
-        </div>
-
-        {/* Grid Produse */}
         {loading ? (
           <p>Se încarcă...</p>
         ) : products.length === 0 ? (
@@ -190,8 +213,6 @@ export default function ProductsPage() {
                 </div>
                 <p className={styles.price}>{product.price} lei</p>
                 <p className={styles.seller}>{product.sellerId?.shopName}</p>
-
-                {/* Icone sub poză */}
                 <div className={styles.iconBar}>
                   <button
                     onClick={(e) => handleToggleWishlist(product, e)}
@@ -200,7 +221,7 @@ export default function ProductsPage() {
                   >
                     <FaHeart
                       color={
-                        favorites.some(fav => fav._id === product._id)
+                        favorites.some((fav) => fav._id === product._id)
                           ? "#C1E1C1"
                           : "#000"
                       }
@@ -220,7 +241,6 @@ export default function ProductsPage() {
         )}
       </div>
 
-      {/* Modale */}
       <FilterModal
         show={showFilter}
         onClose={() => setShowFilter(false)}
@@ -228,8 +248,10 @@ export default function ProductsPage() {
         onSelect={(cat) => {
           setCategory(cat);
           setShowFilter(false);
+          navigate(`/produse?categorie=${encodeURIComponent(cat)}`);
         }}
       />
+
       <SortModal
         show={showSort}
         onClose={() => setShowSort(false)}
