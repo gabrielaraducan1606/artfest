@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import User from '../models/user.js';
 import auth from '../middleware/auth.js';
+import { forgotPassword, resetPassword } from "../controllers/authController.js";
 
 dotenv.config();
 
@@ -123,5 +124,9 @@ router.get('/me', auth, async (req, res) => {
     res.status(500).json({ msg: 'Eroare la obținerea datelor utilizatorului' });
   }
 });
+
+// ✅ Forgot/Reset Password
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password/:token", resetPassword);
 
 export default router;

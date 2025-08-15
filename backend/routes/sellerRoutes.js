@@ -1,276 +1,329 @@
-import express from 'express';
-import multer from 'multer';
-import bcrypt from 'bcryptjs';
-import Seller from '../models/seller.js';
-import auth from '../middleware/auth.js';
-import { uploadToStorage } from '../utils/storage.js';
-import Product from "../models/product.js";
-import Review from "../models/review.js";
+import express from "express";
+import multer from "multer";
+import auth from "../middleware/auth.js";
+import User from "../models/user.js";
+import Seller from "../models/seller.js";
+import { uploadToStorage } from "../utils/storage.js";
 
 const router = express.Router();
+
+/* ================== Upload: in-memory + persist ================== */
 const upload = multer({ storage: multer.memoryStorage() });
 
-// 📌 URL public API pentru imagini
-const API_URL = process.env.API_URL || "http://localhost:5000";
-
-/** Validator minim inline */
-function validateSellerBody(body) {
-  const errors = [];
-  const reqd = (k, label = k) => {
-    if (!String(body[k] ?? '').trim()) errors.push(`${label} este obligatoriu`);
-  };
-
-  reqd('shopName', 'Nume magazin');
-  reqd('username', 'Username');
-  reqd('email', 'Email');
-  reqd('password', 'Parola');
-  reqd('phone', 'Telefon');
-  reqd('category', 'Categorie');
-  reqd('city', 'Oraș');
-  reqd('country', 'Țară');
-  reqd('entityType', 'Tip entitate');
-  reqd('companyName', 'Denumire companie');
-  reqd('cui', 'CUI');
-  reqd('registrationNumber', 'Nr. Registrul Comerțului');
-  reqd('iban', 'IBAN');
-
-  const entityType = String(body.entityType || '').toLowerCase();
-  if (!['pfa', 'srl'].includes(entityType)) errors.push('Tip entitate invalid (pfa/srl)');
-
-  if (body.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) errors.push('Email invalid');
-  if (body.username && !/^[a-z0-9._-]{3,30}$/.test(body.username)) errors.push('Username invalid (3–30, litere/cifre/._-)');
-
-  return errors;
+async function persistUploads(req, _res, next) {
+  try {
+    if (req.files?.profileImage?.[0]) {
+      req.files.profileImage[0]._uploadedPath = await uploadToStorage(
+        req.files.profileImage[0],
+        `sellers/${req.user?.id || "public"}/profile-${Date.now()}.png`
+      );
+    }
+    if (req.files?.coverImage?.[0]) {
+      req.files.coverImage[0]._uploadedPath = await uploadToStorage(
+        req.files.coverImage[0],
+        `sellers/${req.user?.id || "public"}/cover-${Date.now()}.png`
+      );
+    }
+    if (req.files?.kycDoc?.[0]) {
+      req.files.kycDoc[0]._uploadedPath = await uploadToStorage(
+        req.files.kycDoc[0],
+        `sellers/${req.user?.id || "public"}/kyc-${Date.now()}.pdf`
+      );
+    }
+    if (req.files?.addressProof?.[0]) {
+      req.files.addressProof[0]._uploadedPath = await uploadToStorage(
+        req.files.addressProof[0],
+        `sellers/${req.user?.id || "public"}/address-${Date.now()}.pdf`
+      );
+    }
+    next();
+  } catch (e) { next(e); }
 }
 
-// 📌 GET /api/seller/me
-router.get('/me', auth, async (req, res) => {
-  const seller = await Seller.findOne({ userId: req.user.id });
-  if (!seller) return res.status(404).json({ msg: 'Not found' });
+/* ================== Helpers ================== */
+function ensureDraftDefaults(user, data = {}) {
+  return {
+    shopName: data.shopName || "Magazin",
+    username:
+      (data.username && String(data.username).toLowerCase().trim()) ||
+      `draft-${user._id.toString().slice(-6)}-${Date.now().toString(36)}`,
+    email: data.email || user.email,
+    passwordHash: data.passwordHash || "placeholder",
+    phone: data.phone || "0000000000",
+    publicPhone: !!data.publicPhone,
+
+    category: data.category || "altele",
+    city: data.city || "-",
+    country: data.country || "-",
+    address: data.address || "",
+
+    entityType: data.entityType || "pfa",
+    companyName: data.companyName || "-",
+    cui: data.cui || "-",
+    registrationNumber: data.registrationNumber || "-",
+    iban: data.iban || "-",
+
+    shortDescription: data.shortDescription || "",
+    about: data.about || "",
+    brandStory: data.brandStory || "",
+    deliveryNotes: data.deliveryNotes || "",
+    returnNotes: data.returnNotes || "",
+    tags: Array.isArray(data.tags) ? data.tags : [],
+
+    status: "draft",
+    onboardingStep: 1,
+  };
+}
+
+function applyStepUpdate(seller, step, data = {}) {
+  if (step === 1) {
+    if (data.shopName != null) seller.shopName = data.shopName;
+    if (data.username != null) seller.username = String(data.username).toLowerCase().trim();
+    if (data.email != null) seller.email = data.email;
+    if (data.phone != null) seller.phone = data.phone;
+    if (typeof data.publicPhone === "boolean") seller.publicPhone = data.publicPhone;
+
+    if (data.shortDescription != null) seller.shortDescription = data.shortDescription;
+    if (data.about != null) seller.about = data.about;
+    if (data.brandStory != null) seller.brandStory = data.brandStory;
+
+    if (data.category != null) seller.category = data.category;
+    if (data.city != null) seller.city = data.city;
+    if (data.country != null) seller.country = data.country;
+    if (data.address != null) seller.address = data.address;
+    if (Array.isArray(data.tags)) seller.tags = data.tags;
+  }
+
+  if (step === 2) {
+    if (data.profileImageUrl != null) seller.profileImageUrl = data.profileImageUrl;
+    if (data.coverImageUrl != null) seller.coverImageUrl = data.coverImageUrl;
+  }
+
+  if (step === 3) {
+    if (data.deliveryNotes != null) seller.deliveryNotes = data.deliveryNotes;
+    if (data.returnNotes != null) seller.returnNotes = data.returnNotes;
+
+    if (data.entityType != null) seller.entityType = data.entityType;
+    if (data.companyName != null) seller.companyName = data.companyName;
+    if (data.cui != null) seller.cui = data.cui;
+    if (data.registrationNumber != null) seller.registrationNumber = data.registrationNumber;
+    if (data.iban != null) seller.iban = data.iban;
+  }
+}
+
+/* ================== PRIVATE: profil & upsert ================== */
+
+router.get("/me", auth, async (req, res) => {
+  const seller = await Seller.findOne({ userId: req.user.id }).lean();
+  if (!seller) return res.status(404).json({ msg: "Profil vânzător inexistent" });
   res.json(seller);
 });
 
-// 📌 POST /api/seller
 router.post(
-  '/',
+  "/",
   auth,
   upload.fields([
-    { name: 'profileImage', maxCount: 1 },
-    { name: 'coverImage', maxCount: 1 },
+    { name: "profileImage", maxCount: 1 },
+    { name: "coverImage", maxCount: 1 },
+    { name: "kycDoc", maxCount: 1 },
+    { name: "addressProof", maxCount: 1 },
   ]),
+  persistUploads,
   async (req, res) => {
-    const errors = validateSellerBody(req.body);
-    if (errors.length) {
-      return res.status(400).json({ msg: 'Validare eșuată', errors });
-    }
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(401).json({ msg: "Neautorizat" });
 
-    try {
-      const entityType = String(req.body.entityType || '').toLowerCase();
-      const passwordHash = await bcrypt.hash(req.body.password, 10);
+    let seller = await Seller.findOne({ userId: user._id });
 
-      let profileImageUrl, coverImageUrl;
-      if (req.files?.profileImage?.[0]) {
-        profileImageUrl = await uploadToStorage(
-          req.files.profileImage[0],
-          `sellers/${req.user.id}/profile.png`
-        );
-      }
-      if (req.files?.coverImage?.[0]) {
-        coverImageUrl = await uploadToStorage(
-          req.files.coverImage[0],
-          `sellers/${req.user.id}/cover.png`
-        );
-      }
-
-      const payload = {
-        shopName: req.body.shopName,
-        username: req.body.username?.toLowerCase(),
-        email: req.body.email?.toLowerCase(),
-        passwordHash,
-        phone: req.body.phone,
-        publicPhone: req.body.publicPhone === 'true' || req.body.publicPhone === true,
-        profileImageUrl,
-        coverImageUrl,
-        shortDescription: req.body.shortDescription,
-        brandStory: req.body.brandStory,
-        category: req.body.category,
-        city: req.body.city,
-        country: req.body.country,
-        deliveryNotes: req.body.deliveryNotes,
-        returnNotes: req.body.returnNotes,
-        entityType,
-        companyName: req.body.companyName,
-        cui: req.body.cui,
-        registrationNumber: req.body.registrationNumber,
-        iban: req.body.iban,
-        userId: req.user.id,
-      };
-
-      const seller = await Seller.findOneAndUpdate(
-        { userId: req.user.id },
-        { $set: payload },
-        { new: true, upsert: true, runValidators: true }
-      );
-
-      res.status(201).json(seller);
-    } catch (err) {
-      if (err?.code === 11000) {
-        return res.status(409).json({ msg: 'Username deja folosit' });
-      }
-      res.status(400).json({ msg: 'Seller validation failed', error: err.message });
-    }
-  }
-);
-
-// 📌 GET /api/seller/settings
-router.get('/settings', auth, async (req, res) => {
-  try {
-    const seller = await Seller.findOne({ userId: req.user.id });
     if (!seller) {
-      return res.status(404).json({ msg: 'Profil vânzător inexistent' });
+      const draftData = ensureDraftDefaults(user, req.body || {});
+      seller = new Seller({ ...draftData, userId: user._id });
     }
-    res.json(seller);
-  } catch (err) {
-    console.error('Eroare GET /seller/settings:', err);
-    res.status(500).json({ msg: 'Eroare server' });
-  }
-});
 
-// 📌 PATCH /api/seller/settings
-router.patch(
-  '/settings',
-  auth,
-  upload.fields([
-    { name: 'profileImage', maxCount: 1 },
-    { name: 'coverImage', maxCount: 1 },
-  ]),
-  async (req, res) => {
-    try {
-      let seller = await Seller.findOne({ userId: req.user.id });
-      if (!seller) {
-        return res.status(404).json({ msg: 'Profil vânzător inexistent' });
-      }
+    applyStepUpdate(seller, 1, req.body);
+    applyStepUpdate(seller, 2, req.body);
+    applyStepUpdate(seller, 3, req.body);
 
-      Object.keys(req.body).forEach((key) => {
-        if (req.body[key] !== "" && req.body[key] !== null) {
-          seller[key] = req.body[key];
-        }
-      });
+    const pImg = req?.files?.profileImage?.[0]?._uploadedPath;
+    const cImg = req?.files?.coverImage?.[0]?._uploadedPath;
+    if (pImg) seller.profileImageUrl = pImg;
+    if (cImg) seller.coverImageUrl = cImg;
 
-      if (req.files?.profileImage?.[0]) {
-        seller.profileImageUrl = await uploadToStorage(
-          req.files.profileImage[0],
-          `sellers/${req.user.id}/profile-${Date.now()}.png`
-        );
-      }
-      if (req.files?.coverImage?.[0]) {
-        seller.coverImageUrl = await uploadToStorage(
-          req.files.coverImage[0],
-          `sellers/${req.user.id}/cover-${Date.now()}.png`
-        );
-      }
+    seller.onboardingStep = Math.max(seller.onboardingStep || 1, 2);
 
-      await seller.save();
-      res.json({ msg: '✅ Setări salvate cu succes', seller });
-    } catch (err) {
-      console.error('❌ Eroare PATCH /seller/settings:', err);
-      res.status(500).json({ msg: 'Eroare server', error: err.message });
-    }
+    await seller.save();
+    res.json({ ok: true, seller });
   }
 );
 
-// 📌 GET /api/seller/public
-router.get("/public", async (req, res) => {
-  try {
-    let sellers = await Seller.aggregate([
-      {
-        $lookup: {
-          from: "products",
-          localField: "userId",
-          foreignField: "sellerId",
-          as: "products"
-        }
-      },
-      {
-        $lookup: {
-          from: "reviews",
-          localField: "userId",
-          foreignField: "sellerId",
-          as: "reviews"
-        }
-      },
-      {
-        $addFields: {
-          productCount: { $size: "$products" },
-          rating: { $avg: "$reviews.rating" }
-        }
-      },
-      {
-        $project: {
-          shopName: 1,
-          shortDescription: 1,
-          city: 1,
-          country: 1,
-          profileImageUrl: 1,
-          coverImageUrl: 1,
-          category: 1,
-          productCount: 1,
-          rating: { $ifNull: ["$rating", 0] }
-        }
-      }
-    ]);
+/* ================== ONBOARDING ================== */
 
-    sellers = sellers.map(seller => {
-      if (seller.profileImageUrl && !seller.profileImageUrl.startsWith("http")) {
-        seller.profileImageUrl = `${API_URL}/${seller.profileImageUrl}`;
-      }
-      if (seller.coverImageUrl && !seller.coverImageUrl.startsWith("http")) {
-        seller.coverImageUrl = `${API_URL}/${seller.coverImageUrl}`;
-      }
-      return seller;
-    });
+router.get("/onboarding/status", auth, async (req, res) => {
+  const user = await User.findById(req.user.id).select("role");
+  if (!user || user.role !== "seller") return res.status(403).json({ msg: "Nu e vânzător" });
 
-    res.json(sellers);
-  } catch (err) {
-    console.error("❌ Eroare /seller/public:", err);
-    res.status(500).json({ msg: "Eroare server" });
-  }
+  const seller = await Seller.findOne({ userId: user._id }).select("status onboardingStep").lean();
+  if (!seller) return res.json({ step: 1, completed: false });
+
+  res.json({
+    step: Math.max(1, Math.min(3, seller.onboardingStep || 1)),
+    completed: seller.status === "active",
+  });
 });
 
-// 📌 GET /api/seller/public/:id
+router.post("/onboarding/save", auth, async (req, res) => {
+  // ✨ frontul tău trimite de obicei body raw (nu FormData) aici:
+  //   { step: <1|2|3>, data: {...} }
+  const stepNum = Number(req.body?.step) || 1;
+  const data = req.body?.data || req.body || {};
+
+  const user = await User.findById(req.user.id);
+  if (!user || user.role !== "seller") return res.status(403).json({ msg: "Nu e vânzător" });
+
+  let seller = await Seller.findOne({ userId: user._id });
+  if (!seller) {
+    seller = new Seller({ ...ensureDraftDefaults(user, data), userId: user._id });
+  }
+
+  // ✅ unicitate username
+  if (data?.username) {
+    const newU = String(data.username).toLowerCase().trim();
+    if (newU !== seller.username) {
+      const clash = await Seller.findOne({ username: newU }).select("_id");
+      if (clash) return res.status(400).json({ msg: "Username deja folosit" });
+    }
+  }
+
+  // ✅ unicitate shopName (case-insensitive)
+  if (data?.shopName) {
+    const name = String(data.shopName).trim();
+    if (name && name !== seller.shopName) {
+      const exists = await Seller.findOne({
+        shopName: { $regex: `^${name}$`, $options: "i" },
+      }).select("_id");
+      if (exists) return res.status(400).json({ msg: "Numele de magazin este deja folosit" });
+    }
+  }
+
+  applyStepUpdate(seller, stepNum, data);
+
+  seller.onboardingStep = Math.max(seller.onboardingStep || 1, Math.min(3, stepNum + 1));
+  await seller.save();
+
+  res.json({ ok: true, nextStep: seller.onboardingStep, sellerId: seller._id });
+});
+
+router.post("/onboarding/complete", auth, async (req, res) => {
+  const user = await User.findById(req.user.id).select("role");
+  if (!user || user.role !== "seller") return res.status(403).json({ msg: "Nu e vânzător" });
+
+  const seller = await Seller.findOne({ userId: user._id });
+  if (!seller) return res.status(400).json({ msg: "Nu există draft de magazin" });
+
+  if (!seller.shopName || !seller.username || !seller.category) {
+    return res.status(400).json({ msg: "Completați numele magazinului, username-ul și categoria" });
+  }
+
+  seller.status = "active";
+  seller.publishedAt = new Date();
+  seller.onboardingStep = 3;
+  await seller.save();
+
+  res.json({ ok: true, slug: seller.username });
+});
+
+/* ================== ALIAS PROGRESS ================== */
+router.get("/progress", auth, async (req, res) => {
+  const seller = await Seller.findOne({ userId: req.user.id }).select("onboardingStep status").lean();
+  if (!seller) return res.json({ currentStep: 1, completed: false });
+
+  res.json({
+    currentStep: Math.max(1, Math.min(3, seller.onboardingStep || 1)),
+    completed: seller.status === "active",
+  });
+});
+
+router.patch("/progress", auth, async (req, res) => {
+  const next = Math.max(1, Math.min(3, Number(req.body?.currentStep) || 1));
+
+  let seller = await Seller.findOne({ userId: req.user.id });
+  if (!seller) {
+    const user = await User.findById(req.user.id);
+    const draft = new Seller({ ...ensureDraftDefaults(user, {}), userId: user._id });
+    draft.onboardingStep = next;
+    await draft.save();
+    return res.json({ ok: true, currentStep: draft.onboardingStep });
+  }
+
+  seller.onboardingStep = Math.max(seller.onboardingStep || 1, next);
+  await seller.save();
+  res.json({ ok: true, currentStep: seller.onboardingStep });
+});
+
+/* ================== PUBLIC ================== */
+router.get("/public", async (_req, res) => {
+  const sellers = await Seller.find({ status: "active" })
+    .select("shopName username profileImageUrl coverImageUrl shortDescription city country category")
+    .sort({ createdAt: -1 })
+    .lean();
+  res.json(sellers);
+});
+
+router.get("/public/slug/:slug", async (req, res) => {
+  const seller = await Seller.findOne({
+    username: String(req.params.slug).toLowerCase(),
+    status: "active",
+  }).lean();
+  if (!seller) return res.status(404).json({ msg: "Magazin inexistent" });
+  res.json(seller);
+});
+
+router.get("/public/resolve/:handle", async (req, res) => {
+  const handle = String(req.params.handle).trim().toLowerCase();
+
+  let seller = await Seller.findOne({ username: handle, status: "active" }).lean();
+  if (!seller && /^[a-f\d]{24}$/i.test(handle)) {
+    seller = await Seller.findOne({ _id: handle, status: "active" }).lean();
+  }
+  if (!seller) return res.status(404).json({ msg: "Magazin inexistent" });
+  res.json(seller);
+});
+
 router.get("/public/:id", async (req, res) => {
-  try {
-    const seller = await Seller.findById(req.params.id)
-      .select("shopName shortDescription city country profileImageUrl coverImageUrl category brandStory userId");
+  const seller = await Seller.findOne({ _id: req.params.id, status: "active" }).lean();
+  if (!seller) return res.status(404).json({ msg: "Magazin inexistent" });
+  res.json(seller);
+});
 
-    if (!seller) {
-      return res.status(404).json({ msg: "Vânzător inexistent" });
-    }
+/* ================== AVAILABILITY CHECKS (NEW) ================== */
+// pot fi cu sau fără `auth` — eu le las cu auth ca restul rutei /seller
+router.get("/check-username", auth, async (req, res) => {
+  const raw = (req.query.u || "").toString().toLowerCase().trim();
+  if (!raw) return res.json({ available: false });
 
- if (seller.profileImageUrl && !seller.profileImageUrl.startsWith("http")) {
-  seller.profileImageUrl = `${API_URL}${seller.profileImageUrl}`;
-}
-if (seller.coverImageUrl && !seller.coverImageUrl.startsWith("http")) {
-  seller.coverImageUrl = `${API_URL}${seller.coverImageUrl}`;
-}
+  // dacă utilizatorul are deja acest username, îl considerăm disponibil pentru el
+  const self = await Seller.findOne({ userId: req.user.id }).select("username").lean();
+  if (self && self.username === raw) return res.json({ available: true });
 
-    const productCount = await Product.countDocuments({ sellerId: seller.userId });
+  const exists = await Seller.findOne({ username: raw }).select("_id");
+  return res.json({ available: !exists });
+});
 
-    const reviews = await Review.find({ sellerId: seller.userId });
-    const rating =
-      reviews.length > 0
-        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-        : 0;
+router.get("/check-shopname", auth, async (req, res) => {
+  const name = (req.query.q || "").toString().trim();
+  if (!name) return res.json({ available: false });
 
-    res.json({
-      ...seller.toObject(),
-      productCount,
-      rating: Number(rating.toFixed(1)),
-    });
-  } catch (err) {
-    console.error("❌ Eroare /seller/public/:id:", err);
-    res.status(500).json({ msg: "Eroare server", error: err.message });
+  // dacă utilizatorul are deja acest shopName, îl considerăm disponibil pentru el
+  const self = await Seller.findOne({ userId: req.user.id }).select("shopName").lean();
+  if (self && self.shopName && self.shopName.toLowerCase() === name.toLowerCase()) {
+    return res.json({ available: true });
   }
+
+  const exists = await Seller.findOne({
+    shopName: { $regex: `^${name}$`, $options: "i" },
+  }).select("_id");
+
+  return res.json({ available: !exists });
 });
 
 export default router;

@@ -1,0 +1,232 @@
+/* Container & Card */
+.container {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 16px 80px;
+}
+
+.form {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.06);
+}
+
+.title {
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: 28px;
+  margin: 0 0 22px;
+}
+
+/* Preview bloc (iframe + buton download) */
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.downloadBtn {
+  align-self: flex-start;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  transition: background .15s ease, border-color .15s ease;
+}
+.downloadBtn:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-text) 8%);
+}
+
+.pdfFrame {
+  width: 100%;
+  min-height: 520px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+/* Grid comun */
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+/* Câmpuri */
+.fieldBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 84px;
+}
+
+.label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+input[type="text"],
+input[type="email"],
+textarea,
+select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.hint { font-size: 12px; color: #6b7280; }
+.errorBox {
+  margin-top: 16px;
+  background: color-mix(in srgb, #b42318 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, #b42318 35%, var(--surface));
+  color: #7a271a;
+  padding: 12px 14px; border-radius: 12px; font-size: 14px;
+}
+
+/* Fieldset semnătură */
+.fieldset {
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 10px 0 16px;
+}
+.fieldset > legend {
+  padding: 0 8px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* Checkline */
+.checkline {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+  margin: 8px 0 6px;
+}
+
+/* Semnătură: canvas + acțiuni */
+.signatureCanvas {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  height: 200px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.signatureActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.secondaryBtn,
+.clearBtn,
+.primaryBtn,
+.skipButton {
+  border-radius: 12px;
+  padding: 11px 16px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+/* Butoane */
+.primaryBtn {
+  background: var(--color-primary);
+  color: #1b1b1b;
+  border-color: var(--color-primary);
+  transition: background .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.primaryBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.primaryBtn:disabled,
+.primaryBtn[aria-disabled="true"] {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.secondaryBtn {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+.secondaryBtn:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg) 8%);
+}
+
+.clearBtn {
+  background: transparent;
+  color: #b91c1c;
+  border-color: color-mix(in srgb, #b91c1c 40%, var(--surface));
+}
+.clearBtn:hover { background: color-mix(in srgb, #b91c1c 6%, var(--surface)); }
+
+.skipButton {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+/* Previzualizare semnătură tipărită */
+.signaturePreviewBox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.typedSigPreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+}
+
+/* Footer */
+.footerBar {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Box semnat */
+.signedBox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg) 8%);
+}
+
+/* Semnare form spacing */
+.signForm { margin-top: 8px; }

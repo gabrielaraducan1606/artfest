@@ -1,0 +1,22 @@
+# deps
+**/node_modules/
+**/pnpm-lock.yaml
+**/yarn.lock
+
+# build
+**/dist/
+**/build/
+**/.next/
+**/coverage/
+
+# uploads / storage local (NU în repo)
+backend/storage/
+
+# logs & OS junk
+*.log
+.DS_Store
+Thumbs.db
+
+# env
+.env
+.env.*

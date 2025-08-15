@@ -1,0 +1,105 @@
+@import "../../../styles//variables.css";
+
+.section {
+  padding: clamp(1.25rem, 2vw, 2rem) 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.title {
+  font-family: var(--font-title);
+  font-weight: 600;
+  font-size: clamp(1.2rem, 2.2vw, 1.6rem);
+  margin: 0;
+  color: var(--color-text);
+}
+
+.viewAll {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: .95rem;
+}
+.viewAll:hover { color: var(--color-hover); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(.75rem, 1.8vw, 1rem);
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-items: center;
+  gap: .9rem;
+  padding: .9rem;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--color-text);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  will-change: transform;
+}
+.card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--color-primary) 38%, var(--color-border));
+  box-shadow: 0 10px 24px rgba(0,0,0,.08);
+}
+@supports not (color-mix(in oklab, red 50%, white)) {
+  .card:hover { border-color: rgba(247, 140, 61, .4); }
+}
+
+.iconWrap {
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--color-primary) 12%, var(--surface));
+  border: 1px solid var(--color-border);
+}
+@supports not (color-mix(in oklab, red 50%, white)) {
+  .iconWrap { background: rgba(247, 140, 61, .12); }
+}
+
+.icon {
+  font-size: 1.35rem;
+  color: var(--color-primary);
+}
+
+.text { display: grid; gap: .15rem; }
+.name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+.cta {
+  font-size: .85rem;
+  opacity: .75;
+}
+
+/* Focus accesibil */
+.card:focus-visible, .viewAll:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: calc(var(--radius) + 2px);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .grid { grid-template-columns: 1fr; }
+  .card { grid-template-columns: 50px 1fr; }
+  .iconWrap { width: 50px; height: 50px; border-radius: 12px; }
+}

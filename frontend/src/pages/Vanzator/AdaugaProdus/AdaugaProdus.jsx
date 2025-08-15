@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../../../../api/api";
-import Navbar from "../../../components/Navbar/Navbar";
+import api from "../../../components/services/api";
+import Navbar from "../../../components/HomePage/Navbar/Navbar";
 import styles from "./AdaugaProdus.module.css";
 
 const CATEGORY_OPTIONS = [

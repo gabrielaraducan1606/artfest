@@ -1,179 +1,217 @@
 @import "../../styles/variables.css";
 
+/* ===== container & header ===== */
 .container {
   max-width: 1200px;
-  margin: auto;
-  padding: 20px;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 2.2vw, 2rem) 1rem;
 }
 
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.actions {
+  display: inline-flex;
+  gap: .5rem;
+}
+.actions > button {
+  background: var(--surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  padding: .45rem .8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.actions > button:hover {
+  background: var(--color-border);
+}
+
+/* ===== search bar + sugestii ===== */
 .searchBar {
   position: relative;
-  margin-bottom: 15px;
+  margin: 0.5rem 0 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
 }
 
 .searchBar input {
   width: 100%;
-  padding: 8px;
-  border-radius: 8px;
   border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: .6rem .8rem;
+  outline: none;
+}
+.searchBar input:focus {
+  border-color: var(--color-primary);
 }
 
 .suggestions {
   position: absolute;
-  background: white;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--surface);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  margin-top: 4px;
-  width: 100%;
-  max-height: 250px;
-  overflow-y: auto;
-  list-style: none;
-  padding: 0;
-  z-index: 1000;
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0,0,0,.08);
+  padding: .35rem;
+  max-height: 320px;
+  overflow: auto;
 }
 
 .suggestions li {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: .6rem;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
+  padding: .45rem .4rem;
+  border-radius: calc(var(--radius) - 3px);
   cursor: pointer;
 }
-
 .suggestions li:hover {
-  background: var(--color-hover);
-  color: white;
+  background: var(--color-border);
 }
-
 .suggestions img {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
-.suggestions mark {
-  background-color: var(--color-primary);
-  color: var(--color-text);
-  font-weight: bold;
-  padding: 0 2px;
-  border-radius: 3px;
-}
-
-/* Butoane Filtrare & Sortare */
-.actions {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.actions button {
-  padding: 8px 12px;
-  border: none;
-  border-radius: 8px;
-  background: var(--color-primary);
-  color: var(--color-text);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.actions button:hover {
-  background: var(--color-hover);
-  color: white;
-}
-
-/* Grid Produse */
+/* ===== GRID ===== */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 15px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(.9rem, 2.2vw, 1.2rem);
 }
 
+/* ========== CARD ========== */
 .card {
-  background: white;
-  border-radius: 12px;
-  padding: 15px;
-  text-align: center;
-  border: 1px solid #eee;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: .75rem;
+  display: grid;
+  grid-template-rows: auto auto auto auto;
+  gap: .5rem;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  cursor: pointer;
 }
-
 .card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.06);
+  transform: translateY(-2px);
+  border-color: rgba(247,140,61,.42);
+  box-shadow: 0 12px 26px rgba(0,0,0,.08);
 }
 
-.imageWrapper {
-  position: relative;
+/* imagine pe raport fix + buton pt. focus accesibil */
+.imageButton {
+  all: unset;
+  cursor: pointer;
+  border-radius: calc(var(--radius) - 2px);
+}
+.imageButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
 }
 
+.imageWrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  overflow: hidden;
+}
 .productImage {
   width: 100%;
-  height: 180px;
+  height: 100%;
   object-fit: cover;
-  border-radius: 8px;
-  margin-bottom: 10px;
+  display: block;
 }
 
-/* Iconițe sub poză */
-.iconsRow {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.iconBtn {
-  background: white; /* alb la hover */
-  border: none;
-  font-size: 1.2rem;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 50%;
-  transition: transform 0.2s ease, background 0.2s ease;
-}
-
-.iconBtn svg {
-  color: var(--color-text); /* iconițele să fie vizibile */
-}
-
-.iconBtn:hover {
-  transform: scale(1.1);
-  background: white; /* menține alb la hover */
-}
-
-/* Inimă contur și animație */
-.heartIcon {
-  stroke: var(--color-text);
-  stroke-width: 30;
-  fill: none;
-  font-size: 1.3rem;
-  transition: all 0.25s ease;
-}
-
-.heartFilled {
-  fill: var(--color-primary);
-  stroke: var(--color-primary);
-  transform: scale(1.2);
-}
-
-/* Rating, Preț și Seller */
-.rating {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 5px;
-}
-
-.price {
+/* titlu */
+.name {
+  font-weight: 600;
+  margin: .25rem 0 0;
   font-size: 1rem;
-  font-weight: bold;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* rând rating + preț */
+.metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+.rating {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+}
+.reviewsCount {
+  font-size: .85rem;
+  opacity: .75;
+}
+.price {
+  font-weight: 700;
   color: var(--color-text);
 }
 
-.seller {
-  font-size: 0.85rem;
-  color: #666;
+/* rând magazin + acțiuni */
+.bottomRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.shopLink {
+  text-decoration: none;
+  color: var(--color-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.shopLink:hover { color: var(--color-hover); }
+.shopPlaceholder { opacity: .6; }
+
+.iconBar {
+  display: inline-flex;
+  gap: .4rem;
+}
+.iconBtn {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  padding: .45rem .6rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.iconBtn:hover {
+  background: var(--color-border);
+}
+
+/* responsive */
+@media (max-width: 1020px) {
+  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 500px) {
+  .grid { grid-template-columns: 1fr; }
 }

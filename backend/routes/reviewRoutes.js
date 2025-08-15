@@ -5,7 +5,7 @@ import auth from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Recenziile unui vânzător (public)
+// Recenzii publice
 router.get("/seller/:id", async (req, res) => {
   try {
     const reviews = await Review.find({ sellerId: req.params.id })
@@ -18,7 +18,7 @@ router.get("/seller/:id", async (req, res) => {
   }
 });
 
-// Adaugă o recenzie (doar utilizator logat)
+// Adaugă recenzie
 router.post("/seller/:id", auth, async (req, res) => {
   try {
     const { rating, comment } = req.body;
@@ -42,7 +42,7 @@ router.post("/seller/:id", auth, async (req, res) => {
   }
 });
 
-// Rating mediu pentru un vânzător
+// Rating mediu
 router.get("/seller/:id/average", async (req, res) => {
   try {
     const reviews = await Review.find({ sellerId: req.params.id });

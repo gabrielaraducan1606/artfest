@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import styles from "./InvitatieInstantEditor.module.css";
 import { useInvitation } from "../../../../../../invitation/useInvitation";
-import api from "../../../../../../api/api";
+import api from "../../../../../components/services/api";
 
 // componente de form pentru fiecare tab
 import {AboutForm} from "../../tabs/AboutForm";

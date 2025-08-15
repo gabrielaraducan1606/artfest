@@ -1,94 +1,115 @@
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  FaMapMarkerAlt,
-  FaBoxOpen,
-  FaStar,
-  FaFilter,
-  FaSort,
-} from "react-icons/fa";
-import { useNavigate, useLocation } from "react-router-dom";
-import Navbar from "../../../components/Navbar/Navbar";
-import Footer from "../../../components/Footer/Footer";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { FaMapMarkerAlt, FaBoxOpen, FaStar, FaFilter, FaSort } from "react-icons/fa";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import Navbar from "../../../components/HomePage/Navbar/Navbar";
+import Footer from "../../../components/HomePage/Footer/Footer";
 import styles from "./Magazine.module.css";
-import api from "../../../../api/api";
-import StoreFilterModal from "./Modal/StoreFilterModal";
-import StoreSortModal from "./Modal/StoreSortModal";
+import api from "../../../components/services/api";
+import StoreFilterModal from "../Modal/StoreFilterModal";
+import StoreSortModal from "../Modal/StoreSortModal";
+
+/* helper: diacritics-insensitive */
+const norm = (s = "") =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+function highlight(text, query) {
+  if (!query) return [text];
+  const t = text ?? "";
+  const nT = norm(t);
+  const nQ = norm(query);
+  const i = nT.indexOf(nQ);
+  if (i < 0) return [t];
+  const end = i + nQ.length;
+  return [t.slice(0, i), <mark key="m">{t.slice(i, end)}</mark>, t.slice(end)];
+}
 
 export default function Magazine() {
   const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // UI state
-  const [search, setSearch] = useState("");
+  // UI state controlate de URL
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [search, setSearch] = useState(params.get("q") || "");
+  const [category, setCategory] = useState(params.get("categorie") || "");
+  const [minRating, setMinRating] = useState(params.get("minRating") || "");
+  const [sort, setSort] = useState(params.get("sort") || "featured");
+
   const [suggestions, setSuggestions] = useState([]);
-  const [category, setCategory] = useState("");
-  const [minRating, setMinRating] = useState("");
-  const [sort, setSort] = useState("featured"); // featured | rating | products | name-asc | name-desc | newest
   const [showFilter, setShowFilter] = useState(false);
   const [showSort, setShowSort] = useState(false);
-  const [typingTimeout, setTypingTimeout] = useState(null);
+  const typingRef = useRef(null);
 
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  // Load stores
+  // Load stores (public)
   useEffect(() => {
-    const fetchStores = async () => {
+    let mounted = true;
+    (async () => {
       try {
         const { data } = await api.get("/seller/public");
-        setStores(Array.isArray(data) ? data : []);
+        if (mounted) setStores(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error("❌ Eroare la încărcarea magazinelor:", err);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
-    };
-    fetchStores();
+    })();
+    return () => { mounted = false; };
   }, []);
 
-  // Read category from URL
+  // 2-way sync cu URL: când URL-ul se schimbă (back/forward), actualizează state
   useEffect(() => {
-  const params = new URLSearchParams(location.search);
-  const urlCategory = params.get("categorie") || "";
-  setCategory(urlCategory);
-}, [location.search]);
+    setSearch(params.get("q") || "");
+    setCategory(params.get("categorie") || "");
+    setMinRating(params.get("minRating") || "");
+    setSort(params.get("sort") || "featured");
+  }, [params]);
 
-  // Suggestions (client-side)
-  const handleSearchChange = (e) => {
+  // Debounce sugestii pe client
+  const onChangeSearch = (e) => {
     const value = e.target.value;
     setSearch(value);
-    if (typingTimeout) clearTimeout(typingTimeout);
 
+    // scrie în URL (q=) ca să fie navigabilă căutarea
+    const next = new URLSearchParams(params);
+    if (value.trim()) next.set("q", value.trim());
+    else next.delete("q");
+    next.set("page", "1");
+    setParams(next, { replace: true });
+
+    if (typingRef.current) clearTimeout(typingRef.current);
     if (value.trim().length < 2) {
       setSuggestions([]);
       return;
     }
-    setTypingTimeout(
-      setTimeout(() => {
-        const q = value.trim().toLowerCase();
-        const s = stores
-          .filter((st) =>
-            (st.shopName || "").toLowerCase().includes(q)
-          )
-          .slice(0, 8);
-        setSuggestions(s);
-      }, 250)
-    );
+    typingRef.current = setTimeout(() => {
+      const q = norm(value);
+      const list = stores
+        .filter((st) => norm(st.shopName || "").includes(q))
+        .slice(0, 8);
+      setSuggestions(list);
+    }, 250);
   };
 
-  // Filter + sort
-  const visibleStores = useMemo(() => {
-    const q = search.trim().toLowerCase();
+  const resetFilters = () => {
+    const next = new URLSearchParams(params);
+    ["q", "categorie", "minRating", "sort", "page"].forEach((k) => next.delete(k));
+    setParams(next, { replace: true });
+    setSearch("");
+    setCategory("");
+    setMinRating("");
+    setSort("featured");
+    setSuggestions([]);
+  };
 
+  // Filtrare + sortare locală
+  const visibleStores = useMemo(() => {
+    const q = norm(search);
     let list = stores.filter((s) => {
       const matchesSearch = q
-        ? (s.shopName || "").toLowerCase().includes(q) ||
-          (s.city || "").toLowerCase().includes(q)
+        ? norm(s.shopName || "").includes(q) || norm(s.city || "").includes(q)
         : true;
       const matchesCategory = category ? s.category === category : true;
-      const matchesRating = minRating
-        ? (s.rating || 0) >= parseFloat(minRating)
-        : true;
+      const matchesRating = minRating ? (s.rating || 0) >= parseFloat(minRating) : true;
       return matchesSearch && matchesCategory && matchesRating;
     });
 
@@ -100,16 +121,15 @@ export default function Magazine() {
         list.sort((a, b) => (b.productCount || 0) - (a.productCount || 0));
         break;
       case "name-asc":
-        list.sort((a, b) => (a.shopName || "").localeCompare(b.shopName || ""));
+        list.sort((a, b) => (a.shopName || "").localeCompare(b.shopName || "", "ro"));
         break;
       case "name-desc":
-        list.sort((a, b) => (b.shopName || "").localeCompare(a.shopName || ""));
+        list.sort((a, b) => (b.shopName || "").localeCompare(a.shopName || "", "ro"));
         break;
       case "newest":
         list.sort(
           (a, b) =>
-            new Date(b.createdAt || b.updatedAt || 0) -
-            new Date(a.createdAt || a.updatedAt || 0)
+            new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0)
         );
         break;
       case "featured":
@@ -119,17 +139,17 @@ export default function Magazine() {
           if (r !== 0) return r;
           const p = (b.productCount || 0) - (a.productCount || 0);
           if (p !== 0) return p;
-          return (a.shopName || "").localeCompare(b.shopName || "");
+          return (a.shopName || "").localeCompare(b.shopName || "", "ro");
         });
         break;
     }
-
     return list;
   }, [stores, search, category, minRating, sort]);
 
   return (
     <>
       <Navbar />
+
       <div className={styles.container}>
         <div className={styles.headerRow}>
           <h1>Magazine</h1>
@@ -141,39 +161,29 @@ export default function Magazine() {
             <button onClick={() => setShowSort(true)}>
               <FaSort /> Sortare
             </button>
+            <button onClick={resetFilters} className={styles.resetBtn}>
+              Resetează filtrele
+            </button>
           </div>
         </div>
 
-        {/* Search with suggestions */}
+        {/* Search + sugestii */}
         <div className={styles.searchBar}>
           <input
             type="text"
             placeholder="Caută magazin..."
             value={search}
-            onChange={handleSearchChange}
+            onChange={onChangeSearch}
           />
           {suggestions.length > 0 && (
             <ul className={styles.suggestions}>
               {suggestions.map((s) => (
-                <li
-                  key={s._id}
-                  onClick={() => navigate(`/magazin/${s._id}`)}
-                >
+                <li key={s._id} onClick={() => navigate(`/magazin/${s._id}`)}>
                   <img
-                    src={
-                      s.profileImageUrl ||
-                      "https://via.placeholder.com/50?text=Logo"
-                    }
+                    src={s.profileImageUrl || "https://via.placeholder.com/50?text=Logo"}
                     alt={s.shopName}
                   />
-                  <span
-                    dangerouslySetInnerHTML={{
-                      __html: (s.shopName || "").replace(
-                        new RegExp(`(${search})`, "gi"),
-                        "<mark>$1</mark>"
-                      ),
-                    }}
-                  />
+                  <span>{highlight(s.shopName || "", search)}</span>
                 </li>
               ))}
             </ul>
@@ -194,10 +204,7 @@ export default function Magazine() {
                 onClick={() => navigate(`/magazin/${store._id}`)}
               >
                 <img
-                  src={
-                    store.profileImageUrl ||
-                    "https://via.placeholder.com/100x100?text=Logo"
-                  }
+                  src={store.profileImageUrl || "https://via.placeholder.com/100x100?text=Logo"}
                   alt={store.shopName}
                   className={styles.logo}
                 />
@@ -234,13 +241,19 @@ export default function Magazine() {
         onClose={() => setShowFilter(false)}
         selected={{ category, minRating }}
         onSelect={({ category: c, minRating: r }) => {
+          const next = new URLSearchParams(params);
           if (typeof c !== "undefined") {
             setCategory(c);
-            // reflectă în URL (opțional)
-            const url = c ? `/magazine?categorie=${encodeURIComponent(c)}` : "/magazine";
-            navigate(url, { replace: true });
+            if (c) next.set("categorie", c);
+            else next.delete("categorie");
+            next.set("page", "1");
           }
-          if (typeof r !== "undefined") setMinRating(r);
+          if (typeof r !== "undefined") {
+            setMinRating(r);
+            if (r) next.set("minRating", String(r));
+            else next.delete("minRating");
+          }
+          setParams(next, { replace: true });
           setShowFilter(false);
         }}
       />
@@ -251,6 +264,9 @@ export default function Magazine() {
         selected={sort}
         onSelect={(val) => {
           setSort(val);
+          const next = new URLSearchParams(params);
+          next.set("sort", val);
+          setParams(next, { replace: true });
           setShowSort(false);
         }}
       />

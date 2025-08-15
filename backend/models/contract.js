@@ -1,30 +1,43 @@
+// models/Contract.js
 import mongoose from 'mongoose';
 
 const contractSchema = new mongoose.Schema(
   {
-    sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Seller', required: true, index: true },
-    version: { type: String, required: true },
-    dataSnapshot: { type: Object, required: true },
-    pdfUrl: { type: String },     // poate rămâne null când servim din disc
-    pdfPath: { type: String },    // calea locală pe disc pentru download
-    status: { type: String, enum: ['draft', 'sent', 'signed'], default: 'draft' },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, required: true },
+    sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Seller', index: true },
 
-    signedAt: { type: Date },
+    version: { type: String, default: 'v1.0' },
+
+    status: {
+      type: String,
+      enum: ['draft', 'signed'],
+      default: 'draft',
+      index: true,
+    },
+
+    // PDF-uri (cale internă + url public expus de /uploads)
+    pdfPath: { type: String },        // ex: storage/contracts/xxx.pdf
+    pdfUrl: { type: String },         // ex: /uploads/contracts/xxx.pdf
+    pdfSignedPath: { type: String },
+    pdfSignedUrl: { type: String },
+
     signerName: { type: String },
     signerEmail: { type: String },
-    audit: {
-      ip: String,
-      userAgent: String,
-      hash: String, // SHA-256 al PDF-ului final
+    signedAt: { type: Date },
+
+    // cache de date relevante la generare
+    snapshot: {
+      shopName: String,
+      username: String,
+      companyName: String,
+      cui: String,
+      iban: String,
+      city: String,
+      country: String,
+      generatedAt: Date,
     },
   },
   { timestamps: true }
 );
-
-contractSchema.virtual('downloadUrl').get(function () {
-  return `/api/contracts/${this._id}/download`;
-});
-contractSchema.set('toJSON', { virtuals: true });
-contractSchema.set('toObject', { virtuals: true });
 
 export default mongoose.model('Contract', contractSchema);

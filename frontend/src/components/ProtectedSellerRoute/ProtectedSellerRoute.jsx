@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import api from "../../../api/api";
+import api from "../services/api";
 
 export default function ProtectedSellerRoute({ children }) {
   const [loading, setLoading] = useState(true);
-  const [isSeller, setIsSeller] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [redirectPath, setRedirectPath] = useState("/login");
 
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem("authToken");
       if (!token) {
+        setRedirectPath("/login");
         setLoading(false);
         return;
       }
@@ -18,10 +20,13 @@ export default function ProtectedSellerRoute({ children }) {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.data?.role === "seller") {
-          setIsSeller(true);
+          setIsAuthorized(true);
+        } else {
+          setRedirectPath("/acces-interzis");
         }
       } catch (err) {
         console.error("Eroare verificare seller:", err);
+        setRedirectPath("/login");
       } finally {
         setLoading(false);
       }
@@ -29,9 +34,13 @@ export default function ProtectedSellerRoute({ children }) {
     checkAuth();
   }, []);
 
-  if (loading) return <p>Se verifică autentificarea...</p>;
+  if (loading) {
+    return <p>🔄 Se verifică autentificarea...</p>;
+  }
 
-  if (!isSeller) return <Navigate to="/login" replace />;
+  if (!isAuthorized) {
+    return <Navigate to={redirectPath} replace />;
+  }
 
   return children;
 }

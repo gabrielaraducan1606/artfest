@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { getToken, setToken, clearToken } from '../../../api/api';
+import api, { getToken, setToken, clearToken } from '../services/api';
 import { AppContext } from './context';
 
 export const AppProvider = ({ children }) => {

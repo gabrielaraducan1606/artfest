@@ -18,13 +18,15 @@ import contractRoutes from './routes/contractRoutes.js';
 import reviewRoutes from './routes/reviewRoutes.js';
 import visitorRoutes from './routes/visitorRoutes.js';
 import cartRoutes from './routes/cartRoutes.js';
-import wishlistRoutes from './routes/wishListRoutes.js';
-import invitationsRoutes from "./routes/invitationsRoutes.js";
+import wishlistRoutes from './routes/wishListRoutes.js'; // păstrat exact cum era denumirea ta
+import invitationsRoutes from './routes/invitationsRoutes.js';
+import searchRoutes from './routes/searchRoutes.js';
+
 
 dotenv.config();
 
 const app = express();
-const httpServer = createServer(app); // 🔹 HTTP server pentru socket.io
+const httpServer = createServer(app); // HTTP server pentru socket.io
 const io = new SocketIOServer(httpServer, {
   cors: {
     origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
@@ -76,6 +78,8 @@ if (!app._routeDebugPatched) {
 }
 /* =================== /DEBUG ROUTE PATCH ===================== */
 
+/* =================== MIDDLEWARE DE BAZĂ =================== */
+
 // CORS
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
@@ -88,11 +92,18 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// ✅ Body parsers (altfel req.body e undefined)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// ✅ Servirea fișierelor încărcate de uploadToStorage()
+// uploadToStorage scrie în "storage/<key>" și întoarce URL cu prefix /uploads/<key>
 app.use('/uploads', express.static(path.join(process.cwd(), 'storage')));
 
-// Rute API
+// (opțional) compat: servește și /storage/ dacă ai link-uri vechi salvate
+app.use('/storage', express.static(path.join(process.cwd(), 'storage')));
+
+/* ======================== RUTE API ======================== */
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/visitors', visitorRoutes);
 app.use('/api/users', authRoutes);
@@ -102,11 +113,10 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/wishlist', wishlistRoutes);
-app.use("/api/invitations", invitationsRoutes);
-
+app.use('/api/invitations', invitationsRoutes);
+app.use('/api/search', searchRoutes);
 // Healthcheck
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-
 // 404
 app.use((req, res) => res.status(404).json({ msg: 'Not Found' }));
 
@@ -116,29 +126,29 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ msg: 'Server error' });
 });
 
-/* ===================== SOCKET.IO pentru chat ===================== */
+/* ===================== SOCKET.IO (chat demo) ===================== */
 io.on('connection', (socket) => {
   console.log(`📡 Client conectat: ${socket.id}`);
 
   socket.on('message', (msg) => {
     console.log('💬 Mesaj primit:', msg);
-    io.emit('message', msg); // trimite tuturor
+    io.emit('message', msg);
   });
 
   socket.on('disconnect', () => {
     console.log(`❌ Client deconectat: ${socket.id}`);
   });
 });
-/* ================================================================ */
+/* ================================================================= */
 
-// Asigură folder contracte
+/* ===================== DIRECTOARE NECESARE ===================== */
 const CONTRACTS_DIR = path.resolve('storage/contracts');
 if (!fs.existsSync(CONTRACTS_DIR)) {
   fs.mkdirSync(CONTRACTS_DIR, { recursive: true });
   console.log(`📂 Folder creat: ${CONTRACTS_DIR}`);
 }
 
-// Connect & start
+/* ===================== CONNECT & START ===================== */
 const { MONGO_URI = 'mongodb://localhost:27017/artfest', PORT = 5000 } = process.env;
 
 mongoose.connect(MONGO_URI)

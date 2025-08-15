@@ -2,8 +2,8 @@
 import styles from "./InvitationLanding.module.css";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../../../../../components/Context/useAppContext";
-import Navbar from "../../../../../components/Navbar/Navbar"; // calea ta existentă
-import Footer from "../../../../../components/Footer/Footer";
+import Navbar from "../../../../../components/HomePage/Navbar/Navbar"; // calea ta existentă
+import Footer from "../../../../../components/HomePage/Footer/Footer";
 
 export default function InvitatieInstantLanding() {
   const navigate = useNavigate();

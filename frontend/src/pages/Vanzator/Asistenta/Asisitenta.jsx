@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { io } from "socket.io-client";
-import Navbar from "../../../components/Navbar/Navbar";
-import Footer from "../../../components/Footer/Footer";
+import Navbar from "../../../components/HomePage/Navbar/Navbar";
+import Footer from "../../../components/HomePage/Footer/Footer";
 import styles from "./Asistenta.module.css";
 
 const socket = io("http://localhost:5000"); // URL-ul backendului

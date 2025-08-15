@@ -1,8 +1,8 @@
 // src/pages/Cart.jsx
 import React, { useEffect, useState } from "react";
-import Navbar from "../../components/Navbar/Navbar";
-import Footer from "../../components/Footer/Footer";
-import api from "../../../api/api";
+import Navbar from "../../components/HomePage/Navbar/Navbar";
+import Footer from "../../components/HomePage/Footer/Footer";
+import api from "../../components/services/api";
 
 export default function Cart() {
   const [cart, setCart] = useState([]);

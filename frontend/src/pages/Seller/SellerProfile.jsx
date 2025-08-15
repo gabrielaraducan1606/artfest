@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import api from '../../../api/api';
+import api from '../../components/services/api';
 import { useNavigate } from 'react-router-dom';
-import Navbar from '../../components/Navbar/Navbar';
+import Navbar from '../../components/HomePage/Navbar/Navbar';
 import styles from './SellerProfile.module.css';
 
 const SellerProfile = () => {

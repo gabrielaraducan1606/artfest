@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Navbar from '../../../components/Navbar/Navbar';
+import Navbar from '../../../components/HomePage/Navbar/Navbar';
 import styles from './Payments.module.css';
-import api from '../../../../api/api';
+import api from '../../../components/services/api';
 
 const Payments = () => {
   const navigate = useNavigate();

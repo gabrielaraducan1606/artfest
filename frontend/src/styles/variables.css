@@ -1,13 +1,55 @@
-/* src/styles/variables.css */
-:root {
-  --color-bg: #F9F6F1;         /* crem deschis */
-  --color-primary: #C1E1C1;    /* mentă pastel */
-  --color-accent: #BAA378;     /* maro-bej pastel pentru hover */
-  --color-text: #3F3F3F;       /* text – gri închis */
-  --color-hover: #A8B8A5;      /* salvie pentru hover */
-  --color-border: #D2B48C; 
-  --color-text: #3F3F3F;    
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap');
 
-  --font-base: 'Inter', sans-serif;
-  --radius: 6px;
+/* Import font Inter (poți muta în index.html dacă preferi) */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
+
+/* ================== Light Theme (default) ================== */
+:root {
+  /* Fonts */
+  --font-title: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Shapes */
+  --radius: 10px;
+
+  /* Colors - Light */
+  --color-bg: #fafafa;             /* ușor gri în loc de alb pur */
+  --color-text: #2d2d2d;           /* gri foarte închis, nu negru dur */
+  --color-border: #e5e5e5;         /* gri deschis */
+  --color-primary: #f78c3d;        /* portocaliu pastel */
+  --color-hover: #f07220;          /* portocaliu puțin mai intens */
+
+  /* Suprafețe (dropdowns, sugestii) */
+  --surface: #ffffff;
+}
+
+/* ================== Dark Theme ================== */
+html[data-theme="dark"] {
+  --color-bg: #121212;             /* aproape negru, dar mai soft */
+  --color-text: #e0e0e0;           /* gri deschis, nu alb pur */
+  --color-border: #2a2a2a;         /* gri închis */
+  --color-primary: #f78c3d;        /* păstrăm consistența accentului */
+  --color-hover: #fca154;          /* puțin mai deschis pentru hover */
+  --surface: #1c1c1c;              /* panouri/dialoguri */
+}
+
+/* ================== Preferința sistemului ================== */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]):not([data-theme="dark"]) {
+    --color-bg: #121212;
+    --color-text: #e0e0e0;
+    --color-border: #2a2a2a;
+    --color-primary: #f78c3d;
+    --color-hover: #fca154;
+    --surface: #1c1c1c;
+  }
+}
+
+/* ================== Bază globală ================== */
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-weight: 400; /* implicit mai subțire */
+  line-height: 1.5;
 }

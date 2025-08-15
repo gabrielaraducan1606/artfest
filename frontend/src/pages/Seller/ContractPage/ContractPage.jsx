@@ -1,8 +1,8 @@
 // src/pages/Vanzator/ContractPage.jsx
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import api from '../../../../api/api';
-import Navbar from '../../../components/Navbar/Navbar';
+import api from '../../../components/services/api';
+import Navbar from '../../../components/HomePage/Navbar/Navbar';
 import styles from './ContractPage.module.css';
 
 function SignaturePad({ onChange }) {

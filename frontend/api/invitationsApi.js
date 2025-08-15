@@ -1,4 +1,4 @@
-import api from "../api/api"; // aici importi instanța axios din index.js-ul tău
+import api from "../src/components/services/api"; // aici importi instanța axios din index.js-ul tău
 
 export const InvitationsApi = {
   /**

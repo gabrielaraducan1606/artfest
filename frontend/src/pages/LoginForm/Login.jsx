@@ -1,28 +1,41 @@
-// src/pages/login.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import api from '../../../api/api';
-import Navbar from '../../components/Navbar/Navbar';
+import { AiOutlineEye, AiOutlineEyeInvisible } from 'react-icons/ai';
+import api from '../../components/services/api';
+import Navbar from '../../components/HomePage/Navbar/Navbar';
+import Footer from '../../components/HomePage/Footer/Footer';
 import styles from './Login.module.css';
 import { useAppContext } from '../../components/Context/useAppContext';
 
-const Login = () => {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [capsLock, setCapsLock] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+
+  const errorRef = useRef(null);
 
   const { setCart, setFavorites, setToken } = useAppContext();
   const location = useLocation();
   const navigate = useNavigate();
 
-  // citesc ?redirect=... (și îl țin ca fallback în sessionStorage)
   const params = new URLSearchParams(location.search);
   const qsRedirect = params.get('redirect') || '';
+
   useEffect(() => {
-    if (qsRedirect) sessionStorage.setItem('postLoginRedirect', qsRedirect);
+    if (qsRedirect) {
+      sessionStorage.setItem('postLoginRedirect', qsRedirect);
+    }
   }, [qsRedirect]);
+
+  useEffect(() => {
+    if (errorMsg && errorRef.current) {
+      errorRef.current.focus();
+    }
+  }, [errorMsg]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -37,12 +50,8 @@ const Login = () => {
       if (Array.isArray(res.data.cart)) setCart(res.data.cart);
       if (Array.isArray(res.data.favorites)) setFavorites(res.data.favorites);
 
-      // 1) preferă redirect-ul din query / session dacă există și e intern
       const storedRedirect = sessionStorage.getItem('postLoginRedirect') || '';
-      const redirect =
-        (qsRedirect || storedRedirect || '')
-          .trim();
-
+      const redirect = (qsRedirect || storedRedirect || '').trim();
       const isSafeInternal =
         redirect &&
         redirect.startsWith('/') &&
@@ -55,12 +64,11 @@ const Login = () => {
         return;
       }
 
-      // 2) altfel, du-l după rol
       const role = res.data.role;
       if (role === 'seller') {
         navigate('/vanzator/dashboard', { replace: true });
       } else {
-        navigate('/profil', { replace: true }); // sau '/'
+        navigate('/profil', { replace: true });
       }
     } catch (err) {
       setErrorMsg(err.response?.data?.msg || 'Eroare la autentificare');
@@ -69,53 +77,100 @@ const Login = () => {
     }
   };
 
+  const handleCapsLock = (e) => {
+    const caps = e.getModifierState && e.getModifierState('CapsLock');
+    setCapsLock(caps);
+  };
+
   return (
     <>
       <Navbar />
-      <div className={styles.container}>
-        <form onSubmit={handleLogin} className={styles.form}>
-          <h2>Autentificare</h2>
-          {errorMsg && <p className={styles.error}>{errorMsg}</p>}
+      <div className={styles.page}>
+        <div className={styles.wrap}>
+          <form onSubmit={handleLogin} className={styles.card}>
+            <h2 className={styles.title}>Autentificare</h2>
 
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            required
-          />
+            {errorMsg && (
+              <div
+                className={styles.alert}
+                tabIndex="-1"
+                ref={errorRef}
+                role="alert"
+              >
+                {errorMsg}
+              </div>
+            )}
 
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Parolă"
-            required
-          />
+            <label className={styles.label}>
+              <span className={styles.labelText}>Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={styles.input}
+                placeholder="email@exemplu.com"
+                required
+              />
+            </label>
 
-          <label className={styles.checkbox}>
-            <input
-              type="checkbox"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-            />
-            Ține-mă minte pe acest dispozitiv
-          </label>
+            <label className={styles.label}>
+              <span className={styles.labelText}>Parolă</span>
+              <div className={styles.inputGroup}>
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyUp={handleCapsLock}
+                  onKeyDown={handleCapsLock}
+                  className={styles.input}
+                  placeholder="••••••••"
+                  required
+                />
+                <button
+                  type="button"
+                  className={styles.togglePw}
+                  onClick={() => setShowPw((prev) => !prev)}
+                  aria-label={showPw ? 'Ascunde parola' : 'Afișează parola'}
+                >
+                </button>
+              </div>
+              {capsLock && (
+                <span className={styles.fieldError}>
+                  Atenție: Caps Lock este activ
+                </span>
+              )}
+            </label>
 
-          <button type="submit" disabled={submitting}>
-            {submitting ? 'Se autentifică...' : 'Loghează-te'}
-          </button>
+            <div className={styles.actions}>
+              <label className={styles.checkbox}>
+                <div className={styles.align}>
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                  />
+                  Ține-mă minte pe acest dispozitiv
+                </div>
+              </label>
+              <Link to="/resetare-parola" className={styles.smallLink}>
+                Ai uitat parola?
+              </Link>
+            </div>
 
-          <p className={styles.registerLink}>
-            Nu ai cont?{' '}
-            <Link to="/inregistrare" className={styles.link}>
-              Creează unul aici
-            </Link>
-          </p>
-        </form>
+            <button type="submit" className={styles.btn} disabled={submitting}>
+              {submitting ? 'Se autentifică...' : 'Loghează-te'}
+            </button>
+
+            <p className={styles.register}>
+              Nu ai cont?{' '}
+              <Link to="/inregistrare" className={styles.link}>
+                Creează unul aici
+              </Link>
+            </p>
+          </form>
+        </div>
       </div>
+      <Footer />
     </>
   );
-};
-
-export default Login;
+}

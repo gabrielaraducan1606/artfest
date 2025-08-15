@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { FaStar } from "react-icons/fa";
-import api from "../../../api/api";
-import Navbar from "../../components/Navbar/Navbar";
+import api from "../../components/services/api";
+import Navbar from "../../components/HomePage/Navbar/Navbar";
 import styles from "./DetaliiProdus.module.css";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";

@@ -1,0 +1,357 @@
+/* ================== Step1.module.css ================== */
+
+/* ---- Container / card ---- */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px 16px 80px;
+}
+.form {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.06);
+}
+.title {
+  font-family: var(--font-title);
+  color: var(--color-primary);
+  font-weight: 800;
+  font-size: 28px;
+  margin: 0 0 22px;
+}
+
+/* ---- Secțiuni ---- */
+.section { margin-top: 26px; }
+.sectionTitle { font-weight: 700; font-size: 16px; margin: 0 0 14px; }
+
+/* ---- Grid STRICT 2 coloane pe desktop ---- */
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)); /* 2 coloane */
+  gap: 18px 26px; /* rânduri / coloane */
+}
+@media (max-width: 760px) {
+  .grid2 { grid-template-columns: 1fr; }
+}
+
+/* ---- Field block ---- */
+.fieldBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fieldBlock input{
+  width: 92%;
+}
+/* Label / hint / error / counter */
+.label { font-weight: 600; font-size: 14px; }
+.hint  { font-size: 12px; color: #6b7280; }
+.error { font-size: 12px; color: #b42318; }
+.counter { font-size: 12px; color: #6b7280; align-self: flex-end; }
+
+/* ---- Lățimi controlate (nu 100%) ---- */
+.fieldBlock input[type="text"],
+.fieldBlock input[type="email"],
+.fieldBlock input[type="password"],
+.fieldBlock input[type="url"],
+.fieldBlock select {
+  width: 92%;
+  max-width: 540px;
+}
+
+.fieldBlock textarea {
+  width: 96%;
+  max-width: 820px;
+  min-height: 120px;
+  resize: vertical;
+}
+
+/* ---- Full-row pentru câmpuri lungi / speciale ---- */
+.grid2 .fieldBlock:has(textarea),
+.grid2 .fieldBlock:has(input[type="file"]),
+.grid2 .fieldBlock:has(#deliveryNotes),
+.grid2 .fieldBlock:has(#returnNotes),
+.grid2 .fieldBlock:has(select#category) {
+  grid-column: 1 / -1;
+}
+
+/* Categoria: select mai scurt, centrat vizual pe rândul lui */
+.grid2 .fieldBlock:has(select#category) select {
+  width: 48%;
+  min-width: 280px;
+  max-width: 520px;
+}
+
+/* Imagini: pe ecrane mici, cover devine full-row */
+@media (max-width: 860px) {
+  .grid2 .fieldBlock:has(#coverImage) { grid-column: 1 / -1; }
+}
+
+/* ---- Stil de bază inputs/select/textarea ---- */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="url"],
+textarea,
+select {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 15px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+/* ---- Username + badge: anti-suprapunere ---- */
+.inlineField {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap; /* lasă badge-ul pe linia următoare dacă e nevoie */
+}
+/* în .inlineField, inputul e flexibil și nu moștenește lățimea de 92% */
+.inlineField input {
+  width: auto;
+  flex: 0 1 440px;   /* bază 440px, se micșorează la nevoie */
+  max-width: 540px;
+}
+.statusBadge {
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+/* ---- Checkbox pe un singur rând ---- */
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+}
+
+/* ---- Preview imagini (aliniat cu inputs) ---- */
+.imagePreviewWrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px;
+  width: 96%;
+  max-width: 820px;
+}
+.imagePreview {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: #fff;
+}
+input[type="file"] {
+  background: var(--surface);
+  border: 1px dashed var(--color-border);
+  padding: 12px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  width: 96%;
+  max-width: 820px;
+}
+input[type="file"]:hover { border-color: var(--color-hover); }
+
+/* ---- Footer (acțiuni) ---- */
+.footerBar {
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.actions { display: inline-flex; align-items: center; gap: 12px; }
+.savingState { font-size: 13px; color: #6b7280; }
+
+/* ---- Butoane ---- */
+.primaryBtn,
+.secondaryBtn {
+  border-radius: var(--radius);
+  padding: 5px 5px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.primaryBtn {
+  background: var(--color-primary);
+  color: #1b1b1b;
+  border-color: var(--color-primary);
+}
+.primaryBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.secondaryBtn {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+.secondaryBtn:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg) 8%);
+}
+
+/* ---- Error box global ---- */
+.errorBox {
+  margin-top: 16px;
+  background: color-mix(in srgb, #b42318 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, #b42318 35%, var(--surface));
+  color: #7a271a;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+/* cod inline din hint (link public) */
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+}
+
+/* ——— Stări input pentru disponibilitate ——— */
+.inputOk {
+  border-color: #22c55e !important;            /* verde */
+  box-shadow: 0 0 0 3px rgba(34,197,94,.2) !important;
+}
+.inputError {
+  border-color: #ef4444 !important;            /* roșu */
+  box-shadow: 0 0 0 3px rgba(239,68,68,.18) !important;
+}
+
+/* Badge colorat pentru ok/error */
+.badgeOk {
+  border-color: rgba(34,197,94,.35) !important;
+  color: #16a34a !important;
+  background: rgba(34,197,94,.08) !important;
+}
+.badgeError {
+  border-color: rgba(239,68,68,.35) !important;
+  color: #b91c1c !important;
+  background: rgba(239,68,68,.08) !important;
+}
+
+/* ——— Butoane pe toată lățimea, stivuite ——— */
+.footerStack { padding-top: 18px; }
+.actionsStack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;       /* stivuite */
+  align-items: stretch;         /* întinse pe lățime */
+  gap: 10px;
+}
+.btnBlock {
+  width: 100%;
+}
+
+/* dacă vrei puțin spațiu între starea de “se salvează...” și butoane pe coloană */
+.savingState { margin-bottom: 2px; }
+
+.infoToggle {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.infoToggle:hover {
+  text-decoration: none;
+}
+
+/* Containerul mare al informațiilor */
+.categoryInfo {
+  margin-top: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.95rem;
+}
+
+/* Callout pentru categoria selectată */
+.categoryCallout {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.categoryCallout strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+/* Lista completă */
+.categoryList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .categoryList {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.categoryItem {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.categoryTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.categoryMeta {
+  margin: 2px 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.pill {
+  display: inline-block;
+  background: var(--surface-3);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}

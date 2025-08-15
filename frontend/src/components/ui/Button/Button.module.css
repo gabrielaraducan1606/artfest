@@ -1,28 +1,45 @@
-/* src/components/ui/Button.module.css */
 .button {
-  padding: 0.5rem 1.2rem;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   font-weight: 600;
-  font-size: 0.95rem;
-  border: none;
+  font-size: 1rem;
+  border-radius: 9999px;
   cursor: pointer;
-  transition: all 0.3s ease-in-out;
-  background-color: #A3B18A; /* verde salvie */
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+  border: 2px solid transparent;
+  text-decoration: none;
+  padding: 0.6rem 1.4rem;
+  background-color: var(--color-primary);
   color: #fff;
 }
 
+/* Hover pentru buton normal */
 .button:hover {
-  background-color: #B3926A; /* maro deschis */
-  color: #fff;
+  background-color: var(--color-hover);
+  border-color: var(--color-hover);
 }
 
+/* Outline variant */
 .outline {
   background-color: transparent;
-  color: #A3B18A;
-  border: 2px solid #A3B18A;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .outline:hover {
-  background-color: #A3B18A;
-  color: white;
+  background-color: var(--color-primary);
+  color: #fff;
+}
+
+/* Dimensiuni opționale */
+.sm {
+  font-size: 0.85rem;
+  padding: 0.4rem 1rem;
+}
+
+.lg {
+  font-size: 1.1rem;
+  padding: 0.8rem 1.6rem;
 }
