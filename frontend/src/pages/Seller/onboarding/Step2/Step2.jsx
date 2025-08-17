@@ -1,21 +1,21 @@
+// src/pages/Seller/onboarding/Steps/Step2.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../../components/services/api';
+import useDraft from '../../../../components/utils/useDraft';
 import styles from './Step2.module.css';
 
 /**
  * STEP 2 — PLĂȚI & ABONAMENT
- * -------------------------------------------------
- * • Concentrează toate câmpurile NECESARE plăților și facturării.
- * • Include validări pentru IBAN, CUI, email, telefon și accept T&C.
- * • Draft autosave (localStorage + opțional PATCH la /seller/progress).
- * • Trimite ca FormData pentru KYC (fișiere) + alternative URL.
+ * • Validări pentru IBAN (regex), CUI, email, telefon, accept T&C.
+ * • Draft autosave în localStorage + PATCH /seller/progress (backend).
+ * • Trimite FormData pentru fișiere KYC (fișierele NU se salvează în localStorage).
  */
 
 const PHONE_RGX = /^(\+?\d[\d\s-]{6,})$/;
 const EMAIL_RGX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const CUI_RGX = /^(RO)?\d{2,10}$/i; // simplificat: permite RO prefix opțional + 2-10 cifre
-const IBAN_RGX = /^RO\d{2}[A-Z]{4}[0-9A-Z]{16}$/; // format strict (fără spații)
+const CUI_RGX = /^(RO)?\d{2,10}$/i;
+const IBAN_RGX = /^RO\d{2}[A-Z]{4}[0-9A-Z]{16}$/;
 
 const plans = [
   { value: 'start',  label: 'Start — gratuit 1 lună, apoi 49 lei/lună',  price: 49 },
@@ -49,15 +49,15 @@ const FileRow = ({ label, name, fileValue, urlName, urlValue, onFile, onChange, 
 export default function Step2({ onStepComplete }) {
   const navigate = useNavigate();
   const token = useMemo(() => localStorage.getItem('authToken'), []);
-  const draftKey = useMemo(() => `seller_onboarding_step2:${token?.slice(0, 8) || 'anon'}`,[token]);
+  const userKey = useMemo(() => token?.slice(0,12) || 'anon', [token]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const [form, setForm] = useState(() => {
-    const saved = localStorage.getItem(draftKey);
-    return saved ? JSON.parse(saved) : {
+  const [form, setForm] = useDraft(
+    "onboarding:step2",
+    {
       entityType: 'pfa',
       companyName: '',
       cui: '',
@@ -74,8 +74,13 @@ export default function Step2({ onStepComplete }) {
       kycDocUrl: '',
       addressProof: null,
       addressProofUrl: '',
-    };
-  });
+    },
+    {
+      userKey,
+      debounce: 500,
+      
+    }
+  );
 
   const [clientErrors, setClientErrors] = useState({});
 
@@ -83,15 +88,13 @@ export default function Step2({ onStepComplete }) {
     if (!token) navigate('/login', { replace: true });
   }, [token, navigate]);
 
-  // autosave local + (opțional) backend progress
+  // autosave backend progress
   const debouncedSave = useDebouncedCallback(async (next) => {
     try {
       setSaving(true);
-      localStorage.setItem(draftKey, JSON.stringify(next));
-      // păstrează progresul în backend
       await api.patch('/seller/progress', { currentStep: 2, billingDraft: next });
     } catch {
-      // silent fail; rămâne măcar în localStorage
+      // silent fail
     } finally { setSaving(false); }
   }, 600);
 
@@ -104,7 +107,6 @@ export default function Step2({ onStepComplete }) {
     const { name, value, type, checked } = e.target;
     const v = type === 'checkbox' ? checked : value;
     const next = { ...form, [name]: v };
-    // normalizări ușoare
     if (name === 'cui') next.cui = v.toUpperCase().replace(/\s+/g, '');
     if (name === 'iban') next.iban = v.toUpperCase().replace(/\s+/g, '');
     setFormAndSave(next);
@@ -161,7 +163,6 @@ export default function Step2({ onStepComplete }) {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      localStorage.removeItem(draftKey);
       onStepComplete?.(3);
       navigate('/vanzator/onboarding?step=3', { replace: true });
     } catch (err) {
@@ -169,7 +170,10 @@ export default function Step2({ onStepComplete }) {
     } finally { setSubmitting(false); }
   };
 
-  const selectedPlan = useMemo(() => plans.find(p => p.value === form.subscriptionPlan) || plans[0], [form.subscriptionPlan]);
+  const selectedPlan = useMemo(
+    () => plans.find(p => p.value === form.subscriptionPlan) || plans[0],
+    [form.subscriptionPlan]
+  );
 
   return (
     <>
@@ -177,7 +181,7 @@ export default function Step2({ onStepComplete }) {
         <form className={styles.form} onSubmit={handleSubmit} noValidate>
           <h2 className={styles.title}>Pasul 2 — Configurare plăți & abonament</h2>
 
-          {/* === Secțiunea 1: Date entitate === */}
+          {/* Date entitate */}
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Date entitate</h3>
             <div className={styles.grid2}>
@@ -221,7 +225,7 @@ export default function Step2({ onStepComplete }) {
             </div>
           </section>
 
-          {/* === Secțiunea 2: Cont de încasare === */}
+          {/* Cont de încasare */}
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Cont de încasare</h3>
             <div className={styles.grid2}>
@@ -248,7 +252,7 @@ export default function Step2({ onStepComplete }) {
             </div>
           </section>
 
-          {/* === Secțiunea 3: Documente KYC === */}
+          {/* Documente KYC */}
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Documente KYC</h3>
             <p className={styles.hint}>Poți completa acum sau ulterior. E necesar înainte de prima retragere.</p>
@@ -274,7 +278,7 @@ export default function Step2({ onStepComplete }) {
             />
           </section>
 
-          {/* === Secțiunea 4: Abonament === */}
+          {/* Abonament */}
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>Abonament</h3>
             <div className={styles.grid2}>
@@ -291,7 +295,7 @@ export default function Step2({ onStepComplete }) {
             </div>
           </section>
 
-          {/* === Secțiunea 5: Termeni === */}
+          {/* Termeni */}
           <section className={styles.section}>
             <label className={styles.checkline}>
               <input type="checkbox" name="termsAccepted" checked={form.termsAccepted} onChange={handleChange} />
@@ -307,20 +311,22 @@ export default function Step2({ onStepComplete }) {
             <button type="submit" disabled={submitting} className={styles.primaryBtn}>
               {submitting ? 'Se salvează…' : 'Salvează și mergi la pasul următor'}
             </button>
+
+            {/* Sari peste */}
             <button
-  type="button"
-  className={styles.secondaryBtn}
-  onClick={async () => {
-    try {
-      await api.patch('/seller/progress', { currentStep: 3, billingDraft: form });
-      navigate('/vanzator/onboarding?step=3');
-    } catch {
-      alert('Nu am putut sări la pasul 3. Încearcă din nou.');
-    }
-  }}
->
-  Sari peste și mergi la pasul 3
-</button>
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={async () => {
+                try {
+                  await api.patch('/seller/progress', { currentStep: 3, billingDraft: form });
+                  navigate('/vanzator/onboarding?step=3');
+                } catch {
+                  alert('Nu am putut sări la pasul 3. Încearcă din nou.');
+                }
+              }}
+            >
+              Sari peste și mergi la pasul 3
+            </button>
           </div>
         </form>
       </div>

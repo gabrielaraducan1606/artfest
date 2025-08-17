@@ -1,62 +1,51 @@
+// models/Seller.js
 import mongoose from 'mongoose';
 
-const sellerSchema = new mongoose.Schema(
-  {
-    shopName: { type: String, required: true, trim: true },
-    username: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    email: { type: String, required: true, lowercase: true, trim: true },
-    passwordHash: { type: String, required: true },
+const sellerSchema = new mongoose.Schema({
+  shopName: { type: String, required: true, trim: true },
+  username: { type: String, required: true, unique: true, lowercase: true, trim: true },
 
-    phone: { type: String, required: true },
-    publicPhone: { type: Boolean, default: false },
+  email: { type: String, required: true, lowercase: true, trim: true },
+  passwordHash: { type: String, required: true },
 
-    profileImageUrl: { type: String },
-    coverImageUrl: { type: String },
+  phone: { type: String, default: "" },
+  publicPhone: { type: Boolean, default: false },
+  publicEmail: { type: String, default: "" },
 
-    shortDescription: { type: String, maxlength: 600 },
-    about: { type: String, maxlength: 600 },
-    brandStory: { type: String },
+  profileImageUrl: { type: String },
+  coverImageUrl: { type: String },
 
-    category: { type: String, required: true },
-    city: { type: String, required: true },
-    country: { type: String, required: true },
-    address: { type: String, trim: true },
+  shortDescription: { type: String, maxlength: 160 },
+  brandStory: { type: String, maxlength: 3000 },
 
-    tags: { type: [String], default: [] },
+  category: { type: String, default: "" },
+  city: { type: String, default: "" },
+  country: { type: String, default: "România" },
 
-    deliveryNotes: { type: String },
-    returnNotes: { type: String },
+  deliveryNotes: { type: String, default: "" },
+  returnNotes: { type: String, default: "" },
 
-    entityType: { type: String, enum: ['pfa', 'srl'], required: true },
-    companyName: { type: String, required: true },
-    cui: { type: String, required: true },
-    registrationNumber: { type: String, required: true },
-    iban: { type: String, required: true },
+  // STEP 2
+  entityType: { type: String, enum: ['pfa', 'srl'], default: 'pfa' },
+  companyName: { type: String, default: "" },
+  cui: { type: String, default: "" },
+  address: { type: String, default: "" },
+  iban: { type: String, default: "" },
+  emailFinance: { type: String, default: "" },
+  subscriptionPlan: { type: String, enum: ['start','growth','pro'], default: 'start' },
+  kycDocUrl: { type: String },
+  addressProofUrl: { type: String },
 
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', unique: true, index: true },
+  // user link
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', unique: true, index: true },
 
-    status: { type: String, enum: ['draft', 'active', 'archived'], default: 'draft' },
-    publishedAt: { type: Date, default: null },
-    onboardingStep: { type: Number, default: 1 },
-    kycDocUrl: { type: String },
-    addressProofUrl: { type: String },
-    emailFinance: { type: String },
-    subscriptionPlan: { type: String, enum: ['start', 'growth', 'pro'], default: 'start' },
-    termsAccepted: { type: Boolean, default: false },
-  },
-  { timestamps: true }
-);
+  // lifecycle
+  status: { type: String, enum: ['draft', 'active', 'archived'], default: 'draft' },
+  publishedAt: { type: Date, default: null },
+  onboardingStep: { type: Number, default: 1 },
+}, { timestamps: true });
 
 sellerSchema.index({ username: 1 }, { unique: true });
-
-// index pentru căutări după numele magazinului
-sellerSchema.index({ shopName: 1 });
-
-// opțional: dacă vrei UNICITATE case-insensitive pe shopName,
-// setează o collation pe colecție (ex. en, strength: 2) și apoi:
-// sellerSchema.index({ shopName: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
-
 sellerSchema.index({ shopName: 'text' }, { weights: { shopName: 5 } });
 
-// 👇 folosește modelul existent dacă e deja înregistrat
 export default mongoose.models.Seller || mongoose.model('Seller', sellerSchema);

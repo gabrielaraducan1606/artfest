@@ -8,7 +8,7 @@ import Navbar from "../../components/HomePage/Navbar/Navbar";
 import Footer from "../../components/HomePage/Footer/Footer";
 
 // imagine hero (poți înlocui)
-import heroImg from "../../assets/LogoArtfest.jpeg";
+import heroImg from "../../assets/LogoArfest.png";
 
 const services = [
   {

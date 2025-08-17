@@ -6,7 +6,7 @@ import styles from "./HeroSection.module.css";
 
 // Imagini (înlocuiește cu ale tale dacă vrei)
 import imageMain from "../../../assets/heroSectionImage.jpg";
-import imageSmall1 from "../../../assets/LogoArtfest.jpeg";
+import imageSmall1 from "../../../assets/LogoArfest.png";
 import imageSmall2 from "../../../assets/heroSectionImage.jpg";
 
 export default function HeroSection() {

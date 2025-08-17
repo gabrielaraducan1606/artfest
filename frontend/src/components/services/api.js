@@ -1,6 +1,7 @@
+// frontend/src/components/services/api.js
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/+$/, '');
 
 // Chei în storage
 const LS_ACCESS = 'authToken';
@@ -28,7 +29,11 @@ export function clearToken() {
   localStorage.removeItem(LS_ACCESS);
 }
 
-const api = axios.create({ baseURL: `${API_BASE_URL}/api` });
+// instanță axios
+const api = axios.create({
+  baseURL: `${API_BASE_URL}/api`,
+  timeout: 15000,
+});
 
 // Atașează automat Bearer dacă există token
 api.interceptors.request.use((config) => {
@@ -52,7 +57,6 @@ api.interceptors.response.use(
         clearToken();
       } finally {
         handling401 = false;
-        // redirect soft pentru a nu păstra state-uri ciudate
         if (window.location.pathname !== '/login') {
           window.location.replace('/login');
         }

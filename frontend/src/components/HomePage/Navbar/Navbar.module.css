@@ -12,6 +12,7 @@
 
 .container {
   max-width: 1280px;
+  height: 50px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -21,7 +22,8 @@
 }
 
 .logo {
-  height: 56px; /* ușor mai mic pentru aspect mai fin */
+  height: 100px; /* ușor mai mic pentru aspect mai fin */
+  width: 100px;
 }
 
 .burger {

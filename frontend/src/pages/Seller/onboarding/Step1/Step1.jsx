@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../../../components/services/api";
+import useDraft from "../../../../components/utils/useDraft";
 import styles from "./Step1.module.css";
 
 const USERNAME_RGX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/; // slug-like
@@ -22,6 +23,7 @@ const CATEGORIES = [
   { value: "papetarie-cadouri", label: "Papetărie și cadouri" },
   { value: "produse-copii", label: "Produse pentru copii" },
   { value: "cosmetice-naturale", label: "Produse cosmetice naturale" },
+  { value: "cadouri-personalizate", label: "Cadouri personalizate" },
   { value: "altele", label: "Altele" },
 ];
 
@@ -69,6 +71,12 @@ const CATEGORY_HELP = {
     include: "Produse făcute manual, etichetate corect, loturi mici.",
     exclude: "Produse fără conformitate legală (etichete, notificări, etc.).",
   },
+    "cadouri-personalizate": {
+    title: "Cadouri personalizate",
+    examples: ["cănile și tricourile inscripționate", "rame foto gravate", "obiecte cu mesaje personalizate"],
+    include: "Articole realizate manual sau semi-handmade, cu personalizare unică (nume, mesaje, gravură, print).",
+    exclude: "Produse standard, fără opțiuni reale de personalizare.",
+  },
   altele: {
     title: "Altele",
     examples: ["mix de produse", "seturi tematice", "articole de nișă"],
@@ -76,6 +84,7 @@ const CATEGORY_HELP = {
     exclude: "Revânzare fără aport handmade sau personalizare reală.",
   },
 };
+
 
 function useDebouncedCallback(cb, delay) {
   const t = useRef(null);
@@ -122,8 +131,47 @@ const ImageField = ({ label, name, value, onChange, hint }) => {
   );
 };
 
+// ——— Mic helper pt. sugestii de username
+function slugify(str) {
+  return String(str || "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+function UsernameSuggestions({ base, checkFn, onPick }) {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      const root = slugify(base) || "magazin";
+      const cand = [root, `${root}-shop`, `${root}-ro`, `${root}-handmade`];
+      for (let i = 1; i <= 4; i++) cand.push(`${root}-${i}`);
+      const out = [];
+      for (const u of cand) {
+        const ok = await checkFn(u);
+        if (ok) out.push(u);
+        if (out.length >= 3) break;
+      }
+      if (!cancel) setList(out);
+    })();
+    return () => { cancel = true; };
+  }, [base, checkFn]);
+  if (!list.length) return null;
+  return (
+    <span className={styles.suggestRow}>
+      {list.map((u) => (
+        <button type="button" key={u} className={styles.suggestBtn} onClick={() => onPick(u)}>
+          {u}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 export default function Step1({ onStepComplete }) {
   const navigate = useNavigate();
+  const token = useMemo(() => localStorage.getItem("authToken") || "", []);
+  const userKey = useMemo(() => token.slice(0, 12) || "anon", [token]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);     // autosave vizual
@@ -138,22 +186,31 @@ export default function Step1({ onStepComplete }) {
   const [showCategoryInfo, setShowCategoryInfo] = useState(false);
   const [showAllCategoryInfo, setShowAllCategoryInfo] = useState(false);
 
-  const [formData, setFormData] = useState({
-    shopName: "",
-    username: "",
-    phone: "",
-    publicPhone: false,
-    publicEmail: "",
-    profileImage: null,
-    coverImage: null,
-    shortDescription: "",
-    brandStory: "",
-    category: "",
-    city: "",
-    country: "România",
-    deliveryNotes: "",
-    returnNotes: "",
-  });
+  const [formData, setFormData] = useDraft(
+    "onboarding:step1",
+    {
+      shopName: "",
+      username: "",
+      phone: "",
+      publicPhone: false,
+      publicEmail: "",
+      profileImage: null,
+      coverImage: null,
+      shortDescription: "",
+      brandStory: "",
+      category: "",
+      city: "",
+      country: "România",
+      deliveryNotes: "",
+      returnNotes: "",
+    },
+    {
+      userKey,
+      debounce: 500,
+      // scoatem câmpurile File din persist
+      
+    }
+  );
 
   const publicLink = useMemo(() => {
     const base = window?.location?.origin || "https://exemplu.ro";
@@ -161,7 +218,7 @@ export default function Step1({ onStepComplete }) {
     return u ? `${base}/shop/${u}` : `${base}/shop/username`;
   }, [formData.username]);
 
-  // Load progres
+  // Load progres (din backend)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -176,9 +233,9 @@ export default function Step1({ onStepComplete }) {
       }
     })();
     return () => { mounted = false; };
-  }, []);
+  }, [setFormData]);
 
-  // Autosave (ușor “debounced”)
+  // Autosave (ușor “debounced”) în backend
   const debouncedSave = useDebouncedCallback(async (data) => {
     try {
       setSaving(true);
@@ -395,8 +452,7 @@ export default function Step1({ onStepComplete }) {
                 </span>
               </div>
               <p className={styles.hint}>
-                Doar litere mici, cifre și cratime. Poți folosi acest link pentru distribuire pe
-                rețelele de socializare, în bio, sau în campanii. Linkul tău:{" "}
+                Doar litere mici, cifre și cratime. Linkul tău:{" "}
                 <code>{publicLink}</code>{" "}
                 <button
                   type="button"
@@ -406,7 +462,23 @@ export default function Step1({ onStepComplete }) {
                   Copiază
                 </button>
               </p>
-              {clientErrors.username && <p className={styles.error}>{clientErrors.username}</p>}
+
+              {/* Sugestii când nu e disponibil */}
+              {(!clientErrors.username && usernameStatus !== "ok" && formData.shopName.trim()) && (
+                <div className={styles.suggestions}>
+                  <span className={styles.hint}>Sugestii:</span>{" "}
+                  <UsernameSuggestions
+                    base={formData.shopName}
+                    checkFn={async (u)=>{
+                      try {
+                        const r = await api.get(`/seller/check-username`, { params: { u }});
+                        return !!r.data?.available;
+                      } catch { return false; }
+                    }}
+                    onPick={(u)=> setFormData(prev=> ({...prev, username: u}))}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -505,6 +577,7 @@ export default function Step1({ onStepComplete }) {
 
             {showCategoryInfo && (
               <div className={styles.categoryInfo} role="region" aria-live="polite">
+                {/* Callout scurt pt. categoria selectată */}
                 {selectedHelp && !showAllCategoryInfo && (
                   <div className={styles.categoryCallout}>
                     <strong>{selectedHelp.title}</strong>
@@ -527,6 +600,7 @@ export default function Step1({ onStepComplete }) {
                   </div>
                 )}
 
+                {/* Listă completă */}
                 {(!selectedHelp || showAllCategoryInfo) && (
                   <ul className={styles.categoryList}>
                     {Object.keys(CATEGORY_HELP).map((k) => renderCategoryCard(k))}

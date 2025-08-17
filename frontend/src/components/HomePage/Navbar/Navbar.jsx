@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import styles from "./Navbar.module.css";
-import logo from "../../../assets/LogoArtfest.jpeg";
+import logo from "../../../assets/LogoArfest.png";
 import { FaUserCircle, FaShoppingCart, FaHeart, FaSearch } from "react-icons/fa";
 
 import { useAppContext } from "../../Context/useAppContext";

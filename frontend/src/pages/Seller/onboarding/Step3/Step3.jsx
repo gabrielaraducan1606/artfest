@@ -1,7 +1,8 @@
-// src/pages/Vanzator/ContractPage.jsx
+// src/pages/Seller/onboarding/Steps/Step3.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../../../components/services/api';
+import useDraft from '../../../../components/utils/useDraft';
 import styles from './Step3.module.css';
 
 const EMAIL_RGX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -141,44 +142,51 @@ function SignaturePad({ value, onChange }) {
   );
 }
 
-export default function ContractPage() {
+export default function Step3() {
   const { id } = useParams();
   const navigate = useNavigate();
   const token = useMemo(() => localStorage.getItem('authToken'), []);
+  const userKey = useMemo(() => token?.slice(0,12) || 'anon', [token]);
 
   const [contract, setContract] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [signing, setSigning] = useState(false);
-  const [signerName, setSignerName] = useState('');
-  const [signerEmail, setSignerEmail] = useState('');
-  const [consent, setConsent] = useState(false);
-
-  const [signatureDataUrl, setSignatureDataUrl] = useState(null);
-  const [typedSignature, setTypedSignature] = useState('');
-  const [useTypedSignature, setUseTypedSignature] = useState(false);
+  const [signDraft, setSignDraft] = useDraft(
+    "onboarding:step3",
+    {
+      signerName: '',
+      signerEmail: '',
+      consent: false,
+      typedSignature: '',
+      useTypedSignature: false,
+    },
+    { userKey, debounce: 400 }
+  );
+  const { signerName, signerEmail, consent, typedSignature, useTypedSignature } = signDraft;
+  const [signatureDataUrl, setSignatureDataUrl] = useState(null); // nu păstrăm în localStorage
 
   useEffect(() => {
     if (!token) navigate('/login', { replace: true });
   }, [token, navigate]);
 
+  // Preîncarcă din profil
   useEffect(() => {
     (async () => {
       try {
         const { data } = await api.get('/seller/me');
-        if (data?.email) setSignerEmail((e) => e || data.email);
-        if (data?.shopName) setSignerName((n) => n || data.shopName);
+        if (data?.email) setSignDraft((s) => ({ ...s, signerEmail: s.signerEmail || data.email }));
+        if (data?.shopName) setSignDraft((s) => ({ ...s, signerName: s.signerName || data.shopName }));
       } catch {/* silent */}
     })();
-  }, []);
+  }, [setSignDraft]);
 
+  // Încarcă contractul
   useEffect(() => {
     (async () => {
       try {
         const { data } = await api.get(`/contracts/${id}`);
         setContract(data);
-        setConsent(!!data?.consentAccepted);
       } catch {
         setError('Nu am putut încărca contractul.');
       } finally { setLoading(false); }
@@ -206,18 +214,16 @@ export default function ContractPage() {
   const handleSign = async (e) => {
     e.preventDefault();
 
-    // Validările rămân și pe server, dar verificăm și client-side
     if (!signerName?.trim()) return alert('Completează numele semnatarului.');
     if (!signerEmail?.trim() || !EMAIL_RGX.test(signerEmail)) return alert('Email semnatar invalid.');
     if (!consent) return alert('Trebuie să confirmi că ai citit și ești de acord cu termenii.');
 
     const image = useTypedSignature
-      ? await renderTypedSignature(typedSignature)
+      ? await renderTypedSignature(typedSignature || signerName)
       : signatureDataUrl;
 
     if (!image) return alert('Adaugă semnătura (manuală sau tipărită).');
 
-    setSigning(true);
     try {
       const payload = {
         signerName,
@@ -234,11 +240,14 @@ export default function ContractPage() {
         signerName,
       }));
       alert('Contract semnat cu succes!');
+      // optional: curăță draftul după semnare
+      setSignDraft({ signerName, signerEmail, consent: true, typedSignature: '', useTypedSignature: false });
     } catch (err) {
       alert('Eroare la semnare: ' + (err.response?.data?.msg || err.message));
-    } finally { setSigning(false); }
+    }
   };
 
+  // Renderează o semnătură tipărită într-un <canvas> offscreen ca PNG transparent
   const renderTypedSignature = async (text) => {
     if (!text?.trim()) return null;
     const canvas = document.createElement('canvas');
@@ -262,10 +271,10 @@ export default function ContractPage() {
 
   // 🔒 Condiție de activare a butonului "Semnează"
   const canSign = Boolean(
-    signerName.trim() &&
-    EMAIL_RGX.test(signerEmail) &&
+    signerName?.trim() &&
+    EMAIL_RGX.test(signerEmail || "") &&
     consent &&
-    (useTypedSignature ? typedSignature.trim() : signatureDataUrl)
+    (useTypedSignature ? (typedSignature?.trim() || signerName?.trim()) : signatureDataUrl)
   );
 
   return (
@@ -308,7 +317,7 @@ export default function ContractPage() {
                   <span className={styles.label}>Nume semnatar</span>
                   <input
                     value={signerName}
-                    onChange={(e) => setSignerName(e.target.value)}
+                    onChange={(e) => setSignDraft((s) => ({ ...s, signerName: e.target.value }))}
                     placeholder="Nume complet"
                     required
                   />
@@ -318,7 +327,7 @@ export default function ContractPage() {
                   <input
                     type="email"
                     value={signerEmail}
-                    onChange={(e) => setSignerEmail(e.target.value)}
+                    onChange={(e) => setSignDraft((s) => ({ ...s, signerEmail: e.target.value }))}
                     placeholder="email@exemplu.ro"
                     required
                   />
@@ -331,7 +340,7 @@ export default function ContractPage() {
                   <input
                     type="checkbox"
                     checked={useTypedSignature}
-                    onChange={(e) => setUseTypedSignature(e.target.checked)}
+                    onChange={(e) => setSignDraft((s) => ({ ...s, useTypedSignature: e.target.checked }))}
                   />
                   Folosește semnătură tipărită
                 </label>
@@ -342,7 +351,7 @@ export default function ContractPage() {
                       <span className={styles.label}>Introduceți semnătura (text)</span>
                       <input
                         value={typedSignature}
-                        onChange={(e) => setTypedSignature(e.target.value)}
+                        onChange={(e) => setSignDraft((s) => ({ ...s, typedSignature: e.target.value }))}
                         placeholder={signerName || 'Nume Prenume'}
                       />
                     </label>
@@ -361,7 +370,11 @@ export default function ContractPage() {
               </fieldset>
 
               <label className={styles.checkline}>
-                <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={!!consent}
+                  onChange={(e) => setSignDraft((s) => ({ ...s, consent: e.target.checked }))}
+                />
                 Confirm că am citit contractul și accept termenii prevăzuți în acesta.
               </label>
 
@@ -370,12 +383,12 @@ export default function ContractPage() {
               <div className={styles.footerBar}>
                 <button
                   type="submit"
-                  disabled={signing || !canSign}
+                  disabled={!canSign}
                   className={styles.primaryBtn}
-                  aria-disabled={signing || !canSign}
+                  aria-disabled={!canSign}
                   title={!canSign ? 'Completează câmpurile obligatorii și adaugă semnătura' : 'Semnează contractul'}
                 >
-                  {signing ? 'Se semnează…' : 'Semnează contractul'}
+                  Semnează contractul
                 </button>
               </div>
             </form>

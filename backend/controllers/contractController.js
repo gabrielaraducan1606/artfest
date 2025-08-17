@@ -2,7 +2,7 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import Contract from '../models/Contract.js';
 import User from '../models/user.js';
-import Seller from '../models/Seller.js';
+import Seller from '../models/seller.js';
 import { savePdfBuffer } from '../utils/pdf.js';
 
 /** Generează un draft PDF simplu din datele Seller-ului */
