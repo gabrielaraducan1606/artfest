@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8" />
+<style>
+@font-face {
+  font-family: 'DejaVu';
+  src: url('{{fontFileUrl}}') format('truetype'); /* absolut file://, setat în renderContractHtml */
+  font-weight: normal;
+  font-style: normal;
+}
+*{box-sizing:border-box}
+body{ font-family: DejaVu, Arial, Helvetica, sans-serif; font-size:12px; line-height:1.42; color:#111; }
+h1{ font-size:20px; text-align:left; margin:0 0 12px; }
+h2{ font-size:14px; margin:18px 0 6px; border-bottom:1px solid #000; padding-bottom:4px; }
+.table{ width:100%; border-collapse:collapse; }
+.table td{ padding:4px 6px; vertical-align:top; }
+.small{ font-size:11px; color:#444; }
+.hr{ border-top:1px solid #000; margin:16px 0; }
+.signature-box{ margin-top:32px; display:flex; justify-content:space-between; gap:20px; }
+.signature{ width:48%; text-align:center; }
+.signature .line{ margin-top:8px; border-top:1px solid #000; padding-top:6px; }
+.signature img{ display:block; max-width:260px; max-height:120px; margin:0 auto 6px; }
+.meta{ margin-top:10px; font-size:11px; color:#333; }
+</style>
+</head>
+<body>
+
+<h1>Contract de colaborare</h1>
+<p class="small">Nr. {{contract.number}} — Seller: {{seller.shopName}}</p>
+
+<h2>I. Părțile</h2>
+<table class="table">
+  <tr><td style="width:160px;">Vânzător</td><td><strong>{{seller.companyName}}</strong> ({{seller.entityType}})</td></tr>
+  <tr><td>Reprezentant</td><td>{{seller.representativeName}}</td></tr>
+  <tr><td>CUI / CNP</td><td>{{seller.cui}}</td></tr>
+  <tr><td>Reg. Comerț</td><td>{{seller.regCom}}</td></tr>
+  <tr><td>Adresă</td><td>{{seller.address}}, {{seller.city}}, {{seller.country}}</td></tr>
+  <tr><td>Contact</td><td>{{#if seller.publicEmail}}{{seller.publicEmail}}{{else}}{{seller.emailFinance}}{{/if}}{{#if seller.phone}} | {{seller.phone}}{{/if}}</td></tr>
+  <tr><td>IBAN</td><td>{{seller.iban}}{{#if seller.bank}} ({{seller.bank}}){{/if}}</td></tr>
+  <tr><td>Categorie</td><td>{{seller.category}}</td></tr>
+</table>
+
+<h2>II. Obiectul</h2>
+<p>Prestarea serviciilor de listare, promovare și vânzare de produse handmade pe platforma <strong>{{platform.name}}</strong> ({{platform.domain}}), conform prezentului contract și T&C ale platformei.</p>
+
+<h2>III. Durata</h2>
+<p>Contractul intră în vigoare la data semnării electronice de către Vânzător și este pe durată nedeterminată. Oricare parte poate denunța unilateral cu notificare prealabilă de {{terms.noticeDays}} zile.</p>
+
+<h2>IV. Comisioane & plăți</h2>
+<p>Comision platformă: {{terms.feePercent}}% din valoarea tranzacției. Decont lunar, plata în {{terms.settlementDays}} zile lucrătoare. {{terms.extraNotes}}</p>
+
+<h2>V. Obligațiile vânzătorului</h2>
+<ul>
+  <li>Garanția originalității și conformității produselor listate.</li>
+  <li>Respectarea politicilor publicate privind livrarea și returul.</li>
+  <li>Răspuns la solicitări în maxim {{terms.slaHours}} ore lucrătoare.</li>
+</ul>
+
+<h2>VI. Protecția datelor</h2>
+<p class="small">Părțile se obligă să respecte legislația aplicabilă (inclusiv GDPR).</p>
+
+<h2>VII. Răspundere, forță majoră & jurisdicție</h2>
+<p class="small">Răspunderea fiecărei părți este limitată la contravaloarea maximă a {{terms.liabilityCapMonths}} luni de comisioane. Cazurile de forță majoră se notifică în {{terms.forceMajeureNoticeDays}} zile. Litigiile se soluționează de instanțele competente din {{terms.jurisdictionCity}}.</p>
+
+<div class="signature-box">
+  <div class="signature">
+    {{#if signature.imagePath}}<img src="file://{{signature.imagePath}}" alt="Semnătură vânzător" />{{/if}}
+    <div class="line">{{seller.representativeName}}<br/>Vânzător</div>
+  </div>
+  <div class="signature">
+    <div class="line">{{platform.representativeName}}<br/>{{platform.legalName}}</div>
+  </div>
+</div>
+
+<div class="meta">
+  Generat: {{formatDate now "DD.MM.YYYY HH:mm"}}.
+  {{#if signature.signedAt}}Semnat la: {{formatDate signature.signedAt "DD.MM.YYYY HH:mm"}}. IP: {{signature.ip}}.{{/if}}
+</div>
+
+</body>
+</html>

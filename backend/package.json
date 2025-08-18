@@ -19,6 +19,7 @@
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "geoip-lite": "^1.4.10",
+    "handlebars": "^4.7.8",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.18.0",
     "mongoose": "^8.17.0",
@@ -27,6 +28,7 @@
     "path-to-regexp": "^8.2.0",
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.17.1",
+    "puppeteer": "^24.16.2",
     "slugify": "^1.6.6",
     "socket.io": "^4.8.1"
   },

@@ -1,4 +1,3 @@
-// backend/routes/contractRoutes.js
 import { Router } from "express";
 import path from "path";
 import fs from "fs/promises";
@@ -6,7 +5,9 @@ import fsSync from "fs";
 import Contract from "../models/Contract.js";
 import Seller from "../models/Seller.js";
 import { savePdfBuffer } from "../utils/pdf.js";
-import { buildContractForSellerPDF, signContractPDF } from "../utils/contractTemplate.js";
+import { signContractPDF } from "../utils/contractTemplate.js";
+import renderContractHtml from "../utils/renderContractHtml.js";
+import htmlToPdfBuffer from "../utils/htmlToPdf.js";
 
 const router = Router();
 
@@ -20,43 +21,109 @@ function getId(req) {
     null
   );
 }
-function makeNumber(sellerDoc) {
+function makeContractNumber(sellerDoc) {
   const d = new Date();
   const suffix = String(sellerDoc._id || "").slice(-6);
   return `${d.getFullYear()}-${suffix}-${d.getTime().toString().slice(-5)}`;
 }
 
-/** INIT: creează/restituie contract draft pentru seller */
+/** INIT: creează/restituie contract draft pentru seller (HTML -> PDF) */
 router.post("/init", async (req, res, next) => {
   try {
     const anyId = getId(req);
     if (!anyId) return res.status(400).json({ msg: "sellerId lipsă (body/query/header)." });
 
-    // acceptă fie Seller._id, fie User._id
     const seller =
       (await Seller.findById(anyId)) ||
       (await Seller.findOne({ userId: anyId }));
-
     if (!seller) return res.status(404).json({ msg: "Seller inexistent pentru id-ul primit." });
 
-    // căutăm contractul draft pe baza userId (Contract.sellerId = User._id conform modelului tău)
     let contract = await Contract.findOne({ sellerId: seller.userId, status: "draft" });
-    if (!contract) {
-      const number = makeNumber(seller);
-      const pdfBytes = await buildContractForSellerPDF({ seller, number });
+    const forceRegen = String(req.query?.regen || "").toLowerCase() === "1";
+
+    const fileMissing = contract?.pdfPath && !fsSync.existsSync(contract.pdfPath);
+    const sellerNewer =
+      contract &&
+      seller.updatedAt &&
+      contract.updatedAt &&
+      new Date(seller.updatedAt).getTime() > new Date(contract.updatedAt).getTime();
+
+    const shouldRegen = !contract || forceRegen || fileMissing || sellerNewer;
+
+    if (shouldRegen) {
+      const data = {
+        contract: { number: makeContractNumber(seller) },
+        platform: {
+          name: "ArtFest",
+          domain: "artfest.ro",
+          legalName: "ARTFEST MARKETPLACE SRL",
+          representativeName: "Nume Prenume",
+          address: "București, Str. ... nr. ...",
+          regCom: "J00/0000/2024",
+          cif: "RO12345678",
+          email: "contact@artfest.ro",
+          phone: "+40 31 234 56 78",
+          bank: "BCR",
+          iban: "RO49AAAA1B31007593840000",
+        },
+        seller: {
+          _id: String(seller._id),
+          companyName: seller.companyName || seller.shopName,
+          shopName: seller.shopName,
+          entityType: (seller.entityType || "").toUpperCase(), // PFA/SRL
+          cui: seller.cui,
+          regCom: seller.regCom,
+          address: seller.address,
+          city: seller.city,
+          country: seller.country,
+          publicEmail: seller.publicEmail,
+          emailFinance: seller.emailFinance,
+          phone: seller.phone,
+          publicPhone: !!seller.publicPhone,
+          iban: seller.iban,
+          bank: seller.bank,
+          representativeName: seller.representativeName,
+          category: seller.category,
+        },
+        terms: {
+          feePercent: 10,
+          feeFixed: 0,
+          currency: "lei",
+          settlementDays: 7,
+          withdrawMin: 0,
+          otherFees: "",
+          returnWindowDays: 14,
+          noticeDays: 15,
+          updateNoticeDays: 15,
+          slaHours: 24,
+          liabilityCapMonths: 3,
+          forceMajeureNoticeDays: 5,
+          jurisdictionCity: "București",
+          extraNotes: "Comisionul se aplică la valoarea produselor fără taxele de livrare.",
+        },
+        signature: { imagePath: "", signedAt: null, ip: "" }, // draft
+      };
+
+      const html = await renderContractHtml({ ...data, now: new Date().toISOString() });
+      const pdfBytes = await htmlToPdfBuffer(html);
 
       const baseName = `contract-${seller.userId}-${Date.now()}`;
       const { path: absPath, url } = await savePdfBuffer(pdfBytes, baseName);
 
-      contract = await Contract.create({
-        sellerId: seller.userId,      // rămâne ref la User conform modelului tău
-        status: "draft",
-        pdfPath: absPath,
-        pdfUrl: url,
-      });
+      if (contract) {
+        contract.pdfPath = absPath;
+        contract.pdfUrl = url;
+        await contract.save();
+      } else {
+        contract = await Contract.create({
+          sellerId: seller.userId,
+          status: "draft",
+          pdfPath: absPath,
+          pdfUrl: url,
+        });
+      }
     }
 
-    // trimitem și câteva info utile frontend-ului
     const json = contract.toObject ? contract.toObject() : contract;
     return res.status(200).json({
       contract: {

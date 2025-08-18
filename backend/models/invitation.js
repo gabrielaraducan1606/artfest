@@ -1,4 +1,4 @@
-// backend/src/modules/invitations/invitation.model.js
+// backend/models/Invitation.js
 import mongoose from "mongoose";
 
 const InvitationSchema = new mongoose.Schema({

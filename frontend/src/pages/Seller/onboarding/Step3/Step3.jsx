@@ -1,4 +1,3 @@
-// src/pages/Seller/onboarding/Steps/Step3.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../../../components/services/api";
@@ -193,7 +192,7 @@ export default function Step3() {
         const { data } = await api.get("/seller/me");
         if (data?.email) setSignDraft((s) => ({ ...s, signerEmail: s.signerEmail || data.email }));
         if (data?.shopName) setSignDraft((s) => ({ ...s, signerName: s.signerName || data.shopName }));
-      } catch {""}
+      } catch { /* ignore */ }
     })();
   }, [setSignDraft]);
 
@@ -226,6 +225,24 @@ export default function Step3() {
     })();
   }, [navigate]);
 
+  // Regenerare draft la cerere
+  const handleRegen = async () => {
+    try {
+      const meResp = await api.get("/seller/me");
+      const me = meResp?.data || {};
+      const sellerId =
+        me._id || me.id || me.sellerId || me.userId || me.user?._id || me.user?.id;
+      if (!sellerId) throw new Error("Nu am putut determina sellerId.");
+
+      const init = await api.post("/contracts/init", { sellerId }, { params: { regen: 1 } });
+      const c = init.data?.contract;
+      setContract(c);
+      setContractId(c?._id || c?.id);
+    } catch (err) {
+      alert("Nu am putut regenera draftul: " + (err?.response?.data?.msg || err.message));
+    }
+  };
+
   // ⬇️ Download tolerant: încearcă /storage și /uploads (în ordinea asta)
   const handleDownload = async () => {
     try {
@@ -235,7 +252,8 @@ export default function Step3() {
         const raw = contract.pdfUrl;
         const path1 = normalizeContractPath(raw);                       // ex: /storage/contracts/...
         const path2 = path1.replace(/^\/storage\//, "/uploads/");       // fallback: /uploads/contracts/...
-        const candidates = [resolveFileUrl(path1), resolveFileUrl(path2)];
+        const ts = Date.now();
+ const candidates = [resolveFileUrl(path1) + `?t=${ts}`, resolveFileUrl(path2) + `?t=${ts}`];
 
         let lastErr;
         for (const url of candidates) {
@@ -323,10 +341,13 @@ export default function Step3() {
     (useTypedSignature ? (typedSignature?.trim() || signerName?.trim()) : signatureDataUrl)
   );
 
-  // 🔧 Previzualizare cu URL normalizat (maps /uploads -> /storage)
+  // 🔧 Previzualizare cu URL normalizat + bust cache (timpul din updatedAt)
   const previewUrl = (() => {
     const p = normalizeContractPath(contract?.pdfUrl);
-    return p ? resolveFileUrl(p) : null;
+    if (!p) return null;
+    const base = resolveFileUrl(p);
+    const t = contract?.updatedAt ? new Date(contract.updatedAt).getTime() : Date.now();
+    return `${base}?t=${t}`;
   })();
 
   return (
@@ -336,9 +357,17 @@ export default function Step3() {
           <h2 className={styles.title}>Contract de colaborare</h2>
 
           <div className={styles.preview}>
-            <button type="button" className={styles.downloadBtn} onClick={handleDownload}>
-              Descarcă PDF{contract?.status === "signed" ? " semnat" : ""}
-            </button>
+            <div className={styles.actionsRow}>
+              <button type="button" className={styles.downloadBtn} onClick={handleDownload}>
+                Descarcă PDF{contract?.status === "signed" ? " semnat" : ""}
+              </button>
+              {contract?.status !== "signed" && (
+                <button type="button" className={styles.secondaryBtn} onClick={handleRegen}>
+                  Regenerează draftul
+                </button>
+              )}
+            </div>
+
             {previewUrl ? (
               <iframe title="Previzualizare contract" src={previewUrl} className={styles.pdfFrame} />
             ) : (

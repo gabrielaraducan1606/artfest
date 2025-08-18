@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import expressPkg from "express";
+import dns from "node:dns";
 
 // RUTE
 import authRoutes from "./routes/authRoutes.js";
@@ -20,10 +21,13 @@ import reviewRoutes from "./routes/reviewRoutes.js";
 import visitorRoutes from "./routes/visitorRoutes.js";
 import cartRoutes from "./routes/cartRoutes.js";
 import wishlistRoutes from "./routes/wishListRoutes.js";
-import invitationsRoutes from "./routes/invitationsRoutes.js";
+import invitationsRouter, { publicRouter as invitationsPublicRouter } from "./routes/invitationsRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
 
 dotenv.config();
+
+// Favorizează IPv4 (evită probleme pe unele rețele Windows+Atlas)
+dns.setDefaultResultOrder?.("ipv4first");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_ROOT = path.resolve(__dirname);
@@ -34,7 +38,7 @@ const io = new SocketIOServer(httpServer, {
   cors: {
     origin: (process.env.CORS_ORIGIN || "http://localhost:5173")
       .split(",")
-      .map(s => s.trim()),
+      .map((s) => s.trim()),
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
   },
@@ -45,8 +49,8 @@ if (!app._routeDebugPatched) {
   function findCallerInStack(stack) {
     const lines = String(stack).split("\n");
     const hit =
-      lines.find(l => l.includes("\\backend\\")) ||
-      lines.find(l => l.includes("/backend/")) ||
+      lines.find((l) => l.includes("\\backend\\")) ||
+      lines.find((l) => l.includes("/backend/")) ||
       lines[1] ||
       lines[0];
     return hit;
@@ -71,10 +75,10 @@ if (!app._routeDebugPatched) {
       return orig(...args);
     };
   }
-  ["use","get","post","put","patch","delete","options","all"].forEach(m => wrapReg(app, m));
+  ["use", "get", "post", "put", "patch", "delete", "options", "all"].forEach((m) => wrapReg(app, m));
   const RouterProto = expressPkg.Router && expressPkg.Router().constructor.prototype;
   if (RouterProto) {
-    ["use","get","post","put","patch","delete","options","all"].forEach(m => {
+    ["use", "get", "post", "put", "patch", "delete", "options", "all"].forEach((m) => {
       if (typeof RouterProto[m] === "function") wrapReg(RouterProto, m);
     });
   }
@@ -84,7 +88,7 @@ if (!app._routeDebugPatched) {
 
 /* =================== MIDDLEWARE DE BAZĂ =================== */
 const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",").map(s => s.trim())
+  ? process.env.CORS_ORIGIN.split(",").map((s) => s.trim())
   : ["http://localhost:5173"];
 
 app.use(
@@ -93,7 +97,7 @@ app.use(
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  })
+  }),
 );
 
 app.use(express.json({ limit: "10mb" }));
@@ -101,7 +105,17 @@ app.use(express.urlencoded({ extended: true }));
 
 // ✅ Static: <repo>/backend/uploads și <repo>/backend/storage
 app.use("/uploads", express.static(path.join(BACKEND_ROOT, "uploads")));
-app.use("/storage", express.static(path.join(BACKEND_ROOT, "storage")));
+
+// /storage fără cache – să nu rămână în browser PDF-uri vechi
+app.use(
+  "/storage",
+  express.static(path.join(BACKEND_ROOT, "storage"), {
+    etag: false,
+    lastModified: false,
+    cacheControl: false,
+    maxAge: 0,
+  }),
+);
 
 /* ======================== RUTE API ======================== */
 app.use("/api/reviews", reviewRoutes);
@@ -110,10 +124,11 @@ app.use("/api/users", authRoutes);
 app.use("/api/seller", sellerRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/payments", paymentRoutes);
-app.use("/api/contracts", contractRoutes); // <- aici răspunde cu url-uri /storage/...
+app.use("/api/contracts", contractRoutes); // răspunde cu url-uri /storage/...
 app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
-app.use("/api/invitations", invitationsRoutes);
+app.use("/api/invitations", invitationsRouter);
+app.use("/api/public/invitations", invitationsPublicRouter);
 app.use("/api/search", searchRoutes);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
@@ -152,33 +167,58 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 /* ===================== CONNECT & START ===================== */
-const { MONGODB_URI, MONGO_URI, PORT = 5000 } = process.env;
-const mongoUri = (MONGODB_URI || MONGO_URI || "").trim();
+const { MONGODB_URI, MONGODB_URI_NOSRV, MONGO_URI, PORT = 5000 } = process.env;
+const primaryUri = (MONGODB_URI || MONGO_URI || "").trim();
 
-if (!mongoUri) {
+if (!primaryUri) {
   console.error("❌ Lipsă variabilă de mediu: MONGODB_URI (sau MONGO_URI)");
   process.exit(1);
 }
 
 mongoose.set("strictQuery", true);
 
-try {
-  const u = new URL(mongoUri);
-  console.log(`⛓️  Mongo target: ${u.protocol}//${u.hostname}${u.pathname || ""}`);
-} catch {
-  // ignorăm dacă nu e URL valid
+// log „safe” al țintei (convertim schema ca să nu stricăm URL())
+function logTarget(uri) {
+  try {
+    const u = new URL(uri.replace(/^mongodb\+srv/, "https").replace(/^mongodb/, "http"));
+    console.log(`⛓️  Mongo target: ${u.protocol}//${u.hostname}${u.pathname || ""}`);
+  } catch {
+    // ignore
+  }
 }
 
-mongoose
-  .connect(mongoUri, { serverSelectionTimeoutMS: 15000 })
-  .then(() => {
-    console.log("✅ Conectat la MongoDB");
-    httpServer.listen(PORT, () => console.log(`🚀 Serverul rulează pe portul ${PORT}`));
-  })
-  .catch((err) => {
-    console.error("❌ Eroare la conectarea MongoDB:", err);
-    process.exit(1);
-  });
+async function connectMongo(uri, label = "primary") {
+  logTarget(uri);
+  try {
+    await mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 15000,
+      // opționale:
+      // maxPoolSize: 10,
+      // minPoolSize: 0,
+      // heartbeatFrequencyMS: 10000,
+    });
+    console.log(`✅ Conectat la MongoDB (${label})`);
+    return true;
+  } catch (err) {
+    console.error(`❌ Eroare la conectarea MongoDB (${label}):`, err);
+    return false;
+  }
+}
+
+let connected = await connectMongo(primaryUri, primaryUri.startsWith("mongodb+srv://") ? "SRV" : "direct");
+
+// fallback: dacă SRV eșuează și ai non-SRV în .env
+if (!connected && MONGODB_URI_NOSRV) {
+  console.warn("⚠️ Conexiunea primară a eșuat. Încerc fallback MONGODB_URI_NOSRV …");
+  connected = await connectMongo(MONGODB_URI_NOSRV, "fallback non-SRV");
+}
+
+if (!connected) {
+  console.error("❌ Nu m-am putut conecta la Mongo. Verifică .env, whitelist Atlas și rețeaua (port 27017).");
+  process.exit(1);
+}
+
+httpServer.listen(PORT, () => console.log(`🚀 Serverul rulează pe portul ${PORT}`));
 
 process.on("SIGINT", async () => {
   await mongoose.connection.close();

@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const TEMPLATE_PATH = path.join(ROOT, "templates", "contract.ro.html");
 
-// Helpers sigure (fără HTML injectat)
+// Helpers sigure (escape implicit)
 Handlebars.registerHelper("formatDate", (iso, fmt = "DD.MM.YYYY") => {
   if (!iso) return "";
   const d = new Date(iso);
@@ -26,11 +26,18 @@ let COMPILED;
 export async function renderContractHtml(data) {
   if (!COMPILED) {
     const src = await fs.readFile(TEMPLATE_PATH, "utf8");
-    COMPILED = Handlebars.compile(src /* fără noEscape */);
+    COMPILED = Handlebars.compile(src);
   }
-  // opțional: limitează lungimi ca să eviți PDF-uri enorme
+
+  // Font absolut (Windows friendly)
+  const fontPath = path.join(ROOT, "assets", "fonts", "DejaVuSans.ttf").replace(/\\/g, "/");
+  const fontFileUrl = `file:///${fontPath.replace(/^\/+/, "")}`;
+
+  // mic clamp anti „romane”
   const clamp = (s, n = 4000) => (typeof s === "string" && s.length > n ? s.slice(0, n) + "…" : s);
   const safeData = JSON.parse(JSON.stringify(data, (k, v) => (typeof v === "string" ? clamp(v) : v)));
 
-  return COMPILED({ ...safeData, now: data?.now || new Date().toISOString() });
+  return COMPILED({ ...safeData, now: data?.now || new Date().toISOString(), fontFileUrl });
 }
+
+export default renderContractHtml;

@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 /* Pagini publice */
 import HomePage from "./pages/HomePage";
@@ -15,7 +15,7 @@ import DigitalServicesPage from "./pages/DigitalServicesPage/DigitalServicesPage
 import Magazine from "./pages/Magazine/Magazine/Magazine";
 import ProductsPage from "./pages/ProductsPage/ProductsPage";
 import DetaliiProdus from "./pages/DetaliiProdus/DetaliiProdus";
-import ProfilMagazin from "./pages/Vanzator/VanzatorDashboard/ProfilMagazin"; // folosit și ca public shop profile
+import ProfilMagazin from "./pages/Vanzator/VanzatorDashboard/ProfilMagazin";
 
 /* User */
 import Wishlist from "./pages/Wishlist/Wishlist";
@@ -39,7 +39,10 @@ import EditeazaProdus from "./pages/Vanzator/EditeazaProdus/EditeazaProdus";
 /* Servicii digitale — invitație instant */
 import InvitatieInstantLanding from "./pages/ServiciiDigitale/InvitatieInstant/servcii/InvitationLanding/InvitationLanding";
 import InvitatieInstantEditor from "./pages/ServiciiDigitale/InvitatieInstant/servcii/InvitatieInstantEditor/InvitatieInstantEditor";
+
+/* IMPORTANT: importă Providerul din src, nu dintr-un folder extern */
 import { InvitationProvider } from "../invitation/InvitationProvider";
+import { InvitationsApi } from "@/components/services/invitationsApi";
 
 /* 🔁 Redirect vechiul /search → /produse?q=...  */
 function SearchRedirect() {
@@ -48,6 +51,23 @@ function SearchRedirect() {
   const q = params.get("q") || params.get("search") || "";
   const next = q ? `/produse?q=${encodeURIComponent(q)}` : "/produse";
   return <Navigate to={next} replace />;
+}
+
+/* Rută care creează un draft nou și te duce la editor/:id (opțional, dar util) */
+function CreateInvitationAndGo() {
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const { id } = await InvitationsApi.createDraft({});
+        navigate(`/servicii-digitale/invitatie-instant/editor/${id}`, { replace: true });
+      } catch (e) {
+        console.error("Creare draft a eșuat:", e);
+        navigate("/servicii-digitale/invitatie-instant", { replace: true });
+      }
+    })();
+  }, [navigate]);
+  return null;
 }
 
 export default function App() {
@@ -72,6 +92,8 @@ export default function App() {
       {/* Servicii digitale */}
       <Route path="/servicii-digitale" element={<DigitalServicesPage />} />
       <Route path="/servicii-digitale/invitatie-instant" element={<InvitatieInstantLanding />} />
+
+      {/* a) Editor cu draft existent */}
       <Route
         path="/servicii-digitale/invitatie-instant/editor/:draftId"
         element={
@@ -80,23 +102,30 @@ export default function App() {
           </InvitationProvider>
         }
       />
+      {/* b) Intrare „goală” care creează draft și redirecționează automat */}
+      <Route
+        path="/servicii-digitale/invitatie-instant/editor"
+        element={<CreateInvitationAndGo />}
+      />
 
       {/* User */}
       <Route path="/wishlist" element={<Wishlist />} />
       <Route path="/cos" element={<Cart />} />
 
-{/*Formulare creare profil vanzator*/}
-<Route path="/vanzator/informatii" element={<ProtectedSellerRoute><SellerInfo /></ProtectedSellerRoute>} />
-<Route path="/vanzator/onboarding" element={<ProtectedSellerRoute><SellerOnboardingTabs /></ProtectedSellerRoute>} />
+      {/* Formulare creare profil vanzator */}
+      <Route
+        path="/vanzator/informatii"
+        element={<ProtectedSellerRoute><SellerInfo /></ProtectedSellerRoute>}
+      />
+      <Route
+        path="/vanzator/onboarding"
+        element={<ProtectedSellerRoute><SellerOnboardingTabs /></ProtectedSellerRoute>}
+      />
 
       {/* Seller - protejat */}
       <Route
         path="/vanzator/dashboard"
-        element={
-          <ProtectedSellerRoute>
-            <ProfilMagazin />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><ProfilMagazin /></ProtectedSellerRoute>}
       />
       <Route path="/vanzator/completare-profil" element={<CompleteProfile />} />
       <Route path="/vanzator/sendonboarding" element={<SendOnboarding />} />
@@ -104,59 +133,31 @@ export default function App() {
 
       <Route
         path="/vanzator/produse"
-        element={
-          <ProtectedSellerRoute>
-            <ProduseleMele />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><ProduseleMele /></ProtectedSellerRoute>}
       />
       <Route
         path="/vanzator/comenzi"
-        element={
-          <ProtectedSellerRoute>
-            <ComenzileMele />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><ComenzileMele /></ProtectedSellerRoute>}
       />
       <Route
         path="/vanzator/vizitatori"
-        element={
-          <ProtectedSellerRoute>
-            <Vizitatori />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><Vizitatori /></ProtectedSellerRoute>}
       />
       <Route
         path="/vanzator/asistenta"
-        element={
-          <ProtectedSellerRoute>
-            <Asistenta />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><Asistenta /></ProtectedSellerRoute>}
       />
       <Route
         path="/vanzator/setari"
-        element={
-          <ProtectedSellerRoute>
-            <Setari />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><Setari /></ProtectedSellerRoute>}
       />
       <Route
         path="/vanzator/adauga-produs"
-        element={
-          <ProtectedSellerRoute>
-            <AdaugaProdus />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><AdaugaProdus /></ProtectedSellerRoute>}
       />
       <Route
         path="/vanzator/editeaza-produs/:id"
-        element={
-          <ProtectedSellerRoute>
-            <EditeazaProdus />
-          </ProtectedSellerRoute>
-        }
+        element={<ProtectedSellerRoute><EditeazaProdus /></ProtectedSellerRoute>}
       />
 
       {/* Fallback */}
