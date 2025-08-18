@@ -15,25 +15,18 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
-      // API-ul backend-ului
-      '/api': {
-        target: 'http://localhost:5000',
+      "/api": {
+        target: "http://localhost:5000",
         changeOrigin: true,
-        secure: false,
-        ws: true,
       },
-      // (opțional) pentru Socket.IO, dacă îl folosești
-      '/socket.io': {
-        target: 'http://localhost:5000',
+      "/storage": {
+        target: "http://localhost:5000",
         changeOrigin: true,
-        ws: true,
       },
-      // (opțional) fișiere servite de backend (ex. /uploads/...)
-      '/uploads': {
-        target: 'http://localhost:5000',
+      "/uploads": {
+        target: "http://localhost:5000",
         changeOrigin: true,
-        secure: false,
       },
     },
   },
-})
+});

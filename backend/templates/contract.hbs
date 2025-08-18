@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8" />
+<style>
+@font-face {
+  font-family: 'DejaVu';
+  src: url('{{assetsUrl}}/fonts/DejaVuSans.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+*{box-sizing:border-box}
+body{ font-family: DejaVu, Arial, Helvetica, sans-serif; font-size:12px; line-height:1.42; color:#111; }
+h1{ font-size:20px; text-align:center; margin:0 0 12px; }
+h2{ font-size:14px; margin:18px 0 6px; }
+.table{ width:100%; border-collapse:collapse; }
+.table td{ padding:4px 6px; vertical-align:top; }
+.small{ font-size:11px; color:#444; }
+.hr{ border-top:1px solid #000; margin:16px 0; }
+.signature-box{ margin-top:32px; display:flex; justify-content:space-between; gap:20px; }
+.signature{ width:48%; text-align:center; }
+.signature .line{ margin-top:8px; border-top:1px solid #000; padding-top:6px; }
+.signature img{ display:block; max-width:260px; max-height:120px; margin:0 auto 6px; }
+.meta{ margin-top:10px; font-size:11px; color:#333; }
+</style>
+</head>
+<body>
+
+<h1>Contract de colaborare</h1>
+
+<h2>Părțile</h2>
+<table class="table">
+  <tr><td style="width:160px;">Vânzător</td><td><strong>{{seller.shopName}}</strong></td></tr>
+  <tr><td>Reprezentant</td><td>{{seller.representativeName}}</td></tr>
+  <tr><td>CUI / CNP</td><td>{{seller.taxId}}</td></tr>
+  <tr><td>Reg. Comerț</td><td>{{seller.regCom}}</td></tr>
+  <tr><td>Adresă</td><td>{{seller.address}}</td></tr>
+  <tr><td>Email</td><td>{{seller.contactEmail}}</td></tr>
+  <tr><td>Telefon</td><td>{{seller.contactPhone}}</td></tr>
+  <tr><td>IBAN</td><td>{{seller.iban}} {{#if seller.bank}}({{seller.bank}}){{/if}}</td></tr>
+</table>
+
+<div class="hr"></div>
+
+<h2>Obiect</h2>
+<p>Prestarea serviciilor de listare și vânzare de produse handmade pe platforma
+<strong>{{platform.name}}</strong> ({{platform.domain}}), conform prezentului contract și T&C ale platformei.</p>
+
+<h2>Durată</h2>
+<p>Contractul intră în vigoare la data semnării electronice de către Vânzător și este pe durată
+nedeterminată. Oricare parte poate denunța unilateral cu notificare prealabilă de {{terms.noticeDays}} zile.</p>
+
+<h2>Comisioane & Plăți</h2>
+<p>Comision platformă: {{terms.feePercent}}% din valoarea tranzacției. Decont lunar, plata în {{terms.settlementDays}} zile lucrătoare.</p>
+
+<h2>Protecția datelor</h2>
+<p class="small">Părțile se obligă să respecte legislația aplicabilă (inclusiv GDPR).</p>
+
+<div class="signature-box">
+  <div class="signature">
+    {{#if signature.imagePath}}
+      <img src="file://{{signature.imagePath}}" alt="Semnătură vânzător" />
+    {{/if}}
+    <div class="line">{{seller.representativeName}}<br/>Vânzător</div>
+  </div>
+  <div class="signature">
+    <div class="line">{{platform.representativeName}}<br/>{{platform.name}}</div>
+  </div>
+</div>
+
+<div class="meta">
+  Semnat la data: {{formatDate signature.signedAt "DD.MM.YYYY HH:mm"}}.
+  IP semnatar: {{signature.ip}}
+</div>
+
+</body>
+</html>

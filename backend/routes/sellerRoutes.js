@@ -3,7 +3,7 @@ import express from "express";
 import multer from "multer";
 import auth from "../middleware/auth.js";
 import User from "../models/user.js";
-import Seller from "../models/seller.js";
+import Seller from "../models/Seller.js";
 import { uploadToStorage } from "../utils/storage.js";
 
 const router = express.Router();
@@ -145,9 +145,10 @@ router.get("/me", auth, async (req, res) => {
   res.json(seller);
 });
 
-/** Creează/actualizează profil + upload imagini (fallback pentru formulare vechi) */
+/** Creează/actualizează profil + upload imagini (fallback pentru Step1) */
+/** IMPORTANT: era pe "/" —> o mutăm pe "/profile" ca să corespundă frontend-ului */
 router.post(
-  "/",
+  "/profile",
   auth,
   upload.fields([
     { name: "profileImage", maxCount: 1 },
@@ -163,9 +164,18 @@ router.post(
       seller = new Seller({ ...ensureDraftDefaults(user, req.body || {}), userId: user._id });
     }
 
-    // aplică câmpuri (folosim step 1 + 2 pentru poze)
+    // validare minimă unicat username când vine de la Step1
+    if (req.body?.username && req.body.username !== seller.username) {
+      const clash = await Seller.findOne({
+        username: String(req.body.username).toLowerCase().trim(),
+      }).select("_id");
+      if (clash) return res.status(400).json({ msg: "Username deja folosit" });
+    }
+
+    // aplică câmpuri
     applyStepUpdate(seller, 1, req.body);
 
+    // poze
     const pImg = req?.files?.profileImage?.[0]?._uploadedPath;
     const cImg = req?.files?.coverImage?.[0]?._uploadedPath;
     if (pImg) seller.profileImageUrl = pImg;
@@ -241,6 +251,7 @@ router.get("/onboarding/status", auth, async (req, res) => {
   });
 });
 
+/** Folosit de UI ca fallback + AUTOSAVE draft */
 router.get("/progress", auth, async (req, res) => {
   const seller = await Seller.findOne({ userId: req.user.id })
     .select("onboardingStep status")
@@ -254,7 +265,8 @@ router.get("/progress", auth, async (req, res) => {
 });
 
 router.patch("/progress", auth, async (req, res) => {
-  const { currentStep } = req.body || {};
+  // ÎMBUNĂTĂȚIT: pe lângă currentStep, acceptă draft-uri din UI
+  const { currentStep, formData, billingDraft } = req.body || {};
   const next = Math.max(1, Math.min(3, Number(currentStep) || 1));
 
   let seller = await Seller.findOne({ userId: req.user.id });
@@ -262,6 +274,27 @@ router.patch("/progress", auth, async (req, res) => {
     const user = await User.findById(req.user.id);
     seller = new Seller({ ...ensureDraftDefaults(user, {}), userId: user._id });
   }
+
+  // salvează draft Step1 (fără upload)
+  if (formData && typeof formData === "object") {
+    // protejează unicatul username doar dacă s-a schimbat
+    if (formData.username && formData.username !== seller.username) {
+      const clash = await Seller.findOne({
+        username: String(formData.username).toLowerCase().trim(),
+      }).select("_id");
+      if (!clash) {
+        applyStepUpdate(seller, 1, formData);
+      }
+    } else {
+      applyStepUpdate(seller, 1, formData);
+    }
+  }
+
+  // salvează draft Step2 (billing)
+  if (billingDraft && typeof billingDraft === "object") {
+    applyStepUpdate(seller, 2, billingDraft);
+  }
+
   seller.onboardingStep = Math.max(seller.onboardingStep || 1, next);
   await seller.save();
   res.json({ ok: true, currentStep: seller.onboardingStep });
@@ -299,7 +332,7 @@ router.post(
 
     applyStepUpdate(seller, step, req.body || {});
 
-    // uploads map
+    // uploads
     const pImg = req?.files?.profileImage?.[0]?._uploadedPath;
     const cImg = req?.files?.coverImage?.[0]?._uploadedPath;
     const kyc = req?.files?.kycDoc?.[0]?._uploadedPath;
@@ -341,7 +374,6 @@ router.post("/onboarding/complete", auth, async (req, res) => {
 
 /* ================== PUBLIC ================== */
 
-/** listă publică – doar magazine active */
 router.get("/public", async (_req, res) => {
   const sellers = await Seller.find({ status: "active" })
     .select(
@@ -353,7 +385,6 @@ router.get("/public", async (_req, res) => {
   res.json(sellers);
 });
 
-/** by "slug" – la noi slug = username */
 router.get("/public/slug/:slug", async (req, res) => {
   const seller = await Seller.findOne({
     username: String(req.params.slug).toLowerCase(),
@@ -364,7 +395,6 @@ router.get("/public/slug/:slug", async (req, res) => {
   res.json(seller);
 });
 
-/** resolver: username | _id | userId */
 router.get("/public/resolve/:handle", async (req, res) => {
   const handle = String(req.params.handle).trim().toLowerCase();
   let seller = await Seller.findOne({ username: handle, status: "active" }).lean();
@@ -375,7 +405,6 @@ router.get("/public/resolve/:handle", async (req, res) => {
   res.json(seller);
 });
 
-/** by id – doar active */
 router.get("/public/:id", async (req, res) => {
   const seller = await Seller.findOne({ _id: req.params.id, status: "active" }).lean();
   if (!seller) return res.status(404).json({ msg: "Magazin inexistent" });

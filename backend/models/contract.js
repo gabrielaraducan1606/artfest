@@ -1,43 +1,21 @@
-// models/Contract.js
-import mongoose from 'mongoose';
+// backend/models/Contract.js
+import mongoose from "mongoose";
 
-const contractSchema = new mongoose.Schema(
+const ContractSchema = new mongoose.Schema(
   {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true, required: true },
-    sellerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Seller', index: true },
+    sellerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    status: { type: String, enum: ["draft", "signed"], default: "draft" },
 
-    version: { type: String, default: 'v1.0' },
+    // unde îl găsim pe disc / url public
+    pdfPath: { type: String },
+    pdfUrl: { type: String },
 
-    status: {
-      type: String,
-      enum: ['draft', 'signed'],
-      default: 'draft',
-      index: true,
-    },
-
-    // PDF-uri (cale internă + url public expus de /uploads)
-    pdfPath: { type: String },        // ex: storage/contracts/xxx.pdf
-    pdfUrl: { type: String },         // ex: /uploads/contracts/xxx.pdf
-    pdfSignedPath: { type: String },
-    pdfSignedUrl: { type: String },
-
+    // semnare
     signerName: { type: String },
     signerEmail: { type: String },
     signedAt: { type: Date },
-
-    // cache de date relevante la generare
-    snapshot: {
-      shopName: String,
-      username: String,
-      companyName: String,
-      cui: String,
-      iban: String,
-      city: String,
-      country: String,
-      generatedAt: Date,
-    },
   },
   { timestamps: true }
 );
 
-export default mongoose.model('Contract', contractSchema);
+export default mongoose.model("Contract", ContractSchema);
