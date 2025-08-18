@@ -1,89 +1,75 @@
-// backend/routes/contractRoutes.js (fără requireAuth)
+// backend/routes/contractRoutes.js
 import { Router } from "express";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
 import Contract from "../models/Contract.js";
+import Seller from "../models/Seller.js";
 import { savePdfBuffer } from "../utils/pdf.js";
+import { buildContractForSellerPDF, signContractPDF } from "../utils/contractTemplate.js";
 
-/** PDF demo minimal – înlocuiește cu generatorul tău real oricând */
-function createMinimalPdf(text = "Contract") {
-  const body = `%PDF-1.4
-1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
-2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj
-3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
-4 0 obj<</Length 64>>stream
-BT /F1 24 Tf 72 700 Td (${text}) Tj ET
-endstream endobj
-5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
-xref
-0 6
-0000000000 65535 f 
-0000000010 00000 n 
-0000000061 00000 n 
-0000000116 00000 n 
-0000000234 00000 n 
-0000000361 00000 n 
-trailer<</Size 6/Root 1 0 R>>
-startxref
-430
-%%EOF`;
-  return Buffer.from(body, "utf8");
-}
+const router = Router();
 
-/** Helper: extrage sellerId din ce e disponibil ca să nu mai depindem de auth middleware */
-function getSellerId(req) {
+function getId(req) {
   return (
     req.user?.id ||
     req.user?._id ||
     req.body?.sellerId ||
     req.query?.sellerId ||
-    req.headers["x-user-id"] || // fallback
+    req.headers["x-user-id"] ||
     null
   );
 }
+function makeNumber(sellerDoc) {
+  const d = new Date();
+  const suffix = String(sellerDoc._id || "").slice(-6);
+  return `${d.getFullYear()}-${suffix}-${d.getTime().toString().slice(-5)}`;
+}
 
-const router = Router();
-
-/** POST /api/contracts/init
- * Creează (sau reîntoarce) un contract draft pentru sellerId și generează un PDF inițial.
- * Răspuns: { contract }
- */
+/** INIT: creează/restituie contract draft pentru seller */
 router.post("/init", async (req, res, next) => {
   try {
-    const sellerId = getSellerId(req);
-    if (!sellerId) {
-      return res
-        .status(400)
-        .json({ msg: "sellerId lipsă. Trimite-l în body { sellerId }, sau query ?sellerId=..., sau header x-user-id." });
-    }
+    const anyId = getId(req);
+    if (!anyId) return res.status(400).json({ msg: "sellerId lipsă (body/query/header)." });
 
-    let contract = await Contract.findOne({ sellerId, status: "draft" }).lean();
+    // acceptă fie Seller._id, fie User._id
+    const seller =
+      (await Seller.findById(anyId)) ||
+      (await Seller.findOne({ userId: anyId }));
 
+    if (!seller) return res.status(404).json({ msg: "Seller inexistent pentru id-ul primit." });
+
+    // căutăm contractul draft pe baza userId (Contract.sellerId = User._id conform modelului tău)
+    let contract = await Contract.findOne({ sellerId: seller.userId, status: "draft" });
     if (!contract) {
-      const baseName = `contract-${sellerId}-${Date.now()}`;
-      const pdfBytes = createMinimalPdf(`Contract seller ${sellerId}`);
+      const number = makeNumber(seller);
+      const pdfBytes = await buildContractForSellerPDF({ seller, number });
+
+      const baseName = `contract-${seller.userId}-${Date.now()}`;
       const { path: absPath, url } = await savePdfBuffer(pdfBytes, baseName);
 
-      const doc = await Contract.create({
-        sellerId,
+      contract = await Contract.create({
+        sellerId: seller.userId,      // rămâne ref la User conform modelului tău
         status: "draft",
         pdfPath: absPath,
         pdfUrl: url,
       });
-      contract = doc.toObject();
     }
 
-    return res.status(200).json({ contract });
+    // trimitem și câteva info utile frontend-ului
+    const json = contract.toObject ? contract.toObject() : contract;
+    return res.status(200).json({
+      contract: {
+        ...json,
+        sellerDisplay: seller.shopName,
+      },
+    });
   } catch (err) {
     next(err);
   }
 });
 
-/** POST /api/contracts/:id/sign
- * Body: { signerName, signerEmail, signatureImageBase64, consentAccepted }
- * Răspuns: { pdfUrl, signedAt }
- */
+/** SIGN: inserează semnătura pe PDF */
 router.post("/:id/sign", async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -94,12 +80,24 @@ router.post("/:id/sign", async (req, res, next) => {
 
     const contract = await Contract.findById(id);
     if (!contract) return res.status(404).json({ msg: "Contract inexistent." });
+    if (!contract.pdfPath || !fsSync.existsSync(contract.pdfPath)) {
+      return res.status(404).json({ msg: "PDF de semnat inexistent." });
+    }
 
-    // (Demo) generează un nou PDF „semnat”
+    const original = await fs.readFile(contract.pdfPath);
     const signedAt = new Date();
+    const signerIp = (req.headers["x-forwarded-for"] || req.ip || "").toString().split(",")[0].trim();
+
+    const outBytes = await signContractPDF({
+      pdfBuffer: original,
+      signaturePngBase64: signatureImageBase64,
+      signerName,
+      signedAt,
+      signerIp,
+    });
+
     const baseName = `contract-${id}-signed-${signedAt.getTime()}`;
-    const pdfBytes = createMinimalPdf(`Contract SIGNED de ${signerName} la ${signedAt.toISOString()}`);
-    const { path: absPath, url } = await savePdfBuffer(pdfBytes, baseName);
+    const { path: absPath, url } = await savePdfBuffer(outBytes, baseName);
 
     contract.status = "signed";
     contract.signerName = signerName;
@@ -115,9 +113,7 @@ router.post("/:id/sign", async (req, res, next) => {
   }
 });
 
-/** GET /api/contracts/:id/download
- * Descarcă PDF-ul curent (draft sau semnat)
- */
+/** DOWNLOAD: întoarce PDF curent */
 router.get("/:id/download", async (req, res, next) => {
   try {
     const { id } = req.params;
