@@ -1,26 +1,27 @@
 import React from "react";
-import styles from "./Button.module.css";
+import styles from "./button.module.css";
 
-export default function Button({
-  children,
-  variant = "default", // "default" sau "outline"
-  size = "md",          // "sm", "md", "lg"
-  className = "",
-  ...props
-}) {
-  const classes = [
-    styles.button,
-    variant === "outline" ? styles.outline : "",
-    size === "sm" ? styles.sm : "",
-    size === "lg" ? styles.lg : "",
-    className
-  ]
-    .filter(Boolean)
-    .join(" ");
+const variants = {
+  default: styles.default,
+  ghost: styles.ghost,
+};
+const sizes = {
+  default: styles.sizeDefault,
+  sm: styles.sizeSm,
+  lg: styles.sizeLg,
+  icon: styles.sizeIcon,
+};
 
-  return (
-    <button className={classes} {...props}>
-      {children}
-    </button>
-  );
-}
+export const Button = React.forwardRef(
+  ({ className = "", variant = "default", size = "default", ...props }, ref) => {
+    return (
+      <button
+        ref={ref}
+        className={`${styles.base} ${variants[variant] || variants.default} ${sizes[size] || sizes.default} ${className}`}
+        {...props}
+      />
+    );
+  }
+);
+Button.displayName = "Button";
+export default Button;

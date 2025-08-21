@@ -1,0 +1,104 @@
+@import "../../../styles/variables.css";
+
+:root {
+  --tabs-gap: 8px;
+  --tabs-radius: 999px;
+  --tabs-shadow: 0 1px 2px rgba(0,0,0,.06);
+  --tabs-ring: color-mix(in srgb, var(--color-primary) 55%, white 45%);
+}
+
+/* containerul tabs – doar spațierea de sus, restul îl controlezi din părinte */
+.tabs {
+  margin-top: 16px;
+  
+}
+
+/* ===== LISTA DE TAB-URI ===== */
+.list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tabs-gap);
+  align-items: center;
+  background: transparent;
+}
+
+/* Opțional: fă-le egale pe o linie (3 coloane). Pune clasa asta din parent când vrei. */
+.list.listGrid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--tabs-gap);
+}
+
+/* ===== TRIGGER ===== */
+.trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 10px 14px;
+  line-height: 1;
+  font-size: 14px;
+  font-weight: 600;
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--tabs-radius);
+  background: var(--surface);
+  color: inherit;
+  box-shadow: var(--tabs-shadow);
+
+  cursor: pointer;
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease, transform .06s ease, box-shadow .2s ease;
+}
+
+.trigger:hover {
+  background: color-mix(in srgb, var(--surface) 90%, var(--color-primary) 10%);
+}
+@supports not (color-mix(in srgb, red, blue)) {
+  .trigger:hover { background: rgba(247,140,61,.08); }
+}
+
+.trigger:active { transform: translateY(1px); }
+
+.trigger:focus-visible {
+  outline: 2px solid var(--tabs-ring);
+  outline-offset: 2px;
+}
+
+/* Activ */
+.triggerActive {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+  box-shadow: 0 6px 14px rgba(247,140,61,.22);
+}
+
+/* Disabled */
+.triggerDisabled {
+  opacity: .5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ===== CONȚINUT ===== */
+.content {
+  margin-top: 16px;
+  animation: tabIn .18s ease both;
+}
+
+@keyframes tabIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== PREFERINȚE DE MIȘCARE ===== */
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .content { transition: none !important; animation: none !important; }
+}
+
+/* ===== DARK MODE fine-tuning (moștenește culorile din variables.css) ===== */
+html[data-theme="dark"] .trigger {
+  box-shadow: none;
+}

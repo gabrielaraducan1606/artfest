@@ -1,207 +1,254 @@
-/* Cart.module.css — toate culorile/shape-urile vin din variabilele globale */
+@import "../../styles/variables.css";
 
-/* ============ Layout container + header ============ */
+/* ===========================
+   Cart.module.css — Pro
+   Doar CSS pe variabile globale
+   =========================== */
+
+:root {
+  --radius-lg: calc(var(--radius) + 6px);
+  --space: 24px;
+}
+
+/* ====== Container & Layout ====== */
 .container {
-  max-width: 72rem;            /* ~max-w-6xl */
+  width: 100%;
   margin-inline: auto;
-  padding: 1rem;               /* p-4 */
-  color: var(--color-text);
-  background: var(--color-bg);
+  padding: clamp(16px, 2vw, 24px) clamp(12px, 2vw, 16px) 48px;
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  margin-top: 16px;
+  margin-left: 25%;
+  max-width: min(1120px, 94vw);
 }
 
-.badgeSteps {
-  display: flex;
-  align-items: center;
-  gap: .75rem;
-  font-size: .875rem;
-  opacity: .8;
-}
+.leftCol { display: grid; gap: 24px; }
+.rightCol { display: grid; gap: 24px; }
 
-/* ============ Card generic (se aplică peste shadcn Card) ============ */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  box-shadow: 0 1px 2px rgba(0,0,0,.04);
-}
-
-/* card de listă produse (padding mai compact) */
-.listCard {
-  padding: .5rem;
-}
-
-/* card sumar (fixează poziția pe desktop) */
-.summaryCard {
-  position: sticky;
-  top: 1rem;
-}
-
-/* ============ Grup vânzător ============ */
-.sellerGroup {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  background: var(--surface);
-}
-
-/* ============ Rând produs ============ */
-.itemRow {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding-block: 1rem;
-}
-
-@media (min-width: 640px) {
-  .itemRow {
-    flex-direction: row;
-    align-items: center;
+@media (min-width: 1024px) {
+  .layout {
+    grid-template-columns: 2fr 1fr;
+    align-items: start;
   }
 }
 
-.itemImage {
-  width: 5rem;                 /* 80px */
-  height: 5rem;
-  object-fit: cover;
-  border-radius: calc(var(--radius) - 4px);
+/* ====== Tabs (pills) ====== */
+.tabs { margin-top: 16px; }
+
+.tabsList3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 720px;
+  margin-left: 25%;
+}
+
+/* stilizează trigger-ele indiferent de implementare (Radix/shadcn etc) */
+
+.triggerDisabled {
+  opacity: .5;
+  pointer-events: none;
+}
+
+/* ====== Cards ====== */
+.card {
+  background: var(--surface);
   border: 1px solid var(--color-border);
-  background: var(--color-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-s);
+  transition: box-shadow .2s ease, border-color .2s ease;
+}
+.card:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-m);
 }
 
-.itemTitle {
-  font-weight: 600;
-  line-height: 1.2;
-  color: var(--color-text);
+.padded { padding: 16px; }
+.leftColCard { grid-column: 1 / 2; }
+.listCard { overflow: hidden; }
+
+/* ====== Typography & Icons ====== */
+.titleRow { display: inline-flex; align-items: center; gap: 8px; color: var(--color-primary); }
+.titleLg { font-size: clamp(18px, 1.6vw, 20px); font-weight: 800; letter-spacing: .2px; color: var(--color-text);}
+.titleBase { font-size: 16px; font-weight: 700; color: var(--color-text);}
+.semi { font-weight: 600; color: var(--color-text);}
+.textSm { font-size: 14px; color: var(--color-text);}
+.mutedSmall { color: rgba(45,45,45,.7); font-size: 14px; }
+.mutedXs { color: rgba(45,45,45,.65); font-size: 12px; }
+html[data-theme="dark"] .mutedSmall,
+html[data-theme="dark"] .mutedXs { color: rgba(224,224,224,.72); }
+
+.icon4 { width: 16px; height: 16px; }
+.icon5 { width: 20px; height: 20px; }
+.icon10 { width: 40px; height: 40px; }
+.ml4 { margin-left: 4px; }
+
+/* ====== Stacks & Rows ====== */
+.row { display: inline-flex; align-items: center; gap: 8px; }
+.rowBetween { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.actionsRight { display: flex; justify-content: flex-end; gap: 12px; }
+.stackMd > * + * { margin-top: 12px; }
+.stackLg > * + * { margin-top: 20px; }
+.mbSm { margin-bottom: 12px; }
+.mbXs { margin-bottom: 8px; }
+.gapSm { gap: 8px; }
+
+/* ====== Alert ====== */
+.alert {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 16px; padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid #ffd3cc;
+  background: #fff0ed; color: #7a170e;
+  box-shadow: var(--shadow-s);
+}
+html[data-theme="dark"] .alert {
+  border-color: #5a1f1a; background: #2a1512; color: #ffd8d2;
 }
 
-.attrs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .5rem;
-  margin-top: .25rem;
+/* ====== Seller group & dividers ====== */
+.sellerGroup { padding-top: 10px; }
+.storeName { font-weight: 700; }
+.divideY > * + * { border-top: 1px solid var(--color-border); }
+
+.lineRow {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 0;
 }
 
-.attrPill {
-  font-size: .75rem;
-  padding: .125rem .5rem;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--color-bg) 70%, var(--color-border) 30%);
+/* ====== Form grid (Shipping) ====== */
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.spanTwo { grid-column: 1 / -1; }
+@media (min-width: 768px) {
+  .formGrid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ====== Radio group (Payment) ====== */
+.radioList { display: grid; gap: 12px; }
+.radioOption {
+  display: flex; align-items: center; gap: 10px;
   border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px; cursor: pointer; background: var(--surface);
+  transition: background-color .2s ease, border-color .2s ease, transform .06s ease;
+}
+.radioOption:hover {
+  background: color-mix(in srgb, var(--surface) 90%, var(--color-primary) 10%);
 }
 
-/* ============ Qty control (peste Input/Button shadcn) ============ */
-.qtyWrap {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) - 4px);
-  background: var(--color-bg);
-  box-shadow: 0 1px 1px rgba(0,0,0,.03) inset;
-  padding-right: .25rem; /* loc pt loader mic */
-}
-
-.qtyInput {
-  width: 3.5rem;
-  text-align: center;
-  border: 0 !important;
-  background: transparent;
-  color: var(--color-text);
-  font-weight: 600;
-}
-
-.price {
-  font-weight: 700;
-}
-
-/* ============ Butoane ============ */
-.btnGhost {
-  color: var(--color-text);
-  opacity: .8;
-}
-
+/* ====== Buttons (accent) ====== */
 .btnPrimary {
   background: var(--color-primary) !important;
+  border: 1px solid transparent !important;
   color: #fff !important;
-  border-color: color-mix(in oklab, var(--color-primary) 70%, black 10%) !important;
+  transition: transform .06s ease, background-color .2s ease, box-shadow .2s ease;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 6px 16px rgba(247,140,61,.22);
 }
-.btnPrimary:hover {
-  background: var(--color-hover) !important;
-}
+.btnPrimary:hover { background: var(--color-hover) !important; }
+.btnPrimary:active { transform: translateY(1px); box-shadow: 0 3px 10px rgba(247,140,61,.18); }
+.btnPrimary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; color: var(--color-text);}
+.btnGhost { color: var(--color-text); opacity: .9; border-radius: var(--radius-lg); }
+.btnGhost:hover { background: rgba(0,0,0,.05) !important; }
+html[data-theme="dark"] .btnGhost:hover { background: rgba(255,255,255,.08) !important; }
 
-/* ============ Alertă eroare ============ */
-.alert {
-  margin-top: .75rem;
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  color: #92400e;                /* amber-700 aprox */
-  background: #fffbeb;           /* amber-50 */
-  border: 1px solid #fef3c7;     /* amber-200 */
-  padding: .75rem;
-  border-radius: var(--radius);
-  font-size: .875rem;
+/* ====== Summary (sidebar) ====== */
+.summaryCard {
+  position: sticky;
+  top: 104px;
+  box-shadow: var(--shadow-m);
+  border-radius: var(--radius-lg);
 }
+.summarySep { margin: 6px 0; border-color: var(--color-border); }
 
-/* ============ Coupon / Gift / Upsell ============ */
-.pillMuted {
-  background: color-mix(in oklab, var(--color-bg) 85%, var(--color-border) 15%);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: .125rem .5rem;
-  font-size: .75rem;
-}
-
-/* ============ Empty state ============ */
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: .5rem;
-  padding-block: 5rem;
-}
-
-.emptyTitle {
-  font-size: 1.125rem;
-  font-weight: 600;
-}
-
-.emptyText {
-  font-size: .9rem;
-  opacity: .8;
-  max-width: 28rem;
-}
-
-/* ============ Dark tweaks (folosește variabile, dar ajustăm hover) ============ */
-:global(html[data-theme="dark"]) .sellerGroup:hover,
-:global(html[data-theme="dark"]) .itemRow:hover {
-  background: color-mix(in oklab, var(--surface) 94%, white 2%);
-}
-
-/* loader mic lângă qty */
-.loader {
-  margin-left: .25rem;
-}
-
-/* card hint/verzi pt cupon activ */
+/* ====== Coupon footer ====== */
 .couponFooter {
-  color: #065f46;     /* emerald-700 aproximat */
-  background: #ecfdf5;/* emerald-50 */
-  border-radius: 0 0 var(--radius) var(--radius);
+  display: flex; align-items: center; gap: 6px;
+  padding-top: 6px; color: inherit;
 }
 
-/* utilitare mici */
-.muted {
-  opacity: .75;
+/* ====== Empty state ====== */
+.empty {
+  text-align: center;
+  padding: 40px 20px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+.emptyTitle {
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: clamp(18px, 2vw, 22px);
+  margin-top: 12px; margin-bottom: 6px;
+}
+.emptyText {
+  max-width: 560px;
+  margin: 0 auto 14px;
+  opacity: .88;
 }
 
-/* Sticky separator spacing in summary */
-.summarySep {
-  margin: .25rem 0 .5rem;
+/* ====== Utilities ====== */
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link { color: var(--color-primary); text-decoration: underline; }
+.link:hover { color: var(--color-hover); }
+
+
+/* ====== Item Row / imagine / atribute / cantitate (dacă le folosești în CartRow) ====== */
+.itemRow {
+  display: flex; align-items: stretch; gap: 14px;
+  padding: 14px 10px;
+  transition: background-color .2s ease, box-shadow .2s ease, transform .06s ease;
+  border-radius: calc(var(--radius-lg) - 6px);
+}
+.itemRow + .itemRow { border-top: 1px solid var(--color-border); }
+.itemRow:hover {
+  background: color-mix(in srgb, var(--surface) 94%, var(--color-primary) 6%);
+}
+
+.itemImage {
+  width: 96px; height: 96px; flex: 0 0 96px;
+  border-radius: calc(var(--radius) + 4px);
+  object-fit: cover; object-position: center;
+  background: #f2f2f2;
+  border: 1px solid var(--color-border);
+}
+@media (max-width: 640px) {
+  .itemImage { width: 84px; height: 84px; flex-basis: 84px; }
+}
+
+.itemTitle { font-weight: 700; letter-spacing: .2px; }
+
+.attrs {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+}
+.attrPill {
+  font-size: 12px; line-height: 1;
+  padding: 6px 8px; border-radius: 999px;
+  background: rgba(0,0,0,.04);
+  border: 1px solid var(--color-border);
+}
+html[data-theme="dark"] .attrPill { background: rgba(255,255,255,.07); }
+
+.qtyWrap {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px; border: 1px solid var(--color-border);
+  border-radius: 999px; background: var(--surface);
+}
+.qtyInput {
+  width: 56px; text-align: center; font-weight: 700;
+  border-radius: 8px; border: 1px solid var(--color-border); background: var(--surface);
+}
+
+/* ====== Responsive mici ajustări ====== */
+@media (max-width: 1024px) {
+  .summaryCard { position: static; top: auto; }
 }

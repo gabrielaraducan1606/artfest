@@ -1,0 +1,19 @@
+@import "../../../styles/variables.css";
+
+.input {
+  height: 40px;
+  width: 100%;
+  border-radius: var(--radius-sm, .75rem);
+  border: 1px solid var(--color-border-subtle, #e5e7eb);
+  background: var(--color-bg, #fff);
+  padding: 0 .75rem;
+  font-size: var(--font-size, .95rem);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  color: var(--color-fg, #111827);
+}
+.input::placeholder { color: var(--color-muted, #6b7280); }
+.input:focus {
+  border-color: var(--color-primary, var(--primary, var(--brand-primary, #111)));
+  box-shadow: var(--ring, 0 0 0 3px rgba(0,0,0,.08));
+}
