@@ -1,5 +1,6 @@
-// src/pages/Vanzator/Setari/Setari.jsx – varianta corectată (manevrare corectă a payload-urilor + erori 500)
+// src/pages/Vanzator/Setari/Setari.jsx
 import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import Navbar from "../../../components/HomePage/Navbar/Navbar";
 import Footer from "../../../components/HomePage/Footer/Footer";
 import styles from "./Setari.module.css";
@@ -8,24 +9,29 @@ import api from "../../../components/services/api";
 const ABOUT_MAX = 1200;
 
 export default function Setari() {
+  const navigate = useNavigate();
+
   const [activeTab, setActiveTab] = useState("profil");
   const [formData, setFormData] = useState({});
   const [tagsInput, setTagsInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // stări pentru acțiuni contract (previn dublu-click & spam)
+  // acțiuni documente (evită dublu-click)
   const [docBusy, setDocBusy] = useState({ regenerate: false, annex: false, amendment: false });
 
-  // preview local pentru imagini selectate
+  // preview-uri locale imagini
   const [profilePreview, setProfilePreview] = useState(null);
   const [coverPreview, setCoverPreview] = useState(null);
 
-  // Rezumat contract
+  // contract summary
   const [contractSummary, setContractSummary] = useState(null);
 
-  // Banner “ai schimbat câmpuri ce afectează contractul”
+  // banner „ai schimbat câmpuri relevante contractului”
   const [showContractBanner, setShowContractBanner] = useState(false);
+
+  // ghid / checklist
+  const [showGuide, setShowGuide] = useState(() => localStorage.getItem("seller:hideGuide") !== "1");
 
   const tabs = [
     { key: "profil", label: "Profil magazin" },
@@ -49,12 +55,12 @@ export default function Setari() {
     try {
       if (!url) return;
       window.open(url, "_blank", "noopener,noreferrer");
-    } catch {""}
+    } catch { /* noop */ }
   };
 
   const errMsg = (err) => {
-   const d = err?.response?.data;
-   const m = d?.message || d?.msg || d?.error || d?.detail;
+    const d = err?.response?.data;
+    const m = d?.message || d?.msg || d?.error || d?.detail;
     const s = err?.response?.status;
     return m ? `${s ? `[${s}] ` : ""}${m}` : (err?.message || "Eroare neprevăzută");
   };
@@ -69,16 +75,36 @@ export default function Setari() {
   };
 
   const fetchContractSummary = useCallback(async () => {
-  try {
-    const { data } = await api.get("/contracts/me/summary", {
-      headers: { Authorization: `Bearer ${token()}` },
-    });
-    setContractSummary(data);
-  } catch (err) {
-    console.error("❌ Eroare la /contracts/me/summary:", err);
-    setContractSummary(null);
-  }
-}, []); 
+    try {
+      const { data } = await api.get("/contracts/me/summary", {
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      setContractSummary(data);
+    } catch (err) {
+      console.error("❌ Eroare la /contracts/me/summary:", err);
+      setContractSummary(null);
+    }
+  }, []);
+
+  // Ușor helper pentru ghid: schimbă tab-ul și derulează la câmp
+  const goTo = useCallback((tabKey, selector) => {
+    setActiveTab(tabKey);
+    if (!selector) return;
+    setTimeout(() => {
+      const el = document.querySelector(selector);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  }, []);
+
+  const hideGuide = useCallback(() => {
+    setShowGuide(false);
+    localStorage.setItem("seller:hideGuide", "1");
+  }, []);
+  const resetGuide = useCallback(() => {
+    setShowGuide(true);
+    localStorage.removeItem("seller:hideGuide");
+  }, []);
+
   // ========= load settings + contract summary =========
   useEffect(() => {
     const fetchSettings = async () => {
@@ -249,47 +275,48 @@ export default function Setari() {
     }
   }
 
-async function handleAnnexIBAN() {
-  if (docBusy.annex) return;
-  if (!formData.bank || !formData.iban) {
-    alert("Te rog completează banca și IBAN înainte de generarea anexei.");
-    return;
+  async function handleAnnexIBAN() {
+    if (docBusy.annex) return;
+    if (!formData.bank || !formData.iban) {
+      alert("Te rog completează banca și IBAN înainte de generarea anexei.");
+      return;
+    }
+
+    setDocBusy((s) => ({ ...s, annex: true }));
+    try {
+      // sincronizează și în profil (dacă ai acel endpoint)
+      const fd = new FormData();
+      fd.append("step", "2");
+      fd.append("bank", formData.bank);
+      fd.append("iban", formData.iban);
+      await api.post("/seller/profile?step=2", fd, {
+        headers: { Authorization: `Bearer ${token()}`, "Content-Type": "multipart/form-data" },
+        timeout: 20000,
+      });
+
+      // generează Anexa IBAN
+      const { data } = await api.post(
+        "/contracts/me/annex/bank",
+        { bank: formData.bank, iban: formData.iban },
+        { headers: { Authorization: `Bearer ${token()}` } }
+      );
+
+      if (data?.pdfUrl || data?.url) window.open(data.pdfUrl || data.url, "_blank", "noopener,noreferrer");
+      else alert("Anexa a fost generată, dar nu am primit URL.");
+    } catch (err) {
+      console.error("❌ Eroare generare anexă IBAN:", err);
+      const m = err?.response?.data?.msg || err?.response?.data?.message || err.message;
+      alert(`Eroare: ${m}`);
+    } finally {
+      setDocBusy((s) => ({ ...s, annex: false }));
+    }
   }
-
-  setDocBusy((s) => ({ ...s, annex: true }));
-  try {
-    const fd = new FormData();
-    fd.append("step", "2");
-    fd.append("bank", formData.bank);
-    fd.append("iban", formData.iban);
-    await api.post("/seller/profile?step=2", fd, {
-      headers: { Authorization: `Bearer ${token()}`, "Content-Type": "multipart/form-data" },
-      timeout: 20000,
-    });
-
-   const { data } = await api.post(
-   "/contracts/me/annex/bank",
-   { bank: formData.bank, iban: formData.iban }, // 👈 trimitem valorile direct
-   { headers: { Authorization: `Bearer ${token()}` } }
- );
-
-    if (data?.pdfUrl || data?.url) window.open(data.pdfUrl || data.url, "_blank", "noopener,noreferrer");
-    else alert("Anexa a fost generată, dar nu am primit URL.");
-  } catch (err) {
-    console.error("❌ Eroare generare anexă IBAN:", err);
-    const m = err?.response?.data?.msg || err?.response?.data?.message || err.message;
-    alert(`Eroare: ${m}`);
-  } finally {
-    setDocBusy((s) => ({ ...s, annex: false }));
-  }
-}
-
 
   async function handleAmendmentProfile() {
     if (docBusy.amendment) return;
     setDocBusy((s) => ({ ...s, amendment: true }));
     try {
-      // includem DOAR câmpurile relevante pentru contract, sub cheia `profile` (evită 500 din body shape)
+      // DOAR câmpuri relevante contractului
       const profile = compactObject({
         shopName: formData.shopName,
         bank: formData.bank,
@@ -306,10 +333,10 @@ async function handleAnnexIBAN() {
         return;
       }
 
-     const { data } = await api.post(
-       "/contracts/me/amendment/profile",
-      { fields: profile },
-       {
+      const { data } = await api.post(
+        "/contracts/me/amendment/profile",
+        { fields: profile },
+        {
           headers: {
             Authorization: `Bearer ${token()}`,
             "Content-Type": "application/json",
@@ -332,13 +359,97 @@ async function handleAnnexIBAN() {
   const profileImageUrl = profilePreview || formData.profileImageUrl || "";
   const coverImageUrl = coverPreview || formData.coverImageUrl || "";
 
+  // ====== GHID / CHECKLIST dinamic ======
+  const hasLogo = !!(formData.profileImageUrl || profilePreview);
+  const hasCover = !!(formData.coverImageUrl || coverPreview);
+  const hasShopName = !!(formData.shopName?.trim());
+  const hasAbout = (formData.about || "").trim().length >= 80;
+  const hasTags = (Array.isArray(formData.tags) ? formData.tags : []).length >= 3;
+  const hasLocation = !!(formData.address && formData.city && formData.country);
+  const hasFiscal = !!(formData.entityType && (
+    String(formData.entityType).toUpperCase() !== "SRL"
+      ? true
+      : (formData.companyName && formData.cui && (formData.registrationNumber || formData.regCom))
+  ));
+  const hasBank = !!(formData.bank && formData.iban);
+  const hasPolicies = !!(formData.deliveryNotes && formData.returnNotes);
+  const hasSignedContract = !!contractSummary?.master;
+
+  const checklist = [
+    { key: "logo",       label: "Încarcă logo-ul magazinului",                done: hasLogo,       action: () => goTo("profil", 'input[name="profileImage"]') },
+    { key: "cover",      label: "Adaugă o imagine de cover",                  done: hasCover,      action: () => goTo("profil", 'input[name="coverImage"]') },
+    { key: "shopName",   label: "Completează numele magazinului",             done: hasShopName,   action: () => goTo("profil", 'input[name="shopName"]') },
+    { key: "about",      label: "Scrie o descriere (min. 80 caractere)",      done: hasAbout,      action: () => goTo("profil", 'textarea[name="about"]') },
+    { key: "tags",       label: "Adaugă cel puțin 3 tag-uri",                 done: hasTags,       action: () => goTo("profil", 'input[name="tags"]') },
+    { key: "location",   label: "Completează oraș, țară și adresă",           done: hasLocation,   action: () => goTo("profil", 'input[name="address"]') },
+    { key: "fiscal",     label: "Completează datele fiscale",                 done: hasFiscal,     action: () => setActiveTab("fiscal") },
+    { key: "bank",       label: "Completează banca și IBAN",                  done: hasBank,       action: () => setActiveTab("plati") },
+    { key: "policies",   label: "Completează politicile de livrare și retur", done: hasPolicies,   action: () => setActiveTab("politici") },
+    {
+      key: "contract",
+      label: hasSignedContract ? "Contract semnat" : "Semnează contractul",
+      done: hasSignedContract,
+      action: () =>
+        hasSignedContract
+          ? (contractSummary?.master?.url && window.open(contractSummary.master.url, "_blank", "noopener,noreferrer"))
+          : navigate("/vanzator/onboarding"),
+    },
+    {
+      key: "courier",
+      label: "Definește politica de curierat (ai contract propriu)",
+      done: !!String(formData.deliveryNotes || "").match(/curier|awb|livrare|ridicare/i),
+      action: () => setActiveTab("politici"),
+    },
+  ];
+
+  const totalTasks = checklist.length;
+  const doneTasks = checklist.filter((i) => i.done).length;
+  const progressPct = Math.round((doneTasks / totalTasks) * 100);
+
   return (
     <>
       <Navbar />
       <div className={styles.container}>
         <h1>Setări</h1>
 
-        {/* Banner sugerează regenerare draft dacă ai schimbat câmpuri relevante */}
+        {/* GHID / NU UITA SĂ… */}
+        {showGuide && (
+          <div className={styles.guideBox}>
+            <div className={styles.guideHeader}>
+              <strong>Nu uita să…</strong>
+              <div className={styles.guideActions}>
+                <button className={styles.linkBtn} onClick={resetGuide}>Resetează</button>
+                <button className={styles.linkBtn} onClick={hideGuide}>Ascunde</button>
+              </div>
+            </div>
+            <div className={styles.progressWrap} aria-label={`Progres ${progressPct}%`}>
+              <div className={styles.progressBar}>
+                <span style={{ width: `${progressPct}%` }} />
+              </div>
+              <small className={styles.progressText}>{doneTasks}/{totalTasks} finalizate</small>
+            </div>
+            <ul className={styles.checklist}>
+              {checklist.map((item) => (
+                <li key={item.key} className={`${styles.checkItem} ${item.done ? styles.done : ""}`}>
+                  <span className={styles.checkIcon} aria-hidden>{item.done ? "✅" : "⬜"}</span>
+                  <span className={styles.checkLabel}>{item.label}</span>
+                  <button type="button" className={styles.miniBtn} onClick={item.action}>
+                    {item.done ? "Deschide" : "Rezolvă"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {hasSignedContract && (
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button className={styles.miniBtn} onClick={handleRegenerateDraft}>🔁 Draft</button>
+                <button className={styles.miniBtn} onClick={handleAnnexIBAN}>🏦 Anexă IBAN</button>
+                <button className={styles.miniBtn} onClick={handleAmendmentProfile}>✏️ Amendament</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Banner: ai modificat câmpuri relevante contractului */}
         {showContractBanner && (
           <div className={styles.noticeBox}>
             <div>
@@ -610,7 +721,13 @@ async function handleAnnexIBAN() {
                 />
               </label>
               <div className={styles.actionsRow}>
-                <button type="button" className={styles.secondaryBtn} onClick={handleAnnexIBAN} disabled={docBusy.annex || !contractSummary?.master} title={!contractSummary?.master ? "Necesită contract semnat" : ""}>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={handleAnnexIBAN}
+                  disabled={docBusy.annex || !contractSummary?.master}
+                  title={!contractSummary?.master ? "Necesită contract semnat" : ""}
+                >
                   {docBusy.annex ? "Se generează…" : "🏦 Generează anexă IBAN"}
                 </button>
               </div>
@@ -663,11 +780,23 @@ async function handleAnnexIBAN() {
                       {docBusy.regenerate ? "Se regenerează…" : "🔁 Regenerează draft"}
                     </button>
 
-                    <button type="button" className={styles.secondaryBtn} onClick={handleAnnexIBAN} disabled={docBusy.annex || !contractSummary.master} title={!contractSummary.master ? "Necesită contract semnat" : ""}>
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      onClick={handleAnnexIBAN}
+                      disabled={docBusy.annex || !contractSummary.master}
+                      title={!contractSummary.master ? "Necesită contract semnat" : ""}
+                    >
                       {docBusy.annex ? "Se generează…" : "🏦 Generează anexă IBAN"}
                     </button>
 
-                    <button type="button" className={styles.secondaryBtn} onClick={handleAmendmentProfile} disabled={docBusy.amendment || !contractSummary.master} title={!contractSummary.master ? "Necesită contract semnat" : ""}>
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      onClick={handleAmendmentProfile}
+                      disabled={docBusy.amendment || !contractSummary.master}
+                      title={!contractSummary.master ? "Necesită contract semnat" : ""}
+                    >
                       {docBusy.amendment ? "Se generează…" : "✏️ Generează amendament (profil)"}
                     </button>
                   </div>

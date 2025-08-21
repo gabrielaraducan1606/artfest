@@ -23,6 +23,8 @@ import cartRoutes from "./routes/cartRoutes.js";
 import wishlistRoutes from "./routes/wishListRoutes.js";
 import invitationsRouter, { publicRouter as invitationsPublicRouter } from "./routes/invitationsRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
+import sellerSettingsRouter from "./routes/sellerSettingsRoutes.js";
+import contractsMeRouter from "./routes/contractsMeRoutes.js";
 
 dotenv.config();
 
@@ -132,6 +134,10 @@ app.use("/api/public/invitations", invitationsPublicRouter);
 app.use("/api/search", searchRoutes);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+app.use("/api/seller", sellerSettingsRouter);
+app.use("/api/contracts", contractsMeRouter);
+
 
 // 404 JSON pentru API
 app.use((req, res) => res.status(404).json({ msg: "Not Found" }));
