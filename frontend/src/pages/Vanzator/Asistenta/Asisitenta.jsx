@@ -1,28 +1,35 @@
 import React, { useState, useEffect } from "react";
-import { io } from "socket.io-client";
 import Navbar from "../../../components/HomePage/Navbar/Navbar";
 import Footer from "../../../components/HomePage/Footer/Footer";
 import styles from "./Asistenta.module.css";
-
-const socket = io("http://localhost:5000"); // URL-ul backendului
+import { getSocket } from "../../../components/utils/socket-io"; // ← importă singletonul
 
 export default function Asistenta() {
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState([]);
 
   useEffect(() => {
-    socket.on("receive_message", (data) => {
+    const socket = getSocket();
+
+    const onReceive = (data) => {
       setChat((prev) => [...prev, data]);
-    });
+    };
+
+    socket.on("receive_message", onReceive);
 
     return () => {
-      socket.off("receive_message");
+      socket.off("receive_message", onReceive);
     };
   }, []);
 
   const sendMessage = () => {
+    const socket = getSocket();
     if (message.trim()) {
-      const msgData = { text: message, sender: "Vânzător", time: new Date().toLocaleTimeString() };
+      const msgData = {
+        text: message,
+        sender: "Vânzător",
+        time: new Date().toLocaleTimeString(),
+      };
       socket.emit("send_message", msgData);
       setMessage("");
     }
@@ -36,7 +43,8 @@ export default function Asistenta() {
         <div className={styles.chatBox}>
           {chat.map((c, i) => (
             <div key={i} className={styles.message}>
-              <strong>{c.sender}:</strong> {c.text} <span className={styles.time}>{c.time}</span>
+              <strong>{c.sender}:</strong> {c.text}{" "}
+              <span className={styles.time}>{c.time}</span>
             </div>
           ))}
         </div>

@@ -137,10 +137,14 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use((req, res) => res.status(404).json({ msg: "Not Found" }));
 
 // Handler de erori
-app.use((err, _req, res, _next) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ msg: "Server error" });
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (err?.name === "CastError") {
+    return res.status(400).json({ msg: `ID invalid pentru ${err?.path || "resursă"}.` });
+  }
+  res.status(500).json({ msg: "Eroare internă." });
 });
+
 
 /* ===================== SOCKET.IO ===================== */
 io.on("connection", (socket) => {

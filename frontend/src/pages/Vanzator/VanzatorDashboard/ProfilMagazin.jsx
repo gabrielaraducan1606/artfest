@@ -1,4 +1,3 @@
-// pages/Vanzator/VanzatorDashboard/ProfilMagazin.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../../../components/services/api";
@@ -14,19 +13,16 @@ import {
 
 const isObjectId = (s = "") => /^[0-9a-fA-F]{24}$/.test(s);
 
-// ✅ definește aici criteriile de „incomplet”
+// ✅ DOAR câmpuri esențiale lipsă, fără onboardingStep/status
 const getMissingFields = (shop = {}) => {
   const missing = [];
   if (!shop.shopName || shop.shopName.trim().length < 2) missing.push("shopName");
   if (!shop.shortDescription || shop.shortDescription.trim().length < 10) missing.push("shortDescription");
   if (!shop.city || !shop.country) missing.push("location");
-  if (typeof shop.onboardingStep === "number" && shop.onboardingStep < 3) missing.push("onboardingStep");
-  if (shop.status && shop.status !== "active") missing.push("status");
   return missing;
 };
 
 export default function ProfilMagazin() {
-  // :handle = profil public (/magazin/:handle) | fără :handle = dashboard vânzător
   const { handle } = useParams();
   const navigate = useNavigate();
 
@@ -44,7 +40,7 @@ export default function ProfilMagazin() {
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
-  const [needsOnboarding, setNeedsOnboarding] = useState(false); // când nu există încă magazin
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   const token = localStorage.getItem("authToken");
 
@@ -57,19 +53,15 @@ export default function ProfilMagazin() {
       setNeedsOnboarding(false);
 
       try {
-        // Decode user (id/role) din JWT, dacă există
         let user = {};
         if (token) {
           try {
             const payload = JSON.parse(atob(token.split(".")[1] || ""));
             user = payload || {};
             if (mounted) setUserRole(payload?.role || null);
-          } catch {
-            /* noop */
-          }
+          } catch {""}
         }
 
-        // Ia datele magazinului
         let shop;
         try {
           if (handle) {
@@ -82,7 +74,6 @@ export default function ProfilMagazin() {
           }
         } catch (e) {
           const status = e?.response?.status;
-          // Dashboard: dacă nu există magazin deloc, arată CTA local
           if (!handle && (status === 404 || status === 400)) {
             if (mounted) {
               setNeedsOnboarding(true);
@@ -97,7 +88,6 @@ export default function ProfilMagazin() {
           throw e;
         }
 
-        // Canonicalizare la slug dacă s-a intrat cu ObjectId
         if (mounted && handle && isObjectId(handle) && shop.slug) {
           navigate(`/magazin/${shop.slug}`, { replace: true });
         }
@@ -108,7 +98,6 @@ export default function ProfilMagazin() {
           setIsOwner(userIsOwner);
         }
 
-        // Produse
         try {
           const prodRes = await api.get(`/products/by-seller/${shop.userId}`);
           if (mounted) setProducts(Array.isArray(prodRes.data) ? prodRes.data : []);
@@ -116,7 +105,6 @@ export default function ProfilMagazin() {
           if (mounted) setProducts([]);
         }
 
-        // Recenzii + medie
         try {
           const [revRes, avgRes] = await Promise.all([
             api.get(`/reviews/seller/${shop._id}`),
@@ -146,7 +134,6 @@ export default function ProfilMagazin() {
     };
   }, [handle, token, navigate]);
 
-  // Deschide modal review din query (?review=true)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const wantsReview = params.get("review") === "true";
@@ -155,18 +142,30 @@ export default function ProfilMagazin() {
     }
   }, [token, userRole]);
 
-  // ⛳ Redirect automat la pagina de informații onboarding dacă magazinul e incomplet (doar pe dashboard)
+  // ⛳ Redirect doar dacă lipsesc câmpuri-cheie
   useEffect(() => {
-    if (!handle && sellerData) {
-      const missing = getMissingFields(sellerData);
-      if (missing.length > 0) {
-        navigate("/vanzator/informatii", {
-          replace: true,
-          state: { reason: "incomplete_shop", missing },
-        });
-      }
+  if (!handle && sellerData) {
+    // ✅ Bypass redirect dacă tocmai ai semnat contractul și ai venit din Step3
+    const params = new URLSearchParams(window.location.search);
+    const cameFromContract = params.get("from") === "contract_signed";
+    if (cameFromContract) return;
+
+    // ✅ Dacă backend-ul a setat deja onboardingStep >= 3 și status=active, nu redirecționa
+    const step = Number(sellerData.onboardingStep || 0);
+    const active = sellerData.status === "active";
+    if (step >= 3 && active) return;
+
+    // 🔧 fallback pe verificarea veche
+    const missing = getMissingFields(sellerData);
+    if (missing.length > 0) {
+      navigate("/vanzator/informatii", {
+        replace: true,
+        state: { reason: "incomplete_shop", missing },
+      });
     }
-  }, [handle, sellerData, navigate]);
+  }
+}, [handle, sellerData, navigate]);
+
 
   const handleReviewSubmit = async (e) => {
     e.preventDefault();

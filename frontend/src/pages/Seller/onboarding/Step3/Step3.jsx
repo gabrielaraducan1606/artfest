@@ -210,7 +210,7 @@ export default function Step3() {
 
         if (!sellerId) throw new Error("Nu am putut determina sellerId din /seller/me.");
 
-        const init = await api.post("/contracts/init", { sellerId });
+        const init = await api.post("/contracts/init", { sellerId, userId: me.userId || me.user?._id });
         const c = init.data?.contract;
         setContract(c);
         setContractId(c?._id || c?.id);
@@ -253,7 +253,10 @@ export default function Step3() {
         const path1 = normalizeContractPath(raw);                       // ex: /storage/contracts/...
         const path2 = path1.replace(/^\/storage\//, "/uploads/");       // fallback: /uploads/contracts/...
         const ts = Date.now();
- const candidates = [resolveFileUrl(path1) + `?t=${ts}`, resolveFileUrl(path2) + `?t=${ts}`];
+const candidates = [
+  `${resolveFileUrl(path1)}?t=${ts}`,
+  `${resolveFileUrl(path2)}?t=${ts}`,
+   ];
 
         let lastErr;
         for (const url of candidates) {

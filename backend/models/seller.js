@@ -30,6 +30,7 @@ const sellerSchema = new mongoose.Schema({
   companyName: { type: String, default: "" },
   cui: { type: String, default: "" },
   address: { type: String, default: "" },
+  bank: { type: String, default: "" },
   iban: { type: String, default: "" },
   emailFinance: { type: String, default: "" },
   subscriptionPlan: { type: String, enum: ['start','growth','pro'], default: 'start' },

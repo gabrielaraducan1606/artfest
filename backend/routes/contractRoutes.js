@@ -2,6 +2,7 @@ import { Router } from "express";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
+import mongoose from "mongoose";                // ← ADĂUGAT
 import Contract from "../models/Contract.js";
 import Seller from "../models/Seller.js";
 import { savePdfBuffer } from "../utils/pdf.js";
@@ -16,11 +17,13 @@ function getId(req) {
     req.user?.id ||
     req.user?._id ||
     req.body?.sellerId ||
+    req.body?.userId ||
     req.query?.sellerId ||
     req.headers["x-user-id"] ||
     null
   );
 }
+
 function makeContractNumber(sellerDoc) {
   const d = new Date();
   const suffix = String(sellerDoc._id || "").slice(-6);
@@ -33,19 +36,28 @@ router.post("/init", async (req, res, next) => {
     const anyId = getId(req);
     if (!anyId) return res.status(400).json({ msg: "sellerId lipsă (body/query/header)." });
 
-    const seller =
-      (await Seller.findById(anyId)) ||
-      (await Seller.findOne({ userId: anyId }));
-    if (!seller) return res.status(404).json({ msg: "Seller inexistent pentru id-ul primit." });
+    // Caută tolerant: fie seller._id, fie seller.userId
+    let seller = null;
+    if (mongoose.isValidObjectId(anyId)) {
+      seller = await Seller.findById(anyId);
+    }
+    if (!seller) {
+      seller = await Seller.findOne({ userId: anyId });
+    }
+
+    if (!seller) {
+      return res.status(404).json({ msg: "Seller inexistent pentru id-ul primit." });
+    }
+    if (!seller.userId) {
+      return res.status(409).json({ msg: "Seller-ul nu are userId asociat. Leagă seller.userId de contul User." });
+    }
 
     let contract = await Contract.findOne({ sellerId: seller.userId, status: "draft" });
     const forceRegen = String(req.query?.regen || "").toLowerCase() === "1";
 
     const fileMissing = contract?.pdfPath && !fsSync.existsSync(contract.pdfPath);
     const sellerNewer =
-      contract &&
-      seller.updatedAt &&
-      contract.updatedAt &&
+      contract && seller.updatedAt && contract.updatedAt &&
       new Date(seller.updatedAt).getTime() > new Date(contract.updatedAt).getTime();
 
     const shouldRegen = !contract || forceRegen || fileMissing || sellerNewer;
@@ -70,7 +82,7 @@ router.post("/init", async (req, res, next) => {
           _id: String(seller._id),
           companyName: seller.companyName || seller.shopName,
           shopName: seller.shopName,
-          entityType: (seller.entityType || "").toUpperCase(), // PFA/SRL
+          entityType: (seller.entityType || "").toUpperCase(),
           cui: seller.cui,
           regCom: seller.regCom,
           address: seller.address,
@@ -101,12 +113,28 @@ router.post("/init", async (req, res, next) => {
           jurisdictionCity: "București",
           extraNotes: "Comisionul se aplică la valoarea produselor fără taxele de livrare.",
         },
-        signature: { imagePath: "", signedAt: null, ip: "" }, // draft
+        signature: { imagePath: "", signedAt: null, ip: "" },
       };
 
-      const html = await renderContractHtml({ ...data, now: new Date().toISOString() });
-      const pdfBytes = await htmlToPdfBuffer(html);
+      // 1) HTML din template
+      let html;
+      try {
+        html = await renderContractHtml({ ...data, now: new Date().toISOString() });
+      } catch (e) {
+        console.error("[contracts/init] Eroare la renderContractHtml:", e);
+        return res.status(500).json({ msg: "Eroare la randarea contractului (template)." });
+      }
 
+      // 2) HTML -> PDF (Puppeteer)
+      let pdfBytes;
+      try {
+        pdfBytes = await htmlToPdfBuffer(html);
+      } catch (e) {
+        console.error("[contracts/init] Eroare la htmlToPdfBuffer (Puppeteer):", e);
+        return res.status(500).json({ msg: "Eroare la conversia HTML -> PDF." });
+      }
+
+      // 3) Salvează PDF
       const baseName = `contract-${seller.userId}-${Date.now()}`;
       const { path: absPath, url } = await savePdfBuffer(pdfBytes, baseName);
 
@@ -132,6 +160,7 @@ router.post("/init", async (req, res, next) => {
       },
     });
   } catch (err) {
+    console.error("[contracts/init] Unhandled:", err);
     next(err);
   }
 });
