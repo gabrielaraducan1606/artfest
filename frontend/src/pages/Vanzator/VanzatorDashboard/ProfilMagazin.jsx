@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+// src/pages/Vanzator/VanzatorDashboard/ProfilMagazin.jsx
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../../../components/services/api";
 import Navbar from "../../../components/HomePage/Navbar/Navbar";
@@ -13,7 +14,29 @@ import {
 
 const isObjectId = (s = "") => /^[0-9a-fA-F]{24}$/.test(s);
 
-// ✅ DOAR câmpuri esențiale lipsă, fără onboardingStep/status
+/* ========= Helpers URL + cache-buster ========= */
+const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+const resolveFileUrl = (u) => {
+  if (!u) return "";
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  const path = u.startsWith("/") ? u : `/${u}`;
+  return BACKEND_BASE ? `${BACKEND_BASE}${path}` : path; // dacă folosești proxy /api, lasă gol BACKEND_BASE
+};
+const normalizePath = (u) => {
+  if (!u) return "";
+  let p = String(u).trim();
+  try {
+    if (p.startsWith("http")) p = new URL(p).pathname;
+  } catch {""}
+  p = p.startsWith("/") ? p : `/${p}`;
+  return p;
+};
+const withCache = (url, t) => {
+  if (!url) return "";
+  return url.includes("?") ? `${url}&t=${t}` : `${url}?t=${t}`;
+};
+
+/* ========= câmpuri minime pentru onboarding ========= */
 const getMissingFields = (shop = {}) => {
   const missing = [];
   if (!shop.shopName || shop.shopName.trim().length < 2) missing.push("shopName");
@@ -44,96 +67,92 @@ export default function ProfilMagazin() {
 
   const token = localStorage.getItem("authToken");
 
+  /* ========= fetch combinat, îl putem reapela ușor ========= */
+  const fetchEverything = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    setNeedsOnboarding(false);
+    try {
+      // 1) user info din token (pt. isOwner)
+      let user = {};
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split(".")[1] || ""));
+          user = payload || {};
+          setUserRole(payload?.role || null);
+        } catch {""}
+      }
+
+      // 2) shop data (public/owner)
+      let shop;
+      try {
+        if (handle) {
+          const sellerRes = await api.get(`/seller/public/resolve/${encodeURIComponent(handle)}`);
+          shop = sellerRes.data;
+        } else {
+          const meRes = await api.get(`/seller/me`);
+          shop = meRes.data;
+          setIsOwner(true);
+        }
+      } catch (e) {
+        const status = e?.response?.status;
+        if (!handle && (status === 404 || status === 400)) {
+          setNeedsOnboarding(true);
+          setSellerData(null);
+          setProducts([]);
+          setReviews([]);
+          setRating(0);
+          setLoading(false);
+          return;
+        }
+        throw e;
+      }
+
+      // 3) canonical redirect dacă ai venit cu ObjectId
+      if (handle && isObjectId(handle) && shop.slug) {
+        navigate(`/magazin/${shop.slug}`, { replace: true });
+      }
+
+      setSellerData(shop);
+      const userIsOwner = (!handle && true) || (user?.id && (user.id === shop.userId || user._id === shop.userId));
+      setIsOwner(userIsOwner);
+
+      // 4) produse
+      try {
+        const prodRes = await api.get(`/products/by-seller/${shop.userId}`);
+        setProducts(Array.isArray(prodRes.data) ? prodRes.data : []);
+      } catch {
+        setProducts([]);
+      }
+
+      // 5) recenzii
+      try {
+        const [revRes, avgRes] = await Promise.all([
+          api.get(`/reviews/seller/${shop._id}`),
+          api.get(`/reviews/seller/${shop._id}/average`),
+        ]);
+        setReviews(Array.isArray(revRes.data) ? revRes.data : []);
+        setRating(Number(avgRes.data?.average || 0));
+      } catch {
+        setReviews([]);
+        setRating(0);
+      }
+    } catch (error) {
+      console.error("Eroare încărcare profil magazin:", error);
+      setErr("Nu am putut încărca magazinul.");
+    } finally {
+      setLoading(false);
+    }
+  }, [handle, navigate, token]);
+
+  /* mount */
   useEffect(() => {
     let mounted = true;
+    if (mounted) fetchEverything();
+    return () => { mounted = false; };
+  }, [fetchEverything]);
 
-    async function fetchData() {
-      setLoading(true);
-      setErr(null);
-      setNeedsOnboarding(false);
-
-      try {
-        let user = {};
-        if (token) {
-          try {
-            const payload = JSON.parse(atob(token.split(".")[1] || ""));
-            user = payload || {};
-            if (mounted) setUserRole(payload?.role || null);
-          } catch {""}
-        }
-
-        let shop;
-        try {
-          if (handle) {
-            const sellerRes = await api.get(`/seller/public/resolve/${encodeURIComponent(handle)}`);
-            shop = sellerRes.data;
-          } else {
-            const meRes = await api.get(`/seller/me`);
-            shop = meRes.data;
-            if (mounted) setIsOwner(true);
-          }
-        } catch (e) {
-          const status = e?.response?.status;
-          if (!handle && (status === 404 || status === 400)) {
-            if (mounted) {
-              setNeedsOnboarding(true);
-              setSellerData(null);
-              setProducts([]);
-              setReviews([]);
-              setRating(0);
-            }
-            setLoading(false);
-            return;
-          }
-          throw e;
-        }
-
-        if (mounted && handle && isObjectId(handle) && shop.slug) {
-          navigate(`/magazin/${shop.slug}`, { replace: true });
-        }
-
-        if (mounted) {
-          setSellerData(shop);
-          const userIsOwner = (!handle && true) || (user?.id && user.id === shop.userId);
-          setIsOwner(userIsOwner);
-        }
-
-        try {
-          const prodRes = await api.get(`/products/by-seller/${shop.userId}`);
-          if (mounted) setProducts(Array.isArray(prodRes.data) ? prodRes.data : []);
-        } catch {
-          if (mounted) setProducts([]);
-        }
-
-        try {
-          const [revRes, avgRes] = await Promise.all([
-            api.get(`/reviews/seller/${shop._id}`),
-            api.get(`/reviews/seller/${shop._id}/average`),
-          ]);
-          if (mounted) {
-            setReviews(Array.isArray(revRes.data) ? revRes.data : []);
-            setRating(Number(avgRes.data?.average || 0));
-          }
-        } catch {
-          if (mounted) {
-            setReviews([]);
-            setRating(0);
-          }
-        }
-      } catch (error) {
-        console.error("Eroare încărcare profil magazin:", error);
-        if (mounted) setErr("Nu am putut încărca magazinul.");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
-    fetchData();
-    return () => {
-      mounted = false;
-    };
-  }, [handle, token, navigate]);
-
+  /* deschide modal review dacă a venit cu ?review=true */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const wantsReview = params.get("review") === "true";
@@ -142,30 +161,128 @@ export default function ProfilMagazin() {
     }
   }, [token, userRole]);
 
-  // ⛳ Redirect doar dacă lipsesc câmpuri-cheie
+  /* nu redirecționa dacă a venit din semnare contract */
   useEffect(() => {
-  if (!handle && sellerData) {
-    // ✅ Bypass redirect dacă tocmai ai semnat contractul și ai venit din Step3
-    const params = new URLSearchParams(window.location.search);
-    const cameFromContract = params.get("from") === "contract_signed";
-    if (cameFromContract) return;
+    if (!handle && sellerData) {
+      const params = new URLSearchParams(window.location.search);
+      const cameFromContract = params.get("from") === "contract_signed";
+      if (cameFromContract) return;
 
-    // ✅ Dacă backend-ul a setat deja onboardingStep >= 3 și status=active, nu redirecționa
-    const step = Number(sellerData.onboardingStep || 0);
-    const active = sellerData.status === "active";
-    if (step >= 3 && active) return;
+      const step = Number(sellerData.onboardingStep || 0);
+      const active = sellerData.status === "active";
+      if (step >= 3 && active) return;
 
-    // 🔧 fallback pe verificarea veche
-    const missing = getMissingFields(sellerData);
-    if (missing.length > 0) {
-      navigate("/vanzator/informatii", {
-        replace: true,
-        state: { reason: "incomplete_shop", missing },
-      });
+      const missing = getMissingFields(sellerData);
+      if (missing.length > 0) {
+        navigate("/vanzator/informatii", {
+          replace: true,
+          state: { reason: "incomplete_shop", missing },
+        });
+      }
     }
-  }
-}, [handle, sellerData, navigate]);
+  }, [handle, sellerData, navigate]);
 
+  /* 🔁 Re-fetch automat când revii din Setări (tab vizibil din nou) */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        fetchEverything();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [fetchEverything]);
+
+  /* cache-buster pe imagini după updatedAt */
+  const cacheT = useMemo(
+    () => (sellerData?.updatedAt ? new Date(sellerData.updatedAt).getTime() : Date.now()),
+    [sellerData?.updatedAt]
+  );
+
+  /* ================= UI states ================= */
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+        <div style={{ padding: "2rem" }}>Se încarcă…</div>
+        <Footer />
+      </>
+    );
+  }
+
+  if (needsOnboarding) {
+    return (
+      <>
+        <Navbar />
+        <div style={{ padding: "2rem" }}>
+          <h2 style={{ marginBottom: 8 }}>Încă nu ai configurat magazinul</h2>
+          <p style={{ marginBottom: 16 }}>Pentru a-ți publica magazinul, completează pașii de onboarding.</p>
+          <button
+            type="button"
+            className={styles.followBtn}
+            onClick={() => navigate("/vanzator/informatii")}
+          >
+            Continuă crearea magazinului
+          </button>
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  if (err || !sellerData) {
+    return (
+      <>
+        <Navbar />
+        <div style={{ padding: "2rem" }}>
+          {err || "Magazinul nu a fost găsit."}
+          {isOwner && (
+            <div style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                className={styles.followBtn}
+                onClick={() => navigate("/vanzator/informatii")}
+              >
+                Continuă crearea magazinului
+              </button>
+            </div>
+          )}
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  /* destructurare cu fallback pe câmpurile corecte */
+  const {
+    shopName,
+    shortDescription,
+    brandStory,               // backend standard
+    about: aboutLegacy,       // fallback dacă există doar "about"
+    city,
+    country,
+    address,
+    slug,
+    coverImageUrl: coverRaw,
+    profileImageUrl: avatarRaw,
+    tags = [],
+    publicEmail,
+    website,
+  } = sellerData;
+
+  const aboutText = brandStory ?? aboutLegacy ?? "—";
+
+  // imagini cu URL absolut + cache-buster
+  const coverUrl = coverRaw ? withCache(resolveFileUrl(normalizePath(coverRaw)), cacheT) : "";
+  const avatarUrl = avatarRaw ? withCache(resolveFileUrl(normalizePath(avatarRaw)), cacheT) : "";
+
+  const renderStars = (value) => (
+    <span className={styles.stars}>
+      {[...Array(5)].map((_, i) => (
+        <FaStar key={i} className={i < value ? styles.starFull : styles.starEmpty} />
+      ))}
+    </span>
+  );
 
   const handleReviewSubmit = async (e) => {
     e.preventDefault();
@@ -185,14 +302,6 @@ export default function ProfilMagazin() {
       console.error("Eroare trimitere recenzie:", error);
     }
   };
-
-  const renderStars = (value) => (
-    <span className={styles.stars}>
-      {[...Array(5)].map((_, i) => (
-        <FaStar key={i} className={i < value ? styles.starFull : styles.starEmpty} />
-      ))}
-    </span>
-  );
 
   const renderReviewModal = () => (
     <div className={styles.modalBackdrop}>
@@ -231,85 +340,15 @@ export default function ProfilMagazin() {
     </div>
   );
 
-  // ================= UI states =================
-  if (loading) {
-    return (
-      <>
-        <Navbar />
-        <div style={{ padding: "2rem" }}>Se încarcă…</div>
-        <Footer />
-      </>
-    );
-  }
-
-  // Seller logat fără magazin creat (404/400 la /seller/me)
-  if (needsOnboarding) {
-    return (
-      <>
-        <Navbar />
-        <div style={{ padding: "2rem" }}>
-          <h2 style={{ marginBottom: 8 }}>Încă nu ai configurat magazinul</h2>
-          <p style={{ marginBottom: 16 }}>Pentru a-ți publica magazinul, completează pașii de onboarding.</p>
-          <button
-            type="button"
-            className={styles.followBtn}
-            onClick={() => navigate("/vanzator/informatii")}
-          >
-            Continuă crearea magazinului
-          </button>
-        </div>
-        <Footer />
-      </>
-    );
-  }
-
-  // Profil public invalid / eroare
-  if (err || !sellerData) {
-    return (
-      <>
-        <Navbar />
-        <div style={{ padding: "2rem" }}>
-          {err || "Magazinul nu a fost găsit."}
-          {isOwner && (
-            <div style={{ marginTop: 16 }}>
-              <button
-                type="button"
-                className={styles.followBtn}
-                onClick={() => navigate("/vanzator/informatii")}
-              >
-                Continuă crearea magazinului
-              </button>
-            </div>
-          )}
-        </div>
-        <Footer />
-      </>
-    );
-  }
-
-  const {
-    shopName,
-    shortDescription,
-    about,
-    city,
-    country,
-    address,
-    slug,
-    coverImageUrl,
-    profileImageUrl,
-    tags = [],
-    email,
-    website,
-  } = sellerData;
-
+  /* =============== RENDER =============== */
   return (
     <>
       <Navbar />
       <div className={styles.wrapper}>
         <div className={styles.cover}>
-          {coverImageUrl ? (
+          {coverUrl ? (
             <img
-              src={coverImageUrl}
+              src={coverUrl}
               className={styles.coverImg}
               alt="Copertă"
               onError={(e) => onImgError(e, 1200, 360, "Cover")}
@@ -323,9 +362,9 @@ export default function ProfilMagazin() {
           {/* Header */}
           <div className={styles.headerRow}>
             <div className={styles.avatarWrap}>
-              {profileImageUrl ? (
+              {avatarUrl ? (
                 <img
-                  src={profileImageUrl}
+                  src={avatarUrl}
                   className={styles.avatar}
                   alt="Profil"
                   onError={(e) => onImgError(e, 160, 160, "Profil")}
@@ -339,9 +378,19 @@ export default function ProfilMagazin() {
               <p className={styles.subtitle}>{shortDescription}</p>
               {!!slug && <div className={styles.slug}>{window.location.origin}/magazin/{slug}</div>}
             </div>
-            {!isOwner && (
+            {!isOwner ? (
               <div className={styles.actions}>
                 <button className={styles.followBtn}>Urmărește</button>
+              </div>
+            ) : (
+              <div className={styles.actions}>
+                <button
+                  className={styles.followBtn}
+                  onClick={() => navigate("/vanzator/setari")}
+                  title="Editează profilul magazinului"
+                >
+                  Editează profil
+                </button>
               </div>
             )}
           </div>
@@ -351,7 +400,7 @@ export default function ProfilMagazin() {
           {/* Despre */}
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>Despre</h2>
-            <p className={styles.about}>{about || "—"}</p>
+            <p className={styles.about}>{aboutText}</p>
           </section>
 
           <hr className={styles.hr} />
@@ -384,11 +433,11 @@ export default function ProfilMagazin() {
                   <span className={styles.metaValue}>{address}</span>
                 </div>
               )}
-              {email && (
+              {publicEmail && (
                 <div className={styles.metaRow}>
                   <span className={styles.metaLabel}>Email</span>
-                  <a href={`mailto:${email}`} className={styles.link}>
-                    {email}
+                  <a href={`mailto:${publicEmail}`} className={styles.link}>
+                    {publicEmail}
                   </a>
                 </div>
               )}
@@ -410,20 +459,24 @@ export default function ProfilMagazin() {
               {products.length === 0 ? (
                 <div className={styles.emptyBox}>Acest magazin nu are produse momentan.</div>
               ) : (
-                products.map((p) => (
-                  <div key={p._id} className={styles.card} onClick={() => navigate(`/produs/${p._id}`)}>
-                    <img
-                      src={p.images?.[0] || productPlaceholder(600, 450, "Produs")}
-                      alt={p.title}
-                      className={styles.image}
-                      onError={(e) => onImgError(e, 600, 450, "Produs")}
-                    />
-                    <div className={styles.cardBody}>
-                      <h4 className={styles.cardTitle}>{p.title}</h4>
-                      <p className={styles.price}>{p.price} RON</p>
+                products.map((p) => {
+                  const raw = Array.isArray(p.images) && p.images[0] ? p.images[0] : "";
+                  const img = raw ? resolveFileUrl(normalizePath(raw)) : productPlaceholder(600, 450, "Produs");
+                  return (
+                    <div key={p._id} className={styles.card} onClick={() => navigate(`/produs/${p._id}`)}>
+                      <img
+                        src={img}
+                        alt={p.title}
+                        className={styles.image}
+                        onError={(e) => onImgError(e, 600, 450, "Produs")}
+                      />
+                      <div className={styles.cardBody}>
+                        <h4 className={styles.cardTitle}>{p.title}</h4>
+                        <p className={styles.price}>{p.price} RON</p>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </section>
