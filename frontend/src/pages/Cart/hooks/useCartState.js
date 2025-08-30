@@ -4,17 +4,42 @@ import useAuthToken from "./useAuthToken";
 import useDebouncedCallback from "./useDebouncedCallback";
 import ls from "../utils/ls";
 
-/** Normalizează item-ul venit din diverse surse */
-export const normalizeItem = (row) => ({
-  _id: row._id || row.id || row.productId?._id || row.productId,
-  title: row.productId?.title || row.title || "Produs",
-  price: row.productId?.price ?? row.price ?? 0,
-  qty: row.qty ?? row.quantity ?? 1,
-  image: row.productId?.images?.[0] || row.image,
-  seller: row.productId?.seller || row.seller || null,
-  stock: row.productId?.stock ?? row.stock ?? 999,
-  attrs: row.productId?.attrs || row.attrs || {}
-});
+/** Extrage numele magazinului din user-ul populat */
+function getSellerName(sellerDoc) {
+  return sellerDoc?.shopName || sellerDoc?.storeName || sellerDoc?.name || "Magazin";
+}
+
+/** Normalizează item-ul venit din diverse surse (server/local), cu seller bazat pe sellerId */
+export const normalizeItem = (row) => {
+  const p = row.productId || row.product || {};
+  // sellerId poate fi ObjectId sau obiect populat { _id, shopName|storeName|name }
+  let seller = null;
+
+  if (p?.sellerId) {
+    if (typeof p.sellerId === "object") {
+      seller = {
+        _id: p.sellerId._id || p.sellerId.id || p.sellerId,
+        name: getSellerName(p.sellerId),
+      };
+    } else {
+      seller = { _id: p.sellerId, name: row.sellerName || "Magazin" };
+    }
+  } else if (row.seller) {
+    // fallback din localStorage vechi
+    seller = row.seller;
+  }
+
+  return {
+    _id: row._id || row.id || p._id || row.productId,
+    title: p.title || row.title || "Produs",
+    price: p.price ?? row.price ?? 0,
+    qty: row.qty ?? row.quantity ?? 1,
+    image: p.images?.[0] || row.image,
+    seller,
+    stock: p.stock ?? row.stock ?? 999,
+    attrs: p.attrs || row.attrs || {}, // optional
+  };
+};
 
 export default function useCartState() {
   const token = useAuthToken();
@@ -191,12 +216,12 @@ export default function useCartState() {
     }
   }, [items, token]);
 
-  // Group by seller for UI
+  // Group by seller for UI (folosește seller.name derivat din shopName|storeName|name)
   const groupedBySeller = useMemo(() => {
     const map = new Map();
     for (const it of items) {
       const sellerId = it.seller?._id || "fara-seller";
-      const sellerName = it.seller?.name || "Artizan";
+      const sellerName = it.seller?.name || "Magazin";
       const key = `${sellerId}|${sellerName}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(it);

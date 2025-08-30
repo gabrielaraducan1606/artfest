@@ -26,6 +26,9 @@ import searchRoutes from "./routes/searchRoutes.js";
 import sellerSettingsRouter from "./routes/sellerSettingsRoutes.js";
 import contractsMeRouter from "./routes/contractsMeRoutes.js";
 
+import checkoutRoutes from "./routes/checkoutRoutes.js";
+import ordersRoutes from "./routes/ordersRoutes.js";
+
 dotenv.config();
 
 // Favorizează IPv4 (evită probleme pe unele rețele Windows+Atlas)
@@ -138,6 +141,8 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/seller", sellerSettingsRouter);
 app.use("/api/contracts", contractsMeRouter);
 
+app.use("/api/checkout", checkoutRoutes);
+app.use("/api/orders", ordersRoutes);
 
 // 404 JSON pentru API
 app.use((req, res) => res.status(404).json({ msg: "Not Found" }));

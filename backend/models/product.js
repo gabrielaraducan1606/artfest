@@ -1,4 +1,4 @@
-// models/product.js
+// backend/models/product.js
 import mongoose from 'mongoose';
 
 const productSchema = new mongoose.Schema(
@@ -14,14 +14,12 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// title + description pentru text search
 productSchema.index({ title: "text", description: "text" }, { weights: { title: 5, description: 1 } });
 productSchema.index({ category: 1 });
 productSchema.index({ price: 1 });
 productSchema.index({ createdAt: -1 });
 
-// guard against OverwriteModelError on reload
 const Product =
   mongoose.models.Product || mongoose.model('Product', productSchema);
 
-export default Product; // 👈 add this
+export default Product;

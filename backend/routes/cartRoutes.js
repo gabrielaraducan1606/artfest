@@ -1,12 +1,12 @@
 import express from "express";
 import auth from "../middleware/auth.js";
 import Cart from "../models/cart.js";
-import Product from "../models/product.js";
+import Product from "../models/product.js"; // atenție la numele fișierului
 
 const router = express.Router();
 
-// ce câmpuri să aducem din Product
-const PRODUCT_PROJECTION = "title price images seller stock attrs";
+// câmpuri aduse din Product
+const PRODUCT_PROJECTION = "title price images sellerId stock";
 
 /* Utils */
 const toId = (v) => String(v || "");
@@ -24,13 +24,14 @@ router.get("/", auth, async (req, res) => {
     const ids = [...new Set(items.map(i => i.productId).map(toId).filter(Boolean))];
     const products = await Product.find({ _id: { $in: ids } })
       .select(PRODUCT_PROJECTION)
+      .populate({ path: "sellerId", select: "shopName storeName name shippingPolicy" })
       .lean()
       .maxTimeMS(5000);
 
     const byId = new Map(products.map(p => [toId(p._id), p]));
     const out = items.map(i => ({
       ...i,
-      productId: byId.get(toId(i.productId)) || null, // compat cu front care expectă populate
+      productId: byId.get(toId(i.productId)) || null, // compat front (așteaptă „populat”)
     }));
     return res.json(out);
   } catch (e) {
@@ -47,6 +48,7 @@ router.post("/", auth, async (req, res) => {
 
     const product = await Product.findById(productId)
       .select(PRODUCT_PROJECTION)
+      .populate({ path: "sellerId", select: "shopName storeName name shippingPolicy" })
       .lean()
       .maxTimeMS(5000);
     if (!product) return res.status(404).json({ ok: false, message: "Produsul nu există." });
@@ -68,7 +70,7 @@ router.post("/", auth, async (req, res) => {
       doc = await Cart.create({ userId: req.user.id, productId, qty: allowed });
     }
 
-    // răspuns compatibil (include product “populat”)
+    // răspuns compatibil (include product populat)
     return res.status(201).json({
       ok: true,
       item: {
@@ -94,7 +96,12 @@ router.patch("/:id", auth, async (req, res) => {
     const item = await Cart.findOne({ _id: id, userId: req.user.id }).maxTimeMS(5000);
     if (!item) return res.status(404).json({ ok: false, message: "Item inexistent în coș." });
 
-    const product = await Product.findById(item.productId).select("stock " + PRODUCT_PROJECTION).lean().maxTimeMS(5000);
+    const product = await Product.findById(item.productId)
+      .select("stock " + PRODUCT_PROJECTION)
+      .populate({ path: "sellerId", select: "shopName storeName name shippingPolicy" })
+      .lean()
+      .maxTimeMS(5000);
+
     if (product && typeof product.stock === "number") {
       qty = Math.min(qty, Math.max(0, product.stock));
       if (qty <= 0) return res.status(409).json({ ok: false, message: "Produsul este epuizat." });
@@ -162,6 +169,83 @@ router.post("/apply-coupon", auth, async (req, res) => {
   }
 });
 
+/**
+ * POST /cart/shipping-quote – calculează transportul pe artizan
+ * Body: { items: [{ productId, qty }], isPickup?: boolean }
+ * Nu cere autentificare; funcționează și pentru coșul oaspete.
+ */
+router.post("/shipping-quote", async (req, res) => {
+  try {
+    const { items = [], isPickup = false } = req.body || {};
+    if (!Array.isArray(items) || !items.length) {
+      return res.json({ ok: true, shippingTotal: 0, breakdown: [] });
+    }
+
+    // adu produsele pentru a obține sellerId + price
+    const ids = [...new Set(items.map(i => toId(i.productId)).filter(Boolean))];
+    const prods = await Product.find({ _id: { $in: ids } })
+      .select("_id price sellerId")
+      .populate({ path: "sellerId", select: "shopName storeName name shippingPolicy" })
+      .lean()
+      .maxTimeMS(8000);
+
+    const byId = new Map(prods.map(p => [toId(p._id), p]));
+
+    // grupează pe seller
+    const groups = new Map(); // sellerId -> { seller, subtotal, qty, items[] }
+    for (const row of items) {
+      const pid = toId(row.productId);
+      const qty = Math.max(1, Number(row.qty) || 1);
+      const p = byId.get(pid);
+      if (!p) continue;
+      const sid = toId(p.sellerId?._id || p.sellerId);
+      const sellerDoc = p.sellerId && typeof p.sellerId === "object" ? p.sellerId : null;
+      if (!groups.has(sid)) groups.set(sid, { sellerId: sid, seller: sellerDoc, subtotal: 0, qty: 0, lines: [] });
+      const g = groups.get(sid);
+      g.subtotal += (Number(p.price) || 0) * qty;
+      g.qty += qty;
+      g.lines.push({ productId: pid, qty, price: p.price });
+    }
+
+    // calculează per-seller
+    let shippingTotal = 0;
+    const breakdown = [];
+    for (const g of groups.values()) {
+      const policy = g.seller?.shippingPolicy || {};
+      const base = Number(policy.baseCost ?? 19.99);
+      const freeOver = policy.freeOver != null ? Number(policy.freeOver) : null;
+      const perItem = Number(policy.perItem ?? 0);
+
+      let ship = 0;
+      if (isPickup && policy.pickupAvailable) {
+        ship = 0;
+      } else if (freeOver != null && g.subtotal >= freeOver) {
+        ship = 0;
+      } else {
+        ship = base + perItem * g.qty;
+      }
+      shippingTotal += ship;
+      breakdown.push({
+        sellerId: g.sellerId,
+        shopName: g.seller?.shopName || g.seller?.storeName || g.seller?.name || "Magazin",
+        subtotal: Number(g.subtotal.toFixed(2)),
+        qty: g.qty,
+        shipping: Number(ship.toFixed(2)),
+      });
+    }
+
+    return res.json({
+      ok: true,
+      shippingTotal: Number(shippingTotal.toFixed(2)),
+      breakdown,
+      currency: "RON",
+    });
+  } catch (e) {
+    console.error("POST /cart/shipping-quote error", e);
+    return res.status(500).json({ ok: false, message: "Eroare server la calculul transportului." });
+  }
+});
+
 /* (compat) POST /cart/:productId – front-end vechi */
 router.post("/:productId", auth, async (req, res) => {
   try {
@@ -170,6 +254,7 @@ router.post("/:productId", auth, async (req, res) => {
 
     const product = await Product.findById(productId)
       .select(PRODUCT_PROJECTION)
+      .populate({ path: "sellerId", select: "shopName storeName name shippingPolicy" })
       .lean()
       .maxTimeMS(5000);
     if (!product) return res.status(404).json({ ok: false, message: "Produsul nu există." });

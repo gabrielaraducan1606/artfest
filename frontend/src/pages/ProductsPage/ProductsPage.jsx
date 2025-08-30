@@ -10,9 +10,13 @@ import SortModal from "./Modal/SortModal";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAppContext } from "../../components/Context/useAppContext";
-import { productPlaceholder, thumbPlaceholder, onImgError } from "../../components/utils/imageFallback";
+import {
+  productPlaceholder,
+  thumbPlaceholder,
+  onImgError,
+} from "../../components/utils/imageFallback";
 
-/* helper: diacritics-insensitive */
+/* helpers: diacritics-insensitive search highlight */
 const norm = (s = "") =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
@@ -28,7 +32,25 @@ function highlight(text, query) {
 }
 
 // handle pentru link-ul magazinului (slug || username || _id)
-const sellerHandle = (s) => s?.slug || s?.username || s?._id;
+const sellerHandle = (s) => (s?.slug || s?.username || s?._id || s) ?? "";
+
+// numele magazinului din diverse forme de seller
+const sellerName = (s) => s?.shopName || s?.storeName || s?.name || "Magazin";
+
+// === ITEM normalizat pentru localStorage (guest) ===
+const toCartLocalItem = (product) => ({
+  _id: product._id,
+  title: product.title,
+  price: Number(product.price) || 0,
+  qty: 1,
+  image: product.images?.[0],
+  seller: {
+    _id: product.seller?._id || product.sellerId || null,
+    name: sellerName(product.seller),
+    slug: product.seller?.slug || product.seller?.username || null,
+  },
+  stock: product.stock ?? 999,
+});
 
 export default function ProductsPage() {
   const [params, setParams] = useSearchParams();
@@ -145,13 +167,17 @@ export default function ProductsPage() {
 
   const handleAddToCart = async (product, e) => {
     e.stopPropagation();
+
     if (!isAuthed) {
-      const updated = [...cart, { ...product, qty: 1 }];
+      // ✅ salvăm în LS un item normalizat cu numele magazinului
+      const item = toCartLocalItem(product);
+      const updated = [...cart, item];
       setCart(updated);
       localStorage.setItem("cart", JSON.stringify(updated));
       toast.success("Produs adăugat în coș!");
       return;
     }
+
     try {
       await api.post(`/cart/${product._id}`, { qty: 1 });
       const { data } = await api.get("/cart");
@@ -215,88 +241,91 @@ export default function ProductsPage() {
           <p>Nu am găsit produse.</p>
         ) : (
           <div className={styles.grid}>
-            {products.map((product) => (
-              <article
-                key={product._id}
-                className={styles.card}
-                onClick={() => navigate(`/produs/${product._id}`)}
-              >
-                <button
-                  className={styles.imageButton}
-                  onClick={(e) => { e.stopPropagation(); navigate(`/produs/${product._id}`); }}
-                  aria-label={`Deschide ${product.title}`}
+            {products.map((product) => {
+              const sellerObj = product.seller || product.sellerId;
+              return (
+                <article
+                  key={product._id}
+                  className={styles.card}
+                  onClick={() => navigate(`/produs/${product._id}`)}
                 >
-                  <div className={styles.imageWrap}>
-                    <img
-                      src={product.images?.[0] || productPlaceholder(600, 450, "Produs")}
-                      alt={product.title}
-                      className={styles.productImage}
-                      loading="lazy"
-                      onError={(e) => onImgError(e, 600, 450, "Produs")}
-                    />
-                  </div>
-                </button>
-
-                <h3 className={styles.name} title={product.title}>{product.title}</h3>
-
-                <div className={styles.metaRow}>
-                  <div className={styles.rating}>
-                    {[...Array(5)].map((_, i) => (
-                      <FaStar
-                        key={i}
-                        color={
-                          i < Math.round(product.rating || product.avgRating || 0)
-                            ? "var(--rating-on)"
-                            : "var(--rating-off)"
-                        }
+                  <button
+                    className={styles.imageButton}
+                    onClick={(e) => { e.stopPropagation(); navigate(`/produs/${product._id}`); }}
+                    aria-label={`Deschide ${product.title}`}
+                  >
+                    <div className={styles.imageWrap}>
+                      <img
+                        src={product.images?.[0] || productPlaceholder(600, 450, "Produs")}
+                        alt={product.title}
+                        className={styles.productImage}
+                        loading="lazy"
+                        onError={(e) => onImgError(e, 600, 450, "Produs")}
                       />
-                    ))}
-                    {(product.reviewCount ?? 0) > 0 && (
-                      <span className={styles.reviewsCount}>({product.reviewCount})</span>
+                    </div>
+                  </button>
+
+                  <h3 className={styles.name} title={product.title}>{product.title}</h3>
+
+                  <div className={styles.metaRow}>
+                    <div className={styles.rating}>
+                      {[...Array(5)].map((_, i) => (
+                        <FaStar
+                          key={i}
+                          color={
+                            i < Math.round(product.rating || product.avgRating || 0)
+                              ? "var(--rating-on)"
+                              : "var(--rating-off)"
+                          }
+                        />
+                      ))}
+                      {(product.reviewCount ?? 0) > 0 && (
+                        <span className={styles.reviewsCount}>({product.reviewCount})</span>
+                      )}
+                    </div>
+                    <p className={styles.price}>{Number(product.price).toFixed(2)} lei</p>
+                  </div>
+
+                  <div className={styles.bottomRow}>
+                    {sellerObj ? (
+                      <Link
+                        to={`/magazin/${sellerHandle(sellerObj)}`}
+                        className={styles.shopLink}
+                        onClick={(e) => e.stopPropagation()}
+                        title={sellerName(sellerObj)}
+                      >
+                        {sellerName(sellerObj)}
+                      </Link>
+                    ) : (
+                      <span className={styles.shopPlaceholder}>—</span>
                     )}
-                  </div>
-                  <p className={styles.price}>{Number(product.price).toFixed(2)} lei</p>
-                </div>
 
-                <div className={styles.bottomRow}>
-                  {product.seller ? (
-                    <Link
-                      to={`/magazin/${sellerHandle(product.seller)}`}
-                      className={styles.shopLink}
-                      onClick={(e) => e.stopPropagation()}
-                      title={product.seller.shopName || "Magazin"}
-                    >
-                      {product.seller.shopName || "Magazin"}
-                    </Link>
-                  ) : (
-                    <span className={styles.shopPlaceholder}>—</span>
-                  )}
-
-                  <div className={styles.iconBar} onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={(e) => handleToggleWishlist(product, e)}
-                      className={styles.iconBtn}
-                      title="Adaugă la favorite"
-                    >
-                      <FaHeart
-                        color={
-                          favorites.some((fav) => fav._id === product._id)
-                            ? "var(--color-primary)"
-                            : "var(--color-text)"
-                        }
-                      />
-                    </button>
-                    <button
-                      onClick={(e) => handleAddToCart(product, e)}
-                      className={styles.iconBtn}
-                      title="Adaugă în coș"
-                    >
-                      <FaShoppingCart />
-                    </button>
+                    <div className={styles.iconBar} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => handleToggleWishlist(product, e)}
+                        className={styles.iconBtn}
+                        title="Adaugă la favorite"
+                      >
+                        <FaHeart
+                          color={
+                            favorites.some((fav) => fav._id === product._id)
+                              ? "var(--color-primary)"
+                              : "var(--color-text)"
+                          }
+                        />
+                      </button>
+                      <button
+                        onClick={(e) => handleAddToCart(product, e)}
+                        className={styles.iconBtn}
+                        title="Adaugă în coș"
+                      >
+                        <FaShoppingCart />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         )}
       </div>

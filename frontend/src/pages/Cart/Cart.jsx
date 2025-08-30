@@ -17,7 +17,8 @@ import Navbar from "../../components/HomePage/Navbar/Navbar";
 import Footer from "../../components/HomePage/Footer/Footer";
 
 import useCartState from "./hooks/useCartState";
-import useCartTotals from "./hooks/useCartTotals";
+import useCartTotals from "./hooks/useCartTotals"; // pentru merchandise & discount
+import useShippingQuote from "./hooks/useShippingQuote"; // ★ per-seller shipping
 import { currency } from "./utils/currency";
 
 import Field from "./components/Field";
@@ -51,17 +52,24 @@ export default function Cart() {
   const [placing, setPlacing] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
-  // totals
-  const { merchandiseTotal, discount, shipping } =
+  // merchandise & discount (păstrăm hook-ul vostru existent)
+  const { merchandiseTotal, discount } =
     useCartTotals(items, appliedCoupon, isPickup);
 
-  // TVA (informativ)
+  // === Shipping per-seller (server) ===
+  const { shippingTotal, breakdown: shippingBySeller } = useShippingQuote({
+    items,
+    address: shippingInfo,
+    isPickup
+  });
+
+  // TVA inclus (informativ)
   const VAT_RATE = 0.19;
   const taxableMerch = Math.max(0, merchandiseTotal - discount);
   const vatIncludedMerch = taxableMerch * VAT_RATE / (1 + VAT_RATE);
-  const vatIncludedShip = shipping ? shipping * VAT_RATE / (1 + VAT_RATE) : 0;
+  const vatIncludedShip = shippingTotal ? shippingTotal * VAT_RATE / (1 + VAT_RATE) : 0;
   const vatIncluded = vatIncludedMerch + (isPickup ? 0 : vatIncludedShip);
-  const grandTotal = Math.max(0, taxableMerch + shipping);
+  const grandTotal = Math.max(0, taxableMerch + (isPickup ? 0 : shippingTotal));
 
   const isEmpty = items.length === 0;
 
@@ -108,12 +116,12 @@ export default function Cart() {
     try {
       setPlacing(true);
       const payload = {
-        items: items.map(it => ({ productId: it._id, qty: it.qty })),
+        items: items.map(it => ({ productId: it.productId, qty: it.qty })), // ✅ productId real
         coupon: appliedCoupon?.code || null,
         note: giftNote || "",
         shipping: {
           method: isPickup ? "pickup" : "courier",
-          cost: shipping,
+          cost: isPickup ? 0 : shippingTotal,
           address: isPickup ? null : shippingInfo
         },
         payment: { method: paymentMethod },
@@ -121,7 +129,7 @@ export default function Cart() {
           merchandise: merchandiseTotal,
           discount,
           vat: vatIncluded,
-          shipping,
+          shipping: isPickup ? 0 : shippingTotal,
           total: grandTotal
         }
       };
@@ -148,8 +156,7 @@ export default function Cart() {
           <Card className={`${styles.card} ${styles.padded} ${styles.leftColCard}`}>
             {Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)}
           </Card>
-          <Card className={`${styles.card} ${styles.padded}`}>
-          </Card>
+          <Card className={`${styles.card} ${styles.padded}`} />
         </div>
       </div>
     );
@@ -236,7 +243,7 @@ export default function Cart() {
                     </div>
                     <div className={`${styles.row} ${styles.mutedSmall}`}>
                       <Truck className={styles.icon4} />
-                      <span>{shipping === 0 ? "Livrare gratuită" : `Livrare estimată: ${currency(shipping)}`}</span>
+                      <span>{shippingTotal === 0 ? "Livrare gratuită" : `Livrare estimată: ${currency(shippingTotal)}`}</span>
                     </div>
                   </div>
 
@@ -496,7 +503,8 @@ export default function Cart() {
                 merchandise={merchandiseTotal}
                 discount={discount}
                 vat={vatIncluded}
-                shipping={shipping}
+                shipping={isPickup ? 0 : shippingTotal}          // ✅ shipping corect
+                shippingBreakdown={shippingBySeller}             // ✅ afișăm detaliile pe artizan
                 total={grandTotal}
                 isPickup={isPickup}
                 setIsPickup={setIsPickup}
