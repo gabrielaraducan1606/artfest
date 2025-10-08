@@ -1,0 +1,155 @@
+@import "../../../styles/variables.css";
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.head {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.h1 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: 24px;
+}
+.subtle { color: #6b7280; }
+
+.search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.input {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  min-width: 260px;
+  outline: none;
+}
+.input:focus {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent);
+  border-color: var(--color-primary);
+}
+
+.tabs {
+  display: flex; flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+}
+.tab {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: 9999px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.tabActive {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 18%, var(--surface));
+  color: var(--color-text);
+}
+
+.list { display: grid; gap: 12px; }
+
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.cardHead {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.orderMeta { display: flex; align-items: center; gap: 8px; }
+.orderId { font-weight: 700; }
+.date { color: #6b7280; font-size: 0.9rem; }
+.dot { width: 4px; height: 4px; border-radius: 999px; background: #c3c7cf; }
+
+.total { font-weight: 600; }
+
+.badge {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+}
+.st_PENDING { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+.st_PROCESSING { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.st_SHIPPED { background: #ecfeff; color: #0e7490; border-color: #a5f3fc; }
+.st_DELIVERED { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+.st_CANCELED { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.st_RETURNED { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
+
+.itemList { list-style: none; padding: 8px 0 0; margin: 0; display: grid; gap: 8px; }
+.item { display: flex; gap: 10px; align-items: center; }
+.thumb {
+  width: 56px; height: 56px; border-radius: 8px; object-fit: cover;
+  border: 1px solid var(--color-border);
+}
+.itemInfo { display: grid; gap: 2px; }
+.itemTitle { font-weight: 600; }
+.itemMeta { color: #6b7280; font-size: 0.9rem; }
+
+.actionsRow {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  border-top: 1px solid var(--color-border);
+  padding-top: 10px; margin-top: 8px;
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  color: #fff;
+  border: 2px solid var(--color-primary);
+  padding: 8px 12px; border-radius: 9999px;
+  cursor: pointer;
+}
+.btnPrimary:hover { background: var(--color-hover); border-color: var(--color-hover); }
+
+.btnGhost {
+  background: transparent; color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+}
+.btnGhost:hover { border-color: var(--color-primary); }
+
+.btnWarn {
+  background: #fff7ed; color: #9a3412;
+  border: 1px solid #fed7aa;
+  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+}
+.btnWarn:hover { background: #ffedd5; }
+
+.empty {
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+.emptyTitle { font-weight: 700; margin-bottom: 6px; }
+
+.loadMoreWrap { display: grid; place-items: center; margin: 14px 0; }
+
+/* Mobile */
+@media (max-width: 640px) {
+  .head { align-items: stretch; }
+  .search { width: 100%; }
+  .input { width: 100%; min-width: 0; }
+  .cardHead { flex-direction: column; align-items: flex-start; gap: 6px; }
+}

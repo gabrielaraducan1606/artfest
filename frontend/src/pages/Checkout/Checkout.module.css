@@ -1,0 +1,26 @@
+.container { padding: 24px; max-width: 1100px; margin: 0 auto; }
+.title { margin-bottom: 16px; }
+.alert { background: #ffd9d9; border: 1px solid #ffb3b3; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+.grid { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
+.left, .right { display: grid; gap: 12px; }
+.card { border: 1px solid var(--color-border); background: var(--surface); border-radius: var(--radius); padding: 14px; }
+.cardTitle { font-weight: 700; margin-bottom: 10px; }
+.row1 > * { width: 100%; }
+.row2, .row3 { display: grid; gap: 10px; }
+.row2 { grid-template-columns: 1fr 1fr; }
+.row3 { grid-template-columns: 1fr 1fr 1fr; }
+label { display: block; font-size: 13px; color: var(--color-text-muted); margin-bottom: 6px; }
+input, textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); }
+textarea { min-height: 80px; }
+.radio { display: flex; gap: 8px; align-items: center; }
+.shipment { border: 1px dashed var(--color-border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+.shipmentHead { display:flex; justify-content:space-between; margin-bottom: 6px; }
+.shipmentTitle { font-weight: 600; }
+.sumRow { display:flex; justify-content: space-between; margin-bottom: 6px; }
+.sumTotal { display:flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border); font-weight: 800; }
+.placeBtn { width: 100%; background: var(--color-primary); color: #fff; border: 0; border-radius: var(--radius); padding: 12px; cursor: pointer; }
+.link { color: var(--color-primary); margin-left: 4px; }
+.gdprNote, .returnsNote, .help { font-size: 12px; color: var(--color-text-muted); margin-top: 6px; line-height: 1.4; }
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+}

@@ -1,51 +1,82 @@
-// Tiny helpers to build lightweight, local SVG placeholders (data URI)
-// — no external requests, great for production.
+// client/src/components/utils/imageFallback.js
 
-const svg = (w, h, label = "") => {
-  const bg = "f3f4f6"; // neutral-100
-  const fg = "9ca3af"; // neutral-400
-  const txt = encodeURIComponent(label);
-  const fontSize = Math.max(12, Math.round(Math.min(w, h) / 12));
+// 1) Escapare sigură pentru textul din SVG (evită probleme cu & < > " ')
+const escapeXml = (s = "") =>
+  String(s).replace(/[<>&'"]/g, (c) => (
+    { "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", "\"": "&quot;" }[c]
+  ));
 
-  return `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-    <rect width="100%" height="100%" fill="#${bg}"/>
-    <g fill="#${fg}">
-      <rect x="0" y="0" width="${w}" height="${h}" fill="none"/>
-    </g>
-    ${
-      label
-        ? `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-            font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-            font-size="${fontSize}" fill="#${fg}">${txt}</text>`
-        : ""
-    }
-  </svg>`.trim();
-};
+// 2) Placeholder dreptunghi (pentru produse, cover etc.)
+function svgRectPlaceholder(
+  w,
+  h,
+  text = "",
+  {
+    bg = "#f3f4f6",
+    fg = "#9ca3af",
+    radius = 0, // colțuri rotunjite (0 = drept)
+    fontFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif',
+    fontSize,
+  } = {}
+) {
+  const label = text && String(text).trim() ? text : `${w}×${h}`;
+  const fs = fontSize || Math.max(12, Math.round(Math.min(w, h) / 8));
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+  <rect width="100%" height="100%" rx="${radius}" ry="${radius}" fill="${bg}"/>
+  <text x="50%" y="50%"
+        dominant-baseline="middle"
+        text-anchor="middle"
+        font-family="${fontFamily}"
+        font-size="${fs}"
+        fill="${fg}">${escapeXml(label)}</text>
+</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
 
-const toDataUri = (markup) =>
-  `data:image/svg+xml;utf8,${encodeURIComponent(markup)}`;
+// 3) Placeholder “avatar” rotund
+function svgCirclePlaceholder(
+  size = 160,
+  text = "Profil",
+  {
+    bg = "#e5e7eb",
+    fg = "#6b7280",
+    fontFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif',
+    fontSize,
+  } = {}
+) {
+  const w = size, h = size;
+  const fs = fontSize || Math.max(12, Math.round(size / 8));
+  // folosim <rect> cu rx/ry = jumătate pentru a fi perfect rotund în toate browserele
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+  <rect width="100%" height="100%" rx="${Math.floor(size/2)}" ry="${Math.floor(size/2)}" fill="${bg}"/>
+  <text x="50%" y="50%"
+        dominant-baseline="middle"
+        text-anchor="middle"
+        font-family="${fontFamily}"
+        font-size="${fs}"
+        fill="${fg}">${escapeXml(text)}</text>
+</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
 
-/** Generic placeholder */
-export const placeholder = (w = 600, h = 450, label = "") =>
-  toDataUri(svg(w, h, label));
+// 4) API simplu, compatibil cu ce foloseai deja
+export const productPlaceholder = (w = 600, h = 450, text = "Produs") =>
+  svgRectPlaceholder(w, h, text);
 
-/** Product placeholder (default 4:3) */
-export const productPlaceholder = (w = 600, h = 450, label = "Produs") =>
-  placeholder(w, h, label);
+export const avatarPlaceholder = (size = 160, text = "Profil") =>
+  svgCirclePlaceholder(size, text);
 
-/** Square avatar/logo */
-export const avatarPlaceholder = (size = 120, label = "") =>
-  placeholder(size, size, label);
+// 5) Fallback generic pentru <img onError=...>
+export const onImgError = (e, w = 600, h = 450, text = "") => {
+  // previne bucla infinită
+  e.currentTarget.onerror = null;
 
-/** Tiny square (e.g. suggestion thumbnails) */
-export const thumbPlaceholder = (size = 50, label = "") =>
-  placeholder(size, size, label);
-
-/** onError handler: swap to local placeholder once, avoid loops */
-export const onImgError = (e, w = 600, h = 450, label = "Imagine") => {
-  const el = e?.currentTarget;
-  if (!el) return;
-  el.onerror = null; // avoid infinite loop
-  el.src = placeholder(w, h, label);
+  // dacă pare avatar (pătrat mic) dă placeholder rotund; altfel dreptunghi
+  const isSquare = Number(w) === Number(h);
+  const seemsAvatar = isSquare && Number(w) <= 256; // euristică
+  e.currentTarget.src = seemsAvatar
+    ? avatarPlaceholder(Math.max(w, h), text || "Profil")
+    : productPlaceholder(w, h, text || "Imagine");
 };

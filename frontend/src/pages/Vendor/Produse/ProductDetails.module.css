@@ -1,0 +1,446 @@
+@import "../../../styles/variables.css";
+/* src/pages/ProductDetails/ProductDetails.module.css */
+
+/* ============ Layout de bază ============ */
+.pageWrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+/* ============ Breadcrumbs ============ */
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+
+.linkBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.linkBtn:hover { background: rgba(0,0,0,0.03); }
+.linkBtn:active { transform: translateY(1px); }
+
+.sep {
+  opacity: 0.6;
+}
+
+.link {
+  color: var(--color-primary);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.link:hover { text-decoration: underline; }
+
+.muted {
+  opacity: 0.7;
+}
+
+/* ============ Grid principal ============ */
+.grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 980px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============ Galerie ============ */
+.gallery {
+  display: grid;
+  gap: 12px;
+}
+
+.mainImgWrap {
+  position: relative;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: calc(var(--radius) + 2px);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.mainImg {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+  aspect-ratio: 4 / 3;
+  background: linear-gradient(180deg, rgba(0,0,0,0.03), transparent);
+}
+
+.navBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  opacity: 0.9;
+}
+.navBtn:hover { transform: translateY(-50%) scale(1.03); }
+.left { left: 10px; }
+.right { right: 10px; }
+
+.thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 10px;
+}
+.thumb {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+.thumb img {
+  width: 100%;
+  height: 64px;
+  object-fit: cover;
+  display: block;
+}
+.thumbActive {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+/* ============ Informații produs ============ */
+.infoCard {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: calc(var(--radius) + 2px);
+  padding: 20px;
+}
+
+.title {
+  font-family: var(--font-title);
+  font-size: 28px;
+  line-height: 1.2;
+  margin: 4px 0 10px;
+}
+
+.vendorRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.vendorLink {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+.vendorLink:hover { text-decoration: underline; }
+.vendorName { font-weight: 600; }
+.vendorCity { opacity: 0.7; }
+
+.price {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 10px 0 14px;
+}
+
+.desc {
+  font-size: 15px;
+  opacity: 0.95;
+  margin-bottom: 16px;
+}
+
+.ctaRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.qtyInput {
+  width: 84px;
+  height: 40px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease, background 0.12s ease;
+}
+.primaryBtn:hover { background: var(--color-hover); }
+.primaryBtn:active { transform: translateY(1px); }
+
+.iconBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.iconBtn:hover { background: rgba(0,0,0,0.03); }
+.iconBtn:active { transform: translateY(1px); }
+
+.heartFilled {
+  color: var(--color-primary);
+  border-color: rgba(247,140,61,0.45);
+  background: rgba(247,140,61,0.08);
+}
+
+/* proprietar mesaj */
+.muted { opacity: 0.7; }
+
+/* ============ Mini card magazin ============ */
+.shopCard {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px dashed var(--color-border);
+  padding-top: 12px;
+}
+.shopAvatarWrap {
+  width: 64px; height: 64px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+.shopAvatar {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.shopMeta { display: grid; gap: 4px; }
+.shopNameRow { font-weight: 600; }
+.shopCity { opacity: 0.7; }
+
+/* ============ Produse similare ============ */
+.relatedSec { margin-top: 40px; }
+.sectionTitle {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.relatedGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+@media (max-width: 980px) {
+  .relatedGrid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .relatedGrid { grid-template-columns: 1fr; }
+}
+
+.relatedCard {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.relatedCard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.08);
+}
+.relatedCard img {
+  width: 100%; height: 180px; object-fit: cover; display: block;
+}
+.relBody { padding: 10px 12px; }
+.relTitle {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.relPrice {
+  font-weight: 700;
+  opacity: 0.95;
+}
+
+.emptyBox {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  opacity: 0.8;
+}
+
+/* ============ Reviews ============ */
+.reviewsSection { margin-top: 32px; }
+.ratingRow {
+  display: flex; align-items: center; gap: 12px;
+  margin: 6px 0 14px;
+}
+.ratingValue {
+  font-weight: 800;
+  font-size: 28px;
+}
+.stars { display: inline-flex; gap: 2px; font-size: 18px; }
+.starFull { color: #ffb400; }
+.starEmpty { color: #cfcfcf; }
+
+.reviewList {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.reviewItem {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.reviewHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.reviewStars { font-size: 16px; }
+.reviewText { margin: 4px 0 6px; }
+.reviewMeta { font-size: 12px; opacity: 0.7; }
+
+.reviewForm {
+  display: grid; gap: 10px;
+  border-top: 1px dashed var(--color-border);
+  padding-top: 12px;
+}
+.label { font-weight: 600; }
+.input, .textarea, .qtyInput {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 14px;
+  width: 100%;
+}
+.textarea { resize: vertical; }
+
+/* ============ Comments ============ */
+.commentsSection { margin-top: 28px; }
+.commentsList { display: grid; gap: 10px; }
+.commentItem {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.commentHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.commentDate { font-size: 12px; opacity: 0.7; }
+.commentText { white-space: pre-wrap; }
+.commentForm {
+  display: grid; gap: 10px;
+  border-top: 1px dashed var(--color-border);
+  padding-top: 12px;
+}
+
+.loginPrompt {
+  margin-top: 8px;
+  opacity: 0.9;
+}
+.loginPrompt a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.loginPrompt a:hover { text-decoration: underline; }
+
+/* ============ Zoom modal ============ */
+.zoomBackdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: grid; place-items: center;
+  z-index: 60;
+}
+.zoomInner {
+  position: relative;
+  max-width: min(96vw, 1100px);
+  max-height: 90vh;
+  background: #000;
+  border-radius: calc(var(--radius) + 2px);
+  overflow: hidden;
+}
+.zoomImg {
+  max-width: 96vw; max-height: 90vh;
+  width: 100%; height: auto; display: block; object-fit: contain;
+  background: #000;
+}
+.zoomNav {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px;
+}
+.zoomNav button {
+  width: 44px; height: 44px; border-radius: 999px;
+  border: none; background: rgba(255,255,255,0.16);
+  color: #fff; cursor: pointer;
+}
+.zoomNav button:hover { background: rgba(255,255,255,0.22); }
+
+.zoomClose {
+  position: absolute; top: 8px; right: 8px;
+  width: 36px; height: 36px; border-radius: 999px;
+  border: none; background: rgba(255,255,255,0.16);
+  color: #fff; cursor: pointer; font-size: 20px;
+  line-height: 1;
+}
+.zoomClose:hover { background: rgba(255,255,255,0.22); }
+
+/* ============ Focus vizibil pentru accesibilitate ============ */
+.linkBtn:focus,
+.link:focus,
+.primaryBtn:focus,
+.iconBtn:focus,
+.thumb:focus,
+.relatedCard:focus,
+.zoomClose:focus,
+.zoomNav button:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

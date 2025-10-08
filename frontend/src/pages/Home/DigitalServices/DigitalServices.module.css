@@ -1,0 +1,195 @@
+@import url("../../../styles/variables.css");
+
+/* ===== Utilitare ===== */
+.visuallyHidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  border: 0; white-space: nowrap;
+}
+
+/* ===== Section & Header ===== */
+.section {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2rem) calc(1rem + env(safe-area-inset-left))
+           clamp(1.1rem, 3vw, 2rem) calc(1rem + env(safe-area-inset-right));
+}
+
+.header {
+  display: grid;
+  gap: .4rem;
+  margin-bottom: 1rem;
+}
+
+.heading {
+  margin: 0;
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: clamp(1.15rem, 4.5vw, 1.7rem);
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.subheading {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: clamp(.95rem, 3.8vw, 1rem);
+}
+
+/* ===== Grid ===== */
+.grid {
+  display: grid;
+  gap: clamp(.7rem, 2.4vw, 1rem);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@supports (grid-template-columns: repeat(auto-fit, minmax(240px, 1fr))) {
+  .grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+}
+
+@media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .grid { grid-template-columns: 1fr; gap: .6rem; } }
+
+/* ===== Card ===== */
+.card {
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background:
+    linear-gradient(
+      0deg,
+      color-mix(in oklab, var(--surface) 92%, transparent),
+      color-mix(in oklab, var(--surface) 92%, transparent)
+    );
+  box-shadow: var(--shadow-sm, 0 1px 0 rgba(0,0,0,.04));
+  transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease;
+  overflow: hidden;
+  will-change: transform;
+  touch-action: manipulation;
+}
+
+/* Hover doar pe device-uri cu hover */
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in oklab, var(--color-primary) 28%, var(--color-border));
+    box-shadow: var(--shadow-md, 0 10px 24px rgba(0,0,0,.08));
+    background:
+      linear-gradient(
+        0deg,
+        color-mix(in oklab, var(--color-primary) 4%, var(--surface)),
+        color-mix(in oklab, var(--color-primary) 4%, var(--surface))
+      );
+  }
+}
+
+/* Feedback pe atingere */
+.card:active { transform: translateY(0) scale(.99); }
+
+/* ===== Interior card ===== */
+.cardInner {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: .5rem;
+  padding: 1rem 2.5rem 1rem 1.05rem; /* spațiu pt chevron */
+  min-height: 132px; /* default: aerisit pe desktop/tabletă */
+}
+
+/* Varianta compactă pe mobil */
+@media (max-width: 560px) {
+  .cardInner {
+    gap: .38rem;
+    padding: .7rem 1.75rem .72rem .85rem;
+    min-height: 102px; /* mai finuț pe mobil */
+  }
+}
+
+/* Accent subtil – bandă la marginea stângă */
+.pill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-primary) 65%, #fff) 0%,
+      color-mix(in oklab, var(--color-primary) 25%, #fff) 100%
+    );
+  opacity: .6;
+  transform: translateX(-3px);
+  transition: transform .2s ease, opacity .2s ease;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .card:hover .pill { transform: translateX(0); opacity: .95; }
+}
+
+/* Titlu + descriere */
+.title {
+  margin: .08rem 0 0;
+  font-weight: 800;
+  font-size: clamp(1rem, 4.2vw, 1.06rem);
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+@media (max-width: 560px) {
+  .title {
+    font-weight: 700;
+    font-size: clamp(.94rem, 3.8vw, 1rem); /* compact pe mobil */
+  }
+}
+
+.description {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: clamp(.92rem, 3.6vw, .98rem);
+  line-height: 1.36;
+}
+@media (max-width: 560px) {
+  .description {
+    font-size: clamp(.85rem, 3.5vw, .92rem);
+    line-height: 1.32;
+  }
+}
+
+/* Chevron indicativ */
+.chevron {
+  position: absolute;
+  right: .8rem;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: .55;
+  transition: opacity .15s ease, transform .15s ease;
+}
+@media (hover: hover) {
+  .card:hover .chevron { opacity: .9; transform: translateY(-50%) translateX(2px); }
+}
+@media (max-width: 560px) {
+  .chevron svg { width: 14px; height: 14px; }
+}
+
+/* Focus accesibil pe card (link) */
+.card:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-primary) 75%, #000);
+  outline-offset: 3px;
+  border-radius: 18px;
+}
+
+/* Motion-safe */
+@media (prefers-reduced-motion: reduce) {
+  .card, .pill, .chevron { transition: none; }
+}
+
+/* Dark mode subtil (dacă tema are variabile) */
+@media (prefers-color-scheme: dark) {
+  .card { box-shadow: none; }
+}

@@ -1,8 +1,0 @@
-@import "../../../styles/variables.css";
-
-.sep {
-  border: none;
-  height: 1px;
-  background: var(--color-border, rgba(0,0,0,0.08));
-  margin: .5rem 0;
-}

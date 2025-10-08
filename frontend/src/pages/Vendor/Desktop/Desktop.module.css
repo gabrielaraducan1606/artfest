@@ -1,0 +1,46 @@
+/* src/pages/DesktopV2.module.css */
+.page { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.h1 { margin: 0; font-size: 22px; }
+.meta { color: var(--muted); display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.badge { background: color-mix(in oklab,var(--color-primary) 15%,transparent); color: var(--color-primary); padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+.dot { width: 4px; height: 4px; border-radius: 50%; background: var(--color-border); }
+
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+
+.kpiRow { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px; }
+.kpiVal { font-size: 20px; font-weight: 700; }
+.kpiLabel { color: var(--muted); font-size: 12px; }
+
+.grid { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 12px; align-items: start; }
+.colMain { display: grid; gap: 12px; }
+.colSide { display: grid; gap: 12px; }
+
+.card { background: var(--surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px; }
+.cardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.subtle { color: var(--muted); font-size: 13px; }
+
+.actionsRow { display: flex; gap: 8px; flex-wrap: wrap; }
+.actionsCol { display: grid; gap: 8px; }
+
+.btn { border-radius: 999px; padding: 8px 12px; border: 2px solid var(--color-border); text-decoration: none; font-weight: 600; }
+.btnPrimary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.btnGhost { background: transparent; }
+.btnWarn { background: #fff5e6; border-color: #ffb84d; color: #a05a00; }
+.btnDanger { background: #ffeaea; border-color: #ff9aa2; color: #a8001f; }
+
+.serviceList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.serviceItem { border: 1px dashed var(--color-border); border-radius: var(--radius); padding: 10px; display: grid; gap: 10px; }
+.serviceMain { display: grid; gap: 4px; }
+.serviceTitle { font-weight: 600; }
+.serviceMeta { color: var(--muted); font-size: 12px; }
+
+.empty { background: color-mix(in oklab,var(--color-primary) 6%, transparent); border: 1px dashed var(--color-primary); border-radius: var(--radius); padding: 16px; display: grid; gap: 8px; }
+.emptyTitle { font-weight: 700; }
+
+.timeline { margin: 0; padding-left: 18px; color: var(--muted); }
+.timeline li { margin: 6px 0; }
+
+@media (max-width: 1000px) {
+  .grid { grid-template-columns: 1fr; }
+}

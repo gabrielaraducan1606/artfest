@@ -1,0 +1,171 @@
+/* frontend/src/pages/MobileCategories/MobileCategories.module.css */
+@import "../../styles/variables.css";
+
+/* Layout: rail stânga (lățime fluidă) + panel dreapta */
+.page {
+  display: grid;
+  grid-template-columns: var(--rail-w, clamp(92px, 28vw, 120px)) 1fr;
+  min-height: calc(100vh - var(--header-h, 64px));
+  background: var(--color-bg);
+  overscroll-behavior: contain;
+}
+
+/* ===== RAIL STÂNGA ===== */
+.rail {
+  position: sticky;
+  top: var(--header-h, 64px);
+  align-self: start;
+  height: calc(100vh - var(--header-h, 64px));
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+
+  background: var(--surface);
+  border-right: 1px solid var(--color-border);
+  padding: 8px 4px;
+}
+
+.railItem {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font-weight: 800;
+  font-size: clamp(.86rem, 3.2vw, .95rem);
+  color: var(--color-text);
+  padding: 10px 10px;
+  margin: 2px 0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+  line-height: 1.1;
+}
+.railItem:hover {
+  background: color-mix(in oklab, var(--color-primary) 9%, transparent);
+}
+.railItemActive {
+  background: color-mix(in oklab, var(--color-primary) 16%, transparent);
+  color: var(--color-primary);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+}
+
+/* ===== PANEL DREAPTA ===== */
+.panel {
+  padding: 10px 10px calc(12px + env(safe-area-inset-bottom));
+  overflow: visible;
+}
+
+.heading {
+  margin: 0 0 8px;
+  font-family: var(--font-title);
+  font-weight: 900;
+  font-size: clamp(1rem, 4.2vw, 1.2rem);
+  color: var(--color-text);
+}
+
+/* GRID generic (Produse/Servicii) */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* sub ~360px trecem la 2 coloane ca să nu se înghesuie */
+@media (max-width: 360px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* TILE cu icon + label */
+.tile {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 12px 8px;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+  min-height: 88px; /* țintă tactilă comodă */
+  box-sizing: border-box;
+}
+.tile:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+  box-shadow: var(--shadow-sm);
+}
+.tileIcon {
+  width: clamp(40px, 11vw, 46px);
+  height: clamp(40px, 11vw, 46px);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--color-primary) 14%, var(--surface));
+  color: var(--color-primary);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 28%, var(--color-border));
+}
+.tileLabel {
+  text-align: center;
+  font-weight: 700;
+  font-size: clamp(.86rem, 3.3vw, .94rem);
+  color: var(--color-text);
+}
+
+/* badge „Curând” */
+.tileSoon { position: relative; }
+.badgeSoon {
+  position: absolute;
+  top: 6px; right: 6px;
+  font-size: .66rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 9999px;
+  color: #fff;
+  background: var(--color-primary);
+}
+
+/* GRID „cercuri” pentru Servicii digitale */
+.circleGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 360px) {
+  .circleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.circleCard {
+  text-decoration: none;
+  color: inherit;
+  display: grid;
+  gap: 8px;
+  place-items: center;
+}
+.circleImgWrap {
+  width: clamp(62px, 18vw, 84px);
+  height: clamp(62px, 18vw, 84px);
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+.circleImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.circleLabel {
+  text-align: center;
+  font-weight: 700;
+  font-size: clamp(.84rem, 3.2vw, .92rem);
+  color: var(--color-text);
+}
+
+/* spațiu pentru bara de jos pe mobil (dacă există variabila globală) */
+@media (max-width: 768px) {
+  .panel {
+    padding-bottom: calc(16px + var(--mobile-bottom-bar-h, 64px) + env(safe-area-inset-bottom));
+  }
+}

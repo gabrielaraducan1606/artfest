@@ -1,0 +1,261 @@
+@import "../../styles/variables.css";
+/* ===========================
+   Stores (Magazine) – Styles
+   Folosește variabilele globale din styles/theme.css
+   =========================== */
+
+.page {
+  display: grid;
+  gap: 16px;
+  min-height: 60vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ---------- Header & Filters ---------- */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.h1 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 1.75rem;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.input,
+.select {
+  appearance: none;
+  background: var(--surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  min-width: 180px;
+  outline: none;
+  box-shadow: var(--shadow-sm);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+/* ---------- Grid ---------- */
+.grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+/* ---------- Card ---------- */
+.card {
+  background: var(--color-bg-elev);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 4px);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  will-change: transform;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--color-border) 60%, var(--color-primary) 40%);
+}
+
+.cardLink {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cardLink:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* imagine / thumb */
+.thumbWrap {
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  background: var(--color-bg-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumb {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+/* conținut card */
+.cardBody {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.title {
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+/* badge-uri */
+.badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-size: 0.8rem;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 2px 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* descriere scurtă */
+.about {
+  margin: 6px 0 0;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- Pagination ---------- */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 0 4px;
+}
+
+.pagination > button {
+  background: var(--surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  min-width: 100px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background .15s ease, border-color .15s ease, transform .12s ease;
+}
+
+.pagination > button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 85%, var(--color-primary) 15%);
+  border-color: color-mix(in srgb, var(--color-border) 60%, var(--color-primary) 40%);
+}
+
+.pagination > button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.pagination > button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.pagination > span {
+  color: var(--color-text-muted);
+}
+
+/* ---------- Empty & Loading ---------- */
+.loading,
+.empty {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--color-text-muted);
+}
+
+.emptyTitle {
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.btnPrimary {
+  display: inline-block;
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 70%, #0000);
+  border-radius: calc(var(--radius) + 2px);
+  padding: 8px 12px;
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+  transition: background .15s ease, transform .12s ease, box-shadow .15s ease;
+}
+
+.btnPrimary:hover {
+  background: var(--color-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.btnPrimary:active {
+  transform: translateY(1px);
+}
+
+/* ---------- Utilitare ---------- */
+@media (max-width: 640px) {
+  .h1 { font-size: 1.5rem; }
+  .input, .select { min-width: 140px; }
+}
+
+@media (min-width: 1280px) {
+  .grid { gap: 16px; }
+}
+
+/* focus vizibil pentru orice element „clicabil” din listă */
+.card button:focus-visible,
+.card a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

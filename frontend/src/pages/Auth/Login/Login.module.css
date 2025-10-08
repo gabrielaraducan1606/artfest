@@ -1,0 +1,160 @@
+@import "../../../styles/variables.css";
+
+/* Folosește doar variabilele globale + fonturile tale.  */
+.wrap {
+  max-width: 420px;
+  margin: 56px auto;
+  padding: 0 16px;
+}
+
+.wrapModal {
+  margin: 0;
+  padding: 0;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.title {
+  font-family: var(--font-title);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: 1.75rem;
+  margin: 0 0 4px;
+  color: var(--color-text);
+}
+
+.subtitle {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  font-size: 0.95rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow:
+    0 10px 20px rgba(0,0,0,.04),
+    0 2px 6px rgba(0,0,0,.03);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.fieldGroup {
+  display: grid;
+  gap: 6px;
+}
+
+.label {
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--color-text) 85%, transparent);
+}
+
+.input {
+  width: auto;
+  padding: 12px 12px;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.input::placeholder {
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  background: var(--surface);
+}
+
+.passwordWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.iconBtn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+  color: color-mix(in srgb, var(--color-text) 80%, transparent);
+}
+
+.iconBtn:hover {
+  color: var(--color-text);
+}
+
+.primaryBtn {
+  appearance: none;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .03s ease, background .15s ease, border-color .15s ease;
+}
+
+.primaryBtn:hover {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
+
+.primaryBtn:active {
+  transform: translateY(1px);
+}
+
+.primaryBtn[disabled] {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.error {
+  border: 1px solid color-mix(in srgb, crimson 30%, var(--color-border));
+  background: color-mix(in srgb, crimson 8%, var(--surface));
+  color: crimson;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+
+.footerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.link, .linkBtn {
+  color: var(--color-text);
+  font-size: .95rem;
+  text-decoration: none;
+}
+
+.link:hover, .linkBtn:hover {
+  color: var(--color-primary);
+}
+
+.linkBtn {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}

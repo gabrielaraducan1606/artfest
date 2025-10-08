@@ -1,540 +1,300 @@
-import React, { useState } from "react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs/tabs";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../../components/ui/card/card";
-import { Button } from "../../components/ui/Button/Button";
-import { Input } from "../../components/ui/input/input";
-import { Textarea } from "../../components/ui/textarea/textarea";
-import { Separator } from "../../components/ui/separator/separator";
-import { Switch } from "../../components/ui/switch/switch";
-import { RadioGroup, RadioGroupItem } from "../../components/ui/radio-group/radio-group";
-import {
-  AlertTriangle, CreditCard, Wallet, ShieldCheck, Truck,
-  ShoppingCart, ChevronRight, Store
-} from "lucide-react";
-
+// src/pages/Cart/Cart.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { api } from "../../lib/api";
+import { productPlaceholder, onImgError } from "../../components/utils/imageFallback";
+import { FaMinus, FaPlus, FaTrash } from "react-icons/fa";
+import { guestCart } from "../../lib/guestCart";
 import styles from "./Cart.module.css";
-import Navbar from "../../components/HomePage/Navbar/Navbar";
-import Footer from "../../components/HomePage/Footer/Footer";
 
-import useCartState from "./hooks/useCartState";
-import useCartTotals from "./hooks/useCartTotals"; // pentru merchandise & discount
-import useShippingQuote from "./hooks/useShippingQuote"; // ★ per-seller shipping
-import { currency } from "./utils/currency";
+const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+const isHttp = (u = "") => /^https?:\/\//i.test(u);
+const isDataOrBlob = (u = "") => /^(data|blob):/i.test(u);
+const resolveFileUrl = (u) => {
+  if (!u) return "";
+  if (isHttp(u) || isDataOrBlob(u)) return u;
+  const path = u.startsWith("/") ? u : `/${u}`;
+  return BACKEND_BASE ? `${BACKEND_BASE}${path}` : path;
+};
 
-import Field from "./components/Field";
-import CartRow from "./components/CartRow";
-import CouponCard from "./components/CouponCard";
-import SummaryCard from "./components/SummaryCard";
-import SavedForLater from "./components/SavedForLater";
-import { SkeletonHeader, SkeletonRow } from "./components/Skeletons";
+const money = (v, currency = "RON") =>
+  new Intl.NumberFormat("ro-RO", { style: "currency", currency }).format(v ?? 0);
 
 export default function Cart() {
-  const {
-    items, saveForLater, appliedCoupon, loading, error, setError, busyIds,
-    debouncedQty, removeItem, clearCart, moveToSFL, addBackFromSFL, applyCoupon, groupedBySeller,
-  } = useCartState();
+  const nav = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [me, setMe] = useState(null);
+  const [rows, setRows] = useState([]); // [{ productId, qty, product: { ... } }]
+  const didMergeRef = useRef(false);
 
-  // flow
-  const [tabsUnlocked, setTabsUnlocked] = useState(false);
-  const [step, setStep] = useState("cart"); // cart | shipping | payment | review
-  const [canReview, setCanReview] = useState(false);
+  const myVendorId = me?.vendor?.id || null;
 
-  // form state
-  const [coupon, setCoupon] = useState("");
-  const [giftNote, setGiftNote] = useState("");
-  const [shippingInfo, setShippingInfo] = useState({
-    name: "", email: "", phone: "",
-    country: "România", county: "", city: "", street: "", zip: ""
-  });
-  const [shippingErrors, setShippingErrors] = useState({});
-  const [paymentMethod, setPaymentMethod] = useState("card"); // card | cod
-  const [isPickup, setIsPickup] = useState(false);
-  const [placing, setPlacing] = useState(false);
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  // — helper pentru badge
+  const notifyCartChanged = () => {
+    try {
+      window.dispatchEvent(new CustomEvent("cart:changed"));
+    } catch { /* ignore */ }
+  };
 
-  // merchandise & discount (păstrăm hook-ul vostru existent)
-  const { merchandiseTotal, discount } =
-    useCartTotals(items, appliedCoupon, isPickup);
-
-  // === Shipping per-seller (server) ===
-  const { shippingTotal, breakdown: shippingBySeller } = useShippingQuote({
-    items,
-    address: shippingInfo,
-    isPickup
-  });
-
-  // TVA inclus (informativ)
-  const VAT_RATE = 0.19;
-  const taxableMerch = Math.max(0, merchandiseTotal - discount);
-  const vatIncludedMerch = taxableMerch * VAT_RATE / (1 + VAT_RATE);
-  const vatIncludedShip = shippingTotal ? shippingTotal * VAT_RATE / (1 + VAT_RATE) : 0;
-  const vatIncluded = vatIncludedMerch + (isPickup ? 0 : vatIncludedShip);
-  const grandTotal = Math.max(0, taxableMerch + (isPickup ? 0 : shippingTotal));
-
-  const isEmpty = items.length === 0;
-
-  // ---- validators & navigation
-  const validateShipping = () => {
-    const e = {};
-    if (!isPickup) {
-      if (!shippingInfo.name.trim()) e.name = "Nume obligatoriu";
-      if (!shippingInfo.phone.trim()) e.phone = "Telefon obligatoriu";
-      if (!shippingInfo.city.trim()) e.city = "Oraș obligatoriu";
-      if (!shippingInfo.street.trim()) e.street = "Adresă obligatorie";
-      if (!shippingInfo.zip.trim()) e.zip = "Cod poștal obligatoriu";
+  // === GUEST: citește detaliile produselor și compune rânduri
+  const loadGuest = async () => {
+    const list = guestCart.list(); // [{productId, qty}]
+    if (list.length === 0) {
+      setRows([]);
+      return;
     }
-    setShippingErrors(e);
-    return Object.keys(e).length === 0;
+    const ids = list.map((x) => x.productId).join(",");
+    const res = await api(`/api/public/products?ids=${encodeURIComponent(ids)}&limit=${list.length}`);
+    const byId = new Map((res?.items || []).map((p) => [p.id, p]));
+    const rows = list.map((x) => {
+      const p = byId.get(x.productId) || {};
+      return {
+        productId: x.productId,
+        qty: x.qty,
+        product: {
+          id: p.id,
+          title: p.title || "Produs",
+          images: Array.isArray(p.images) ? p.images : [],
+          price: Number.isFinite(p.priceCents) ? p.priceCents / 100 : (Number.isFinite(p.price) ? p.price : 0),
+          currency: p.currency || "RON",
+          vendorId: p?.service?.vendor?.id || p?.vendorId || null,
+        },
+      };
+    });
+    setRows(rows);
   };
 
-  const goFromCartToShipping = () => {
-    if (isEmpty) return;
-    setTabsUnlocked(true);
-    setStep("shipping");
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  // === LOGGED: ia coșul din server
+  const loadServer = async () => {
+    const c = await api("/api/cart");
+    setRows(Array.isArray(c?.items) ? c.items : []);
   };
 
-  const goNextFromShipping = () => {
-    if (!validateShipping()) return;
-    setStep("payment");
-    setCanReview(false);
-    setAcceptedTerms(false);
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  // === Merge automat: când userul se loghează, trimite coșul local la server
+  const mergeIfNeeded = async (user) => {
+    if (!user || didMergeRef.current) return;
+    const local = guestCart.list();
+    if (!local.length) return;
+    try {
+      await api("/api/cart/merge", { method: "POST", body: { items: local } });
+      guestCart.clear();
+      didMergeRef.current = true;
+      notifyCartChanged();
+    } catch { /* silent */ }
   };
 
-  const goNextFromPayment = () => {
-    setCanReview(true);
-    setStep("review");
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  // === Load inițial
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const d = await api("/api/auth/me").catch(() => null);
+        const user = d?.user || null;
+        setMe(user);
+        if (user) {
+          await mergeIfNeeded(user);
+          await loadServer();
+        } else {
+          await loadGuest();
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const placeOrder = async () => {
-    if (!acceptedTerms) {
-      setError("Te rugăm să accepți termenii și condițiile înainte de a plasa comanda.");
+  // dacă me se schimbă (ex: te-ai logat în alt tab), încearcă merge + reload
+  useEffect(() => {
+    (async () => {
+      if (me) {
+        await mergeIfNeeded(me);
+        await loadServer();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id, me?.sub]);
+
+  const total = useMemo(
+    () => rows.reduce((s, r) => s + (Number(r.product?.price || 0) * Number(r.qty || 0)), 0),
+    [rows]
+  );
+
+  // === Mutations
+  const updateQty = async (productId, qty) => {
+    const safe = Math.max(1, Math.min(99, qty));
+    const prev = rows.slice();
+    setRows((list) => list.map((r) => (r.productId === productId ? { ...r, qty: safe } : r)));
+
+    if (!me) {
+      guestCart.update(productId, safe);
+      notifyCartChanged();
       return;
     }
     try {
-      setPlacing(true);
-      const payload = {
-        items: items.map(it => ({ productId: it.productId, qty: it.qty })), // ✅ productId real
-        coupon: appliedCoupon?.code || null,
-        note: giftNote || "",
-        shipping: {
-          method: isPickup ? "pickup" : "courier",
-          cost: isPickup ? 0 : shippingTotal,
-          address: isPickup ? null : shippingInfo
-        },
-        payment: { method: paymentMethod },
-        totals: {
-          merchandise: merchandiseTotal,
-          discount,
-          vat: vatIncluded,
-          shipping: isPickup ? 0 : shippingTotal,
-          total: grandTotal
-        }
-      };
-      const api = (await import("../../components/services/api")).default;
-      const res = await api.post("/orders", payload).then(r => r.data ?? r);
-      if (typeof window !== "undefined") {
-        if (res?.orderId) window.location.href = `/order/${res.orderId}`;
-        else window.location.href = `/checkout/success`;
-      }
+      await api("/api/cart/update", { method: "POST", body: { productId, qty: safe } });
+      notifyCartChanged();
     } catch (e) {
-      console.error(e);
-      setError("Nu am putut plasa comanda. Încearcă din nou.");
-    } finally {
-      setPlacing(false);
+      alert(e?.message || "Nu am putut actualiza cantitatea.");
+      setRows(prev);
     }
   };
 
-  // ===== LOADING
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        <SkeletonHeader />
-        <div className={styles.layout}>
-          <Card className={`${styles.card} ${styles.padded} ${styles.leftColCard}`}>
-            {Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)}
-          </Card>
-          <Card className={`${styles.card} ${styles.padded}`} />
-        </div>
-      </div>
-    );
-  }
+  const removeItem = async (productId) => {
+    const prev = rows.slice();
+    setRows((list) => list.filter((r) => r.productId !== productId));
 
-  // ===== VIEW 1: CART (fără Tabs)
-  if (!tabsUnlocked) {
-    return (
-      <div className={styles.container}>
-        <Navbar />
+    if (!me) {
+      guestCart.remove(productId);
+      notifyCartChanged();
+      return;
+    }
+    try {
+      await api("/api/cart/remove", { method: "DELETE", body: { productId } });
+      notifyCartChanged();
+    } catch {
+      setRows(prev);
+    }
+  };
 
-        {error && (
-          <div className={styles.alert}>
-            <AlertTriangle className={styles.icon5} />
-            <span className={styles.textSm}>{error}</span>
-          </div>
-        )}
+  if (loading) return <div className={styles.container}>Se încarcă…</div>;
 
-        <div className={styles.layout}>
-          <div className={styles.leftCol}>
-            <Card className={`${styles.card} ${styles.listCard}`}>
-              <CardHeader className={styles.rowBetween}>
-                <CardTitle className={`${styles.titleRow} ${styles.titleLg}`}>
-                  <ShoppingCart className={styles.icon5} /> <span>Coșul tău</span>
-                </CardTitle>
-                {items.length > 0 && (
-                  <Button variant="ghost" onClick={clearCart} className={`${styles.btnGhost} ${styles.textSm}`}>
-                    Golește coșul
-                  </Button>
-                )}
-              </CardHeader>
-
-              <CardContent className={styles.stackLg}>
-                {items.length === 0 ? (
-                  <EmptyCart styles={styles} />
-                ) : (
-                  groupedBySeller.map(group => (
-                    <div key={group.sellerId} className={styles.sellerGroup}>
-                      <div className={`${styles.row} ${styles.mbSm}`}>
-                        <Store className={styles.icon4} />
-                        <span className={styles.storeName}>{group.sellerName}</span>
-                      </div>
-                      <Separator />
-                      <div className={styles.divideY}>
-                        {group.list.map(it => (
-                          <CartRow
-                            key={it._id}
-                            item={it}
-                            busy={busyIds.has(it._id)}
-                            onQty={(q) => debouncedQty(it._id, q)}
-                            onRemove={() => removeItem(it._id)}
-                            onSaveForLater={() => moveToSFL(it._id)}
-                            styles={styles}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-
-              {items.length > 0 && (
-                <CardFooter className={styles.stackMd}>
-                  {/* Cupon în coș */}
-                  <Card className={styles.card}>
-                    <CardHeader>
-                      <CardTitle className={styles.titleBase}>Cupon de reducere</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <CouponCard
-                        coupon={coupon}
-                        setCoupon={setCoupon}
-                        applyCoupon={() => applyCoupon(coupon)}
-                        applied={appliedCoupon}
-                        styles={styles}
-                      />
-                    </CardContent>
-                  </Card>
-
-                  <div className={styles.rowBetween}>
-                    <div className={`${styles.row} ${styles.mutedSmall}`}>
-                      <ShieldCheck className={styles.icon4} />
-                      <span>Protecție cumpărături: retur ușor 14 zile.</span>
-                    </div>
-                    <div className={`${styles.row} ${styles.mutedSmall}`}>
-                      <Truck className={styles.icon4} />
-                      <span>{shippingTotal === 0 ? "Livrare gratuită" : `Livrare estimată: ${currency(shippingTotal)}`}</span>
-                    </div>
-                  </div>
-
-                  <div className={styles.actionsRight}>
-                    <Button className={styles.btnPrimary} onClick={goFromCartToShipping}>
-                      Finalizează comanda <ChevronRight className={`${styles.icon4} ${styles.ml4}`} />
-                    </Button>
-                  </div>
-                </CardFooter>
-              )}
-            </Card>
-
-            {items.length > 0 && (
-              <SavedForLater items={saveForLater} onAdd={addBackFromSFL} styles={styles} />
-            )}
-          </div>
-
-          {/* fără sidebar pe ecranul Coș */}
-        </div>
-
-        <Footer />
-      </div>
-    );
-  }
-
-  // ===== VIEW 2: TABS (Shipping / Payment / Review)
   return (
     <div className={styles.container}>
-      <Navbar />
+      <h2 className={styles.pageTitle}>Coș</h2>
 
-      {error && (
-        <div className={styles.alert}>
-          <AlertTriangle className={styles.icon5} />
-          <span className={styles.textSm}>{error}</span>
+      {rows.length === 0 ? (
+        <div className={styles.empty}>Coșul tău este gol.</div>
+      ) : (
+        <div className={styles.layout}>
+          {/* Listă articole */}
+          <div className={styles.list}>
+            {rows.map((r) => {
+              const p = r.product || {};
+              const img = p.images?.[0] ? resolveFileUrl(p.images[0]) : productPlaceholder(200, 160, "Produs");
+              const isOwner = !!myVendorId && !!p.vendorId && myVendorId === p.vendorId;
+
+              return (
+                <article key={r.productId} className={styles.card}>
+                  <Link to={`/produs/${p.id || r.productId}`} className={styles.media} aria-label={p.title}>
+                    <img
+                      className={styles.mediaImg}
+                      src={img}
+                      alt={p.title}
+                      onError={(e) => onImgError(e, 200, 160, "Produs")}
+                    />
+                  </Link>
+
+                  <div className={styles.body}>
+                    <h3 className={styles.title}>{p.title}</h3>
+                    {typeof p.price === "number" && (
+                      <div className={styles.price}>{money(p.price, p.currency)}</div>
+                    )}
+                    {isOwner && me && (
+                      <div className={styles.ownerNote}>
+                        (Produsul îți aparține — backend blochează checkout-ul.)
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={styles.actions}>
+                    <div className={styles.qty} aria-label="Cantitate">
+                      <button
+                        className={styles.iconBtnOutline}
+                        onClick={() => updateQty(r.productId, r.qty - 1)}
+                        title="Scade cantitatea"
+                        aria-label="Scade cantitatea"
+                        type="button"
+                      >
+                        <FaMinus />
+                      </button>
+                      <input
+                        className={styles.qtyInput}
+                        value={r.qty}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        min={1}
+                        max={99}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value || "1", 10);
+                          if (Number.isFinite(v)) updateQty(r.productId, v);
+                        }}
+                      />
+                      <button
+                        className={styles.iconBtnOutline}
+                        onClick={() => updateQty(r.productId, r.qty + 1)}
+                        title="Crește cantitatea"
+                        aria-label="Crește cantitatea"
+                        type="button"
+                      >
+                        <FaPlus />
+                      </button>
+                    </div>
+
+                    <button
+                      className={styles.removeBtn}
+                      onClick={() => removeItem(r.productId)}
+                      title="Elimină din coș"
+                      aria-label="Elimină din coș"
+                      type="button"
+                    >
+                      <FaTrash /> Elimină
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {/* Sumar */}
+          <aside className={styles.summary} aria-label="Sumar coș">
+            <div className={styles.summaryTitle}>Sumar</div>
+            <div className={styles.summaryRow}>
+              <span>Subtotal</span>
+              <strong>{money(total, "RON")}</strong>
+            </div>
+            <div className={styles.summaryNote}>
+              Taxele de livrare se calculează la pasul următor (pe fiecare magazin).
+            </div>
+            <button
+              className={styles.checkoutBtn}
+              onClick={() => {
+                if (!me) {
+                  const redir = encodeURIComponent("/checkout");
+                  return nav(`/autentificare?redirect=${redir}`);
+                }
+                nav("/checkout");
+              }}
+              type="button"
+            >
+              Continuă la checkout
+            </button>
+          </aside>
         </div>
       )}
 
-      <Tabs
-        value={step}
-        onValueChange={(v) => {
-          if (v === "cart") return;
-          if (v === "review" && !canReview) return;
-          setStep(v);
-          if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-        className={styles.tabs}
-      >
-        <TabsList className={styles.tabsList3}>
-          <TabsTrigger value="shipping">Detalii livrare</TabsTrigger>
-          <TabsTrigger
-            value="payment"
-            disabled={isEmpty}
-            className={isEmpty ? styles.triggerDisabled : undefined}
-          >
-            Plată
-          </TabsTrigger>
-          <TabsTrigger
-            value="review"
-            disabled={isEmpty || !canReview}
-            className={isEmpty || !canReview ? styles.triggerDisabled : undefined}
-          >
-            Rezumat
-          </TabsTrigger>
-        </TabsList>
-
-        <div className={styles.layout}>
-          {/* LEFT */}
-          <div className={styles.leftCol}>
-            {/* SHIPPING */}
-            <TabsContent value="shipping">
-              <Card className={styles.card}>
-                <CardHeader>
-                  <CardTitle className={styles.titleLg}>Detalii livrare &amp; contact</CardTitle>
-                </CardHeader>
-
-                <CardContent className={styles.formGrid}>
-                  <div>
-                    <Field label="Nume complet" error={shippingErrors.name}>
-                      <Input value={shippingInfo.name} onChange={e => setShippingInfo(s => ({ ...s, name: e.target.value }))} />
-                    </Field>
-                  </div>
-                  <div>
-                    <Field label="Telefon" error={shippingErrors.phone}>
-                      <Input value={shippingInfo.phone} onChange={e => setShippingInfo(s => ({ ...s, phone: e.target.value }))} />
-                    </Field>
-                  </div>
-                  <div>
-                    <Field label="Email (opțional)">
-                      <Input type="email" value={shippingInfo.email} onChange={e => setShippingInfo(s => ({ ...s, email: e.target.value }))} />
-                    </Field>
-                  </div>
-
-                  <div className={`${styles.rowBetween} ${styles.spanTwo} ${styles.textSm}`}>
-                    <div className={styles.row}>
-                      <Truck className={styles.icon4} />
-                      <span>Ridicare personală</span>
-                    </div>
-                    <Switch checked={isPickup} onCheckedChange={setIsPickup} />
-                  </div>
-
-                  {!isPickup && (
-                    <>
-                      <div>
-                        <Field label="Țară">
-                          <Input value={shippingInfo.country} onChange={e => setShippingInfo(s => ({ ...s, country: e.target.value }))} />
-                        </Field>
-                      </div>
-                      <div>
-                        <Field label="Județ">
-                          <Input value={shippingInfo.county} onChange={e => setShippingInfo(s => ({ ...s, county: e.target.value }))} />
-                        </Field>
-                      </div>
-                      <div>
-                        <Field label="Oraș" error={shippingErrors.city}>
-                          <Input value={shippingInfo.city} onChange={e => setShippingInfo(s => ({ ...s, city: e.target.value }))} />
-                        </Field>
-                      </div>
-                      <div>
-                        <Field label="Stradă, număr" error={shippingErrors.street}>
-                          <Input value={shippingInfo.street} onChange={e => setShippingInfo(s => ({ ...s, street: e.target.value }))} />
-                        </Field>
-                      </div>
-                      <div>
-                        <Field label="Cod poștal" error={shippingErrors.zip}>
-                          <Input value={shippingInfo.zip} onChange={e => setShippingInfo(s => ({ ...s, zip: e.target.value }))} />
-                        </Field>
-                      </div>
-                    </>
-                  )}
-
-                  <div className={styles.spanTwo}>
-                    <Field label="Mesaj pentru artizan (opțional)">
-                      <Textarea
-                        rows={3}
-                        placeholder="Ex: ambalare cadou, detalii personalizare..."
-                        value={giftNote}
-                        onChange={e => setGiftNote(e.target.value)}
-                      />
-                    </Field>
-                  </div>
-                </CardContent>
-
-                <CardFooter className={styles.rowBetween}>
-                  <Button variant="ghost" onClick={() => { setTabsUnlocked(false); setStep("cart"); }}>
-                    Înapoi la coș
-                  </Button>
-                  <Button className={styles.btnPrimary} onClick={goNextFromShipping}>
-                    Continuă către plată <ChevronRight className={`${styles.icon4} ${styles.ml4}`} />
-                  </Button>
-                </CardFooter>
-              </Card>
-            </TabsContent>
-
-            {/* PAYMENT */}
-            <TabsContent value="payment">
-              <Card className={styles.card}>
-                <CardHeader>
-                  <CardTitle className={styles.titleLg}>Metodă de plată</CardTitle>
-                </CardHeader>
-                <CardContent className={styles.stackLg}>
-                  <div>
-                    <div className={`${styles.textSm} ${styles.mbXs} ${styles.semi}`}>Alege metoda de plată</div>
-                    <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className={styles.radioList}>
-                      <label className={styles.radioOption}>
-                        <RadioGroupItem value="card" id="pm-card" />
-                        <CreditCard className={styles.icon4} />
-                        <span>Card online</span>
-                      </label>
-                      <label className={styles.radioOption}>
-                        <RadioGroupItem value="cod" id="pm-cod" />
-                        <Wallet className={styles.icon4} />
-                        <span>Ramburs (cash la livrare)</span>
-                      </label>
-                    </RadioGroup>
-                  </div>
-
-                  <div className={styles.mutedXs}>
-                    Reducerile (cupone) au fost aplicate în coș. Totalul final apare în Rezumat.
-                  </div>
-                </CardContent>
-                <CardFooter className={styles.rowBetween}>
-                  <Button variant="ghost" onClick={() => setStep("shipping")}>Înapoi</Button>
-                  <Button className={styles.btnPrimary} onClick={goNextFromPayment}>
-                    Continuă către rezumat <ChevronRight className={`${styles.icon4} ${styles.ml4}`} />
-                  </Button>
-                </CardFooter>
-              </Card>
-            </TabsContent>
-
-            {/* REVIEW */}
-            <TabsContent value="review">
-              <Card className={styles.card}>
-                <CardHeader>
-                  <CardTitle className={styles.titleLg}>Rezumat final</CardTitle>
-                </CardHeader>
-                <CardContent className={styles.stackLg}>
-                  <div className={styles.grid2}>
-                    <div>
-                      <div className={`${styles.textSm} ${styles.semi} ${styles.mbXs}`}>Livrare</div>
-                      <div className={styles.textSm}>
-                        {isPickup ? "Ridicare personală" : (
-                          <>
-                            <div>{shippingInfo.name || "-"}</div>
-                            <div>{shippingInfo.phone || "-"}</div>
-                            <div>{shippingInfo.street || "-"}, {shippingInfo.city || "-"}, {shippingInfo.county || "-"}</div>
-                            <div>{shippingInfo.country || "-"} {shippingInfo.zip ? `• ${shippingInfo.zip}` : ""}</div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <div className={`${styles.textSm} ${styles.semi} ${styles.mbXs}`}>Plată</div>
-                      <div className={styles.textSm}>
-                        {paymentMethod === "card" ? "Card online" : "Ramburs (cash la livrare)"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className={`${styles.textSm} ${styles.semi} ${styles.mbXs}`}>Produse</div>
-                    <div className={styles.divideY}>
-                      {items.map(it => (
-                        <div key={it._id} className={styles.lineRow}>
-                          <div className={`${styles.truncate} ${styles.textSm}`}>{it.title} × {it.qty}</div>
-                          <div className={`${styles.textSm} ${styles.semi}`}>{currency(it.price * it.qty)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className={`${styles.row} ${styles.gapSm} ${styles.textSm}`}>
-                    <input
-                      id="accept-terms"
-                      type="checkbox"
-                      checked={acceptedTerms}
-                      onChange={(e) => setAcceptedTerms(e.target.checked)}
-                    />
-                    <label htmlFor="accept-terms">
-                      Confirm că am citit și accept <a href="/termeni" className={styles.link}>termenii și condițiile</a>.
-                    </label>
-                  </div>
-                </CardContent>
-                <CardFooter className={styles.rowBetween}>
-                  <Button variant="ghost" onClick={() => setStep("payment")}>Înapoi</Button>
-                  <Button className={styles.btnPrimary} onClick={placeOrder} disabled={!acceptedTerms || placing}>
-                    {placing ? "Se procesează..." : "Plasează comanda"}
-                  </Button>
-                </CardFooter>
-              </Card>
-            </TabsContent>
+      {/* Sticky checkout bar – mobil */}
+      {rows.length > 0 && (
+        <div className={styles.mobileBar} role="region" aria-label="Rezumat rapid și checkout">
+          <div>
+            <div className={styles.tot}>{money(total, "RON")}</div>
+ <div className={styles.small}>Subtotal (fără livrare)</div>
           </div>
-
-          {/* RIGHT (SIDEBAR) — doar la REVIEW */}
-          <div className={styles.rightCol}>
-            {step === "review" && (
-              <SummaryCard
-                merchandise={merchandiseTotal}
-                discount={discount}
-                vat={vatIncluded}
-                shipping={isPickup ? 0 : shippingTotal}          // ✅ shipping corect
-                shippingBreakdown={shippingBySeller}             // ✅ afișăm detaliile pe artizan
-                total={grandTotal}
-                isPickup={isPickup}
-                setIsPickup={setIsPickup}
-                styles={styles}
-                ctaLabel="Plasează comanda"
-                onCtaClick={placeOrder}
-              />
-            )}
-          </div>
+          <button
+            className={styles.mobileCheckout}
+            onClick={() => {
+              if (!me) {
+                const redir = encodeURIComponent("/checkout");
+                return nav(`/autentificare?redirect=${redir}`);
+              }
+              nav("/checkout");
+            }}
+            type="button"
+          >
+            Checkout
+          </button>
         </div>
-      </Tabs>
-
-      {items.length > 0 && <SavedForLater items={saveForLater} onAdd={addBackFromSFL} styles={styles} />}
-
-      <Footer />
-    </div>
-  );
-}
-
-function EmptyCart({ styles }) {
-  return (
-    <div className={styles.empty}>
-      <ShoppingCart className={styles.icon10} />
-      <h3 className={styles.emptyTitle}>Coșul tău este gol</h3>
-      <p className={styles.emptyText}>
-        Descoperă creațiile artizanilor și adaugă produse în coș pentru a continua.
-      </p>
-      <Button className={styles.btnPrimary} onClick={() => { if (typeof window !== "undefined") window.location.href = "/"; }}>
-        Vezi recomandările
-      </Button>
+      )}
     </div>
   );
 }

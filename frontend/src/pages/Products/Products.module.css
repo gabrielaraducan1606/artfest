@@ -1,0 +1,136 @@
+@import "../../styles/variables.css";
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.head { display: grid; gap: 10px; margin-bottom: 10px; }
+.h1 { margin: 0; font-family: var(--font-title); font-size: 24px; font-weight: 800; }
+
+.filters {
+  display: grid; grid-template-columns: 1.2fr 1fr 0.8fr 0.5fr 0.5fr 0.7fr;
+  gap: 8px;
+}
+.input, .inputN, .select {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  outline: none;
+}
+.input:focus, .inputN:focus, .select:focus {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
+  border-color: var(--color-primary);
+}
+
+.loading { padding: 24px; text-align: center; }
+
+.grid {
+  list-style: none; padding: 0; margin: 12px 0;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow .2s ease;
+}
+.card:hover { box-shadow: var(--shadow-md); }
+
+.cardLink { color: inherit; text-decoration: none; display: block; }
+
+.thumbWrap { aspect-ratio: 4/3; background: color-mix(in oklab, var(--color-bg) 60%, #0000); }
+.thumb { width: 100%; height: 100%; object-fit: cover; }
+
+.cardBody { padding: 10px; display: grid; gap: 4px; }
+.title {
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.meta { color: var(--color-muted); font-size: 0.9rem; }
+.vendor { font-weight: 600; color: var(--color-text); }
+.price { font-weight: 700; font-size: 1rem; }
+
+/* --- Actions per card --- */
+.cardActions {
+  margin: .5rem 10px 10px;
+  display:flex; align-items:center; justify-content: space-between;
+}
+
+.iconRow { display:flex; gap:.5rem; }
+
+/* butoane icon – folosesc doar variabile globale (no more --gray-*) */
+.iconBtn,
+.iconBtnOutline {
+  border-radius: 8px;
+  padding: .45rem .55rem;
+  cursor: pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  transition: filter .15s ease, background .15s ease, border-color .15s ease;
+  font-size: 1rem;
+}
+
+.iconBtn {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+.iconBtn:hover { filter: brightness(.97); background: var(--color-hover); border-color: var(--color-hover); }
+
+.iconBtnOutline {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+}
+.iconBtnOutline:hover { filter: brightness(.97); }
+
+/* stări */
+.heartFilled { color: var(--color-primary); } /* roșu pentru favorite */
+.ownerBadge { font-size:.75rem; color: var(--color-muted); }
+
+/* Pagination */
+.pagination {
+  display: flex; gap: 10px; align-items: center; justify-content: center;
+  margin: 14px 0;
+}
+.pagination button {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+}
+.pagination button:hover { filter: brightness(.97); }
+.pagination button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Empty state */
+.empty {
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 24px;
+  background: var(--surface);
+}
+.emptyTitle { font-weight: 700; margin-bottom: 6px; }
+.btnPrimary {
+  background: var(--color-primary); color: #fff; border: 2px solid var(--color-primary);
+  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+}
+.btnPrimary:hover { background: var(--color-hover); border-color: var(--color-hover); }
+
+/* Mobile */
+@media (max-width: 1024px) {
+  .grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 768px) {
+  .filters { grid-template-columns: 1fr 1fr; }
+  .grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .grid { grid-template-columns: 1fr; }
+}

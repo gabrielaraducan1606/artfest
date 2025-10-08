@@ -1,0 +1,15 @@
+/* src/components/Cookie/CookieBanner.module.css */
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 9999;
+  background: var(--surface); border-top: 1px solid var(--color-border);
+  padding: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+}
+.text { flex: 1; font-size: 14px; }
+.link { margin-left: 8px; text-decoration: underline; }
+.actions { display: flex; gap: 8px; align-items: center; }
+.btn, .btnPrimary, .btnLink {
+  padding: 8px 12px; border-radius: 8px; cursor: pointer; border: 1px solid var(--color-border);
+  background: transparent; color: var(--color-text);
+}
+.btnPrimary { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.btnLink { background: transparent; border: none; text-decoration: underline; padding: 0 4px; }

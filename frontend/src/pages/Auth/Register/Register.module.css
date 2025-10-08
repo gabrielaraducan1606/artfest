@@ -1,0 +1,198 @@
+@import "../../../styles/variables.css";
+
+/* ===== layout identic cu Login ===== */
+.wrap {
+  max-width: 420px;
+  margin: 56px auto;
+  padding: 0 16px;
+}
+.wrapModal { margin: 0; padding: 0; }
+
+.header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+.title {
+  font-family: var(--font-title);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: 1.75rem;
+  margin: 0 0 4px;
+  color: var(--color-text);
+}
+.subtitle {
+  margin: 0;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  font-size: 0.95rem;
+}
+
+/* card identic cu Login .card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow:
+    0 10px 20px rgba(0,0,0,.04),
+    0 2px 6px rgba(0,0,0,.03);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+
+  /* pentru varianta ta când returnezi <section className={styles.card}> */
+  max-width: 420px;
+  margin: 56px auto;
+}
+
+/* formularul din interior (grilă ca la login) */
+.body {
+  display: grid;
+  gap: 14px;
+}
+
+/* grup generic (dacă vei pune labeluri ca la login) */
+.fieldGroup { display: grid; gap: 6px; }
+.label {
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--color-text) 85%, transparent);
+}
+
+.inputGroup input{
+  width: 100%;
+}
+/* input = identic cu Login .input */
+.field {
+  width: auto;
+  padding: 12px 12px;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.field::placeholder {
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.field:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  background: var(--surface);
+}
+
+/* Prenume + Nume pe același rând */
+.nameRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.nameCol { display: grid; }
+
+/* Toggle parolă – stil identic cu Login .iconBtn */
+.inputGroup {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.togglePw {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+  color: color-mix(in srgb, var(--color-text) 80%, transparent);
+}
+.togglePw:hover { color: var(--color-text); }
+
+/* Bara de complexitate */
+.progress {
+  height: 6px;
+  background: color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: 9999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.bar {
+  height: 100%;
+  width: 0%;
+  background: var(--color-primary);
+  transition: width .25s ease;
+}
+.hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+/* Checkbox-uri & legal */
+.checkRow,
+.legalRow {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  line-height: 1.4;
+}
+.legalLink {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.legalLink:hover { text-decoration: underline; }
+.legalMuted {
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+/* Zona vendor – discretă, pe accent */
+.vendorBox {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
+  border-radius: calc(var(--radius) - 2px);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+/* Buton principal – identic cu Login .primaryBtn */
+.primaryBtn {
+  appearance: none;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .03s ease, background .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.primaryBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.primaryBtn:active { transform: translateY(1px); }
+.primaryBtn[disabled] { opacity: .6; cursor: not-allowed; }
+
+/* Erori – identic cu Login .error */
+.error {
+  border: 1px solid color-mix(in srgb, crimson 30%, var(--color-border));
+  background: color-mix(in srgb, crimson 8%, var(--surface));
+  color: crimson;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+
+/* utilitare */
+.srOnly {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* responsive */
+@media (max-width: 520px) {
+  .card { margin: 32px auto; }
+  .nameRow { grid-template-columns: 1fr; }
+}

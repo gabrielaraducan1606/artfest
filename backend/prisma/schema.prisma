@@ -1,0 +1,511 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * ==================== Enums ====================
+ */
+
+enum Role {
+  USER
+  VENDOR
+  ADMIN
+}
+
+enum ServiceStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum EventType {
+  PAGEVIEW
+  CTA_CLICK
+  MESSAGE
+}
+
+/**
+ * ==================== User & Auth ====================
+ */
+
+model User {
+  id           String @id @default(uuid())
+  email        String @unique
+  passwordHash String
+
+  // Nume normalizat
+  firstName String?
+  lastName  String?
+
+  // Legacy full name (compatibilitate)
+  name String?
+
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+
+  // Consimțăminte / conformitate
+  marketingOptIn  Boolean   @default(false)
+  termsAcceptedAt DateTime?
+
+  // Relații
+  vendor Vendor?
+
+  passwordResetTokens PasswordResetToken[]
+  Favorite            Favorite[]
+
+  // inverse
+  reviews     Review[]
+  comments    Comment[]
+  cartItems   CartItem[]
+  UserConsent UserConsent[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([userId, expiresAt])
+}
+
+/**
+ * ==================== Vendor & Billing ====================
+ */
+
+model Vendor {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+
+  // Profil public (vizibil în marketplace)
+  displayName String
+  city        String?
+  category    String?
+  about       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  logoUrl  String?
+  coverUrl String?
+  phone    String?
+  email    String?
+  website  String?
+  socials  Json?
+  address  String?
+  delivery String[]
+
+  // 1–1: date de facturare (nepublice)
+  billing VendorBilling?
+
+  // Relații servicii/abonamente
+  services      VendorService[]
+  subscriptions VendorSubscription[]
+
+  visitors         Visitor[]
+  events           Event[]
+  searches         Search[]
+  VendorAcceptance VendorAcceptance[]
+}
+
+model VendorBilling {
+  id String @id @default(uuid())
+
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId String @unique // 1–1 cu Vendor
+
+  // Câmpuri de facturare (nepublice)
+  companyName   String? @db.VarChar(256)
+  cui           String? @db.VarChar(10)
+  regCom        String? @db.VarChar(32)
+  address       String? @db.VarChar(512)
+  iban          String? @db.VarChar(34)
+  bank          String? @db.VarChar(128)
+  email         String? @db.VarChar(254)
+  contactPerson String? @db.VarChar(128)
+  phone         String? @db.VarChar(32)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cui])
+  @@index([email])
+}
+
+model RequestLog {
+  idempotencyKey String   @id
+  responseJson   Json
+  createdAt      DateTime @default(now())
+
+  @@map("request_logs")
+}
+
+/**
+ * ==================== Catalog servicii ====================
+ */
+
+model ServiceType {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  fields    Json?
+  createdAt DateTime @default(now())
+
+  vendorServices VendorService[]
+}
+
+model VendorService {
+  id       String      @id @default(uuid())
+  vendor   Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId String
+  type     ServiceType @relation(fields: [typeId], references: [id])
+  typeId   String
+
+  title          String?
+  description    String?
+  basePriceCents Int?
+  currency       String   @default("EUR")
+  city           String?
+  coverageAreas  String[]
+  mediaUrls      String[]
+  attributes     Json?
+
+  profile  ServiceProfile?
+  products Product[]
+
+  status    ServiceStatus @default(DRAFT)
+  isActive  Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([vendorId, typeId], name: "vendor_type_unique")
+  @@index([vendorId, typeId])
+}
+
+model ServiceProfile {
+  id        String        @id @default(uuid())
+  service   VendorService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId String        @unique
+
+  displayName String?
+  slug        String?  @unique
+  logoUrl     String?
+  coverUrl    String?
+  phone       String?
+  email       String?
+  website     String?
+  socials     Json?
+  address     String?
+  delivery    String[]
+  about       String?
+  city        String?
+
+  // opțional
+  tagline String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * ==================== Subscriptions ====================
+ */
+
+model SubscriptionPlan {
+  id         String   @id @default(uuid())
+  code       String   @unique
+  name       String
+  priceCents Int
+  currency   String   @default("RON")
+  interval   String   @default("month")
+  features   String[]
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  subscriptions VendorSubscription[]
+}
+
+model VendorSubscription {
+  id       String           @id @default(uuid())
+  vendor   Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId String
+  plan     SubscriptionPlan @relation(fields: [planId], references: [id])
+  planId   String
+  status   String           @default("active")
+  startAt  DateTime         @default(now())
+  endAt    DateTime?
+  extRef   String?
+  meta     Json?
+
+  @@index([vendorId, status])
+}
+
+model Product {
+  id        String        @id @default(uuid())
+  service   VendorService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId String
+
+  title       String
+  description String?
+  priceCents  Int
+  currency    String   @default("RON")
+  images      String[]
+  isActive    Boolean  @default(true)
+
+  // opțional
+  category String? @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  Favorite Favorite[]
+
+  // inverse
+  reviews   Review[]
+  comments  Comment[]
+  cartItems CartItem[]
+
+  @@index([serviceId, isActive, createdAt])
+  @@index([category])
+}
+
+model Favorite {
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([userId, productId])
+  @@index([userId, createdAt])
+  @@index([createdAt, productId]) // pt. cursor pagination
+}
+
+
+/**
+ * ==================== Reviews / Comments / Cart ====================
+ */
+
+model Review {
+  id        String   @id @default(uuid())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, userId], name: "productId_userId")
+  @@index([productId])
+  @@index([userId])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@index([userId])
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productId String
+  qty       Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId], name: "userId_productId")
+  @@index([userId])
+}
+
+model Visitor {
+  id       String @id @default(uuid())
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId String
+
+  // Context (opționale)
+  productId String?
+  source    String?
+  ref       String?
+
+  city      String?
+  ipHash    String?
+  userAgent String?
+
+  note      String?
+  contacted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([vendorId, createdAt])
+  @@index([vendorId, contacted])
+}
+
+model Event {
+  id       String @id @default(cuid())
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId String
+
+  type      EventType
+  pageUrl   String?
+  ctaLabel  String?
+  referrer  String?
+  sessionId String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  @@index([vendorId, createdAt])
+  @@index([vendorId, type, createdAt])
+  @@index([vendorId, pageUrl])
+}
+
+model Search {
+  id        String   @id @default(cuid())
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId  String
+  query     String
+  hits      Int      @default(1)
+  createdAt DateTime @default(now())
+
+  @@index([vendorId, createdAt])
+  @@index([vendorId, query])
+}
+
+enum ConsentDoc {
+  TOS
+  PRIVACY_ACK
+  MARKETING_EMAIL_OPTIN
+}
+
+model UserConsent {
+  id       String     @id @default(cuid())
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+  document ConsentDoc
+  version  String
+  checksum String?
+  givenAt  DateTime   @default(now())
+  ip       String?
+  ua       String?
+
+  @@index([userId, document])
+}
+
+enum VendorDoc {
+  VENDOR_TERMS
+  SHIPPING_ADDENDUM
+  RETURNS_POLICY_ACK
+}
+
+model VendorAcceptance {
+  id         String    @id @default(cuid())
+  vendor     Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId   String
+  document   VendorDoc
+  version    String
+  checksum   String?
+  acceptedAt DateTime  @default(now())
+
+  @@unique([vendorId, document], name: "vendorId_document") // 👈 folosit la upsert
+}
+
+// prisma/schema.prisma
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  FULFILLED
+}
+
+enum ShipmentStatus {
+  PENDING
+  AWB
+  IN_TRANSIT
+  DELIVERED
+  RETURNED
+}
+
+enum PaymentMethod {
+  COD   // ramburs
+  CARD  // online
+}
+
+enum ShippingMethod {
+  COURIER
+  LOCKER
+}
+
+model Order {
+  id              String         @id @default(cuid())
+  userId          String
+  status          OrderStatus    @default(PENDING)
+  paymentMethod   PaymentMethod
+  currency        String         @default("RON")
+  subtotal        Decimal        @db.Decimal(10,2)
+  shippingTotal   Decimal        @db.Decimal(10,2)
+  total           Decimal        @db.Decimal(10,2)
+  shippingAddress Json
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  shipments       Shipment[]
+
+  @@index([userId, createdAt])
+}
+
+model Shipment {
+  id         String          @id @default(cuid())
+  orderId    String
+  vendorId   String
+  method     ShippingMethod  @default(COURIER)
+  lockerId   String?
+  price      Decimal         @default(0) @db.Decimal(10,2)
+  status     ShipmentStatus  @default(PENDING)
+  awb        String?
+  labelUrl   String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  order      Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items      ShipmentItem[]
+
+  @@index([orderId])
+  @@index([vendorId])
+}
+
+model ShipmentItem {
+  id         String    @id @default(cuid())
+  shipmentId String
+  productId  String
+  title      String
+  qty        Int
+  price      Decimal   @db.Decimal(10,2)   // preț unitar în momentul comenzii
+
+  shipment   Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+  @@index([productId])
+}

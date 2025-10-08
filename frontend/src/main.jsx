@@ -1,17 +1,14 @@
 import React from "react";
-import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { createRoot } from "react-dom/client";
 import App from "./App";
-import './index.css';
 
-import { AppProvider } from './components/Context/AppProvider'; 
+// CSS global minimal (poți adăuga Tailwind sau alt framework ulterior)
+import "./styles/variables.css";
 
-ReactDOM.createRoot(document.getElementById("root")).render(
+// montează aplicația în <div id="root"></div> din index.html
+const root = createRoot(document.getElementById("root"));
+root.render(
   <React.StrictMode>
-    <BrowserRouter>
-      <AppProvider> 
-        <App />
-      </AppProvider>
-    </BrowserRouter>
+    <App />
   </React.StrictMode>
 );

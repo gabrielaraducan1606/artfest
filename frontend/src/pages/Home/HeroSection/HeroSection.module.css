@@ -1,0 +1,315 @@
+@import "../../../styles/variables.css";
+
+/* ===== Variabile ===== */
+:root {
+  --promo-height: 42vh;
+  --promo-glass-h: clamp(64px, 11vh, 110px);
+  --header-h: 64px;           /* fallback; e setată din JS */
+}
+
+/* ===== Banda promo fixă (numai mobil) ===== */
+.promoStrip {
+  position: fixed;
+  left: 0; right: 0; top: 0;
+  height: var(--promo-height);
+  z-index: 0;                 /* sub header (1000) & content */
+  pointer-events: none;
+  display: none;              /* ascunsă pe desktop */
+}
+
+.promoSlideLink {
+  position: absolute; inset: 0;
+  opacity: 0; transition: opacity 700ms ease;
+  pointer-events: none;
+}
+.promoSlideLink.active { opacity: 1; pointer-events: auto; }
+
+.promoSlide {
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+  filter: saturate(110%) contrast(105%);
+  object-position: center 30%;
+}
+
+.promoOverlay {
+  position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  background:
+    linear-gradient(to bottom, rgba(0,0,0,.35), rgba(0,0,0,.18) 42%, rgba(0,0,0,0) 75%),
+    radial-gradient(120% 60% at 80% 10%, rgba(255,255,255,.06), transparent 60%);
+}
+/* “glass” sub navbar */
+.promoOverlay::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: var(--promo-glass-h);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--color-bg) 88%, transparent) 0%,
+    color-mix(in oklab, var(--color-bg) 65%, transparent) 55%,
+    rgba(255,255,255,0) 100%
+  );
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-border) 72%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* CTA / dots */
+.adRibbon {
+  position: absolute; top: 8px; left: 12px; z-index: 3;
+  display: inline-flex; gap: 8px; align-items: center;
+  padding: 6px 10px; border-radius: 9999px;
+  background: rgba(0,0,0,.45); color: #fff;
+  backdrop-filter: blur(4px); font-size: 12px; font-weight: 700;
+}
+.adLabel { padding: 2px 6px; border-radius: 9999px; background: rgba(255,255,255,.2); }
+.adTitle { opacity: .95; }
+
+.adCta {
+  position: absolute; right: 14px; bottom: 12px; z-index: 3;
+  padding: .55rem .85rem; border-radius: 9999px;
+  background: var(--color-primary); color: #fff; text-decoration: none;
+  font-weight: 800; box-shadow: 0 8px 20px rgba(0,0,0,.18);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 70%, transparent);
+}
+.adCta:hover { background: var(--color-hover); }
+
+.adDots { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 3; display: flex; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,.45); border: 1px solid rgba(0,0,0,.2); }
+.dotActive { background: #fff; }
+
+/* Spacer (desktop off) */
+.promoSpacer { display: none; height: 0; }
+
+/* ===== Hero (marketplace) ===== */
+.heroSection {
+  --hero-pad-top: 18px;
+
+  position: relative;
+  background:
+    linear-gradient(0deg,
+      color-mix(in srgb, var(--color-primary) 6%, transparent),
+      color-mix(in srgb, var(--color-primary) 6%, transparent)
+    ),
+    var(--color-bg-elev);
+  border: none;
+  box-shadow: none;
+  border-radius: calc(var(--radius) + 8px);
+
+  padding: var(--hero-pad-top) clamp(14px, 2.2vw, 22px) clamp(18px, 2.5vw, 28px);
+  z-index: 1;
+}
+
+.inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  align-items: center;
+  gap: clamp(16px, 2.2vw, 22px);
+  grid-template-columns: 1.08fr 0.92fr;
+}
+
+/* ===== Text ===== */
+.content { display: grid; gap: clamp(8px, 1.4vw, 14px); }
+
+.eyebrow {
+  display: inline-block;
+  font-size: .78rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 25%, var(--color-border));
+  padding: 6px 10px;
+  border-radius: 9999px;
+  width: fit-content;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: clamp(1.55rem, 3.2vw, 2.2rem);
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  line-height: 1.12;
+}
+
+.accent {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-primary) 90%, #fff) 0%,
+    color-mix(in oklab, var(--color-primary) 55%, #fff) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.description {
+  margin: 0;
+  font-size: clamp(.98rem, 1.4vw, 1.08rem);
+  color: var(--color-text-muted);
+  max-width: 60ch;
+}
+
+/* ===== Search ===== */
+.searchBar {
+  display: grid;
+  grid-template-columns: auto 1fr auto; /* LUPĂ | INPUT | CAMERĂ */
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .6rem;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.searchInput {
+  border: none; outline: none; background: transparent;
+  font-size: .98rem; color: var(--color-text);
+  min-width: 0;
+}
+.searchInput::placeholder { color: var(--color-text-muted); }
+
+/* butoane icon-only – SOLID primary, fără border */
+.submitBtn,
+.cameraBtn {
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 14px color-mix(in oklab, var(--color-primary) 22%, transparent);
+  transition: transform .08s ease, filter .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.submitBtn svg,
+.cameraBtn svg { color: #fff; }
+.submitBtn:hover,
+.cameraBtn:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--color-primary) 28%, transparent);
+}
+.submitBtn:active,
+.cameraBtn:active { transform: translateY(1px); }
+.submitBtn:focus-visible,
+.cameraBtn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, #ffffff 80%, transparent),
+    0 0 0 6px color-mix(in oklab, var(--color-primary) 45%, transparent);
+}
+.submitBtn:disabled,
+.cameraBtn:disabled {
+  opacity: .7; filter: saturate(.9); cursor: not-allowed; box-shadow: none;
+}
+
+.hiddenFile { display: none; }
+
+/* ===== Trending ===== */
+.trending { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .4rem; }
+.trend {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  padding: .35rem .6rem;
+  border-radius: 9999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.trend:hover { border-color: var(--color-primary); color: var(--color-primary); }
+
+/* ===== Buttons ===== */
+.buttons { display: flex; gap: .6rem; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: .55rem;
+  text-decoration: none; font-weight: 700;
+  padding: .6rem .9rem;
+  border-radius: calc(var(--radius) + 4px);
+  transition: transform .12s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+  box-shadow: var(--shadow-sm);
+}
+.btn:active { transform: translateY(1px); }
+.btnIcon { font-size: 1.05em; }
+.btnPrimary {
+  background: var(--color-primary); color: #fff;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 70%, #0000);
+}
+.btnPrimary:hover { background: var(--color-hover); box-shadow: var(--shadow-md); }
+.btnGhost { background: transparent; color: var(--color-text); border: 1px solid var(--color-border); }
+.btnGhost:hover {
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+}
+
+/* ===== Badges ===== */
+.badges {
+  display: flex; gap: .7rem; margin: .2rem 0 0; padding: 0; list-style: none;
+  color: var(--color-text-muted); flex-wrap: wrap;
+}
+.badges li { white-space: nowrap; }
+
+/* ===== Vizual (desktop) ===== */
+.images { position: relative; width: 100%; display: grid; place-items: center; }
+.mainImageWrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  overflow: hidden;
+  background: var(--color-bg-muted);
+  isolation: isolate;
+}
+.mainImage { width: 100%; height: 100%; object-fit: cover; display: block; }
+.glow { position: absolute; inset: auto -12% -12% auto; width: 44%; height: 44%; background: color-mix(in srgb, var(--color-primary) 22%, transparent); filter: blur(34px); border-radius: 50%; pointer-events: none; z-index: 0; }
+.ring { position: absolute; inset: -25% -25% auto auto; width: 60%; height: 60%; border-radius: 50%; border: 1px dashed color-mix(in oklab, var(--color-primary) 40%, var(--color-border)); opacity: .35; transform: rotate(8deg); pointer-events: none; }
+.smallImage {
+  position: absolute; width: min(36%, 220px);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow: var(--shadow-md);
+  background: var(--color-bg-elev);
+  object-fit: contain; animation: floatY 6s ease-in-out infinite;
+}
+.smallImage1 { top: 6%; left: -4%; aspect-ratio: 1 / 1; padding: 8px; animation-delay: .2s; }
+.smallImage2 { bottom: -6%; right: -2%; aspect-ratio: 3 / 2; animation-delay: .8s; }
+.maybeLogo { object-fit: contain; background: var(--surface); }
+
+@keyframes floatY {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+  100% { transform: translateY(0); }
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 980px) {
+  .inner { grid-template-columns: 1fr; }
+  .images { display: none; } /* pe mobil folosim banda promo */
+}
+
+@media (max-width: 760px) {
+  .buttons { justify-content: center; } /* centrare pe mobil */
+}
+
+@media (max-width: 620px) {
+  .promoStrip { display: block; }
+
+  /* IMPORTANT: Eroul începe DUPĂ întreaga reclamă */
+  .promoSpacer {
+    display: block;
+    height: max(0px, calc(var(--promo-height) - var(--header-h)));
+  }
+
+  .heroSection {
+    --hero-pad-top: 16px;
+    padding: var(--hero-pad-top) 12px 16px;
+    margin-top: 0; /* fără overlap */
+  }
+
+  :root { --promo-height: 40vh; }
+}

@@ -1,36 +1,49 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap');
-
-/* Import font Inter (poți muta în index.html dacă preferi) */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
-
 /* ================== Light Theme (default) ================== */
 :root {
   /* Fonts */
   --font-title: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-body:  'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
   /* Shapes */
   --radius: 10px;
 
   /* Colors - Light */
-  --color-bg: #fafafa;             /* ușor gri în loc de alb pur */
-  --color-text: #2d2d2d;           /* gri foarte închis, nu negru dur */
-  --color-border: #e5e5e5;         /* gri deschis */
-  --color-primary: #f78c3d;        /* portocaliu pastel */
-  --color-hover: #f07220;          /* portocaliu puțin mai intens */
+  --color-bg: #fafafa;
+  --color-text: #2d2d2d;
+  --color-border: #e5e5e5;
+  --color-primary: #8b5cf6;   /* Violet modern, elegant */
+  --color-hover: #7c3aed;     /* Ton mai profund pentru hover */
 
-  /* Suprafețe (dropdowns, sugestii) */
+  /* Suprafețe */
   --surface: #ffffff;
+
+  /* Stări / nuanțe */
+  --color-muted: #6b7280;     /* text secundar */
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+
+  /* Umbre subtile */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 2px 6px rgba(0,0,0,.06);
 }
 
 /* ================== Dark Theme ================== */
 html[data-theme="dark"] {
-  --color-bg: #121212;             /* aproape negru, dar mai soft */
-  --color-text: #e0e0e0;           /* gri deschis, nu alb pur */
-  --color-border: #2a2a2a;         /* gri închis */
-  --color-primary: #f78c3d;        /* păstrăm consistența accentului */
-  --color-hover: #fca154;          /* puțin mai deschis pentru hover */
-  --surface: #1c1c1c;              /* panouri/dialoguri */
+  --color-bg: #121212;
+  --color-text: #e0e0e0;
+  --color-border: #2a2a2a;
+  --color-primary: #a78bfa;   /* Violet luminos pentru dark mode */
+  --color-hover: #8b5cf6;
+  --surface: #1c1c1c;
+
+  --color-muted: #a3a3a3;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #fbbf24;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+  --shadow-md: 0 2px 6px rgba(0,0,0,.55);
 }
 
 /* ================== Preferința sistemului ================== */
@@ -39,9 +52,17 @@ html[data-theme="dark"] {
     --color-bg: #121212;
     --color-text: #e0e0e0;
     --color-border: #2a2a2a;
-    --color-primary: #f78c3d;
-    --color-hover: #fca154;
+    --color-primary: #a78bfa;
+    --color-hover: #8b5cf6;
     --surface: #1c1c1c;
+
+    --color-muted: #a3a3a3;
+    --color-danger: #ef4444;
+    --color-success: #22c55e;
+    --color-warning: #fbbf24;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+    --shadow-md: 0 2px 6px rgba(0,0,0,.55);
   }
 }
 
@@ -50,6 +71,42 @@ html, body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-body);
-  font-weight: 400; /* implicit mai subțire */
   line-height: 1.5;
 }
+
+
+/*:root {
+  --font-title: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --radius: 10px;
+
+  --color-bg: #fafafa;
+  --color-text: #1f2937;
+  --color-border: #e5e5e5;
+  --color-primary: #64748b;
+  --color-hover: #475569;
+  --surface: #ffffff;
+
+  --color-muted: #6b7280;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 2px 6px rgba(0,0,0,.06);
+}
+
+html[data-theme="dark"] {
+  --color-bg: #0f172a;
+  --color-text: #e2e8f0;
+  --color-border: #1e293b;
+  --color-primary: #94a3b8;
+  --color-hover: #64748b;
+  --surface: #1e293b;
+
+  --color-muted: #94a3b8;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #fbbf24;
+}
+*/

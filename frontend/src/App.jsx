@@ -1,167 +1,126 @@
-import React from "react";
-import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+// client/src/App.jsx
+import { BrowserRouter, Routes, Route, Navigate, useSearchParams, useParams } from "react-router-dom";
 
-/* Pagini publice */
-import HomePage from "./pages/HomePage";
-import Login from "./pages/LoginForm/Login";
-import ForgotPassword from "./pages/LoginForm/Password/ForgotPassword";
-import ResetPassword from "./pages/LoginForm/Password/ResetPassowrod";
-import RegisterForm from "./pages/RegisterForm/RegisterForm";
-import Termeni from "./pages/Termeni/Termeni";
-import GDPR from "./pages/PoliticaGDPR/PoliticaGDPR";
-import DigitalServicesPage from "./pages/DigitalServicesPage/DigitalServicesPage";
+import Navbar from "./components/Navbar/Navbar";
+import Footer from "./components/Footer/Footer"; 
+import Home from "./pages/Home";
 
-/* Magazine & Produse */
-import Magazine from "./pages/Magazine/Magazine/Magazine";
-import ProductsPage from "./pages/ProductsPage/ProductsPage";
-import DetaliiProdus from "./pages/DetaliiProdus/DetaliiProdus";
-import ProfilMagazin from "./pages/Vanzator/VanzatorDashboard/ProfilMagazin";
+import Termeni from "./pages/Auth/Register/Legal/pages/TermeniiSiConditiile";
+import Confidentialitate from "./pages/Auth/Register/Legal/pages/PoliticaDeConfidentialitate";
+import Checkout from "./pages/Checkout/Checkout";         // ⬅ nou
+import CookiesPolicy from "./pages/CookieBanner/CookiePolicy";   // ⬅ nou
+import ReturnPolicy from "./pages/CookieBanner/ReturnPolicy";     // ⬅ nou
+import CookiePreferences from "./pages/CookieBanner/CookiePreferences"; // ⬅ nou
+import CookieBanner from "./pages/CookieBanner/CookieBanner"; // ⬅ nou
 
-/* User */
-import Wishlist from "./pages/Wishlist/Wishlist";
-import Cart from "./pages/Cart/Cart";
+import VendorTerms from "./pages/Auth/Register/Legal/legalVendor/VendorTerms";
+import ShippingAddendum from "./pages/Auth/Register/Legal/legalVendor/ShippingAddendum";
+import ReturnsPolicy from "./pages/Auth/Register/Legal/legalVendor/ReturnsPolicy";
 
-/* Vânzător (seller) */
-import ProtectedSellerRoute from "./components/ProtectedSellerRoute/ProtectedSellerRoute";
-import SellerInfo from "./pages/Seller/onboarding/SellerInfo";
-import SellerOnboardingTabs from "./pages/Seller/onboarding/SellerOnboardingTabs";
-import CompleteProfile from "./pages/Seller/SellerProfile";
-import SendOnboarding from "./pages/Seller/Payments/Payments";
-import ContractPage from "./pages/Seller/ContractPage/ContractPage";
-import ProduseleMele from "./pages/Vanzator/ProduseleMele/ProduseleMele";
-import ComenzileMele from "./pages/Vanzator/ComenzileMele/ComenzileMele";
-import Vizitatori from "./pages/Vanzator/Vizitatori/Vizitatori";
-import Asistenta from "./pages/Vanzator/Asistenta/Asisitenta";
-import Setari from "./pages/Vanzator/Setari/Setari";
-import AdaugaProdus from "./pages/Vanzator/AdaugaProdus/AdaugaProdus";
-import EditeazaProdus from "./pages/Vanzator/EditeazaProdus/EditeazaProdus";
+import Login from "./pages/Auth/Login/Login";
+import Register from "./pages/Auth/Register/Register";
+import ForgotPassword from "./pages/Auth/ForgotPassword";
+import ResetPassword from "./pages/Auth/ResetPassword";
 
-/* Servicii digitale — invitație instant */
-import InvitatieInstantLanding from "./pages/ServiciiDigitale/InvitatieInstant/servcii/InvitationLanding/InvitationLanding";
-import InvitatieInstantEditor from "./pages/ServiciiDigitale/InvitatieInstant/servcii/InvitatieInstantEditor/InvitatieInstantEditor";
+import Desktop from "./pages/Dasboard/Desktop";
+import OnboardingServices from "./pages/Vendor/Onboarding/OnBoardingServices/OnBoardingServices";
+import OnboardingDetails from "./pages/Vendor/Onboarding/OnBoardingDetails/OnBoardingDetails";
 
-/* IMPORTANT: importă Providerul din src, nu dintr-un folder extern */
-import { InvitationProvider } from "../invitation/InvitationProvider";
-import { InvitationsApi } from "@/components/services/invitationsApi";
+import ProfilMagazin from "./pages/Vendor/ProfilMagazin/ProfilMagazin";
+import StoreRedirect from "./pages/Vendor/ProfilMagazin/StoreRedirect";
+import DetaliiProdus from "./pages/Vendor/Produse/ProductDetails";
+import WishlistPage from "./pages/Wishlist/Wishlist";
+import CartPage from "./pages/Cart/Cart";
+import VendorVisitorsPage from "./pages/Vendor/Visitors/Visitors";
+import MessagesPage from "./pages/Vendor/Mesaje/Messages";
+import SupportPage from "./pages/Vendor/Support/Support";
+import SettingsPage from "./pages/Vendor/Settings/Settings";
+import NotificationsPage from "./pages/Vendor/Notifications/Notifications";
+import OrdersPage from "./pages/User/Orders/Orders";
+import ProductsPage from "./pages/Products/Products";
+import StoresPage from "./pages/Stores/StoresPage";
+import AccountPage from "./pages/AccountPage/AccountPage";
+import MobileCategories from "./pages/Categories/MobileCategories";
+import ShopPlanner from "./pages/Vendor/Planner/ShopPlanner";
 
-/* 🔁 Redirect vechiul /search → /produse?q=...  */
-function SearchRedirect() {
-  const { search } = useLocation();
-  const params = new URLSearchParams(search);
-  const q = params.get("q") || params.get("search") || "";
-  const next = q ? `/produse?q=${encodeURIComponent(q)}` : "/produse";
-  return <Navigate to={next} replace />;
+// import Furnizori from "./pages/Furnizori";
+// import Despre from "./pages/Despre";
+
+function ResetOrForgot() {
+  const [params] = useSearchParams();
+  const token = params.get("token");
+  return token ? <ResetPassword /> : <ForgotPassword />;
 }
 
-/* Rută care creează un draft nou și te duce la editor/:id (opțional, dar util) */
-function CreateInvitationAndGo() {
-  const navigate = useNavigate();
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const { id } = await InvitationsApi.createDraft({});
-        navigate(`/servicii-digitale/invitatie-instant/editor/${id}`, { replace: true });
-      } catch (e) {
-        console.error("Creare draft a eșuat:", e);
-        navigate("/servicii-digitale/invitatie-instant", { replace: true });
-      }
-    })();
-  }, [navigate]);
-  return null;
+// (opțional) front-only shortlink: /@:slug -> /magazin/:slug
+function AtSlugRedirect() {
+  const { slug } = useParams();
+  return <Navigate to={`/magazin/${slug}`} replace />;
 }
 
 export default function App() {
   return (
-    <Routes>
-      {/* Public */}
-      <Route path="/" element={<HomePage />} />
-      <Route path="/search" element={<SearchRedirect />} />
-      <Route path="/magazine" element={<Magazine />} />
-      <Route path="/produse" element={<ProductsPage />} />
-      <Route path="/produs/:id" element={<DetaliiProdus />} />
-      <Route path="/magazin/:handle" element={<ProfilMagazin />} />
+    <BrowserRouter>
+      <Navbar />
 
-      {/* Cont / legal */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/resetare-parola" element={<ForgotPassword />} />
-      <Route path="/resetare-parola/:token" element={<ResetPassword />} />
-      <Route path="/inregistrare" element={<RegisterForm />} />
-      <Route path="/termeni" element={<Termeni />} />
-      <Route path="/gdpr" element={<GDPR />} />
+      <Routes>
+        {/* Public */}
+        <Route path="/" element={<Home />} />
+        {/* <Route path="/furnizori" element={<Furnizori />} /> */}
+        {/* <Route path="/despre" element={<Despre />} /> */}
+        <Route path="/termenii-si-conditiile" element={<Termeni />} />
+      <Route path="/confidentialitate" element={<Confidentialitate />} />
+       {/* Checkout (utilizator logat; Cart deja redirecționează spre login dacă nu) */}
+        <Route path="/checkout" element={<Checkout />} />
 
-      {/* Servicii digitale */}
-      <Route path="/servicii-digitale" element={<DigitalServicesPage />} />
-      <Route path="/servicii-digitale/invitatie-instant" element={<InvitatieInstantLanding />} />
+        {/* Legal */}
+        <Route path="/politica-cookie" element={<CookiesPolicy />} />
+        <Route path="/politica-de-retur" element={<ReturnPolicy />} />
+<Route path="/cookie-banner" element={<CookieBanner />} />
+        {/* Preferințe cookie – panou de consimțământ */}
+        <Route path="/preferinte-cookie" element={<CookiePreferences />} />
 
-      {/* a) Editor cu draft existent */}
-      <Route
-        path="/servicii-digitale/invitatie-instant/editor/:draftId"
-        element={
-          <InvitationProvider>
-            <InvitatieInstantEditor />
-          </InvitationProvider>
-        }
-      />
-      {/* b) Intrare „goală” care creează draft și redirecționează automat */}
-      <Route
-        path="/servicii-digitale/invitatie-instant/editor"
-        element={<CreateInvitationAndGo />}
-      />
+       <Route path="/wishlist" element={<WishlistPage />} />
+        <Route path="/cos" element={<CartPage />} />
+        {/* Auth */}
+        <Route path="/autentificare" element={<Login />} />
+        <Route path="/inregistrare" element={<Register />} />
+        <Route path="/reset-parola" element={<ResetOrForgot />} />
 
-      {/* User */}
-      <Route path="/wishlist" element={<Wishlist />} />
-      <Route path="/cos" element={<Cart />} />
+        {/* Vendor */}
+        <Route path="/legal/vendor/terms" element={<VendorTerms />} />
+        <Route path="/legal/vendor/expediere" element={<ShippingAddendum />} />
+        <Route path="/retur" element={<ReturnsPolicy />} />
+        <Route path="/desktop" element={<Desktop />} />
+        <Route path="/onboarding" element={<OnboardingServices />} />
+        <Route path="/onboarding/details" element={<OnboardingDetails />} />
+        <Route path="/produs/:id" element={<DetaliiProdus />} />
+        <Route path="/vendor/visitors" element={<VendorVisitorsPage />} />
+        <Route path="/mesaje" element={<MessagesPage />} />
+        <Route path="/asistenta-tehnica" element={<SupportPage />} />
+        <Route path="/setari" element={<SettingsPage />} />    
+        <Route path="/notificari" element={<NotificationsPage />} />
+        <Route path="/cont" element={<AccountPage />} />
+        <Route path="/categorii" element={<MobileCategories />} />
+<Route path="/planner" element={<ShopPlanner />} />
 
-      {/* Formulare creare profil vanzator */}
-      <Route
-        path="/vanzator/informatii"
-        element={<ProtectedSellerRoute><SellerInfo /></ProtectedSellerRoute>}
-      />
-      <Route
-        path="/vanzator/onboarding"
-        element={<ProtectedSellerRoute><SellerOnboardingTabs /></ProtectedSellerRoute>}
-      />
+        {/* Magazin public */}
+        <Route path="/magazin/:slug" element={<ProfilMagazin />} />
+        
+        <Route path="/comenzile-mele" element={<OrdersPage />} />
+        <Route path="/produse" element={<ProductsPage />} />
+        <Route path="/magazine" element={<StoresPage />} />
+        
+        {/* Shortcut proprietar */}
+        <Route path="/vendor/store" element={<StoreRedirect />} />
 
-      {/* Seller - protejat */}
-      <Route
-        path="/vanzator/dashboard"
-        element={<ProtectedSellerRoute><ProfilMagazin /></ProtectedSellerRoute>}
-      />
-      <Route path="/vanzator/completare-profil" element={<CompleteProfile />} />
-      <Route path="/vanzator/sendonboarding" element={<SendOnboarding />} />
-      <Route path="/vanzator/contract/:id" element={<ContractPage />} />
+        {/* (opțional) shortlink */}
+        <Route path="/@:slug" element={<AtSlugRedirect />} />
 
-      <Route
-        path="/vanzator/produse"
-        element={<ProtectedSellerRoute><ProduseleMele /></ProtectedSellerRoute>}
-      />
-      <Route
-        path="/vanzator/comenzi"
-        element={<ProtectedSellerRoute><ComenzileMele /></ProtectedSellerRoute>}
-      />
-      <Route
-        path="/vanzator/vizitatori"
-        element={<ProtectedSellerRoute><Vizitatori /></ProtectedSellerRoute>}
-      />
-      <Route
-        path="/vanzator/asistenta"
-        element={<ProtectedSellerRoute><Asistenta /></ProtectedSellerRoute>}
-      />
-      <Route
-        path="/vanzator/setari"
-        element={<ProtectedSellerRoute><Setari /></ProtectedSellerRoute>}
-      />
-      <Route
-        path="/vanzator/adauga-produs"
-        element={<ProtectedSellerRoute><AdaugaProdus /></ProtectedSellerRoute>}
-      />
-      <Route
-        path="/vanzator/editeaza-produs/:id"
-        element={<ProtectedSellerRoute><EditeazaProdus /></ProtectedSellerRoute>}
-      />
-
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      <Footer />
+    </BrowserRouter>
   );
 }
