@@ -1,11 +1,21 @@
 // client/src/lib/api.js
+const API_BASE =
+  (typeof import !== "undefined" &&
+    import.meta?.env?.VITE_API_BASE_URL) ||
+  (typeof process !== "undefined" &&
+    process?.env?.VITE_API_BASE_URL) ||
+  ""; // ex: https://artfest.onrender.com
+
+function joinURL(base, path) {
+  if (!base) return path;                         // fallback (dev)
+  if (/^https?:\/\//i.test(path)) return path;   // deja absolut
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${b}${p}`;
+}
+
 export async function api(path, opts = {}) {
-  const {
-    method = "GET",
-    body,
-    headers,
-    ...rest
-  } = opts;
+  const { method = "GET", body, headers, ...rest } = opts;
 
   const init = {
     method,
@@ -16,15 +26,11 @@ export async function api(path, opts = {}) {
 
   // ----- Body & Content-Type handling -----
   if (body !== undefined && body !== null) {
-    // 1) FormData → nu setăm Content-Type manual
     if (typeof FormData !== "undefined" && body instanceof FormData) {
-      init.body = body;
-    }
-    // 2) String → îl trimitem ca atare (nu mai stringify)
-    else if (typeof body === "string") {
+      init.body = body; // fără Content-Type manual
+    } else if (typeof body === "string") {
       init.body = body;
       if (!init.headers["Content-Type"]) {
-        // dacă seamănă a JSON, setează application/json, altfel text/plain
         try {
           JSON.parse(body);
           init.headers["Content-Type"] = "application/json";
@@ -32,15 +38,15 @@ export async function api(path, opts = {}) {
           init.headers["Content-Type"] = "text/plain;charset=UTF-8";
         }
       }
-    }
-    // 3) Orice alt obiect → JSON
-    else {
+    } else {
       init.body = JSON.stringify(body);
-      init.headers["Content-Type"] = init.headers["Content-Type"] || "application/json";
+      init.headers["Content-Type"] =
+        init.headers["Content-Type"] || "application/json";
     }
   }
 
-  const res = await fetch(path, init);
+  const url = joinURL(API_BASE, path);
+  const res = await fetch(url, init);
 
   const contentType = res.headers.get("content-type") || "";
   let data;
@@ -54,7 +60,6 @@ export async function api(path, opts = {}) {
       data = null;
     }
   } else {
-    // încearcă text; dacă pare JSON, încearcă parse
     const text = await res.text();
     try {
       data = text && text[0] === "{" ? JSON.parse(text) : text;
