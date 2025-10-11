@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api";
-import styles from "./OnboardingServices.module.css";
+import styles from "./OnBoardingServices.module.css";
 
 // ✨ doar aceste coduri sunt permise momentan
 const ALLOWED_CODES = new Set(["products"]);
