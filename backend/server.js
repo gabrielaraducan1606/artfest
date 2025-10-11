@@ -64,7 +64,8 @@ const corsOptions = {
 
 app.set("trust proxy", 1);
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // preflight global
+app.options(/.*/, cors(corsOptions));
+
 
 /* ------------------------------------------------------------------ */
 /*               Securitate, compresie, parsere, cookies               */
