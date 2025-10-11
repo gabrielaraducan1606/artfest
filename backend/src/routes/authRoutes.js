@@ -1,4 +1,3 @@
-// backend/src/routes/authRoutes.js
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import { z } from "zod";
@@ -117,7 +116,6 @@ router.post("/signup", async (req, res) => {
       });
 
       if (!isAdmin && asVendor) {
-        // Vendor.displayName e obligatoriu în schema ta ⇒ garantăm non-gol
         const display =
           (displayName && displayName.trim()) ||
           (name && name.trim()) ||
@@ -133,7 +131,6 @@ router.post("/signup", async (req, res) => {
         });
       }
 
-      // --- Consimțăminte (UserConsent) ---
       if (Array.isArray(consents) && consents.length > 0) {
         const ip =
           (req.headers["x-forwarded-for"] || "")
@@ -162,7 +159,6 @@ router.post("/signup", async (req, res) => {
           });
         }
 
-        // păstrează și atributele vechi, dacă dorești
         if (consents.some((c) => c.type === "tos")) {
           await tx.user.update({
             where: { id: user.id },
@@ -181,10 +177,12 @@ router.post("/signup", async (req, res) => {
     });
 
     const token = signToken({ sub: created.id, role: created.role });
+    const isProd = process.env.NODE_ENV === "production";
     res.cookie("token", token, {
       httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isProd,                 // ✅ obligatoriu true în prod
+      sameSite: isProd ? "None" : "Lax", // ✅ cross-site în prod
+      path: "/",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -226,7 +224,6 @@ router.post("/login", async (req, res) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: "credentale_gresite" });
 
-    // auto-promote dacă e adminul din .env
     if (email === ADMIN_EMAIL && user.role !== "ADMIN") {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -235,10 +232,12 @@ router.post("/login", async (req, res) => {
     }
 
     const token = signToken({ sub: user.id, role: user.role });
+    const isProd = process.env.NODE_ENV === "production";
     res.cookie("token", token, {
       httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isProd,                 // ✅
+      sameSite: isProd ? "None" : "Lax", // ✅
+      path: "/",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -275,10 +274,12 @@ router.get("/me", authRequired, async (req, res) => {
 
 /** POST /api/auth/logout */
 router.post("/logout", (_req, res) => {
+  const isProd = process.env.NODE_ENV === "production";
   res.clearCookie("token", {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isProd,
+    sameSite: isProd ? "None" : "Lax",
+    path: "/",
   });
   res.json({ ok: true });
 });

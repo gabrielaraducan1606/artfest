@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   Heart,
@@ -21,7 +21,7 @@ import styles from "./Navbar.module.css";
 import logo from "../../assets/LogoArtfest.png";
 import Register from "../../pages/Auth/Register/Register";
 import Login from "../../pages/Auth/Login/Login";
-import { guestCart } from "../../lib/guestCart"; // ✅ NEW
+import { guestCart } from "../../lib/guestCart";
 
 /* ========================= Modal (cu portal & blur) ========================= */
 function Modal({ open, onClose, title, children }) {
@@ -147,7 +147,10 @@ export default function Navbar() {
   const [onboarding, setOnboarding] = useState(null);
 
   const [uploadingImg, setUploadingImg] = useState(false);
-  const fileInputId = "image-search-input";
+
+  // ✅ fără id duplicat — folosim ref-uri separate
+  const fileInputDesktopRef = useRef(null);
+  const fileInputMobileRef = useRef(null);
 
   // Theme
   const [theme, setTheme] = useState(() => {
@@ -200,18 +203,15 @@ export default function Navbar() {
           setCartCount(0);
         }
       } else {
-        setCartCount(computeGuestCartCount()); // ✅ guest: citește din localStorage
+        setCartCount(computeGuestCartCount());
       }
     }
-    // rulează imediat la mount / schimbare me
     refreshCart();
 
     const handler = () => refreshCart();
     window.addEventListener("cart:changed", handler);
 
-    // sincronizare între tab-uri pentru coșul de guest
     const onStorage = (e) => {
-      // cheia din guestCart este "guest_cart_v1"
       if (e.key === "guest_cart_v1") refreshCart();
     };
     window.addEventListener("storage", onStorage);
@@ -220,26 +220,27 @@ export default function Navbar() {
       window.removeEventListener("cart:changed", handler);
       window.removeEventListener("storage", onStorage);
     };
-  }, [me]); // se reatașează când se schimbă starea de autentificare
+  }, [me]);
 
-  // Wishlist + cart counts — dacă ești logat: API, dacă ești guest: doar cart local
+  // Wishlist + cart counts
   useEffect(() => {
     let alive = true;
     (async () => {
-       if (!me) {
-   try {
-     const raw = localStorage.getItem("guest:cart");
-     const list = JSON.parse(raw || "[]");
-     const count = Array.isArray(list) ? list.reduce((s,x)=>s + Number(x.qty||0), 0) : 0;
-     setCartCount(count);
-   } catch { setCartCount(0); }
-   return;
- }
+      if (!me) {
+        try {
+          const raw = localStorage.getItem("guest:cart");
+          const list = JSON.parse(raw || "[]");
+          const count = Array.isArray(list)
+            ? list.reduce((s, x) => s + Number(x.qty || 0), 0)
+            : 0;
+          setCartCount(count);
+        } catch {
+          setCartCount(0);
+        }
+        return;
+      }
       try {
-        // ai deja alias /api/wishlist/count -> dar backend-ul nou are /api/favorites/count
-        // dacă ai montat aliasul, lăsăm cum e:
         const wc = await api("/api/wishlist/count").catch(async () => {
-          // fallback pe endpointul nou:
           const f = await api("/api/favorites/count").catch(() => ({ count: 0 }));
           return { count: f.count || 0 };
         });
@@ -444,9 +445,12 @@ export default function Navbar() {
     }
   }
 
-  function openImagePicker() {
-    const input = document.getElementById(fileInputId);
-    if (input) input.click();
+  // ✅ fără getElementById — folosim ref-urile dedicate
+  function openImagePickerDesktop() {
+    fileInputDesktopRef.current?.click();
+  }
+  function openImagePickerMobile() {
+    fileInputMobileRef.current?.click();
   }
 
   // redirect pentru Login din query param
@@ -628,8 +632,9 @@ export default function Navbar() {
                 aria-label="Caută"
               />
 
+              {/* ✅ input fișier (desktop) */}
               <input
-                id={fileInputId}
+                ref={fileInputDesktopRef}
                 type="file"
                 accept="image/*"
                 className={styles.hiddenFile}
@@ -639,7 +644,7 @@ export default function Navbar() {
               <button
                 className={styles.cameraBtn}
                 type="button"
-                onClick={openImagePicker}
+                onClick={openImagePickerDesktop}
                 aria-label="Caută după imagine"
                 title="Caută după imagine"
                 disabled={uploadingImg}
@@ -661,7 +666,7 @@ export default function Navbar() {
         )}
 
         {/* Dreapta: acțiuni + cont + ASISTENȚĂ */}
-       <div className={styles.actionsRight}>
+        <div className={styles.actionsRight}>
           <button
             className={styles.themeBtn}
             onClick={toggleTheme}
@@ -885,8 +890,9 @@ export default function Navbar() {
               aria-label="Caută"
             />
 
+            {/* ✅ input fișier (mobil) */}
             <input
-              id={fileInputId}
+              ref={fileInputMobileRef}
               type="file"
               accept="image/*"
               className={styles.hiddenFile}
@@ -896,7 +902,7 @@ export default function Navbar() {
             <button
               className={styles.cameraBtn}
               type="button"
-              onClick={openImagePicker}
+              onClick={openImagePickerMobile}
               aria-label="Caută după imagine"
               title="Caută după imagine"
               disabled={uploadingImg}

@@ -1,11 +1,9 @@
-// client/src/components/Register.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../../../lib/api"; // ai helperul care prepend-ează VITE_API_BASE
+import { api } from "../../../lib/api";
 import styles from "./Register.module.css";
 
 const OB_TICKET_PARAM = "obpf";
 const OB_TICKET_PREFIX = "onboarding.ticket.";
-const BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 
 // --- utils ---
 function appendTicket(urlLike, ticket) {
@@ -33,12 +31,8 @@ function useLegalMeta(types = []) {
       setError("");
       try {
         const qs = encodeURIComponent(types.join(","));
-        const res = await fetch(`${BASE}/api/legal?types=${qs}`, {
-          credentials: "include",
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const arr = await res.json();
+        // ✅ folosim wrapperul api() — respectă VITE_API_URL în dev/prod
+        const arr = await api(`/api/legal?types=${qs}`);
         if (!active) return;
         const map = {};
         for (const d of arr || []) map[d.type] = d;
