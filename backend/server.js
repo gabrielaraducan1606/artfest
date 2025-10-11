@@ -6,11 +6,12 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import dotenv from "dotenv";
 
-// 👉 Încarcă .env DOAR în development (nu călca env-urile Render)
+// Încarcă .env DOAR în development (pe Render/production nu călcăm env-urile)
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override!
 }
 
+// ---- importă rutele existente din proiect ----
 import { getLegalMeta, getLegalHtml } from "./src/api/legal.js";
 import authRouter from "./src/routes/authRoutes.js";
 import vendorsRouter from "./src/routes/vendorRoutes.js";
@@ -35,10 +36,11 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 /* ----------------------- C O R S  robust ----------------------- */
-// CORS_ORIGIN="https://artfest-marketplace.netlify.app,https://artfest.onrender.com"
+// CORS_ORIGIN în env (Render): ex.
+// CORS_ORIGIN=https://artfest-marketplace.netlify.app,https://artfest.onrender.com
 const rawOrigins = (process.env.CORS_ORIGIN || "")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
 if (!rawOrigins.length) {
@@ -46,7 +48,9 @@ if (!rawOrigins.length) {
   process.exit(1);
 }
 
-const allowedOrigins = rawOrigins.map(s => s.replace(/\/$/, "").toLowerCase());
+const allowedOrigins = rawOrigins.map((s) =>
+  s.replace(/\/$/, "").toLowerCase()
+);
 
 // (opțional) permite preview-urile Netlify pentru proiectul tău
 const allowNetlifyPreviewsFor = "artfest-marketplace";
@@ -69,7 +73,6 @@ app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", origin || "*");
     res.header("Vary", "Origin");
     res.header("Access-Control-Allow-Credentials", "true");
-    // reflectă headerele cerute de browser (nu lista fixă care rupe preflight)
     const reqHeaders = req.headers["access-control-request-headers"];
     if (reqHeaders) res.header("Access-Control-Allow-Headers", reqHeaders);
     res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -92,9 +95,11 @@ app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+/* Health */
 app.get("/healthz", (_req, res) => res.send("ok"));
 app.get("/api/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
+/* Rate limit pe /api */
 app.use(
   "/api",
   rateLimit({
@@ -105,7 +110,7 @@ app.use(
   })
 );
 
-/* rutele tale… (păstrează exact cum le ai) */
+/* Rute */
 app.get("/api/legal", getLegalMeta);
 app.get("/legal/:type.html", getLegalHtml);
 
@@ -129,13 +134,15 @@ app.use("/api", commentsRoutes);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
 app.use("/api", imageSearchRouter);
 
-// temporar dacă frontend cere /api/ads
+// (temporar) dacă frontend cere /api/ads și nu ai backend real
 // app.get("/api/ads", (_req, res) => res.json([]));
 
+/* Redirect scurt către pagina publică a magazinului */
 app.get("/@:slug", (req, res) =>
   res.redirect(301, `/magazin/${encodeURIComponent(req.params.slug)}`)
 );
 
+/* Handler de erori */
 app.use((err, _req, res, _next) => {
   console.error("UNCAUGHT:", err?.message || err);
   if (err?.message === "Not allowed by CORS") {
@@ -147,6 +154,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "server_error" });
 });
 
+/* Start */
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`API up on port ${PORT}`);
   console.log("CORS allowed:", allowedOrigins);
