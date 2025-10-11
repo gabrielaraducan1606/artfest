@@ -7,7 +7,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import compression from "compression";
 
-// rutele tale existente
+// ---- rutele tale existente (păstrează-le exact cum sunt în proiect) ----
 import { getLegalMeta, getLegalHtml } from "./src/api/legal.js";
 import authRouter from "./src/routes/authRoutes.js";
 import vendorsRouter from "./src/routes/vendorRoutes.js";
@@ -33,78 +33,82 @@ dotenv.config({ override: true, quiet: true });
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-/* ---------- Securitate & performanță ---------- */
-
-// face app-ul accesibil în spatele proxy-ului Render/NGINX
-app.set("trust proxy", 1);
-
-// Protecții HTTP de bază
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" }, // lasă imaginile publice
-  })
-);
-
-// (opțional) CSP strict – relaxează dacă ai scripturi externe
-// app.use(
-//   helmet.contentSecurityPolicy({
-//     useDefaults: true,
-//     directives: {
-//       "script-src": ["'self'"],
-//       "img-src": ["'self'", "data:", "https:"],
-//       "connect-src": ["'self'"].concat((process.env.CORS_ORIGIN || "").split(",").map(s => s.trim())),
-//     },
-//   })
-// );
-
-// CORS strict – mai multe origini separate prin virgulă în CORS_ORIGIN
+/* ------------------------------------------------------------------ */
+/*                        CORS (din CORS_ORIGIN)                       */
+/* ------------------------------------------------------------------ */
+// ex. în Render:
+// CORS_ORIGIN="https://artfest-marketplace.netlify.app, https://artfest.onrender.com"
 const allowedOrigins = (process.env.CORS_ORIGIN || "")
   .split(",")
   .map((s) => s.trim())
-  .filter(Boolean);
+  .filter(Boolean)
+  .map((s) => s.replace(/\/$/, "").toLowerCase()); // fără slash final, lowercase
 
+if (!allowedOrigins.length) {
+  console.error("❌ CORS_ORIGIN is missing or empty in env!");
+  process.exit(1);
+}
+
+const corsOptions = {
+  origin(origin, cb) {
+    if (!origin) return cb(null, true); // healthchecks, curl, Postman
+    const o = origin.replace(/\/$/, "").toLowerCase();
+    const ok = allowedOrigins.includes(o);
+    if (!ok) console.warn("CORS blocked:", origin, "allowed:", allowedOrigins);
+    return ok ? cb(null, true) : cb(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.set("trust proxy", 1);
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // preflight global
+
+/* ------------------------------------------------------------------ */
+/*               Securitate, compresie, parsere, cookies               */
+/* ------------------------------------------------------------------ */
 app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin) return cb(null, true); // permite curl/healthchecks
-      return allowedOrigins.includes(origin) ? cb(null, true) : cb(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // imagini publice
   })
 );
+app.use(compression());
+app.use(cookieParser());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// limitare request-uri (anti-abuz/brute force)
+/* ------------------------------------------------------------------ */
+/*                             Healthchecks                            */
+/* ------------------------------------------------------------------ */
+app.get("/healthz", (_req, res) => res.send("ok"));
+app.get("/api/health", (_req, res) =>
+  res.json({ ok: true, ts: new Date().toISOString() })
+);
+
+/* ------------------------------------------------------------------ */
+/*                         Limitare pe /api                            */
+/* ------------------------------------------------------------------ */
 app.use(
-  "/api/",
+  "/api",
   rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 600, // ajustează la nevoie
+    max: 600,
     standardHeaders: true,
     legacyHeaders: false,
   })
 );
 
-// compresie răspuns
-app.use(compression());
-
-// parsere – limite mărite (uploadul de imagini folosește Multer, deci nu intră pe json/urlencoded)
-app.use(cookieParser());
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-/* ---------- Healthchecks ---------- */
-app.get("/healthz", (_req, res) => res.send("ok"));
-app.get("/api/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
-
-/* ---------- Rute API existente ---------- */
+/* ------------------------------------------------------------------ */
+/*                                Rute                                 */
+/* ------------------------------------------------------------------ */
 app.get("/api/legal", getLegalMeta);
 app.get("/legal/:type.html", getLegalHtml);
 
 app.use("/api", vendorLegalRoutes);
 app.use("/api", checkoutRoutes);
-app.use("/api", samedayRoutes); // TODO: de scos dacă e doar testing
+app.use("/api", samedayRoutes); // scoate dacă e doar pentru test
 
 app.use("/api/auth", authRouter);
 app.use("/api/vendors", vendorsRouter);
@@ -123,21 +127,36 @@ app.use("/api", commentsRoutes);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
 app.use("/api", imageSearchRouter);
 
-// redirect scurt către pagina publică a magazinului
-app.get("/@:slug", (req, res) => res.redirect(301, `/magazin/${encodeURIComponent(req.params.slug)}`));
+// (opțional) evită 404 până implementezi ads în backend:
+// app.get("/api/ads", (_req, res) => res.json([]));
 
-/* ---------- Handler global de erori ---------- */
+/* Short redirect spre pagina publică a magazinului */
+app.get("/@:slug", (req, res) =>
+  res.redirect(301, `/magazin/${encodeURIComponent(req.params.slug)}`)
+);
+
+/* ------------------------------------------------------------------ */
+/*                          Handler de erori                           */
+/* ------------------------------------------------------------------ */
 app.use((err, _req, res, _next) => {
-  console.error("UNCAUGHT:", err);
+  console.error("UNCAUGHT:", err?.message || err);
+  if (err?.message === "Not allowed by CORS") {
+    return res.status(403).json({ error: "cors_blocked" });
+  }
   if (err?.type === "entity.too.large") {
-    return res.status(413).json({ error: "payload_too_large", message: "Body prea mare (max 10MB)." });
+    return res
+      .status(413)
+      .json({ error: "payload_too_large", message: "Body prea mare (max 10MB)." });
   }
   res.status(500).json({ error: "server_error" });
 });
 
-/* ---------- Start & shutdown grațios ---------- */
+/* ------------------------------------------------------------------ */
+/*                         Pornire & shutdown                          */
+/* ------------------------------------------------------------------ */
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`API up on port ${PORT}`);
+  console.log("CORS allowed:", allowedOrigins);
 });
 
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
