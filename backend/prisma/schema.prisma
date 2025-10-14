@@ -2,10 +2,8 @@
 
 datasource db {
   provider  = "postgresql"
-  // URL folosit de aplicație (în prod: prin pooler / PgBouncer)
-  url       = env("DATABASE_URL")
-  // URL folosit de Prisma Migrate/Studio/Introspection (conexiune directă)
-  directUrl = env("DIRECT_URL")
+  url       = env("DATABASE_URL")   // app_prod prin pooler (runtime)
+  directUrl = env("DIRECT_URL")     // migrator_prod (DOAR pentru migrate/Studio)
 }
 
 generator client {
