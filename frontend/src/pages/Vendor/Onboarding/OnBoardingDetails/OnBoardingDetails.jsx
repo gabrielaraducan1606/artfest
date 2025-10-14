@@ -1,5 +1,5 @@
-// components/onboarding/OnBoardingDetails.jsx
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../../../lib/api";
 import styles from "./OnBoardingDetails.module.css";
 
@@ -12,20 +12,23 @@ import BillingTab from "./tabs/BillingTab";
 import PaymentTab from "./tabs/PaymentTab";
 
 const VANITY_BASE = "www.artfest.ro/"; // ajustează domeniul
-const OB_TICKET_PARAM = "obpf";                     // param. de URL pentru prefill
-const OB_TICKET_PREFIX = "onboarding.ticket.";      // cheie în sessionStorage
-const PREFILL_TTL_MS = 15 * 60 * 1000;              // 15 min – doar imediat după register
-const OB_SESSION_KEY = "onboarding.sessionId";      // ID de sesiune per TAB (pt. drafts/alegeri)
+const OB_TICKET_PARAM = "obpf";
+const OB_TICKET_PREFIX = "onboarding.ticket.";
+const PREFILL_TTL_MS = 15 * 60 * 1000;
+const OB_SESSION_KEY = "onboarding.sessionId";
 
 function slugify(s = "") {
   return String(s)
     .toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
 }
 
 export default function OnBoardingDetails() {
+  const navigate = useNavigate();
+
   const [services, setServices] = useState([]);
   const [err, setErr] = useState("");
 
@@ -36,7 +39,7 @@ export default function OnBoardingDetails() {
   const [saveError, setSaveError] = useState({});
   const [billingStatus, setBillingStatus] = useState("idle");
 
-  // ===== ID de sesiune de onboarding per TAB (pt. Billing/Payment drafts) =====
+  // ===== ID sesiune onboarding (drafts/alegeri) =====
   const [obSessionId, setObSessionId] = useState("");
   useEffect(() => {
     try {
@@ -51,34 +54,54 @@ export default function OnBoardingDetails() {
     }
   }, []);
 
+  // ===== închidem warningul ESLint: definim fetchMyServices cu useCallback =====
+  const fetchMyServices = useCallback(async () => {
+    const d = await api("/api/vendors/me/services?includeProfile=1");
+    if (d?.__unauth) {
+      // nu ești logat → trimitem la login (ajustează ruta la ce folosești tu)
+      navigate("/login?next=/onboarding/details", { replace: true });
+      return [];
+    }
+    const items = (d.items || []).map((s) => ({
+      ...s,
+      attributes: s.attributes || {},
+      profile: {
+        displayName: s.profile?.displayName || "",
+        slug:        s.profile?.slug || "",
+        logoUrl:     s.profile?.logoUrl || "",
+        coverUrl:    s.profile?.coverUrl || "",
+        phone:       s.profile?.phone || "",
+        email:       s.profile?.email || "",
+        address:     s.profile?.address || "",
+        delivery:    Array.isArray(s.profile?.delivery) ? s.profile.delivery : [],
+        tagline:     s.profile?.tagline || "",
+        about:       s.profile?.about || "",
+        city:        s.profile?.city || "",
+      },
+    }));
+    return items;
+  }, [navigate]);
+
   // ===== Încarcă serviciile + profilele =====
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
-        const d = await api("/api/vendors/me/services?includeProfile=1");
-        const items = (d.items || []).map((s) => ({
-          ...s,
-          attributes: s.attributes || {},
-          profile: {
-            displayName: s.profile?.displayName || "",
-            slug:        s.profile?.slug || "",
-            logoUrl:     s.profile?.logoUrl || "",
-            coverUrl:    s.profile?.coverUrl || "",
-            phone:       s.profile?.phone || "",
-            email:       s.profile?.email || "",
-            address:     s.profile?.address || "",
-            delivery:    Array.isArray(s.profile?.delivery) ? s.profile.delivery : [],
-            tagline:     s.profile?.tagline || "",
-            about:       s.profile?.about || "",
-            city:        s.profile?.city || "",
-          },
-        }));
+        const items = await fetchMyServices();
+        if (!alive) return;
         setServices(items);
-      } catch {
+      } catch (e) {
+        if (!alive) return;
         setServices([]);
+        // dacă serverul răspunde 401 și api() aruncă (în cazul în care nu ai __unauth),
+        // tot redirecționăm:
+        if (e?.status === 401) navigate("/login?next=/onboarding/details", { replace: true });
       }
     })();
-  }, []);
+    return () => {
+      alive = false;
+    };
+  }, [fetchMyServices, navigate]);
 
   // ===== Debounce colecția de servicii pt. verificări =====
   const debouncedServices = useDebouncedValue(services, 350);
@@ -163,7 +186,8 @@ export default function OnBoardingDetails() {
       const checks = await Promise.all(
         debouncedServices.map(async (s) => {
           const id = s.id;
-          const candidate = (s.profile?.slug || "").trim() || slugify(s.profile?.displayName || "");
+          const candidate =
+            (s.profile?.slug || "").trim() || slugify(s.profile?.displayName || "");
           if (!candidate) return [id, { state: "idle", available: null, slug: "" }];
           try {
             const q = new URLSearchParams({
@@ -171,6 +195,7 @@ export default function OnBoardingDetails() {
               excludeServiceId: String(id),
             }).toString();
             const d = await api(`/api/vendors/vendor-services/brand/check?${q}`);
+            if (d?.__unauth) return [id, { state: "error", available: null, slug: candidate }];
             return [id, { state: "done", available: !!d.available, slug: d.slug, suggestion: d.suggestion || null }];
           } catch {
             return [id, { state: "error", available: null, slug: candidate }];
@@ -215,7 +240,7 @@ export default function OnBoardingDetails() {
     return url;
   }
 
-  // ====== FIX: definește hooks useCallback la nivelul componentei (nu în JSX) ======
+  // ===== callbacks expuse către taburi =====
   const updateProfile = useCallback(
     (idx, patch) => {
       setServices((arr) => {
@@ -247,27 +272,33 @@ export default function OnBoardingDetails() {
       <nav className={styles.tabsBar} role="tablist" aria-label="Onboarding tabs">
         <button
           role="tab"
-          aria-selected={activeTab==="profil"}
-          className={`${styles.tab} ${activeTab==="profil" ? styles.tabActive : ""}`}
+          aria-selected={activeTab === "profil"}
+          className={`${styles.tab} ${activeTab === "profil" ? styles.tabActive : ""}`}
           onClick={() => setActiveTab("profil")}
           type="button"
-        >Profil servicii</button>
+        >
+          Profil servicii
+        </button>
 
         <button
           role="tab"
-          aria-selected={activeTab==="facturare"}
-          className={`${styles.tab} ${activeTab==="facturare" ? styles.tabActive : ""}`}
+          aria-selected={activeTab === "facturare"}
+          className={`${styles.tab} ${activeTab === "facturare" ? styles.tabActive : ""}`}
           onClick={() => setActiveTab("facturare")}
           type="button"
-        >Date facturare</button>
+        >
+          Date facturare
+        </button>
 
         <button
           role="tab"
-          aria-selected={activeTab==="plata"}
-          className={`${styles.tab} ${activeTab==="plata" ? styles.tabActive : ""}`}
+          aria-selected={activeTab === "plata"}
+          className={`${styles.tab} ${activeTab === "plata" ? styles.tabActive : ""}`}
           onClick={() => setActiveTab("plata")}
           type="button"
-        >Plată abonament</button>
+        >
+          Plată abonament
+        </button>
       </nav>
 
       {activeTab === "profil" && (

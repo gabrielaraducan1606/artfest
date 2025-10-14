@@ -134,8 +134,19 @@ app.use("/api", commentsRoutes);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
 app.use("/api", imageSearchRouter);
 
-// (temporar) dacă frontend cere /api/ads și nu ai backend real
-// app.get("/api/ads", (_req, res) => res.json([]));
+/* -------------------- Ads stub pentru dev -------------------- */
+// Listă ads (filtrate opțional după placement)
+app.get("/api/ads", (req, res) => {
+  const placement = String(req.query.placement || "hero_top");
+  // Poți popula `items` cu date demo dacă vrei să vezi caruselul în acțiune.
+  // Lăsăm gol -> frontend-ul tău folosește fallback-ul local (imageMain).
+  res.json({ placement, items: [] });
+});
+
+// Tracking (no-op)
+app.post("/api/ads/:id/impression", (_req, res) => res.sendStatus(204));
+app.post("/api/ads/:id/click", (_req, res) => res.sendStatus(204));
+/* ------------------------------------------------------------ */
 
 /* Redirect scurt către pagina publică a magazinului */
 app.get("/@:slug", (req, res) =>
@@ -159,6 +170,18 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`API up on port ${PORT}`);
   console.log("CORS allowed:", allowedOrigins);
 });
+
+const must = (name) => {
+  if (!process.env[name] || !String(process.env[name]).trim()) {
+    console.error(`❌ Missing required env: ${name}`);
+    process.exit(1);
+  }
+};
+
+must("DATABASE_URL");            // îl ai
+must("CORS_ORIGIN");             // ex: http://localhost:5173
+must("JWT_SECRET");              // IMPORTANT pentru login cookie
+// must("DIRECT_URL"); // doar dacă păstrezi directUrl în prisma/schema.prisma
 
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 process.on("SIGINT", () => server.close(() => process.exit(0)));

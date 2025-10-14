@@ -1,8 +1,9 @@
+// src/routes/authRoutes.js
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { signToken, authRequired } from "../api/auth.js";
+import { signToken, authRequired /*, optionalAuth, requireRole */ } from "../api/auth.js";
 
 const router = Router();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
@@ -14,9 +15,7 @@ const getIdemKey = (req) => req.headers["idempotency-key"] || null;
 async function idemFind(key) {
   if (!key) return null;
   try {
-    return await prisma.requestLog.findUnique({
-      where: { idempotencyKey: String(key) },
-    });
+    return await prisma.requestLog.findUnique({ where: { idempotencyKey: String(key) } });
   } catch {
     return null;
   }
@@ -28,7 +27,7 @@ async function idemSave(key, responseJson) {
       data: { idempotencyKey: String(key), responseJson },
     });
   } catch {
-    // ignore duplicate key errors
+    // duplicate key -> ignorăm
   }
 }
 
@@ -64,9 +63,10 @@ router.post("/signup", async (req, res) => {
   try {
     const parsed = SignupSchema.safeParse(req.body || {});
     if (!parsed.success) {
-      return res
-        .status(400)
-        .json({ error: "invalid_payload", details: parsed.error.flatten() });
+      return res.status(400).json({
+        error: "invalid_payload",
+        details: parsed.error.flatten(),
+      });
     }
 
     const {
@@ -83,12 +83,12 @@ router.post("/signup", async (req, res) => {
       consents = [],
     } = parsed.data;
 
-    // Idempotency (returnează același răspuns dacă s-a mai făcut)
+    // Idempotency: dacă s-a mai făcut aceeași cerere, returnăm același răspuns
     const idemKey = getIdemKey(req);
     const prev = await idemFind(idemKey);
     if (prev) return res.status(200).json(prev.responseJson);
 
-    // Unic email
+    // Unicitate email
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
       return res
@@ -99,7 +99,7 @@ router.post("/signup", async (req, res) => {
     const isAdmin = email === ADMIN_EMAIL;
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Creare user (+vendor dacă e cazul) + consents în aceeași tranzacție
+    // Creare user (+ vendor dacă e cazul) + consents în aceeași tranzacție
     const created = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
@@ -176,15 +176,18 @@ router.post("/signup", async (req, res) => {
       return user;
     });
 
-    const token = signToken({ sub: created.id, role: created.role });
-    const isProd = process.env.NODE_ENV === "production";
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: isProd,                 // ✅ obligatoriu true în prod
-      sameSite: isProd ? "None" : "Lax", // ✅ cross-site în prod
-      path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+   const token = signToken({ sub: created.id, role: created.role });
+   // în /login și /signup, chiar înainte de res.cookie(...)
+const isSecure = req.secure || (req.headers["x-forwarded-proto"] === "https");
+res.cookie("token", token, {
+  httpOnly: true,
+  secure: isSecure,                 // DOAR pe HTTPS
+  sameSite: isSecure ? "None" : "Lax",
+  path: "/",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
+
+
 
     const responseJson = {
       ok: true,
@@ -235,8 +238,8 @@ router.post("/login", async (req, res) => {
     const isProd = process.env.NODE_ENV === "production";
     res.cookie("token", token, {
       httpOnly: true,
-      secure: isProd,                 // ✅
-      sameSite: isProd ? "None" : "Lax", // ✅
+      secure: isProd,
+      sameSite: isProd ? "None" : "Lax",
       path: "/",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
@@ -264,7 +267,17 @@ router.get("/me", authRequired, async (req, res) => {
         vendor: { select: { id: true, displayName: true, city: true } },
       },
     });
-    if (!me) return res.status(404).json({ error: "user_not_found" });
+    if (!me) {
+      // token-ul e valid dar userul nu mai există în DB -> invalidează sesiunea
+      const isProd = process.env.NODE_ENV === "production";
+      res.clearCookie("token", {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: isProd ? "None" : "Lax",
+        path: "/",
+      });
+      return res.status(401).json({ error: "user_not_found" });
+    }
     res.json({ user: me });
   } catch (e) {
     console.error("ME route error:", e);

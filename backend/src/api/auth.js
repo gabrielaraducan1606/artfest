@@ -1,24 +1,40 @@
-// backend/src/auth.js
+// src/auth.js
 import jwt from "jsonwebtoken";
 
+/** Setări de bază */
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const TOKEN_COOKIE = "token";
+
+/** Semnează un JWT cu exp 7 zile */
 export function signToken(payload) {
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+  if (!JWT_SECRET) {
+    // Fail fast dacă lipsește în prod
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("JWT_SECRET is not set");
+    }
+  }
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
 
+/** Extrage token din cookie sau Authorization: Bearer */
+function getTokenFromReq(req) {
+  const fromCookie = req.cookies?.[TOKEN_COOKIE];
+  const fromHeader = req.headers.authorization?.startsWith("Bearer ")
+    ? req.headers.authorization.slice(7)
+    : null;
+  return fromCookie || fromHeader || null;
+}
+
+/** Middleware: necesită autentificare (401 dacă lipsește/invalid) */
 export function authRequired(req, res, next) {
   try {
-    const fromCookie = req.cookies?.token;
-    const fromHeader = req.headers.authorization?.startsWith("Bearer ")
-      ? req.headers.authorization.slice(7)
-      : null;
-
-    const token = fromCookie || fromHeader;
+    const token = getTokenFromReq(req);
     if (!token) return res.status(401).json({ error: "unauthenticated" });
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
     if (!decoded?.sub) return res.status(401).json({ error: "unauthenticated" });
 
-    req.user = decoded; // { sub, role }
+    req.user = decoded; // { sub, role, iat, exp }
     next();
   } catch (e) {
     console.error("authRequired error:", e?.message || e);
@@ -26,7 +42,21 @@ export function authRequired(req, res, next) {
   }
 }
 
-// 🔽🔽🔽 ADĂUGAT:
+/** Middleware: opțional — setează req.user dacă există token, altfel trece mai departe */
+export function optionalAuth(req, _res, next) {
+  try {
+    const token = getTokenFromReq(req);
+    if (!token) return next();
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded?.sub) req.user = decoded;
+  } catch (e) {
+    // nu blocăm request-ul dacă tokenul e invalid; doar nu setăm req.user
+    console.warn("optionalAuth token ignored:", e?.message || e);
+  }
+  next();
+}
+
+/** Middleware: roluri necesare (403 dacă rolul nu e în listă) */
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: "unauthenticated" });

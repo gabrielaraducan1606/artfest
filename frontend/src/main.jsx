@@ -1,14 +1,17 @@
+// frontend/src/main.jsx
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-
-// CSS global minimal (poți adăuga Tailwind sau alt framework ulterior)
+import AuthProvider from "./pages/Auth/Context/AuthProvider";
 import "./styles/variables.css";
 
-// montează aplicația în <div id="root"></div> din index.html
 const root = createRoot(document.getElementById("root"));
-root.render(
-  <React.StrictMode>
+
+const isProd = import.meta.env.PROD; // Vite setează PROD în build
+const tree = (
+  <AuthProvider>
     <App />
-  </React.StrictMode>
+  </AuthProvider>
 );
+
+root.render(isProd ? tree : tree); // fără StrictMode în dev

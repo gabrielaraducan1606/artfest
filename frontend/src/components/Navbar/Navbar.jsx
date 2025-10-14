@@ -17,6 +17,7 @@ import {
   LifeBuoy,
 } from "lucide-react";
 import { api } from "../../lib/api";
+import { useAuth } from "../../pages/Auth/Context/useAuth.js";
 import styles from "./Navbar.module.css";
 import logo from "../../assets/LogoArtfest.png";
 import Register from "../../pages/Auth/Register/Register";
@@ -129,7 +130,8 @@ function MobileBar({ me, unreadNotif, cartCount }) {
 
 /* ===================== Navbar principal ===================== */
 export default function Navbar() {
-  const [me, setMe] = useState(null);
+  const { me, loading:  refresh } = useAuth();
+
   const [burgerOpen, setBurgerOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState("login");
@@ -165,22 +167,6 @@ export default function Navbar() {
   }, [theme]);
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
-
-  // Me
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const d = await api("/api/auth/me");
-        if (alive) setMe(d.user);
-      } catch {
-        if (alive) setMe(null);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   // helper: calculează totalul din coșul de guest
   const computeGuestCartCount = () => {
@@ -821,6 +807,7 @@ export default function Navbar() {
                         e.preventDefault();
                         try {
                           await api("/api/auth/logout", { method: "POST" });
+                          await refresh().catch(() => {});
                         } catch {""}
                         window.location.href = "/autentificare";
                       }}

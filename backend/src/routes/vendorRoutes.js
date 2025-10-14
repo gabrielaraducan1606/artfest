@@ -28,10 +28,7 @@ const cleanOrNull = (v) => {
   return c ? c : null;
 };
 
-/** Helper: calculează statusul de onboarding + nextStep
- *  Consideră profil „existent” dacă există fie vendor.displayName,
- *  fie cel puțin un ServiceProfile cu displayName setat.
- */
+/** Helper: calculează statusul de onboarding + nextStep */
 async function computeOnboardingStatus(vendor) {
   if (!vendor) return { exists: false, nextStep: "createVendor" };
 
@@ -95,7 +92,6 @@ router.get("/vendor-services/brand/check", async (req, res) => {
   res.json({ ok: true, slug, available, suggestion });
 });
 
-
 /* ============================ Rute pentru /me/* ============================ */
 
 /** GET /api/vendors/me/services (lista serviciilor mele) */
@@ -104,8 +100,9 @@ router.get(
   authRequired,
   requireRole("VENDOR", "ADMIN"),
   async (req, res) => {
+    // ✅ FIX: dacă userul nu are încă Vendor, returnăm listă goală (nu 404)
     const meVendor = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
-    if (!meVendor) return error(res, "vendor_profile_missing", 404);
+    if (!meVendor) return res.json({ items: [] });
 
     const includeProfile = String(req.query.includeProfile || "") === "1";
 
@@ -175,8 +172,13 @@ router.post(
   requireRole("VENDOR", "ADMIN"),
   async (req, res) => {
     try {
-      const meVendor = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
-      if (!meVendor) return error(res, "vendor_profile_missing", 404);
+      // ⬇️ Creează vendorul dacă nu există încă (prima intrare în onboarding)
+      let meVendor = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
+      if (!meVendor) {
+        meVendor = await prisma.vendor.create({
+          data: { userId: req.user.sub, isActive: false },
+        });
+      }
 
       const { typeCode, codes, typeIds } = req.body || {};
 
@@ -189,12 +191,12 @@ router.post(
           ...(Array.isArray(codes) ? codes.map(String) : []),
         ].filter(Boolean);
         if (!allCodes.length) {
-          return error(res, "no_service_types", 400, { hint: "trimite typeCode sau codes[]" });
+          return res.status(400).json({ error: "no_service_types", message: "trimite typeCode sau codes[]" });
         }
         types = await prisma.serviceType.findMany({ where: { code: { in: allCodes } } });
       }
 
-      if (!types.length) return error(res, "service_types_not_found", 404);
+      if (!types.length) return res.status(404).json({ error: "service_types_not_found" });
 
       const items = [];
       for (const t of types) {
@@ -228,12 +230,13 @@ router.post(
       return res.status(200).json({ items });
     } catch (e) {
       console.error("POST /api/vendors/me/services error:", e);
-      if (e?.code === "P2003") return error(res, "invalid_service_type_id", 400);
-      if (e?.code === "P2025") return error(res, "service_type_not_found", 404);
-      return error(res, "create_vendor_services_failed", 500);
+      if (e?.code === "P2003") return res.status(400).json({ error: "invalid_service_type_id" });
+      if (e?.code === "P2025") return res.status(404).json({ error: "service_type_not_found" });
+      return res.status(500).json({ error: "create_vendor_services_failed" });
     }
   }
 );
+
 
 /** PATCH /api/vendors/me/services/:id (câmpuri de bază ale serviciului) */
 router.patch(
@@ -290,7 +293,7 @@ router.put(
 
       const {
         displayName,
-        slug,          // 👈 acceptăm explicit
+        slug,          // acceptăm explicit
         // imagini + contact + adresă
         logoUrl, coverUrl, phone, email,
         address, delivery, city,
@@ -315,7 +318,7 @@ router.put(
         payload.displayName = displayName.trim();
       }
 
-      // 2) slug: dacă vine explicit, îl normalizăm; altfel derivăm din displayName (dacă e setat acum)
+      // 2) slug -> din input sau derivat din displayName
       let nextSlug = null;
       if (typeof slug === "string" && slug.trim()) {
         nextSlug = slugify(slug);
@@ -326,7 +329,7 @@ router.put(
       }
 
       if (nextSlug) {
-        // verifică conflict slug (alt serviciu)
+        // conflict de brand?
         const clash = await prisma.serviceProfile.findFirst({
           where: { slug: nextSlug, NOT: { serviceId: id } },
           select: { serviceId: true }

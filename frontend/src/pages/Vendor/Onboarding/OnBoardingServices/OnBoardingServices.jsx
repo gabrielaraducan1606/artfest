@@ -19,9 +19,10 @@ export default function OnboardingServices() {
     let alive = true;
     (async () => {
       try {
+        // ✅ rezilient: dacă /me/services dă 401/404, nu mai cade tot
         const [st, ms] = await Promise.all([
-          api("/api/service-types"),
-          api("/api/vendors/me/services"),
+          api("/api/service-types").catch(() => ({ items: [] })),
+          api("/api/vendors/me/services").catch(() => ({ items: [] })),
         ]);
         if (!alive) return;
 
@@ -128,7 +129,7 @@ export default function OnboardingServices() {
                     styles.card,
                     checked ? styles.cardChecked : "",
                     isExisting ? styles.cardExisting : "",
-                    !isAvailable ? styles.cardDisabled : "", // ✨ stil pentru indisponibil
+                    !isAvailable ? styles.cardDisabled : "",
                   ].join(" ").trim()}
                 >
                   <input
@@ -146,7 +147,7 @@ export default function OnboardingServices() {
 
                   {isExisting && <span className={styles.badge}>Deja adăugat</span>}
                   {!isExisting && !isAvailable && (
-                    <span className={styles.badgeMuted}>Indisponibil momentan</span> // ✨
+                    <span className={styles.badgeMuted}>Indisponibil momentan</span>
                   )}
                 </label>
               );

@@ -167,7 +167,7 @@ function PromoStrip() {
                 alt={ad.title ? `Promo: ${ad.title}` : ""}
                 loading={i === 0 ? "eager" : "lazy"}
                 decoding="async"
-                fetchpriority={i === 0 ? "high" : undefined}
+                fetchPriority={i === 0 ? "high" : undefined}
                 sizes="100vw"
                 srcSet={`${ad.image?.desktop || ad.image} 1200w`}
               />

@@ -1,6 +1,6 @@
-// client/src/pages/Vendor/Desktop/Desktop.jsx
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { api } from "../../../lib/api";
+import { useAuth } from "../../../pages/Auth/Context/useAuth.js";
 import styles from "./Desktop.module.css";
 
 /* ---------- helpers mutate în afara componentei (fără deps) ---------- */
@@ -40,7 +40,8 @@ function humanizeActivateError(e) {
 }
 
 export default function DesktopV2() {
-  const [me, setMe] = useState(null);
+  const { me, loading: authLoading } = useAuth();
+
   const [services, setServices] = useState([]);
   const [onboarding, setOnboarding] = useState(null);
   const [stats, setStats] = useState({ visitors: 0, leads: 0, messages: 0, reviews: 0 });
@@ -48,23 +49,18 @@ export default function DesktopV2() {
   const [busy, setBusy] = useState({});  // { [serviceId]: 'activate' | 'deactivate' | 'delete' }
   const [error, setError] = useState("");
 
-  const loadAll = useCallback(async () => {
+  const loadAllVendor = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const { user } = await api("/api/auth/me");
-      setMe(user);
-      if (user?.role === "VENDOR") {
-        const [svc, ob] = await Promise.all([
-          api("/api/vendors/me/services?includeProfile=1").catch(() => ({ items: [] })),
-          api("/api/vendors/me/onboarding-status").catch(() => null),
-        ]);
-        setServices(svc?.items || []);
-        setOnboarding(ob || null);
-
-        const st = await api("/api/vendors/me/stats?window=7d").catch(() => null);
-        if (st) setStats(st);
-      }
+      const [svc, ob] = await Promise.all([
+        api("/api/vendors/me/services?includeProfile=1").catch(() => ({ items: [] })),
+        api("/api/vendors/me/onboarding-status").catch(() => null),
+      ]);
+      setServices(svc?.items || []);
+      setOnboarding(ob || null);
+      const st = await api("/api/vendors/me/stats?window=7d").catch(() => null);
+      if (st) setStats(st);
     } catch (e) {
       setError(e?.message || "Eroare la încărcare");
     } finally {
@@ -72,16 +68,19 @@ export default function DesktopV2() {
     }
   }, []);
 
+  // Încarcă datele vendor doar după ce știm cine e userul
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      await loadAll();
-      if (!alive) return;
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [loadAll]);
+    if (authLoading) return;
+    if (!me) {
+      setLoading(false);
+      return;
+    }
+    if (me.role === "VENDOR") {
+      loadAllVendor();
+    } else {
+      setLoading(false);
+    }
+  }, [authLoading, me, loadAllVendor]);
 
   const completeness = useMemo(() => {
     const total = services.length || 1;
@@ -166,7 +165,7 @@ export default function DesktopV2() {
   }, []);
 
   /* ---------------------------- Render ---------------------------- */
-  if (loading) return <div className={styles.page}>Se încarcă…</div>;
+  if (authLoading || loading) return <div className={styles.page}>Se încarcă…</div>;
   if (!me || me.role !== "VENDOR") return <div className={styles.page}>Acces doar pentru vendori.</div>;
 
   return (
