@@ -1,72 +1,91 @@
+// frontend/src/lib/api.js
 // ================================
 // Wrapper pentru requesturi către API
 // ================================
 
-// În Netlify setezi DOAR domeniul, fără /api:
+// Baza URL a API-ului — în Netlify setezi:
 // VITE_API_URL=https://artfest.onrender.com
-// (în local poți lăsa gol sau pui http://localhost:5000)
-
-const RAW_BASE =
+// (fallback la VITE_API_BASE_URL dacă ai folosit vechiul nume)
+const API_BASE =
   import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_API_BASE_URL || // fallback vechi
+  import.meta.env.VITE_API_BASE_URL ||
   "";
-
-// Scoatem orice /api accidental și slash-ul de la final
-const BASE_NO_API = RAW_BASE.replace(/\/api\/?$/i, "").replace(/\/$/, "");
-
-// Root-ul API devine mereu <domeniu>/api (sau "" ca să meargă prin proxy în dev)
-const API_ROOT = BASE_NO_API ? `${BASE_NO_API}/api` : "";
 
 /** Construiește URL complet din baza API + path */
 function buildUrl(base, path) {
-  if (/^https?:\/\//i.test(path)) return path;       // deja absolut
-  const b = base ? base.replace(/\/$/, "") : "";
+  if (/^https?:\/\//i.test(path)) return path; // deja absolut
+  if (!base) return path; // fără base → relativ (util în dev cu proxy)
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
   const p = path.startsWith("/") ? path : `/${path}`;
-  return b ? `${b}${p}` : p;                          // dacă base e gol → relativ (merge cu Vite proxy)
+  return `${b}${p}`;
 }
 
-/** Wrapper generic pentru fetch */
+/** Wrapper generic pentru fetch cu:
+ * - CORS + cookies (credentials: 'include')
+ * - content-type automat (FormData / text / JSON)
+ * - parse automat (json/text) și handling erori
+ */
 export async function api(path, opts = {}) {
   const { method = "GET", body, headers = {}, ...rest } = opts;
 
   const init = {
     method,
-    credentials: "include",         // cookie-uri pt auth
+    credentials: "include",
     headers: { ...headers },
     ...rest,
   };
 
-  // Body & Content-Type
+  // ----- Body & Content-Type handling -----
   if (body !== undefined && body !== null) {
     if (typeof FormData !== "undefined" && body instanceof FormData) {
-      init.body = body;             // browserul setează boundary
+      init.body = body; // browserul setează content-type
     } else if (typeof body === "string") {
       init.body = body;
-      init.headers["Content-Type"] ??= "application/json";
+      if (!init.headers["Content-Type"]) {
+        try {
+          JSON.parse(body);
+          init.headers["Content-Type"] = "application/json";
+        } catch {
+          init.headers["Content-Type"] = "text/plain;charset=UTF-8";
+        }
+      }
     } else {
       init.body = JSON.stringify(body);
-      init.headers["Content-Type"] ??= "application/json";
+      if (!init.headers["Content-Type"]) {
+        init.headers["Content-Type"] = "application/json";
+      }
     }
   }
 
-  const url = buildUrl(API_ROOT, path);
+  const url = buildUrl(API_BASE, path);
   const res = await fetch(url, init);
 
-  const ct = res.headers.get("content-type") || "";
+  const contentType = res.headers.get("content-type") || "";
   let data = null;
+
   if (res.status !== 204) {
-    if (ct.includes("application/json")) {
-      try { data = await res.json(); } catch { data = null; }
+    if (contentType.includes("application/json")) {
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
     } else {
       const text = await res.text();
-      try { data = text && text[0] === "{" ? JSON.parse(text) : text; } catch { data = text; }
+      try {
+        data = text && text[0] === "{" ? JSON.parse(text) : text;
+      } catch {
+        data = text;
+      }
     }
   }
 
   if (res.status === 401) return { __unauth: true };
 
   if (!res.ok) {
-    const msg = (data && (data.error || data.message)) || `Request failed (${res.status})`;
+    const msg =
+      (data && (data.error || data.message)) ||
+      (typeof data === "string" ? data : `Request failed (${res.status})`);
     const err = new Error(msg);
     err.status = res.status;
     err.data = data;
@@ -76,5 +95,5 @@ export async function api(path, opts = {}) {
   return data;
 }
 
-// pentru debugging
-export const __API_BASE__ = API_ROOT;
+// pentru debugging în consolă
+export const __API_BASE__ = API_BASE;
