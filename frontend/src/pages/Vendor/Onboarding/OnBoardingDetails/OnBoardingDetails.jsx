@@ -228,17 +228,17 @@ export default function OnBoardingDetails() {
   );
 
   // ===== Upload helper pentru imagini =====
-  async function uploadFile(file) {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body: fd, credentials: "include" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data?.message || "Upload eșuat");
-    }
-    const { url } = await res.json();
-    return url;
-  }
+ async function uploadFile(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+
+  const data = await api("/upload", {
+    method: "POST",
+    body: fd,
+  });
+
+  return data.url;
+}
 
   // ===== callbacks expuse către taburi =====
   const updateProfile = useCallback(

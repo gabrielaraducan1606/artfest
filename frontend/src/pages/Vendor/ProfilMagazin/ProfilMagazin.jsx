@@ -337,19 +337,13 @@ export default function ProfilMagazin() {
 
   async function uploadFile(file) {
     const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      body: fd,
-      credentials: "include",
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data?.message || "Upload eșuat");
-    }
-    const { url } = await res.json();
-    return url;
-  }
+    fd.append("file", file); // numele câmpului TREBUIE să fie "file" (multer.single('file'))
+   const { url } = await api("/api/upload", {
+     method: "POST",
+     body: fd,
+   });
+   return url;
+ }
 
   // --- PATCH: înlocuim openNewProduct cu varianta care verifică acceptările
   const openNewProduct = async () => {

@@ -1,30 +1,45 @@
-// frontend/src/lib/api.js
 // ================================
-// Wrapper pentru requesturi către API
+// Wrapper pentru requesturi către API (rezistent la /api dublat/lipsă)
 // ================================
 
-// Baza URL a API-ului — în Netlify setezi:
+// În Netlify setezi DOAR domeniul (cu sau fără /api, ambele sunt ok):
 // VITE_API_URL=https://artfest.onrender.com
-// (fallback la VITE_API_BASE_URL dacă ai folosit vechiul nume)
-const API_BASE =
+// (în local poți lăsa gol; vom folosi vite proxy pe /api)
+
+const RAW_BASE =
   import.meta.env.VITE_API_URL ||
   import.meta.env.VITE_API_BASE_URL ||
   "";
 
-/** Construiește URL complet din baza API + path */
-function buildUrl(base, path) {
-  if (/^https?:\/\//i.test(path)) return path; // deja absolut
-  if (!base) return path; // fără base → relativ (util în dev cu proxy)
-  const b = base.endsWith("/") ? base.slice(0, -1) : base;
-  const p = path.startsWith("/") ? path : `/${path}`;
-  return `${b}${p}`;
+// 1) normalizăm domeniul: scoatem slash-ul final
+const DOMAIN = RAW_BASE.replace(/\/+$/, "");
+
+// 2) daca baza e setată, ne asigurăm că are EXACT o dată /api la final
+//    dacă baza e goală (local), lăsăm "" și vom prefixa cu "/api" în URL-ul final
+const API_BASE = DOMAIN
+  ? /\/api$/i.test(DOMAIN)
+    ? DOMAIN
+    : `${DOMAIN}/api`
+  : "";
+
+// 3) normalizăm path-ul: scoatem un eventual prefix /api din față ca să nu-l dublăm
+function normalizePath(path) {
+  if (/^https?:\/\//i.test(path)) return path; // absolut -> lăsăm așa
+  let p = path.startsWith("/") ? path : `/${path}`;
+  p = p.replace(/^\/api(\/|$)/i, "/"); // scoate /api din față dacă e pus în path
+  return p;
 }
 
-/** Wrapper generic pentru fetch cu:
- * - CORS + cookies (credentials: 'include')
- * - content-type automat (FormData / text / JSON)
- * - parse automat (json/text) și handling erori
- */
+// 4) construim URL-ul final:
+//    - dacă avem API_BASE (prod), lipim base + path normalizat
+//    - dacă e gol (local), prefixăm cu "/api" ca să lovească vite proxy
+function buildUrl(path) {
+  const p = normalizePath(path);
+  if (API_BASE) return `${API_BASE}${p}`;
+  return `/api${p}`; // local: /api/... -> vite proxy -> http://localhost:5000/api/...
+}
+
+/** Wrapper generic pentru fetch cu cookies + content-type automat */
 export async function api(path, opts = {}) {
   const { method = "GET", body, headers = {}, ...rest } = opts;
 
@@ -35,57 +50,38 @@ export async function api(path, opts = {}) {
     ...rest,
   };
 
-  // ----- Body & Content-Type handling -----
+  // Body & Content-Type
   if (body !== undefined && body !== null) {
     if (typeof FormData !== "undefined" && body instanceof FormData) {
-      init.body = body; // browserul setează content-type
+      init.body = body; // browserul setează boundary
     } else if (typeof body === "string") {
       init.body = body;
-      if (!init.headers["Content-Type"]) {
-        try {
-          JSON.parse(body);
-          init.headers["Content-Type"] = "application/json";
-        } catch {
-          init.headers["Content-Type"] = "text/plain;charset=UTF-8";
-        }
-      }
+      init.headers["Content-Type"] ??= "application/json";
     } else {
       init.body = JSON.stringify(body);
-      if (!init.headers["Content-Type"]) {
-        init.headers["Content-Type"] = "application/json";
-      }
+      init.headers["Content-Type"] ??= "application/json";
     }
   }
 
-  const url = buildUrl(API_BASE, path);
+  const url = buildUrl(path);
   const res = await fetch(url, init);
 
-  const contentType = res.headers.get("content-type") || "";
+  const ct = res.headers.get("content-type") || "";
   let data = null;
 
   if (res.status !== 204) {
-    if (contentType.includes("application/json")) {
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
+    if (ct.includes("application/json")) {
+      try { data = await res.json(); } catch { data = null; }
     } else {
       const text = await res.text();
-      try {
-        data = text && text[0] === "{" ? JSON.parse(text) : text;
-      } catch {
-        data = text;
-      }
+      try { data = text && text[0] === "{" ? JSON.parse(text) : text; } catch { data = text; }
     }
   }
 
   if (res.status === 401) return { __unauth: true };
 
   if (!res.ok) {
-    const msg =
-      (data && (data.error || data.message)) ||
-      (typeof data === "string" ? data : `Request failed (${res.status})`);
+    const msg = (data && (data.error || data.message)) || `Request failed (${res.status})`;
     const err = new Error(msg);
     err.status = res.status;
     err.data = data;
