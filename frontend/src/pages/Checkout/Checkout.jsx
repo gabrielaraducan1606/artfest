@@ -1,4 +1,4 @@
-// src/pages/Checkout/Checkout.jsx
+// frontend/src/pages/Checkout/Checkout.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
@@ -34,7 +34,7 @@ export default function Checkout() {
     name: "",
     phone: "",
     county: "",
-    locality: "",
+    locality: "",   // folosim "locality" în UI
     postalCode: "",
     street: "",
     notes: "",
@@ -157,9 +157,11 @@ export default function Checkout() {
     setQuoting(true);
     setError("");
     try {
+      // mapăm locality -> city pentru API-ul backend
+      const addressForApi = { ...address, city: address.locality };
       const q = await api("/api/checkout/quote", {
         method: "POST",
-        body: { address, selections },
+        body: { address: addressForApi, selections },
       });
       setQuote(q);
     } catch (e) {
@@ -175,7 +177,8 @@ export default function Checkout() {
       setError("Coșul este gol.");
       return;
     }
-    if (!address.name || !address.phone || !address.city || !address.street) {
+    // validare corectă ↴ (folosim locality, nu city)
+    if (!address.name || !address.phone || !address.locality || !address.street) {
       setError("Completează nume, telefon, oraș și stradă pentru livrare.");
       return;
     }
@@ -183,9 +186,10 @@ export default function Checkout() {
     setPlacing(true);
     setError("");
     try {
+      const addressForApi = { ...address, city: address.locality };
       const r = await api("/api/checkout/place", {
         method: "POST",
-        body: { address, quoteId: quote?.id || null, selections },
+        body: { address: addressForApi, quoteId: quote?.id || null, selections },
       });
 
       try { window.dispatchEvent(new CustomEvent("cart:changed")); } catch {""}
@@ -204,14 +208,12 @@ export default function Checkout() {
 
   async function pickLocker(vendorId) {
     try {
-      // poți trece county/locality pentru filtru mai relevant
       const res = await api("/api/shipping/sameday/lockers").catch(() => ({ items: [] }));
       const list = res?.items || [];
       if (!list.length) {
         alert("Nu am găsit lockere în zonă.");
         return;
       }
-      // simplu: prompt select (poți face un modal frumos ulterior)
       const label = list.map((l, i) => `${i + 1}. ${l.name} — ${l.address}`).join("\n");
       const input = prompt(`Alege locker (1-${list.length}):\n\n${label}`);
       const idx = Number(input) - 1;

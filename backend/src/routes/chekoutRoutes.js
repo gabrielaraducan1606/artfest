@@ -4,11 +4,12 @@ import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 
 const router = Router();
-
-// helper money
 const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
 
-// === 1) SUMMARY: items + subtotal (include thumb)
+/** PING opțional (debug) */
+// router.get("/checkout/summary/__ping", (_req, res) => res.json({ ok: true }));
+
+/** SUMMARY: items + subtotal (include thumb) */
 router.get("/checkout/summary", authRequired, async (req, res) => {
   const items = await prisma.cartItem.findMany({
     where: { userId: req.user.sub },
@@ -42,15 +43,11 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
   }));
 
   const subtotal = dec(mapped.reduce((s, it) => s + it.price * it.qty, 0));
-
   res.json({ items: mapped, currency, subtotal });
 });
 
-// --- MOCK shipping engine (înlocuiești cu Sameday)
+/** Shipping quote simplu: 19 RON curier, 14 RON locker per vendor */
 async function quoteShipping({ address, groups, selections }) {
-  // groups: [{ vendorId, items: [{price, qty}]}]
-  // selections: { [vendorId]: { method: "COURIER"|"LOCKER", lockerId?: string } }
-  // Exemplu: curier = 19 RON, easybox = 14 RON per vendor
   const shipments = groups.map((g) => {
     const sel = selections?.[String(g.vendorId)] || { method: "COURIER" };
     const isLocker = sel.method === "LOCKER";
@@ -65,11 +62,12 @@ async function quoteShipping({ address, groups, selections }) {
   return { shipments, totalShipping, currency: "RON" };
 }
 
-// === 2) QUOTE: calculează livrarea per vendor + ține cont de selecții
+/** QUOTE: calculează livrarea per vendor + selecții */
 router.post("/checkout/quote", authRequired, async (req, res) => {
   const address = req.body?.address || {};
-  const selections = req.body?.selections || {}; // { [vendorId]: { method, lockerId? } }
+  const selections = req.body?.selections || {};
 
+  // validăm "city" (frontend mapează locality -> city)
   if (!address?.name || !address?.phone || !address?.city || !address?.street) {
     return res.status(400).json({ error: "address_invalid", message: "Completează nume, telefon, oraș și stradă." });
   }
@@ -108,7 +106,7 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
   res.json({ id: quoteId, ...q });
 });
 
-// === 3) PLACE: creează Order + Shipments (+ lockerId dacă e cazul), golește coșul
+/** PLACE: creează Order + Shipments (+ lockerId), golește coșul */
 router.post("/checkout/place", authRequired, async (req, res) => {
   const { address, quoteId, selections } = req.body || {};
   if (!address) return res.status(400).json({ error: "address_required" });
@@ -187,7 +185,6 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     }
 
     await tx.cartItem.deleteMany({ where: { userId: req.user.sub } });
-
     return order;
   });
 

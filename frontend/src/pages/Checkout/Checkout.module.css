@@ -1,26 +1,394 @@
-.container { padding: 24px; max-width: 1100px; margin: 0 auto; }
-.title { margin-bottom: 16px; }
-.alert { background: #ffd9d9; border: 1px solid #ffb3b3; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
-.grid { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
-.left, .right { display: grid; gap: 12px; }
-.card { border: 1px solid var(--color-border); background: var(--surface); border-radius: var(--radius); padding: 14px; }
-.cardTitle { font-weight: 700; margin-bottom: 10px; }
-.row1 > * { width: 100%; }
-.row2, .row3 { display: grid; gap: 10px; }
-.row2 { grid-template-columns: 1fr 1fr; }
-.row3 { grid-template-columns: 1fr 1fr 1fr; }
-label { display: block; font-size: 13px; color: var(--color-text-muted); margin-bottom: 6px; }
-input, textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); }
-textarea { min-height: 80px; }
-.radio { display: flex; gap: 8px; align-items: center; }
-.shipment { border: 1px dashed var(--color-border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-.shipmentHead { display:flex; justify-content:space-between; margin-bottom: 6px; }
-.shipmentTitle { font-weight: 600; }
-.sumRow { display:flex; justify-content: space-between; margin-bottom: 6px; }
-.sumTotal { display:flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border); font-weight: 800; }
-.placeBtn { width: 100%; background: var(--color-primary); color: #fff; border: 0; border-radius: var(--radius); padding: 12px; cursor: pointer; }
-.link { color: var(--color-primary); margin-left: 4px; }
-.gdprNote, .returnsNote, .help { font-size: 12px; color: var(--color-text-muted); margin-top: 6px; line-height: 1.4; }
-@media (max-width: 900px) {
-  .grid { grid-template-columns: 1fr; }
+@import '../../styles/variables.css';
+/* ================== Page shell ================== */
+.container {
+  max-width: 1100px;
+  margin: 32px auto;
+  padding: 0 16px;
+}
+
+.pageTitle {
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1.2;
+  margin: 8px 0 20px;
+}
+
+/* ================== Alerts & empties ================== */
+.alert {
+  background: color-mix(in oklab, var(--color-danger) 12%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--color-danger) 22%, var(--color-border));
+  color: var(--color-danger);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 16px;
+}
+
+.empty {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  padding: 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.linkPrimary {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+.linkPrimary:hover {
+  text-decoration: underline;
+}
+
+/* ================== Layout ================== */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 20px;
+}
+.left { min-width: 0; }
+.right { min-width: 0; }
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ================== Cards ================== */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.cardTitle {
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 18px;
+  margin: 4px 0 14px;
+}
+
+.cardTitleSmall {
+  font-family: var(--font-title);
+  font-weight: 600;
+  font-size: 15px;
+  margin: 2px 0 10px;
+  color: var(--color-muted);
+}
+
+/* ================== Items list ================== */
+.itemsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.itemRow {
+  display: grid;
+  grid-template-columns: 64px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border);
+}
+.itemsList > .itemRow:first-child {
+  border-top: 0;
+}
+
+.itemMedia { width: 64px; height: 64px; }
+
+.thumb,
+.thumbPlaceholder {
+  width: 64px;
+  height: 64px;
+  border-radius: calc(var(--radius) - 4px);
+  object-fit: cover;
+  background: color-mix(in oklab, var(--color-border) 60%, var(--surface));
+  border: 1px solid var(--color-border);
+}
+
+.itemTitle {
+  font-weight: 500;
+}
+
+.itemQty {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+}
+
+.itemPrice {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 110px;
+}
+
+@media (max-width: 560px) {
+  .itemRow {
+    grid-template-columns: 64px 1fr auto;
+    grid-template-areas:
+      "img title title"
+      "img qty price";
+    gap: 8px;
+  }
+  .itemMedia { grid-area: img; }
+  .itemTitle { grid-area: title; }
+  .itemQty { grid-area: qty; }
+  .itemPrice { grid-area: price; }
+}
+
+/* ================== Dividers & rows ================== */
+.divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 12px 0;
+  border-radius: 1px;
+}
+
+.summaryRow,
+.totalRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.totalRow {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ================== Form ================== */
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.field,
+.fieldFull {
+  display: grid;
+  gap: 6px;
+}
+
+.field span,
+.fieldFull span {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.field input,
+.field select,
+.field textarea,
+.fieldFull input,
+.fieldFull select,
+.fieldFull textarea {
+  appearance: none;
+  background: var(--surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 4px);
+  padding: 10px 12px;
+  outline: none;
+  box-shadow: var(--shadow-sm) inset;
+  transition: border-color .15s ease, box-shadow .15s ease;
+  font: inherit;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.fieldFull input:focus,
+.fieldFull select:focus,
+.fieldFull textarea:focus {
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
+}
+
+.fieldFull {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 680px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ================== Shipping per vendor ================== */
+.shipGrid {
+  display: grid;
+  gap: 12px;
+}
+
+.vendorBox {
+  border: 1px dashed var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 12px;
+  background: color-mix(in oklab, var(--surface) 92%, var(--color-border));
+}
+
+.vendorHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.radioRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+  align-items: center;
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.radio input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+}
+
+.lockerRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 240px;
+}
+
+.lockerChosen {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* ================== Buttons ================== */
+.primaryBtn,
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid transparent;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .04s ease, filter .15s ease, background .15s ease, border-color .15s ease;
+  user-select: none;
+}
+
+.primaryBtn {
+  width: 100%;
+  margin-top: 12px;
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: var(--shadow-md);
+}
+.primaryBtn:hover { filter: brightness(1.05); }
+.primaryBtn:active { transform: translateY(1px); }
+.primaryBtn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.secondaryBtn {
+  background: var(--surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+.secondaryBtn:hover {
+  border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+}
+.secondaryBtn:active { transform: translateY(1px); }
+.secondaryBtn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* Actions row under shipping */
+.actionsRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* ================== Shipping quote summary ================== */
+.shipments {
+  background: color-mix(in oklab, var(--surface) 95%, var(--color-border));
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 12px;
+}
+
+.shipTitle {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.shipList {
+  list-style: none;
+  margin: 0 0 6px 0;
+  padding: 0;
+}
+
+.shipRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--color-border);
+}
+.shipList > .shipRow:first-child { border-top: 0; }
+.shipRow strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ================== Right column extras ================== */
+.legalNote {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.legalNote a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.legalNote a:hover { text-decoration: underline; }
+
+.bullets {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-muted);
+}
+.bullets li { margin: 6px 0; }
+
+/* ================== Small helpers ================== */
+.linkReset {
+  color: inherit;
+  text-decoration: none;
+}
+.visuallyHidden {
+  position: absolute !important;
+  height: 1px; width: 1px;
+  overflow: hidden; clip: rect(1px,1px,1px,1px);
+  white-space: nowrap; border: 0; padding: 0; margin: -1px;
 }

@@ -30,7 +30,9 @@ import vendorVisitorsRoutes from "./src/routes/vendorVisitorsRoutes.js";
 import vendorLegalRoutes from "./src/routes/vendorLegalRoutes.js";
 import checkoutRoutes from "./src/routes/chekoutRoutes.js";
 import samedayRoutes from "./src/routes/samedayRoutes.js";
+import samedayWebhookRoutes from "./src/routes/samedayWebhookRoutes.js";
 import imageSearchRouter from "./src/routes/imageSearchRoutes.js";
+import notificationsRoutes from "./src/routes/notificationsRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -117,6 +119,8 @@ app.get("/legal/:type.html", getLegalHtml);
 app.use("/api", vendorLegalRoutes);
 app.use("/api", checkoutRoutes);
 app.use("/api", samedayRoutes);
+app.use("/api", samedayWebhookRoutes);
+
 app.use("/api/auth", authRouter);
 app.use("/api/vendors", vendorsRouter);
 app.use("/api/service-types", serviceTypesRouter);
@@ -129,6 +133,7 @@ app.use("/api/public", publicProductRoutes);
 app.use("/api/favorites", favoritesRoutes);
 mountWishlistCountAlias(app);
 app.use("/api", cartRoutes);
+app.use("/api", notificationsRoutes);
 app.use("/api", reviewsRoutes);
 app.use("/api", commentsRoutes);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
