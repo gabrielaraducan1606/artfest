@@ -1,11 +1,13 @@
+// src/components/Auth/Register/Register.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { api } from "../../../lib/api";
 import styles from "./Register.module.css";
 
 const OB_TICKET_PARAM = "obpf";
 const OB_TICKET_PREFIX = "onboarding.ticket.";
 
-// --- utils ---
+/* ===================== Utils ===================== */
 function appendTicket(urlLike, ticket) {
   try {
     const u = new URL(urlLike, window.location.origin);
@@ -17,45 +19,157 @@ function appendTicket(urlLike, ticket) {
   }
 }
 
-// --- hook: legal meta (tos, privacy) ---
+// Sugestii anti-typo pentru email
+function suggestEmailTypos(value) {
+  const v = value.trim().toLowerCase();
+  if (!v.includes("@")) return { hint: "", suggestion: "" };
+  const [user, domRaw = ""] = v.split("@");
+  if (!user || !domRaw) return { hint: "", suggestion: "" };
+
+  const fixes = [
+    ["gmal.com","gmail.com"],["gmial.com","gmail.com"],["gnail.com","gmail.com"],
+    ["gmail.con","gmail.com"],["gmail.co","gmail.com"],
+    ["yaho.com","yahoo.com"],["yaaho.com","yahoo.com"],["yahoo.con","yahoo.com"],
+    ["outllok.com","outlook.com"],["hotnail.com","hotmail.com"],
+    [".con",".com"],[".c0m",".com"],[" .ro",".ro"],[".ro ",".ro"],
+  ];
+  let dom = domRaw;
+  for (const [bad, good] of fixes) if (dom.endsWith(bad)) dom = dom.slice(0, dom.length - bad.length) + good;
+
+  const common = ["gmail.com","yahoo.com","outlook.com","hotmail.com","icloud.com","proton.me","mail.com","live.com","yahoo.ro","gmail.ro"];
+  if (!dom.includes(".")) {
+    const guess = common.find((d) => d.startsWith(dom)) || (dom === "gmail" ? "gmail.com" : "");
+    if (guess) dom = guess;
+  }
+  const suggestion = `${user}@${dom}`;
+  return suggestion !== v ? { hint: "Ai vrut să scrii:", suggestion } : { hint: "", suggestion: "" };
+}
+
+/* ===================== useLegalMeta (cache + backoff) ===================== */
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+const LS_PREFIX = "legal:v1:";
+const memCache = new Map(); // key -> { ts, data }
+
+function loadFromStorage(key) {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw);
+    if (!ts || !data) return null;
+    if (Date.now() - ts > CACHE_TTL_MS) return null;
+    return data;
+  } catch { return null; }
+}
+function saveToStorage(key, data) {
+  try { localStorage.setItem(LS_PREFIX + key, JSON.stringify({ ts: Date.now(), data })); } catch {""}
+}
+async function fetchWithBackoff(url, { signal, tries = 4 } = {}) {
+  let delay = 500;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await api(url, { signal });
+    } catch (e) {
+      const status = e?.status || e?.data?.status;
+      let retryAfterMs = 0;
+      try {
+        const ra = e?.headers?.get?.("Retry-After");
+        if (ra && /^\d+$/.test(ra)) retryAfterMs = parseInt(ra, 10) * 1000;
+      } catch {""}
+      if (status === 429 || status === 503) {
+        const jitter = Math.floor(Math.random() * 250);
+        await new Promise(r => setTimeout(r, Math.max(retryAfterMs, delay) + jitter));
+        delay *= 2;
+        continue;
+      }
+      throw e;
+    }
+  }
+  const err = new Error("too_many_requests");
+  err.status = 429;
+  throw err;
+}
+
 function useLegalMeta(types = []) {
   const [meta, setMeta] = useState({});
   const [loading, setLoading] = useState(!!types.length);
   const [error, setError] = useState("");
+  const abortRef = useRef(null);
+
+  // cheie stabilă, dinamică doar când se schimbă lista de tipuri
+  const depKey = useMemo(() => (types && types.length ? types.join(",") : ""), [types]);
 
   useEffect(() => {
     let active = true;
+    if (!depKey) { // dacă nu s-au cerut tipuri
+      setMeta({});
+      setLoading(false);
+      setError("");
+      return;
+    }
+
+    const cached = memCache.get(depKey) || loadFromStorage(depKey);
+    if (cached) { setMeta(cached); setLoading(false); setError(""); }
+
     (async () => {
-      if (!types.length) return;
       setLoading(true);
       setError("");
       try {
-        const qs = encodeURIComponent(types.join(","));
-        // ✅ folosim wrapperul api() — respectă VITE_API_URL în dev/prod
-        const arr = await api(`/api/legal?types=${qs}`);
+        abortRef.current?.abort?.();
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+
+        const arr = await fetchWithBackoff(`/api/legal?types=${encodeURIComponent(depKey)}`, { signal: ctrl.signal });
+
         if (!active) return;
         const map = {};
         for (const d of arr || []) map[d.type] = d;
         setMeta(map);
+        memCache.set(depKey, map);
+        saveToStorage(depKey, map);
       } catch (e) {
-        console.error("Legal meta error:", e);
-        setError("Nu am putut încărca informațiile legale.");
+        if (!active) return;
+        if (!cached) {
+          setError(
+            e?.status === 429
+              ? "Nu am putut încărca informațiile legale (limită atinsă). Folosim link-urile implicite."
+              : "Nu am putut încărca informațiile legale."
+          );
+        }
       } finally {
         if (active) setLoading(false);
       }
     })();
-    return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [types.join(",")]);
+
+    return () => { active = false; abortRef.current?.abort?.(); };
+  }, [depKey]); // 👈 DOAR depKey
 
   return { meta, loading, error };
 }
 
+/* ===================== Component ===================== */
 export default function Register({ defaultAsVendor = false, inModal = false }) {
+  // stabilește types ca valoare memoizată → nu mai schimbă referința
+  const legalTypes = useMemo(() => ["tos", "privacy"], []);
+  const { meta: legal, error: legalError } = useLegalMeta(legalTypes);
+
   // fields
   const [email, setEmail] = useState("");
+  const [emailHint, setEmailHint] = useState("");
+  const [emailSuggestion, setEmailSuggestion] = useState("");
+  const [emailExists, setEmailExists] = useState(null);
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+
+  const [showPw, setShowPw] = useState(false);
+  const [peekPw, setPeekPw] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [peekConfirm, setPeekConfirm] = useState(false);
+
+  const [pwFocused, setPwFocused] = useState(false);
+  const [confirmFocused, setConfirmFocused] = useState(false);
+  const [capsOn, setCapsOn] = useState(false);
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [asVendor, setAsVendor] = useState(defaultAsVendor);
@@ -70,13 +184,13 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
   // ui
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [offline, setOffline] = useState(!navigator.onLine);
 
-  // legal meta
-  const { meta: legal /*, loading: legalLoading, error: legalError */ } = useLegalMeta(["tos", "privacy"]);
-
-  const idemRef = useRef(
-    globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)
-  );
+  const idemRef = useRef(globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2));
+  const emailAbortRef = useRef(null);
+  const liveRef = useRef(null);
+  const pwRef = useRef(null);
+  const confirmRef = useRef(null);
 
   // password score
   const score = useMemo(() => {
@@ -95,6 +209,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     firstName.trim() &&
     lastName.trim() &&
     email.trim() &&
+    (emailExists !== true) &&
     password.length >= 8 &&
     score >= 3 &&
     pwMatches &&
@@ -102,24 +217,75 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     privacyAcknowledged &&
     (!asVendor || displayName.trim());
 
+  // online/offline
+  useEffect(() => {
+    const up = () => setOffline(false);
+    const down = () => setOffline(true);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); };
+  }, []);
+
+  // email: sugestii + exists (debounced)
+  useEffect(() => {
+    const { hint, suggestion } = suggestEmailTypos(email);
+    setEmailHint(hint);
+    setEmailSuggestion(suggestion);
+
+    try { emailAbortRef.current?.abort?.(); } catch {""}
+    const ctrl = new AbortController();
+    emailAbortRef.current = ctrl;
+
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) { setEmailExists(null); return; }
+
+    const t = setTimeout(async () => {
+      try {
+        const r = await api(`/api/auth/exists?email=${encodeURIComponent(normalized)}`, { signal: ctrl.signal });
+        setEmailExists(!!r?.exists);
+      } catch { setEmailExists(null); }
+    }, 450);
+
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [email]);
+
+  function applyEmailSuggestion() {
+    if (emailSuggestion) setEmail(emailSuggestion);
+    setEmailHint("");
+  }
+
+  function handlePwKey(ev) {
+    try { setCapsOn(!!ev.getModifierState?.("CapsLock")); } catch {""}
+    if ((ev.altKey || ev.metaKey) && (ev.key === "v" || ev.key === "V")) {
+      ev.preventDefault();
+      setShowPw((v) => !v);
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
+      try { (ev.target?.form || document.querySelector("form"))?.requestSubmit?.(); } catch {""}
+    }
+    if (ev.key === "Escape") setErr("");
+  }
+  function handleConfirmKey(ev) {
+    try { setCapsOn(!!ev.getModifierState?.("CapsLock")); } catch {""}
+    if ((ev.altKey || ev.metaKey) && (ev.key === "v" || ev.key === "V")) {
+      ev.preventDefault();
+      setShowConfirm((v) => !v);
+    }
+    if (ev.key === "Escape") setErr("");
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     if (!canSubmit || loading) return;
+    if (offline) { setErr("Ești offline. Verifică conexiunea la internet."); return; }
 
     setErr("");
     setLoading(true);
     try {
-      // assemble consents for audit
       const consents = [];
-      if (tosAccepted && legal?.tos) {
-        consents.push({ type: "tos", version: legal.tos.version, checksum: legal.tos.checksum });
-      }
-      if (privacyAcknowledged && legal?.privacy) {
-        consents.push({ type: "privacy_ack", version: legal.privacy.version, checksum: legal.privacy.checksum });
-      }
-      if (marketingOptIn) {
-        consents.push({ type: "marketing_email_optin", version: "1.0.0" });
-      }
+      if (tosAccepted && legal?.tos) consents.push({ type: "tos", version: legal.tos.version, checksum: legal.tos.checksum });
+      if (privacyAcknowledged && legal?.privacy) consents.push({ type: "privacy_ack", version: legal.privacy.version, checksum: legal.privacy.checksum });
+      if (marketingOptIn) consents.push({ type: "marketing_email_optin", version: "1.0.0" });
 
       const body = {
         email: email.trim().toLowerCase(),
@@ -147,7 +313,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
           const next = res?.next || "/onboarding";
           window.location.assign(appendTicket(next, ticket));
           return;
-        } catch { /* noop */ }
+        } catch {""}
       }
 
       window.location.assign(res?.next || (asVendor ? "/onboarding" : "/desktop"));
@@ -159,13 +325,31 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         e2?.message ||
         "Înregistrarea a eșuat.";
       setErr(msg);
+      try {
+        liveRef.current?.focus?.();
+        if (e2?.status === 409) {
+          document.getElementById("reg-email")?.focus();
+        } else {
+          pwRef.current?.focus();
+          pwRef.current?.select?.();
+        }
+      } catch {""}
     } finally {
       setLoading(false);
     }
   }
 
+  const pwType = (showPw || peekPw) ? "text" : "password";
+  const confirmType = (showConfirm || peekConfirm) ? "text" : "password";
+  const showPwToggle = pwFocused || password.length > 0;
+  const showConfirmToggle = confirmFocused || confirm.length > 0;
+
   const form = (
     <form className={styles.body} onSubmit={onSubmit} noValidate>
+      <div ref={liveRef} tabIndex={-1} aria-live="polite" aria-atomic="true" className={styles.srOnly} />
+      {offline && <div className={styles.error} role="status">Ești offline — verifică rețeaua.</div>}
+      {legalError && <div className={styles.legalNotice} role="status">{legalError}</div>}
+
       <div className={styles.nameRow}>
         <label className={styles.nameCol}>
           <span className={styles.srOnly}>Prenume</span>
@@ -191,30 +375,74 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         </label>
       </div>
 
-      <input
-        className={styles.field}
-        value={email}
-        onChange={(e)=>setEmail(e.target.value)}
-        type="email"
-        placeholder="Email"
-        required
-        autoComplete="email"
-        aria-label="Email"
-      />
+      <div className={styles.fieldGroup}>
+        <label className={styles.srOnly} htmlFor="reg-email">Email</label>
+        <input
+          id="reg-email"
+          className={styles.field}
+          value={email}
+          onChange={(e)=>setEmail(e.target.value)}
+          type="email"
+          placeholder="Email"
+          required
+          autoComplete="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          aria-label="Email"
+          aria-invalid={emailExists === true}
+        />
+        {(emailHint || emailSuggestion || emailExists === true) && (
+          <div className={styles.suggestionRow}>
+            {emailHint && <small className={styles.hint}>{emailHint}</small>}
+            {emailSuggestion && (
+              <button type="button" className={styles.pill} onClick={applyEmailSuggestion}>
+                Aplicați: <strong>{emailSuggestion}</strong>
+              </button>
+            )}
+            {emailExists === true && <small className={styles.error} role="alert">Acest email este deja folosit.</small>}
+          </div>
+        )}
+      </div>
 
       <div>
-        <div className={styles.inputGroup}>
+        <div className={`${styles.inputGroup} ${showPwToggle ? styles.hasToggle : ""}`}>
           <input
+            ref={pwRef}
             className={styles.field}
             value={password}
             onChange={(e)=>setPassword(e.target.value)}
-            type="password"
+            onKeyUp={handlePwKey}
+            onKeyDown={handlePwKey}
+            onFocus={() => setPwFocused(true)}
+            onBlur={() => setPwFocused(false)}
+            type={pwType}
             placeholder="Parolă (min 8)"
             required
             autoComplete="new-password"
             aria-describedby="pw-hint"
             aria-label="Parolă"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
+          {showPwToggle && (
+            <button
+              type="button"
+              className={styles.togglePw}
+              aria-label={(showPw || peekPw) ? "Ascunde parola" : "Afișează parola"}
+              aria-pressed={showPw || peekPw}
+              onClick={() => setShowPw((v)=>!v)}
+              onMouseDown={(e)=>{ e.preventDefault(); setPeekPw(true); }}
+              onMouseUp={()=>setPeekPw(false)}
+              onMouseLeave={()=>setPeekPw(false)}
+              onTouchStart={()=>{ setPeekPw(true); try { pwRef.current?.focus({ preventScroll: true }); } catch {""} }}
+              onTouchEnd={()=>setPeekPw(false)}
+              onTouchCancel={()=>setPeekPw(false)}
+            >
+              {(showPw || peekPw) ? <EyeOff size={18}/> : <Eye size={18}/>}
+            </button>
+          )}
         </div>
 
         <div className={styles.progress} role="progressbar" aria-valuemin={0} aria-valuemax={5} aria-valuenow={score}>
@@ -223,34 +451,61 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         <small id="pw-hint" className={styles.hint}>
           Recomandat: minim 8 caractere și o combinație de litere mari/mici, cifre și simboluri.
         </small>
+        {capsOn && pwFocused && <div className={styles.capsHint}>Atenție: CapsLock este activ.</div>}
       </div>
 
       <div>
-        <div className={styles.inputGroup}>
+        <div className={`${styles.inputGroup} ${showConfirmToggle ? styles.hasToggle : ""}`}>
           <input
+            ref={confirmRef}
             className={styles.field}
             value={confirm}
             onChange={(e)=>setConfirm(e.target.value)}
-            type="password"
+            onKeyUp={handleConfirmKey}
+            onKeyDown={handleConfirmKey}
+            onFocus={() => setConfirmFocused(true)}
+            onBlur={() => setConfirmFocused(false)}
+            type={confirmType}
             placeholder="Confirmă parola"
             required
             autoComplete="new-password"
             aria-invalid={confirm.length > 0 && !pwMatches}
             aria-label="Confirmă parola"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
+          {showConfirmToggle && (
+            <button
+              type="button"
+              className={styles.togglePw}
+              aria-label={(showConfirm || peekConfirm) ? "Ascunde confirmarea" : "Afișează confirmarea"}
+              aria-pressed={showConfirm || peekConfirm}
+              onClick={() => setShowConfirm((v)=>!v)}
+              onMouseDown={(e)=>{ e.preventDefault(); setPeekConfirm(true); }}
+              onMouseUp={()=>setPeekConfirm(false)}
+              onMouseLeave={()=>setPeekConfirm(false)}
+              onTouchStart={()=>{ setPeekConfirm(true); try { confirmRef.current?.focus({ preventScroll: true }); } catch {""} }}
+              onTouchEnd={()=>setPeekConfirm(false)}
+              onTouchCancel={()=>setPeekConfirm(false)}
+            >
+              {(showConfirm || peekConfirm) ? <EyeOff size={18}/> : <Eye size={18}/>}
+            </button>
+          )}
         </div>
         {!pwMatches && confirm.length > 0 && (
           <div className={styles.error} role="alert">Parolele nu coincid.</div>
         )}
+        {capsOn && confirmFocused && <div className={styles.capsHint}>Atenție: CapsLock este activ.</div>}
       </div>
 
-      <label className={styles.checkRow}>
+      <label className={styles.checkRow} aria-controls="vendor-box" aria-expanded={asVendor ? "true" : "false"}>
         <input type="checkbox" checked={asVendor} onChange={(e)=>setAsVendor(e.target.checked)} />
         Înscrie-mă ca partener Artfest (ofer servicii/vând produse pe platformă)
       </label>
 
       {asVendor && (
-        <div className={styles.vendorBox}>
+        <div id="vendor-box" className={styles.vendorBox}>
           <input
             className={styles.field}
             value={displayName}
@@ -274,55 +529,33 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       {/* LEGAL */}
       <div className={styles.legalGroup}>
         <label className={styles.legalRow}>
-          <input
-            type="checkbox"
-            checked={tosAccepted}
-            onChange={(e)=>setTosAccepted(e.target.checked)}
-            required
-          />
+          <input type="checkbox" checked={tosAccepted} onChange={(e)=>setTosAccepted(e.target.checked)} required />
           <span>
             Accept{" "}
-            <a className={styles.legalLink}
-               href={legal?.tos?.url || "/termenii-si-conditiile"}
-               target="_blank" rel="noopener noreferrer">
-              Termenii și Condițiile
-              {legal?.tos?.version ? ` (v${legal.tos.version})` : ""}
+            <a className={styles.legalLink} href={legal?.tos?.url || "/termenii-si-conditiile"} target="_blank" rel="noopener noreferrer">
+              Termenii și Condițiile{legal?.tos?.version ? ` (v${legal.tos.version})` : ""}
             </a>.
           </span>
         </label>
 
         <label className={styles.legalRow}>
-          <input
-            type="checkbox"
-            checked={privacyAcknowledged}
-            onChange={(e)=>setPrivacyAcknowledged(e.target.checked)}
-            required
-          />
+          <input type="checkbox" checked={privacyAcknowledged} onChange={(e)=>setPrivacyAcknowledged(e.target.checked)} required />
           <span>
             Confirm că am citit{" "}
-            <a className={styles.legalLink}
-               href={legal?.privacy?.url || "/confidentialitate"}
-               target="_blank" rel="noopener noreferrer">
-              Politica de confidențialitate
-              {legal?.privacy?.version ? ` (v${legal.privacy.version})` : ""}
+            <a className={styles.legalLink} href={legal?.privacy?.url || "/confidentialitate"} target="_blank" rel="noopener noreferrer">
+              Politica de confidențialitate{legal?.privacy?.version ? ` (v${legal.privacy.version})` : ""}
             </a>{" "}
             și înțeleg că datele necesare vor fi transmise curierilor pentru livrare/retur.
           </span>
         </label>
 
         <label className={styles.legalRow}>
-          <input
-            type="checkbox"
-            checked={marketingOptIn}
-            onChange={(e)=>setMarketingOptIn(e.target.checked)}
-          />
-          <span className={styles.legalMuted}>
-            Accept să primesc noutăți și oferte prin email/SMS (opțional).
-          </span>
+          <input type="checkbox" checked={marketingOptIn} onChange={(e)=>setMarketingOptIn(e.target.checked)} />
+          <span className={styles.legalMuted}>Accept să primesc noutăți și oferte prin email/SMS (opțional).</span>
         </label>
       </div>
 
-      <button className={styles.primaryBtn} disabled={loading || !canSubmit}>
+      <button className={styles.primaryBtn} disabled={loading || !canSubmit} aria-busy={loading ? "true" : "false"}>
         {loading ? "Se înregistrează…" : "Creează cont"}
       </button>
 

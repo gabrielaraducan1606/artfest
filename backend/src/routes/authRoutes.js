@@ -219,14 +219,15 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "invalid_payload" });
     }
 
-    const { email, password } = parsed.data;
+    const { email, password, remember } = parsed.data;
 
     let user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: "credentale_gresite" });
+    if (!user) return res.status(404).json({ error: "user_not_found" });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) return res.status(401).json({ error: "credentale_gresite" });
+    if (!ok) return res.status(401).json({ error: "wrong_password" });
 
+    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
     if (email === ADMIN_EMAIL && user.role !== "ADMIN") {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -235,13 +236,17 @@ router.post("/login", async (req, res) => {
     }
 
     const token = signToken({ sub: user.id, role: user.role });
-    const isProd = process.env.NODE_ENV === "production";
+
+    // setare cookie corecta si in dev non-https
+    const isSecure = req.secure || (req.headers["x-forwarded-proto"] === "https");
+    const maxAge = remember ? (30 * 24 * 60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000); // 30 zile vs 7 zile
+
     res.cookie("token", token, {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "None" : "Lax",
+      secure: isSecure,
+      sameSite: isSecure ? "None" : "Lax",
       path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge,
     });
 
     res.json({
@@ -282,6 +287,18 @@ router.get("/me", authRequired, async (req, res) => {
   } catch (e) {
     console.error("ME route error:", e);
     res.status(500).json({ error: "me_failed" });
+  }
+});
+
+/** GET /api/auth/exists?email= */
+router.get("/exists", async (req, res) => {
+  try {
+    const raw = (req.query.email || "").toString().trim().toLowerCase();
+    if (!raw) return res.json({ exists: false });
+    const u = await prisma.user.findUnique({ where: { email: raw }, select: { id: true } });
+    res.json({ exists: !!u });
+  } catch (e) {
+    res.json({ exists: false });
   }
 });
 

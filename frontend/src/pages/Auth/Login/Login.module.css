@@ -1,19 +1,13 @@
 @import "../../../styles/variables.css";
 
-/* ====== Shell ====== */
+/*  Layout / framing */
 .wrap {
-  /* mobile-first */
-  max-width: 500px;
-  margin: 28px auto;
+  max-width: 420px;
+  margin: 56px auto;
   padding: 0 16px;
 }
-.wrapModal {
-  max-width: 520px;
-  margin: 0;
-  padding: 0;
-}
+.wrapModal { margin: 0; padding: 0; }
 
-/* Safe-area pentru telefoane cu notch */
 @supports (padding: max(0px)) {
   .wrap {
     padding-left: max(16px, env(safe-area-inset-left));
@@ -21,196 +15,302 @@
   }
 }
 
-/* ====== Header (doar în pagină, nu în modal) ====== */
-.header {
-  margin-bottom: 14px;
-}
+.header { text-align: center; margin-bottom: 16px; }
 .title {
   font-family: var(--font-title);
-  font-weight: 800;
-  font-size: 24px;
-  line-height: 1.2;
-  margin: 0 0 6px 0;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: 1.75rem;
+  margin: 0 0 4px;
+  color: var(--color-text);
 }
 .subtitle {
   margin: 0;
-  color: var(--color-muted);
-  font-size: 14px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  font-size: 0.95rem;
 }
 
-/* ====== Card ====== */
+/* Card */
 .card {
-  width: auto;
   background: var(--surface);
   border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 2px);
-  padding: 16px;
-  box-shadow: var(--shadow-md);
-}
-
-/* ====== Fields ====== */
-.fieldGroup {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 14px;
-}
-
-.label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-muted);
-  margin-bottom: 6px;
-}
-
-.input {
-  appearance: none;
-  width: auto; /* rămâne auto, nu forțăm 100% */
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  color: var(--color-text);
-  border-radius: calc(var(--radius) - 3px);
-  padding: 11px 12px;
-  outline: none;
-  font: inherit;
-  line-height: 1.4;
-  box-shadow: var(--shadow-sm) inset;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-}
-
-/* uniform height pe toate browserele */
-.input::placeholder {
-  color: color-mix(in oklab, var(--color-muted) 75%, transparent);
-}
-
-.input:focus {
-  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
-}
-
-.input:disabled {
-  background: color-mix(in oklab, var(--surface) 85%, var(--color-border));
-  cursor: not-allowed;
-}
-
-/* ====== Error ====== */
-.error {
-  background: color-mix(in oklab, var(--color-danger) 12%, var(--surface));
-  border: 1px solid color-mix(in oklab, var(--color-danger) 22%, var(--color-border));
-  color: var(--color-danger);
-  padding: 10px 12px;
   border-radius: var(--radius);
-  margin: 8px 0 12px;
-  box-shadow: var(--shadow-sm);
+  box-shadow:
+    0 10px 20px rgba(0,0,0,.04),
+    0 2px 6px rgba(0,0,0,.03);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  max-width: 420px;
+  margin: 56px auto;
 }
 
-/* ====== Buttons ====== */
-.primaryBtn {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 11px 14px;
-  border-radius: calc(var(--radius) - 2px);
-  border: 1px solid transparent;
+/* Tabs */
+.tabBar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow:
+    0 10px 20px rgba(0,0,0,.04),
+    0 2px 6px rgba(0,0,0,.03);
+  margin: 16px auto 0;
+  max-width: 420px;
+  overflow: hidden;
+}
+.tabBtn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-text) 80%, transparent);
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.tabBtn:hover {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  color: var(--color-text);
+}
+.tabBtnActive {
   background: var(--color-primary);
   color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: var(--shadow-md);
-  transition: transform .04s ease, filter .15s ease;
 }
-.primaryBtn:hover { filter: brightness(1.05); }
-.primaryBtn:active { transform: translateY(1px); }
-.primaryBtn:disabled { opacity: .6; cursor: not-allowed; }
 
-.footerRow {
+/* Fields */
+.fieldGroup { display: grid; gap: 6px; }
+
+.label {
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--color-text) 85%, transparent);
+}
+
+/* Remember me */
+.checkRow {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.checkRow input[type="checkbox"] {
+  inline-size: 18px;
+  block-size: 18px;
+  margin: 0;                    
+  accent-color: var(--color-primary);
+  flex: 0 0 auto;
+}
+
+.checkLabel {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--color-text) 85%, transparent);
+}
+
+.fieldGroup.checkRow {
+  display: inline-flex !important;
+  gap: 8px !important;
+}
+
+/* Email/Password inputs */
+.inputGroup {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
+}
+.inputGroup input { width: 100%; }
+
+.input {
+  width: auto;
+  padding: 12px 12px;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  font-size: 16px; /* anti-zoom iOS */
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.input::placeholder { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  background: var(--surface);
+}
+.hasToggle .input { padding-right: 48px; }
+
+/* Toggle parolă (eye) */
+.togglePw {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 10px;         
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--color-text) 80%, transparent);
+  touch-action: manipulation;
+}
+.togglePw:hover { color: var(--color-text); }
+.togglePw:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 60%, transparent);
+  outline-offset: 2px;
 }
 
-/* Link text-style button (folosit și în modal) */
+/* Hints */
+.capsHint, .hint {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+/* Email suggestions */
+.suggestionRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  appearance: none;
+  border: 1px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  border-radius: 9999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.pill:hover { background: color-mix(in srgb, var(--color-primary) 18%, transparent); }
+
+/* Remember me */
+.checkRow {
+  display: flex;
+  align-items: center;   
+  gap: 8px;
+  margin: 0;            
+}
+.checkRow input[type="checkbox"] {
+  inline-size: 18px;
+  block-size: 18px;
+  accent-color: var(--color-primary);
+  margin: 0;            
+  flex: 0 0 auto;
+}
+.checkRow .label {
+  margin: 0;
+  line-height: 1.2;
+}
+
+/* Buttons */
+.primaryBtn {
+  appearance: none;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .03s ease, background .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.primaryBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.primaryBtn:active { transform: translateY(1px); }
+.primaryBtn[disabled] { opacity: .6; cursor: not-allowed; }
+
+/* Errors */
+.error {
+  border: 1px solid color-mix(in srgb, crimson 30%, var(--color-border));
+  background: color-mix(in srgb, crimson 8%, var(--surface));
+  color: crimson;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+
+/* Footer links */
+.footerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.link, .linkBtn {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+.link:hover, .linkBtn:hover { text-decoration: underline; }
 .linkBtn {
   appearance: none;
   background: transparent;
   border: 0;
   padding: 0;
-  color: var(--color-primary);
-  font-weight: 600;
   cursor: pointer;
-  text-decoration: none;
 }
-.linkBtn:hover { text-decoration: underline; }
+.linkBtn:focus-visible,
+.pill:focus-visible,
+.togglePw:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 60%, transparent);
+  outline-offset: 2px;
+}
 
-.link {
-  color: var(--color-primary);
-  text-decoration: none;
-  font-weight: 500;
+/* A11y utils */
+.srOnly {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
-.link:hover { text-decoration: underline; }
 
-/* ====== Tab bar (identic cu modalul din navbar) ====== */
-.tabBar {
-  display: flex;
-  gap: 8px;
-  margin: 0 auto 12px;
-}
-.tabBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 9px 12px;
+/* Offline banner */
+.offline {
+  border: 1px solid color-mix(in srgb, orange 30%, var(--color-border));
+  background: color-mix(in srgb, orange 10%, var(--surface));
+  color: color-mix(in srgb, orange 70%, black);
   border-radius: calc(var(--radius) - 2px);
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  color: var(--color-text);
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color .15s ease, transform .04s ease;
-}
-.tabBtn:hover {
-  border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
-}
-.tabBtn:active { transform: translateY(1px); }
-.tabBtnActive {
-  border-color: var(--color-primary);
+  padding: 8px 10px;
+  font-size: 0.95rem;
 }
 
-/* ====== Small tweaks for modal density ====== */
-.wrapModal .card { padding: 14px; }
-
-/* ===================== Responsive framing (doar container + card) ===================== */
-
-/* <520px — telefon compact */
+/* Responsive */
 @media (max-width: 519px) {
-  .wrap { margin: 24px auto; padding: 0 14px; }
-  .card { padding: 14px; }
+  .wrap { margin: 40px auto; padding: 0 14px; }
+  .card { margin: 32px auto; padding: 16px; max-width: 100%; }
 }
-
-/* 520–767px — telefon mare / phablet */
 @media (min-width: 520px) and (max-width: 767px) {
-  .wrap { max-width: 520px; margin: 32px auto; }
-  .card { padding: 16px; }
+  .wrap { max-width: 500px; margin: 48px auto; }
+  .card { max-width: 500px; padding: 18px; }
 }
-
-/* 768–1023px — TABLETĂ */
 @media (min-width: 768px) and (max-width: 1023px) {
-  .wrap { max-width: 680px; margin: 56px auto; padding: 0 20px; }
-  .card { padding: 20px; }
-  .title { font-size: 26px; }
+  .wrap { max-width: 680px; margin: 64px auto; padding: 0 20px; }
+  .card { max-width: 680px; padding: 22px; gap: 16px; }
 }
-
-/* 1024–1279px — desktop mic */
 @media (min-width: 1024px) and (max-width: 1279px) {
-  .wrap { max-width: 760px; margin: 64px auto; }
-  .card { padding: 22px; }
+  .wrap { max-width: 760px; margin: 72px auto; }
+  .card { max-width: 760px; padding: 24px; gap: 18px; }
+}
+@media (min-width: 1280px) {
+  .wrap { max-width: 840px; margin: 80px auto; }
+  .card { max-width: 840px; padding: 24px; }
 }
 
-/* ≥1280px — desktop mare */
-@media (min-width: 1280px) {
-  .wrap { max-width: 840px; margin: 72px auto; }
-  .card { padding: 24px; }
+/* Touch tweaks */
+@media (pointer: coarse) {
+  .togglePw { padding: 12px; min-width: 44px; min-height: 44px; }
+  .hasToggle .input { padding-right: 56px; }
 }
