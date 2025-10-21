@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f97316" />
+
+    <!-- 🏷️ SEO Title -->
+    <title>Artfest – Platformă pentru artizanii de evenimente</title>
+
+    <!-- 📄 Meta Description -->
+    <meta
+      name="description"
+      content="Artfest este platforma dedicată artizanilor de evenimente. Creează-ți un profil online gratuit, distribuie-l clienților, vinde invitații instant, gestionează albume QR și organizarea meselor. Totul într-un singur loc."
+    />
+
+    <!-- 🧭 Meta Keywords (opțional) -->
+    <meta
+      name="keywords"
+      content="artfest, artizani evenimente, platformă evenimente, invitații online, albume QR, organizare mese, profil online, nuntă, botez, invitații nuntă, invitații botez, mărturii, organizatori"
+    />
+
+    <!-- 🕷️ SEO Robots -->
+    <meta name="robots" content="index, follow" />
+
+    <!-- 🌍 Canonical URL -->
+    <link rel="canonical" href="https://artfest.ro/" />
+
+    <!-- 🖼️ Open Graph (Facebook, WhatsApp, LinkedIn) -->
+    <meta property="og:title" content="Artfest – Platformă pentru artizanii de evenimente" />
+    <meta property="og:description" content="Profiluri gratuite pentru artizanii de evenimente, invitații online, albume QR și organizare mese." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://artfest.ro/" />
+    <meta property="og:image" content="https://artfest.ro/cover.png" />
+
+    <!-- 🐦 Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Artfest – Platformă pentru artizanii de evenimente" />
+    <meta name="twitter:description" content="Profiluri gratuite pentru artizanii de evenimente, invitații online, albume QR și organizare mese." />
+    <meta name="twitter:image" content="https://artfest.ro/cover.png" />
+
+    <!-- 📱 Apple touch icons (opțional, pentru PWA și sharing) -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+
+    <!-- ⚡ Schema.org JSON-LD pentru rezultate mai bogate în Google -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Artfest",
+      "url": "https://artfest.ro/",
+      "description": "Platformă pentru artizanii de evenimente — profiluri online gratuite, invitații instant, albume QR și organizare mese.",
+      "publisher": {
+        "@type": "Organization",
+        "name": "Artfest"
+      },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://artfest.ro/?s={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <!-- 🌗 Pre-setează tema cât mai devreme (evită flash între light/dark) -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          var d = document.documentElement;
+          if (t === "light" || t === "dark") d.setAttribute("data-theme", t);
+          else d.removeAttribute("data-theme");
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- (opțional) fonturi -->
+    <!-- <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet"> -->
+  </head>
+  <body>
+    <noscript>Ai nevoie de JavaScript pentru a rula această aplicație.</noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
