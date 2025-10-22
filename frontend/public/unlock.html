@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Unlock</title>
+  </head>
+  <body>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const code = params.get("code");
+
+      // aici setezi parola ta secretă
+      const SECRET = "m3g@Parol@_L@unch_2025";
+
+      if (code && code === SECRET) {
+        localStorage.setItem("artfest-access", "ok");
+        alert("✅ Acces activat pe acest browser.");
+        location.href = "/";
+      } else {
+        alert("❌ Cod invalid.");
+        history.back();
+      }
+    </script>
+  </body>
+</html>
