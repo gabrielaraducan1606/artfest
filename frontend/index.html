@@ -8,7 +8,7 @@
     <!-- SEO de bază -->
     <title>Artfest – Platformă pentru artizanii de evenimente</title>
     <meta name="description"
-          content="Artfest este platforma dedicată artizanilor de evenimente: profiluri publice, invitații online, albume QR și organizarea meselor — totul într-un singur loc." />
+      content="Artfest este platforma dedicată artizanilor de evenimente: profiluri publice, invitații online, albume QR și organizarea meselor — totul într-un singur loc." />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://artfest.ro/" />
 
@@ -88,30 +88,15 @@
       </div>
     </main>
 
-    <!-- Containerul aplicației (SPA) – încărcat doar pentru acces -->
+    <!-- Containerul aplicației (SPA) – va deveni vizibil doar când e „unlocked” -->
     <div id="root" class="hide"></div>
 
-    <!-- Loader: încarcă SPA DOAR dacă ai acces -->
+    <!-- 1) setăm flag-ul global înainte de bundle -->
     <script>
-      (function () {
-        try {
-          // pune manual în consola ta: localStorage.setItem('artfest-access','ok')
-          const allowed = localStorage.getItem("artfest-access") === "ok";
-          if (!allowed) return; // rămâi pe landing (public & indexabil)
-
-          // pornește aplicația: ascunde landing, arată #root, încarcă bundle-ul
-          document.getElementById("landing")?.classList.add("hide");
-          const root = document.getElementById("root");
-          root?.classList.remove("hide");
-
-          const s = document.createElement("script");
-          s.type = "module";
-          s.src = "/src/main.jsx"; // entry Vite/React
-          document.body.appendChild(s);
-        } catch (e) {
-          console.warn("Gate load error:", e);
-        }
-      })();
+      window.__ARTFEST_ALLOWED__ = (localStorage.getItem('artfest-access') === 'ok');
     </script>
+
+    <!-- 2) încărcăm normal entry-ul Vite; la build devine /assets/index-*.js (MIME corect) -->
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
