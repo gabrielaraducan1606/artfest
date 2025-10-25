@@ -1,55 +1,21 @@
-<!doctype html>
-<html lang="ro">
+<!doctype html> 
+<html> 
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Unlock</title>
-
-    <!-- IMPORTANT pentru SEO -->
-    <meta name="robots" content="noindex, nofollow" />
-    <meta name="referrer" content="no-referrer" />
-    <meta http-equiv="Cache-Control" content="no-store" />
-    <style>
-      body { margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial; display:grid; place-items:center; min-height:100vh; background:#f8f8f8; }
-      .card { background:#fff; padding:1.25rem 1.5rem; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.08); max-width:480px; text-align:center }
-      h1 { margin:0 0 .5rem; font-size:20px }
-      p { margin:.25rem 0 .75rem; color:#374151 }
-      .ok { color:#059669 } .err { color:#dc2626 }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>Activare acces</h1>
-      <p>Folosește linkul securizat primit de la Artfest.</p>
-      <div id="msg"></div>
-    </div>
-
-    <script>
-      (function () {
-        const el = document.getElementById('msg');
-        const q = new URLSearchParams(location.search);
-        const code = q.get('code');
-
-        // ⚠️ Pune aici un cod lung și aleator și NU-l comite în public
-        const SECRET = "m3g@Parol@_L@unch_2025";
-
-        function show(type, text) {
-          el.innerHTML = `<p class="${type}">${text}</p>`;
-        }
-
-        if (code && code === SECRET) {
-          try {
-            localStorage.setItem("artfest-access", "ok");
-            show('ok', '✅ Acces activat pe acest browser. Se revine la homepage…');
-            setTimeout(() => { location.replace("/"); }, 400);
-          } catch (e) {
-            show('err', '❌ Eroare la setarea accesului. Încearcă alt browser.');
-          }
-        } else {
-          show('err', '❌ Cod invalid sau lipsă.');
-          setTimeout(() => history.back(), 1200);
-        }
-      })();
-    </script>
-  </body>
-</html>
+     <meta charset="utf-8" /> 
+     <meta name="viewport" content="width=device-width,initial-scale=1" />
+      <title>Unlock</title> 
+    </head> 
+    <body> 
+      <script> 
+        const params = new URLSearchParams(location.search); 
+        const code = params.get("code"); // aici setezi parola ta secretă const SECRET = ".................."; 
+        if (code && code === SECRET) 
+        { localStorage.setItem("artfest-access", "ok"); 
+        alert("✅ Acces activat pe acest browser."); 
+        location.href = "/"; 
+        } else 
+        { alert("❌ Cod invalid."); 
+        history.back(); } 
+        </script> 
+        </body> 
+        </html>

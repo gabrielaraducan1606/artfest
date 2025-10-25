@@ -1,8 +1,86 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://artfest.ro/</loc><priority>1.0</priority></url>
-  <url><loc>https://artfest.ro/termenii-si-conditiile</loc><priority>0.4</priority></url>
-  <url><loc>https://artfest.ro/confidentialitate</loc><priority>0.4</priority></url>
-  <url><loc>https://artfest.ro/politica-cookie</loc><priority>0.3</priority></url>
-  <url><loc>https://artfest.ro/politica-de-retur</loc><priority>0.3</priority></url>
+
+  <!-- Pagini publice -->
+  <url>
+    <loc>https://artfest.ro/</loc>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/produse</loc>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/magazine</loc>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/categorii</loc>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- Pagini de cont / auth -->
+  <url>
+    <loc>https://artfest.ro/autentificare</loc>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/inregistrare</loc>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/reset-parola</loc>
+    <priority>0.4</priority>
+  </url>
+
+  <!-- Politici și legal -->
+  <url>
+    <loc>https://artfest.ro/termenii-si-conditiile</loc>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/confidentialitate</loc>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/politica-cookie</loc>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/politica-de-retur</loc>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/retur</loc>
+    <priority>0.3</priority>
+  </url>
+
+  <!-- Alte pagini publice utile -->
+  <url>
+    <loc>https://artfest.ro/wishlist</loc>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/cos</loc>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/checkout</loc>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/preferinte-cookie</loc>
+    <priority>0.3</priority>
+  </url>
+
+  <!-- Pagini legale pentru vendor -->
+  <url>
+    <loc>https://artfest.ro/legal/vendor/terms</loc>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://artfest.ro/legal/vendor/expediere</loc>
+    <priority>0.3</priority>
+  </url>
+
 </urlset>
