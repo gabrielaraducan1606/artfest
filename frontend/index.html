@@ -4,27 +4,33 @@
     <meta charset="UTF-8" />
 
     <!-- 🔐 Access gate pentru coming soon -->
-    <script>
-      (function () {
-        try {
-          const allowed = localStorage.getItem("artfest-access") === "ok";
-          const path = window.location.pathname;
-          const isComingSoon =
-            path === "/coming-soon.html" || path === "/unlock.html";
-          const isSeo =
-            path === "/sitemap.xml" ||
-            path === "/robots.txt" ||
-            path.startsWith("/icons/");
+    <!-- 🔐 Access gate pentru coming soon -->
+<script>
+  (function () {
+    try {
+      // 🧠 Dacă rulezi pe localhost sau 127.0.0.1 => dezactivează coming soon
+      const isLocal =
+        location.hostname === "localhost" ||
+        location.hostname === "127.0.0.1" ||
+        location.hostname === "::1";
 
-          if (!allowed && !isComingSoon && !isSeo) {
-            // dacă nu e autorizat → redirecționează
-            window.location.replace("/coming-soon.html");
-          }
-        } catch (e) {
-          console.error("Access gate error:", e);
-        }
-      })();
-    </script>
+      const allowed = isLocal || localStorage.getItem("artfest-access") === "ok";
+      const path = window.location.pathname;
+      const isComingSoon = path === "/coming-soon.html" || path === "/unlock.html";
+      const isSeo =
+        path === "/sitemap.xml" ||
+        path === "/robots.txt" ||
+        path.startsWith("/icons/");
+
+      if (!allowed && !isComingSoon && !isSeo) {
+        window.location.replace("/coming-soon.html");
+      }
+    } catch (e) {
+      console.error("Access gate error:", e);
+    }
+  })();
+</script>
+
 
     <meta
       name="viewport"
