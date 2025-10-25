@@ -88,15 +88,22 @@
       </div>
     </main>
 
-    <!-- Containerul aplicației (SPA) – va deveni vizibil doar când e „unlocked” -->
+    <!-- Containerul aplicației (SPA) – vizibil doar când e „unlocked” -->
     <div id="root" class="hide"></div>
 
-    <!-- 1) setăm flag-ul global înainte de bundle -->
+    <!-- Flag pentru acces: în dev (localhost) e mereu permis; în prod, doar dacă ai făcut unlock -->
     <script>
-      window.__ARTFEST_ALLOWED__ = (localStorage.getItem('artfest-access') === 'ok');
+      const isLocal = /^(localhost|127\.0\.0\.1|::1)$/.test(location.hostname);
+      window.__ARTFEST_ALLOWED__ = isLocal || (localStorage.getItem('artfest-access') === 'ok');
+
+      // evităm „flicker”-ul: dacă e local, ascundem landing-ul imediat
+      if (isLocal) {
+        document.getElementById('landing')?.classList.add('hide');
+        document.getElementById('root')?.classList.remove('hide');
+      }
     </script>
 
-    <!-- 2) încărcăm normal entry-ul Vite; la build devine /assets/index-*.js (MIME corect) -->
+    <!-- Entry-ul Vite; în build devine /assets/index-*.js cu MIME corect -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -4,10 +4,11 @@ import App from "./App";
 import AuthProvider from "./pages/Auth/Context/AuthProvider";
 import "./styles/variables.css";
 
-// flag-ul e setat în index.html înainte de acest script
-const allowed = window.__ARTFEST_ALLOWED__ === true;
+// în dev (vite dev server) montăm mereu aplicația
+const isDev = import.meta.env.DEV === true;
+// în prod, montăm doar dacă flag-ul a fost setat în index.html (unlock)
+const allowed = isDev || window.__ARTFEST_ALLOWED__ === true;
 
-// dacă nu e „unlocked”, NU montăm React -> rămâne landing-ul din index.html
 if (allowed) {
   // ascunde landing-ul și arată containerul aplicației
   document.getElementById("landing")?.classList.add("hide");
@@ -15,12 +16,10 @@ if (allowed) {
   rootEl?.classList.remove("hide");
 
   const root = createRoot(rootEl);
-  const tree = (
+  root.render(
     <AuthProvider>
       <App />
     </AuthProvider>
   );
-  root.render(tree);
 }
-
-// dacă vrei, poți atașa aici mici handlers pentru landing (ex: butoane), dar fără să montezi React când !allowed
+// dacă NU e allowed (prod fără unlock) nu montăm React => rămâne landing-ul indexabil
