@@ -112,6 +112,43 @@ app.use(
   })
 );
 
+
+
+// ================== DEBUG / DEV — NU LĂSA NEPROTEJATĂ ==================
+const ADMIN_DELETE_KEY = process.env.ADMIN_DELETE_KEY || "super-secret";
+
+app.delete("/api/dev/delete-user", async (req, res) => {
+  try {
+    // 1. Protejează ruta cu o cheie simplă
+    const key = req.headers["x-admin-key"];
+    if (key !== ADMIN_DELETE_KEY) {
+      return res.status(403).json({ error: "unauthorized" });
+    }
+
+    // 2. Verifică email
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ error: "missing_email" });
+
+    const u = await prisma.user.findUnique({
+      where: { email: String(email).toLowerCase().trim() },
+    });
+
+    if (!u) return res.json({ ok: true, message: "not_found" });
+
+    // 3. Șterge tokenurile asociate (verificare, reset, etc.)
+    await prisma.emailVerificationToken.deleteMany({ where: { userId: u.id } });
+    await prisma.passwordResetToken.deleteMany({ where: { userId: u.id } });
+
+    // 4. Șterge userul propriu-zis
+    await prisma.user.delete({ where: { id: u.id } });
+
+    res.json({ ok: true, deleted: email });
+  } catch (e) {
+    console.error("DELETE-USER error:", e);
+    res.status(500).json({ ok: false });
+  }
+});
+
 /* Rute */
 app.get("/api/legal", getLegalMeta);
 app.get("/legal/:type.html", getLegalHtml);
