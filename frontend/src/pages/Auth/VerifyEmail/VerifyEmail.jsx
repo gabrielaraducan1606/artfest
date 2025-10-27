@@ -6,6 +6,7 @@ export default function VerifyEmail() {
   const params = new URLSearchParams(window.location.search);
   const token = params.get("token");
   const email = params.get("email") || "";
+  const urlIntent = (params.get("intent") || "").toLowerCase(); // "vendor" | ""
 
   const [state, setState] = useState(token ? "verifying" : "waiting");
   const [err, setErr] = useState("");
@@ -15,10 +16,17 @@ export default function VerifyEmail() {
     (async () => {
       if (!token) return;
       try {
-        await api("/api/auth/verify-email", { method: "POST", body: { token } });
+        const r = await api("/api/auth/verify-email", { method: "POST", body: { token } });
         if (!active) return;
-        const intent = sessionStorage.getItem("onboarding.intent");
-        window.location.assign(intent === "vendor" ? "/onboarding" : "/desktop");
+
+        // preferă next din backend, fallback la intent
+        const next =
+          r?.next ||
+          ((sessionStorage.getItem("onboarding.intent") || urlIntent) === "vendor"
+            ? "/onboarding"
+            : "/desktop");
+
+        window.location.assign(next);
       } catch (e) {
         if (!active) return;
         setState("waiting");
@@ -26,7 +34,7 @@ export default function VerifyEmail() {
       }
     })();
     return () => { active = false; };
-  }, [token]);
+  }, [token, urlIntent]);
 
   async function resend() {
     try {

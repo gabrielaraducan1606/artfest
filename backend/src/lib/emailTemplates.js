@@ -1,5 +1,3 @@
-// backend/emailTemplates.js
-
 /**
  * ✅ Template pentru emailul de verificare cont
  * @param {object} opts
@@ -10,7 +8,7 @@ export function verificationEmailTemplate({ link, brandName = "Artfest" }) {
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="../../../frontend/src/assets/LogoArtfest.png" alt="${brandName}" style="max-width:120px;">
+      <img src="https://artfest.ro/assets/LogoArtfest.png" alt="${brandName}" style="max-width:120px;">
     </div>
     <h2 style="color:#111827;">Bine ai venit pe ${brandName}!</h2>
     <p style="color:#374151;">Pentru a-ți activa contul, apasă pe butonul de mai jos:</p>

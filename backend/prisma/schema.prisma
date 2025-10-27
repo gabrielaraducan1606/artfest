@@ -32,6 +32,11 @@ enum EventType {
   MESSAGE
 }
 
+enum VerifyIntent {
+  USER
+  VENDOR
+}
+
 /**
  * ==================== User & Auth ====================
  */
@@ -84,19 +89,22 @@ model PasswordResetToken {
 }
 
 model EmailVerificationToken {
-  id     String @id @default(uuid())
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
 
-  tokenHash String    @unique
-  purpose   String    @default("verify_email")
-  createdAt DateTime  @default(now())
+  tokenHash String   @unique
+  purpose   String   @default("verify_email")
+  createdAt DateTime @default(now())
   expiresAt DateTime
   usedAt    DateTime?
+
+  intent    VerifyIntent @default(USER)
 
   @@index([userId, expiresAt])
   @@index([purpose])
 }
+
 
 /**
  * ==================== Vendor & Billing ====================

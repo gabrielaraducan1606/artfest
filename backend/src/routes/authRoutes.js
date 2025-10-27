@@ -1,11 +1,10 @@
-// src/routes/authRoutes.js
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { sendVerificationEmail } from "../lib/mailer.js"; 
-import { signToken, authRequired /*, optionalAuth, requireRole */ } from "../api/auth.js";
+import { sendVerificationEmail } from "../lib/mailer.js";
+import { signToken, authRequired } from "../api/auth.js";
 
 const router = Router();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
@@ -33,9 +32,7 @@ async function idemSave(key, responseJson) {
     await prisma.requestLog.create({
       data: { idempotencyKey: String(key), responseJson },
     });
-  } catch {
-    // duplicate key -> ignorăm
-  }
+  } catch {}
 }
 
 /* ----------------------------- Schemas ----------------------------- */
@@ -52,7 +49,6 @@ const SignupSchema = z.object({
   firstName: z.string().trim().optional(),
   lastName: z.string().trim().optional(),
   asVendor: z.boolean().optional().default(false),
-  // displayName & city au fost scoase din register — nu le mai cerem aici
   marketingOptIn: z.boolean().optional().default(false),
   termsAccepted: z.boolean().optional().default(false),
   consents: z.array(ConsentSchema).optional().default([]),
@@ -62,7 +58,6 @@ const LoginSchema = z.object({
   email: z.string().email().transform(normalizeEmail),
   password: z.string().min(1),
 });
-
 
 /* =================================================================== */
 /** POST /api/auth/signup */
@@ -93,24 +88,24 @@ router.post("/signup", async (req, res) => {
     const prev = await idemFind(idemKey);
     if (prev) return res.status(200).json(prev.responseJson);
 
-   const exists = await prisma.user.findUnique({
-   where: { email },
-     select: { id: true, emailVerifiedAt: true }
-   });
-   if (exists) {
-     const unverified = !exists.emailVerifiedAt;
-     return res.status(409).json({
-       error: unverified ? "email_exists_unverified" : "email_deja_folosit",
-       message: unverified
-        ? "Există deja un cont cu acest email, dar nu este confirmat."
-        : "Acest email este deja folosit.",
-     });
-   }
+    const exists = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, emailVerifiedAt: true }
+    });
+    if (exists) {
+      const unverified = !exists.emailVerifiedAt;
+      return res.status(409).json({
+        error: unverified ? "email_exists_unverified" : "email_deja_folosit",
+        message: unverified
+          ? "Există deja un cont cu acest email, dar nu este confirmat."
+          : "Acest email este deja folosit.",
+      });
+    }
 
     const isAdmin = email === ADMIN_EMAIL;
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Creare user + consents (FĂRĂ login, FĂRĂ vendor încă)
+    // Creare user + consents
     const created = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
@@ -121,8 +116,8 @@ router.post("/signup", async (req, res) => {
           lastName: lastName || null,
           marketingOptIn: !!marketingOptIn,
           termsAcceptedAt: termsAccepted ? new Date() : null,
-          role: isAdmin ? "ADMIN" : "USER",     // nu promovăm încă la VENDOR
-          emailVerifiedAt: null,                // important: neconfirmat
+          role: isAdmin ? "ADMIN" : "USER",
+          emailVerifiedAt: null,
         },
         select: { id: true, email: true, role: true, name: true },
       });
@@ -172,7 +167,7 @@ router.post("/signup", async (req, res) => {
       return user;
     });
 
-    // Generează token verificare
+    // Generează token verificare + persistă intenția
     const token = randomToken(32);
     const tokenHash = sha256(token);
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -182,12 +177,14 @@ router.post("/signup", async (req, res) => {
         userId: created.id,
         tokenHash,
         expiresAt,
-        // purpose implicat 'verify_email'
+        intent: asVendor ? "VENDOR" : "USER",
       },
     });
 
-    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
-     try {
+    // include intent în link, ca fallback
+    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}&intent=${asVendor ? "vendor" : ""}`;
+
+    try {
       await sendVerificationEmail({ to: email, link });
     } catch (err) {
       console.error("sendVerificationEmail failed:", err);
@@ -199,7 +196,7 @@ router.post("/signup", async (req, res) => {
     const responseJson = {
       status: "pending_verification",
       next: `/verify-email?email=${encodeURIComponent(email)}`,
-      asVendorIntent: !!asVendor, // folosești în frontend (sessionStorage)
+      asVendorIntent: !!asVendor,
     };
 
     if (idemKey) await idemSave(idemKey, responseJson);
@@ -230,12 +227,12 @@ router.post("/verify-email", async (req, res) => {
       prisma.user.update({ where: { id: rec.userId }, data: { emailVerifiedAt: new Date() } }),
     ]);
 
-    // opțional: autentifică automat după verificare
+    // autentifică automat după verificare
     const user = await prisma.user.findUnique({ where: { id: rec.userId } });
     if (user) {
-      const token = signToken({ sub: user.id, role: user.role });
-      const isSecure = req.secure || (req.headers["x-forwarded-proto"] === "https");
-      res.cookie("token", token, {
+      const jwt = signToken({ sub: user.id, role: user.role });
+      const isSecure = !!(req.secure || (req.headers["x-forwarded-proto"] === "https"));
+      res.cookie("token", jwt, {
         httpOnly: true,
         secure: isSecure,
         sameSite: isSecure ? "None" : "Lax",
@@ -244,7 +241,8 @@ router.post("/verify-email", async (req, res) => {
       });
     }
 
-    return res.json({ ok: true });
+    const next = rec.intent === "VENDOR" ? "/onboarding" : "/desktop";
+    return res.json({ ok: true, next });
   } catch (e) {
     console.error("VERIFY error:", e);
     return res.status(500).json({ message: "verify_failed" });
@@ -261,15 +259,22 @@ router.post("/resend-verification", async (req, res) => {
     if (!user) return res.json({ ok: true });
     if (user.emailVerifiedAt) return res.json({ ok: true });
 
-    // Curăță tokenuri anterioare nefolosite
+    // recuperează ultima intenție a userului (dacă există tokenuri vechi)
+    const last = await prisma.emailVerificationToken.findFirst({
+      where: { userId: user.id },
+      orderBy: { expiresAt: "desc" },
+      select: { intent: true },
+    });
+    const intent = last?.intent || "USER";
+
     await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id, usedAt: null } });
 
     const token = randomToken(32);
     const tokenHash = sha256(token);
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt } });
+    await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt, intent } });
 
-    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}&intent=${intent === "VENDOR" ? "vendor" : ""}`;
     await sendVerificationEmail({ to: email, link });
 
     return res.json({ ok: true });
@@ -295,9 +300,6 @@ router.post("/login", async (req, res) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: "wrong_password" });
 
-    // dacă vrei, poți bloca login-ul dacă emailul nu e verificat:
-    // if (!user.emailVerifiedAt) return res.status(403).json({ error: "email_not_verified" });
-
     const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
     if (email === ADMIN_EMAIL && user.role !== "ADMIN") {
       user = await prisma.user.update({
@@ -306,12 +308,12 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const token = signToken({ sub: user.id, role: user.role });
+    const jwt = signToken({ sub: user.id, role: user.role });
 
-    const isSecure = req.secure || (req.headers["x-forwarded-proto"] === "https");
+    const isSecure = !!(req.secure || (req.headers["x-forwarded-proto"] === "https"));
     const maxAge = remember ? (30 * 24 * 60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000);
 
-    res.cookie("token", token, {
+    res.cookie("token", jwt, {
       httpOnly: true,
       secure: isSecure,
       sameSite: isSecure ? "None" : "Lax",

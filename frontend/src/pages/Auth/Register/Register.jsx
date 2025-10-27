@@ -320,8 +320,8 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       // ✉️ email verification flow
       if (res?.status === "pending_verification") {
         try { sessionStorage.setItem("onboarding.intent", asVendor ? "vendor" : ""); } catch {""}
-        const url = res?.next || `/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`;
-        window.location.assign(url);
+        const next = res?.next || `/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`;
+        window.location.assign(next);
         return;
       }
 
