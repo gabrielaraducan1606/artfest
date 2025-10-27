@@ -2,14 +2,13 @@
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")   // app_prod prin pooler (runtime)
-  directUrl = env("DIRECT_URL")     // migrator_prod (DOAR pentru migrate/Studio)
+  url       = env("DATABASE_URL") // app_prod prin pooler (runtime)
+  directUrl = env("DIRECT_URL") // migrator_prod (DOAR pentru migrate/Studio)
 }
 
 generator client {
   provider = "prisma-client-js"
 }
-
 
 /**
  * ==================== Enums ====================
@@ -56,6 +55,9 @@ model User {
   marketingOptIn  Boolean   @default(false)
   termsAcceptedAt DateTime?
 
+  emailVerifiedAt         DateTime?
+  emailVerificationTokens EmailVerificationToken[]
+
   // Relații
   vendor Vendor?
 
@@ -79,6 +81,21 @@ model PasswordResetToken {
   usedAt    DateTime?
 
   @@index([userId, expiresAt])
+}
+
+model EmailVerificationToken {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  tokenHash String    @unique
+  purpose   String    @default("verify_email")
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  @@index([userId, expiresAt])
+  @@index([purpose])
 }
 
 /**
@@ -294,7 +311,6 @@ model Favorite {
   @@index([createdAt, productId]) // pt. cursor pagination
 }
 
-
 /**
  * ==================== Reviews / Comments / Cart ====================
  */
@@ -451,8 +467,8 @@ enum ShipmentStatus {
 }
 
 enum PaymentMethod {
-  COD   // ramburs
-  CARD  // online
+  COD // ramburs
+  CARD // online
 }
 
 enum ShippingMethod {
@@ -461,52 +477,52 @@ enum ShippingMethod {
 }
 
 model Order {
-  id              String         @id @default(cuid())
+  id              String        @id @default(cuid())
   userId          String
-  status          OrderStatus    @default(PENDING)
+  status          OrderStatus   @default(PENDING)
   paymentMethod   PaymentMethod
-  currency        String         @default("RON")
-  subtotal        Decimal        @db.Decimal(10,2)
-  shippingTotal   Decimal        @db.Decimal(10,2)
-  total           Decimal        @db.Decimal(10,2)
+  currency        String        @default("RON")
+  subtotal        Decimal       @db.Decimal(10, 2)
+  shippingTotal   Decimal       @db.Decimal(10, 2)
+  total           Decimal       @db.Decimal(10, 2)
   shippingAddress Json
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  shipments       Shipment[]
+  shipments Shipment[]
 
   @@index([userId, createdAt])
 }
 
 model Shipment {
-  id         String          @id @default(cuid())
-  orderId    String
-  vendorId   String
-  method     ShippingMethod  @default(COURIER)
-  lockerId   String?
-  price      Decimal         @default(0) @db.Decimal(10,2)
-  status     ShipmentStatus  @default(PENDING)
-  awb        String?
-  labelUrl   String?
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  id        String         @id @default(cuid())
+  orderId   String
+  vendorId  String
+  method    ShippingMethod @default(COURIER)
+  lockerId  String?
+  price     Decimal        @default(0) @db.Decimal(10, 2)
+  status    ShipmentStatus @default(PENDING)
+  awb       String?
+  labelUrl  String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
-  order      Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  items      ShipmentItem[]
+  order Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items ShipmentItem[]
 
   @@index([orderId])
   @@index([vendorId])
 }
 
 model ShipmentItem {
-  id         String    @id @default(cuid())
+  id         String  @id @default(cuid())
   shipmentId String
   productId  String
   title      String
   qty        Int
-  price      Decimal   @db.Decimal(10,2)   // preț unitar în momentul comenzii
+  price      Decimal @db.Decimal(10, 2) // preț unitar în momentul comenzii
 
-  shipment   Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId])
   @@index([productId])

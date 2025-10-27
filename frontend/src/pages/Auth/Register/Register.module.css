@@ -35,9 +35,7 @@
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  box-shadow:
-    0 10px 20px rgba(0,0,0,.04),
-    0 2px 6px rgba(0,0,0,.03);
+  box-shadow: var(--shadow-md);
   padding: 18px;
   display: grid;
   gap: 14px;
@@ -49,9 +47,13 @@
 .body { display: grid; gap: 14px; }
 .fieldGroup { display: grid; gap: 6px; }
 
-.label {
-  font-size: 0.9rem;
-  color: color-mix(in srgb, var(--color-text) 85%, transparent);
+/* Hidden a11y */
+.srOnly {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
 }
 
 /* ===== Inputs ===== */
@@ -176,16 +178,6 @@
   accent-color: var(--color-primary);
 }
 
-/* ===== Zona vendor ===== */
-.vendorBox {
-  display: grid;
-  gap: 10px;
-  padding: 10px;
-  border: 1px dashed color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
-  border-radius: calc(var(--radius) - 2px);
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
-}
-
 /* ===== Legal ===== */
 .legalGroup { display: grid; gap: 10px; }
 .legalRow {
@@ -226,6 +218,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: transform .03s ease, background .15s ease, border-color .15s ease, opacity .15s ease;
+  box-shadow: var(--shadow-sm);
 }
 .primaryBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
 .primaryBtn:active { transform: translateY(1px); }
@@ -233,20 +226,12 @@
 
 /* ===== Erori ===== */
 .error {
-  border: 1px solid color-mix(in srgb, crimson 30%, var(--color-border));
-  background: color-mix(in srgb, crimson 8%, var(--surface));
-  color: crimson;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--surface));
+  color: var(--color-danger);
   border-radius: calc(var(--radius) - 2px);
   padding: 8px 10px;
   font-size: 0.95rem;
-}
-
-/* ===== A11y ===== */
-.srOnly {
-  position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
 
 /* ===== Responsive ===== */

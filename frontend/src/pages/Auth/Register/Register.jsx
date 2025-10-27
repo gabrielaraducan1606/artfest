@@ -1,4 +1,3 @@
-// src/components/Auth/Register/Register.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { api } from "../../../lib/api";
@@ -95,12 +94,11 @@ function useLegalMeta(types = []) {
   const [error, setError] = useState("");
   const abortRef = useRef(null);
 
-  // cheie stabilă, dinamică doar când se schimbă lista de tipuri
   const depKey = useMemo(() => (types && types.length ? types.join(",") : ""), [types]);
 
   useEffect(() => {
     let active = true;
-    if (!depKey) { // dacă nu s-au cerut tipuri
+    if (!depKey) {
       setMeta({});
       setLoading(false);
       setError("");
@@ -119,8 +117,8 @@ function useLegalMeta(types = []) {
         abortRef.current = ctrl;
 
         const arr = await fetchWithBackoff(`/api/legal?types=${encodeURIComponent(depKey)}`, { signal: ctrl.signal });
-
         if (!active) return;
+
         const map = {};
         for (const d of arr || []) map[d.type] = d;
         setMeta(map);
@@ -141,14 +139,13 @@ function useLegalMeta(types = []) {
     })();
 
     return () => { active = false; abortRef.current?.abort?.(); };
-  }, [depKey]); // 👈 DOAR depKey
+  }, [depKey]);
 
   return { meta, loading, error };
 }
 
 /* ===================== Component ===================== */
 export default function Register({ defaultAsVendor = false, inModal = false }) {
-  // stabilește types ca valoare memoizată → nu mai schimbă referința
   const legalTypes = useMemo(() => ["tos", "privacy"], []);
   const { meta: legal, error: legalError } = useLegalMeta(legalTypes);
 
@@ -173,8 +170,6 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [asVendor, setAsVendor] = useState(defaultAsVendor);
-  const [displayName, setDisplayName] = useState("");
-  const [city, setCity] = useState("");
 
   // consents
   const [tosAccepted, setTosAccepted] = useState(false);
@@ -185,6 +180,11 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(!navigator.onLine);
+
+  // unverified UX
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendOk, setResendOk] = useState(false);
 
   const idemRef = useRef(globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2));
   const emailAbortRef = useRef(null);
@@ -214,8 +214,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     score >= 3 &&
     pwMatches &&
     tosAccepted &&
-    privacyAcknowledged &&
-    (!asVendor || displayName.trim());
+    privacyAcknowledged;
 
   // online/offline
   useEffect(() => {
@@ -274,12 +273,27 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     if (ev.key === "Escape") setErr("");
   }
 
+  async function handleResend() {
+    if (!unverifiedEmail) return;
+    try {
+      setResendBusy(true);
+      await api("/api/auth/resend-verification", {
+        method: "POST",
+        body: { email: unverifiedEmail },
+      });
+      setResendOk(true);
+    } catch {""}
+    finally { setResendBusy(false); }
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     if (!canSubmit || loading) return;
     if (offline) { setErr("Ești offline. Verifică conexiunea la internet."); return; }
 
     setErr("");
+    setResendOk(false);
+    setUnverifiedEmail("");
     setLoading(true);
     try {
       const consents = [];
@@ -294,8 +308,6 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         lastName: lastName.trim() || undefined,
         name: fullName || undefined,
         asVendor,
-        displayName: displayName.trim() || undefined,
-        city: city.trim() || undefined,
         consents,
       };
 
@@ -305,10 +317,19 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         body,
       });
 
+      // ✉️ email verification flow
+      if (res?.status === "pending_verification") {
+        try { sessionStorage.setItem("onboarding.intent", asVendor ? "vendor" : ""); } catch {""}
+        const url = res?.next || `/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`;
+        window.location.assign(url);
+        return;
+      }
+
+      // fallback (dacă backendul n-a fost actualizat încă)
       if (asVendor) {
         try {
           const ticket = crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
-          const payload = { displayName: (displayName || "").trim(), city: (city || "").trim(), ts: Date.now() };
+          const payload = { ts: Date.now(), intent: "vendor" };
           sessionStorage.setItem(OB_TICKET_PREFIX + ticket, JSON.stringify(payload));
           const next = res?.next || "/onboarding";
           window.location.assign(appendTicket(next, ticket));
@@ -320,11 +341,14 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     } catch (e2) {
       console.error("Register error:", e2);
       const msg =
-        (e2?.status === 409 && "Acest email este deja folosit.") ||
+        (e2?.status === 409 && (e2?.data?.error === "email_exists_unverified"
+          ? "Există deja un cont cu acest email, dar nu este confirmat."
+          : "Acest email este deja folosit.")) ||
         e2?.data?.message ||
         e2?.message ||
         "Înregistrarea a eșuat.";
       setErr(msg);
+      setUnverifiedEmail(e2?.data?.error === "email_exists_unverified" ? (email.trim().toLowerCase()) : "");
       try {
         liveRef.current?.focus?.();
         if (e2?.status === 409) {
@@ -349,6 +373,18 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       <div ref={liveRef} tabIndex={-1} aria-live="polite" aria-atomic="true" className={styles.srOnly} />
       {offline && <div className={styles.error} role="status">Ești offline — verifică rețeaua.</div>}
       {legalError && <div className={styles.legalNotice} role="status">{legalError}</div>}
+
+      <label className={styles.checkRow}>
+        <input
+          type="checkbox"
+          checked={asVendor}
+          onChange={(e)=> {
+            setAsVendor(e.target.checked);
+            try { sessionStorage.setItem("onboarding.intent", e.target.checked ? "vendor" : ""); } catch {""}
+          }}
+        />
+        Înscrie-mă ca partener Artfest (ofer servicii/vând produse pe platformă)
+      </label>
 
       <div className={styles.nameRow}>
         <label className={styles.nameCol}>
@@ -499,41 +535,14 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         {capsOn && confirmFocused && <div className={styles.capsHint}>Atenție: CapsLock este activ.</div>}
       </div>
 
-      <label className={styles.checkRow} aria-controls="vendor-box" aria-expanded={asVendor ? "true" : "false"}>
-        <input type="checkbox" checked={asVendor} onChange={(e)=>setAsVendor(e.target.checked)} />
-        Înscrie-mă ca partener Artfest (ofer servicii/vând produse pe platformă)
-      </label>
-
-      {asVendor && (
-        <div id="vendor-box" className={styles.vendorBox}>
-          <input
-            className={styles.field}
-            value={displayName}
-            onChange={(e)=>setDisplayName(e.target.value)}
-            placeholder="Nume afișat (firmă/brand)"
-            required={asVendor}
-            autoComplete="organization"
-            aria-label="Nume afișat"
-          />
-          <input
-            className={styles.field}
-            value={city}
-            onChange={(e)=>setCity(e.target.value)}
-            placeholder="Oraș (ex: București)"
-            autoComplete="address-level2"
-            aria-label="Oraș"
-          />
-        </div>
-      )}
-
       {/* LEGAL */}
       <div className={styles.legalGroup}>
         <label className={styles.legalRow}>
           <input type="checkbox" checked={tosAccepted} onChange={(e)=>setTosAccepted(e.target.checked)} required />
           <span>
             Accept{" "}
-            <a className={styles.legalLink} href={legal?.tos?.url || "/termenii-si-conditiile"} target="_blank" rel="noopener noreferrer">
-              Termenii și Condițiile{legal?.tos?.version ? ` (v${legal.tos.version})` : ""}
+            <a className={styles.legalLink} href={"/termenii-si-conditiile"} target="_blank" rel="noopener noreferrer">
+              Termenii și Condițiile
             </a>.
           </span>
         </label>
@@ -542,10 +551,9 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
           <input type="checkbox" checked={privacyAcknowledged} onChange={(e)=>setPrivacyAcknowledged(e.target.checked)} required />
           <span>
             Confirm că am citit{" "}
-            <a className={styles.legalLink} href={legal?.privacy?.url || "/confidentialitate"} target="_blank" rel="noopener noreferrer">
-              Politica de confidențialitate{legal?.privacy?.version ? ` (v${legal.privacy.version})` : ""}
-            </a>{" "}
-            și înțeleg că datele necesare vor fi transmise curierilor pentru livrare/retur.
+            <a className={styles.legalLink} href={"/confidentialitate"} target="_blank" rel="noopener noreferrer">
+              Politica de confidențialitate
+            </a>.
           </span>
         </label>
 
@@ -560,6 +568,21 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       </button>
 
       {err && <div className={styles.error} role="alert">{err}</div>}
+
+      {unverifiedEmail && (
+        <div className={styles.info} role="status" style={{marginTop:8}}>
+          <div style={{marginBottom:8}}>
+            Nu găsești emailul de confirmare? Îl putem retrimite către <strong>{unverifiedEmail}</strong>.
+          </div>
+          {!resendOk ? (
+            <button type="button" className={styles.primaryBtn} onClick={handleResend} disabled={resendBusy}>
+              {resendBusy ? "Se retrimite…" : "Trimite din nou emailul de confirmare"}
+            </button>
+          ) : (
+            <div>Gata! Verifică inboxul (și Spam/Promo).</div>
+          )}
+        </div>
+      )}
     </form>
   );
 

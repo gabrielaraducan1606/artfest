@@ -42,6 +42,7 @@ import StoresPage from "./pages/Stores/StoresPage";
 import AccountPage from "./pages/AccountPage/AccountPage";
 import MobileCategories from "./pages/Categories/MobileCategories";
 import ShopPlanner from "./pages/Vendor/Planner/ShopPlanner";
+import VerifyEmail from "./pages/Auth/VerifyEmail/VerifyEmail";
 
 // import Furnizori from "./pages/Furnizori";
 // import Despre from "./pages/Despre";
@@ -85,6 +86,7 @@ export default function App() {
         {/* Auth */}
         <Route path="/autentificare" element={<Login />} />
         <Route path="/inregistrare" element={<Register />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/reset-parola" element={<ResetOrForgot />} />
 
         {/* Vendor */}

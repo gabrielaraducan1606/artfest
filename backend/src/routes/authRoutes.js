@@ -1,12 +1,19 @@
 // src/routes/authRoutes.js
 import { Router } from "express";
 import bcrypt from "bcrypt";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../db.js";
+import { sendVerificationEmail } from "../lib/mailer.js"; 
 import { signToken, authRequired /*, optionalAuth, requireRole */ } from "../api/auth.js";
 
 const router = Router();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
+const APP_URL = process.env.APP_URL || "http://localhost:5173";
+
+// hash & random
+const sha256 = (s) => crypto.createHash("sha256").update(s, "utf8").digest("hex");
+const randomToken = (bytes = 32) => crypto.randomBytes(bytes).toString("hex");
 
 /* ----------------------------- Helpers ----------------------------- */
 const normalizeEmail = (s = "") => s.trim().toLowerCase();
@@ -45,8 +52,7 @@ const SignupSchema = z.object({
   firstName: z.string().trim().optional(),
   lastName: z.string().trim().optional(),
   asVendor: z.boolean().optional().default(false),
-  displayName: z.string().trim().optional(),
-  city: z.string().trim().optional(),
+  // displayName & city au fost scoase din register — nu le mai cerem aici
   marketingOptIn: z.boolean().optional().default(false),
   termsAccepted: z.boolean().optional().default(false),
   consents: z.array(ConsentSchema).optional().default([]),
@@ -76,30 +82,34 @@ router.post("/signup", async (req, res) => {
       firstName,
       lastName,
       asVendor,
-      displayName,
-      city,
       marketingOptIn,
       termsAccepted,
       consents = [],
     } = parsed.data;
 
-    // Idempotency: dacă s-a mai făcut aceeași cerere, returnăm același răspuns
+    // Idempotency
     const idemKey = getIdemKey(req);
     const prev = await idemFind(idemKey);
     if (prev) return res.status(200).json(prev.responseJson);
 
-    // Unicitate email
-    const exists = await prisma.user.findUnique({ where: { email } });
-    if (exists) {
-      return res
-        .status(409)
-        .json({ error: "email_deja_folosit", message: "Acest email este deja folosit." });
-    }
+   const exists = await prisma.user.findUnique({
+   where: { email },
+     select: { id: true, emailVerifiedAt: true }
+   });
+   if (exists) {
+     const unverified = !exists.emailVerifiedAt;
+     return res.status(409).json({
+       error: unverified ? "email_exists_unverified" : "email_deja_folosit",
+       message: unverified
+        ? "Există deja un cont cu acest email, dar nu este confirmat."
+        : "Acest email este deja folosit.",
+     });
+   }
 
     const isAdmin = email === ADMIN_EMAIL;
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // Creare user (+ vendor dacă e cazul) + consents în aceeași tranzacție
+    // Creare user + consents (FĂRĂ login, FĂRĂ vendor încă)
     const created = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
@@ -110,26 +120,11 @@ router.post("/signup", async (req, res) => {
           lastName: lastName || null,
           marketingOptIn: !!marketingOptIn,
           termsAcceptedAt: termsAccepted ? new Date() : null,
-          role: isAdmin ? "ADMIN" : asVendor ? "VENDOR" : "USER",
+          role: isAdmin ? "ADMIN" : "USER",     // nu promovăm încă la VENDOR
+          emailVerifiedAt: null,                // important: neconfirmat
         },
         select: { id: true, email: true, role: true, name: true },
       });
-
-      if (!isAdmin && asVendor) {
-        const display =
-          (displayName && displayName.trim()) ||
-          (name && name.trim()) ||
-          email.split("@")[0];
-
-        await tx.vendor.create({
-          data: {
-            userId: user.id,
-            displayName: display,
-            city: (city || "").trim() || null,
-            isActive: true,
-          },
-        });
-      }
 
       if (Array.isArray(consents) && consents.length > 0) {
         const ip =
@@ -176,38 +171,110 @@ router.post("/signup", async (req, res) => {
       return user;
     });
 
-   const token = signToken({ sub: created.id, role: created.role });
-   // în /login și /signup, chiar înainte de res.cookie(...)
-const isSecure = req.secure || (req.headers["x-forwarded-proto"] === "https");
-res.cookie("token", token, {
-  httpOnly: true,
-  secure: isSecure,                 // DOAR pe HTTPS
-  sameSite: isSecure ? "None" : "Lax",
-  path: "/",
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-});
+    // Generează token verificare
+    const token = randomToken(32);
+    const tokenHash = sha256(token);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: created.id,
+        tokenHash,
+        expiresAt,
+        // purpose implicat 'verify_email'
+      },
+    });
 
+    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+     try {
+      await sendVerificationEmail({ to: email, link });
+    } catch (err) {
+      console.error("sendVerificationEmail failed:", err);
+    }
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[DEV verify link]", link);
+    }
 
     const responseJson = {
-      ok: true,
-      user: {
-        id: created.id,
-        email: created.email,
-        name: created.name,
-        role: created.role,
-      },
-      next: asVendor ? "/onboarding" : "/desktop",
+      status: "pending_verification",
+      next: `/verify-email?email=${encodeURIComponent(email)}`,
+      asVendorIntent: !!asVendor, // folosești în frontend (sessionStorage)
     };
-    if (idemKey) await idemSave(idemKey, responseJson);
 
-    return res.status(201).json(responseJson);
+    if (idemKey) await idemSave(idemKey, responseJson);
+    return res.status(200).json(responseJson);
   } catch (e) {
     if (e?.code === "P2002") {
       return res.status(409).json({ error: "email_deja_folosit" });
     }
     console.error("SIGNUP error:", e);
     return res.status(500).json({ error: "signup_failed" });
+  }
+});
+
+/** POST /api/auth/verify-email { token } */
+router.post("/verify-email", async (req, res) => {
+  try {
+    const token = String(req.body?.token || "");
+    if (!token) return res.status(400).json({ message: "Token lipsă." });
+
+    const tokenHash = sha256(token);
+    const rec = await prisma.emailVerificationToken.findUnique({ where: { tokenHash } });
+    if (!rec) return res.status(400).json({ message: "Link invalid." });
+    if (rec.usedAt) return res.status(400).json({ message: "Link deja folosit." });
+    if (rec.expiresAt.getTime() < Date.now()) return res.status(400).json({ message: "Link expirat." });
+
+    await prisma.$transaction([
+      prisma.emailVerificationToken.update({ where: { tokenHash }, data: { usedAt: new Date() } }),
+      prisma.user.update({ where: { id: rec.userId }, data: { emailVerifiedAt: new Date() } }),
+    ]);
+
+    // opțional: autentifică automat după verificare
+    const user = await prisma.user.findUnique({ where: { id: rec.userId } });
+    if (user) {
+      const token = signToken({ sub: user.id, role: user.role });
+      const isSecure = req.secure || (req.headers["x-forwarded-proto"] === "https");
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: isSecure ? "None" : "Lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("VERIFY error:", e);
+    return res.status(500).json({ message: "verify_failed" });
+  }
+});
+
+/** POST /api/auth/resend-verification { email } */
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email || "");
+    if (!email) return res.json({ ok: true });
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.json({ ok: true });
+    if (user.emailVerifiedAt) return res.json({ ok: true });
+
+    // Curăță tokenuri anterioare nefolosite
+    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id, usedAt: null } });
+
+    const token = randomToken(32);
+    const tokenHash = sha256(token);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash, expiresAt } });
+
+    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+    await sendVerificationEmail({ to: email, link });
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("RESEND error:", e);
+    return res.status(500).json({ ok: false });
   }
 });
 
@@ -227,6 +294,9 @@ router.post("/login", async (req, res) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: "wrong_password" });
 
+    // dacă vrei, poți bloca login-ul dacă emailul nu e verificat:
+    // if (!user.emailVerifiedAt) return res.status(403).json({ error: "email_not_verified" });
+
     const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
     if (email === ADMIN_EMAIL && user.role !== "ADMIN") {
       user = await prisma.user.update({
@@ -237,9 +307,8 @@ router.post("/login", async (req, res) => {
 
     const token = signToken({ sub: user.id, role: user.role });
 
-    // setare cookie corecta si in dev non-https
     const isSecure = req.secure || (req.headers["x-forwarded-proto"] === "https");
-    const maxAge = remember ? (30 * 24 * 60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000); // 30 zile vs 7 zile
+    const maxAge = remember ? (30 * 24 * 60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000);
 
     res.cookie("token", token, {
       httpOnly: true,
@@ -273,7 +342,6 @@ router.get("/me", authRequired, async (req, res) => {
       },
     });
     if (!me) {
-      // token-ul e valid dar userul nu mai există în DB -> invalidează sesiunea
       const isProd = process.env.NODE_ENV === "production";
       res.clearCookie("token", {
         httpOnly: true,
