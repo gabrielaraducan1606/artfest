@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/api";
 import styles from "./Login/Login.module.css";
 
@@ -10,23 +10,39 @@ export default function ResetPassword() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(()=>{
+  useEffect(() => {
     const url = new URL(window.location.href);
     const t = url.searchParams.get("token") || "";
     setToken(t);
   }, []);
 
+  const minLen = 6;
+  const lengthOk = pwd.length >= minLen;
+  const matchOk = pwd && pwd2 && pwd === pwd2;
+  const canSubmit = useMemo(() => !!token && lengthOk && matchOk && !loading, [token, lengthOk, matchOk, loading]);
+
   async function onSubmit(e) {
     e.preventDefault();
     setErr("");
-    if (pwd.length < 6) return setErr("Parola trebuie să aibă cel puțin 6 caractere.");
-    if (pwd !== pwd2) return setErr("Parolele nu se potrivesc.");
+
+    if (!lengthOk) return setErr(`Parola trebuie să aibă cel puțin ${minLen} caractere.`);
+    if (!matchOk) return setErr("Parolele nu se potrivesc.");
+
     setLoading(true);
     try {
-      await api("/api/auth/reset-password", { method: "POST", body: { token, newPassword: pwd } });
+      await api("/api/auth/reset-password", {
+        method: "POST",
+        body: { token, newPassword: pwd },
+      });
       setOk(true);
     } catch (e) {
-      setErr(e?.message || "Nu am putut reseta parola.");
+      const serverMsg =
+        e?.data?.message ||
+        (e?.data?.error === "same_as_current" && "Parola nouă nu poate fi identică cu parola curentă.") ||
+        (e?.data?.error === "password_reused" && "Nu poți reutiliza una dintre ultimele parole.") ||
+        e?.message ||
+        "Nu am putut reseta parola.";
+      setErr(serverMsg);
     } finally {
       setLoading(false);
     }
@@ -46,8 +62,12 @@ export default function ResetPassword() {
   return (
     <section className={styles.wrap}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Setează o parolă nouă</h1>
-      </header>
+  <h1 className={styles.title}>Setează o parolă nouă</h1>
+  <p className={styles.subtitle}>
+    Alege o parolă nouă, diferită de cea actuală și de parolele folosite anterior.
+  </p>
+</header>
+
 
       {ok ? (
         <div className={styles.card}>
@@ -62,28 +82,33 @@ export default function ResetPassword() {
               className={styles.input}
               type="password"
               value={pwd}
-              onChange={e=>setPwd(e.target.value)}
+              onChange={(e) => setPwd(e.target.value)}
               placeholder="••••••••"
-              minLength={6}
+              minLength={minLen}
               required
             />
+            {!lengthOk && pwd.length > 0 && <small>Minim {minLen} caractere.</small>}
           </div>
+
           <div className={styles.fieldGroup}>
             <label className={styles.label}>Confirmă parola</label>
             <input
               className={styles.input}
               type="password"
               value={pwd2}
-              onChange={e=>setPwd2(e.target.value)}
+              onChange={(e) => setPwd2(e.target.value)}
               placeholder="••••••••"
-              minLength={6}
+              minLength={minLen}
               required
             />
+            {pwd2.length > 0 && !matchOk && (
+              <div className={styles.error} role="alert">Parolele nu se potrivesc.</div>
+            )}
           </div>
 
           {err && <div className={styles.error} role="alert">{err}</div>}
 
-          <button className={styles.primaryBtn} disabled={loading}>
+          <button className={styles.primaryBtn} disabled={!canSubmit}>
             {loading ? "Se salvează…" : "Resetează parola"}
           </button>
         </form>

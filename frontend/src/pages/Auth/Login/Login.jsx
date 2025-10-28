@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useId } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { api } from "../../../lib/api";
 import Register from "../Register/Register";
@@ -57,6 +57,10 @@ export default function Login({
     } catch {""}
   }, [inModal]);
 
+  // ID-uri unice (evită duplicate cu alte formulare)
+  const emailId = useId();
+  const passwordId = useId();
+
   // state
   const [email, setEmail] = useState(() => {
     try { return localStorage.getItem("lastEmail") || ""; } catch { return ""; }
@@ -84,7 +88,6 @@ export default function Login({
   const loginAbortRef = useRef(null);
   const existsAbortRef = useRef(null);
 
-  const showTabs = !inModal;
   const normalizeEmail = (s = "") => s.trim().toLowerCase();
 
   // anti-typo hint & suggestion (dinamice)
@@ -135,13 +138,27 @@ export default function Login({
 
   function mapBackendError(e, existsFlag) {
     const code = e?.data?.error || e?.error || e?.message || "";
-    if (code === "user_not_found") return "Nu există niciun cont cu acest email. Vă rugăm să creați unul.";
-    if (code === "wrong_password")
+
+    if (code === "user_not_found") {
+      return "Nu există niciun cont cu acest e-mail. Creează un cont nou.";
+    }
+
+    if (code === "old_password_used") {
+      // mesaj clar pentru parolă veche
+      return "Această parolă a fost folosită anterior și a fost înlocuită. Te rugăm să folosești parola nouă sau să îți resetezi parola.";
+    }
+
+    if (code === "wrong_password") {
       return existsFlag === false
-        ? "Nu există niciun cont cu acest email. Vă rugăm să creați unul."
-        : "Parola este incorectă. Încearcă din nou sau resetează parola.";
-    if (code === "invalid_payload") return "Te rugăm să completezi emailul și parola.";
-    return e?.message || "Autentificarea a eșuat. Încearcă din nou.";
+        ? "Nu există niciun cont cu acest e-mail. Creează un cont nou."
+        : "Parola este incorectă. Încearcă din nou sau resetează-ți parola.";
+    }
+
+    if (code === "invalid_payload") {
+      return "Te rugăm să completezi e-mailul și parola.";
+    }
+
+    return e?.data?.message || e?.message || "Autentificarea a eșuat. Încearcă din nou.";
   }
 
   async function onSubmit(e) {
@@ -196,6 +213,7 @@ export default function Login({
         })();
         const msg = mapBackendError(e2, exists);
         setErr(msg);
+
         try {
           liveRef.current?.focus?.();
           pwRef.current?.focus();
@@ -249,7 +267,7 @@ export default function Login({
         </header>
       )}
 
-      {showTabs && (
+      {(!inModal) && (
         <div className={styles.tabBar} role="tablist" aria-label="Autentificare sau Înregistrare">
           <button
             type="button"
@@ -280,9 +298,9 @@ export default function Login({
           {offline && <div className={styles.offline} role="status">Ești offline — verifică rețeaua.</div>}
 
           <div className={styles.fieldGroup}>
-            <label htmlFor="email" className={styles.label}>Email</label>
+            <label htmlFor={emailId} className={styles.label}>Email</label>
             <input
-              id="email"
+              id={emailId}
               name="email"
               autoComplete="email"
               className={styles.input}
@@ -297,7 +315,7 @@ export default function Login({
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              aria-invalid={!!err && err.toLowerCase().includes("email")}
+              aria-invalid={!!err && err.toLowerCase().includes("e-mail")}
             />
             {(emailHint || emailSuggestion) && (
               <div className={styles.suggestionRow}>
@@ -312,11 +330,11 @@ export default function Login({
           </div>
 
           <div className={styles.fieldGroup}>
-            <label htmlFor="password" className={styles.label}>Parolă</label>
+            <label htmlFor={passwordId} className={styles.label}>Parolă</label>
 
             <div className={`${styles.inputGroup} ${showToggle ? styles.hasToggle : ""}`}>
               <input
-                id="password"
+                id={passwordId}
                 name="password"
                 autoComplete="current-password"
                 className={styles.input}
@@ -348,7 +366,7 @@ export default function Login({
                   onMouseDown={(e) => { e.preventDefault(); setPeekPw(true); }} // press&hold (mouse)
                   onMouseUp={() => setPeekPw(false)}
                   onMouseLeave={() => setPeekPw(false)}
-                  onTouchStart={() => { setPeekPw(true); try { pwRef.current?.focus({ preventScroll: true }); } catch {""} }} // press&hold (touch) fără preventDefault
+                  onTouchStart={() => { setPeekPw(true); try { pwRef.current?.focus({ preventScroll: true }); } catch {""} }} // press&hold (touch)
                   onTouchEnd={() => setPeekPw(false)}
                   onTouchCancel={() => setPeekPw(false)}
                   title="Click pentru toggle, ține apăsat pentru a previzualiza"
@@ -362,20 +380,24 @@ export default function Login({
           </div>
 
           <label className={styles.checkRow}>
-  <input
-    type="checkbox"
-    checked={remember}
-    onChange={(e) => setRemember(e.target.checked)}
-    aria-label="Ține-mă minte"
-  />
-  <span className={styles.checkLabel}>Ține-mă minte pe acest dispozitiv</span>
-</label>
-
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              aria-label="Ține-mă minte"
+            />
+            <span className={styles.checkLabel}>Ține-mă minte pe acest dispozitiv</span>
+          </label>
 
           {err && (
             <div className={styles.error} role="alert">
               {err}{" "}
-              {err?.toLowerCase?.().includes("creează cont") && (
+              {/* buton de resetare dacă parola e greșită sau veche */}
+              {(err.toLowerCase().includes("parola") || err.toLowerCase().includes("eșuat")) && (
+                <a className={styles.linkBtn} href="/reset-parola">Resetează parola</a>
+              )}
+              {/* shortcut către register când nu există cont */}
+              {err.toLowerCase().includes("creează un cont") && (
                 inModal && onSwitchToRegister
                   ? <button type="button" className={styles.linkBtn} onClick={onSwitchToRegister}>Creează cont</button>
                   : !inModal && <button type="button" className={styles.linkBtn} onClick={() => setTab("register")}>Creează cont</button>

@@ -1,9 +1,8 @@
-// server/routes/auth/forgotPassword.js
-import { PrismaClient } from "@prisma/client";
-import { addMinutes, generateRawToken, hashToken } from "../../utils/passwordReset.js";
-import { sendPasswordResetEmail } from "../../utils/mailer.js";
+import { prisma } from "../../src/db.js";
+import { addMinutes, generateRawToken, hashToken } from "../../src/utils/passwordReset.js";
+import { sendPasswordResetEmail } from "../../src/lib/mailer.js";
 
-const prisma = new PrismaClient();
+const APP_URL = (process.env.APP_URL || "http://localhost:5173").replace(/\/+$/, "");
 
 export default async function forgotPassword(req, res) {
   if (req.method !== "POST") return res.status(405).json({ message: "Method not allowed" });
@@ -13,10 +12,14 @@ export default async function forgotPassword(req, res) {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // răspunsul e același indiferent dacă user-ul există (evităm enumeration)
+    // dacă vrei să EXPUI că nu există cont, decomentează cele 3 linii de mai jos:
+    // if (!user) {
+    //   return res.status(404).json({ error: "user_not_found", message: "Nu există cont cu acest email." });
+    // }
+
+    // altfel, răspuns generic (fără enumerare)
     if (!user) return res.json({ ok: true });
 
-    // invalidăm token-urile vechi nefolosite (opțional)
     await prisma.passwordResetToken.deleteMany({
       where: { userId: user.id, usedAt: null, expiresAt: { lt: new Date() } },
     });
@@ -27,21 +30,16 @@ export default async function forgotPassword(req, res) {
     const expiresAt = addMinutes(new Date(), ttl);
 
     await prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash,
-        expiresAt,
-      },
+      data: { userId: user.id, tokenHash, expiresAt },
     });
 
-    const link = `${process.env.APP_URL}/reset-parola?token=${raw}`;
+    const link = `${APP_URL}/reset-parola?token=${raw}`;
 
-    // trimite email (dacă pică, nu aruncăm detalii către client)
     try { await sendPasswordResetEmail({ to: email, link }); } catch {}
 
     return res.json({ ok: true });
   } catch (e) {
-    console.error(e);
+    console.error("forgotPassword error:", e);
     return res.status(500).json({ message: "Eroare server" });
   }
 }

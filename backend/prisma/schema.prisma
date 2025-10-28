@@ -68,6 +68,7 @@ model User {
 
   passwordResetTokens PasswordResetToken[]
   Favorite            Favorite[]
+  passwordHistories   PasswordHistory[]
 
   // inverse
   reviews     Review[]
@@ -88,23 +89,32 @@ model PasswordResetToken {
   @@index([userId, expiresAt])
 }
 
-model EmailVerificationToken {
-  id        String   @id @default(uuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
+model PasswordHistory {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  passwordHash String
+  createdAt    DateTime @default(now())
 
-  tokenHash String   @unique
-  purpose   String   @default("verify_email")
-  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+}
+
+model EmailVerificationToken {
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  tokenHash String    @unique
+  purpose   String    @default("verify_email")
+  createdAt DateTime  @default(now())
   expiresAt DateTime
   usedAt    DateTime?
 
-  intent    VerifyIntent @default(USER)
+  intent VerifyIntent @default(USER)
 
   @@index([userId, expiresAt])
   @@index([purpose])
 }
-
 
 /**
  * ==================== Vendor & Billing ====================

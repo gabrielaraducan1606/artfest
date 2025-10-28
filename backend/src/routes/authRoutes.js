@@ -1,3 +1,4 @@
+// src/routes/authRoutes.js
 import { Router } from "express";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
@@ -5,6 +6,10 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { sendVerificationEmail } from "../lib/mailer.js";
 import { signToken, authRequired } from "../api/auth.js";
+
+// 👉 ajustează căile dacă fișierele sunt în altă parte
+import forgotPassword from "./forgot-passwordRoutes.js";
+import resetPassword from "./resetPassword.js";
 
 const router = Router();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
@@ -54,9 +59,11 @@ const SignupSchema = z.object({
   consents: z.array(ConsentSchema).optional().default([]),
 });
 
+// 👉 includem remember ca optional, ca să nu fie aruncat de Zod
 const LoginSchema = z.object({
   email: z.string().email().transform(normalizeEmail),
   password: z.string().min(1),
+  remember: z.boolean().optional(),
 });
 
 /* =================================================================== */
@@ -181,7 +188,6 @@ router.post("/signup", async (req, res) => {
       },
     });
 
-    // include intent în link, ca fallback
     const link = `${APP_URL}/verify-email?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}&intent=${asVendor ? "vendor" : ""}`;
 
     try {
@@ -259,7 +265,7 @@ router.post("/resend-verification", async (req, res) => {
     if (!user) return res.json({ ok: true });
     if (user.emailVerifiedAt) return res.json({ ok: true });
 
-    // recuperează ultima intenție a userului (dacă există tokenuri vechi)
+    // recuperează ultima intenție
     const last = await prisma.emailVerificationToken.findFirst({
       where: { userId: user.id },
       orderBy: { expiresAt: "desc" },
@@ -284,7 +290,7 @@ router.post("/resend-verification", async (req, res) => {
   }
 });
 
-/** POST /api/auth/login */
+/** POST /api/auth/login — detectează parolă veche */
 router.post("/login", async (req, res) => {
   try {
     const parsed = LoginSchema.safeParse(req.body || {});
@@ -298,9 +304,29 @@ router.post("/login", async (req, res) => {
     if (!user) return res.status(404).json({ error: "user_not_found" });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) return res.status(401).json({ error: "wrong_password" });
+    if (!ok) {
+      const limit = Number(process.env.PASSWORD_HISTORY_LIMIT || 5);
+      if (limit > 0) {
+        const hist = await prisma.passwordHistory.findMany({
+          where: { userId: user.id },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          select: { passwordHash: true },
+        });
+        for (const h of hist) {
+          const matchesOld = await bcrypt.compare(password, h.passwordHash);
+          if (matchesOld) {
+            return res.status(401).json({
+              error: "old_password_used",
+              message:
+                "Această parolă a fost folosită anterior și a fost înlocuită. Folosește parola nouă sau resetează-ți parola.",
+            });
+          }
+        }
+      }
+      return res.status(401).json({ error: "wrong_password" });
+    }
 
-    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").toLowerCase().trim();
     if (email === ADMIN_EMAIL && user.role !== "ADMIN") {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -309,9 +335,8 @@ router.post("/login", async (req, res) => {
     }
 
     const jwt = signToken({ sub: user.id, role: user.role });
-
     const isSecure = !!(req.secure || (req.headers["x-forwarded-proto"] === "https"));
-    const maxAge = remember ? (30 * 24 * 60 * 60 * 1000) : (7 * 24 * 60 * 60 * 1000);
+    const maxAge = (remember ? 30 : 7) * 24 * 60 * 60 * 1000;
 
     res.cookie("token", jwt, {
       httpOnly: true,
@@ -327,7 +352,7 @@ router.post("/login", async (req, res) => {
     });
   } catch (e) {
     console.error("LOGIN error:", e);
-    res.status(500).json({ error: "login_failed" });
+    return res.status(500).json({ error: "login_failed" });
   }
 });
 
@@ -357,7 +382,7 @@ router.get("/me", authRequired, async (req, res) => {
     res.json({ user: me });
   } catch (e) {
     console.error("ME route error:", e);
-    res.status(500).json({ error: "me_failed" });
+    return res.status(500).json({ error: "me_failed" });
   }
 });
 
@@ -368,7 +393,7 @@ router.get("/exists", async (req, res) => {
     if (!raw) return res.json({ exists: false });
     const u = await prisma.user.findUnique({ where: { email: raw }, select: { id: true } });
     res.json({ exists: !!u });
-  } catch (e) {
+  } catch {
     res.json({ exists: false });
   }
 });
@@ -384,5 +409,9 @@ router.post("/logout", (_req, res) => {
   });
   res.json({ ok: true });
 });
+
+/** Montăm rutele de resetare/uitare parolă */
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 export default router;

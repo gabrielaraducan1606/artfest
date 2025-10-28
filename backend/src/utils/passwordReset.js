@@ -1,12 +1,10 @@
 import crypto from "crypto";
 
 export function generateRawToken() {
-  // token random, URL-safe
-  return crypto.randomBytes(32).toString("hex");
+  return crypto.randomBytes(32).toString("hex"); // 64 hex chars
 }
 
 export function hashToken(raw) {
-  // ca să nu stocăm tokenul în clar
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
