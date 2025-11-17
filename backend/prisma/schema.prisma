@@ -30,6 +30,10 @@ enum EventType {
   PAGEVIEW
   CTA_CLICK
   MESSAGE
+
+  VIEW_START
+  VIEW_PING
+  VIEW_END
 }
 
 enum VerifyIntent {
@@ -45,6 +49,8 @@ model User {
   id           String @id @default(uuid())
   email        String @unique
   passwordHash String
+
+  tokenVersion Int @default(0)
 
   // Nume normalizat
   firstName String?
@@ -71,10 +77,19 @@ model User {
   passwordHistories   PasswordHistory[]
 
   // inverse
-  reviews     Review[]
-  comments    Comment[]
-  cartItems   CartItem[]
-  UserConsent UserConsent[]
+  reviews       Review[]
+  comments      Comment[]
+  cartItems     CartItem[]
+  UserConsent   UserConsent[]
+  ReviewHelpful ReviewHelpful[]
+  ReviewReport  ReviewReport[]
+
+  supportTickets  SupportTicket[] // requester -> tickets deschise de user
+  supportMessages SupportMessage[] // author   -> mesaje trimise de user
+  supportReads    SupportRead[] // mark-as-read pe tichete
+  MessageThread   MessageThread[]
+  Message         Message[]
+  Notification    Notification[]
 }
 
 model PasswordResetToken {
@@ -153,24 +168,44 @@ model Vendor {
   events           Event[]
   searches         Search[]
   VendorAcceptance VendorAcceptance[]
+  ReviewReply      ReviewReply[]
+
+  // === Support back-relations ===
+  supportTickets SupportTicket[] // tichete asociate vendorului (opțional)
+  MessageThread  MessageThread[]
+  Notification   Notification[]
 }
 
 model VendorBilling {
-  id String @id @default(uuid())
-
+  id       String @id @default(uuid())
   vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vendorId String @unique // 1–1 cu Vendor
+  vendorId String @unique
 
-  // Câmpuri de facturare (nepublice)
-  companyName   String? @db.VarChar(256)
-  cui           String? @db.VarChar(10)
-  regCom        String? @db.VarChar(32)
-  address       String? @db.VarChar(512)
-  iban          String? @db.VarChar(34)
-  bank          String? @db.VarChar(128)
-  email         String? @db.VarChar(254)
-  contactPerson String? @db.VarChar(128)
-  phone         String? @db.VarChar(32)
+  legalType     String
+  vendorName    String
+  companyName   String
+  cui           String
+  regCom        String
+  address       String
+  iban          String
+  bank          String
+  email         String
+  contactPerson String
+  phone         String
+
+  tvaActive     Boolean?
+  tvaVerifiedAt DateTime?
+  tvaSource     String?
+  anafName      String?
+  anafAddress   String?
+
+  tvaRegStart DateTime? // data_inceput_ScpTva
+  tvaRegEnd   DateTime? // data_anul_imp_ScpTva
+  inactiv     Boolean?
+  inactivFrom DateTime?
+  insolvent   Boolean?
+  splitTva    Boolean?
+  anafPayload Json? // payload-ul brut ANAF (debug / audit)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -247,7 +282,10 @@ model ServiceProfile {
   about       String?
   city        String?
 
-  // opțional
+  // scurtă descriere sub nume (nou)
+  shortDescription String? @db.VarChar(160)
+
+  // păstrezi și tagline dacă vrei (opțional)
   tagline String?
 
   createdAt DateTime @default(now())
@@ -257,19 +295,39 @@ model ServiceProfile {
 /**
  * ==================== Subscriptions ====================
  */
+// === Enums noi / actualizate ===
+enum PlanInterval {
+  month
+  year
+}
 
+enum SubscriptionStatus {
+  pending
+  active
+  canceled
+  canceled_at_period_end
+  past_due
+  unpaid
+  expired
+}
+
+// === Subscriptions ===
 model SubscriptionPlan {
-  id         String   @id @default(uuid())
-  code       String   @unique
+  id         String       @id @default(uuid())
+  code       String       @unique
   name       String
   priceCents Int
-  currency   String   @default("RON")
-  interval   String   @default("month")
+  currency   String       @default("RON")
+  interval   PlanInterval @default(month)
   features   String[]
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
+  isActive   Boolean      @default(true)
+  popular    Boolean      @default(false) // opțional, util pentru UI
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
 
   subscriptions VendorSubscription[]
+
+  @@index([isActive, priceCents])
 }
 
 model VendorSubscription {
@@ -278,13 +336,25 @@ model VendorSubscription {
   vendorId String
   plan     SubscriptionPlan @relation(fields: [planId], references: [id])
   planId   String
-  status   String           @default("active")
-  startAt  DateTime         @default(now())
-  endAt    DateTime?
-  extRef   String?
-  meta     Json?
 
-  @@index([vendorId, status])
+  status  SubscriptionStatus @default(pending)
+  startAt DateTime           @default(now())
+  endAt   DateTime // obligatoriu: codul tău depinde de el
+  extRef  String? // idempotency key sau id subs de la provider
+  meta    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, status, endAt]) // folosit la requireActiveSubscription
+  @@index([extRef])
+}
+
+enum ProductAvailability {
+  READY          // gata de livrare
+  MADE_TO_ORDER  // la comandă (execuție)
+  PREORDER       // precomandă
+  SOLD_OUT       // epuizat, dar păstrat public
 }
 
 model Product {
@@ -301,20 +371,42 @@ model Product {
 
   // opțional
   category String? @db.VarChar(64)
+  color    String? @db.VarChar(32) // culoare principală
+
+  // === handmade / disponibilitate ===
+  availability         ProductAvailability @default(READY)
+  leadTimeDays         Int?                              // pentru MADE_TO_ORDER
+  readyQty             Int?                @default(0)   // bucăți gata de livrare
+  acceptsCustom        Boolean             @default(false)
+  nextShipDate         DateTime?                        // pentru PREORDER
+  limitedEditionOf     Int?
+  limitedEditionNumber Int?
+  isHidden             Boolean             @default(false)
+
+  // === detalii structurate pentru descriere mai bogată ===
+  materialMain      String?   @db.VarChar(120)  // ex: lemn de pin, ceramică
+  technique         String?   @db.VarChar(160)  // ex: pictat manual
+  styleTags         String[]                     // ex: ["rustic","minimalist"]
+  occasionTags      String[]                     // ex: ["cadou casă nouă"]
+  dimensions        String?   @db.VarChar(120)   // ex: 20 x 30 cm
+  careInstructions  String?                      // text liber
+  specialNotes      String?                      // ce îl face special
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   Favorite Favorite[]
 
-  // inverse
-  reviews   Review[]
-  comments  Comment[]
-  cartItems CartItem[]
+  reviews            Review[]
+  comments           Comment[]
+  cartItems          CartItem[]
+  ProductRatingStats ProductRatingStats[]
 
   @@index([serviceId, isActive, createdAt])
   @@index([category])
+  @@index([isHidden, isActive, availability, createdAt])
 }
+
 
 model Favorite {
   userId    String
@@ -332,21 +424,79 @@ model Favorite {
 /**
  * ==================== Reviews / Comments / Cart ====================
  */
-
 model Review {
-  id        String   @id @default(uuid())
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id        String       @id @default(uuid())
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
   productId String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
   rating    Int
   comment   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  verified  Boolean      @default(false)
+  status    ReviewStatus @default(APPROVED)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  helpful ReviewHelpful[]
+  reply   ReviewReply?
+  reports ReviewReport[]
 
   @@unique([productId, userId], name: "productId_userId")
-  @@index([productId])
+  @@index([productId, status])
   @@index([userId])
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ReviewHelpful {
+  id        String   @id @default(cuid())
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reviewId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([reviewId, userId])
+  @@index([userId, createdAt])
+}
+
+model ReviewReply {
+  id        String   @id @default(cuid())
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reviewId  String   @unique
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId  String
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ReviewReport {
+  id         String   @id @default(cuid())
+  review     Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  reviewId   String
+  reporter   User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reporterId String
+  reason     String
+  createdAt  DateTime @default(now())
+
+  @@index([reviewId, createdAt])
+}
+
+model ProductRatingStats {
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId String   @id
+  avg       Decimal  @db.Decimal(4, 2) // ex: 4.35
+  c1        Int      @default(0)
+  c2        Int      @default(0)
+  c3        Int      @default(0)
+  c4        Int      @default(0)
+  c5        Int      @default(0)
+  updatedAt DateTime @updatedAt
 }
 
 model Comment {
@@ -356,6 +506,7 @@ model Comment {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
   text      String
+  parentId  String? // thread scurt (opțional)
   createdAt DateTime @default(now())
 
   @@index([productId])
@@ -400,33 +551,33 @@ model Visitor {
 }
 
 model Event {
-  id       String @id @default(cuid())
-  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  vendorId String
-
+  id        String    @id @default(cuid())
+  vendorId  String
   type      EventType
+  createdAt DateTime  @default(now())
   pageUrl   String?
   ctaLabel  String?
   referrer  String?
   sessionId String?
   userAgent String?
-  createdAt DateTime  @default(now())
+  viewId    String?
+  Vendor    Vendor    @relation(fields: [vendorId], references: [id])
 
   @@index([vendorId, createdAt])
   @@index([vendorId, type, createdAt])
-  @@index([vendorId, pageUrl])
+  @@index([vendorId, pageUrl, createdAt]) // 👈 util pt top-pages & avg time
+  @@index([vendorId, sessionId, viewId, createdAt])
 }
 
 model Search {
   id        String   @id @default(cuid())
-  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   vendorId  String
   query     String
   hits      Int      @default(1)
   createdAt DateTime @default(now())
+  Vendor    Vendor   @relation(fields: [vendorId], references: [id])
 
   @@index([vendorId, createdAt])
-  @@index([vendorId, query])
 }
 
 enum ConsentDoc {
@@ -455,6 +606,23 @@ enum VendorDoc {
   RETURNS_POLICY_ACK
 }
 
+// --- NOU: tabel cu versiunile publicate ale documentelor legale ---
+model VendorPolicy {
+  id          String    @id @default(cuid())
+  document    VendorDoc
+  title       String
+  url         String
+  version     String // ex: "3" sau "3.1"
+  checksum    String? // ex: sha256 pdf/html
+  isRequired  Boolean   @default(true)
+  isActive    Boolean   @default(true)
+  publishedAt DateTime  @default(now())
+
+  @@unique([document, version])
+  @@index([document, isActive])
+}
+
+// --- UPDATE (opțional, ca să păstrăm istoric de acceptări) ---
 model VendorAcceptance {
   id         String    @id @default(cuid())
   vendor     Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
@@ -464,10 +632,11 @@ model VendorAcceptance {
   checksum   String?
   acceptedAt DateTime  @default(now())
 
-  @@unique([vendorId, document], name: "vendorId_document") // 👈 folosit la upsert
+  // vechiul index unic era: @@unique([vendorId, document], name: "vendorId_document")
+  // îl înlocuim cu:
+  @@unique([vendorId, document, version], name: "vendorId_document_version")
+  @@index([vendorId, document, acceptedAt])
 }
-
-// prisma/schema.prisma
 
 enum OrderStatus {
   PENDING
@@ -482,6 +651,9 @@ enum ShipmentStatus {
   IN_TRANSIT
   DELIVERED
   RETURNED
+  PREPARING // nou
+  READY_FOR_PICKUP // nou
+  PICKUP_SCHEDULED // nou
 }
 
 enum PaymentMethod {
@@ -513,23 +685,44 @@ model Order {
 }
 
 model Shipment {
-  id        String         @id @default(cuid())
-  orderId   String
-  vendorId  String
-  method    ShippingMethod @default(COURIER)
-  lockerId  String?
-  price     Decimal        @default(0) @db.Decimal(10, 2)
-  status    ShipmentStatus @default(PENDING)
-  awb       String?
-  labelUrl  String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id       String         @id @default(cuid())
+  orderId  String
+  vendorId String
+  method   ShippingMethod @default(COURIER)
+  lockerId String?
+  price    Decimal        @default(0) @db.Decimal(10, 2)
+  status   ShipmentStatus @default(PREPARING) // nou: începem cu PREPARING
+
+  // curier
+  courierProvider String? // ex: "Sameday", "FanCourier"
+  courierService  String? // ex: "standard24h"
+  awb             String?
+  labelUrl        String?
+  trackingUrl     String?
+
+  // pick-up
+  pickupDate        DateTime?
+  pickupSlotStart   DateTime?
+  pickupSlotEnd     DateTime?
+  pickupScheduledAt DateTime?
+
+  // consimțăminte & detalii colet
+  consents Json? // stocăm ce a bifat vendorul
+  parcels  Int? // nr colete
+  weightKg Decimal? @db.Decimal(7, 2)
+  lengthCm Int?
+  widthCm  Int?
+  heightCm Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   order Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items ShipmentItem[]
 
   @@index([orderId])
   @@index([vendorId])
+  @@index([status, pickupDate])
 }
 
 model ShipmentItem {
@@ -544,4 +737,223 @@ model ShipmentItem {
 
   @@index([shipmentId])
   @@index([productId])
+}
+
+// ==================== Support / Tickets ====================
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model SupportTicket {
+  id          String @id @default(cuid())
+  // cine a deschis tichetul (obligatoriu)
+  requester   User   @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  requesterId String
+
+  // opțional: pentru tichetele venite de la furnizori (vendor dashboard)
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId String?
+
+  subject  String
+  category String         @default("general")
+  status   TicketStatus   @default(OPEN)
+  priority TicketPriority @default(MEDIUM)
+
+  // pentru sortare rapidă în listă
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  messages    SupportMessage[]
+  attachments SupportAttachment[]
+  reads       SupportRead[]
+
+  @@index([requesterId, status, updatedAt])
+  @@index([vendorId, status, updatedAt])
+  @@index([lastMessageAt])
+}
+
+model SupportMessage {
+  id       String        @id @default(cuid())
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId String
+
+  // "me" vs "them" în UI: aici păstrăm autorul
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorId String?
+  // pentru mesaje de sistem (ex: auto-replies)
+  system   Boolean @default(false)
+
+  body      String
+  createdAt DateTime @default(now())
+
+  // === Support back-relations ===
+  attachments SupportAttachment[] // atașamente legate de mesaj (opțional)
+
+  @@index([ticketId, createdAt])
+}
+
+model SupportAttachment {
+  id        String          @id @default(cuid())
+  ticket    SupportTicket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  String
+  message   SupportMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  messageId String?
+  filename  String
+  url       String
+  mime      String?
+  size      Int?
+  createdAt DateTime        @default(now())
+
+  @@index([ticketId, createdAt])
+}
+
+model SupportRead {
+  // one row / (ticket, user) – ultima citire
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId   String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  lastReadAt DateTime      @default(now())
+
+  @@id([ticketId, userId])
+  @@index([userId, lastReadAt])
+}
+
+// FAQ simplu – populăm cu seed
+model SupportFaq {
+  id        String   @id @default(cuid())
+  q         String
+  a         String
+  tags      String[]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([isActive, createdAt])
+}
+
+/// ==================== Inbox / Messaging ====================
+
+enum MessageAuthorType {
+  VENDOR
+  VISITOR // guest / lead anonim (nume/email/telefon)
+  USER // user logat (opțional)
+}
+
+model MessageThread {
+  id String @id @default(cuid())
+
+  // de cine aparține inbox-ul (artizanul)
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId String
+
+  // dacă vizitatorul e user logat, legăm la User
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String?
+
+  // fallback „guest contact” (pentru leaduri neînregistrate)
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+
+  // status thread
+  archived Boolean @default(false)
+
+  // pentru listă
+  lastMsg String?
+  lastAt  DateTime? // când a venit ultimul mesaj (din oricare parte)
+
+  // citiri (pt calc. necitite)
+  vendorLastReadAt  DateTime?
+  visitorLastReadAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+
+  @@index([vendorId, archived, lastAt])
+  @@index([vendorId, lastAt])
+  @@index([userId])
+  @@index([contactEmail])
+  @@index([contactPhone])
+}
+
+model Message {
+  id       String        @id @default(cuid())
+  thread   MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  threadId String
+
+  authorType   MessageAuthorType
+  // dacă autorul e USER, îl putem lega (opțional)
+  authorUser   User?             @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorUserId String?
+
+  authorName String? // pentru VISITOR (guest)
+  body       String
+  createdAt  DateTime @default(now())
+
+  attachments MessageAttachment[]
+
+  @@index([threadId, createdAt])
+}
+
+model MessageAttachment {
+  id        String   @id @default(cuid())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId String
+  filename  String
+  url       String
+  mime      String?
+  size      Int?
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+}
+
+// ==================== Notifications ====================
+
+enum NotificationType {
+  message
+  order
+  billing
+  system
+  email
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  // cui îi aparține notificarea (user din dashboard; pentru vendor dashboard userul este vendor.user)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String?
+
+  // opțional, pentru claritate: legăm și vendor-ul
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId String?
+
+  type  NotificationType @default(system)
+  title String
+  body  String?
+  link  String? // ex: /dashboard/messages/123
+
+  readAt   DateTime?
+  archived Boolean   @default(false)
+
+  meta Json? // extra info (orderId, ticketId etc.)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt, archived])
+  @@index([vendorId, createdAt])
 }

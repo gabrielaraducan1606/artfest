@@ -1,10 +1,13 @@
+/* ./src/pages/Vendors/Visitors/Visitors.module.css */
 @import "../../../styles/variables.css";
 
 /* ===== Page container ===== */
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 24px 16px 40px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== Toolbar (titlu + filtre) ===== */
@@ -12,6 +15,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -24,23 +28,78 @@
   margin: 0;
 }
 
+/* grupul de butoane din dreapta */
+.toolbar > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ===== Buttons ===== */
-.btnPrimary {
+.btnPrimary,
+.btnGhost {
   padding: 8px 10px;
   border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.08s ease;
+}
+
+.btnPrimary {
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
   color: #fff;
   font-weight: 600;
-  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
+
 .btnGhost {
-  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  background: rgba(249, 250, 251, 0.5);
+  color: var(--color-text);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #0f766e;
+  border-color: #0f766e;
+  transform: translateY(-1px);
+}
+
+.btnGhost:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.btnPrimary:disabled,
+.btnGhost:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+/* ===== Date input (în dropdown) ===== */
+.dateInput {
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
-  background: transparent;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: #f9fafb;
   color: var(--color-text);
-  cursor: pointer;
+}
+
+.dateInput:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px
+    color-mix(in oklab, var(--color-primary) 40%, transparent);
 }
 
 /* ===== Cards / Sections ===== */
@@ -49,7 +108,11 @@
   border: 1px solid var(--color-border);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.section {
+  margin-top: 16px;
 }
 
 .sectionHead {
@@ -58,6 +121,7 @@
   justify-content: space-between;
   margin-bottom: 12px;
 }
+
 .sectionTitle {
   font-size: 18px;
   margin: 0;
@@ -71,12 +135,15 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+  margin-bottom: 16px;
 }
 
 /* ===== Small helpers ===== */
 .muted {
   color: #6b7280;
+  font-size: 13px;
 }
+
 .iconBox {
   width: 44px;
   height: 44px;
@@ -92,42 +159,126 @@
   overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: 12px;
+  background: #fff;
 }
+
 .table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  min-width: 100%;
 }
+
 .th {
   padding: 10px;
   font-size: 12px;
+  font-weight: 600;
   color: #6b7280;
   text-align: right;
   border-bottom: 1px solid var(--color-border);
+  background: #f9fafb;
+  white-space: nowrap;
 }
+
 .th:first-child {
   text-align: left;
 }
+
 .td {
   padding: 10px;
+  font-size: 13px;
   text-align: right;
   border-bottom: 1px solid #f3f4f6;
 }
+
 .td:first-child {
   text-align: left;
+}
+
+/* ultima linie fără bordură jos */
+.table tr:last-child .td {
+  border-bottom-color: transparent;
 }
 
 /* ===== Charts ===== */
 .chartBox {
   width: 100%;
-  height: 300px;
+  height: 320px;
+}
+
+/* ===== Grid 2-col pentru secțiuni ===== */
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
 }
 
 /* ===== Responsive ===== */
 @media (max-width: 1024px) {
-  .kpiRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chartBox {
+    height: 280px;
+  }
 }
+
+@media (max-width: 768px) {
+  .container {
+    padding: 12px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .toolbar > div {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  .sectionTitle {
+    font-size: 16px;
+  }
+
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 600px) {
-  .toolbar { flex-direction: column; gap: 10px; align-items: flex-start; }
-  .kpiRow { grid-template-columns: 1fr; }
+  .kpiRow {
+    grid-template-columns: 1fr;
+  }
+
+  .chartBox {
+    height: 260px;
+  }
+
+  .tableWrap {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .btnPrimary,
+  .btnGhost {
+    padding-inline: 8px;
+  }
+}
+
+@media (max-width: 400px) {
+  .title {
+    font-size: 18px;
+  }
+
+  .toolbar > div {
+    gap: 6px;
+  }
 }

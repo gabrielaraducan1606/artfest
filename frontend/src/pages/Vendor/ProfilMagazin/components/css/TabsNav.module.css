@@ -1,0 +1,262 @@
+@import "../../../../../styles/variables.css";
+
+/* ===== Tabs de secțiune (ancore) – inspirat din Facebook ===== */
+
+/* folosim --appbar-h și --tabs-h din variables.css ca să aliniem cu Navbar-ul */
+
+:root {
+  /* fallback, în caz că nu vin din variables.css (sau în storybook / izolat) */
+  --appbar-h: 64px;
+  --tabs-h: 44px;
+  
+}
+
+/* bara de tab-uri
+   - inițial: în flow normal
+   - când .isStuck: devine FIX sub navbar (vezi .tabsWrap.isStuck mai jos)
+*/
+.tabsWrap {
+  position: relative;
+  z-index: 7;
+  margin: auto;
+  max-width: min(1180px, 70vw);
+  border: none;
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+}
+
+/* când sentinel-ul iese din viewport, React pune .isStuck => devine FIX sub navbar */
+.tabsWrap.isStuck {
+  position: fixed;
+  top: var(--appbar-h); /* exact sub Navbar (care e fixed top:0, height: var(--appbar-h)) */
+  left: 0;
+  right: 0;
+  z-index: 900;         /* sub navbar (1000), peste conținut */
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* listă orizontală */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: min(1080px, 94vw);
+  margin: 0 auto;
+  padding: 4px 8px;
+  height: var(--tabs-h);
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+
+  /* edge fade controlat din JS prin --edge-fade (fallback 24px) */
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black var(--edge-fade, 24px),
+    black calc(100% - var(--edge-fade, 24px)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black var(--edge-fade, 24px),
+    black calc(100% - var(--edge-fade, 24px)),
+    transparent 100%
+  );
+}
+
+.tabs::-webkit-scrollbar { display: none; }
+
+/* buton de tab */
+.tabBtn {
+  appearance: none;
+  position: relative;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-muted);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-weight: 600;
+  font-size: 0.85rem; /* mai mic pe desktop */
+  white-space: nowrap;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease,
+    box-shadow 0.15s ease;
+}
+
+/* hover dinamic în funcție de scroll (var(--hover-pct) vine din JS; fallback 8%) */
+.tabBtn:hover {
+  background: color-mix(in oklab, var(--color-primary) var(--hover-pct, 8%), transparent);
+}
+
+.tabBtn:active { transform: translateY(1px); }
+.tabBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+/* tab activ */
+.tabBtn[aria-current="page"] {
+  background: color-mix(in oklab, var(--surface), black 2.5%);
+  color: color-mix(in oklab, var(--color-text), var(--color-primary) 10%);
+  border-color: color-mix(in oklab, var(--color-border), black 6%);
+}
+
+/* underline-ul tabului activ se re-centrează subtil după progresul de scroll */
+.tabBtn[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  height: 2px;
+  border-radius: 999px;
+
+  left: calc(16% + 6% * var(--scroll-x, 0));
+  right: calc(16% + 6% * (1 - var(--scroll-x, 0)));
+
+  background: color-mix(in oklab, var(--color-primary), var(--color-hover) 60%);
+}
+
+/* mini-săgeți ca la Facebook */
+.navBtn {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  inline-size: 14px;
+  block-size: 14px;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  color: color-mix(in oklab, var(--color-text), var(--surface) 60%);
+  transition: opacity 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+
+.navBtn.show { opacity: 0.6; }
+
+.navBtn:hover {
+  opacity: 0.9;
+  color: var(--color-text);
+  transform: scale(1.05);
+}
+
+.left { left: 4px; }
+.right { right: 4px; }
+
+/* offset pentru ancore (secțiunile din ProfilMagazin.jsx) */
+.sectionAnchorPad {
+  scroll-margin-top: calc(var(--appbar-h) + var(--tabs-h) + 12px);
+}
+
+/* ===== Compactare progresivă pe mobil ===== */
+
+/* < 640px: ușor mai compact */
+@media (max-width: 640px) {
+  :root { --tabs-h: 38px; }
+
+  .tabs {
+    gap: 4px;
+    padding: 4px 6px;
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 18px,
+      black calc(100% - 18px),
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 18px,
+      black calc(100% - 18px),
+      transparent 100%
+    );
+  }
+
+  .tabBtn {
+    padding: 4px 8px;
+    font-size: 0.82rem;
+  }
+
+  .tabBtn[aria-current="page"]::after {
+    bottom: -4px;
+    height: 2px;
+  }
+
+  .navBtn { inline-size: 12px; block-size: 12px; opacity: 0.5; }
+}
+
+/* < 480px: foarte compact */
+@media (max-width: 480px) {
+  :root { --tabs-h: 34px; }
+
+  .tabs {
+    gap: 3px;
+    padding: 3px 4px;
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 14px,
+      black calc(100% - 14px),
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 14px,
+      black calc(100% - 14px),
+      transparent 100%
+    );
+  }
+
+  .tabBtn {
+    padding: 3px 7px;
+    font-size: 0.8rem;
+  }
+
+  .tabBtn[aria-current="page"]::after {
+    bottom: -3px;
+    height: 1.5px;
+  }
+
+  .navBtn { inline-size: 10px; block-size: 10px; opacity: 0.4; }
+}
+
+/* < 360px: ultra-compact */
+@media (max-width: 360px) {
+  :root { --tabs-h: 32px; }
+
+  .tabs {
+    gap: 2px;
+    padding: 2px 3px;
+  }
+
+  .tabBtn {
+    padding: 3px 6px;
+    font-size: 0.76rem;
+  }
+
+  .tabBtn[aria-current="page"]::after {
+    bottom: -2px;
+    height: 1.5px;
+  }
+}
+
+/* ≥1440px – aerisire subtilă */
+@media (min-width: 1440px) {
+  .tabs {
+    gap: 6px;
+    padding: 5px 10px;
+  }
+
+  .tabBtn {
+    padding: 5px 11px;
+    font-size: 0.9rem;
+  }
+}

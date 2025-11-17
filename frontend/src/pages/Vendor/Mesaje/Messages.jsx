@@ -37,50 +37,6 @@ function initialsOf(name = "U") {
     .toUpperCase();
 }
 
-/* ========= Demo fallback ========= */
-function demoThreads() {
-  return [
-    {
-      id: "t1",
-      name: "Andreea Marinescu",
-      phone: "07xx xxx xxx",
-      lastMsg: "Mulțumesc pentru răspuns!",
-      lastAt: new Date(Date.now() - 2 * 3600000).toISOString(),
-      unreadCount: 0,
-    },
-    {
-      id: "t2",
-      name: "Mihai Pop",
-      phone: "07xx xxx xxx",
-      lastMsg: "Care e disponibilitatea în iunie?",
-      lastAt: new Date(Date.now() - 6 * 3600000).toISOString(),
-      unreadCount: 2,
-    },
-    {
-      id: "t3",
-      name: "Cristina B",
-      phone: null,
-      lastMsg: "Vă trimit detaliile locației.",
-      lastAt: new Date(Date.now() - 86400000).toISOString(),
-      unreadCount: 0,
-    },
-  ];
-}
-function demoMessages(threadId) {
-  const map = {
-    t1: [
-      { id: "m1", threadId, from: "them", authorName: "Andreea", body: "Bună! Am primit oferta.", createdAt: new Date(Date.now() - 3 * 3600000).toISOString() },
-      { id: "m2", threadId, from: "me", body: "Super! Revin cu calendarul.", createdAt: new Date(Date.now() - 2.8 * 3600000).toISOString() },
-    ],
-    t2: [
-      { id: "m3", threadId, from: "them", authorName: "Mihai", body: "Care e disponibilitatea în iunie?", createdAt: new Date(Date.now() - 7 * 3600000).toISOString() },
-      { id: "m4", threadId, from: "me", body: "Pe 7 și 21 suntem liberi.", createdAt: new Date(Date.now() - 6.5 * 3600000).toISOString() },
-    ],
-    t3: [{ id: "m5", threadId, from: "them", authorName: "Cristina", body: "Vă trimit detaliile locației.", createdAt: new Date(Date.now() - 26 * 3600000).toISOString() }],
-  };
-  return map[threadId] || [];
-}
-
 /* ========= Hooks ========= */
 function useThreads({ scope, q }) {
   const [loading, setLoading] = useState(true);
@@ -101,7 +57,7 @@ function useThreads({ scope, q }) {
       const url = `/api/inbox/threads?scope=${encodeURIComponent(scope)}${dq ? `&q=${encodeURIComponent(dq)}` : ""}`;
       const d = await api(url).catch(() => null);
       if (d?.items) setItems(d.items);
-      else setItems(demoThreads());
+      else setItems([]);
     } catch (e) {
       setError(e?.message || "Eroare la încărcarea conversațiilor");
     } finally {
@@ -110,12 +66,10 @@ function useThreads({ scope, q }) {
   }, [scope, dq]);
 
   useEffect(() => {
-    // load on first mount & when deps change
     reload();
   }, [reload]);
 
   useEffect(() => {
-    // polling
     const id = setInterval(reload, 15000);
     return () => clearInterval(id);
   }, [reload]);
@@ -135,7 +89,7 @@ function useMessages(threadId) {
     try {
       const d = await api(`/api/inbox/threads/${threadId}/messages`).catch(() => null);
       if (d?.items) setMsgs(d.items);
-      else setMsgs(demoMessages(threadId));
+      else setMsgs([]);
       // mark as read (best-effort)
       await api(`/api/inbox/threads/${threadId}/read`, { method: "PATCH" }).catch(() => {});
     } catch (e) {
@@ -172,7 +126,6 @@ export default function MessagesPage() {
 
   const [selectedId, setSelectedId] = useState(null);
 
-  // selectăm implicit prima conversație după încărcare
   useEffect(() => {
     if (!selectedId && threads.length) setSelectedId(threads[0].id);
   }, [threads, selectedId]);
@@ -187,14 +140,12 @@ export default function MessagesPage() {
     reload: reloadMsgs,
   } = useMessages(selectedId);
 
-  // auto scroll la capăt
   const listRef = useRef(null);
   useEffect(() => {
     if (!listRef.current) return;
     listRef.current.scrollTop = listRef.current.scrollHeight + 1000;
   }, [msgs, selectedId, loadingMsgs]);
 
-  // compose
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -234,14 +185,13 @@ export default function MessagesPage() {
     }
   }
 
-  // fallback filtrare locală pt necitite dacă API nu face scope-ul
   const visibleThreads = useMemo(() => {
     if (scope !== "unread") return threads;
     return threads.filter((t) => (t.unreadCount || 0) > 0);
   }, [threads, scope]);
 
   return (
-    <div className={styles.wrap}>
+    <div className={styles.wrap} data-view={current ? "chat" : "list"}>
       {/* Sidebar conversații */}
       <aside className={styles.sidebar}>
         <div className={styles.sideHead}>
@@ -279,20 +229,17 @@ export default function MessagesPage() {
           {!loadingThreads && !visibleThreads.length && <div className={styles.empty}>Nu există conversații.</div>}
 
           {visibleThreads.map((t) => (
-            <button key={t.id} className={`${styles.threadItem} ${t.id === selectedId ? styles.selected : ""}`} onClick={() => setSelectedId(t.id)}>
-              <div className={styles.avatar}>{initialsOf(t.name || "U")}</div>
-              <div className={styles.threadMeta}>
-                <div className={styles.row}>
-                  <span className={styles.name}>{t.name || "Vizitator"}</span>
-                  <span className={styles.time}>{fmtTime(t.lastAt)}</span>
-                </div>
-                <div className={styles.row}>
-                  <span className={styles.snippet}>{t.lastMsg || "—"}</span>
-                  {t.unreadCount > 0 && <span className={styles.badge}>{Math.min(t.unreadCount, 99)}</span>}
-                </div>
-              </div>
-            </button>
-          ))}
+  <button
+    key={t.id}
+    className={`${styles.threadItem} ${t.id === selectedId ? styles.selected : ""} ${
+      t.unreadCount > 0 ? styles.unread : ""
+    }`}
+    onClick={() => setSelectedId(t.id)}
+  >
+    ...
+  </button>
+))}
+
         </div>
       </aside>
 
@@ -306,7 +253,11 @@ export default function MessagesPage() {
         ) : (
           <>
             <header className={styles.chatHead}>
-              <button className={`${styles.iconBtn} ${styles.hideDesktop}`} onClick={() => setSelectedId(null)} title="Înapoi la listă">
+              <button
+                className={`${styles.iconBtn} ${styles.hideDesktop}`}
+                onClick={() => setSelectedId(null)}
+                title="Înapoi la listă"
+              >
                 <ChevronLeft size={18} />
               </button>
               <div className={styles.chatPeer}>
@@ -317,7 +268,23 @@ export default function MessagesPage() {
                 </div>
               </div>
               <div className={styles.chatActions}>
-                <button className={styles.iconBtn} title="Arhivează">
+                <button
+                  className={styles.iconBtn}
+                  title="Arhivează"
+                  onClick={async () => {
+                    if (!current) return;
+                    try {
+                      await api(`/api/inbox/threads/${current.id}/archive`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ archived: !current.archived }),
+                      });
+                      await reloadThreads();
+                    } catch (e) {
+                      console.error("Eroare la arhivare", e);
+                    }
+                  }}
+                >
                   <Archive size={18} />
                 </button>
               </div>
@@ -356,6 +323,22 @@ export default function MessagesPage() {
 
 /* ========= Sub-componente ========= */
 function MessageBubble({ mine, msg }) {
+  const isPending = msg.pending;
+  const isFailed = msg.failed;
+
+  let tickLabel = "";
+  let tickClass = "";
+  if (isFailed) {
+    tickLabel = "!";
+    tickClass = styles.readTickFailed;
+  } else if (isPending) {
+    tickLabel = "…";
+    tickClass = styles.readTickPending;
+  } else if (mine) {
+    tickLabel = "✓"; // aici, dacă vrei, cândva poți schimba în „✓✓” pentru read
+    tickClass = styles.readTick;
+  }
+
   return (
     <div className={`${styles.bubbleRow} ${mine ? styles.right : styles.left}`}>
       {!mine && <div className={styles.avatarSm}>{initialsOf(msg.authorName || "U")}</div>}
@@ -363,8 +346,11 @@ function MessageBubble({ mine, msg }) {
         {msg.body}
         <div className={styles.meta}>
           <span>{fmtTime(msg.createdAt)}</span>
-          {msg.pending && <span> · în curs…</span>}
-          {msg.failed && <span> · nereușit</span>}
+          {mine && tickLabel && (
+            <span className={tickClass}>{tickLabel}</span>
+          )}
+          {msg.pending && <span>· în curs…</span>}
+          {msg.failed && <span>· nereușit</span>}
         </div>
       </div>
     </div>

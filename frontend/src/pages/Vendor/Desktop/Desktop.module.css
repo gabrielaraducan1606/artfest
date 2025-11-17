@@ -1,46 +1,496 @@
-/* src/pages/DesktopV2.module.css */
-.page { max-width: 1200px; margin: 0 auto; padding: 16px; }
-.h1 { margin: 0; font-size: 22px; }
-.meta { color: var(--muted); display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.badge { background: color-mix(in oklab,var(--color-primary) 15%,transparent); color: var(--color-primary); padding: 2px 8px; border-radius: 999px; font-size: 12px; }
-.dot { width: 4px; height: 4px; border-radius: 50%; background: var(--color-border); }
+/* src/pages/Desktop/Desktop.module.css */
 
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+/* ============ Layout de bază ============ */
 
-.kpiRow { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 12px; }
-.kpi { background: var(--surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px; }
-.kpiVal { font-size: 20px; font-weight: 700; }
-.kpiLabel { color: var(--muted); font-size: 12px; }
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 
-.grid { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 12px; align-items: start; }
-.colMain { display: grid; gap: 12px; }
-.colSide { display: grid; gap: 12px; }
+/* ============ Typography ============ */
 
-.card { background: var(--surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px; }
-.cardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.subtle { color: var(--muted); font-size: 13px; }
+.h1 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
 
-.actionsRow { display: flex; gap: 8px; flex-wrap: wrap; }
-.actionsCol { display: grid; gap: 8px; }
+.meta {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
 
-.btn { border-radius: 999px; padding: 8px 12px; border: 2px solid var(--color-border); text-decoration: none; font-weight: 600; }
-.btnPrimary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
-.btnGhost { background: transparent; }
-.btnWarn { background: #fff5e6; border-color: #ffb84d; color: #a05a00; }
-.btnDanger { background: #ffeaea; border-color: #ff9aa2; color: #a8001f; }
+.metaBlock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 
-.serviceList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.serviceItem { border: 1px dashed var(--color-border); border-radius: var(--radius); padding: 10px; display: grid; gap: 10px; }
-.serviceMain { display: grid; gap: 4px; }
-.serviceTitle { font-weight: 600; }
-.serviceMeta { color: var(--muted); font-size: 12px; }
+/* ============ Badge-uri ============ */
 
-.empty { background: color-mix(in oklab,var(--color-primary) 6%, transparent); border: 1px dashed var(--color-primary); border-radius: var(--radius); padding: 16px; display: grid; gap: 8px; }
-.emptyTitle { font-weight: 700; }
+.badge {
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
 
-.timeline { margin: 0; padding-left: 18px; color: var(--muted); }
-.timeline li { margin: 6px 0; }
+.badgeWait {
+  background: rgba(255, 215, 0, 0.08);
+  color: #b38600;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
 
+.badgeOk {
+  background: rgba(0, 180, 120, 0.08);
+  color: #008a5c;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badgeWarn {
+  background: rgba(255, 99, 71, 0.08);
+  color: #cc2b1e;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid rgba(255, 99, 71, 0.35);
+}
+
+.badgeWarn:hover {
+  background: rgba(255, 99, 71, 0.14);
+}
+
+.dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-border);
+}
+
+/* ============ Topbar ============ */
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.profileCompletion {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progressBar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  position: relative;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-primary), #ff9f6b);
+  transition: width 0.25s ease-out;
+}
+
+.progressLabel {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ============ Error bar ============ */
+
+.errorBar {
+  background: #ffeaea;
+  border: 1px solid #ffb3ba;
+  color: #a8001f;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+/* ============ KPI-uri ============ */
+
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 4px);
+  padding: 14px 12px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kpiVal {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.kpiLabel {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ============ Grid principal ============ */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) 0.9fr;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.colMain {
+  display: grid;
+  gap: 12px;
+}
+
+.colSide {
+  display: grid;
+  gap: 12px;
+}
+
+/* ============ Carduri ============ */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  padding: 14px 14px 16px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cardHead h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.subtle {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ============ Acțiuni (butoane în rând/coloană) ============ */
+
+.actionsRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actionsCol {
+  display: grid;
+  gap: 8px;
+}
+
+/* ============ Butoane ============ */
+
+.btn {
+  border-radius: 999px;
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  background: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition:
+    background 0.15s ease-out,
+    border-color 0.15s ease-out,
+    transform 0.1s ease-out,
+    box-shadow 0.1s ease-out;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+
+.btn:hover:not(:disabled) {
+  background: #f1f5f9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-primary) 88%, #ffffff 12%);
+}
+
+.btnGhost {
+  background: #ffffff;
+}
+
+.btnWarn {
+  background: #fff5e6;
+  border-color: #ffb84d;
+  color: #a05a00;
+}
+
+.btnWarn:hover:not(:disabled) {
+  background: #ffe9c7;
+}
+
+.btnDanger {
+  background: #ffeaea;
+  border-color: #ff9aa2;
+  color: #a8001f;
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: #ffd5da;
+}
+
+/* ============ Servicii ============ */
+
+.serviceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.serviceItem {
+  border: 1px dashed var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  background: linear-gradient(
+    135deg,
+    rgba(148, 163, 184, 0.02),
+    rgba(148, 163, 184, 0.06)
+  );
+}
+
+.serviceMain {
+  display: grid;
+  gap: 4px;
+}
+
+.serviceTitle {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.serviceMeta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.serviceWarning {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #a05a00;
+  background: #fff5e6;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+/* ============ Empty state ============ */
+
+.empty {
+  background: color-mix(in oklab, var(--color-primary) 6%, transparent);
+  border: 1px dashed var(--color-primary);
+  border-radius: calc(var(--radius) + 4px);
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.emptyTitle {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* ============ Timeline / Activitate recentă ============ */
+
+.timeline {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.timelineItem {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.5);
+}
+
+.timelineItem:last-child {
+  border-bottom: none;
+}
+
+.timelineMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timelineType {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.timelineText {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.timelineTime {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* fallback pentru vechiul .timeline li */
+.timeline li {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ============ Sidebar ============ */
+
+.colSide .card {
+  position: sticky;
+  top: 12px;
+}
+
+/* ============ Responsivitate ============ */
+
+/* 1) Ecrane mari (peste 1280px) – doar un pic de breathing room */
+@media (min-width: 1280px) {
+  .page {
+    padding-top: 32px;
+  }
+}
+
+/* 2) Tablete / laptop mic (~1000px) */
 @media (max-width: 1000px) {
-  .grid { grid-template-columns: 1fr; }
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .colSide .card {
+    position: static;
+  }
+
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 3) Mobile (max 700px) */
+@media (max-width: 700px) {
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar > a {
+    align-self: stretch;
+    justify-content: center;
+  }
+
+  .h1 {
+    font-size: 22px;
+  }
+
+  .kpiRow {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 12px;
+  }
+
+  .timelineItem {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .timelineTime {
+    white-space: normal;
+  }
+}
+
+/* 4) Very small devices (max 480px) */
+@media (max-width: 480px) {
+  .page {
+    padding-inline: 12px;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  .actionsRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }

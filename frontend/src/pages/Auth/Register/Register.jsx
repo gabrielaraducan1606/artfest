@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ChevronDown, Info, AlertTriangle } from "lucide-react";
 import { api } from "../../../lib/api";
 import styles from "./Register.module.css";
 
@@ -171,6 +171,11 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
   const [lastName, setLastName] = useState("");
   const [asVendor, setAsVendor] = useState(defaultAsVendor);
 
+  // Vendor disclosure + confirm entitate juridică
+  const [showVendorInfo, setShowVendorInfo] = useState(!!defaultAsVendor);
+  const [vendorEntityConfirm, setVendorEntityConfirm] = useState(false);
+  const vendorInfoId = "vendor-info-panel";
+
   // consents
   const [tosAccepted, setTosAccepted] = useState(false);
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
@@ -214,7 +219,8 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     score >= 3 &&
     pwMatches &&
     tosAccepted &&
-    privacyAcknowledged;
+    privacyAcknowledged &&
+    (!asVendor || vendorEntityConfirm); // ✅ vendorii trebuie să confirme că sunt entități juridice
 
   // online/offline
   useEffect(() => {
@@ -309,6 +315,8 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         name: fullName || undefined,
         asVendor,
         consents,
+        // Politică anti-link extern (backend poate onora acest flag)
+        noExternalLinks: true,
       };
 
       const res = await api("/api/auth/signup", {
@@ -374,18 +382,85 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       {offline && <div className={styles.error} role="status">Ești offline — verifică rețeaua.</div>}
       {legalError && <div className={styles.legalNotice} role="status">{legalError}</div>}
 
-      <label className={styles.checkRow}>
-        <input
-          type="checkbox"
-          checked={asVendor}
-          onChange={(e)=> {
-            setAsVendor(e.target.checked);
-            try { sessionStorage.setItem("onboarding.intent", e.target.checked ? "vendor" : ""); } catch {""}
-          }}
-        />
-        Înscrie-mă ca partener Artfest (ofer servicii/vând produse pe platformă)
-      </label>
+      {/* ====== Partner/Vendor opt-in box ====== */}
+      <div
+        role="group"
+        aria-labelledby="vendor-box-title"
+        className={`${styles.vendorBox} ${asVendor ? styles.vendorBoxActive : ""}`}
+      >
+        <div className={styles.vendorHeader}>
+          <label className={styles.vendorCheck}>
+            <input
+              type="checkbox"
+              checked={asVendor}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setAsVendor(checked);
+                setShowVendorInfo(checked);       // ✅ debifează => închidem panelul
+                if (!checked) setVendorEntityConfirm(false);
+                try { sessionStorage.setItem("onboarding.intent", checked ? "vendor" : ""); } catch {""}
+              }}
+            />
+            <span id="vendor-box-title" className={styles.vendorTitle}>
+              Înscrie-mă ca <strong>partener Artfest</strong>
+              <span className={styles.vendorSubtitle}>(PFA / SRL / II / IF)</span>
+            </span>
+          </label>
 
+          <button
+            type="button"
+            className={styles.disclosureBtn}
+            aria-controls={vendorInfoId}
+            aria-expanded={showVendorInfo ? "true" : "false"}
+            onClick={() => setShowVendorInfo((v) => !v)}
+          >
+            <Info size={16} aria-hidden="true" />
+            <span>Vezi ce îți trebuie</span>
+            <ChevronDown
+              size={16}
+              className={`${styles.chev} ${showVendorInfo ? styles.chevOpen : ""}`}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+
+        <p className={styles.vendorNote}>
+          <AlertTriangle size={14} aria-hidden="true" />
+          <span>
+            <strong>Doar pentru furnizori (entități juridice).</strong> Clienții care doresc să comande <u>nu bifează</u> această opțiune.
+          </span>
+        </p>
+
+        {showVendorInfo && (
+          <div id={vendorInfoId} className={styles.vendorDisclosure}>
+            <p className={styles.vendorLead}>
+              Acceptăm <strong>doar entități juridice</strong> (PFA / SRL / II / IF). Dacă bifezi, după crearea contului intri
+              într-un <strong>wizard de onboarding</strong> și vei avea nevoie de:
+            </p>
+            <ul className={styles.vendorList}>
+              <li>📛 Nume brand / denumire comercială</li>
+              <li>🏢 Tip entitate (<strong>PFA / SRL / II / IF</strong>)</li>
+              <li>🧾 CUI / CIF <strong>(obligatoriu)</strong></li>
+              <li>📍 Adresă sediu / atelier</li>
+              <li>📸 Logo / poză reprezentativă</li>
+              <li>✅ Categorii + descriere scurtă</li>
+              <li>🏦 IBAN pentru plăți</li>
+            </ul>
+
+            <label className={styles.entityConfirmRow}>
+              <input
+                type="checkbox"
+                checked={vendorEntityConfirm}
+                onChange={(e)=>setVendorEntityConfirm(e.target.checked)}
+                aria-required="true"
+              />
+              <span>Confirm că reprezint o <strong>entitate juridică</strong> (PFA / SRL / II / IF) și dețin un <strong>CUI/CIF</strong> valid.</span>
+            </label>
+          </div>
+        )}
+      </div>
+
+      {/* ====== Name ====== */}
       <div className={styles.nameRow}>
         <label className={styles.nameCol}>
           <span className={styles.srOnly}>Prenume</span>
@@ -411,6 +486,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         </label>
       </div>
 
+      {/* ====== Email ====== */}
       <div className={styles.fieldGroup}>
         <label className={styles.srOnly} htmlFor="reg-email">Email</label>
         <input
@@ -441,6 +517,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         )}
       </div>
 
+      {/* ====== Passwords ====== */}
       <div>
         <div className={`${styles.inputGroup} ${showPwToggle ? styles.hasToggle : ""}`}>
           <input
@@ -535,7 +612,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         {capsOn && confirmFocused && <div className={styles.capsHint}>Atenție: CapsLock este activ.</div>}
       </div>
 
-      {/* LEGAL */}
+      {/* ===== LEGAL ===== */}
       <div className={styles.legalGroup}>
         <label className={styles.legalRow}>
           <input type="checkbox" checked={tosAccepted} onChange={(e)=>setTosAccepted(e.target.checked)} required />
@@ -579,7 +656,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
               {resendBusy ? "Se retrimite…" : "Trimite din nou emailul de confirmare"}
             </button>
           ) : (
-            <div>Gata! Verifică inboxul (și Spam/Promo).</div>
+            <div>Gata! Verifică inboxul ( și Spam/Promo ).</div>
           )}
         </div>
       )}

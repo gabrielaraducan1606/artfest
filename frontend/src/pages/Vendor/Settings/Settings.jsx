@@ -1,221 +1,431 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../../../lib/api";
 import {
   User as UserIcon,
   Shield,
-  Bell,
-  Paintbrush,
   Trash2,
-  Save,
   RefreshCcw,
-  Globe,
-  Phone,
-  Building2,
   Loader2,
 } from "lucide-react";
-import styles from "./Settings.module.css";
+import settingsStyles from "./Settings.module.css";
 
-/* ============ Utils ============ */
-function cls(...xs) { return xs.filter(Boolean).join(" "); }
-const initialNotif = { emailMessages: true, emailOrders: true, pushInApp: true, weeklyDigest: false };
-const THEME_KEY = "theme"; // folosit de Navbar-ul tău
+// 🔹 importă tab-urile de onboarding (AJUSTEAZĂ path-urile după proiectul tău)
+import onboardingStyles from "../OnBoarding/OnBoardingDetails/OnBoardingDetails.module.css";
+import ProfileTab from "../Onboarding/OnBoardingDetails/tabs/ProfileTabBoarding.jsx";
+import BillingTab from "../Onboarding/OnBoardingDetails/tabs/BillingTab.jsx";
+import PaymentTab from "../Onboarding/OnBoardingDetails/tabs/PaymentTab.jsx";
 
-function applyTheme(value) {
-  const root = document.documentElement;
-  if (value === "system") {
-    localStorage.removeItem(THEME_KEY);
-    root.removeAttribute("data-theme");
-    return;
-  }
-  localStorage.setItem(THEME_KEY, value);
-  root.setAttribute("data-theme", value);
-}
+const VANITY_BASE = "www.artfest.ro";
+const FORGOT_PASSWORD_URL = "/reset-parola"; // pagina ta ForgotPassword
 
-/* ============ Sub-componente ============ */
-function Switch({ checked, onChange, label, id }) {
-  return (
-    <label htmlFor={id} className={styles.switchWrap}>
-      <input id={id} type="checkbox" checked={checked} onChange={(e)=>onChange(e.target.checked)} />
-      <span className={styles.switchKnob} />
-      <span className={styles.switchLabel}>{label}</span>
-    </label>
-  );
+function cls(...xs) {
+  return xs.filter(Boolean).join(" ");
 }
 
 function Section({ icon, title, subtitle, children, right }) {
   return (
-    <section className={styles.card}>
-      <header className={styles.cardHead}>
-        <div className={styles.cardTitle}>
+    <section className={settingsStyles.card}>
+      <header className={settingsStyles.cardHead}>
+        <div className={settingsStyles.cardTitle}>
           {icon}
           <div>
-            <div className={styles.title}>{title}</div>
-            {subtitle && <div className={styles.subtitle}>{subtitle}</div>}
+            <div className={settingsStyles.title}>{title}</div>
+            {subtitle && (
+              <div className={settingsStyles.subtitle}>{subtitle}</div>
+            )}
           </div>
         </div>
         <div>{right}</div>
       </header>
-      <div className={styles.cardBody}>{children}</div>
+      <div className={settingsStyles.cardBody}>{children}</div>
     </section>
   );
 }
 
-/* ============ Pagina ============ */
+/* ===========================================================
+   Sub-componentă internă: SOLO mode din OnBoardingDetails
+   și îl randăm direct în chenarul din dreapta.
+   tab poate fi: "profil" | "facturare" | "plata"
+   =========================================================== */
+
+const slugify = (s = "") =>
+  String(s)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+function EmbeddedOnboarding({ tab }) {
+  const activeTab = ["profil", "facturare", "plata"].includes(tab)
+    ? tab
+    : "profil";
+
+  const [services, setServices] = useState([]);
+  const [err, setErr] = useState("");
+  const [saveState, setSaveState] = useState({});
+  const [saveError, setSaveError] = useState({});
+  const [billingStatus, setBillingStatus] = useState("idle");
+
+  const timers = useRef({}); // { [serviceId]: timeoutId }
+
+  const fetchMyServices = useCallback(async () => {
+    const d = await api("/api/vendors/me/services?includeProfile=1", {
+      method: "GET",
+    });
+
+    const items = (d.items || []).map((s) => ({
+      ...s,
+      attributes: s.attributes || {},
+      profile: {
+        displayName: s.profile?.displayName || "",
+        slug: s.profile?.slug || "",
+        logoUrl: s.profile?.logoUrl || "",
+        coverUrl: s.profile?.coverUrl || "",
+        phone: s.profile?.phone || "",
+        email: s.profile?.email || "",
+        address: s.profile?.address || "",
+        delivery: Array.isArray(s.profile?.delivery)
+          ? s.profile.delivery
+          : [],
+        tagline: s.profile?.tagline || "",
+        about: s.profile?.about || "",
+        city: s.profile?.city || "",
+        website: s.profile?.website || "",
+        shortDescription: s.profile?.shortDescription || "",
+      },
+    }));
+
+    return items;
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setServices(await fetchMyServices());
+        setErr("");
+      } catch (e) {
+        setErr(e?.message || "Nu am putut încărca serviciile.");
+      }
+    })();
+  }, [fetchMyServices]);
+
+  // autosave infra
+  function schedule(serviceId, fn, delay = 600) {
+    if (timers.current[serviceId]) clearTimeout(timers.current[serviceId]);
+    timers.current[serviceId] = setTimeout(fn, delay);
+  }
+
+  useEffect(() => {
+    return () => {
+      Object.values(timers.current || {}).forEach((t) => clearTimeout(t));
+      timers.current = {};
+    };
+  }, []);
+
+  const updateProfile = useCallback((idx, patch) => {
+    setServices((prev) => {
+      const next = [...prev];
+      const s = { ...next[idx] };
+      const p = { ...(s.profile || {}) };
+
+      // auto-slug
+      if (patch.displayName && !p.slug) {
+        p.slug = slugify(patch.displayName);
+      }
+
+      Object.assign(p, patch);
+      s.profile = p;
+      next[idx] = s;
+
+      const serviceId = s.id;
+      if (serviceId) {
+        setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+        schedule(serviceId, async () => {
+          try {
+            await api(
+              `/api/vendors/vendor-services/${encodeURIComponent(
+                serviceId
+              )}/profile`,
+              {
+                method: "PUT",
+                body: { ...p, mirrorVendor: true },
+              }
+            );
+            setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
+            setSaveError((m) => ({ ...m, [serviceId]: "" }));
+          } catch (e) {
+            setSaveState((m) => ({ ...m, [serviceId]: "error" }));
+            setSaveError((m) => ({
+              ...m,
+              [serviceId]: e?.message || "Eroare la salvarea profilului",
+            }));
+          }
+        });
+      }
+
+      return next;
+    });
+  }, []);
+
+  const updateServiceBasics = useCallback((idx, patch) => {
+    setServices((prev) => {
+      const next = [...prev];
+      const s = { ...next[idx] };
+      next[idx] = {
+        ...s,
+        ...patch,
+        attributes: { ...(s.attributes || {}), ...(patch.attributes || {}) },
+      };
+
+      const serviceId = s.id;
+      if (serviceId) {
+        setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+        schedule(serviceId, async () => {
+          try {
+            const current = next[idx];
+            await api(
+              `/api/vendors/me/services/${encodeURIComponent(serviceId)}`,
+              {
+                method: "PATCH",
+                body: {
+                  city: current?.city || "",
+                  attributes: current?.attributes || {},
+                },
+              }
+            );
+            setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
+            setSaveError((m) => ({ ...m, [serviceId]: "" }));
+          } catch (e) {
+            setSaveState((m) => ({ ...m, [serviceId]: "error" }));
+            setSaveError((m) => ({
+              ...m,
+              [serviceId]: e?.message || "Eroare la salvare",
+            }));
+          }
+        });
+      }
+
+      return next;
+    });
+  }, []);
+
+  const uploadFile = useCallback(async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const d = await api("/api/upload", { method: "POST", body: fd });
+    if (!d?.url) throw new Error("Upload eșuat");
+    return d.url;
+  }, []);
+
+  const isSavingAny = useMemo(
+    () => Object.values(saveState).some((s) => s === "saving"),
+    [saveState]
+  );
+  const hasNameConflict = false;
+
+  return (
+    <section className={onboardingStyles.wrap}>
+      {activeTab === "profil" && (
+        <ProfileTab
+          services={services}
+          vanityBase={VANITY_BASE}
+          saveState={saveState}
+          saveError={saveError}
+          updateProfile={updateProfile}
+          updateServiceBasics={updateServiceBasics}
+          uploadFile={uploadFile}
+          isSavingAny={isSavingAny}
+          hasNameConflict={hasNameConflict}
+          onContinue={() => {}}
+          err={err}
+          setErr={setErr}
+        />
+      )}
+
+      {activeTab === "facturare" && (
+        <BillingTab
+          onSaved={() => {}}
+          onStatusChange={setBillingStatus}
+          canContinue={billingStatus === "saved"}
+          onContinue={() => {}}
+        />
+      )}
+
+      {activeTab === "plata" && <PaymentTab />}
+    </section>
+  );
+}
+
+/* ===========================================================
+   Pagina principală: SettingsPage
+   =========================================================== */
+
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
-  const [me, setMe] = useState(null);
-  const [vendor, setVendor] = useState(null);
 
-  // Profile form
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName]   = useState("");
-  const [email, setEmail]         = useState("");
-  const [phoneVal, setPhoneVal]   = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [city, setCity]           = useState("");
-  const [savingProfile, setSavingProfile] = useState(false);
-  const profileDirty = useMemo(() => {
-    if (!me) return false;
-    return (
-      firstName !== (me.firstName || "") ||
-      lastName  !== (me.lastName || "") ||
-      phoneVal  !== (me.phone || "") ||
-      (vendor ? (displayName !== (vendor.displayName || "") || city !== (vendor.city || "")) : false)
-    );
-  }, [me, vendor, firstName, lastName, phoneVal, displayName, city]);
-
-  // Security
-  const [oldPass, setOldPass] = useState("");
-  const [newPass, setNewPass] = useState("");
-  const [newPass2, setNewPass2] = useState("");
-  const [savingPass, setSavingPass] = useState(false);
-
-  // Notifications
-  const [notif, setNotif] = useState(initialNotif);
-  const [savingNotif, setSavingNotif] = useState(false);
-
-  // Appearance
-  const initialTheme = useMemo(() => {
-    const saved = typeof window !== "undefined" ? localStorage.getItem(THEME_KEY) : null;
-    return saved === "light" || saved === "dark" ? saved : "system";
-  }, []);
-  const [theme, setTheme] = useState(initialTheme);
-
-  // Tab-uri
   const tabs = [
-    { key: "profile", label: "Profil", icon: <UserIcon size={16} /> },
-    { key: "security", label: "Securitate", icon: <Shield size={16} /> },
-    { key: "notifications", label: "Notificări", icon: <Bell size={16} /> },
-    { key: "appearance", label: "Aspect", icon: <Paintbrush size={16} /> },
-    { key: "danger", label: "Zonă periculoasă", icon: <Trash2 size={16} /> },
+    {
+      key: "profile",
+      label: "Profil magazin",
+      icon: <UserIcon size={16} />,
+    },
+    {
+      key: "security",
+      label: "Securitate",
+      icon: <Shield size={16} />,
+    },
+    {
+      key: "billing",
+      label: "Date facturare",
+      icon: <UserIcon size={16} />,
+    },
+    {
+      key: "subscription",
+      label: "Abonament",
+      icon: <UserIcon size={16} />,
+    },
+    {
+      key: "danger",
+      label: "Ștergere cont",
+      icon: <Trash2 size={16} />,
+    },
   ];
+
   const [active, setActive] = useState("profile");
 
-  /* ===== Load data ===== */
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const meResp = await api("/api/auth/me").catch(() => null);
-      const user = meResp?.user || null;
-      setMe(user);
-
-      const vendorResp = await api("/api/vendors/me").catch(() => null);
-      setVendor(vendorResp?.vendor || null);
-
-      setFirstName(user?.firstName || "");
-      setLastName(user?.lastName || "");
-      setEmail(user?.email || "");
-      setPhoneVal(user?.phone || "");
-
-      setDisplayName(vendorResp?.vendor?.displayName || "");
-      setCity(vendorResp?.vendor?.city || "");
-
-      const n = await api("/api/notifications/preferences").catch(() => null);
-      setNotif(n?.data || initialNotif);
+      await api("/api/auth/me").catch(() => null);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  /* ===== Save handlers ===== */
-  const saveProfile = useCallback(async () => {
-    if (!profileDirty) return;
-    setSavingProfile(true);
-    try {
-      // 1) profil utilizator
-      await api("/api/account/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName, lastName, phone: phoneVal,
-        })
-      }).catch(() => null);
+  // ====== SECURITATE: schimbare parolă în cont ======
+  const [oldPass, setOldPass] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [newPass2, setNewPass2] = useState("");
+  const [savingPass, setSavingPass] = useState(false);
+  const [passOk, setPassOk] = useState(false);
+  const [passErr, setPassErr] = useState("");
 
-      // 2) profil vendor (dacă este vendor)
-      if (vendor) {
-        await api("/api/vendors/me/profile", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ displayName, city })
-        }).catch(() => null);
-      }
+  const MIN_LEN = 6;
 
-      await load();
-    } finally {
-      setSavingProfile(false);
+  const canSavePass =
+    oldPass.length > 0 &&
+    newPass.length >= MIN_LEN &&
+    newPass2.length >= MIN_LEN &&
+    newPass === newPass2 &&
+    !savingPass;
+
+  const changePassword = useCallback(async () => {
+    setPassErr("");
+    setPassOk(false);
+
+    if (newPass.length < MIN_LEN) {
+      setPassErr(`Parola trebuie să aibă cel puțin ${MIN_LEN} caractere.`);
+      return;
     }
-  }, [profileDirty, firstName, lastName, phoneVal, vendor, displayName, city, load]);
+    if (newPass !== newPass2) {
+      setPassErr("Parolele nu se potrivesc.");
+      return;
+    }
 
-  const savePassword = useCallback(async () => {
-    if (!newPass || newPass !== newPass2) return;
     setSavingPass(true);
     try {
-      await api("/api/account/password", {
+      await api("/api/account/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ oldPassword: oldPass, newPassword: newPass })
-      }).catch(() => null);
+        body: { currentPassword: oldPass, newPassword: newPass },
+      });
 
-      setOldPass(""); setNewPass(""); setNewPass2("");
+      setPassOk(true);
+      setOldPass("");
+      setNewPass("");
+      setNewPass2("");
+    } catch (e) {
+      const serverMsg =
+        e?.data?.message ||
+        (e?.data?.error === "invalid_current_password" &&
+          "Parola curentă nu este corectă.") ||
+        (e?.data?.error === "same_as_current" &&
+          "Parola nouă nu poate fi identică cu parola curentă.") ||
+        (e?.data?.error === "password_reused" &&
+          "Nu poți reutiliza una dintre ultimele parole.") ||
+        e?.message ||
+        "Nu am putut schimba parola.";
+      setPassErr(serverMsg);
+      setPassOk(false);
     } finally {
       setSavingPass(false);
     }
   }, [oldPass, newPass, newPass2]);
 
-  const saveNotifications = useCallback(async () => {
-    setSavingNotif(true);
+  // ====== ȘTERGERE CONT ======
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState("");
+
+  const onDeleteAccount = useCallback(async () => {
+    setDeleteErr("");
+
+    const confirmed = window.confirm(
+      "Ești sigur(ă) că vrei să ștergi contul? Această acțiune este ireversibilă."
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
     try {
-      await api("/api/notifications/preferences", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(notif)
-      }).catch(() => null);
-    } finally {
-      setSavingNotif(false);
+      await api("/api/account/me", {
+        method: "DELETE",
+      });
+
+      // opțional: poți apela și un endpoint de logout aici, dacă ai
+      // await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+
+      // redirect după ștergere (ajustează după cum vrei)
+      window.location.href = "/";
+    } catch (e) {
+      const msg =
+        e?.data?.message ||
+        e?.message ||
+        "Nu am putut șterge contul. Te rugăm să încerci din nou.";
+      setDeleteErr(msg);
+      setDeleting(false);
     }
-  }, [notif]);
+  }, []);
 
-  const saveTheme = useCallback(() => {
-    applyTheme(theme);
-  }, [theme]);
-
-  /* ===== Render ===== */
   return (
-    <div className={styles.wrap}>
-      <aside className={styles.sidebar}>
-        <div className={styles.sideHead}>
-          <div className={styles.sideTitle}>Setări cont</div>
-          <button className={styles.iconBtn} onClick={load} title="Reîncarcă">
+    <div className={settingsStyles.wrap}>
+      <aside className={settingsStyles.sidebar}>
+        <div className={settingsStyles.sideHead}>
+          <div className={settingsStyles.sideTitle}>Setări cont</div>
+          <button
+            className={settingsStyles.iconBtn}
+            onClick={load}
+            title="Reîncarcă"
+          >
             <RefreshCcw size={16} />
           </button>
         </div>
-        <nav className={styles.tabs}>
-          {tabs.map(t => (
+        <nav className={settingsStyles.tabs}>
+          {tabs.map((t) => (
             <button
               key={t.key}
-              className={cls(styles.tab, active === t.key && styles.active)}
+              className={cls(
+                settingsStyles.tab,
+                active === t.key && settingsStyles.active
+              )}
               onClick={() => setActive(t.key)}
             >
               {t.icon} {t.label}
@@ -224,190 +434,151 @@ export default function SettingsPage() {
         </nav>
       </aside>
 
-      <main className={styles.content}>
+      <main className={settingsStyles.content}>
         {loading && (
-          <div className={styles.loading}><Loader2 className={styles.spin} size={18}/> Se încarcă…</div>
+          <div className={settingsStyles.loading}>
+            <Loader2 className={settingsStyles.spin} size={18} /> Se
+            încarcă…
+          </div>
         )}
 
+        {/* PROFIL MAGAZIN – folosește ProfileTab din onboarding */}
         {!loading && active === "profile" && (
-          <Section
-            icon={<UserIcon size={18} />}
-            title="Profil"
-            subtitle="Actualizează-ți datele de contact și profilul public"
-            right={
-              <button
-                className={styles.primary}
-                onClick={saveProfile}
-                disabled={!profileDirty || savingProfile}
-              >
-                <Save size={16}/> Salvează
-              </button>
-            }
-          >
-            <div className={styles.grid2}>
-              <label className={styles.field}>
-                <span>Prenume</span>
-                <input className={styles.input} value={firstName} onChange={(e)=>setFirstName(e.target.value)} />
-              </label>
-              <label className={styles.field}>
-                <span>Nume</span>
-                <input className={styles.input} value={lastName} onChange={(e)=>setLastName(e.target.value)} />
-              </label>
-            </div>
-
-            <div className={styles.grid2}>
-              <label className={styles.field}>
-                <span>Email</span>
-                <div className={styles.inputReadonly}>{email || "—"}</div>
-              </label>
-              <label className={styles.field}>
-                <span>Telefon</span>
-                <div className={styles.inputIcon}>
-                  <Phone size={14}/>
-                  <input className={styles.input} value={phoneVal} onChange={(e)=>setPhoneVal(e.target.value)} placeholder="+40…" />
-                </div>
-              </label>
-            </div>
-
-            {vendor && (
-              <>
-                <div className={styles.grid2}>
-                  <label className={styles.field}>
-                    <span>Nume afișat (public)</span>
-                    <div className={styles.inputIcon}>
-                      <Building2 size={14}/>
-                      <input className={styles.input} value={displayName} onChange={(e)=>setDisplayName(e.target.value)} />
-                    </div>
-                  </label>
-                  <label className={styles.field}>
-                    <span>Oraș</span>
-                    <div className={styles.inputIcon}>
-                      <Globe size={14}/>
-                      <input className={styles.input} value={city} onChange={(e)=>setCity(e.target.value)} placeholder="ex: București" />
-                    </div>
-                  </label>
-                </div>
-              </>
-            )}
-          </Section>
+          <EmbeddedOnboarding tab="profil" />
         )}
 
+        {/* DATE FACTURARE – BillingTab din onboarding */}
+        {!loading && active === "billing" && (
+          <EmbeddedOnboarding tab="facturare" />
+        )}
+
+        {/* ABONAMENT – PaymentTab din onboarding */}
+        {!loading && active === "subscription" && (
+          <EmbeddedOnboarding tab="plata" />
+        )}
+
+        {/* SECURITATE – schimbare parolă în cont */}
         {!loading && active === "security" && (
           <Section
             icon={<Shield size={18} />}
             title="Securitate"
-            subtitle="Schimbă parola și verifică setările de securitate"
+            subtitle="Schimbă parola contului tău"
             right={
               <button
-                className={styles.primary}
-                onClick={savePassword}
-                disabled={!newPass || newPass !== newPass2 || savingPass}
+                className={settingsStyles.primary}
+                onClick={changePassword}
+                disabled={!canSavePass}
               >
-                <Save size={16}/> Salvează
+                {savingPass ? "Se salvează…" : "Salvează parola"}
               </button>
             }
           >
-            <div className={styles.grid1}>
-              <label className={styles.field}>
-                <span>Parola veche</span>
-                <input className={styles.input} type="password" value={oldPass} onChange={(e)=>setOldPass(e.target.value)} />
+            <div className={settingsStyles.grid1}>
+              <label className={settingsStyles.field}>
+                <span>Parola curentă</span>
+                <input
+                  className={settingsStyles.input}
+                  type="password"
+                  value={oldPass}
+                  onChange={(e) => setOldPass(e.target.value)}
+                  placeholder="Parola actuală"
+                />
               </label>
-              <div className={styles.grid2}>
-                <label className={styles.field}>
-                  <span>Parola nouă</span>
-                  <input className={styles.input} type="password" value={newPass} onChange={(e)=>setNewPass(e.target.value)} />
+
+              <div className={settingsStyles.grid2}>
+                <label className={settingsStyles.field}>
+                  <span>Parolă nouă</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="password"
+                    value={newPass}
+                    onChange={(e) => setNewPass(e.target.value)}
+                    placeholder={`Cel puțin ${MIN_LEN} caractere`}
+                  />
                 </label>
-                <label className={styles.field}>
-                  <span>Confirmă parola</span>
-                  <input className={styles.input} type="password" value={newPass2} onChange={(e)=>setNewPass2(e.target.value)} />
+                <label className={settingsStyles.field}>
+                  <span>Confirmă parola nouă</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="password"
+                    value={newPass2}
+                    onChange={(e) => setNewPass2(e.target.value)}
+                    placeholder="Repetă parola nouă"
+                  />
                 </label>
               </div>
-              {newPass && newPass2 && newPass !== newPass2 && (
-                <div className={styles.warn}>Parolele nu coincid.</div>
+
+              {newPass && newPass.length < MIN_LEN && (
+                <div className={settingsStyles.warn}>
+                  Parola trebuie să aibă cel puțin {MIN_LEN} caractere.
+                </div>
               )}
+
+              {newPass2 && newPass && newPass !== newPass2 && (
+                <div className={settingsStyles.warn}>
+                  Parolele nu se potrivesc.
+                </div>
+              )}
+
+              {passErr && (
+                <div className={settingsStyles.error} role="alert">
+                  {passErr}
+                </div>
+              )}
+
+              {passOk && (
+                <div className={settingsStyles.success}>
+                  ✅ Parola a fost schimbată cu succes.
+                </div>
+              )}
+
+              <div style={{ marginTop: 12 }}>
+                <a
+                  href={FORGOT_PASSWORD_URL}
+                  className={settingsStyles.link}
+                >
+                  Am uitat parola veche
+                </a>
+              </div>
             </div>
           </Section>
         )}
 
-        {!loading && active === "notifications" && (
-          <Section
-            icon={<Bell size={18} />}
-            title="Notificări"
-            subtitle="Alege cum vrei să fii anunțat"
-            right={
-              <button className={styles.primary} onClick={saveNotifications} disabled={savingNotif}>
-                <Save size={16}/> Salvează
-              </button>
-            }
-          >
-            <div className={styles.stack}>
-              <Switch id="n1" label="Email pentru mesaje noi" checked={notif.emailMessages} onChange={(v)=>setNotif(n=>({ ...n, emailMessages: v }))} />
-              <Switch id="n2" label="Email pentru comenzi/plăți" checked={notif.emailOrders} onChange={(v)=>setNotif(n=>({ ...n, emailOrders: v }))} />
-              <Switch id="n3" label="Notificări în aplicație" checked={notif.pushInApp} onChange={(v)=>setNotif(n=>({ ...n, pushInApp: v }))} />
-              <Switch id="n4" label="Rezumat săptămânal pe email" checked={notif.weeklyDigest} onChange={(v)=>setNotif(n=>({ ...n, weeklyDigest: v }))} />
-            </div>
-          </Section>
-        )}
-
-        {!loading && active === "appearance" && (
-          <Section
-            icon={<Paintbrush size={18} />}
-            title="Aspect"
-            subtitle="Temă și densitatea interfeței"
-            right={
-              <button className={styles.primary} onClick={saveTheme}>
-                <Save size={16}/> Aplică
-              </button>
-            }
-          >
-            <div className={styles.grid3}>
-              <label className={styles.radio}>
-                <input
-                  type="radio"
-                  name="theme"
-                  checked={theme === "system"}
-                  onChange={()=>setTheme("system")}
-                />
-                <span>System</span>
-              </label>
-              <label className={styles.radio}>
-                <input
-                  type="radio"
-                  name="theme"
-                  checked={theme === "light"}
-                  onChange={()=>setTheme("light")}
-                />
-                <span>Light</span>
-              </label>
-              <label className={styles.radio}>
-                <input
-                  type="radio"
-                  name="theme"
-                  checked={theme === "dark"}
-                  onChange={()=>setTheme("dark")}
-                />
-                <span>Dark</span>
-              </label>
-            </div>
-            <div className={styles.help}>
-              „System” folosește preferința sistemului tău de operare. Navbar-ul tău citește `localStorage.theme`: am păstrat compatibilitatea.
-            </div>
-          </Section>
-        )}
-
+        {/* ȘTERGERE CONT */}
         {!loading && active === "danger" && (
           <Section
             icon={<Trash2 size={18} />}
             title="Zonă periculoasă"
             subtitle="Acțiuni ireversibile"
           >
-            <div className={styles.danger}>
+            <div className={settingsStyles.danger}>
               <div>
-                <div className={styles.title}>Ștergere cont</div>
-                <div className={styles.subtitle}>Această acțiune nu poate fi anulată. Toate datele tale vor fi eliminate.</div>
+                <div className={settingsStyles.title}>Ștergere cont</div>
+                <div className={settingsStyles.subtitle}>
+                  Această acțiune nu poate fi anulată. Toate datele tale
+                  vor fi eliminate și nu vei mai putea accesa contul.
+                </div>
               </div>
-              <a className={styles.dangerBtn} href="/cont/sterge">Șterge contul</a>
+
+              <button
+                type="button"
+                className={settingsStyles.dangerBtn}
+                onClick={onDeleteAccount}
+                disabled={deleting}
+              >
+                {deleting ? "Se șterge…" : "Șterge contul"}
+              </button>
             </div>
+
+            {deleteErr && (
+              <div
+                className={settingsStyles.error}
+                role="alert"
+                style={{ marginTop: 12 }}
+              >
+                {deleteErr}
+              </div>
+            )}
           </Section>
         )}
       </main>

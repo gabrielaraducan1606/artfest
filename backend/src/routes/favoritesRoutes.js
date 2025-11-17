@@ -1,6 +1,9 @@
+// ==============================
+// File: server/routes/favorites.js (sau api/favorites.js)
+// ==============================
 import { Router } from "express";
-import { prisma } from "../db.js";
-import { authRequired } from "../api/auth.js";
+import { prisma } from "../db.js";            // ajustează calea la proiectul tău
+import { authRequired } from "../api/auth.js"; // ajustează calea
 import { z } from "zod";
 
 const router = Router();
@@ -9,12 +12,27 @@ const PAGE_SIZE_MAX = 50;
 const ListQuery = z.object({
   limit: z.coerce.number().int().positive().max(PAGE_SIZE_MAX).default(24),
   sort: z.enum(["newest", "oldest"]).default("newest"),
+  cursor: z.string().optional(), // base64(JSON) -> { createdAt, productId }
 });
 const BodyToggle = z.object({ productId: z.string().min(1) });
 const BodyBulk = z.object({
   add: z.array(z.string()).default([]),
   remove: z.array(z.string()).default([]),
 });
+
+const decodeCursor = (b64) => {
+  try {
+    if (!b64) return null;
+    const txt = Buffer.from(b64, "base64").toString("utf8");
+    const o = JSON.parse(txt);
+    if (!o || !o.createdAt || !o.productId) return null;
+    return { createdAt: new Date(o.createdAt), productId: String(o.productId) };
+  } catch {
+    return null;
+  }
+};
+const encodeCursor = (o) =>
+  Buffer.from(JSON.stringify({ createdAt: o.createdAt, productId: o.productId }), "utf8").toString("base64");
 
 /** GET /api/favorites/ids */
 router.get("/ids", authRequired, async (req, res) => {
@@ -26,10 +44,28 @@ router.get("/ids", authRequired, async (req, res) => {
   res.json({ items: favs.map((f) => f.productId) });
 });
 
-/** GET /api/favorites — pentru pagina de Wishlist */
+/** GET /api/favorites — pagina Wishlist, cu keyset pagination (createdAt, productId) */
 router.get("/", authRequired, async (req, res) => {
   try {
-    const { limit, sort } = ListQuery.parse(req.query);
+    const { limit, sort, cursor } = ListQuery.parse(req.query);
+    const c = decodeCursor(cursor);
+
+    const where = { userId: req.user.sub };
+    if (c?.createdAt && c?.productId) {
+      if (sort === "newest") {
+        // sort desc -> luam strict mai mici
+        where.OR = [
+          { createdAt: { lt: c.createdAt } },
+          { AND: [{ createdAt: c.createdAt }, { productId: { lt: c.productId } }] },
+        ];
+      } else {
+        // sort asc -> luam strict mai mari
+        where.OR = [
+          { createdAt: { gt: c.createdAt } },
+          { AND: [{ createdAt: c.createdAt }, { productId: { gt: c.productId } }] },
+        ];
+      }
+    }
 
     const orderBy =
       sort === "oldest"
@@ -37,8 +73,8 @@ router.get("/", authRequired, async (req, res) => {
         : [{ createdAt: "desc" }, { productId: "desc" }];
 
     const rows = await prisma.favorite.findMany({
-      where: { userId: req.user.sub },
-      take: limit,
+      where,
+      take: limit + 1, // overfetch pentru hasMore
       orderBy,
       include: {
         product: {
@@ -48,8 +84,6 @@ router.get("/", authRequired, async (req, res) => {
             priceCents: true,
             currency: true,
             images: true,
-            // !!! NU cere câmpuri inexistente pe Vendor (ex: slug).
-            // Slug-ul magazinului este de regulă pe service.profile.
             service: {
               select: {
                 vendorId: true,
@@ -57,20 +91,22 @@ router.get("/", authRequired, async (req, res) => {
                 profile: { select: { slug: true, displayName: true } },
               },
             },
-            // dacă ai și isActive/stock în model, le poți adăuga aici:
-            // isActive: true, stock: true,
+            // dacă există în modelul tău:
+            // isActive: true,
+            // stock: true,
           },
         },
       },
     });
 
-    const items = rows
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+
+    const items = page
       .filter((r) => !!r.product)
       .map((r) => {
         const p = r.product;
-        const price =
-          typeof p.priceCents === "number" ? p.priceCents / 100 : null;
-
+        const price = typeof p.priceCents === "number" ? p.priceCents / 100 : null;
         const vendorId = p?.service?.vendorId ?? null;
         const vendorName =
           p?.service?.profile?.displayName ??
@@ -90,12 +126,16 @@ router.get("/", authRequired, async (req, res) => {
             vendorId,
             vendorSlug,
             vendorName,
-            isActive: true, // sau p.isActive dacă îl selectezi
+            isActive: p?.isActive ?? true,
+            stock: p?.stock ?? undefined,
           },
         };
       });
 
-    res.json({ items, nextCursor: null, hasMore: false });
+    const last = page.at(-1);
+    const nextCursor = hasMore && last ? encodeCursor(last) : null;
+
+    res.json({ items, nextCursor, hasMore });
   } catch (err) {
     console.error("GET /api/favorites FAILED:", err);
     res.status(500).json({

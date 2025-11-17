@@ -1,83 +1,88 @@
 @import "../../../styles/variables.css";
 
-/* layout general */
-.wrapper {
-  background: var(--color-bg);
+/* ================== Design tokens & sizing ================== */
+:root {
+  --avatar-size: clamp(80px, 10vw, 120px);
+  --cover-h: clamp(180px, 28vw, 340px);
+
+  /* buton mai mic + mai aproape de colț */
+  --fab-size: 32px;
+  --fab-overlap: calc(var(--fab-size) * 0.22);
 }
 
-/* copertă */
+/* ================== Layout general ================== */
+.wrapper { background: var(--color-bg); }
+
+/* ================== Cover (fluid) ================== */
 .cover {
   width: 100%;
-  height: 220px;
+  height: var(--cover-h);
   background: var(--color-border);
+  position: relative;
+  overflow: hidden;
 }
 .coverImg {
   width: 100%;
-  height: 220px;
+  height: 100%;
   object-fit: cover;
   display: block;
 }
 .coverPlaceholder {
   width: 100%;
-  height: 220px;
-  background: var(--color-border);
+  height: 100%;
+  background: #e5e7eb; /* GRI placeholder */
 }
 
-/* card alb peste copertă */
+/* ================== Card peste copertă ================== */
 .card {
   position: relative;
-  max-width: 960px;
-  margin: -80px auto 24px auto;
+  max-width: min(1080px, 94vw);
+  margin: clamp(-72px, -10vw, -96px) auto 24px;
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  box-shadow: 0 12px 30px rgba(0,0,0,0.08);
-  padding: 16px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.08);
+  padding: clamp(12px, 2vw, 20px);
+  overflow: visible; /* ca FAB-ul avatarului să nu fie tăiat pe mobil */
 }
 
-/* header profil */
+/* ================== Header profil ================== */
 .headerRow {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 16px;
+  gap: clamp(12px, 2vw, 20px);
 }
 
-.avatarWrap {
+/* ancora avatarului pentru FAB */
+.avatarWrap{
   position: relative;
-  margin-top: 0px;
+  display: inline-block;
+  line-height: 0;
+  overflow: visible;
+  z-index: 4;
 }
-
-.avatar {
-  width: 96px;
-  height: 96px;
+.avatar,
+.avatarPlaceholder{
+  inline-size: var(--avatar-size);
+  block-size: var(--avatar-size);
   border-radius: 9999px;
   border: 4px solid var(--surface);
   object-fit: cover;
-  box-shadow: 0 8px 18px rgba(0,0,0,0.08);
+  display: block;
+  box-shadow: 0 8px 18px rgba(0,0,0,.08);
 }
-.avatarPlaceholder {
-  width: 96px;
-  height: 96px;
-  border-radius: 9999px;
-  border: 4px solid var(--surface);
-  background: var(--color-border);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 8px 18px rgba(0,0,0,0.08);
-}
+.avatarPlaceholder { background: #e5e7eb; }
 
+/* titluri */
 .title {
   font-family: var(--font-title);
-  font-size: clamp(1.4rem, 3.2vw, 2rem);
+  font-size: clamp(1.25rem, 3.2vw, 2rem);
   font-weight: 800;
   color: var(--color-text);
   margin: 0;
 }
-.subtitle {
-  color: var(--color-muted, rgba(0,0,0,.55));
-  margin-top: 4px;
-}
+.subtitle { color: var(--color-muted); margin-top: 4px; }
 
 /* link + copiere */
 .linkRow {
@@ -87,490 +92,344 @@
   margin-top: 6px;
   flex-wrap: wrap;
 }
-.slug {
-  font-size: 0.9rem;
-  color: var(--color-muted, #6b7280);
-  word-break: break-all;
-}
+.slug { font-size: .9rem; color: var(--color-muted); word-break: break-all; }
 .copyBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 4px 8px;
-  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border); background: var(--surface);
+  border-radius: 8px; padding: 4px 8px; cursor: pointer;
   transition: border-color .2s ease, background-color .2s ease;
 }
-.copyBtn:hover {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
-}
-.copiedBadge {
-  font-size: 0.85rem;
-  color: var(--color-primary);
-}
+.copyBtn:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 6%, var(--surface)); }
+.copyBtn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%); }
+.copiedBadge { font-size: .85rem; color: var(--color-primary); }
 
 /* acțiuni */
-.actions {
-  display: flex;
-  align-items: start;
-  gap: 8px;
-}
+.actions { display: flex; align-items: start; gap: 8px; }
 
-/* butoane */
+/* ================== Buttons ================== */
 .followBtn {
   border: 2px solid var(--color-primary);
-  background: var(--color-primary);
-  color: #fff;
-  font-weight: 700;
-  padding: 0.5rem 1rem;
-  border-radius: 9999px;
-  cursor: pointer;
-  transition: background-color .2s ease, border-color .2s ease;
+  background: var(--color-primary); color: #fff; font-weight: 700;
+  padding: .5rem 1rem; border-radius: 9999px; cursor: pointer;
+  transition: background-color .2s ease, border-color .2s ease, transform .04s ease;
 }
-.followBtn:hover {
-  background: var(--color-hover);
-  border-color: var(--color-hover);
-}
+.followBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.followBtn:active { transform: translateY(1px); }
+.followBtn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%); }
 
-/* alternative buttons pentru modal footers */
 .primaryBtn {
-  background: var(--color-primary);
-  color: #fff;
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 16px;
-  font-weight: 700;
-  cursor: pointer;
+  background: var(--color-primary); color: #fff; border: 0; border-radius: 10px;
+  padding: 10px 16px; font-weight: 700; cursor: pointer;
   transition: background .15s ease, box-shadow .15s ease, transform .04s ease;
   box-shadow: 0 1px 0 color-mix(in oklab, black, transparent 90%);
 }
 .primaryBtn:hover { background: var(--color-hover); }
 .primaryBtn:active { transform: translateY(1px); }
-.primaryBtn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%);
-}
+.primaryBtn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%); }
+
 .linkBtn {
-  background: transparent;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 9px 14px;
-  font-weight: 600;
-  cursor: pointer;
+  background: transparent; color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: 10px;
+  padding: 9px 14px; font-weight: 600; cursor: pointer;
   transition: background .15s ease, border-color .15s ease;
 }
-.linkBtn:hover {
-  background: color-mix(in oklab, var(--surface, #fff), black 3%);
-  border-color: color-mix(in oklab, var(--color-primary), transparent 70%);
-}
+.linkBtn:hover { background: color-mix(in oklab, var(--surface, #fff), black 3%); border-color: color-mix(in oklab, var(--color-primary), transparent 70%); }
+.linkBtn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%); }
 
-.hr {
-  border: 0;
-  border-top: 1px solid var(--color-border);
-  margin: 16px 0;
-}
+.hr { border: 0; border-top: 1px solid var(--color-border); margin: 16px 0; }
 
-/* secțiuni */
-.section {
-  padding: 6px 0 14px 0;
-}
-.sectionTitle {
-  font-family: var(--font-title);
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: var(--color-text);
-  margin: 8px 0 12px 0;
-}
-.subheading {
-  font-weight: 700;
-  color: var(--color-text);
-  margin: 4px 0 10px 0;
-}
-.about {
-  color: var(--color-text);
-  line-height: 1.6;
-}
+
+
+/* ================== Secțiuni ================== */
+.section { padding: 6px 0 14px 0;
+  scroll-margin-top: calc(var(--appbar-h) + var(--tabs-h) + 12px);}
+.sectionTitle { font-family: var(--font-title); font-size: 1.25rem; font-weight: 800; color: var(--color-text); margin: 8px 0 12px 0; }
+.subheading { font-weight: 700; color: var(--color-text); margin: 4px 0 10px 0; }
+.about { color: var(--color-text); line-height: 1.6; }
 
 /* meta */
-.meta {
-  display: grid;
-  gap: 10px;
-}
-.metaRow {
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  align-items: center;
-  gap: 8px;
-}
-.metaLabel {
-  color: var(--color-muted, rgba(0,0,0,.55));
-}
-.metaValue {
-  color: var(--color-text);
-}
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.tag {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  padding: 4px 10px;
-  border-radius: 9999px;
-  font-size: 0.875rem;
-}
-.link {
-  color: var(--color-primary);
-  text-decoration: none;
-}
-.link:hover {
-  text-decoration: underline;
-}
-.muted {
-  color: var(--color-muted, rgba(0,0,0,.55));
-}
+.meta { display: grid; gap: 10px; }
+.metaRow { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px; }
+.metaLabel { color: var(--color-muted); }
+.metaValue { color: var(--color-text); }
 
-/* produse */
-.productList {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-top: 100px;
-}
-.productList .cardBody {
-  padding: 8px 6px 10px;
-}
-.productList .cardTitle {
-  font-weight: 700;
-  color: var(--color-text);
-  margin: 0 0 4px 0;
-}
-.productList .price {
-  color: var(--color-text);
-  font-size: 0.95rem;
-}
+/* tag-uri */
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text); padding: 4px 10px; border-radius: 9999px; font-size: .875rem; }
+.link { color: var(--color-primary); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.muted { color: var(--color-muted); }
+
+/* ================== Produse ================== */
+.productList { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.productList .cardBody { padding: 8px 6px 10px; }
+.productList .cardTitle { font-weight: 700; color: var(--color-text); margin: 0 0 4px 0; }
+.productList .price { color: var(--color-text); font-size: .95rem; }
 .productList .card {
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  background: var(--surface);
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform .15s ease, box-shadow .2s ease, border-color .2s ease;
+  border: 1px solid var(--color-border); border-radius: 12px; background: var(--surface);
+  overflow: hidden; cursor: pointer; transition: transform .15s ease, box-shadow .2s ease, border-color .2s ease;
 }
-.productList .card:hover {
-  transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
-  box-shadow: 0 12px 22px rgba(0,0,0,.06);
-}
-.productList .image {
-  width: 100%;
-  height: 150px;
-  object-fit: cover;
-  display: block;
-  background: var(--color-bg);
-}
-.productList .noImage {
-  width: 100%;
-  height: 150px;
-  display: grid;
-  place-items: center;
-  background: var(--color-bg);
-  color: var(--color-muted, #9ca3af);
-  font-size: 0.9rem;
-}
-.emptyBox {
-  grid-column: 1/-1;
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-  color: #7c2d12;
-  padding: 10px 12px;
-  border-radius: 12px;
-}
+.productList .card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border)); box-shadow: 0 12px 22px rgba(0,0,0,.06); }
+.productList .image { width: 100%; height: 150px; object-fit: cover; display: block; background: var(--color-bg); }
+.productList .noImage { width: 100%; height: 150px; display: grid; place-items: center; background: #e5e7eb; color: var(--color-muted); font-size: .9rem; }
+.emptyBox { grid-column: 1 / -1; background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; padding: 10px 12px; border-radius: 12px; }
 
-/* recenzii */
-.ratingRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 0 12px;
+/* acțiuni card */
+.cardActions { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+.ownerRow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* icon-only buttons */
+.iconRow { display: flex; gap: 8px; }
+.iconBtn, .iconBtnOutline {
+  inline-size: 38px; block-size: 38px; border-radius: 10px; display: inline-grid; place-items: center; cursor: pointer;
+  transition: transform .08s ease, background-color .2s ease, border-color .2s ease, color .2s ease;
 }
-.ratingValue {
-  font-weight: 800;
-  color: var(--color-text);
-}
-.stars {
-  display: inline-flex;
-  gap: 2px;
-}
-.starFull {
-  color: var(--color-primary);
-}
-.starEmpty {
-  color: var(--color-border);
-}
+.iconBtn { border: 2px solid var(--color-primary); background: var(--color-primary); color: #fff; }
+.iconBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.iconBtn:active, .iconBtnOutline:active { transform: translateY(1px); }
+.iconBtnOutline { border: 1px solid var(--color-border); background: var(--surface); color: var(--color-text); }
+.iconBtnOutline:hover { border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 40%); background: color-mix(in oklab, var(--surface), var(--color-primary) 6%); }
+.heartFilled { color: var(--color-primary); border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 25%); background: color-mix(in oklab, var(--color-primary), var(--surface) 90%); }
+
+/* ================== Recenzii ================== */
+.ratingRow { display: flex; align-items: center; gap: 8px; margin: 6px 0 12px; }
+.ratingValue { font-weight: 800; color: var(--color-text); font-size: 1.1rem; }
+.stars { display: inline-flex; gap: 4px; }
+.starFull { color: #f59e0b; }
+.starEmpty { color: #9ca3af; }
+.starBtn { border: 0; padding: 2px; margin: 0; background: transparent; cursor: pointer; display: inline-grid; place-items: center; }
+.starBtn:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-primary), transparent 75%); border-radius: 6px; }
 
 .reviewItem {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 10px;
-  align-items: start;
+  display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start;
+  padding: 10px 0; border-bottom: 1px solid var(--color-border);
 }
-
-.reviewAvatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 9999px;
-  object-fit: cover;
-}
+.reviewAvatarWrap { grid-row: span 2; }
+.reviewAvatar { inline-size: 36px; block-size: 36px; border-radius: 9999px; object-fit: cover; }
 .reviewAvatarPlaceholder {
-  width: 36px;
-  height: 36px;
-  border-radius: 9999px;
-  background: var(--color-border);
-  color: var(--color-muted, #9ca3af);
-  display: grid;
-  place-items: center;
+  inline-size: 36px; block-size: 36px; border-radius: 9999px;
+  background: #e5e7eb; color: var(--color-muted); display: grid; place-items: center;
+}
+.reviewBody { min-width: 0; }
+.reviewHeader { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.reviewName { font-weight: 700; color: var(--color-text); }
+.reviewText { color: var(--color-text); line-height: 1.5; margin: 4px 0 8px; white-space: pre-wrap; }
+.reviewMeta { display: flex; align-items: center; gap: 10px; color: var(--color-muted); font-size: .9rem; }
+
+/* badge „Verificat” */
+.badge {
+  display: inline-block; font-size: .75rem; font-weight: 700; color: var(--color-success);
+  background: color-mix(in oklab, var(--color-success), white 92%);
+  border: 1px solid color-mix(in oklab, var(--color-success), transparent 70%);
+  padding: 2px 6px; border-radius: 999px;
 }
 
-.reviewHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+/* răspuns vânzător */
+.ownerReply {
+  margin-top: 8px; border-left: 3px solid color-mix(in oklab, var(--color-primary), transparent 40%);
+  padding-left: 10px; background: color-mix(in oklab, var(--color-primary), var(--surface) 95%); border-radius: 6px;
 }
-.reviewName {
-  font-weight: 700;
-  color: var(--color-text);
-}
-.reviewText {
-  color: var(--color-text);
-  line-height: 1.5;
-}
+.ownerReply > strong { display: block; margin-bottom: 4px; }
 
-/* ===== Modal – look & feel pro ===== */
+/* histogramă */
+.histogram { list-style: none; margin: 8px 0 14px; padding: 0; display: grid; gap: 6px; }
+.histRow { display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 8px; }
+.histLabel { border: 0; background: transparent; color: var(--color-text); padding: 2px 6px; border-radius: 8px; cursor: pointer; }
+.histLabel:hover { background: color-mix(in oklab, var(--color-primary), var(--surface) 94%); }
+.histBar { height: 8px; border-radius: 999px; background: color-mix(in oklab, var(--color-border), var(--surface)); overflow: hidden; }
+.histFill { height: 100%; width: 0%; background: var(--color-primary); border-radius: 999px; transition: width .25s ease; }
+.histCount { color: var(--color-muted); min-width: 28px; text-align: right; }
+
+/* filtre/sort */
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0 10px; }
+.input {
+  border: 1px solid var(--color-border); background: var(--surface); color: var(--color-text);
+  border-radius: 10px; padding: 8px 10px; min-width: 180px;
+}
+.checkbox { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text); }
+
+/* ================== Modal (look & feel pro) ================== */
 .modalBackdrop {
-  position: fixed;
-  inset: 0;
+  position: fixed; inset: 0;
   background: color-mix(in oklab, black 35%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: grid;
-  place-items: center;
-  z-index: 1000;
-  animation: modalOverlayIn .18s ease-out;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  display: grid; place-items: center; z-index: 1000; animation: modalOverlayIn .18s ease-out;
 }
-@keyframes modalOverlayIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+@keyframes modalOverlayIn { from { opacity: 0; } to { opacity: 1; } }
 
 .modalContent {
   width: min(92vw, var(--modal-w, 640px));
   background: var(--surface, #fff);
   border: 1px solid var(--color-border);
   border-radius: 16px;
-  box-shadow:
-    0 10px 25px rgba(0, 0, 0, .08),
-    0 2px 6px rgba(0, 0, 0, .06);
-  overflow: hidden; /* header/body/footer separate */
-  transform-origin: 50% 40%;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, .08), 0 2px 6px rgba(0, 0, 0, .06);
+  overflow: hidden; transform-origin: 50% 40%;
   animation: modalPanelIn .22s cubic-bezier(.2,.8,.2,1);
 }
-@keyframes modalPanelIn {
-  from { opacity: 0; transform: translateY(6px) scale(.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
+@keyframes modalPanelIn { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
-/* header/body/footer */
 .modalHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--color-border);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 18px; border-bottom: 1px solid var(--color-border);
   background: color-mix(in oklab, var(--surface, #fff), black 2%);
 }
-.modalTitle {
-  margin: 0;
-  font-family: var(--font-title);
-  font-size: 1.05rem;
-  font-weight: 800;
-  color: var(--color-text);
-}
-.modalBody {
-  padding: 16px 18px;
-  max-height: min(70vh, 900px);
-  overflow: auto;
-}
-.modalFooter {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px 18px;
-  border-top: 1px solid var(--color-border);
-}
+.modalTitle { margin: 0; font-family: var(--font-title); font-size: 1.05rem; font-weight: 800; color: var(--color-text); }
+.modalBody { padding: 16px 18px; max-height: min(70vh, 900px); overflow: auto; }
+.modalFooter { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 12px 18px 18px; border-top: 1px solid var(--color-border); }
 
 /* buton close rotund */
 .modalClose {
-  inline-size: 34px;
-  block-size: 34px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  color: var(--color-text);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
+  inline-size: 34px; block-size: 34px; border-radius: 999px;
+  border: 1px solid var(--color-border); background: var(--surface); color: var(--color-text);
+  display: grid; place-items: center; cursor: pointer;
   transition: transform .06s ease, background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.modalClose:hover {
-  background: color-mix(in oklab, var(--color-primary), white 92%);
-  border-color: color-mix(in oklab, var(--color-primary), transparent 70%);
-}
+.modalClose:hover { background: color-mix(in oklab, var(--color-primary), white 92%); border-color: color-mix(in oklab, var(--color-primary), transparent 70%); }
 .modalClose:active { transform: translateY(1px); }
-.modalClose:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 75%);
-}
+.modalClose:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 75%); }
 
-/* form control reuse (folosești .input/.textarea/.label existente) */
-.formGrid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
+/* form grid (în modale) */
+.formGrid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 
-/* rând imagini + previews */
-.imagesRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.thumbGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 90px);
-  gap: 8px;
-  width: 100%;
-}
-.thumbItem {
-  position: relative;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--color-bg);
-}
-.thumbImg {
-  width: 100%;
-  height: 90px;
-  object-fit: cover;
-  display: block;
-}
-.thumbRemove {
+/* upload thumbs reutilizabile */
+.imagesRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.thumbGrid { display: grid; grid-template-columns: repeat(auto-fill, 90px); gap: 8px; width: 100%; }
+.thumbItem { position: relative; border: 1px solid var(--color-border); border-radius: 10px; overflow: hidden; background: var(--color-bg); }
+.thumbImg { width: 100%; height: 90px; object-fit: cover; display: block; }
+.thumbRemove { position: absolute; top: 4px; right: 4px; border: 0; background: rgba(0,0,0,.6); color: #fff; border-radius: 6px; padding: 2px 6px; cursor: pointer; }
+
+/* ================== FAB Cameră (stil comun) ================== */
+.editFab {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  border: 0;
-  background: rgba(0,0,0,.6);
-  color: #fff;
-  border-radius: 6px;
-  padding: 2px 6px;
-  cursor: pointer;
-}
-
-/* acțiuni card */
-.cardActions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 6px;
-}
-.ownerRow {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* icon-only buttons (favorite / cart) */
-.iconRow {
-  display: flex;
-  gap: 8px;
-}
-.iconBtn,
-.iconBtnOutline {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  display: inline-grid;
+  inline-size: var(--fab-size);
+  block-size: var(--fab-size);
+  border-radius: 9999px;
+  display: grid;
   place-items: center;
-  cursor: pointer;
-  transition: transform .08s ease, background-color .2s ease, border-color .2s ease, color .2s ease;
+  cursor: pointer; z-index: 5;
+  background: var(--surface); color: var(--color-text);
+  border: 1px solid color-mix(in oklab, var(--color-border), var(--color-text) 8%);
+  box-shadow: 0 6px 16px rgba(0,0,0,.12), 0 1px 0 color-mix(in oklab, black, transparent 92%);
+  transition: transform .06s ease, background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.iconBtn {
-  border: 2px solid var(--color-primary);
-  background: var(--color-primary);
-  color: #fff;
+.editFab:hover { background: color-mix(in oklab, var(--surface), var(--color-primary) 10%); border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 60%); }
+.editFab:active { transform: translateY(1px); }
+.editFab:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 70%), 0 6px 16px rgba(0,0,0,.12); }
+.editFab svg { pointer-events: none; }
+/* --- FAB pe copertă: colț dreapta-sus + etichetă pe mobil --- */
+.editFabCover { top: clamp(8px, 1.4vw, 14px); right: clamp(8px, 1.4vw, 14px); z-index: 6; }
+.editFabCover::after {
+  content: "Copertă"; position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  font-size: 12px; font-weight: 700; padding: 6px 8px; border-radius: 999px;
+  background: rgb(0 0 0 / .55); color: #fff; backdrop-filter: blur(2px); white-space: nowrap; pointer-events: none; display: none;
 }
-.iconBtn:hover {
-  background: var(--color-hover);
-  border-color: var(--color-hover);
-}
-.iconBtn:active,
-.iconBtnOutline:active {
-  transform: translateY(1px);
-}
-.iconBtnOutline {
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  color: var(--color-text);
-}
-.iconBtnOutline:hover {
-  border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 40%);
-  background: color-mix(in oklab, var(--surface), var(--color-primary) 6%);
-}
-.heartFilled {
-  color: var(--color-primary);
-  border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 25%);
-  background: color-mix(in oklab, var(--color-primary), var(--surface) 90%);
+@media (max-width: 600px) { .editFabCover::after { display: inline-block; } }
+
+/* --- FAB pe avatar: MODERN (Anchor Positioning) --- */
+@supports (anchor-name: --a) and (position-anchor: --a) {
+  .avatar { anchor-name: --avatar; }     /* avatarul devine ancora */
+
+  .editFabAvatar{
+    position: absolute;
+    position-anchor: --avatar;
+    left: anchor(right);                 /* marginea dreaptă a avatarului */
+    top:  anchor(bottom);                /* marginea de jos a avatarului */
+    translate: -94% -94%;               /* MAI aproape de colț */
+
+    inline-size: var(--fab-size);
+    block-size: var(--fab-size);
+    border: 2px solid var(--surface);
+    z-index: 10;
+    box-shadow: 0 6px 18px rgb(0 0 0 / .18), 0 1px 0 color-mix(in oklab, black, transparent 90%);
+  }
+
+  @media (max-width: 420px){
+    .editFabAvatar{ translate: -60% -60%;}
+    
+  }
 }
 
-/* responsive */
+/* --- FAB pe avatar: FALLBACK (fără ancore) --- */
+@supports not ((anchor-name: --a) and (position-anchor: --a)) {
+  .editFabAvatar{
+    position: absolute;
+    right: calc(-1 * var(--fab-overlap));
+    bottom: calc(-1 * var(--fab-overlap));
+    left: auto !important;
+    top: auto !important;
+    inline-size: var(--fab-size);
+    block-size: var(--fab-size);
+    border: 2px solid var(--surface);
+    transform: none !important;
+    z-index: 10;
+    box-shadow: 0 6px 18px rgb(0 0 0 / .18), 0 1px 0 color-mix(in oklab, black, transparent 90%);
+  }
+}
+
+/* DPI mari */
+@media (min-resolution: 2dppx) { .editFab { inline-size: var(--fab-size); block-size: var(--fab-size); } }
+
+/* ================== Responsive ================== */
+@media (max-width: 960px) {
+  .headerRow { grid-template-columns: auto 1fr; row-gap: 12px; }
+}
 @media (max-width: 768px) {
-  .card {
-    margin: -60px 12px 24px;
-  }
-  .headerRow {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-  .actions {
-    justify-content: flex-start;
-  }
-  .avatarWrap {
-    margin-top: -48px;
-  }
-  .metaRow {
-    grid-template-columns: 100px 1fr;
+  .card { margin: clamp(-48px, -8vw, -60px) 12px 20px; }
+  .headerRow { grid-template-columns: 1fr; }
+  .actions { justify-content: flex-start; }
+  .avatarWrap { margin-top: clamp(-42px, -6vw, -48px); }
+  .metaRow { grid-template-columns: 110px 1fr; }
+}
+@media (max-width: 480px) {
+  .metaRow { grid-template-columns: 96px 1fr; }
+  .productList { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+}
+
+/* iOS notches – siguranță pentru FAB pe cover */
+@supports (padding: max(0px)) {
+  .editFabCover {
+    right: max(12px, env(safe-area-inset-right));
+    top: max(12px, env(safe-area-inset-top));
   }
 }
 
-/* Motion respect */
+/* ================== Motion respect ================== */
 @media (prefers-reduced-motion: reduce) {
   .modalBackdrop { animation: none; }
-  .modalContent  { animation: none; }
+  .modalContent { animation: none; }
+  .editFab { transition: none; }
+  .histFill { transition: none; }
 }
 
-/* Dark mode polish */
+/* ================== Dark mode polish ================== */
 @media (prefers-color-scheme: dark) {
-  .modalHeader {
-    background: color-mix(in oklab, var(--surface, #111), white 3%);
-  }
+  .modalHeader { background: color-mix(in oklab, var(--surface, #111), white 3%); }
+  .editFab { background: color-mix(in oklab, var(--surface, #111), white 6%); border-color: color-mix(in oklab, var(--color-border), white 8%); }
+  .editFab:hover { background: color-mix(in oklab, var(--surface, #111), var(--color-primary) 16%); }
+}
+
+/* --- Reviews inline additions --- */
+.writeCard { padding: 12px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--surface); }
+.h3 { margin: 0 0 8px; font-size: 1.1rem; }
+.writeRow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.err { color: #b91c1c; font-size: .9rem; }
+.replyBox { margin-top: 8px; }
+.replyRow { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+
+/* <360px – micșorăm puțin paddingul tab-urilor */
+@media (max-width: 360px) {
+  .tabBtn { padding: 7px 10px; font-size: .9rem; }
+  .title { font-size: clamp(1.1rem, 5vw, 1.6rem); }
+  
+}
+
+/* >=1440px – aerisire pe ecrane mari */
+@media (min-width: 1440px) {
+  .card { max-width: 1200px; }
+}
+
+/* Contrast mai puternic */
+@media (prefers-contrast: more) {
+  .tabBtn[aria-current="page"] { box-shadow: 0 0 0 2px rgba(0,0,0,.15) inset; }
+  .linkBtn, .copyBtn { border-color: var(--color-text); }
 }

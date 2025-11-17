@@ -1,0 +1,556 @@
+@import "../../../../../styles/variables.css";
+
+/* =========================================================
+   ProductList.module.css — responsive, a11y, dark-mode ready
+   Mobile-first; ajustează valorile după nevoi
+========================================================= */
+
+/* ---------- Secțiune ---------- */
+.wrap {
+  padding: 6px 0 14px;
+  scroll-margin-top: 90px;
+}
+
+/* ---------- Header ---------- */
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.headerLeft { display: inline-flex; align-items: center; gap: 8px; }
+.title {
+  font-family: var(--font-title);
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0;
+}
+.count {
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.addBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease, box-shadow .15s ease;
+}
+.addBtn:hover {
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 8%);
+  border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 50%);
+}
+.addBtn:active { transform: translateY(1px); }
+.addBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%);
+}
+.headerRight { display: inline-flex; align-items: center; gap: 8px; }
+
+/* ---------- Sortare rapidă ---------- */
+.sortInline { display: inline-flex; gap: 6px; }
+.sortBtn {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease, box-shadow .15s ease;
+}
+.sortBtn:hover {
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 8%);
+  border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 50%);
+}
+.sortBtn:active { transform: translateY(1px); }
+.sortBtn.active {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-hover));
+  color: #fff;
+  border-color: transparent;
+}
+.hideSm { display: inline; }
+
+/* ---------- Buton Filtre ---------- */
+.filterBtn {
+  position: relative;
+  border: 2px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 800;
+  border-radius: 9999px;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease, box-shadow .15s ease;
+}
+.filterBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.filterBtn:active { transform: translateY(1px); }
+.filterBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%);
+}
+.badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #fff;
+  color: var(--color-primary);
+  border: 2px solid var(--color-primary);
+  min-width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: .75rem;
+  font-weight: 900;
+}
+
+/* ---------- Chips (filtre active) ---------- */
+.chipsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+.chip {
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 6%);
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.chip:hover {
+  border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 50%);
+}
+.chipX { opacity: .7; }
+.resetAll {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+/* ---------- Panou filtre (drawer desktop / sheet mobil) ---------- */
+:root {
+  --app-topbar-h: 64px;
+  --app-bottombar-h: 64px;
+}
+.panel {
+  position: fixed;
+  z-index: 1000;
+  inset-inline-end: 0;
+  inset-block-start: 0;
+  inline-size: min(420px, 92vw);
+  block-size: 100dvh;
+  background: var(--surface);
+  border-left: 1px solid var(--color-border);
+  transform: translateX(110%);
+  transition: transform .22s cubic-bezier(.2,.8,.2,1);
+  box-shadow: -10px 0 25px rgba(0,0,0,.08);
+}
+.panel.open { transform: translateX(0); }
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: color-mix(in oklab, black 40%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+@media (max-width: 720px) {
+  .panel {
+    inset-inline: 0;
+    inset-block-end: 0;
+    inline-size: 100%;
+    block-size: min(80dvh, 620px);
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+    transform: translateY(110%);
+    margin-bottom: var(--app-bottombar-h);
+  }
+  .panel.open { transform: translateY(0); }
+}
+
+/* Header sticky în panou */
+.panelHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface), black 2%);
+}
+.panelHeader strong {
+  font-family: var(--font-title);
+  font-weight: 800;
+}
+.panelClose {
+  inline-size: 34px;
+  block-size: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  display: grid;              /* << asigură vizibil pe desktop */
+  place-items: center;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.panelClose:hover {
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 8%);
+}
+
+/* Grabber + close FAB pe mobil */
+.panelGrabber {
+  display: none;
+}
+@media (max-width: 720px) {
+  .panelGrabber {
+    display: block;
+    inline-size: 56px;
+    block-size: 6px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--color-text), transparent 80%);
+    margin: 8px auto 6px;
+  }
+}
+.panelCloseFab {
+  position: absolute;
+  top: 25px;
+  right: 8px;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  display: none;              /* ascuns pe desktop */
+  place-items: center;
+  z-index: 3;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease, box-shadow .15s ease;
+}
+.panelCloseFab:hover {
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 10%);
+  border-color: color-mix(in oklab, var(--color-primary), var(--color-border) 55%);
+}
+.panelCloseFab:active { transform: translateY(1px); }
+.panelCloseFab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%);
+}
+@media (max-width: 720px) { .panelClose { display: none; }       /* << ascunde X din header */
+  .panelCloseFab { display: grid; }  }
+
+/* Body cu calcul de înălțime ca să nu fie acoperit de footer + tabbar */
+.panelBody {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+  max-block-size: calc(100% - 100px - var(--app-bottombar-h));
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Footer sticky + glass */
+.panelFooter {
+  position: sticky;
+  inset-block-end: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--color-border);
+  background:
+    linear-gradient(to top,
+      color-mix(in oklab, var(--surface) 94%, transparent),
+      color-mix(in oklab, var(--surface) 88%, transparent) 60%,
+      transparent 100%);
+  backdrop-filter: saturate(120%) blur(8px);
+  -webkit-backdrop-filter: saturate(120%) blur(8px);
+  z-index: 1;
+}
+
+/* Butoane în footer */
+.panelFooter .linkBtn,
+.panelFooter .primaryBtn {
+  inline-size: auto;
+  min-inline-size: 140px;
+  block-size: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-inline: 16px;
+  border-radius: 9999px;
+  font-weight: 800;
+  letter-spacing: .15px;
+  transition: transform .06s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  box-shadow: var(--shadow-sm);
+}
+.panelFooter .linkBtn {
+  border-width: 1.5px;
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 4%);
+  border-color: color-mix(in oklab, var(--color-border), var(--color-primary) 30%);
+  color: var(--color-text);
+}
+.panelFooter .linkBtn:hover {
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 10%);
+  border-color: color-mix(in oklab, var(--color-border), var(--color-primary) 55%);
+}
+.panelFooter .linkBtn:active { transform: translateY(1px); }
+.panelFooter .primaryBtn {
+  border: 0;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-hover));
+  color: #fff;
+  box-shadow:
+    0 8px 18px color-mix(in oklab, var(--color-primary), transparent 70%),
+    0 1px 0 color-mix(in oklab, black, transparent 90%);
+}
+.panelFooter .primaryBtn:hover {
+  background: linear-gradient(135deg, var(--color-hover), var(--color-hover));
+  box-shadow:
+    0 10px 22px color-mix(in oklab, var(--color-primary), transparent 60%),
+    0 1px 0 color-mix(in oklab, black, transparent 88%);
+}
+.panelFooter .primaryBtn:active { transform: translateY(1px); }
+.panelFooter .linkBtn:focus-visible,
+.panelFooter .primaryBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%), var(--shadow-sm);
+}
+.panelFooter .primaryBtn:disabled,
+.panelFooter .linkBtn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Mobile: butoane egale pe un rând */
+@media (max-width: 560px) {
+  .panelFooter .linkBtn,
+  .panelFooter .primaryBtn {
+    min-inline-size: 0;
+    flex: 1 1 0;
+  }
+}
+
+/* ---------- Form controls (în panel) ---------- */
+.label { display: grid; gap: 6px; font-weight: 700; color: var(--color-text); }
+.input, .select {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: 10px;
+  padding: 9px 10px;
+  min-width: 180px;
+}
+.input:focus-visible, .select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%);
+}
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--surface);
+  width: fit-content;
+}
+.twoCols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.catRow { display: flex; gap: 8px; align-items: center; }
+.catChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 10%);
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+/* ---------- Butoane generice (aliniate cu profilul) ---------- */
+.linkBtn {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.linkBtn:hover {
+  background: color-mix(in oklab, var(--surface, #fff), black 3%);
+  border-color: color-mix(in oklab, var(--color-primary), transparent 70%);
+}
+.linkBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%);
+}
+.primaryBtn {
+  background: var(--color-primary);
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, transform .06s ease, box-shadow .15s ease;
+}
+.primaryBtn:hover { background: var(--color-hover); }
+.primaryBtn:active { transform: translateY(1px); }
+
+/* ---------- Empty & grid ---------- */
+.empty {
+  grid-column: 1/-1;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #7c2d12;
+  padding: 10px 12px;
+  border-radius: 12px;
+  text-align: center;
+}
+.cta {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease;
+}
+.cta:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.cta:active { transform: translateY(1px); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+/* =========================================================
+   Responsive — breakpoints fine-grained
+========================================================= */
+@media (max-width: 520px) { .hideSm { display: none; } }
+@media (max-width: 480px) {
+  .grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .input, .select { min-width: 160px; }
+}
+@media (max-width: 360px) {
+  .filterBtn { padding: 7px 12px; }
+  .sortBtn { padding: 6px 8px; }
+  .title { font-size: 1.1rem; }
+}
+@media (max-width: 600px) { .input, .select { min-width: 140px; } }
+@media (max-width: 720px) { .twoCols { grid-template-columns: 1fr; } }
+@media (min-width: 960px) { .grid { gap: 14px; } }
+@media (min-width: 1200px) { .grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); } }
+@media (min-width: 1440px) {
+  .grid { gap: 16px; }
+  .panel { inline-size: 460px; }
+}
+
+/* =========================================================
+   Dark mode polish
+========================================================= */
+@media (prefers-color-scheme: dark) {
+  .empty {
+    background: color-mix(in oklab, #111, #fff 6%);
+    border-color: color-mix(in oklab, #fed7aa, #000 25%);
+    color: #f8e6d6;
+  }
+  .panelHeader {
+    background: color-mix(in oklab, var(--surface, #111), white 3%);
+  }
+  .panelClose {
+    background: color-mix(in oklab, var(--surface, #111), white 6%);
+    border-color: color-mix(in oklab, var(--color-border), white 8%);
+  }
+  .panelClose:hover {
+    background: color-mix(in oklab, var(--surface, #111), var(--color-primary) 16%);
+  }
+  .panelFooter {
+    background:
+      linear-gradient(to top,
+        color-mix(in oklab, var(--surface, #111) 94%, transparent),
+        color-mix(in oklab, var(--surface, #111) 88%, transparent) 60%,
+        transparent 100%);
+  }
+  .panelFooter .linkBtn {
+    background: color-mix(in oklab, var(--surface, #111), var(--color-primary) 8%);
+    border-color: color-mix(in oklab, var(--color-border), white 14%);
+  }
+}
+
+/* =========================================================
+   Motion / Accessibility
+========================================================= */
+@media (prefers-reduced-motion: reduce) {
+  .panel, .addBtn, .sortBtn, .filterBtn, .chip, .linkBtn, .primaryBtn, .cta {
+    transition: none !important;
+  }
+}
+@media (prefers-contrast: more) {
+  .filterBtn, .primaryBtn { box-shadow: 0 0 0 2px rgba(0,0,0,.2); }
+  .linkBtn, .addBtn, .sortBtn { border-color: var(--color-text); }
+  .chip { border-style: solid; }
+}
+
+/* Safe areas (iOS notches) */
+@supports (padding: max(0px)) {
+  .panel { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .panelFooter { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+
+/* =========================================================
+   Print: ascunde elementele interactive
+========================================================= */
+@media print {
+  .headerRight, .filterBtn, .chipsRow, .panel, .backdrop, .addBtn, .sortInline { display: none !important; }
+  .wrap { padding: 0; }
+  .grid { gap: 8px; }
+}

@@ -1,0 +1,284 @@
+/* Reviews.module.css
+   Rating & Reviews – responsive pentru toate tipurile de ecrane
+   - Folosește variabilele globale din tema ta
+   - Tipografie fluidă (clamp)
+   - Container queries + fallback media queries
+   - Accesibilitate: focus, forced-colors, sr-only, print
+*/
+
+/* ===== Utilities globale ===== */
+:global(.sr-only){
+  position:absolute !important;
+  width:1px !important;
+  height:1px !important;
+  padding:0 !important;
+  margin:-1px !important;
+  overflow:hidden !important;
+  clip:rect(0,0,0,0) !important;
+  white-space:nowrap !important;
+  border:0 !important;
+}
+
+/* ===== Container de secțiune ===== */
+.section {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: clamp(16px, 2.2vw, 24px);
+  box-shadow: var(--shadow-md);
+  container-type: inline-size;  /* pentru container queries */
+  container-name: reviews;
+}
+
+.sectionTitle {
+  font-size: clamp(1.15rem, 2.2vw, 1.5rem);
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  margin: 0 0 clamp(10px, 1.5vw, 16px);
+  color: var(--color-text);
+}
+
+.muted { color: var(--color-muted); font-size: .9rem; }
+.h3 { margin: 0 0 10px; font-size: clamp(1rem, 1.8vw, 1.15rem); color: var(--color-text); }
+.err { color: var(--color-danger); font-weight: 600; margin-inline-start: 8px; }
+
+/* ===== Header rating ===== */
+.ratingRow {
+  display:flex; align-items:center; gap:12px;
+  padding: 8px 0 12px;
+  border-bottom: 1px dashed var(--color-border);
+  flex-wrap: wrap;
+}
+.ratingValue {
+  font-size: clamp(2rem, 4.2vw, 2.8rem);
+  font-weight: 900; letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-hover));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+/* ===== Stele ===== */
+.stars { display:inline-flex; align-items:center; gap: 4px; }
+.starBtn {
+  all: unset; cursor: pointer; line-height: 0;
+  border-radius: 8px; padding: 4px; /* hit-area mai mare pe touch */
+  transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+}
+.starBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 35%, transparent);
+  border-radius: 8px;
+}
+.starBtn:hover {
+  transform: translateY(-1px) scale(1.06);
+  filter: drop-shadow(0 6px 10px color-mix(in srgb, var(--color-primary) 35%, transparent));
+}
+.starEmpty, .starFull {
+  width: clamp(18px, 2.2vw, 22px);
+  height: clamp(18px, 2.2vw, 22px);
+  display:block; transition: color .2s ease, filter .2s ease;
+}
+.starEmpty { color: color-mix(in srgb, var(--color-muted) 40%, transparent); }
+.starFull {
+  color: var(--color-warning);
+  filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--color-warning) 35%, transparent));
+}
+
+/* ===== KPI (vendor) ===== */
+.kpiStrip {
+  display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:10px; margin: 12px 0 16px;
+}
+.kpiBox {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  padding: clamp(10px, 1.8vw, 14px);
+  box-shadow: var(--shadow-sm);
+  position: relative; overflow: hidden; min-height: 68px;
+}
+.kpiBox::after{
+  content:""; position:absolute; inset:auto -40% -60% auto;
+  width:160px; height:160px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-hover));
+  opacity:.18; filter: blur(28px); transform: rotate(25deg); pointer-events:none;
+}
+.kpiBox strong { font-size: clamp(1.1rem, 2vw, 1.35rem); color: var(--color-text); }
+.kpiBox span { display:block; color: var(--color-muted); font-size: .85rem; margin-top: 2px; }
+
+/* ===== Histogramă ===== */
+.histogram { list-style:none; padding:0; margin: 12px 0; display:flex; flex-direction:column; gap:8px; }
+.histRow { display:grid; grid-template-columns: 72px 1fr auto; align-items:center; gap:10px; }
+.histLabel { all:unset; cursor:pointer; color: var(--color-text); font-weight: 700; font-size:.95rem; opacity:.9; }
+.histLabel:hover { text-decoration: underline; }
+.histBar {
+  height: 12px; background: color-mix(in srgb, var(--color-muted) 20%, transparent);
+  border-radius: 999px; overflow:hidden; position:relative;
+  border: 1px solid var(--color-border);
+}
+.histFill {
+  height:100%;
+  background: linear-gradient(90deg, var(--color-primary), var(--color-hover));
+  border-radius: inherit;
+  box-shadow: inset 0 0 12px color-mix(in srgb, white 12%, transparent);
+  animation: grow .8s ease both;
+}
+.histCount { color: var(--color-muted); font-variant-numeric: tabular-nums; }
+@keyframes grow{ from{ width:0 } }
+
+/* ===== Controale listă ===== */
+.controls {
+  display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+  padding: 6px 0 14px;
+  border-top: 1px dashed var(--color-border);
+  border-bottom: 1px dashed var(--color-border);
+  margin: 10px 0 14px;
+}
+.input {
+  appearance:none; background: var(--surface);
+  border:1px solid var(--color-border);
+  border-radius: 8px; padding: 10px 12px; color: var(--color-text);
+  box-shadow: var(--shadow-sm); min-height: 40px;
+}
+.checkbox { display:flex; align-items:center; gap:8px; color: var(--color-text); font-size:.95rem; }
+.checkbox input{ width:18px; height:18px; accent-color: var(--color-primary); }
+
+/* ===== Butoane ===== */
+.linkBtn {
+  all:unset; cursor:pointer; color: var(--color-hover);
+  font-weight:700; font-size:.95rem; padding: 6px 8px; border-radius: 8px;
+  transition: background .15s ease, color .15s ease;
+}
+.linkBtn:hover { background: color-mix(in srgb, var(--color-hover) 12%, transparent); color: var(--color-text); }
+.primaryBtn {
+  all:unset; cursor:pointer; padding: 10px 14px;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-hover));
+  color:#fff; font-weight:800; border-radius: 10px;
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+}
+.primaryBtn:hover { transform: translateY(-1px); filter: brightness(1.03); }
+.primaryBtn:active { transform: translateY(0); filter: brightness(.98); }
+.primaryBtn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 35%, transparent); }
+
+/* ===== Card recenzie ===== */
+.reviewItem {
+  display:grid; grid-template-columns: 56px 1fr; gap:12px; padding: 14px;
+  background: var(--surface); border:1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px); box-shadow: var(--shadow-sm);
+}
+.reviewItem + .reviewItem { margin-top: 10px; }
+.reviewAvatarWrap { width: 56px; height: 56px; }
+.reviewAvatar {
+  width: 56px; height:56px; border-radius: 50%; object-fit: cover;
+  border:1px solid var(--color-border);
+}
+.reviewAvatarPlaceholder {
+  width:56px; height:56px; border-radius: 50%; display:grid; place-items:center;
+  background: color-mix(in srgb, var(--color-muted) 14%, transparent);
+  color: var(--color-muted); border:1px dashed var(--color-border);
+}
+
+.reviewBody { display:flex; flex-direction:column; gap:8px; min-inline-size: 0; }
+.reviewHeader { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap: wrap; }
+.reviewName { font-weight: 800; color: var(--color-text); display:flex; align-items:center; gap:8px; min-inline-size: 0; }
+.badge {
+  background: color-mix(in srgb, var(--color-success) 18%, transparent);
+  color: var(--color-success);
+  border:1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+  font-weight:800; font-size:.75rem; padding:2px 8px; border-radius:999px;
+}
+.reviewText { margin: 0; color: var(--color-text); line-height: 1.55; }
+.reviewMeta { display:flex; flex-wrap:wrap; align-items:center; gap:10px; color: var(--color-muted); font-size:.9rem; }
+.vendorActions { margin-inline-start:auto; display:flex; gap:8px; }
+
+/* ===== Răspuns vânzător ===== */
+.ownerReply {
+  margin-top: 10px; padding: 10px 12px;
+  border-left: 4px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-radius: 8px; color: var(--color-text);
+}
+.ownerReply strong{ display:block; margin-bottom:6px; }
+
+/* ===== Editor răspuns ===== */
+.replyBox {
+  margin-top: 8px;
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  border:1px dashed var(--color-border);
+  border-radius: 10px; padding: 8px;
+}
+.replyBox > summary { list-style: none; cursor: pointer; }
+.replyBox > summary::-webkit-details-marker { display: none; }
+.replyRow { display:flex; align-items:center; gap:10px; margin-top: 10px; }
+
+/* ===== Formular scrie recenzie ===== */
+.writeCard {
+  padding: 14px; background: var(--surface);
+  border:1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: var(--shadow-sm);
+}
+.writeRow { display:flex; align-items:center; gap:12px; flex-wrap: wrap; }
+.textarea {
+  width:100%; background: transparent;
+  border:1px solid var(--color-border);
+  border-radius: 10px; padding: 10px 12px; color: var(--color-text);
+  resize: vertical; box-shadow: inset 0 3px 8px rgba(0,0,0,.03);
+  min-block-size: clamp(120px, 18vh, 220px);
+}
+.textarea:focus {
+  outline:none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent), inset 0 3px 8px rgba(0,0,0,.03);
+}
+.modalFooter { margin-top: 10px; display:flex; align-items:center; gap:12px; flex-wrap: wrap; }
+
+/* ===== Container queries (pe .section) ===== */
+@container reviews (max-width: 520px){
+  .reviewItem{ grid-template-columns: 44px 1fr; padding: 12px; }
+  .reviewAvatar, .reviewAvatarPlaceholder, .reviewAvatarWrap { width:44px; height:44px; }
+  .histRow{ grid-template-columns: 60px 1fr auto; }
+  .controls{ gap: 10px; }
+  .input{ min-inline-size: 200px; }
+}
+
+/* ===== Breakpoints viewport (fallback) ===== */
+@media (max-width: 1024px){
+  .kpiStrip{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+}
+@media (max-width: 768px){
+  .kpiStrip{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width: 560px){
+  .kpiStrip{ grid-template-columns: 1fr; }
+  .ratingRow{ gap: 8px; }
+  .histRow{ grid-template-columns: 56px 1fr auto; }
+}
+@media (max-width: 420px){
+  .controls{ flex-direction: column; align-items: stretch; }
+  .input{ width: 100%; }
+  .reviewHeader{ flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+
+/* ===== Reduce motion ===== */
+@media (prefers-reduced-motion: reduce){
+  .starBtn, .starEmpty, .starFull, .histFill, .primaryBtn { transition: none; animation: none; }
+}
+
+/* ===== High contrast (Windows forced-colors) ===== */
+@media (forced-colors: active){
+  .primaryBtn{ border: 1px solid ButtonText; }
+  .badge{ border: 1px solid CanvasText; }
+  .histBar{ border: 1px solid CanvasText; }
+  .ownerReply{ border-left: 4px solid CanvasText; }
+}
+
+/* ===== Dark mode fine-tuning ===== */
+@media (prefers-color-scheme: dark){
+  .textarea{ box-shadow: inset 0 3px 8px rgba(0,0,0,.25); }
+}
+
+/* ===== Print ===== */
+@media print{
+  .section{ box-shadow: none; border-color: #ccc; }
+  .primaryBtn, .linkBtn, .replyBox, .controls{ display:none !important; }
+  .ownerReply{ break-inside: avoid; }
+}

@@ -2,20 +2,18 @@
 
 /* ========= Local tokens (scoped) ========= */
 .wrap {
-  /* semantic fallbacks dacă nu sunt în variables.css */
   --success: var(--color-success, #16a34a);
   --warning: var(--color-warning, #f59e0b);
   --danger:  var(--color-danger,  #ef4444);
 
   --ring: color-mix(in oklab, var(--color-primary), white 30%);
+  --shadow-xs: 0 1px 1px rgb(0 0 0 / 0.05);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
   --surface-elevated: color-mix(in oklab, var(--surface, #fff), black 3%);
 }
 
 /* --------- Layout general --------- */
-
-/* ============ Layout Onboarding ============ */
 .wrap {
   max-width: 1000px;
   margin: 0 auto;
@@ -48,16 +46,29 @@
   padding: 24px;
   border-radius: var(--radius);
   text-align: center;
+  box-shadow: var(--shadow-xs);
 }
 
 .link {
   color: var(--color-primary);
   font-weight: 500;
   text-decoration: none;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .link:hover { text-decoration: underline; }
+.link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
+  border-radius: 6px;
+}
 
-/* ============ Card Serviciu ============ */
+/* ============ Card ============ */
 .card {
   background: var(--surface);
   border: 1px solid var(--color-border);
@@ -88,11 +99,14 @@
   letter-spacing: .02em;
 }
 
-.cardTitle {
+.cardTitle,
+.serviceName {
   font-weight: 600;
   font-size: 1.06rem;
   margin-left: 4px;
 }
+
+.subtle { color: #8b8f97; font-size: 0.86rem; }
 
 .saveIndicator {
   font-size: 0.82rem;
@@ -102,7 +116,7 @@
   align-items: center;
 }
 
-/* Badges (base + states) */
+/* Badges */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -114,9 +128,36 @@
   line-height: 1.6;
   background: color-mix(in oklab, var(--surface), black 2%);
 }
-.badgeOk  { color: var(--success); border-color: color-mix(in oklab, var(--success), transparent 70%); }
-.badgeBad { color: var(--danger);  border-color: color-mix(in oklab, var(--danger),  transparent 70%); }
-.badgeWait{ color: var(--warning); border-color: color-mix(in oklab, var(--warning), transparent 70%); }
+.badgeOk   { color: var(--success); border-color: color-mix(in oklab, var(--success), transparent 70%); }
+.badgeBad  { color: var(--danger);  border-color: color-mix(in oklab, var(--danger),  transparent 70%); }
+.badgeWait { color: var(--warning); border-color: color-mix(in oklab, var(--warning), transparent 70%); }
+
+/* noi – folosite în BillingTab */
+.badgeWarn {  color: #b45309; border-color: color-mix(in oklab, #b45309, transparent 70%); }
+.badgeMuted{
+  color: #6b7280;
+  background: color-mix(in oklab, var(--surface), black 1.5%);
+  border-color: color-mix(in oklab, #6b7280, transparent 80%);
+}
+
+/* ============ InfoNote (nota informativă) ============ */
+.infoNote {
+  border: 1px solid #E5E7EB;
+  background: #F9FAFB;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0 12px 0;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  column-gap: 10px;
+  align-items: start;
+  font-size: 0.88rem;
+  color: #374151;
+}
+.infoNoteIcon {
+  line-height: 24px;
+  font-size: 18px;
+}
 
 /* ============ Form fields ============ */
 .grid {
@@ -125,7 +166,6 @@
   gap: 12px;
 }
 
-/* ✨ NOI: rând standard label + câmp */
 .fieldRow {
   display: grid;
   grid-template-columns: 180px 1fr;
@@ -138,7 +178,6 @@
   gap: 6px;
 }
 
-/* Pentru layout în două coloane (logo/copertă, telefon/email etc.) */
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -149,7 +188,6 @@
   .grid2 { grid-template-columns: 1fr; }
 }
 
-/* Existente */
 .fieldGroup {
   display: flex;
   flex-direction: column;
@@ -162,7 +200,6 @@
   color: color-mix(in oklab, var(--color-text), #6b7280 20%);
 }
 
-/* Base inputs */
 .input, .textarea, select {
   border: 1px solid var(--color-border);
   border-radius: 10px;
@@ -172,11 +209,50 @@
   background: var(--surface);
   color: var(--color-text);
   transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+  box-shadow: var(--shadow-xs) inset;
 }
+/* ===== Short description input + counter ===== */
+
+.inputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* lăsăm loc în dreapta pentru contor */
+.inputWrap .input {
+  width: 100%;
+  padding-right: 72px; /* ~spațiu pentru 000/120 */
+}
+
+/* bula cu 34/120 */
+.counter {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.78rem;
+  color: #6b7280;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface, #fff), black 3%);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  pointer-events: none; /* să nu încurce focus-ul pe input */
+}
+
+/* opțional: când ajungi aproape de limită (dacă vei vrea mai târziu să pui o clasă suplimentară)
+.counterWarn {
+  color: #b45309;
+}
+
+.counterDanger {
+  color: var(--danger);
+}
+*/
+
 .input::placeholder,
 .textarea::placeholder { color: #9aa1aa; }
 
-/* ✨ NOU: alias .field (ca să se potrivească cu JSX-ul) */
 .field {
   border: 1px solid var(--color-border);
   border-radius: 10px;
@@ -195,21 +271,18 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 70%);
 }
 
-/* Valid/invalid helper classes */
+/* Valid/invalid helper */
 .ok  { border-color: color-mix(in oklab, var(--success), transparent 40%) !important; }
 .bad { border-color: color-mix(in oklab, var(--danger),  transparent 40%) !important; }
 
-/* Textarea */
 .textarea { resize: vertical; min-height: 84px; }
 
-/* Brand row (input + badge) */
 .brandRow {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-/* File input row */
 .fileRow {
   display: flex;
   gap: 8px;
@@ -234,6 +307,32 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* Chips/tags */
+.tagsWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tagCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 0.86rem;
+  background: color-mix(in oklab, var(--surface), black 2%);
+}
+
+/* Checkbox row */
+.checkRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.35;
+  font-size: 0.92rem;
+}
+
 /* Errors */
 .error {
   color: var(--danger);
@@ -242,6 +341,16 @@
   border: 1px solid color-mix(in oklab, var(--danger), transparent 70%);
   padding: 8px 10px;
   border-radius: 8px;
+}
+
+.inputError {
+  border-color: color-mix(in oklab, var(--color-danger, #ef4444), transparent 40%) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger, #ef4444), transparent 85%);
+}
+
+.fieldError {
+  color: var(--color-danger, #ef4444);
+  font-size: 0.8rem;
 }
 
 /* ============ Tab Navigation ============ */
@@ -270,7 +379,6 @@
 }
 .tab:hover { color: var(--color-text); }
 
-/* active via class OR aria-selected */
 .tabActive,
 .tab[aria-selected="true"] {
   color: var(--color-text);
@@ -282,15 +390,12 @@
 .tabActive::after {
   content: "";
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: -1px;
+  left: 10px; right: 10px; bottom: -1px;
   height: 2px;
   background: var(--color-primary);
   border-radius: 2px;
 }
 
-/* Better focus for tabs */
 .tab:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
@@ -309,6 +414,7 @@
   background: var(--color-primary);
   color: #fff;
   border: 0;
+  justify-content: center;
   border-radius: 10px;
   padding: 10px 16px;
   font-weight: 600;
@@ -351,24 +457,289 @@
   white-space: nowrap; border: 0;
 }
 
-.inputError {
-  border-color: color-mix(in oklab, var(--color-danger, #ef4444), transparent 40%) !important;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger, #ef4444), transparent 85%);
+/* ============ Acordeon minimalist ============ */
+.accHeader{
+  width:100%;
+  display:flex; align-items:center; justify-content:space-between;
+  gap:8px;
+  padding:10px 12px;
+  background: var(--surface);
+  border:1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  cursor:pointer;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.accHeader:hover { background: color-mix(in oklab, var(--surface), black 3%); }
+.accHeader:focus-visible{
+  outline:none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
 }
 
-.fieldError {
-  color: var(--color-danger, #ef4444);
-  font-size: 0.8rem;
+.accPanel{
+  padding:12px;
+  margin:8px 0 2px 0;
+  border-left:2px solid var(--color-border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--surface-elevated);
+}
+
+.pill{ font-size: 10px; color: var(--color-primary); }
+.muted{ color:#6b7280; font-weight:400; }
+.chev{ opacity:.6; }
+
+.stack{ display:flex; flex-direction:column; gap:6px; }
+
+
+/* ========== Image previews upgraded ========== */
+.previewThumb {
+  margin-top: 8px;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: #f9fafb;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+
+.previewThumb:hover {
+  transform: scale(1.03);
+  box-shadow: 0 3px 10px rgb(0 0 0 / 15%);
+}
+
+.previewBanner {
+  margin-top: 8px;
+  width: 100%;
+  max-height: 160px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  object-fit: cover;
+  background: #f5f5f5;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.previewBanner:hover {
+  transform: scale(1.01);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+}
+
+/* Placeholder fallback */
+.previewThumb:not([src]), .previewBanner:not([src]) {
+  background: repeating-linear-gradient(
+    45deg,
+    #f3f4f6,
+    #f3f4f6 5px,
+    #e5e7eb 5px,
+    #e5e7eb 10px
+  );
+}
+
+/* ===== Improve spacing between form rows ===== */
+.fieldRow {
+  margin-bottom: 16px;
+}
+
+/* Reduce label crowding */
+.fieldRow .label {
+  margin-bottom: 4px;
+}
+
+/* More space between file input and preview */
+.fileRow {
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+/* Better image spacing around previews */
+.previewThumb,
+.previewBanner {
+  margin-top: 10px !important;  /* override previous */
+}
+
+/* Keep consistent width so layout doesn't jump */
+.previewThumb {
+  display: block;
+}
+
+.previewBanner {
+  display: block;
+}
+
+/* Slight top padding for section blocks to avoid crowding */
+.accPanel {
+  padding-top: 18px;
+}
+
+/* ===== Toolbar generică pentru butoane de acțiune ===== */
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.toolbarLeft, .toolbarRight { display: inline-flex; align-items: center; gap: 8px; }
+
+/* ===== Butoane noi ===== */
+.secondaryBtn {
+  background: color-mix(in oklab, var(--surface), black 2%);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
+}
+.secondaryBtn:hover { background: color-mix(in oklab, var(--surface), black 4%); }
+.secondaryBtn:active { transform: translateY(1px); }
+.secondaryBtn:disabled { opacity: .6; cursor: not-allowed; }
+
+.dangerBtn {
+  background: color-mix(in oklab, var(--danger), white 88%);
+  color: #991b1b;
+  border: 1px solid color-mix(in oklab, var(--danger), transparent 70%);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
+}
+.dangerBtn:hover { background: color-mix(in oklab, var(--danger), white 82%); }
+.dangerBtn:active { transform: translateY(1px); }
+.dangerBtn:disabled { opacity: .6; cursor: not-allowed; }
+
+.ghostBtn {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
+}
+.ghostBtn:hover { background: color-mix(in oklab, var(--surface), black 3%); }
+.ghostBtn:active { transform: translateY(1px); }
+
+/* ===== Spinner mic inline ===== */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in oklab, var(--color-text), transparent 80%);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin .8s linear infinite;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== Modal simplu confirm ===== */
+.modalBackdrop {
+  position: fixed; inset: 0; background: rgb(0 0 0 / .35);
+  display: grid; place-items: center; z-index: 60;
+}
+.modalCard {
+  background: var(--surface, #fff);
+  color: var(--color-text);
+  width: min(520px, calc(100vw - 24px));
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+}
+.modalTitle { margin: 0 0 6px 0; font-size: 1.05rem; font-weight: 700; }
+.modalText { margin: 0 0 12px 0; color: #6b7280; }
+.modalActions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* dark mode fine-tuning */
+@media (prefers-color-scheme: dark) {
+  .secondaryBtn { background: color-mix(in oklab, var(--surface), white 3%); }
+  .ghostBtn { border-color: color-mix(in oklab, var(--color-border), white 10%); }
+  .modalBackdrop { background: rgb(0 0 0 / .45); }
 }
 
 /* ============ Motion & Dark mode ============ */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
 @media (prefers-color-scheme: dark) {
   .empty { background: color-mix(in oklab, var(--surface), white 2%); }
+  .infoNote { background: color-mix(in oklab, #111827, white 6%); border-color: #2b2f36; color: #d1d5db; }
   .error {
     background: color-mix(in oklab, var(--danger), black 82%);
     border-color: color-mix(in oklab, var(--danger), transparent 70%);
   }
+}
+
+/* Telefoane foarte înguste */
+@media (max-width: 480px) {
+  .wrap { padding: 16px; }
+  .tabPanel { padding: 12px; }
+  .grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .label { font-size: 0.84rem; }
+  .primaryBtn { width: 100%; }             /* acțiune principală 1-col pe mobil */
+  .wizardNav { flex-direction: column; align-items: stretch; }
+}
+
+/* Tablete între 480–720px: puțin mai aerisit */
+@media (min-width: 480px) and (max-width: 720px) {
+  .grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+}
+
+/* Ecrane late: mai mult spațiu și coloane mai late */
+@media (min-width: 1280px) {
+  .wrap { max-width: 1200px; }
+  .grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+
+/* Safe-area pe iPhone cu notch (opțional) */
+@supports (padding: max(0px)) {
+  .wrap { padding-left: max(24px, env(safe-area-inset-left));
+          padding-right: max(24px, env(safe-area-inset-right)); }
+}
+
+/* Face <a> să arate ca un buton */
+.primaryBtn,
+.secondaryBtn,
+.dangerBtn,
+.ghostBtn {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;   /* scoate sublinierea pe <a> */
+  line-height: 1;
+}
+
+a.primaryBtn:link,
+a.primaryBtn:visited { color: #fff; } /* asigură contrastul */
+
+a.primaryBtn:hover,
+a.secondaryBtn:hover,
+a.dangerBtn:hover,
+a.ghostBtn:hover { text-decoration: none; }
+
+a.primaryBtn:focus-visible,
+a.secondaryBtn:focus-visible,
+a.dangerBtn:focus-visible,
+a.ghostBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
+  border-radius: 10px;
+}
+
+/* „disabled” pentru <a> */
+.btnDisabled {
+  opacity: .6;
+  pointer-events: none;
+  cursor: default;
+  box-shadow: none;
 }

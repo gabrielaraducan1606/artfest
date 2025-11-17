@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../../lib/api";
 import styles from "../OnBoardingDetails.module.css";
+import { useCurrentSubscription } from "../hooks/useCurrentSubscriptionBanner.js";
 
 /* ============================ Constante ============================ */
-const YEAR_DISCOUNT = 0.2; // -20% la anual (poți schimba)
+const YEAR_DISCOUNT = 0.2; // -20% la anual
 
 // comisioane platformă (basis points = sutimi de procent)
 const FEES = {
@@ -37,9 +38,13 @@ function formatPrice(cents, currency = "RON") {
 function bpsToPct(bps) {
   return (bps / 100).toFixed(bps % 100 ? 2 : 0) + "%";
 }
-function absolutizeBackendUrl(url) {
+function absolutizeUrl(url) {
   if (/^https?:\/\//i.test(url)) return url;
-  const base = (import.meta.env?.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+
+  const API_BASE = (import.meta.env?.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+  const APP_BASE = (import.meta.env?.VITE_APP_URL || window.location.origin).replace(/\/+$/, "");
+
+  const base = url.startsWith("/api/") ? API_BASE : APP_BASE;
   return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
@@ -81,37 +86,11 @@ function usePlans() {
   return { plans: enriched, loading, err };
 }
 
-function useCurrentSubscription() {
-  const [sub, setSub] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setLoading(true);
-        const d = await api("/api/vendors/me/subscription", { method: "GET" });
-        if (!alive) return;
-        setSub(d?.subscription ?? null);
-      } catch {
-        if (!alive) return;
-        setSub(null);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
-
-  return { sub, loading };
-}
-
-/* ============================ Componenta principală ============================ */
+/* ============================ Componenta ============================ */
 function SubscriptionPayment({ obSessionId }) {
   const { plans, loading: plansLoading, err: plansErr } = usePlans();
-  const { sub, loading: subLoading } = useCurrentSubscription();
+  const { sub, loading: subLoading, setSub } = useCurrentSubscription();
 
-  // sessionStorage utilitar namespaced
   const KEY_PLAN = `onboarding.plan:${obSessionId || "default"}`;
   const KEY_PERIOD = `onboarding.period:${obSessionId || "default"}`;
   const ss = {
@@ -122,7 +101,6 @@ function SubscriptionPayment({ obSessionId }) {
   const [period, setPeriod] = useState(() => (ss.get(KEY_PERIOD) === "year" ? "year" : "month"));
   const [plan, setPlan] = useState(() => ss.get(KEY_PLAN) || "basic");
 
-  // dacă backend-ul spune planul curent, îl folosim ca selecție
   useEffect(() => {
     if (sub?.plan?.code) {
       setPlan(sub.plan.code);
@@ -131,7 +109,6 @@ function SubscriptionPayment({ obSessionId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sub?.plan?.code]);
 
-  // dacă planul selectat nu mai e în listă, alege primul activ
   useEffect(() => {
     if (!plans.length) return;
     const exists = plans.some(p => p.code === plan);
@@ -142,7 +119,7 @@ function SubscriptionPayment({ obSessionId }) {
     }
   }, [plans, plan]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [status, setStatus] = useState("idle"); // 'idle'|'processing'|'done'|'error'
+  const [status, setStatus] = useState("idle"); // idle | processing | canceling | error
   const [err, setErr] = useState("");
 
   function changePeriod(next) {
@@ -150,25 +127,91 @@ function SubscriptionPayment({ obSessionId }) {
     ss.set(KEY_PERIOD, next);
   }
 
+  // === corectare detecție Apple Pay / Google Pay ===
+  function detectWalletHints() {
+    let applePay = "0";
+    let googlePay = "0";
+
+    try {
+      const w = typeof window !== "undefined" ? window : undefined;
+      const canApplePay =
+        !!(w &&
+           w.ApplePaySession &&
+           typeof w.ApplePaySession.canMakePayments === "function" &&
+           w.ApplePaySession.canMakePayments());
+      if (canApplePay) applePay = "1";
+    } catch {/* ignore */}
+
+    try {
+      const w = typeof window !== "undefined" ? window : undefined;
+      const canGooglePay =
+        !!(w &&
+           w.PaymentRequest &&
+           /Android|Chrome/i.test(navigator.userAgent));
+      if (canGooglePay) googlePay = "1";
+    } catch {/* ignore */}
+
+    return { applePay, googlePay };
+  }
+
   async function startCheckout() {
     try {
       setStatus("processing");
       setErr("");
-      const { url } = await api(
-        `/api/billing/checkout?plan=${encodeURIComponent(plan)}&period=${encodeURIComponent(period)}`,
+
+      const { applePay, googlePay } = detectWalletHints();
+
+      const resp = await api(
+        `/api/billing/checkout?plan=${encodeURIComponent(plan)}&period=${encodeURIComponent(period)}&applePay=${applePay}&googlePay=${googlePay}`,
         { method: "POST" }
       );
-      const target = absolutizeBackendUrl(url);
-      window.location.assign(target);
+
+      if (resp?.kind === "free_activated" && resp?.url) {
+        window.location.assign(absolutizeUrl(resp.url));
+        return;
+      }
+
+      if (resp?.kind === "provider_redirect") {
+        if (resp.url) {
+          window.location.assign(absolutizeUrl(resp.url));
+          return;
+        }
+        if (resp.form?.action) {
+          const form = document.createElement("form");
+          form.method = resp.form.method || "POST";
+          form.action = absolutizeUrl(resp.form.action);
+          const hid = document.createElement("input");
+          hid.type = "hidden";
+          hid.name = "subId";
+          hid.value = resp.subscriptionId || "";
+          form.appendChild(hid);
+          document.body.appendChild(form);
+          form.submit();
+          return;
+        }
+      }
+
+      if (resp?.url) {
+        window.location.assign(absolutizeUrl(resp.url));
+        return;
+      }
+
+      throw new Error("Răspuns de checkout neașteptat.");
     } catch (e) {
       console.error("checkout failed:", e);
       setStatus("error");
       const msg = e?.data?.message || e?.message || "Nu s-a putut porni plata.";
       setErr(msg);
+    } finally {
+      if (status === "processing") {
+        setStatus("idle");
+      }
     }
   }
 
   const sameActivePlan = sub?.status === "active" && sub?.plan?.code === plan;
+  const daysLeft = sub?.endAt ? Math.ceil((new Date(sub.endAt) - new Date()) / (1000*60*60*24)) : null;
+  const isRenewSoon = typeof daysLeft === "number" && daysLeft <= 7;
 
   function displayPrice(p) {
     const base = p.priceCents || 0;
@@ -180,9 +223,49 @@ function SubscriptionPayment({ obSessionId }) {
     return `${formatPrice(base, p.currency)} / lună`;
   }
 
+  async function cancelSubscription() {
+    if (!sub || sub.status !== "active") return;
+
+    const ok = window.confirm(
+      "Sigur vrei să anulezi abonamentul?\n\nMagazinele tale vor deveni inactive imediat și nu vor mai apărea în platformă."
+    );
+    if (!ok) return;
+
+    try {
+      setStatus("canceling");
+      setErr("");
+
+      const resp = await api("/api/vendors/me/subscription/cancel", {
+        method: "POST",
+      });
+
+      // actualizăm abonamentul în state
+      setSub(resp?.subscription ?? null);
+    } catch (e) {
+      console.error("subscription cancel failed:", e);
+      setStatus("error");
+      const msg =
+        e?.data?.message ||
+        e?.message ||
+        "Nu am putut anula abonamentul. Încearcă din nou.";
+      setErr(msg);
+    } finally {
+      setStatus("idle");
+    }
+  }
+
   return (
     <div className={styles.form}>
-      <header className={styles.header} style={{ display:"flex", alignItems:"center", gap:12, justifyContent:"space-between", flexWrap:"wrap" }}>
+      <header
+        className={styles.header}
+        style={{
+          display:"flex",
+          alignItems:"center",
+          gap:12,
+          justifyContent:"space-between",
+          flexWrap:"wrap",
+        }}
+      >
         <h2 className={styles.cardTitle} style={{ margin:0 }}>Plată abonament</h2>
         {subLoading ? (
           <span className={styles.badgeWait}>Se încarcă abonamentul curent…</span>
@@ -190,6 +273,7 @@ function SubscriptionPayment({ obSessionId }) {
           <span className={styles.badgeOk}>
             Plan curent: {sub.plan?.name || sub.plan?.code}
             {sub?.endAt ? ` • valabil până la ${new Date(sub.endAt).toLocaleDateString("ro-RO")}` : ""}
+            {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
           </span>
         ) : (
           <span className={styles.help}>Nu ai un abonament activ.</span>
@@ -199,10 +283,21 @@ function SubscriptionPayment({ obSessionId }) {
       <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
         <div className={styles.help}>Perioadă de facturare:</div>
         <div style={{ display:"inline-flex", border: "1px solid var(--color-border)", borderRadius: 8, overflow:"hidden" }}>
-          <button type="button" onClick={() => changePeriod("month")} className={styles.tab + " " + (period === "month" ? styles.tabActive : "")} style={{ border: 0, borderRadius: 0 }}>
+          <button
+            type="button"
+            onClick={() => changePeriod("month")}
+            className={styles.tab + " " + (period === "month" ? styles.tabActive : "")}
+            style={{ border: 0, borderRadius: 0 }}
+          >
             Lunar
           </button>
-          <button type="button" onClick={() => changePeriod("year")} className={styles.tab + " " + (period === "year" ? styles.tabActive : "")} style={{ border: 0, borderRadius: 0 }} title={`- ${Math.round(YEAR_DISCOUNT * 100)}% față de lunar`}>
+          <button
+            type="button"
+            onClick={() => changePeriod("year")}
+            className={styles.tab + " " + (period === "year" ? styles.tabActive : "")}
+            style={{ border: 0, borderRadius: 0 }}
+            title={`- ${Math.round(YEAR_DISCOUNT * 100)}% față de lunar`}
+          >
             Anual (−{Math.round(YEAR_DISCOUNT * 100)}%)
           </button>
         </div>
@@ -218,9 +313,21 @@ function SubscriptionPayment({ obSessionId }) {
             const selected = plan === p.code;
             const { productsBps, servicesBps } = p.fees || {};
             return (
-              <label key={p.id || p.code} className={styles.card} style={{ cursor: "pointer", borderColor: selected ? "var(--color-primary)" : "var(--color-border)", boxShadow: selected ? "0 0 0 2px rgba(247,140,61,0.15)" : "none", position: "relative" }}>
+              <label
+                key={p.id || p.code}
+                className={styles.card}
+                style={{
+                  cursor: "pointer",
+                  borderColor: selected ? "var(--color-primary)" : "var(--color-border)",
+                  boxShadow: selected ? "0 0 0 2px rgba(247,140,61,0.15)" : "none",
+                  position: "relative",
+                }}
+              >
                 {p.popular && (
-                  <span className={styles.badgeWait} style={{ position: "absolute", top: 10, right: 12, fontWeight: 600 }}>
+                  <span
+                    className={styles.badgeWait}
+                    style={{ position: "absolute", top: 10, right: 12, fontWeight: 600 }}
+                  >
                     Popular
                   </span>
                 )}
@@ -230,7 +337,10 @@ function SubscriptionPayment({ obSessionId }) {
                   <div style={{ fontSize: "0.95rem", marginTop: 4 }}>{displayPrice(p)}</div>
                 </div>
 
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap", margin: "4px 0 8px" }}>
+                <div
+                  style={{ display:"flex", gap:8, flexWrap:"wrap", margin: "4px 0 8px" }}
+                  title="Comisioane platformă"
+                >
                   <span className={styles.help}>Produse: {bpsToPct(productsBps || 0)}</span>
                   <span className={styles.help}>Servicii: {bpsToPct(servicesBps || 0)}</span>
                 </div>
@@ -244,8 +354,17 @@ function SubscriptionPayment({ obSessionId }) {
                   </ul>
                 )}
 
-                <div className={styles.fieldGroup} style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-                  <input type="radio" name="plan" value={p.code} checked={selected} onChange={() => { setPlan(p.code); ss.set(KEY_PLAN, p.code); }} />
+                <div
+                  className={styles.fieldGroup}
+                  style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8 }}
+                >
+                  <input
+                    type="radio"
+                    name="plan"
+                    value={p.code}
+                    checked={selected}
+                    onChange={() => { setPlan(p.code); ss.set(KEY_PLAN, p.code); }}
+                  />
                   <span>Alege {p.name}</span>
                 </div>
 
@@ -260,16 +379,45 @@ function SubscriptionPayment({ obSessionId }) {
 
       {err && <div className={styles.error} role="alert" style={{ marginTop: 8 }}>{err}</div>}
 
-      <div style={{ marginTop: 12, display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+      <div
+        style={{
+          marginTop: 12,
+          display:"flex",
+          gap:8,
+          alignItems:"center",
+          flexWrap:"wrap",
+        }}
+      >
         <button
           className={styles.primaryBtn}
           onClick={startCheckout}
-          disabled={status === "processing" || sameActivePlan}
+          disabled={
+            status === "processing" ||
+            status === "canceling" ||
+            (sameActivePlan && !isRenewSoon)
+          }
           type="button"
-          title={sameActivePlan ? "Ești deja pe acest plan" : undefined}
+          title={sameActivePlan && !isRenewSoon ? "Ești deja pe acest plan" : undefined}
         >
-          {status === "processing" ? "Se redirecționează…" : sameActivePlan ? "Plan activ" : "Plătește / Activează"}
+          {status === "processing"
+            ? "Se redirecționează…"
+            : sameActivePlan
+              ? (isRenewSoon ? "Reînnoiește / Prelungește" : "Plan activ")
+              : "Plătește / Activează"}
         </button>
+
+        {sub?.status === "active" && (
+          <button
+            type="button"
+            onClick={cancelSubscription}
+            className={styles.secondaryBtn || styles.primaryGhostBtn}
+            disabled={status === "processing" || status === "canceling"}
+            title="Abonamentul va fi oprit, iar magazinele tale vor deveni inactive."
+          >
+            {status === "canceling" ? "Se anulează…" : "Anulează abonamentul"}
+          </button>
+        )}
+
         <small className={styles.help}>
           Prețurile afișate nu includ comisionul procesatorului de plăți. Comisioanele platformei se aplică per plan.
         </small>

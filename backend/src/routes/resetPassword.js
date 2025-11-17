@@ -1,11 +1,14 @@
-import { prisma } from "../../src/db.js";
-import { hashToken } from "../../src/utils/passwordReset.js";
+// src/routes/resetPassword.js
+import { prisma } from "../db.js"; // ajustează dacă fișierul tău e în altă parte
+import { hashToken } from "../utils/passwordReset.js";
 import bcrypt from "bcrypt";
 
 const PASSWORD_HISTORY_LIMIT = Number(process.env.PASSWORD_HISTORY_LIMIT || 5);
 
 export default async function resetPassword(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ message: "Method not allowed" });
+  if (req.method && req.method !== "POST") {
+    return res.status(405).json({ message: "Method not allowed" });
+  }
 
   try {
     const { token, newPassword } = (req.body || {});
@@ -59,10 +62,10 @@ export default async function resetPassword(req, res) {
         data: { userId: user.id, passwordHash: user.passwordHash },
       });
 
-      // setează parola nouă
+      // setează parola nouă + revocă toate sesiunile (tokenVersion++)
       await tx.user.update({
         where: { id: user.id },
-        data: { passwordHash: newHash },
+        data: { passwordHash: newHash, tokenVersion: { increment: 1 } },
       });
 
       // marchează tokenul ca folosit

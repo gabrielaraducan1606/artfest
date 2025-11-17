@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { CATEGORIES, CATEGORY_SET } from "../constants/categories.js";
+import {
+  CATEGORIES,
+  CATEGORY_SET,
+  CATEGORIES_DETAILED,
+} from "../constants/categories.js";
 
 const router = Router();
 
@@ -9,17 +13,224 @@ const router = Router();
 ------------------------------------------*/
 function buildOrderBy(sort) {
   switch ((sort || "new").toLowerCase()) {
-    case "price_asc":  return [{ priceCents: "asc" }, { createdAt: "desc" }];
-    case "price_desc": return [{ priceCents: "desc" }, { createdAt: "desc" }];
-    case "popular":    return [{ createdAt: "desc" }]; // compat
+    case "price_asc":
+      return [{ priceCents: "asc" }, { createdAt: "desc" }];
+    case "price_desc":
+      return [{ priceCents: "desc" }, { createdAt: "desc" }];
+    case "popular":
+      return [{ createdAt: "desc" }]; // compat
     case "new":
-    default:           return [{ createdAt: "desc" }];
+    default:
+      return [{ createdAt: "desc" }];
   }
+}
+
+// Helper pentru maparea produsului spre front (inclusiv storeName)
+// Helper pentru maparea produsului spre front (inclusiv storeName)
+function mapPublicProduct(p) {
+  const storeName =
+    p?.service?.profile?.displayName ||
+    p?.service?.vendor?.displayName ||
+    "Magazin";
+
+  return {
+    id: p.id,
+    title: p.title,
+    description: p.description || "",
+    images: Array.isArray(p.images) ? p.images : [],
+    priceCents: p.priceCents ?? 0,
+    currency: p.currency || "RON",
+    isActive: p.isActive,
+    isHidden: !!p.isHidden,
+    category: p.category || null,
+    color: p.color || null,
+
+    // 🔹 modelul de disponibilitate (fără default „READY” aici)
+    availability: typeof p.availability === "string"
+      ? p.availability.toUpperCase()
+      : null,
+    leadTimeDays: p.leadTimeDays ?? null,
+    readyQty: p.readyQty ?? null,
+    nextShipDate: p.nextShipDate ?? null,
+    acceptsCustom: !!p.acceptsCustom,
+
+    // 🔹 detaliile structurate nou introduse
+    materialMain: p.materialMain || null,
+    technique: p.technique || null,
+    styleTags: Array.isArray(p.styleTags) ? p.styleTags : [],
+    occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
+    dimensions: p.dimensions || null,
+    careInstructions: p.careInstructions || null,
+    specialNotes: p.specialNotes || null,
+
+    // relații folosite de front
+    service: p.service,
+    storeName,
+  };
 }
 
 /* -----------------------------------------
    STORE PUBLIC: /store/:slug
 ------------------------------------------*/
+// LISTĂ MAGAZINE: /api/public/stores
+// filtre: q, city, sort, paginare
+// sort: new | popular | name_asc | name_desc
+router.get("/stores", async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(
+      60,
+      Math.max(1, parseInt(req.query.limit || "24", 10))
+    );
+    const skip = (page - 1) * limit;
+
+    const q = (req.query.q || "").trim();
+    const city = (req.query.city || "").trim();
+    const sort = (req.query.sort || "new").trim().toLowerCase();
+
+    // doar servicii ACTIVE de tip "products", cu vendor activ
+    const baseServiceWhere = {
+      isActive: true,
+      status: "ACTIVE",
+      type: { is: { code: "products" } },
+      vendor: { is: { isActive: true } },
+    };
+
+    const where = {
+      service: { is: baseServiceWhere },
+    };
+
+    // q = căutăm în nume brand, tagline, about, nume vendor
+    if (q) {
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { displayName: { contains: q, mode: "insensitive" } },
+          { tagline: { contains: q, mode: "insensitive" } },
+          { about: { contains: q, mode: "insensitive" } },
+          {
+            service: {
+              is: {
+                vendor: {
+                  is: {
+                    displayName: { contains: q, mode: "insensitive" },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    // city = city din profil / service / vendor
+    if (city) {
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { city: { contains: city, mode: "insensitive" } },
+          {
+            service: {
+              is: { city: { contains: city, mode: "insensitive" } },
+            },
+          },
+          {
+            service: {
+              is: {
+                vendor: {
+                  is: { city: { contains: city, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    // sortare
+    let orderBy;
+    switch (sort) {
+      case "name_asc":
+        orderBy = [{ displayName: "asc" }, { updatedAt: "desc" }];
+        break;
+      case "name_desc":
+        orderBy = [{ displayName: "desc" }, { updatedAt: "desc" }];
+        break;
+      case "popular":
+        orderBy = [{ updatedAt: "desc" }]; // momentan proxy pt. popular
+        break;
+      case "new":
+      default:
+        orderBy = [{ updatedAt: "desc" }];
+    }
+
+    const [total, profiles] = await Promise.all([
+      prisma.serviceProfile.count({ where }),
+      prisma.serviceProfile.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy,
+        include: {
+          service: { include: { vendor: true } },
+        },
+      }),
+    ]);
+
+    const serviceIds = profiles.map((p) => p.serviceId);
+
+    // număr produse active pe magazin
+    let countsMap = new Map();
+    if (serviceIds.length > 0) {
+      const prodAgg = await prisma.product.groupBy({
+        by: ["serviceId"],
+        where: {
+          serviceId: { in: serviceIds },
+          isActive: true,
+        },
+        _count: { _all: true },
+      });
+      countsMap = new Map(
+        prodAgg.map((r) => [r.serviceId, r._count._all])
+      );
+    }
+
+    const makeShort = (s = "", max = 200) => {
+      const t = String(s || "").trim();
+      if (!t) return "";
+      return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
+    };
+
+    const items = profiles.map((p) => {
+      const svc = p.service;
+      const vendor = svc.vendor;
+      const storeName =
+        p.displayName || vendor.displayName || "Magazin";
+
+      const about =
+        p.shortDescription ||
+        p.tagline ||
+        makeShort(p.about || vendor.about || "", 200);
+
+      return {
+        id: svc.id, // folosit în StoresPage key + fallback URL
+        profileSlug: p.slug, // folosit pentru /magazin/:slug
+        storeName,
+        displayName: p.displayName,
+        city: p.city || svc.city || vendor.city || "",
+        category: null, // dacă vei avea categorii de magazin
+        logoUrl: p.logoUrl || vendor.logoUrl || "",
+        productsCount: countsMap.get(svc.id) || 0,
+        about,
+      };
+    });
+
+    res.json({ total, page, limit, items });
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get("/store/:slug", async (req, res) => {
   const slug = String(req.params.slug || "").trim().toLowerCase();
   if (!slug) return res.status(400).json({ error: "invalid_slug" });
@@ -48,7 +259,13 @@ router.get("/store/:slug", async (req, res) => {
     userId: vendor.userId,
     slug: profile.slug,
     shopName: profile.displayName || vendor.displayName || "Magazin",
-    shortDescription: profile.tagline || makeShort(profile.about || vendor.about || "", 160),
+
+    // folosim întâi shortDescription din DB, apoi fallback-uri
+    shortDescription:
+      profile.shortDescription ||
+      profile.tagline ||
+      makeShort(profile.about || vendor.about || "", 160),
+
     brandStory: profile.about || null,
     city: profile.city || vendor.city || "",
     country: "",
@@ -79,78 +296,155 @@ router.get("/store/:slug/products", async (req, res) => {
   }
 
   const items = await prisma.product.findMany({
-    where: { serviceId: profile.serviceId, isActive: true },
+    where: { serviceId: profile.serviceId, isActive: true, isHidden: false },
     orderBy: { createdAt: "desc" },
   });
 
+  res.set("Cache-Control", "public, max-age=0, must-revalidate");
   res.json(
     items.map((p) => ({
       id: p.id,
       title: p.title,
       description: p.description || "",
-      price: Number.isFinite(p.priceCents) ? p.priceCents / 100 : null,
+      priceCents: p.priceCents ?? 0,
       images: Array.isArray(p.images) ? p.images : [],
       currency: p.currency || "RON",
       createdAt: p.createdAt,
       category: p.category || null,
+      color: p.color || null,
+
+      // 🟣 exact ca în mapPublicProduct
+      availability: typeof p.availability === "string"
+        ? p.availability.toUpperCase()
+        : null,
+      leadTimeDays: p.leadTimeDays ?? null,
+      readyQty: p.readyQty ?? null,
+      nextShipDate: p.nextShipDate ?? null,
+      acceptsCustom: !!p.acceptsCustom,
+
+      materialMain: p.materialMain || null,
+      technique: p.technique || null,
+      styleTags: Array.isArray(p.styleTags) ? p.styleTags : [],
+      occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
+      dimensions: p.dimensions || null,
+      careInstructions: p.careInstructions || null,
+      specialNotes: p.specialNotes || null,
+
+      isHidden: !!p.isHidden,
+      isActive: !!p.isActive,
     }))
   );
 });
 
 router.get("/store/:slug/reviews", async (_req, res) => res.json([]));
-router.get("/store/:slug/reviews/average", async (_req, res) => res.json({ average: 0 }));
+router.get("/store/:slug/reviews/average", async (_req, res) =>
+  res.json({ average: 0 })
+);
 
 /* -----------------------------------------
    PRODUSE PUBLICE: listare/filtre/paginare
+   GET /api/public/products
 ------------------------------------------*/
 router.get("/products", async (req, res, next) => {
   try {
-    const page  = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(60, Math.max(1, parseInt(req.query.limit || "24", 10)));
-    const skip  = (page - 1) * limit;
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(
+      60,
+      Math.max(1, parseInt(req.query.limit || "24", 10))
+    );
+    const skip = (page - 1) * limit;
 
-    // ✨ NOU: suport "ids" (listă de UUID-uri separate prin virgulă)
+    // suport ids (similaritate imagine)
     const idsParam = String(req.query.ids || "").trim();
     const idsList = idsParam
-      ? Array.from(new Set(idsParam.split(",").map(s => s.trim()).filter(Boolean)))
+      ? Array.from(
+          new Set(
+            idsParam
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          )
+        )
       : [];
 
-    // filtre comune
-    const q            = (req.query.q || "").trim();
-    const category     = (req.query.category || req.query.categorie || "").trim();
-    const serviceType  = (req.query.serviceType || req.query.type || "").trim();
-    const city         = (req.query.city || "").trim();
-    const sort         = (req.query.sort || "new").trim();
-    const minPrice     = parseInt(req.query.minPrice || req.query.min || "", 10);
-    const maxPrice     = parseInt(req.query.maxPrice || req.query.max || "", 10);
+    const q = (req.query.q || "").trim();
+    const category = (req.query.category || req.query.categorie || "").trim();
+    const rawServiceType =
+      (req.query.serviceType || req.query.type || "").trim();
+    const serviceType = rawServiceType || "products"; // implicit doar products
+    const city = (req.query.city || "").trim();
+    const sort = (req.query.sort || "new").trim();
+    const minPrice = parseInt(
+      req.query.minPrice || req.query.min || "",
+      10
+    );
+    const maxPrice = parseInt(
+      req.query.maxPrice || req.query.max || "",
+      10
+    );
+    const color = (req.query.color || "").trim();
 
-    // doar produse active + servicii/vânzători activi
-    const activeService = { is: { isActive: true, status: "ACTIVE", vendor: { is: { isActive: true } } } };
-    const activeWhere = { isActive: true, service: activeService };
+    // baza: produse active, neascunse, din servicii de tip "products"
+    const baseServiceWhere = {
+      ...(city
+        ? { city: { contains: city, mode: "insensitive" } }
+        : {}),
+      type: { is: { code: serviceType } },
+      isActive: true,
+      status: "ACTIVE",
+      vendor: { isActive: true },
+    };
 
-    // ============================
-    //  A) Caz special: avem `ids`
-    //  (aplicăm filtre, păstrăm ordinea din ids)
-    // ============================
+    const baseWhere = {
+      isActive: true,
+      isHidden: false,
+      service: { is: baseServiceWhere },
+    };
+
+    // A) cu ids -> ordonare după listă
     if (idsList.length > 0) {
       const where = {
-        ...activeWhere,
+        ...baseWhere,
         id: { in: idsList },
+        ...(category
+          ? { category: { equals: category, mode: "insensitive" } }
+          : {}),
+        ...(color
+          ? { color: { equals: color, mode: "insensitive" } }
+          : {}),
         ...(q
           ? {
               OR: [
                 { title: { contains: q, mode: "insensitive" } },
                 { description: { contains: q, mode: "insensitive" } },
-                { service: { is: { type: { is: { name: { contains: q, mode: "insensitive" } } } } } },
+                { category: { contains: q, mode: "insensitive" } },
+                { color: { contains: q, mode: "insensitive" } },
+                { materialMain: { contains: q, mode: "insensitive" } },
+                { technique: { contains: q, mode: "insensitive" } },
+                { dimensions: { contains: q, mode: "insensitive" } },
+                {
+                  careInstructions: {
+                    contains: q,
+                    mode: "insensitive",
+                  },
+                },
+                { specialNotes: { contains: q, mode: "insensitive" } },
+                { styleTags: { has: q } },
+                { occasionTags: { has: q } },
+                {
+                  service: {
+                    is: {
+                      type: {
+                        is: {
+                          name: { contains: q, mode: "insensitive" },
+                        },
+                      },
+                    },
+                  },
+                },
               ],
             }
           : {}),
-        ...(category ? { category: { equals: category, mode: "insensitive" } } : {}),
-        service: {
-          ...activeWhere.service,
-          ...(city ? { is: { ...activeService.is, city: { contains: city, mode: "insensitive" } } } : {}),
-          ...(serviceType ? { is: { ...activeService.is, type: { is: { code: serviceType } } } } : {}),
-        },
       };
 
       if (!Number.isNaN(minPrice) || !Number.isNaN(maxPrice)) {
@@ -159,55 +453,66 @@ router.get("/products", async (req, res, next) => {
         if (!Number.isNaN(maxPrice)) where.priceCents.lte = maxPrice * 100;
       }
 
-      // toate potrivirile (apoi paginăm în ordinea din ids)
       const filtered = await prisma.product.findMany({
         where,
         include: {
           service: { include: { type: true, vendor: true, profile: true } },
-          reviews: true,
-          Favorite: true,
         },
       });
 
-      // păstrăm ordinea din ids
       const pos = new Map(idsList.map((id, i) => [id, i]));
-      const ordered = filtered.sort((a, b) => (pos.get(a.id) ?? 999999) - (pos.get(b.id) ?? 999999));
+      const ordered = filtered.sort(
+        (a, b) => (pos.get(a.id) ?? 999999) - (pos.get(b.id) ?? 999999)
+      );
 
       const total = ordered.length;
-      const items = ordered.slice(skip, skip + limit).map((p) => ({
-        ...p,
-        storeName:
-          p?.service?.profile?.displayName ||
-          p?.service?.vendor?.displayName ||
-          "Magazin",
-        category: p.category || null,
-      }));
+      const items = ordered.slice(skip, skip + limit).map(mapPublicProduct);
 
       return res.json({ total, items, page, limit });
     }
 
-    // ========================================
-    //  B) Caz general: filtre + sort existente
-    // ========================================
+    // B) caz general
     const where = {
-      ...activeWhere,
-      ...(category ? { category: { equals: category, mode: "insensitive" } } : {}),
+      ...baseWhere,
+      ...(category
+        ? { category: { equals: category, mode: "insensitive" } }
+        : {}),
+      ...(color
+        ? { color: { equals: color, mode: "insensitive" } }
+        : {}),
       ...(q
         ? {
             OR: [
               { title: { contains: q, mode: "insensitive" } },
               { description: { contains: q, mode: "insensitive" } },
-              { service: { is: { type: { is: { name: { contains: q, mode: "insensitive" } } } } } },
+              { category: { contains: q, mode: "insensitive" } },
+              { color: { contains: q, mode: "insensitive" } },
+              { materialMain: { contains: q, mode: "insensitive" } },
+              { technique: { contains: q, mode: "insensitive" } },
+              { dimensions: { contains: q, mode: "insensitive" } },
+              {
+                careInstructions: {
+                  contains: q,
+                  mode: "insensitive",
+                },
+              },
+              { specialNotes: { contains: q, mode: "insensitive" } },
+              { styleTags: { has: q } },
+              { occasionTags: { has: q } },
+              {
+                service: {
+                  is: {
+                    type: {
+                      is: {
+                        name: { contains: q, mode: "insensitive" },
+                      },
+                    },
+                  },
+                },
+              },
             ],
           }
         : {}),
-      service: {
-        is: {
-          ...activeService.is,
-          ...(city ? { city: { contains: city, mode: "insensitive" } } : {}),
-          ...(serviceType ? { type: { is: { code: serviceType } } } : {}),
-        },
-      },
     };
 
     if (!Number.isNaN(minPrice) || !Number.isNaN(maxPrice)) {
@@ -225,20 +530,11 @@ router.get("/products", async (req, res, next) => {
         orderBy: buildOrderBy(sort),
         include: {
           service: { include: { type: true, vendor: true, profile: true } },
-          reviews: true,
-          Favorite: true,
         },
       }),
     ]);
 
-    const items = itemsRaw.map((p) => ({
-      ...p,
-      storeName:
-        p?.service?.profile?.displayName ||
-        p?.service?.vendor?.displayName ||
-        "Magazin",
-      category: p.category || null,
-    }));
+    const items = itemsRaw.map(mapPublicProduct);
 
     res.json({ total, items, page, limit });
   } catch (e) {
@@ -260,15 +556,27 @@ router.get("/products/:id", async (req, res, next) => {
         service: { include: { type: true, vendor: true, profile: true } },
         reviews: {
           include: {
-            user: { select: { id: true, firstName: true, lastName: true, name: true } },
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                name: true,
+              },
+            },
           },
           orderBy: { createdAt: "desc" },
         },
       },
     });
 
-    if (!p || !p.isActive) return res.status(404).json({ error: "not_found" });
-    if (!p.service?.isActive || p.service?.status !== "ACTIVE" || !p.service?.vendor?.isActive) {
+    if (!p || !p.isActive)
+      return res.status(404).json({ error: "not_found" });
+    if (
+      !p.service?.isActive ||
+      p.service?.status !== "ACTIVE" ||
+      !p.service?.vendor?.isActive
+    ) {
       return res.status(404).json({ error: "not_found" });
     }
 
@@ -276,7 +584,9 @@ router.get("/products/:id", async (req, res, next) => {
       p.reviews.length === 0
         ? null
         : Math.round(
-            (p.reviews.reduce((s, r) => s + (r.rating || 0), 0) / p.reviews.length) * 10
+            (p.reviews.reduce((s, r) => s + (r.rating || 0), 0) /
+              p.reviews.length) *
+              10
           ) / 10;
 
     const storeName =
@@ -284,7 +594,30 @@ router.get("/products/:id", async (req, res, next) => {
       p?.service?.vendor?.displayName ||
       "Magazin";
 
-    res.json({ ...p, storeName, averageRating: avg, category: p.category || null });
+    res.json({
+      ...p,
+      storeName,
+      averageRating: avg,
+      category: p.category || null,
+      color: p.color || null,
+
+      // câmpuri noi pentru pagina publică de produs
+      availability: p.availability
+        ? String(p.availability).toUpperCase()
+        : null,
+      leadTimeDays: p.leadTimeDays ?? null,
+      readyQty: p.readyQty ?? null,
+      nextShipDate: p.nextShipDate ?? null,
+      acceptsCustom: !!p.acceptsCustom,
+
+      materialMain: p.materialMain || null,
+      technique: p.technique || null,
+      styleTags: p.styleTags || [],
+      occasionTags: p.occasionTags || [],
+      dimensions: p.dimensions || null,
+      careInstructions: p.careInstructions || null,
+      specialNotes: p.specialNotes || null,
+    });
   } catch (e) {
     next(e);
   }
@@ -298,69 +631,24 @@ router.get("/products/recommended", async (_req, res, next) => {
     const latestRaw = await prisma.product.findMany({
       where: {
         isActive: true,
-        service: { is: { isActive: true, status: "ACTIVE", vendor: { is: { isActive: true } } } },
+        service: {
+          is: {
+            isActive: true,
+            status: "ACTIVE",
+            vendor: { isActive: true },
+            type: { is: { code: "products" } },
+          },
+        },
       },
       take: 12,
       orderBy: { createdAt: "desc" },
-      include: { service: { include: { type: true, vendor: true, profile: true } } },
-    });
-    const latest = latestRaw.map((p) => ({
-      ...p,
-      storeName: p?.service?.profile?.displayName || p?.service?.vendor?.displayName || "Magazin",
-      category: p.category || null,
-    }));
-
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
-
-    const popularAgg = await prisma.visitor.groupBy({
-      by: ["productId"],
-      where: { productId: { not: null }, createdAt: { gte: since } },
-      _count: { productId: true },
-      orderBy: { _count: { productId: "desc" } },
-      take: 12,
-    });
-
-    const popularIds = popularAgg.map((a) => a.productId).filter(Boolean);
-    const countMap = new Map(popularAgg.map(a => [a.productId, a._count.productId]));
-
-    const popularRaw = popularIds.length
-      ? await prisma.product.findMany({
-          where: {
-            id: { in: popularIds },
-            isActive: true,
-            service: { is: { isActive: true, status: "ACTIVE", vendor: { is: { isActive: true } } } },
-          },
-          include: { service: { include: { type: true, vendor: true, profile: true } } },
-        })
-      : [];
-
-    const pos = new Map(popularIds.map((id, i) => [id, i]));
-    const popular = popularRaw
-      .map((p) => ({
-        ...p,
-        storeName: p?.service?.profile?.displayName || p?.service?.vendor?.displayName || "Magazin",
-        category: p.category || null,
-        popularityCount: countMap.get(p.id) || 0,
-      }))
-      .sort((a, b) => (pos.get(a.id) ?? 9999) - (pos.get(b.id) ?? 9999));
-
-    const recommendedRaw = await prisma.product.findMany({
-      where: {
-        isActive: true,
-        service: { is: { isActive: true, status: "ACTIVE", vendor: { is: { isActive: true } } } },
+      include: {
+        service: { include: { type: true, vendor: true, profile: true } },
       },
-      take: 12,
-      orderBy: [{ Favorite: { _count: "desc" } }, { createdAt: "desc" }],
-      include: { service: { include: { type: true, vendor: true, profile: true } } },
     });
-    const recommended = recommendedRaw.map((p) => ({
-      ...p,
-      storeName: p?.service?.profile?.displayName || p?.service?.vendor?.displayName || "Magazin",
-      category: p.category || null,
-    }));
+    const latest = latestRaw.map(mapPublicProduct);
 
-    res.json({ latest, popular, recommended });
+    res.json({ latest, popular: [], recommended: [] });
   } catch (e) {
     next(e);
   }
@@ -371,6 +659,10 @@ router.get("/products/recommended", async (_req, res, next) => {
 ------------------------------------------*/
 router.get("/categories", (_req, res) => {
   res.json(CATEGORIES);
+});
+
+router.get("/categories/detailed", (_req, res) => {
+  res.json(CATEGORIES_DETAILED);
 });
 
 router.get("/products/categories/stats", async (_req, res, next) => {
@@ -385,7 +677,9 @@ router.get("/products/categories/stats", async (_req, res, next) => {
       .map((r) => ({ category: r.category, count: r._count.category }))
       .sort((a, b) => b.count - a.count);
     res.json(out);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 export default router;

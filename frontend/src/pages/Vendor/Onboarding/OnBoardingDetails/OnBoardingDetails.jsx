@@ -1,279 +1,282 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { api } from "../../../../lib/api";
 import styles from "./OnBoardingDetails.module.css";
 
-import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import { useAvailability } from "./hooks/useAvailability";
-import { useAutoSave } from "./hooks/useAutoSave";
+import ProfileTab from "./tabs/ProfileTabBoarding.jsx";
+import BillingTab from "./tabs/BillingTab.jsx";
+import PaymentTab from "./tabs/PaymentTab.jsx";
 
-import ProfileTab from "./tabs/ProfileTabBoarding";
-import BillingTab from "./tabs/BillingTab";
-import PaymentTab from "./tabs/PaymentTab";
+const VANITY_BASE = "www.artfest.ro";
 
-const VANITY_BASE = "www.artfest.ro/"; // ajustează domeniul
-const OB_TICKET_PARAM = "obpf";
-const OB_TICKET_PREFIX = "onboarding.ticket.";
-const PREFILL_TTL_MS = 15 * 60 * 1000;
-const OB_SESSION_KEY = "onboarding.sessionId";
+// taburi valide
+const ALLOWED_TABS = ["profil", "facturare", "plata"];
 
-function slugify(s = "") {
-  return String(s)
+const slugify = (s = "") =>
+  String(s)
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
-}
 
 export default function OnBoardingDetails() {
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // parse query params din URL (stabil via useMemo)
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const qpTab = (params.get("tab") || "").toLowerCase();
+  const solo = params.get("solo") === "1";
+
+  const initialTab = ALLOWED_TABS.includes(qpTab) ? qpTab : "profil";
 
   const [services, setServices] = useState([]);
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [err, setErr] = useState("");
 
-  const [linkAvailability, setLinkAvailability] = useState({});
-  const [activeTab, setActiveTab] = useState("profil");
+  const [saveState, setSaveState] = useState({}); // by serviceId
+  const [saveError, setSaveError] = useState({}); // by serviceId
 
-  const [saveState, setSaveState] = useState({});
-  const [saveError, setSaveError] = useState({});
   const [billingStatus, setBillingStatus] = useState("idle");
 
-  // ===== ID sesiune onboarding (drafts/alegeri) =====
-  const [obSessionId, setObSessionId] = useState("");
+  // ===== sincronizare tab <-> URL =====
+
+  // când se schimbă URL-ul (back/forward), sincronizează state-ul
   useEffect(() => {
-    try {
-      let sid = sessionStorage.getItem(OB_SESSION_KEY);
-      if (!sid) {
-        sid = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2));
-        sessionStorage.setItem(OB_SESSION_KEY, sid);
-      }
-      setObSessionId(sid);
-    } catch {
-      setObSessionId(Math.random().toString(36).slice(2));
+    if (ALLOWED_TABS.includes(qpTab)) setActiveTab(qpTab);
+    else setActiveTab("profil");
+  }, [qpTab]);
+
+  // când se schimbă tab-ul în UI, rescrie query-ul (fără reload)
+  useEffect(() => {
+    const curr = new URLSearchParams(location.search);
+    const currTab = (curr.get("tab") || "").toLowerCase();
+    const currSolo = curr.get("solo") === "1";
+
+    if (currTab === activeTab && currSolo === solo) return;
+
+    curr.set("tab", activeTab);
+    if (solo) curr.set("solo", "1");
+    else curr.delete("solo");
+
+    navigate({ search: `?${curr.toString()}` }, { replace: true });
+  }, [activeTab, solo, location.search, navigate]);
+
+  // dacă intri în solo mode fără tab valid, forțează URL corect
+  useEffect(() => {
+    if (solo && !ALLOWED_TABS.includes(qpTab)) {
+      navigate({ search: "?tab=profil&solo=1" }, { replace: true });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== închidem warningul ESLint: definim fetchMyServices cu useCallback =====
+  // ===== initial fetch =====
   const fetchMyServices = useCallback(async () => {
-    const d = await api("/api/vendors/me/services?includeProfile=1");
+    const d = await api("/api/vendors/me/services?includeProfile=1", { method: "GET" });
     if (d?.__unauth) {
-      // nu ești logat → trimitem la login (ajustează ruta la ce folosești tu)
-      navigate("/login?next=/onboarding/details", { replace: true });
+      // ajustează ruta de login dacă în aplicație folosiți /autentificare
+      navigate("/autentificare?redirect=/onboarding/details", { replace: true });
       return [];
     }
     const items = (d.items || []).map((s) => ({
       ...s,
       attributes: s.attributes || {},
       profile: {
-        displayName: s.profile?.displayName || "",
-        slug:        s.profile?.slug || "",
-        logoUrl:     s.profile?.logoUrl || "",
-        coverUrl:    s.profile?.coverUrl || "",
-        phone:       s.profile?.phone || "",
-        email:       s.profile?.email || "",
-        address:     s.profile?.address || "",
-        delivery:    Array.isArray(s.profile?.delivery) ? s.profile.delivery : [],
-        tagline:     s.profile?.tagline || "",
-        about:       s.profile?.about || "",
-        city:        s.profile?.city || "",
+        displayName:    s.profile?.displayName || "",
+        slug:           s.profile?.slug || "",
+        logoUrl:        s.profile?.logoUrl || "",
+        coverUrl:       s.profile?.coverUrl || "",
+        phone:          s.profile?.phone || "",
+        email:          s.profile?.email || "",
+        address:        s.profile?.address || "",
+        delivery:       Array.isArray(s.profile?.delivery) ? s.profile.delivery : [],
+        tagline:        s.profile?.tagline || "",
+        about:          s.profile?.about || "",
+        city:           s.profile?.city || "",
+        website:        s.profile?.website || "",
+        // 🔹 ADĂUGAT: descrierea scurtă, ca să fie citită & resalvată corect
+        shortDescription: s.profile?.shortDescription || "",
       },
     }));
     return items;
   }, [navigate]);
 
-  // ===== Încarcă serviciile + profilele =====
   useEffect(() => {
-    let alive = true;
     (async () => {
       try {
-        const items = await fetchMyServices();
-        if (!alive) return;
-        setServices(items);
+        setServices(await fetchMyServices());
+        setErr("");
       } catch (e) {
-        if (!alive) return;
-        setServices([]);
-        // dacă serverul răspunde 401 și api() aruncă (în cazul în care nu ai __unauth),
-        // tot redirecționăm:
-        if (e?.status === 401) navigate("/login?next=/onboarding/details", { replace: true });
+        setErr(e?.message || "Nu am putut încărca serviciile.");
       }
     })();
-    return () => {
-      alive = false;
-    };
-  }, [fetchMyServices, navigate]);
+  }, [fetchMyServices]);
 
-  // ===== Debounce colecția de servicii pt. verificări =====
-  const debouncedServices = useDebouncedValue(services, 350);
+  /* ======= AUTOSAVE INFRA (debounce per serviceId) ======= */
+  const timers = useRef({}); // { [serviceId]: timeoutId }
 
-  // ===== Disponibilitate nume brand (și slug) =====
-  const availability = useAvailability(debouncedServices);
+  function schedule(serviceId, fn, delay = 600) {
+    if (timers.current[serviceId]) clearTimeout(timers.current[serviceId]);
+    timers.current[serviceId] = setTimeout(fn, delay);
+  }
 
-  // ===== Autosave (profile + service) =====
-  const autoSave = useAutoSave({ services, availability, setSaveState, setSaveError });
-
-  // ===== One-time PREFILL din Register (ticket în URL + sessionStorage) =====
-  const prefillAppliedRef = useRef(false);
+  // cleanup timere la unmount
   useEffect(() => {
-    if (prefillAppliedRef.current) return;
-    if (!services?.length) return;
+    return () => {
+      Object.values(timers.current || {}).forEach((t) => clearTimeout(t));
+      timers.current = {};
+    };
+  }, []);
 
-    const params = new URLSearchParams(window.location.search);
-    const ticket = params.get(OB_TICKET_PARAM);
-    if (!ticket) { prefillAppliedRef.current = true; return; }
+  /* ===== Update PROFIL (PUT /vendor-services/:id/profile) ===== */
+  const updateProfile = useCallback((idx, patch) => {
+    setServices((prev) => {
+      const next = [...prev];
+      const s = { ...next[idx] };
+      const p = { ...(s.profile || {}) };
 
-    let prefill = null;
-    try {
-      const raw = sessionStorage.getItem(OB_TICKET_PREFIX + ticket);
-      if (raw) prefill = JSON.parse(raw);
-    } catch {""}
+      // auto-slug la schimbarea numelui dacă nu s-a atins slug-ul manual
+      if (patch.displayName && !p.slug) p.slug = slugify(patch.displayName);
 
-    // invalid / expirat → curățăm ticketul și URL-ul
-    if (!prefill || (prefill.ts && Date.now() - prefill.ts > PREFILL_TTL_MS)) {
-      try { sessionStorage.removeItem(OB_TICKET_PREFIX + ticket); } catch {""}
-      const u = new URL(window.location.href);
-      u.searchParams.delete(OB_TICKET_PARAM);
-      window.history.replaceState({}, "", u.pathname + u.search + u.hash);
-      prefillAppliedRef.current = true;
-      return;
-    }
+      Object.assign(p, patch);
+      s.profile = p;
+      next[idx] = s;
 
-    // aplică prefill doar pe câmpuri goale
-    setServices((arr) => {
-      const next = arr.map((s, idx) => {
-        const p = s.profile || {};
-        const patchProfile = {};
-        const patchService = {};
+      const serviceId = s.id;
+      if (serviceId) {
+        setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+        schedule(serviceId, async () => {
+          try {
+            await api(
+              `/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`,
+              {
+                method: "PUT",
+                body: { ...p, mirrorVendor: true },
+              }
+            );
+            setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
+            setSaveError((m) => ({ ...m, [serviceId]: "" }));
+          } catch (e) {
+            setSaveState((m) => ({ ...m, [serviceId]: "error" }));
+            setSaveError((m) => ({
+              ...m,
+              [serviceId]: e?.message || "Eroare la salvarea profilului",
+            }));
+          }
+        });
+      }
 
-        if (!p.displayName?.trim() && prefill.displayName?.trim()) {
-          patchProfile.displayName = prefill.displayName.trim();
-          if (!p.slug?.trim()) patchProfile.slug = slugify(prefill.displayName.trim());
-        }
-        if (!s.city?.trim() && prefill.city?.trim()) {
-          patchService.city = prefill.city.trim();
-        }
-
-        const merged = {
-          ...s,
-          ...(Object.keys(patchService).length ? patchService : {}),
-          profile: { ...p, ...(Object.keys(patchProfile).length ? patchProfile : {}) },
-        };
-
-        // declanșează autosave pentru ce s-a completat
-        const serviceId = s.id;
-        if (serviceId) {
-          if (Object.keys(patchProfile).length) autoSave.saveProfile(serviceId, idx);
-          if (Object.keys(patchService).length) autoSave.saveService(serviceId, idx);
-        }
-        return merged;
-      });
       return next;
     });
+  }, []);
 
-    // consumă ticketul și curăță URL-ul
-    try { sessionStorage.removeItem(OB_TICKET_PREFIX + ticket); } catch {""}
-    const u = new URL(window.location.href);
-    u.searchParams.delete(OB_TICKET_PARAM);
-    window.history.replaceState({}, "", u.pathname + u.search + u.hash);
+  /* ===== Update SERVICE BASICS (PATCH /me/services/:id) ===== */
+  const updateServiceBasics = useCallback((idx, patch) => {
+    setServices((prev) => {
+      const next = [...prev];
+      const s = { ...next[idx] };
+      next[idx] = {
+        ...s,
+        ...patch,
+        attributes: { ...(s.attributes || {}), ...(patch.attributes || {}) },
+      };
 
-    prefillAppliedRef.current = true;
-  }, [services, autoSave]);
-
-  // ===== Verificare disponibilitate LINK (slug) =====
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      const checks = await Promise.all(
-        debouncedServices.map(async (s) => {
-          const id = s.id;
-          const candidate =
-            (s.profile?.slug || "").trim() || slugify(s.profile?.displayName || "");
-          if (!candidate) return [id, { state: "idle", available: null, slug: "" }];
+      const serviceId = s.id;
+      if (serviceId) {
+        setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+        schedule(serviceId, async () => {
           try {
-            const q = new URLSearchParams({
-              name: candidate,
-              excludeServiceId: String(id),
-            }).toString();
-            const d = await api(`/api/vendors/vendor-services/brand/check?${q}`);
-            if (d?.__unauth) return [id, { state: "error", available: null, slug: candidate }];
-            return [id, { state: "done", available: !!d.available, slug: d.slug, suggestion: d.suggestion || null }];
-          } catch {
-            return [id, { state: "error", available: null, slug: candidate }];
+            const current = next[idx];
+            await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
+              method: "PATCH",
+              body: {
+                city: current?.city || "",
+                attributes: current?.attributes || {},
+              },
+            });
+            setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
+            setSaveError((m) => ({ ...m, [serviceId]: "" }));
+          } catch (e) {
+            setSaveState((m) => ({ ...m, [serviceId]: "error" }));
+            setSaveError((m) => ({
+              ...m,
+              [serviceId]: e?.message || "Eroare la salvare",
+            }));
           }
-        })
-      );
-
-      if (!cancelled) {
-        const map = {};
-        for (const [id, value] of checks) map[id] = value;
-        setLinkAvailability(map);
+        });
       }
-    }
-    run();
-    return () => { cancelled = true; };
-  }, [debouncedServices]);
 
-  // ===== Derived pentru butonul „Continuă” =====
+      return next;
+    });
+  }, []);
+
+  /* ===== Upload helper (POST /api/upload) ===== */
+  const uploadFile = useCallback(async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const d = await api("/api/upload", { method: "POST", body: fd });
+    if (!d?.url) throw new Error("Upload eșuat");
+    return d.url;
+  }, []);
+
   const isSavingAny = useMemo(
-    () => Object.values(saveState || {}).some((s) => s === "saving"),
+    () => Object.values(saveState).some((s) => s === "saving"),
     [saveState]
   );
-  const hasNameConflict = useMemo(
-    () => Object.values(availability || {}).some((av) => av?.state === "done" && av?.available === false),
-    [availability]
-  );
-  const hasLinkConflict = useMemo(
-    () => Object.values(linkAvailability || {}).some((av) => av?.state === "done" && av?.available === false),
-    [linkAvailability]
-  );
+  const hasNameConflict = false; // dacă vrei, poți calcula pe baza verificărilor de disponibilitate
 
-  // ===== Upload helper pentru imagini =====
- async function uploadFile(file) {
-  const fd = new FormData();
-  fd.append("file", file);
+  /* ============================================================
+     SOLO MODE
+     - Dacă ?solo=1 -> NU mai afișăm bara de taburi;
+     - Randăm DOAR componenta corespunzătoare lui activeTab.
+     ============================================================ */
+  if (solo) {
+    return (
+      <section className={styles.wrap}>
+        {activeTab === "profil" && (
+          <ProfileTab
+            services={services}
+            vanityBase={VANITY_BASE}
+            saveState={saveState}
+            saveError={saveError}
+            updateProfile={updateProfile}
+            updateServiceBasics={updateServiceBasics}
+            uploadFile={uploadFile}
+            isSavingAny={isSavingAny}
+            hasNameConflict={hasNameConflict}
+            onContinue={() => {
+              /* în solo nu navigăm nicăieri */
+            }}
+            err={err}
+            setErr={setErr}
+          />
+        )}
 
-  const data = await api("/upload", {
-    method: "POST",
-    body: fd,
-  });
+        {activeTab === "facturare" && (
+          <BillingTab
+            onSaved={() => {}}
+            onStatusChange={() => {}}
+            canContinue={false}
+            onContinue={() => {}}
+          />
+        )}
 
-  return data.url;
-}
+        {activeTab === "plata" && <PaymentTab />}
+      </section>
+    );
+  }
 
-  // ===== callbacks expuse către taburi =====
-  const updateProfile = useCallback(
-    (idx, patch) => {
-      setServices((arr) => {
-        const next = [...arr];
-        next[idx] = { ...next[idx], profile: { ...(next[idx].profile || {}), ...patch } };
-        const serviceId = next[idx]?.id;
-        if (serviceId) autoSave.saveProfile(serviceId, idx);
-        return next;
-      });
-    },
-    [autoSave]
-  );
-
-  const updateServiceBasics = useCallback(
-    (idx, patch) => {
-      setServices((arr) => {
-        const next = [...arr];
-        next[idx] = { ...next[idx], ...patch };
-        const serviceId = next[idx]?.id;
-        if (serviceId) autoSave.saveService(serviceId, idx);
-        return next;
-      });
-    },
-    [autoSave]
-  );
-
+  // ===== MOD NORMAL: taburi complete =====
   return (
     <section className={styles.wrap}>
       <nav className={styles.tabsBar} role="tablist" aria-label="Onboarding tabs">
         <button
           role="tab"
           aria-selected={activeTab === "profil"}
-          className={`${styles.tab} ${activeTab === "profil" ? styles.tabActive : ""}`}
+          className={`${styles.tab} ${
+            activeTab === "profil" ? styles.tabActive : ""
+          }`}
           onClick={() => setActiveTab("profil")}
           type="button"
         >
@@ -283,7 +286,9 @@ export default function OnBoardingDetails() {
         <button
           role="tab"
           aria-selected={activeTab === "facturare"}
-          className={`${styles.tab} ${activeTab === "facturare" ? styles.tabActive : ""}`}
+          className={`${styles.tab} ${
+            activeTab === "facturare" ? styles.tabActive : ""
+          }`}
           onClick={() => setActiveTab("facturare")}
           type="button"
         >
@@ -293,7 +298,9 @@ export default function OnBoardingDetails() {
         <button
           role="tab"
           aria-selected={activeTab === "plata"}
-          className={`${styles.tab} ${activeTab === "plata" ? styles.tabActive : ""}`}
+          className={`${styles.tab} ${
+            activeTab === "plata" ? styles.tabActive : ""
+          }`}
           onClick={() => setActiveTab("plata")}
           type="button"
         >
@@ -304,8 +311,6 @@ export default function OnBoardingDetails() {
       {activeTab === "profil" && (
         <ProfileTab
           services={services}
-          availability={availability}
-          linkAvailability={linkAvailability}
           vanityBase={VANITY_BASE}
           saveState={saveState}
           saveError={saveError}
@@ -313,7 +318,7 @@ export default function OnBoardingDetails() {
           updateServiceBasics={updateServiceBasics}
           uploadFile={uploadFile}
           isSavingAny={isSavingAny}
-          hasNameConflict={hasNameConflict || hasLinkConflict}
+          hasNameConflict={hasNameConflict}
           onContinue={() => setActiveTab("facturare")}
           err={err}
           setErr={setErr}
@@ -322,7 +327,6 @@ export default function OnBoardingDetails() {
 
       {activeTab === "facturare" && (
         <BillingTab
-          obSessionId={obSessionId}
           onSaved={() => setActiveTab("plata")}
           onStatusChange={setBillingStatus}
           canContinue={billingStatus === "saved"}
@@ -330,7 +334,7 @@ export default function OnBoardingDetails() {
         />
       )}
 
-      {activeTab === "plata" && <PaymentTab obSessionId={obSessionId} />}
+      {activeTab === "plata" && <PaymentTab />}
     </section>
   );
 }

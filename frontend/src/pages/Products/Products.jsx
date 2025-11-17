@@ -75,6 +75,9 @@ export default function ProductsPage() {
       p.set("page", String(page));
       p.set("limit", String(limit));
 
+      // ne asigurăm că listăm doar produse (servicii de tip "products")
+      p.set("serviceType", "products");
+
       if (ids) p.set("ids", ids); // ordinea de similaritate
       if (q) p.set("q", q);
       if (category) p.set("category", category);
@@ -130,7 +133,9 @@ export default function ProductsPage() {
       }
       try {
         window.dispatchEvent(new CustomEvent("cart:changed"));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     },
     [me]
   );
@@ -138,11 +143,15 @@ export default function ProductsPage() {
   // wishlist rămâne doar pentru useri logați
   const toggleFavorite = async (p) => {
     if (!me) {
-      // 👇 ALERTA cerută
       alert("Trebuie să fii autentificat pentru a adăuga produse în wishlist.");
       try {
-        sessionStorage.setItem("intent", JSON.stringify({ type: "favorite_toggle", productId: p.id }));
-      } catch { /* ignore */ }
+        sessionStorage.setItem(
+          "intent",
+          JSON.stringify({ type: "favorite_toggle", productId: p.id })
+        );
+      } catch {
+        /* ignore */
+      }
       openAuthModal();
       return;
     }
@@ -362,7 +371,7 @@ function ProductCard({ p, me, favorites, onAddToCart, onToggleFavorite, onOpenAu
           <div className={styles.title} title={p.title}>
             {p.title}
           </div>
-        <div className={styles.meta} title={stName}>
+          <div className={styles.meta} title={stName}>
             {stName} · de la <span className={styles.vendor}>{vendorName}</span>
           </div>
           <div className={styles.price}>{price}</div>
@@ -410,13 +419,15 @@ function ProductCard({ p, me, favorites, onAddToCart, onToggleFavorite, onOpenAu
               className={styles.iconBtnOutline}
               onClick={(e) => {
                 e.stopPropagation();
-                alert("Trebuie să fii autentificat pentru a adăuga produse în wishlist."); // ✅ ALERTA
+                alert("Trebuie să fii autentificat pentru a adăuga produse în wishlist.");
                 try {
                   sessionStorage.setItem(
                     "intent",
                     JSON.stringify({ type: "favorite_toggle", productId: p.id })
                   );
-                } catch { /* ignore */ }
+                } catch {
+                  /* ignore */
+                }
                 onOpenAuthModal();
               }}
               title="Autentifică-te pentru a salva la favorite"

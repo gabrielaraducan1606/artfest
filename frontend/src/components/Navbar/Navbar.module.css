@@ -4,13 +4,16 @@
 
 /* ===== Header ===== */
 .header {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 1000;
   background: color-mix(in oklab, var(--color-bg) 82%, transparent);
   border-bottom: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
   backdrop-filter: saturate(120%) blur(8px);
 }
+
 .modal-open .header { backdrop-filter: none; }
 
 .container {

@@ -1,5 +1,6 @@
-// src/auth.js
+// src/api/auth.js
 import jwt from "jsonwebtoken";
+import { prisma } from "../db.js";
 
 /** Setări de bază */
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
@@ -34,7 +35,8 @@ export function authRequired(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (!decoded?.sub) return res.status(401).json({ error: "unauthenticated" });
 
-    req.user = decoded; // { sub, role, iat, exp }
+    // { sub, role, tv?, iat, exp }
+    req.user = decoded;
     next();
   } catch (e) {
     console.error("authRequired error:", e?.message || e);
@@ -65,4 +67,23 @@ export function requireRole(...roles) {
     }
     next();
   };
+}
+
+/** Middleware: (nou) verifică tokenVersion din JWT vs DB, dacă tv e prezent */
+export async function enforceTokenVersion(req, res, next) {
+  try {
+    const hasTv = typeof req?.user?.tv !== "undefined";
+    if (!hasTv) return next(); // compat: tokenuri vechi fără tv => le acceptăm
+    const u = await prisma.user.findUnique({
+      where: { id: req.user.sub },
+      select: { tokenVersion: true },
+    });
+    if (!u || u.tokenVersion !== req.user.tv) {
+      return res.status(401).json({ error: "invalid_token" });
+    }
+    return next();
+  } catch (e) {
+    console.error("enforceTokenVersion error:", e?.message || e);
+    return res.status(401).json({ error: "invalid_token" });
+  }
 }

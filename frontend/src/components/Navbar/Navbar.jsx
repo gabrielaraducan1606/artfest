@@ -268,37 +268,41 @@ export default function Navbar() {
     };
   }, [me?.role]);
 
-  // Counts: notifications, messages, onboarding
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (me) {
-        const notif = await api("/api/notifications/unread-count").catch(
-          () => ({ count: 0 })
-        );
-        if (alive) setUnreadNotif(notif?.count || 0);
-      } else {
-        setUnreadNotif(0);
-      }
-      if (me?.role === "VENDOR") {
-        const msgs = await api("/api/inbox/unread-count").catch(() => ({
-          count: 0,
-        }));
-        const ob = await api("/api/vendors/me/onboarding-status").catch(
-          () => null
-        );
-        if (!alive) return;
-        setUnreadMsgs(msgs?.count || 0);
-        setOnboarding(ob || null);
-      } else {
-        setUnreadMsgs(0);
-        setOnboarding(null);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [me?.role, me]);
+ useEffect(() => {
+  let alive = true;
+  (async () => {
+    if (me) {
+      const notifUrl =
+        me.role === "VENDOR"
+          ? "/api/vendor/notifications/unread-count"
+          : "/api/notifications/unread-count";
+
+      const notif = await api(notifUrl).catch(() => ({ count: 0 }));
+      if (alive) setUnreadNotif(notif?.count || 0);
+    } else {
+      setUnreadNotif(0);
+    }
+
+    if (me?.role === "VENDOR") {
+      const msgs = await api("/api/inbox/unread-count").catch(() => ({
+        count: 0,
+      }));
+      const ob = await api("/api/vendors/me/onboarding-status").catch(
+        () => null
+      );
+      if (!alive) return;
+      setUnreadMsgs(msgs?.count || 0);
+      setOnboarding(ob || null);
+    } else {
+      setUnreadMsgs(0);
+      setOnboarding(null);
+    }
+  })();
+
+  return () => {
+    alive = false;
+  };
+}, [me?.role, me]);
 
   // Body scroll lock pentru drawer mobil
   useEffect(() => {
@@ -363,8 +367,6 @@ export default function Navbar() {
   }, [me]);
 
   const isVendor = me?.role === "VENDOR";
-  const isAdmin = me?.role === "ADMIN";
-  const isUser = me?.role === "USER";
 
   // Profiluri (vendor)
   const profileLinks = useMemo(() => {
@@ -556,10 +558,8 @@ export default function Navbar() {
               )}
 
               {/* ===== Vizitatori / Mesaje / Asistență ===== */}
-              <a className={styles.navLink} href="/vendor/visitors">Vizitatori</a>
-              <a className={styles.navLink} href="/mesaje">Mesaje</a>
-              <a className={styles.navLink} href="/asistenta-tehnica">Asistență tehnică</a>
-
+             <a className={styles.navLink} href="/vendor/orders">Comenzile mele</a>
+            <a className={styles.navLink} href="/vendor/visitors">Vizitatori</a>    
               {nextStepCTA && (
                 <a className={styles.accountBtn} href={nextStepCTA.href} title="Următorul pas">
                   {nextStepCTA.label}
@@ -734,8 +734,19 @@ export default function Navbar() {
                 {Math.min(cartCount, 99)}
               </span>
             )}
+            
           </a>
-
+  {/* 👇 Icon nou pentru Desktop – doar pentru vendor */}
+          {isVendor && (
+            <a
+              className={styles.iconWrapper}
+              href="/desktop"
+              title="Desktop vendor"
+              aria-label="Desktop vendor"
+            >
+              <LayoutGrid size={22} />
+            </a>
+          )}
           {/* Account */}
           {!me ? (
             <>
@@ -759,7 +770,7 @@ export default function Navbar() {
                 Devino partener
               </button>
             </>
-          ) : (
+                    ) : (
             // Dropdown cont
             <div className={styles.dropdown}>
               <button
@@ -771,7 +782,10 @@ export default function Navbar() {
                 <span className={styles.avatar}>{initials}</span>
                 <ChevronDown className={styles.dropdownIcon} size={14} />
               </button>
-              <div className={styles.dropdownContent} style={{ padding: 10, minWidth: 240 }}>
+              <div
+                className={styles.dropdownContent}
+                style={{ padding: 10, minWidth: 240 }}
+              >
                 <ul
                   style={{
                     margin: 0,
@@ -781,18 +795,14 @@ export default function Navbar() {
                     gap: 4,
                   }}
                 >
-                  <li><a href="/desktop">Desktop</a></li>
-                  {isUser && <li><a href="/comenzile-mele">Comenzile mele</a></li>}
-                  <li><a href="/wishlist">Lista de dorințe</a></li>
-                  <li><a href="/notificari">Notificări</a></li>
-                  {isVendor && (
-                    <>
-                      <li><a href="/vendor/visitors">Vizitatori</a></li>
-                      <li><a href="/mesaje">Mesaje</a></li>
-                    </>
-                  )}
-                  {isAdmin && <li><a href="/admin">Panou Admin</a></li>}
-                  <li><a href="/setari">Setări</a></li>
+                  <li>
+                    <a href="/cont">
+                      {isVendor ? "Cont (mobil)" : "Contul meu"}
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/setari">Setări</a>
+                  </li>
                   <li
                     style={{
                       borderTop: "1px solid var(--color-border)",
@@ -820,6 +830,7 @@ export default function Navbar() {
               </div>
             </div>
           )}
+
         </div>
       </div>
 

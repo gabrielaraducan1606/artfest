@@ -1,0 +1,571 @@
+/* ============ ProductCard – compact, premium, responsive ============ */
+
+/* Variabile locale pe card (evită conflicte globale) */
+.card {
+  --pc-w: 320px;
+  --pc-radius: 14px;
+  --pc-gap: 10px;
+  --pc-img-h: 180px;
+
+  max-width: var(--pc-w);
+  width: 100%;
+  justify-self: center;
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--pc-radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+
+  transition: transform 0.12s ease, box-shadow 0.2s ease,
+    border-color 0.2s ease, background-color 0.2s ease;
+}
+.card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 30%,
+    var(--color-border)
+  );
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.08);
+}
+
+/* stare pentru produse inactive/ascunse (folosită în JSX) */
+.cardInactive {
+  opacity: 0.6;
+  filter: grayscale(0.1);
+}
+
+/* ===== Media / imagine ===== */
+.media {
+  position: relative;
+  overflow: hidden;
+}
+.image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  max-height: var(--pc-img-h);
+  object-fit: cover;
+  object-position: center;
+  background: var(--color-bg);
+  transition: transform 0.25s ease;
+}
+.media:hover .image {
+  transform: scale(1.02);
+}
+
+/* Badges pe imagine */
+.badges {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  z-index: 2;
+}
+.badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid var(--color-border);
+  background: color-mix(
+    in srgb,
+    var(--surface) 86%,
+    var(--color-primary) 14%
+  );
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+/* tonuri pentru status */
+.badgeSuccess {
+  background: color-mix(
+    in srgb,
+    var(--surface) 80%,
+    #22c55e 20%
+  );
+  border-color: color-mix(
+    in srgb,
+    #16a34a 45%,
+    var(--color-border)
+  );
+  color: #166534;
+}
+.badgeWarning {
+  background: color-mix(
+    in srgb,
+    var(--surface) 80%,
+    #facc15 20%
+  );
+  border-color: color-mix(
+    in srgb,
+    #eab308 45%,
+    var(--color-border)
+  );
+  color: #92400e;
+}
+.badgeInfo {
+  background: color-mix(
+    in srgb,
+    var(--surface) 80%,
+    #6366f1 20%
+  );
+  border-color: color-mix(
+    in srgb,
+    #4f46e5 45%,
+    var(--color-border)
+  );
+  color: #1e3a8a;
+}
+.badgeDanger {
+  background: color-mix(
+    in srgb,
+    var(--surface) 80%,
+    var(--color-danger) 20%
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 45%,
+    var(--color-border)
+  );
+  color: var(--color-danger);
+}
+
+.badgeOutline {
+  background: color-mix(
+    in srgb,
+    var(--surface) 94%,
+    transparent
+  );
+  border-style: dashed;
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 40%,
+    var(--color-border)
+  );
+  font-weight: 600;
+}
+
+.badgeInactive {
+  background: color-mix(
+    in srgb,
+    var(--surface) 86%,
+    var(--color-danger) 14%
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 35%,
+    var(--color-border) 65%
+  );
+  color: var(--color-danger);
+}
+
+/* Overlay pentru epuizat */
+.soldOutOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.65),
+      rgba(255, 255, 255, 0.4)
+    );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Număr imagini */
+.badgeImgs {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  background: rgb(0 0 0 / 0.45);
+  color: #fff;
+  backdrop-filter: blur(2px);
+}
+
+/* ===== Dots (carousel indicators) ===== */
+.dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid
+    color-mix(in srgb, var(--color-text) 40%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--surface) 50%,
+    transparent
+  );
+  opacity: 0.85;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease, opacity 0.15s ease;
+}
+.dot:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+.dotActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+/* ===== Conținut ===== */
+.cardBody {
+  padding: calc(var(--pc-gap) + 2px)
+    calc(var(--pc-gap) + 4px) var(--pc-gap);
+}
+
+.cardTitle {
+  margin: 6px 0 2px;
+  font: 800 1rem/1.25 var(--font-title);
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+/* hint de culoare principală sub titlu */
+.colorHint {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.cardMetaRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* zona preț + mini-informații */
+.metaLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.price {
+  color: var(--color-text);
+  font-weight: 700;
+  letter-spacing: 0.015em;
+}
+
+.metaHint {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+/* ține „6 zile” sau „23 buc” pe un singur rând */
+.metaInline {
+  white-space: nowrap;
+}
+
+/* Pastilă categorie */
+.catPill {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: 9999px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease,
+    color 0.2s ease;
+}
+.catPill:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 40%,
+    var(--color-border) 60%
+  );
+  background: color-mix(
+    in srgb,
+    var(--surface) 92%,
+    var(--color-primary) 8%
+  );
+}
+
+/* Acțiuni */
+.cardActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.ownerRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Icon buttons (fav / cart) */
+.iconRow {
+  display: flex;
+  gap: 8px;
+}
+
+.iconBtn,
+.iconBtnOutline {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.08s ease,
+    background-color 0.2s ease, border-color 0.2s ease,
+    color 0.2s ease, box-shadow 0.2s ease;
+}
+.iconBtn {
+  border: 2px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 6px 16px
+    color-mix(
+      in srgb,
+      var(--color-primary) 30%,
+      transparent
+    );
+}
+.iconBtn:hover {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
+.iconBtn:active,
+.iconBtnOutline:active {
+  transform: translateY(1px);
+}
+
+.iconBtnOutline {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+}
+.iconBtnOutline:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 40%,
+    var(--color-border) 60%
+  );
+  background: color-mix(
+    in srgb,
+    var(--surface) 92%,
+    var(--color-primary) 8%
+  );
+}
+
+/* Stare „favorit” */
+.heartFilled {
+  color: var(--color-primary);
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 25%,
+    var(--color-border) 75%
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-primary) 12%,
+    var(--surface) 88%
+  );
+}
+
+/* Focus accesibil */
+.card :where(a, button):focus-visible {
+  outline: 2px solid
+    color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px
+    color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+/* ===== Galerie (navi & thumbs) ===== */
+.navBtn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: rgb(0 0 0 / 0.45);
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 2;
+}
+.navPrev {
+  left: 8px;
+}
+.navNext {
+  right: 8px;
+}
+.navBtn:hover {
+  background: rgb(0 0 0 / 0.6);
+}
+
+/* ===== Butoane owner – icon-only ===== */
+.ownerIconBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 0.2s ease,
+    border-color 0.2s ease, color 0.2s ease,
+    box-shadow 0.2s ease, transform 0.08s ease;
+  box-shadow: var(--shadow-sm);
+}
+.ownerIconBtn:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 40%,
+    var(--color-border) 60%
+  );
+  background: color-mix(
+    in srgb,
+    var(--surface) 92%,
+    var(--color-primary) 8%
+  );
+  box-shadow: var(--shadow-md);
+}
+.ownerIconBtn:active {
+  transform: translateY(1px);
+}
+
+.ownerIconDanger {
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 35%,
+    var(--color-border) 65%
+  );
+  background: color-mix(
+    in srgb,
+    var(--surface) 92%,
+    var(--color-danger) 8%
+  );
+  color: var(--color-danger);
+}
+.ownerIconDanger:hover {
+  border-color: var(--color-danger);
+  background: color-mix(
+    in srgb,
+    var(--surface) 86%,
+    var(--color-danger) 14%
+  );
+  box-shadow: 0 4px 14px
+    color-mix(
+      in srgb,
+      var(--color-danger) 22%,
+      transparent
+    );
+}
+
+/* Tooltips custom pentru icon-only */
+.ownerIconTip[data-tip] {
+  position: relative;
+}
+.ownerIconTip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease,
+    transform 0.15s ease;
+  background: var(--surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  z-index: 3;
+}
+.ownerIconTip:hover::after,
+.ownerIconTip:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -2px);
+}
+
+/* Screen-reader only */
+.srOnly {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 480px) {
+  .card {
+    --pc-w: 300px;
+    --pc-img-h: 170px;
+  }
+  .cardBody {
+    padding: 10px;
+  }
+}
+@media (max-width: 360px) {
+  .card {
+    --pc-w: 100%;
+    --pc-img-h: 160px;
+  }
+  .cardTitle {
+    font-size: 0.95rem;
+  }
+}
+
+/* Dark polish */
+html[data-theme="dark"] .card {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+

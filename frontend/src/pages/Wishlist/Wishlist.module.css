@@ -1,3 +1,7 @@
+/* ==============================
+   Wishlist.module.css (complet)
+   ============================== */
+
 /* container & layout */
 .container {
   max-width: min(1200px, 100%);
@@ -58,21 +62,18 @@
   grid-template-columns: 1fr;
   gap: var(--wl-gap);
 }
-
 @media (min-width: 560px) {
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 900px) {
-  .grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (min-width: 1160px) {
-  .grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* 5 coloane – ecrane mari */
+@media (min-width: 1440px) {
+  .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
 /* card */
@@ -93,13 +94,19 @@
   border-color: color-mix(in srgb, var(--color-border) 70%, var(--color-primary) 30%);
 }
 
-/* highlight când e bifat (folosim :has) */
-.card:has(.cardTop input:checked) {
+/* Highlight select — fallback + :has() */
+.card[data-selected="true"] {
   border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-border) 30%);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
+@supports selector(:has(*)) {
+  .card:has(.cardTop input:checked) {
+    border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-border) 30%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  }
+}
 
-/* top bar cu checkbox + data */
+/* top bar */
 .cardTop {
   display: flex;
   align-items: center;
@@ -115,15 +122,15 @@
   accent-color: var(--color-primary);
   cursor: pointer;
 }
-.cardDate {
-  font-size: 12px;
-  color: var(--color-muted, #6b7280);
-}
 
 /* thumbnail */
 .thumbBtn {
   all: unset;
   cursor: pointer;
+}
+.thumbBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--wl-ring) color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 .thumb {
   width: 100%;
@@ -131,6 +138,15 @@
   object-fit: cover;
   display: block;
   background: linear-gradient(180deg, #00000010, #00000006);
+}
+
+/* Fallback aspect-ratio */
+@supports not (aspect-ratio: 4 / 3) {
+  .thumb::before {
+    content: "";
+    display: block;
+    padding-top: calc(100% * 3 / 4);
+  }
 }
 
 /* body */
@@ -143,7 +159,6 @@
   font-weight: 650;
   line-height: 1.2;
   font-size: clamp(14px, 1.9vw, 16px);
-  min-height: 1.2em;
 }
 .cardPrice {
   font-weight: 800;
@@ -163,9 +178,7 @@
   margin-top: 6px;
 }
 @media (min-width: 450px) {
-  .actions {
-    grid-template-columns: 1fr 1fr;
-  }
+  .actions { grid-template-columns: 1fr 1fr; }
 }
 
 /* buttons */
@@ -179,16 +192,19 @@
   font-weight: 600;
   transition: background var(--wl-transition), border-color var(--wl-transition), transform var(--wl-transition), box-shadow var(--wl-transition);
 }
-.btn:hover {
-  background: color-mix(in srgb, var(--surface) 70%, var(--color-bg) 30%);
-}
-.btn:active {
-  transform: translateY(1px);
-}
+.btn:hover { background: color-mix(in srgb, var(--surface) 70%, var(--color-bg) 30%); }
+.btn:active { transform: translateY(1px); }
 .btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 var(--wl-ring) color-mix(in srgb, var(--color-primary) 35%, transparent);
   border-color: var(--color-primary);
+}
+.btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--surface) 85%, var(--color-bg) 15%);
 }
 
 .btnPrimary {
@@ -215,9 +231,7 @@
   text-decoration: none;
   font-weight: 600;
 }
-.linkPrimary:hover {
-  text-decoration: underline;
-}
+.linkPrimary:hover { text-decoration: underline; }
 
 /* states */
 .alert {
@@ -258,18 +272,71 @@
 }
 
 /* infinite scroll sentinel */
-.sentinel {
-  width: 100%;
-  height: 48px;
+.sentinel { width: 100%; height: 48px; }
+
+/* Very small devices (≤360px) */
+@media (max-width: 360px) {
+  .container { padding: 12px; }
+  .btn { padding: 10px 12px; border-radius: 14px; }
+  .cardTitle { font-size: 14px; }
 }
 
-/* focus & reduced motion */
-:focus-visible {
-  outline: none;
+/* Touch devices */
+@media (pointer: coarse) {
+  .btn { padding: 12px 14px; min-height: 44px; }
+  .cardTop input[type="checkbox"] { width: 22px; height: 22px; }
+  .select { min-height: 44px; }
 }
+
+/* Make controls wrap nicely on small screens */
+@media (max-width: 420px) {
+  .controls { width: 100%; row-gap: 10px; }
+  .controls > * { flex: 1 1 auto; }
+}
+
+/* reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+  * { animation: none !important; transition: none !important; }
+}
+
+/* ===== extra polish ===== */
+
+/* Dark mode hover contrast */
+@media (prefers-color-scheme: dark) {
+  .card:hover {
+    border-color: color-mix(in srgb, var(--color-border) 60%, var(--color-primary) 40%);
   }
 }
+
+/* Performanță: evită layout/paint când cardul nu e vizibil */
+.card {
+  content-visibility: auto;
+  contain-intrinsic-size: 320px 420px; /* hint pentru înălțimea cardului */
+}
+
+/* Hover doar pe device-uri cu mouse */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--wl-shadow);
+    border-color: color-mix(in srgb, var(--color-border) 70%, var(--color-primary) 30%);
+  }
+}
+
+/* High-contrast / Forced Colors (Windows) */
+@media (forced-colors: active) {
+  .btn, .card, .select, .alert { border: 1px solid ButtonText; }
+  .btnPrimary { background: Highlight; color: HighlightText; }
+  .btn:focus-visible, .thumbBtn:focus-visible { outline: 2px solid Highlight; box-shadow: none; }
+}
+
+/* Safe-area (iOS notch) */
+.container {
+  padding-left: max(clamp(12px, 2vw, 24px), env(safe-area-inset-left));
+  padding-right: max(clamp(12px, 2vw, 24px), env(safe-area-inset-right));
+}
+
+/* RTL ready */
+:root { --wl-grid-auto-flow: row; }
+.grid { grid-auto-flow: var(--wl-grid-auto-flow); }
+:dir(rtl) .cardTop { direction: rtl; }

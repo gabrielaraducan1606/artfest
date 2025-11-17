@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { sendVerificationEmail } from "../lib/mailer.js";
-import { signToken, authRequired } from "../api/auth.js";
+import { signToken, authRequired, enforceTokenVersion } from "../api/auth.js";
 
 // 👉 ajustează căile dacă fișierele sunt în altă parte
 import forgotPassword from "./forgot-passwordRoutes.js";
@@ -236,7 +236,7 @@ router.post("/verify-email", async (req, res) => {
     // autentifică automat după verificare
     const user = await prisma.user.findUnique({ where: { id: rec.userId } });
     if (user) {
-      const jwt = signToken({ sub: user.id, role: user.role });
+      const jwt = signToken({ sub: user.id, role: user.role, tv: user.tokenVersion });
       const isSecure = !!(req.secure || (req.headers["x-forwarded-proto"] === "https"));
       res.cookie("token", jwt, {
         httpOnly: true,
@@ -334,7 +334,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const jwt = signToken({ sub: user.id, role: user.role });
+    const jwt = signToken({ sub: user.id, role: user.role, tv: user.tokenVersion });
     const isSecure = !!(req.secure || (req.headers["x-forwarded-proto"] === "https"));
     const maxAge = (remember ? 30 : 7) * 24 * 60 * 60 * 1000;
 
@@ -357,7 +357,7 @@ router.post("/login", async (req, res) => {
 });
 
 /** GET /api/auth/me */
-router.get("/me", authRequired, async (req, res) => {
+router.get("/me", authRequired, enforceTokenVersion, async (req, res) => {
   try {
     const me = await prisma.user.findUnique({
       where: { id: req.user.sub },

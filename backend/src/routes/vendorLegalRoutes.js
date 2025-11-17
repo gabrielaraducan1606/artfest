@@ -1,117 +1,88 @@
+// backend/src/routes/legal.routes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired, requireRole } from "../api/auth.js";
+import { authRequired } from "../api/auth.js";
+import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 import { loadMany, loadLegalDoc } from "../lib/legal.js";
 
 const router = Router();
+const error = (res, code, status = 400, extra = {}) =>
+  res.status(status).json({ error: code, message: code, ...extra });
 
-/* ===================== VENDOR ACCEPTANCES ===================== */
 /** GET /api/vendor/acceptances */
-router.get(
-  "/vendor/acceptances",
-  authRequired,
-  requireRole("VENDOR", "ADMIN"),
-  async (req, res) => {
-    try {
-      const vendor = await prisma.vendor.findUnique({
-        where: { userId: req.user.sub },
-        select: { id: true },
-      });
-      if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
+router.get("/vendor/acceptances", authRequired, vendorAccessRequired, async (req, res) => {
+  const meVendor =
+    req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub }, select: { id: true } }));
+  if (!meVendor) return res.status(404).json({ error: "vendor_not_found" });
 
-      const rows = await prisma.vendorAcceptance.findMany({
-        where: { vendorId: vendor.id },
-        select: { document: true, version: true, checksum: true, acceptedAt: true },
-      });
+  const rows = await prisma.vendorAcceptance.findMany({
+    where: { vendorId: meVendor.id },
+    select: { document: true, version: true, checksum: true, acceptedAt: true },
+  });
 
-      const accepted = {
-        vendor_terms: rows.some((r) => r.document === "VENDOR_TERMS"),
-        shipping_addendum: rows.some((r) => r.document === "SHIPPING_ADDENDUM"),
-        returns_policy: rows.some((r) => r.document === "RETURNS_POLICY_ACK"),
-      };
+  const accepted = {
+    vendor_terms: rows.some((r) => r.document === "VENDOR_TERMS"),
+    shipping_addendum: rows.some((r) => r.document === "SHIPPING_ADDENDUM"),
+    returns_policy: rows.some((r) => r.document === "RETURNS_POLICY_ACK"),
+  };
 
-      const docs = loadMany(["vendor_terms", "shipping_addendum", "returns"]);
-      const legalMeta = {};
-      for (const d of docs) {
-        legalMeta[d.type] = {
-          title: d.title,
-          version: d.version,
-          checksum: d.checksum,
-          url:
-            d.type === "vendor_terms"
-              ? "/legal/vendor/terms"
-              : d.type === "shipping_addendum"
-              ? "/legal/vendor/expediere"
-              : d.type === "returns"
-              ? "/retur"
-              : "#",
-        };
-      }
-
-      res.json({ accepted, legalMeta });
-    } catch (e) {
-      console.error("vendor/acceptances error:", e);
-      res.status(500).json({ error: "acceptances_failed" });
-    }
+  const docs = loadMany(["vendor_terms", "shipping_addendum", "returns"]);
+  const legalMeta = {};
+  for (const d of docs) {
+    legalMeta[d.type] = {
+      title: d.title,
+      version: d.version,
+      checksum: d.checksum,
+      url:
+        d.type === "vendor_terms" ? "/legal/vendor/terms" :
+        d.type === "shipping_addendum" ? "/legal/vendor/expediere" :
+        d.type === "returns" ? "/retur" : "#",
+    };
   }
-);
+
+  res.json({ accepted, legalMeta });
+});
 
 /** POST /api/legal/vendor-accept
  * body: { accept: [{ type: 'vendor_terms'|'shipping_addendum'|'returns', version, checksum }] }
  */
-router.post(
-  "/legal/vendor-accept",
-  authRequired,
-  requireRole("VENDOR", "ADMIN"),
-  async (req, res) => {
-    try {
-      const vendor = await prisma.vendor.findUnique({
-        where: { userId: req.user.sub },
-        select: { id: true },
+router.post("/legal/vendor-accept", authRequired, vendorAccessRequired, async (req, res) => {
+  const meVendor =
+    req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub }, select: { id: true } }));
+  if (!meVendor) return res.status(404).json({ error: "vendor_not_found" });
+
+  const items = Array.isArray(req.body?.accept) ? req.body.accept : [];
+  if (!items.length) return res.status(400).json({ error: "empty_payload" });
+
+  const mapDoc = (t) =>
+    t === "vendor_terms" ? "VENDOR_TERMS" :
+    t === "shipping_addendum" ? "SHIPPING_ADDENDUM" :
+    t === "returns" ? "RETURNS_POLICY_ACK" : null;
+
+  await prisma.$transaction(async (tx) => {
+    for (const it of items) {
+      const doc = mapDoc(it.type);
+      if (!doc) continue;
+
+      const version = String(it.version || "1.0.0");
+      const checksum = it.checksum || null;
+
+      await tx.vendorAcceptance.upsert({
+        where: {
+          vendorId_document_version: {
+            vendorId: meVendor.id,
+            document: doc,
+            version,
+          },
+        },
+        update: { checksum, acceptedAt: new Date() },
+        create: { vendorId: meVendor.id, document: doc, version, checksum, acceptedAt: new Date() },
       });
-      if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
-
-      const items = Array.isArray(req.body?.accept) ? req.body.accept : [];
-      if (!items.length) return res.status(400).json({ error: "empty_payload" });
-
-      const mapDoc = (t) =>
-        t === "vendor_terms"
-          ? "VENDOR_TERMS"
-          : t === "shipping_addendum"
-          ? "SHIPPING_ADDENDUM"
-          : t === "returns"
-          ? "RETURNS_POLICY_ACK"
-          : null;
-
-      await prisma.$transaction(async (tx) => {
-        for (const it of items) {
-          const doc = mapDoc(it.type);
-          if (!doc) continue;
-          await tx.vendorAcceptance.upsert({
-            where: {
-              vendorId_document: { vendorId: vendor.id, document: doc },
-            },
-            update: {
-              version: String(it.version || "1.0.0"),
-              checksum: it.checksum || null,
-            },
-            create: {
-              vendorId: vendor.id,
-              document: doc,
-              version: String(it.version || "1.0.0"),
-              checksum: it.checksum || null,
-            },
-          });
-        }
-      });
-
-      res.json({ ok: true });
-    } catch (e) {
-      console.error("vendor-accept error:", e);
-      res.status(500).json({ error: "vendor_accept_failed" });
     }
-  }
-);
+  });
+
+  res.json({ ok: true });
+});
 
 /* ===================== LEGAL META + HTML ===================== */
 /** GET /api/legal?types=tos,privacy,vendor_terms,... */
@@ -192,6 +163,7 @@ function sendHtml(res, d) {
   a{color:#6c4ef7}
 </style></head>
 <body>
+  <h1>${d.title}</h1>
   <p class="meta">Versiune: v${d.version}${d.valid_from ? ` • valabil din ${d.valid_from}` : ""}</p>
   ${d.html}
 </body></html>`);
@@ -205,5 +177,43 @@ router.get("/legal/vendor/expediere", (_req, res) =>
 router.get("/retur", (_req, res) =>
   sendHtml(res, loadLegalDoc("returns"))
 );
+
+// Nou: un singur document “onboarding” care agregă părțile
+router.get("/legal/vendor/onboarding", (_req, res) => {
+  const parts = loadMany(["vendor_terms","shipping_addendum","returns"]);
+  const html = parts.map(d => `
+    <section style="margin:28px 0">
+      <h2>${d.title} <small style="color:#666;font-weight:normal">v${d.version}</small></h2>
+      ${d.html}
+    </section>
+  `).join("\n");
+  sendHtml(res, {
+    title: "Acordul Master pentru Vânzători",
+    version: "1.0",
+    html,
+    valid_from: null,
+  });
+});
+
+// Registru documente (folosit de UI)
+router.get("/legal/registry", (_req, res) => {
+  const docs = loadMany(["vendor_terms","shipping_addendum","returns","tos","privacy"]);
+  const registry = {};
+  for (const d of docs) {
+    registry[d.type] = {
+      key: d.type,
+      title: d.title,
+      version: d.version,
+      checksum: d.checksum,
+      url:
+        d.type === "tos" ? "/termenii-si-conditiile" :
+        d.type === "privacy" ? "/confidentialitate" :
+        d.type === "vendor_terms" ? "/legal/vendor/terms" :
+        d.type === "shipping_addendum" ? "/legal/vendor/expediere" :
+        d.type === "returns" ? "/retur" : "#",
+    };
+  }
+  res.json({ registry });
+});
 
 export default router;

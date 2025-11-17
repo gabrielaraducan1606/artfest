@@ -178,6 +178,125 @@
   accent-color: var(--color-primary);
 }
 
+/* ===== Vendor opt-in box ===== */
+.vendorBox {
+  border: 2px solid var(--color-border);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
+  border-radius: calc(var(--radius) + 2px);
+  padding: 12px;
+  margin-bottom: 6px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.vendorBoxActive {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-primary) 8%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.vendorHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.vendorCheck {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+  user-select: none;
+}
+.vendorCheck input {
+  margin-top: 2px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.vendorTitle {
+  font-size: 14px;
+  line-height: 1.2;
+}
+.vendorTitle strong { font-weight: 700; }
+
+.vendorSubtitle {
+  color: var(--color-muted);
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+.disclosureBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.disclosureBtn:hover { background: color-mix(in srgb, var(--surface) 90%, var(--color-bg)); }
+
+.chev { transition: transform 0.18s ease; }
+.chevOpen { transform: rotate(180deg); }
+
+.vendorNote {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 85%, transparent);
+}
+
+.vendorDisclosure {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+}
+.vendorLead {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.vendorList {
+  margin: 6px 0 8px 18px;
+  font-size: 13px;
+}
+.vendorList li { margin: 2px 0; }
+
+/* Checkbox confirm entitate juridică */
+.entityConfirmRow {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
+  border: 1px dashed var(--color-border);
+  font-size: 0.95rem;
+}
+.entityConfirmRow input[type="checkbox"] {
+  inline-size: 18px;
+  block-size: 18px;
+  margin-top: 2px;
+  accent-color: var(--color-primary);
+}
+.entityConfirmRow strong { font-weight: 700; }
+
+.vendorAfter {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
 /* ===== Legal ===== */
 .legalGroup { display: grid; gap: 10px; }
 .legalRow {
@@ -224,11 +343,19 @@
 .primaryBtn:active { transform: translateY(1px); }
 .primaryBtn[disabled] { opacity: .6; cursor: not-allowed; }
 
-/* ===== Erori ===== */
+/* ===== Erori & Info ===== */
 .error {
   border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
   background: color-mix(in srgb, var(--color-danger) 8%, var(--surface));
   color: var(--color-danger);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+.info {
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
+  color: var(--color-text);
   border-radius: calc(var(--radius) - 2px);
   padding: 8px 10px;
   font-size: 0.95rem;
@@ -239,6 +366,8 @@
   .wrap { margin: 40px auto; padding: 0 14px; }
   .card { margin: 32px auto; padding: 16px; max-width: 100%; }
   .nameRow { grid-template-columns: 1fr; }
+  .vendorHeader { flex-direction: column; align-items: stretch; gap: 10px; }
+  .disclosureBtn { align-self: flex-start; }
 }
 @media (min-width: 520px) and (max-width: 767px) {
   .wrap { max-width: 500px; margin: 48px auto; }

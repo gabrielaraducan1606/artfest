@@ -1,7 +1,13 @@
-import { createContext } from "react";
+import { createContext, useContext } from "react";
 
+// definim contextul care ține datele utilizatorului
 export const AuthCtx = createContext({
-  me: undefined,        // undefined = neinițializat, null = guest, object = user
+  me: null,
   loading: true,
-  refresh: async () => {},
+  refresh: () => {},
 });
+
+// hook custom care returnează valorile din context
+export function useAuth() {
+  return useContext(AuthCtx);
+}

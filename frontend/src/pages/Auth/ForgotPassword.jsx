@@ -1,3 +1,4 @@
+// src/pages/ForgotPassword.jsx
 import { useEffect, useMemo, useState, useId } from "react";
 import { api } from "../../lib/api";
 import styles from "./Login/Login.module.css";
@@ -45,7 +46,11 @@ export default function ForgotPassword() {
       await api("/api/auth/forgot-password", { method: "POST", body: { email } });
       setSent(true);
     } catch (e) {
-      setErr(e?.message || "Nu am putut trimite emailul acum");
+      if (e?.status === 429 || e?.data?.error === "too_many_requests") {
+        setErr(e?.data?.message || "Ai cerut recent un link. Mai încearcă în câteva minute.");
+      } else {
+        setErr(e?.message || "Nu am putut trimite emailul acum");
+      }
     } finally {
       setLoading(false);
     }
@@ -62,7 +67,7 @@ export default function ForgotPassword() {
 
       {sent ? (
         <div className={styles.card}>
-          <p>✅ Dacă adresa există, ți-am trimis un link de resetare.</p>
+          <p>✅ Dacă adresa de email este înregistrată în sistemul nostru, un mesaj cu instrucțiuni de resetare a parolei a fost trimis către tine.</p>
           <a className={styles.link} href="/">Înapoi la prima pagină</a>
         </div>
       ) : (

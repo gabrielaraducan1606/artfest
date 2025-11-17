@@ -1,0 +1,595 @@
+/* ============ Layout de bază ============ */
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: clamp(12px, 2vw, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ============ Typography ============ */
+
+.h1 {
+  margin: 0;
+  font-size: clamp(1.3rem, 2.3vw, 1.7rem);
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+}
+
+.muted {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* ============ Carduri ============ */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  padding: clamp(12px, 1.6vw, 18px);
+}
+
+/* ============ Header listă comenzi ============ */
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ============ Filtre ============ */
+
+.filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.inputWrap,
+.dateWrap,
+.selectWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+
+.input,
+.select {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  min-width: 0;
+}
+
+.inputIcon {
+  opacity: 0.7;
+}
+
+/* ============ Tabel comenzi ============ */
+
+.tableWrap {
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.table th {
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  font-weight: 700;
+  background: color-mix(in oklab, var(--color-muted) 8%, transparent);
+}
+
+.emptyCell {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+/* ============ Client info în tabel ============ */
+
+.clientCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clientName {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.clientNote {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.inlineChips {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.clientContact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+}
+
+.clientContact a {
+  color: var(--color-hover);
+  text-decoration: none;
+}
+
+.clientContact a:hover {
+  text-decoration: underline;
+}
+
+/* ============ Badge-uri & status ============ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.75rem;
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.badgeNew {
+  background: color-mix(in oklab, var(--color-primary) 15%, transparent);
+  border-color: color-mix(in oklab, var(--color-primary) 35%, transparent);
+  color: var(--color-primary);
+}
+
+.badgeWarning {
+  background: color-mix(in oklab, #ffb84d 18%, transparent);
+  border-color: color-mix(in oklab, #ffb84d 35%, transparent);
+  color: #a05a00;
+}
+
+.badgeConfirmed {
+  background: color-mix(in oklab, var(--color-warning) 18%, transparent);
+  border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+  color: var(--color-warning);
+}
+
+.badgeFulfilled {
+  background: color-mix(in oklab, var(--color-success) 18%, transparent);
+  border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+  color: var(--color-success);
+}
+
+.badgeCancelled {
+  background: color-mix(in oklab, var(--color-danger) 18%, transparent);
+  border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+  color: var(--color-danger);
+}
+
+/* ============ Butoane ============ */
+
+.secondaryBtn,
+.primaryBtn,
+.linkBtn,
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 7px 12px;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background 0.15s ease-out,
+    border-color 0.15s ease-out,
+    transform 0.1s ease-out,
+    box-shadow 0.1s ease-out,
+    color 0.1s ease-out;
+}
+
+.secondaryBtn {
+  border-color: var(--color-border);
+  background: #ffffff;
+  color: var(--color-text);
+}
+
+.secondaryBtn:hover:not(:disabled) {
+  background: #f1f5f9;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.primaryBtn {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--color-primary) 24%, transparent);
+}
+
+.primaryBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-primary) 88%, #ffffff 12%);
+  transform: translateY(-1px);
+}
+
+.linkBtn {
+  border-radius: 10px;
+  padding: 6px 10px;
+  color: var(--color-hover);
+  border-color: transparent;
+  background: transparent;
+}
+
+.linkBtn:hover {
+  background: color-mix(in oklab, var(--color-hover) 10%, transparent);
+  color: var(--color-text);
+}
+
+.iconBtn {
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.iconBtn:hover {
+  background: #e5e7eb;
+}
+
+.primaryBtn:disabled,
+.secondaryBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ============ Celule acțiuni & paginare ============ */
+
+.actionsCell {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 6px 4px;
+  margin-top: 8px;
+}
+
+.pageInfo {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+/* ============ Skeleton & spin ============ */
+
+.skeletonRow td {
+  color: var(--color-muted);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============ Modal curier ============ */
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 50;
+}
+
+.modal {
+  width: 100%;
+  max-width: 560px;
+  background: var(--surface);
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+  padding: 16px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.modalHead h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 10px 12px 10px;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.fieldset legend {
+  padding: 0 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.radio {
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.grid3 label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+
+.grid3 input {
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
+.check {
+  font-size: 0.8rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.check input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+.error {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ============ Grid detalii comandă ============ */
+
+.grid2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.grid2 h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 0.9rem;
+  padding: 3px 0;
+}
+
+.kv span {
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kv a {
+  color: var(--color-hover);
+  text-decoration: none;
+}
+
+.kv a:hover {
+  text-decoration: underline;
+}
+
+.totalBar {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+  font-size: 0.9rem;
+}
+
+.totalBar div {
+  white-space: nowrap;
+}
+
+.pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.8rem;
+  background: #020617;
+  color: #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+}
+
+/* ============ Footer acțiuni detalii ============ */
+
+.footerActions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* ============ Responsive ============ */
+
+.hideSm {
+  display: table-cell;
+}
+
+/* sub 900px – tablete / laptop mic */
+@media (max-width: 900px) {
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+
+  .kv {
+    grid-template-columns: 80px minmax(0, 1fr);
+  }
+
+  .filters {
+    gap: 8px;
+  }
+}
+
+/* sub 720px – mobile “normal” */
+@media (max-width: 720px) {
+  .hideSm {
+    display: none;
+  }
+
+  .headerRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .headerActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .table th:nth-child(2),
+  .table td:nth-child(2) {
+    white-space: nowrap;
+  }
+
+  .actionsCell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .secondaryBtn,
+  .primaryBtn,
+  .linkBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .grid3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* sub 480px – mobile foarte mic */
+@media (max-width: 480px) {
+  .page {
+    padding-inline: 10px;
+  }
+
+  .filters {
+    flex-direction: column;
+  }
+
+  .inputWrap,
+  .dateWrap,
+  .selectWrap {
+    width: 100%;
+  }
+
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
+
+  .kv {
+    grid-template-columns: 1fr;
+  }
+}
