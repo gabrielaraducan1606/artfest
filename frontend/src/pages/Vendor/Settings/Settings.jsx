@@ -16,7 +16,7 @@ import {
 import settingsStyles from "./Settings.module.css";
 
 // 🔹 importă tab-urile de onboarding (AJUSTEAZĂ path-urile după proiectul tău)
-import onboardingStyles from "../OnBoarding/OnBoardingDetails/OnBoardingDetails.module.css";
+import onboardingStyles from "../Onboarding/OnBoardingDetails/OnBoardingDetails.module.css";
 import ProfileTab from "../Onboarding/OnBoardingDetails/tabs/ProfileTabBoarding.jsx";
 import BillingTab from "../Onboarding/OnBoardingDetails/tabs/BillingTab.jsx";
 import PaymentTab from "../Onboarding/OnBoardingDetails/tabs/PaymentTab.jsx";

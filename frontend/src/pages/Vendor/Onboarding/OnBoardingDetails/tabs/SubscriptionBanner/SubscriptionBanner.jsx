@@ -22,7 +22,7 @@ export default function SubscriptionBanner() {
           <span>Magazinele tale nu sunt vizibile în platformă.</span>
         </div>
 
-        <a href="/dashboard/payment" className={styles.link}>
+        <a  href="/onboarding/details?tab=plata&solo=1" className={styles.link}>
           Reia abonamentul →
         </a>
       </div>
