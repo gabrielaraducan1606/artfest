@@ -16,6 +16,19 @@ const API_ORIGIN =
  */
 export async function startNetopia({ subscription, amountRON, description }) {
   // deocamdată ignorăm amountRON/description (mock only)
-  const url = `${API_ORIGIN}/api/billing/checkout/netopia/start?subId=${encodeURIComponent(subscription.id)}`;
+  const url = `${API_ORIGIN}/api/billing/checkout/netopia/start?subId=${encodeURIComponent(
+    subscription.id
+  )}`;
+  return { url, provider: "netopia" };
+}
+
+/**
+ * ⬇️ NOU: variantă pentru COMENZI (nu abonamente).
+ * Poți schimba ruta cum vrei, important e să existe în backend.
+ */
+export async function startNetopiaOrder({ order }) {
+  const url = `${API_ORIGIN}/api/checkout/netopia/start?orderId=${encodeURIComponent(
+    order.id
+  )}`;
   return { url, provider: "netopia" };
 }

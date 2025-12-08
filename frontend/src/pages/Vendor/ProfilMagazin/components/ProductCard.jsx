@@ -23,6 +23,76 @@ import {
 import { resolveFileUrl, withCache } from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
 
+// Mic util pentru fallback generic din slug -> text uman
+const humanizeSlug = (slug = "", { dropPrefix = false } = {}) => {
+  if (!slug || typeof slug !== "string") return "";
+  let s = slug;
+  if (dropPrefix) {
+    s = s.replace(/^[^_]+_/, ""); // taie prefixul până la primul "_"
+  }
+  return s
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+};
+
+// Map local pentru culori (în română) – ca fallback dacă nu primim colorLabelMap
+const LOCAL_COLOR_LABELS = {
+  // Neutre
+  white: "Alb",
+  ivory: "Ivory / ivoire",
+  cream: "Crem",
+  beige: "Bej",
+  grey_light: "Gri deschis",
+  grey_dark: "Gri închis",
+  black: "Negru",
+
+  // Maro
+  brown_light: "Maro deschis",
+  brown: "Maro",
+  brown_dark: "Maro închis",
+  taupe: "Taupe",
+
+  // Roșu / roz
+  red: "Roșu",
+  burgundy: "Burgundy / vișiniu",
+  pink_light: "Roz deschis",
+  pink_dusty: "Roz pudră",
+  pink_hot: "Roz aprins",
+
+  // Mov
+  lilac: "Lila",
+  purple: "Mov",
+
+  // Galben / portocaliu
+  yellow: "Galben",
+  mustard: "Muștar",
+  orange: "Portocaliu",
+  peach: "Pișcă / piersică",
+
+  // Albastru
+  blue_light: "Albastru deschis",
+  blue: "Albastru",
+  blue_royal: "Albastru regal",
+  navy: "Bleumarin",
+  turquoise: "Turcoaz",
+  teal: "Teal",
+
+  // Verde
+  green_light: "Verde deschis",
+  green: "Verde",
+  green_olive: "Verde olive",
+  green_dark: "Verde închis",
+  mint: "Mentă",
+
+  // Metalice / speciale
+  gold: "Auriu",
+  rose_gold: "Rose gold",
+  silver: "Argintiu",
+  copper: "Cupru",
+  transparent: "Transparent",
+  multicolor: "Multicolor",
+};
+
 export default function ProductCard({
   p,
   viewMode,
@@ -34,6 +104,8 @@ export default function ProductCard({
   onEdit, // fallback
   onDelete, // fallback
   categoryLabelMap,
+  categoryGroupLabelMap, // opțional
+  colorLabelMap, // opțional
   onEditProduct, // preferat
 }) {
   const nav = useNavigate();
@@ -89,45 +161,61 @@ export default function ProductCard({
   const isValid = !!prod && typeof prod === "object";
 
   // availability: doar ce vine din API (nu mai „ghicim”)
-  const safe = useMemo(() => {
-    const images = Array.isArray(prod?.images) ? prod.images : [];
-    const readyQtyRaw = prod?.readyQty;
-    const readyQty =
-      readyQtyRaw === null ||
-      readyQtyRaw === undefined ||
-      readyQtyRaw === ""
-        ? null
-        : Number.isFinite(Number(readyQtyRaw))
-        ? Number(readyQtyRaw)
-        : null;
+const safe = useMemo(() => {
+  const images = Array.isArray(prod?.images) ? prod.images : [];
 
-    const availability =
-      typeof prod?.availability === "string"
-        ? prod.availability.toUpperCase()
-        : null;
+  const readyQtyRaw = prod?.readyQty;
+  const readyQty =
+    readyQtyRaw === null ||
+    readyQtyRaw === undefined ||
+    readyQtyRaw === ""
+      ? null
+      : Number.isFinite(Number(readyQtyRaw))
+      ? Number(readyQtyRaw)
+      : null;
 
-    return {
-      id: prod?.id || prod?._id || "",
-      title: prod?.title || "Produs",
-      images,
-      price:
-        typeof prod?.price === "number"
-          ? prod.price
-          : Number(prod?.price),
-      currency: prod?.currency || "RON",
-      category: prod?.category || null,
-      color: prod?.color || null,
-      isActive: prod?.isActive !== false,
-      isHidden: !!prod?.isHidden,
-      availability, // READY | MADE_TO_ORDER | PREORDER | SOLD_OUT | null
-      leadTimeDays: Number.isFinite(Number(prod?.leadTimeDays))
-        ? Number(prod.leadTimeDays)
-        : null,
-      readyQty,
-      acceptsCustom: !!prod?.acceptsCustom,
-      nextShipDate: prod?.nextShipDate || null,
-    };
-  }, [prod]);
+  const availability =
+    typeof prod?.availability === "string"
+      ? prod.availability.toUpperCase()
+      : null;
+
+  // 🔹 preț: exact ca în ProductDetails – încercăm price, apoi priceCents
+  const priceCentsRaw =
+    typeof prod?.priceCents === "number"
+      ? prod.priceCents
+      : Number.isFinite(Number(prod?.priceCents))
+      ? Number(prod.priceCents)
+      : null;
+
+  let price = null;
+  if (typeof prod?.price === "number") {
+    price = prod.price;
+  } else if (priceCentsRaw != null) {
+    price = priceCentsRaw / 100;
+  } else if (Number.isFinite(Number(prod?.price))) {
+    price = Number(prod.price);
+  }
+
+  return {
+    id: prod?.id || prod?._id || "",
+    title: prod?.title || "Produs",
+    images,
+    price,                 // 👈 acum e calculat corect
+    priceCents: priceCentsRaw,
+    currency: prod?.currency || "RON",
+    category: prod?.category || null,
+    color: prod?.color || null,
+    isActive: prod?.isActive !== false,
+    isHidden: !!prod?.isHidden,
+    availability,
+    leadTimeDays: Number.isFinite(Number(prod?.leadTimeDays))
+      ? Number(prod.leadTimeDays)
+      : null,
+    readyQty,
+    acceptsCustom: !!prod?.acceptsCustom,
+    nextShipDate: prod?.nextShipDate || null,
+  };
+}, [prod]);
 
   const href = safe.id ? `/produs/${safe.id}${loc.search || ""}` : null;
 
@@ -199,10 +287,49 @@ export default function ProductCard({
   }, [safe.price, safe.currency]);
 
   const catKey = safe.category;
+
   const catLabel = useMemo(() => {
     if (!catKey) return null;
-    return categoryLabelMap?.[catKey] || catKey;
+    if (categoryLabelMap && categoryLabelMap[catKey]) {
+      return categoryLabelMap[catKey];
+    }
+    // fallback: scoatem prefixul (decor_, papetarie_, etc.) și humanizăm
+    return humanizeSlug(catKey, { dropPrefix: true });
   }, [catKey, categoryLabelMap]);
+
+  const catGroupKey = useMemo(() => {
+    if (!catKey) return null;
+    return catKey.split("_")[0] || null;
+  }, [catKey]);
+
+  const catGroupLabel = useMemo(() => {
+    if (!catGroupKey) return null;
+    if (
+      categoryGroupLabelMap &&
+      categoryGroupLabelMap[catGroupKey]
+    ) {
+      return categoryGroupLabelMap[catGroupKey];
+    }
+    // fallback: capitalizăm simplu
+    return humanizeSlug(catGroupKey);
+  }, [catGroupKey, categoryGroupLabelMap]);
+
+  const colorLabel = useMemo(() => {
+    if (!safe.color) return null;
+
+    // 1) Map primit ca prop (ideal: din shared/ui/colorsUi)
+    if (colorLabelMap && colorLabelMap[safe.color]) {
+      return colorLabelMap[safe.color];
+    }
+
+    // 2) Map local, cu label-uri în română
+    if (LOCAL_COLOR_LABELS[safe.color]) {
+      return LOCAL_COLOR_LABELS[safe.color];
+    }
+
+    // 3) Ultim fallback: slug brut (nu îl mai "englezim" cu humanizeSlug)
+    return safe.color;
+  }, [safe.color, colorLabelMap]);
 
   const goTo = useCallback(
     (path) => {
@@ -507,9 +634,16 @@ export default function ProductCard({
           )}
         </h4>
 
-        {safe.color && (
-          <p className={styles.colorHint}>
-            Culoare: {safe.color}
+        {/* Culoare (în română, folosind map-urile) */}
+        {colorLabel && (
+          <p
+            className={styles.colorHint}
+            title={safe.color || ""} // slug-ul în tooltip, dacă e nevoie
+          >
+            Culoare:{" "}
+            <span className={styles.metaInline}>
+              {colorLabel}
+            </span>
           </p>
         )}
 
@@ -525,40 +659,49 @@ export default function ProductCard({
             )}
 
             {/* Detalii livrare / stoc (subțire, sub preț) */}
-            {safe.availability === "READY" && safe.readyQty != null && (
-  <span className={styles.metaHint}>
-    Stoc:{" "}
-    <span className={styles.metaInline}>
-      {safe.readyQty} buc
-    </span>
-  </span>
-)}
+            {safe.availability === "READY" &&
+              safe.readyQty != null && (
+                <span className={styles.metaHint}>
+                  Stoc:{" "}
+                  <span className={styles.metaInline}>
+                    {safe.readyQty} buc
+                  </span>
+                </span>
+              )}
 
-{safe.availability === "MADE_TO_ORDER" && safe.leadTimeDays && (
-  <span className={styles.metaHint}>
-    Timp execuție:{" "}
-    <span className={styles.metaInline}>
-      {safe.leadTimeDays} zile
-    </span>
-  </span>
-)}
+            {safe.availability === "MADE_TO_ORDER" &&
+              safe.leadTimeDays && (
+                <span className={styles.metaHint}>
+                  Timp execuție:{" "}
+                  <span className={styles.metaInline}>
+                    {safe.leadTimeDays} zile
+                  </span>
+                </span>
+              )}
 
-{safe.availability === "PREORDER" && safe.nextShipDate && (
-  <span className={styles.metaHint}>
-    Expediere:{" "}
-    <span className={styles.metaInline}>
-      {new Date(safe.nextShipDate).toLocaleDateString("ro-RO")}
-    </span>
-  </span>
-)}
-
+            {safe.availability === "PREORDER" &&
+              safe.nextShipDate && (
+                <span className={styles.metaHint}>
+                  Expediere:{" "}
+                  <span className={styles.metaInline}>
+                    {new Date(
+                      safe.nextShipDate
+                    ).toLocaleDateString("ro-RO")}
+                  </span>
+                </span>
+              )}
           </div>
 
-          {catKey && (
+          {/* Categoria – label prietenos */}
+          {catKey && catLabel && (
             <button
               type="button"
               className={styles.catPill}
-              title={`Vezi produse în ${catLabel}`}
+              title={
+                catGroupLabel
+                  ? `${catGroupLabel} · ${catLabel}`
+                  : `Vezi produse în ${catLabel}`
+              }
               onClick={(e) => {
                 e.stopPropagation();
                 const qp = new URLSearchParams(loc.search);

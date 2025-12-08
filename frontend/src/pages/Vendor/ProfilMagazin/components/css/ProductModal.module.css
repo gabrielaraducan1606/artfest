@@ -9,6 +9,9 @@
   padding: 14px 18px;
   border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--surface) 97%, black 3%);
+  position: sticky; /* header lipit în partea de sus când scrollezi */
+  top: 0;
+  z-index: 2;
 }
 
 .modalTitle {
@@ -16,6 +19,7 @@
   font-family: var(--font-title);
   font-size: 1.06rem;
   font-weight: 800;
+  letter-spacing: 0.01em;
   color: var(--color-text);
 }
 
@@ -39,6 +43,7 @@
 .modalClose:hover {
   background: color-mix(in srgb, var(--surface) 90%, var(--color-primary) 10%);
   border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border) 55%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 
 .modalClose:active {
@@ -53,8 +58,18 @@
 /* ===== Body & form ===== */
 .modalBody {
   padding: 16px 18px;
-  max-height: min(70vh, 900px);
+  max-height: min(75vh, 900px);
   overflow: auto;
+  scrollbar-width: thin;
+}
+
+.modalBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modalBody::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-border) 80%, var(--color-primary) 20%);
+  border-radius: 999px;
 }
 
 .formGrid {
@@ -68,6 +83,8 @@
   font-family: var(--font-title);
   letter-spacing: 0.01em;
   color: var(--color-text);
+  margin: 8px 0 4px;
+  font-size: 0.95rem;
 }
 
 .label {
@@ -98,7 +115,7 @@
   color: var(--color-text);
   border-radius: 10px;
   padding: 10px 12px;
-  font: 500 0.95rem/1.3 var(--font-body);
+  font: 500 0.95rem/1.4 var(--font-body);
   transition:
     border-color .15s ease,
     box-shadow .15s ease,
@@ -116,6 +133,7 @@
   outline: none;
   border-color: color-mix(in srgb, var(--color-primary) 65%, var(--color-border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  background: color-mix(in srgb, var(--surface) 97%, var(--color-primary) 3%);
 }
 
 .textarea {
@@ -146,7 +164,7 @@
 }
 
 .comboInput {
-  padding-right: 72px; /* loc pentru clear */
+  padding-right: 72px;
 }
 
 .comboClearBtn {
@@ -164,12 +182,14 @@
   transition:
     background-color .15s ease,
     border-color .15s ease,
-    transform .06s ease;
+    transform .06s ease,
+    box-shadow .15s ease;
 }
 
 .comboClearBtn:hover {
   background: color-mix(in srgb, var(--surface) 90%, var(--color-primary) 10%);
   border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border) 60%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
 .comboClearBtn:active {
@@ -222,19 +242,123 @@
   cursor: default;
 }
 
-/* ===== Images (upload + grid + DnD) ===== */
+/* ===== Multi-select tag list (pentru TagComboField) ===== */
+.tagsList {
+  margin-top: 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #fff;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  z-index: 20;
+  position: relative;
+}
+
+.tagsListHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  background: #fafafa;
+  font-size: 0.8rem;
+}
+
+.tagsListHeaderTitle {
+  font-weight: 600;
+}
+
+.tagsListCloseBtn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 4px;
+  opacity: 0.7;
+}
+
+.tagsListCloseBtn:hover {
+  opacity: 1;
+}
+
+.tagsListItem {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tagsListItem:hover {
+  background: color-mix(in srgb, var(--surface) 90%, var(--color-primary) 10%);
+}
+
+.tagsListEmpty {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  border-top: 1px solid rgba(0,0,0,0.04);
+  color: rgba(0,0,0,0.6);
+}
+
+/* ===== Imagini (upload + grid + DnD) ===== */
+
 .imagesRow {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-.imagesRow > input[type="file"] {
-  width: auto;
+/* input-ul nativ e ascuns, folosim label-ul ca buton */
+.fileInputHidden {
+  position: absolute;
+  left: -9999px;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* container pentru buton + text */
+.fileUploadWrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* butonul "Alegeți fișierele" */
+.fileUploadButton {
+  padding: 8px 16px;
+  border-radius: 999px;
   border: 1px dashed color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
   background: color-mix(in srgb, var(--surface) 96%, var(--color-primary) 4%);
   color: var(--color-text);
-  border-radius: 12px;
-  padding: 10px 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition:
+    background-color .15s ease,
+    border-color .15s ease,
+    transform .06s ease,
+    box-shadow .15s ease;
+}
+
+.fileUploadButton:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-primary) 8%);
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border) 45%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.fileUploadButton:active {
+  transform: translateY(1px);
+}
+
+/* textul "Niciun fișier ales" / nume fișiere */
+.fileUploadInfo {
+  font-size: 0.8rem;
+  color: var(--color-muted);
 }
 
 .thumbGrid {
@@ -332,6 +456,7 @@
 
 .primaryBtn:hover {
   background: var(--color-hover);
+  box-shadow: 0 3px 8px color-mix(in srgb, black 15%, transparent);
 }
 
 .primaryBtn:active {
@@ -393,6 +518,10 @@
   .thumbImg {
     height: 100px;
   }
+
+  .modalHeader {
+    padding-inline: 14px;
+  }
 }
 
 /* ===== Reduced motion ===== */
@@ -419,7 +548,15 @@
     background: color-mix(in srgb, var(--surface) 88%, var(--color-primary) 12%);
   }
 
-  .imagesRow > input[type="file"] {
+  .fileUploadButton {
+    background: color-mix(in srgb, var(--surface) 92%, var(--color-primary) 8%);
+  }
+
+  .tagsList {
+    background: color-mix(in srgb, var(--surface) 96%, black 4%);
+  }
+
+  .tagsListHeader {
     background: color-mix(in srgb, var(--surface) 92%, var(--color-primary) 8%);
   }
 }
@@ -456,7 +593,7 @@
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--color-border) 90%, var(--color-primary) 10%);
   background: color-mix(in srgb, var(--surface) 98%, var(--color-primary) 2%);
-  overflow: hidden;
+  box-shadow: var(--shadow-xs);
 }
 
 .section + .section {

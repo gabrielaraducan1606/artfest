@@ -319,33 +319,34 @@ async function createProduct(req, res) {
     if (error) return res.status(status).json({ error });
 
     const {
-      title,
-      description = "",
-      price,
-      images = [],
-      currency = "RON",
-      category = null,
+  title,
+  description = "",
+  price,
+  images = [],
+  currency = "RON",
+  category = null,
 
-      // culoare
-      color = null,
+  // culoare
+  color = null,
 
-      // handmade
-      availability,
-      leadTimeDays,
-      readyQty,
-      nextShipDate,
-      acceptsCustom = false,
-      isHidden = false,
+  // handmade
+  availability,
+  leadTimeDays,
+  readyQty,
+  nextShipDate,
+  acceptsCustom = false,
+  isHidden = false,
+  isActive = true, // ✅ NOU: putem controla activ/inactiv la creare
 
-      // detalii structurate
-      materialMain,
-      technique,
-      styleTags,
-      occasionTags,
-      dimensions,
-      careInstructions,
-      specialNotes,
-    } = req.body || {};
+  // detalii structurate
+  materialMain,
+  technique,
+  styleTags,
+  occasionTags,
+  dimensions,
+  careInstructions,
+  specialNotes,
+} = req.body || {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
       return res.status(400).json({ error: "invalid_title" });
@@ -372,13 +373,18 @@ async function createProduct(req, res) {
 
     // 🔹 validare + normalizare culoare (folosim COLOR_SET)
     let colorCode = null;
-    if (color != null && String(color).trim() !== "") {
-      const c = String(color).trim();
-      if (!COLOR_SET.has(c)) {
-        return res.status(400).json({ error: "invalid_color" });
-      }
-      colorCode = c;
-    }
+if (color != null && String(color).trim() !== "") {
+  const c = String(color).trim();
+
+  if (COLOR_SET.has(c)) {
+    // culoare cunoscută -> o salvăm
+    colorCode = c;
+  } else {
+    // culoare necunoscută -> nu blocăm request-ul, doar o ignorăm
+    console.warn("Unknown color code from payload:", c);
+    colorCode = null;
+  }
+}
 
     const availNorm = normalizeAvailabilityPayload(
       { availability, leadTimeDays, readyQty, nextShipDate },
@@ -390,34 +396,34 @@ async function createProduct(req, res) {
     const occasionTagsNorm = normalizeTags(occasionTags);
 
     const created = await prisma.product.create({
-      data: {
-        serviceId: service.id,
-        title: title.trim(),
-        description: String(description || ""),
-        priceCents,
-        currency: String(currency || "RON"),
-        images: imgs,
-        isActive: true,
-        isHidden: !!isHidden,
-        category: cat,
+  data: {
+    serviceId: service.id,
+    title: title.trim(),
+    description: String(description || ""),
+    priceCents,
+    currency: String(currency || "RON"),
+    images: imgs,
+    isActive: !!isActive,      // ✅ NOU
+    isHidden: !!isHidden,
+    category: cat,
 
-        color: colorCode,
+    color: colorCode,
 
-        availability: availNorm.availability,
-        leadTimeDays: availNorm.leadTimeDays,
-        readyQty: availNorm.readyQty,
-        nextShipDate: availNorm.nextShipDate,
-        acceptsCustom: !!acceptsCustom,
+    availability: availNorm.availability,
+    leadTimeDays: availNorm.leadTimeDays,
+    readyQty: availNorm.readyQty,
+    nextShipDate: availNorm.nextShipDate,
+    acceptsCustom: !!acceptsCustom,
 
-        materialMain: materialMain ? String(materialMain).trim() : null,
-        technique: technique ? String(technique).trim() : null,
-        styleTags: styleTagsNorm,
-        occasionTags: occasionTagsNorm,
-        dimensions: dimensions ? String(dimensions).trim() : null,
-        careInstructions: careInstructions ? String(careInstructions) : null,
-        specialNotes: specialNotes ? String(specialNotes) : null,
-      },
-    });
+    materialMain: materialMain ? String(materialMain).trim() : null,
+    technique: technique ? String(technique).trim() : null,
+    styleTags: styleTagsNorm,
+    occasionTags: occasionTagsNorm,
+    dimensions: dimensions ? String(dimensions).trim() : null,
+    careInstructions: careInstructions ? String(careInstructions) : null,
+    specialNotes: specialNotes ? String(specialNotes) : null,
+  },
+});
 
     return res.status(201).json(mapProduct(created));
   } catch (e) {
@@ -483,19 +489,21 @@ async function updateProduct(req, res) {
       }
     }
 
-    // 🔹 culoare (cu validare COLOR_SET)
-    if (req.body.color !== undefined) {
-      const v = req.body.color;
-      if (v == null || String(v).trim() === "") {
-        patch.color = null;
-      } else {
-        const c = String(v).trim();
-        if (!COLOR_SET.has(c)) {
-          return res.status(400).json({ error: "invalid_color" });
-        }
-        patch.color = c;
-      }
+    // 🔹 culoare (cu validare COLOR_SET, dar tolerantă)
+if (req.body.color !== undefined) {
+  const v = req.body.color;
+  if (v == null || String(v).trim() === "") {
+    patch.color = null;
+  } else {
+    const c = String(v).trim();
+    if (COLOR_SET.has(c)) {
+      patch.color = c;        // culoare cunoscută
+    } else {
+      console.warn("Unknown color code on update:", c);
+      patch.color = null;     // ignorăm ce nu recunoaștem
     }
+  }
+}
 
     // material principal
     if (req.body.materialMain !== undefined) {

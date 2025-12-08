@@ -1,0 +1,496 @@
+@import "../../../styles/variables.css";
+/* Layout general pagină mentenanță */
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.h1 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.subtle {
+  font-size: 0.85rem;
+  color: var(--color-muted, #6b7280);
+  margin-top: 4px;
+}
+
+/* Tabs */
+.tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 4px;
+  background: rgba(148, 163, 184, 0.12);
+  margin-bottom: 16px;
+}
+
+.tab {
+  position: relative;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--color-muted, #6b7280);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tab:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.tabActive {
+  background: #ffffff;
+  color: var(--color-text, #111827);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+}
+
+.tabBadge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: var(--color-danger, #dc2626);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Card principal */
+.card {
+  background: var(--surface, #ffffff);
+  border-radius: 16px;
+  padding: 16px 16px 20px;
+  box-shadow: var(--shadow-md, 0 2px 6px rgba(0, 0, 0, 0.05));
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cardTitle {
+  font-size: 1.05rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Wrapper secțiuni interioare */
+.maintenanceWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Secțiuni tip „drawer” în card */
+.drawerSection {
+  padding: 12px 0;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.drawerSection:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.drawerSection h4 {
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin: 0 0 6px;
+}
+
+/* Acțiuni */
+.drawerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* Butoane */
+.adminActionBtn,
+.adminActionBtnSecondary,
+.adminActionBtnDanger {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.adminActionBtn {
+  background: var(--color-primary, #8b5cf6);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+}
+
+.adminActionBtn:hover:not(:disabled) {
+  background: var(--color-hover, #7c3aed);
+}
+
+.adminActionBtnSecondary {
+  background: #ffffff;
+  color: var(--color-text, #111827);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.adminActionBtnSecondary:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.adminActionBtnDanger {
+  background: #fef2f2;
+  color: var(--color-danger, #b91c1c);
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.adminActionBtnDanger:hover:not(:disabled) {
+  background: #fee2e2;
+}
+
+.adminActionBtn:disabled,
+.adminActionBtnSecondary:disabled,
+.adminActionBtnDanger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Mesaje succes / eroare */
+.actionError {
+  font-size: 0.8rem;
+  color: var(--color-danger, #dc2626);
+  margin-top: 4px;
+}
+
+.actionSuccess {
+  font-size: 0.8rem;
+  color: var(--color-success, #16a34a);
+  margin-top: 4px;
+}
+
+/* Tabele */
+.tableWrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.table th,
+.table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  white-space: nowrap;
+}
+
+.table th {
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--color-muted, #6b7280);
+}
+
+.table tbody tr:hover {
+  background: rgba(249, 250, 251, 0.9);
+}
+
+/* Carduri mici de statistici */
+.statCardsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.smallStatCard {
+  min-width: 160px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f9fafb;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.smallStatLabel {
+  font-size: 0.75rem;
+  color: var(--color-muted, #6b7280);
+  margin-bottom: 4px;
+}
+
+.smallStatValue {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* Rând de filtre */
+.filtersRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+/* Rând între cap + buton */
+.rowBetween {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Input / select mic */
+.input,
+.select {
+  margin-left: 8px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(209, 213, 219, 1);
+  outline: none;
+  background: #ffffff;
+}
+
+.input:focus,
+.select:focus {
+  border-color: var(--color-primary, #8b5cf6);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3);
+}
+
+/* Tag-uri de risc */
+.riskTagsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.riskTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  background: rgba(239, 68, 68, 0.06);
+  color: #b91c1c;
+}
+
+/* Celulă cu acțiuni multiple */
+.actionsCell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .page {
+    padding-inline: 12px;
+  }
+
+  .card {
+    padding-inline: 12px;
+  }
+
+  .smallStatCard {
+    min-width: 140px;
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    flex-direction: column;
+  }
+
+  .tabs {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .tab {
+    flex: 1 0 auto;
+    justify-content: center;
+  }
+}
+.headerMain {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.helpIconBtn {
+  margin-left: 0.5rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.helpIcon {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+.helpIconBtn:hover .helpIcon {
+  opacity: 1;
+}
+
+.helpBox {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: #f7f7fb;
+  border: 1px solid #e0e0f0;
+  font-size: 0.9rem;
+}
+
+.helpBox ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.sectionActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btnSecondary {
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background: #fafafa;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.btnSecondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.errorText {
+  color: #c0392b;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+.sectionTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sectionTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+}
+
+.helpIconBtn {
+  margin-left: 0.4rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.helpIcon {
+  font-size: 0.95rem;
+  opacity: 0.7;
+}
+
+.helpIconBtn:hover .helpIcon {
+  opacity: 1;
+}
+
+.helpBox {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: #f7f7fb;
+  border: 1px solid #e0e0f0;
+  font-size: 0.9rem;
+}
+
+.helpBox ul,
+.helpBox ol {
+  margin: 0.5rem 0 0.5rem;
+  padding-left: 1.2rem;
+}
+
+.errorText {
+  color: #c0392b;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+.badgeLight {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: rgba(255, 165, 0, 0.12);
+  color: #b4690e;
+}
+
+.linkInline {
+  color: var(--color-primary);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.linkInline:hover {
+  text-decoration: underline;
+}

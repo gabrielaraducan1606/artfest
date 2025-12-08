@@ -1,9 +1,17 @@
-import React, { useRef, useState, useEffect, useMemo } from "react";
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  useMemo,
+  lazy,
+  Suspense,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import styles from "./ProfilMagazin.module.css";
 import { SEO } from "../../../components/Seo/SeoProvider.jsx";
 import { onImgError } from "../../../components/utils/imageFallback";
 import { FaCopy, FaPlus, FaCamera } from "react-icons/fa";
+import { MessageSquare } from "lucide-react";
 import { api } from "../../../lib/api";
 
 // hook + helpers
@@ -12,16 +20,19 @@ import useProfilMagazin, {
   resolveFileUrl,
 } from "./hooks/useProfilMagazin";
 
+// ✅ user curent
+import { useAuth } from "../../Auth/Context/context.js";
+
 // secțiuni
 import AboutSection from "./components/AboutSection";
 import InfoSection from "./components/InfoSection";
 import ProductList from "./components/ProductList";
-import ReviewsSection from "./components/ReviewsSection";
 import TabsNav from "./components/TabsNav.jsx";
 
-// modale păstrate (non-reviews)
-import VendorGateModal from "./modals/VendorGateModal";
-import ProductModal from "./modals/ProductModal";
+// lazy
+const ReviewsSection = lazy(() => import("./components/ReviewsSection.jsx"));
+const VendorGateModal = lazy(() => import("./modals/VendorGateModal"));
+const ProductModal = lazy(() => import("./modals/ProductModal"));
 
 /* ========================== TRACKING helpers ========================== */
 function makeId() {
@@ -62,7 +73,7 @@ function useVendorTracking(vendorId, pageUrl) {
       )
         return;
     } catch {
-      ""
+      /* noop */
     }
     fetch("/api/visitors/track", {
       method: "POST",
@@ -71,7 +82,6 @@ function useVendorTracking(vendorId, pageUrl) {
     }).catch(() => {});
   };
 
-  // PAGEVIEW + VIEW_* lifecycle
   useEffect(() => {
     if (!vendorId) return;
 
@@ -86,7 +96,6 @@ function useVendorTracking(vendorId, pageUrl) {
     const newView = makeId();
     setViewId(newView);
 
-    // PAGEVIEW
     send({
       vendorId,
       type: "PAGEVIEW",
@@ -94,7 +103,6 @@ function useVendorTracking(vendorId, pageUrl) {
       referrer: ref,
       sessionId: sid,
     });
-    // VIEW_START
     send({
       vendorId,
       type: "VIEW_START",
@@ -104,7 +112,6 @@ function useVendorTracking(vendorId, pageUrl) {
       viewId: newView,
     });
 
-    // Heartbeat ping (15s) doar când tab-ul e vizibil
     let hb;
     const beat = () =>
       send({
@@ -178,7 +185,6 @@ function useVendorTracking(vendorId, pageUrl) {
 }
 /* ===================================================================== */
 
-/* ---------- banner note (doar pentru owner) ---------- */
 function OwnerWarningBanner({
   missingProfile = [],
   missingBilling = [],
@@ -225,14 +231,39 @@ function OwnerWarningBanner({
 
       {missingBilling.length > 0 && (
         <div>
-          Din <b>Date facturare</b> lipsesc:{" "}
-          {missingBilling.join(", ")}.{" "}
+          Din <b>Date facturare</b> lipsesc: {missingBilling.join(", ")}.{" "}
           <a href="/onboarding/details?tab=facturare">
             Completează acum
           </a>
           .
         </div>
       )}
+    </div>
+  );
+}
+
+function ActivationHintBanner() {
+  return (
+    <div
+      role="note"
+      aria-label="Activează magazinul din Dashboard"
+      style={{
+        margin: "0 0 16px",
+        padding: 12,
+        border: "1px solid #3B82F6",
+        background: "#EFF6FF",
+        color: "#1D4ED8",
+        borderRadius: 8,
+      }}
+    >
+      <strong style={{ display: "block", marginBottom: 6 }}>
+        Ultimul pas pentru a apărea în căutări
+      </strong>
+      <div>
+        Pentru ca magazinul să fie <b>activ</b> și să apară în rezultatele
+        de căutare, mergi în <b>Desktop &gt; Serviciile mele</b> și apasă
+        butonul <b>„Activează”</b> pentru acest serviciu.
+      </div>
     </div>
   );
 }
@@ -245,25 +276,33 @@ function broadcastProfileUpdated(serviceIdOrSlug) {
       })
     );
   } catch {
-    ""
+    /* noop */
   }
   try {
     localStorage.setItem("vendorProfileUpdatedAt", String(Date.now()));
   } catch {
-    ""
+    /* noop */
   }
+}
+
+function dateOnlyToISO(yyyyMmDd) {
+  if (!yyyyMmDd) return null;
+  const [y, m, d] = String(yyyyMmDd).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 12, 0, 0);
+  return dt.toISOString();
 }
 
 export default function ProfilMagazin() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const { me } = useAuth();
+  const isUser = me?.role === "USER";
 
   const {
     sellerData: _sellerData,
     products,
-    reviews,
     rating,
-    me,
     isOwner,
     viewMode,
     categories,
@@ -274,13 +313,20 @@ export default function ProfilMagazin() {
     cacheT,
     productsCacheT,
 
-    // din hook
+    // Info inline edit din hook
+    editInfo,
+    setEditInfo,
+    savingInfo,
+    infoErr,
+    infoDraft,
+    onChangeInfoDraft,
+    saveInfoNow,
+
     countySuggestions,
     countiesLoading,
     countiesErr,
     onCountiesChange,
 
-    // product modal (create/edit)
     prodModalOpen,
     setProdModalOpen,
     savingProd,
@@ -288,39 +334,37 @@ export default function ProfilMagazin() {
     prodForm,
     setProdForm,
 
-    // gate
-    gateOpen,
-    setGateOpen,
-    gateLoading,
-    gateErr,
-    gateDocs,
-    setGateChecks,
-
-    // actions
+    // poarta veche din hook nu o mai folosim aici, ne facem stare locală
     openNewProduct,
-    acceptVendorDocs,
-    refetch,
-  } = useProfilMagazin(slug);
+  } = useProfilMagazin(slug, { me });
 
-  // local
   const [editingOverride, setEditingOverride] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  // patch optimist pentru avatar/cover
+  // stare locală pentru poarta de acorduri
+  const [gateState, setGateState] = useState({
+    open: false,
+    loading: false,
+    error: "",
+    docs: null,
+    checks: {
+      vendor: false,
+      shipping: false,
+      returns: false,
+    },
+  });
+
   const [profilePatch, setProfilePatch] = useState({});
   const [localCacheT, setLocalCacheT] = useState(Date.now());
 
-  // refs file inputs
   const avatarInputRef = useRef(null);
   const coverInputRef = useRef(null);
 
-  // profil afișat
   const sellerData = useMemo(
     () => ({ ...(_sellerData || {}), ...profilePatch }),
     [_sellerData, profilePatch]
   );
 
-  // === calc ce lipsește din ProfileTab (pentru banner, doar owner) ===
   const missingProfile = useMemo(() => {
     const m = [];
     const s = sellerData || {};
@@ -349,7 +393,6 @@ export default function ProfilMagazin() {
     return m;
   }, [sellerData]);
 
-  // === abonament + billing (doar pentru owner) ===
   const [ownerChecks, setOwnerChecks] = useState({
     hasActiveSub: null,
     missingBilling: [],
@@ -364,19 +407,16 @@ export default function ProfilMagazin() {
       try {
         setOwnerChecks((s) => ({ ...s, loading: true }));
 
-        // 1) abonament
         let hasActiveSub = false;
         try {
-          const sub = await api(
-            "/api/vendors/me/subscription/status",
-            { method: "GET" }
-          );
+          const sub = await api("/api/vendors/me/subscription/status", {
+            method: "GET",
+          });
           hasActiveSub = !!sub?.ok;
         } catch {
           hasActiveSub = false;
         }
 
-        // 2) billing
         let missingBilling = [];
         try {
           const b = await api("/api/vendors/me/billing", {
@@ -386,16 +426,13 @@ export default function ProfilMagazin() {
           const need = (k) => !String(v[k] ?? "").trim();
           if (need("legalType")) missingBilling.push("Tip entitate");
           if (need("vendorName")) missingBilling.push("Nume vendor");
-          if (need("companyName"))
-            missingBilling.push("Denumire entitate");
+          if (need("companyName")) missingBilling.push("Denumire entitate");
           if (need("cui")) missingBilling.push("CUI");
           if (need("regCom")) missingBilling.push("Nr. Reg. Com.");
-          if (need("address"))
-            missingBilling.push("Adresă facturare");
+          if (need("address")) missingBilling.push("Adresă facturare");
           if (need("iban")) missingBilling.push("IBAN");
           if (need("bank")) missingBilling.push("Banca");
-          if (need("email"))
-            missingBilling.push("Email facturare");
+          if (need("email")) missingBilling.push("Email facturare");
           if (need("contactPerson"))
             missingBilling.push("Persoană contact");
           if (need("phone")) missingBilling.push("Telefon");
@@ -420,49 +457,185 @@ export default function ProfilMagazin() {
     };
   }, [isOwner]);
 
-  // === reviews: normalizare din hook (fallback inițial) ===
-  const baseReviewsData = useMemo(() => {
-    if (!reviews)
-      return {
-        items: [],
-        total: 0,
-        stats: { avg: rating || 0, c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 },
-      };
-    if (Array.isArray(reviews))
-      return {
-        items: reviews,
-        total: reviews.length,
-        stats: { avg: rating || 0, c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 },
-      };
-    return {
-      items: reviews.items || [],
-      total: reviews.total ?? (reviews.items?.length || 0),
-      stats:
-        reviews.stats || {
-          avg: rating || 0,
-          c1: 0,
-          c2: 0,
-          c3: 0,
-          c4: 0,
-          c5: 0,
-        },
-    };
-  }, [reviews, rating]);
+  const serviceIsActive = useMemo(() => {
+    const s = sellerData || {};
+    const statusRaw = s.status || s.profile?.status || "";
+    const activeByStatus = String(statusRaw).toUpperCase() === "ACTIVE";
+    const flag =
+      s.isActive ??
+      s.serviceIsActive ??
+      s.profile?.serviceIsActive ??
+      activeByStatus;
+    return Boolean(flag);
+  }, [sellerData]);
 
-  // ID produs pentru reviews (primul activ)
-  const firstActiveProductId = useMemo(() => {
-    const active = Array.isArray(products)
-      ? products.find((p) => p.isActive !== false)
-      : null;
-    return active?.id || active?._id || null;
-  }, [products]);
+  const showActivationHint = useMemo(() => {
+    if (!isOwner) return false;
+    if (ownerChecks.loading) return false;
+    if (!ownerChecks.hasActiveSub) return false;
+    if (missingProfile.length > 0) return false;
+    if (serviceIsActive) return false;
+    return true;
+  }, [isOwner, ownerChecks, missingProfile, serviceIsActive]);
 
-  // stare listă + query
+  // ========= Date bază din sellerData (inclusiv slug) =========
+  const {
+    shopName,
+    brandStory,
+    city,
+    country,
+    address,
+    coverImageUrl: coverRaw,
+    profileImageUrl: avatarRaw,
+    tags = [],
+    publicEmail,
+    phone,
+    delivery = [],
+    website,
+    leadTimes,
+    slug: sdSlug,
+    profile,
+  } = sellerData;
+
+  const shortText = useMemo(
+    () =>
+      (
+        sellerData?.shortDescription ??
+        profile?.shortDescription ??
+        profile?.tagline ??
+        ""
+      ).trim(),
+    [sellerData?.shortDescription, profile?.shortDescription, profile?.tagline]
+  );
+
+  const aboutText = (brandStory ?? sellerData?.about ?? "").trim();
+
+  // 👇 AICI: logica pentru afișarea secțiunii "Despre"
+  const showAboutSection = isOwner || !!aboutText;
+
+  /* ====== Editare inline "Despre" ====== */
+  const [editAbout, setEditAbout] = useState(false);
+  const [aboutDraft, setAboutDraft] = useState(aboutText);
+  const [savingAbout, setSavingAbout] = useState(false);
+
+  useEffect(() => {
+    setAboutDraft(aboutText);
+  }, [aboutText]);
+
+  function handleToggleEditAbout() {
+    if (!isOwner) return;
+    setEditAbout((x) => !x);
+  }
+
+  function handleChangeAbout(val) {
+    setAboutDraft(val);
+  }
+
+  async function handleSaveAbout() {
+    if (!isOwner) return;
+    const val = (aboutDraft || "").trim();
+
+    try {
+      setSavingAbout(true);
+      const profileResp = await saveStorePatch({
+        about: val,
+        brandStory: val,
+      });
+
+      setProfilePatch((p) => ({
+        ...p,
+        about: profileResp.about ?? val,
+        brandStory: profileResp.brandStory ?? val,
+      }));
+
+      setEditAbout(false);
+      broadcastProfileUpdated(sdSlug || slug);
+    } catch (er) {
+      alert(er?.message || "Nu am putut salva descrierea magazinului.");
+    } finally {
+      setSavingAbout(false);
+    }
+  }
+
+  const coverUrl = useMemo(
+    () =>
+      coverRaw
+        ? withCache(resolveFileUrl(coverRaw), localCacheT || cacheT)
+        : "",
+    [coverRaw, localCacheT, cacheT]
+  );
+  const avatarUrl = useMemo(
+    () =>
+      avatarRaw
+        ? withCache(resolveFileUrl(avatarRaw), localCacheT || cacheT)
+        : "",
+    [avatarRaw, localCacheT, cacheT]
+  );
+
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://artfest.ro";
+
+  const pageUrl = `${origin}/magazin/${sdSlug || ""}`;
+  const shareImage =
+    coverUrl || avatarUrl || `${origin}/img/share-fallback.jpg`;
+  const prettyDelivery =
+    Array.isArray(delivery) && delivery.length
+      ? (delivery[0] === "counties" ? delivery.slice(1) : delivery).join(", ")
+      : "";
+  const seoPreloads = coverUrl
+    ? [{ href: coverUrl, as: "image", useInDom: true }]
+    : [];
+
+  // pentru tracking rămânem pe vendorId
+  const vendorId =
+    _sellerData?.vendorId ||
+    _sellerData?.profile?.vendorId ||
+    _sellerData?.vendor?.id ||
+    sellerData?.vendorId ||
+    sellerData?.profile?.vendorId ||
+    sellerData?.vendor?.id ||
+    null;
+
+  const { trackCTA, trackMESSAGE } = useVendorTracking(vendorId, pageUrl);
+
+  // ID-ul magazinului (VendorService)
+  const serviceId =
+    _sellerData?.serviceId ||
+    sellerData?.serviceId ||
+    _sellerData?.id ||
+    sellerData?.id ||
+    _sellerData?._id ||
+    sellerData?._id ||
+    null;
+
+  // ========= Reviews de magazin (StoreReview) =========
+  const baseReviewsData = useMemo(
+    () => ({
+      items: [],
+      total: 0,
+      stats: {
+        avg: rating || 0,
+        c1: 0,
+        c2: 0,
+        c3: 0,
+        c4: 0,
+        c5: 0,
+      },
+    }),
+    [rating]
+  );
+
   const [revState, setRevState] = useState({
     items: baseReviewsData.items,
     total: baseReviewsData.total,
     stats: baseReviewsData.stats,
   });
+  const [reviewsLoaded, setReviewsLoaded] = useState(
+    () => baseReviewsData.items.length > 0
+  );
+
   useEffect(() => {
     setRevState({
       items: baseReviewsData.items,
@@ -473,39 +646,101 @@ export default function ProfilMagazin() {
 
   const [query, setQuery] = useState({
     sort: "relevant",
-    filter: { verified: false, star: 0 },
+    filter: {
+      verified: false,
+      star: 0,
+      noReply: false,
+      lowRatingOnly: false,
+    },
     skip: 0,
     take: 20,
   });
 
   async function fetchReviews(q) {
-    if (!firstActiveProductId) return;
+    const storeSlug = sdSlug || slug;
+    if (!storeSlug) return;
+
     const params = new URLSearchParams();
     params.set("sort", q.sort);
     params.set("skip", String(q.skip));
     params.set("take", String(q.take));
+
     if (q.filter?.verified) params.set("verified", "1");
-    if (q.filter?.star >= 1 && q.filter?.star <= 5)
+    if (q.filter?.star >= 1 && q.filter?.star <= 5) {
       params.set("star", String(q.filter.star));
-    const res = await fetch(
-      `/api/public/products/${encodeURIComponent(
-        firstActiveProductId
-      )}/reviews?${params}`
-    );
+    }
+
+    if (q.filter?.noReply) params.set("noReply", "1");
+    if (q.filter?.lowRatingOnly) params.set("lowRatingOnly", "1");
+
+    const url = `/api/public/store/${encodeURIComponent(
+      storeSlug
+    )}/reviews?${params.toString()}`;
+
+    const res = await fetch(url);
     const data = await res.json();
+
+    let items = [];
+    let total = 0;
+    let stats = {
+      avg: 0,
+      c1: 0,
+      c2: 0,
+      c3: 0,
+      c4: 0,
+      c5: 0,
+    };
+
+    // 🔹 cazul 1: backend-ul trimite ARRAY simplu: []
+    if (Array.isArray(data)) {
+      items = data;
+      total = data.length;
+
+      // calculăm un mic histogram + medie pe loc
+      if (data.length) {
+        const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+        let sum = 0;
+
+        for (const r of data) {
+          const s = Number(r.rating || 0);
+          if (s >= 1 && s <= 5) {
+            counts[s] = (counts[s] || 0) + 1;
+            sum += s;
+          }
+        }
+
+        stats = {
+          c1: counts[1] || 0,
+          c2: counts[2] || 0,
+          c3: counts[3] || 0,
+          c4: counts[4] || 0,
+          c5: counts[5] || 0,
+          avg: total ? Number((sum / total).toFixed(2)) : 0,
+        };
+      }
+    } else if (data && typeof data === "object") {
+      // 🔹 cazul 2: backend-ul trimite { items, total, stats }
+      items = data.items || [];
+      total = data.total ?? items.length;
+      stats = data.stats || stats;
+    }
+
     setRevState({
-      items: data.items || [],
-      total: data.total || 0,
-      stats:
-        data.stats || {
-          avg: 0,
-          c1: 0,
-          c2: 0,
-          c3: 0,
-          c4: 0,
-          c5: 0,
-        },
+      items,
+      total,
+      stats,
     });
+
+    setReviewsLoaded(true);
+  }
+
+  async function ensureReviewsLoaded() {
+    if (reviewsLoaded) return;
+    try {
+      await fetchReviews(query);
+    } catch {
+      /* noop */
+    }
   }
 
   function changeQueryFromUI(p) {
@@ -521,23 +756,23 @@ export default function ProfilMagazin() {
     });
   }
 
-  // helpers recenzii
   const onHelpful = async (reviewId) => {
     try {
-      await api(`/api/reviews/${reviewId}/helpful`, { method: "POST" });
+      await api(`/api/store-reviews/${reviewId}/helpful`, {
+        method: "POST",
+      });
       fetchReviews(query).catch(() => {});
     } catch {
       alert("Nu am putut marca recenzia ca utilă.");
     }
   };
 
-  const onReport = async (reviewId) => {
-    const reason = window.prompt(
-      "De ce raportezi această recenzie? (max 300 caractere)"
-    );
+  const onReport = async (reviewId, reasonText) => {
+    const reason = (reasonText || "").trim();
     if (!reason) return;
+
     try {
-      await api(`/api/reviews/${reviewId}/report`, {
+      await api(`/api/store-reviews/${reviewId}/report`, {
         method: "POST",
         body: { reason },
       });
@@ -546,47 +781,65 @@ export default function ProfilMagazin() {
       alert("Nu am putut raporta recenzia.");
     }
   };
+  const onDeleteUserReview = async (reviewId) => {
+    if (!reviewId) return;
+    const ok = window.confirm("Sigur vrei să ștergi această recenzie?");
+    if (!ok) return;
+
+    try {
+      await api(`/api/store-reviews/${reviewId}`, {
+        method: "DELETE",
+      });
+      // reîncarcăm lista de recenzii din backend
+      fetchReviews(query).catch(() => {});
+    } catch (e) {
+      alert(e?.message || "Nu am putut șterge recenzia.");
+    }
+  };
 
   const onSubmitUserReview = async ({ rating: r, comment: c }) => {
-    if (!firstActiveProductId) {
+    // recenzie de PROFIL magazin -> avem nevoie de vendorId (nu de productId / serviceId)
+    if (!vendorId) {
       alert(
-        "Nu am găsit un produs activ pentru a atașa recenzia."
+        "Nu am putut identifica magazinul pentru recenzie. Reîncarcă pagina și încearcă din nou."
       );
       return;
     }
+
+    const ratingVal = Number(r);
+    const comment = (c || "").trim();
+
+    if (!Number.isFinite(ratingVal) || ratingVal < 1 || ratingVal > 5) {
+      alert("Te rog alege un rating între 1 și 5 stele.");
+      return;
+    }
+
     try {
-      await api("/api/reviews", {
+      await api("/api/store-reviews", {
         method: "POST",
-        body: { productId: firstActiveProductId, rating: r, comment: c },
+        body: {
+          vendorId,
+          rating: ratingVal,
+          comment,
+        },
       });
-      if (typeof refetch === "function")
-        setTimeout(() => refetch().catch(() => {}), 200);
+
+      // după ce API-ul a salvat recenzia, re-încărcăm lista din backend
       fetchReviews(query).catch(() => {});
     } catch (er) {
+      console.error("onSubmitUserReview error", er);
       alert(er?.message || "Nu am putut trimite recenzia.");
     }
   };
 
-  const onOptimisticAdd = (temp) => {
-    setRevState((s) => ({
-      ...s,
-      items: [temp, ...s.items],
-      total: s.total + 1,
-    }));
-  };
-
-  /* ====== SAVE HELPERS: doar logoUrl & coverUrl prin /vendors/store/:slug ====== */
+  // ========= Patch profil magazin (avatar / cover) =========
   async function saveStorePatch(patch) {
-    const sd =
-      sellerData?.slug || sellerData?.profile?.slug || slug;
+    const sd = sellerData?.slug || sellerData?.profile?.slug || slug;
     if (!sd) throw new Error("Slug lipsă la salvare.");
-    const data = await api(
-      `/api/vendors/store/${encodeURIComponent(sd)}`,
-      {
-        method: "PUT",
-        body: { ...patch, mirrorVendor: true },
-      }
-    );
+    const data = await api(`/api/vendors/store/${encodeURIComponent(sd)}`, {
+      method: "PUT",
+      body: { ...patch, mirrorVendor: true },
+    });
     return data?.profile || {};
   }
 
@@ -610,8 +863,6 @@ export default function ProfilMagazin() {
       }));
       setLocalCacheT(Date.now());
       broadcastProfileUpdated(slug);
-      if (typeof refetch === "function")
-        setTimeout(() => refetch().catch(() => {}), 250);
     } catch (er) {
       alert(er?.message || "Nu am putut salva avatarul");
     } finally {
@@ -639,8 +890,6 @@ export default function ProfilMagazin() {
       }));
       setLocalCacheT(Date.now());
       broadcastProfileUpdated(slug);
-      if (typeof refetch === "function")
-        setTimeout(() => refetch().catch(() => {}), 250);
     } catch (er) {
       alert(er?.message || "Nu am putut salva coperta");
     } finally {
@@ -648,103 +897,336 @@ export default function ProfilMagazin() {
     }
   }
 
-  // derive afișare
-  const {
-    shopName,
-    brandStory,
-    city,
-    country,
-    address,
-    coverImageUrl: coverRaw,
-    profileImageUrl: avatarRaw,
-    tags = [],
-    publicEmail,
-    phone,
-    delivery = [],
-    website,
-    leadTimes,
-    slug: sdSlug,
-    profile, // în caz că vine shortDescription și aici
-  } = sellerData;
+  // FOLLOW magazin
+  const [following, setFollowing] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followLoading, setFollowLoading] = useState(false);
 
-  // 🔹 scurta descriere sub nume – preferă shortDescription, apoi profile.shortDescription, apoi tagline
-  const shortText = useMemo(
-    () =>
-      (
-        sellerData?.shortDescription ??
-        profile?.shortDescription ??
-        profile?.tagline ??
-        ""
-      ).trim(),
-    [sellerData?.shortDescription, profile?.shortDescription, profile?.tagline]
-  );
+  // status follow + număr urmăritori
+  useEffect(() => {
+    if (!serviceId) return;
 
-  // „Despre” nu folosește descrierea scurtă ca fallback, ca să nu dublăm textul
-  const aboutText = (brandStory ?? sellerData?.about ?? "—").trim();
+    let alive = true;
 
-  const coverUrl = useMemo(
-    () =>
-      coverRaw
-        ? withCache(
-            resolveFileUrl(coverRaw),
-            localCacheT || cacheT
+    (async () => {
+      try {
+        // count public
+        const resCount = await api(
+          `/api/stores/${encodeURIComponent(serviceId)}/followers-count`,
+          { method: "GET" }
+        );
+
+        if (!alive || !resCount?.ok) return;
+
+        let initialCount =
+          typeof resCount.followersCount === "number"
+            ? resCount.followersCount
+            : 0;
+        setFollowersCount(initialCount);
+
+        // dacă e logat, luăm și status personal
+        if (me) {
+          try {
+            const resStatus = await api(
+              `/api/stores/${encodeURIComponent(serviceId)}/follow`,
+              { method: "GET" }
+            );
+            if (!alive || !resStatus?.ok) return;
+            setFollowing(!!resStatus.following);
+            if (typeof resStatus.followersCount === "number") {
+              setFollowersCount(resStatus.followersCount);
+            }
+          } catch {
+            setFollowing(false);
+          }
+        } else {
+          setFollowing(false);
+        }
+      } catch {
+        /* noop */
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [serviceId, me]);
+
+  async function toggleFollow() {
+    // urmărim magazinul (VendorService), deci folosim serviceId
+    if (!serviceId) {
+      console.warn("Nu am serviceId, nu pot urmări magazinul.");
+      return;
+    }
+
+    // dacă nu e logat, îl ducem la login cu redirect înapoi
+    if (!me) {
+      trackCTA("Follow (unauthenticated)");
+      navigate(
+        "/autentificare?redirect=" +
+          encodeURIComponent(window.location.pathname)
+      );
+      return;
+    }
+
+    try {
+      setFollowLoading(true);
+
+      const method = following ? "DELETE" : "POST";
+      trackCTA(following ? "Unfollow" : "Follow");
+
+      const res = await api(
+        `/api/stores/${encodeURIComponent(serviceId)}/follow`,
+        { method }
+      );
+
+      if (!res?.ok) {
+        alert("Nu am putut actualiza urmărirea magazinului.");
+        return;
+      }
+
+      setFollowing(res.following);
+
+      setFollowersCount((prev) => {
+        if (typeof res.followersCount === "number") {
+          return res.followersCount;
+        }
+        // fallback optimist
+        return prev + (following ? -1 : 1);
+      });
+    } catch (e) {
+      console.error("toggleFollow error", e);
+      alert(e?.message || "Eroare la actualizarea urmăririi.");
+    } finally {
+      setFollowLoading(false);
+    }
+  }
+
+  // ✅ Contact vendor – user -> vendor
+  async function handleContactVendor() {
+    // Dacă nu avem NICI vendorId, NICI serviceId, nu are cu ce lucra backend-ul
+    if (!vendorId && !serviceId) {
+      console.warn("Nu am vendorId/serviceId pentru acest magazin:", {
+        vendorId,
+        serviceId,
+        slug,
+        sdSlug,
+      });
+      alert("Nu am găsit datele necesare pentru acest magazin.");
+      return;
+    }
+
+    if (!me) {
+      // redirect la login, apoi înapoi la acest profil
+      navigate(
+        "/autentificare?redirect=" +
+          encodeURIComponent(
+            window.location.pathname + window.location.search
           )
-        : "",
-    [coverRaw, localCacheT, cacheT]
-  );
-  const avatarUrl = useMemo(
-    () =>
-      avatarRaw
-        ? withCache(
-            resolveFileUrl(avatarRaw),
-            localCacheT || cacheT
-          )
-        : "",
-    [avatarRaw, localCacheT, cacheT]
-  );
+      );
+      return;
+    }
 
-  const origin =
-    typeof window !== "undefined" && window.location?.origin
-      ? window.location.origin
-      : "https://artfest.ro";
+    // opțional: nu lăsăm VENDOR/ADMIN să folosească API-ul de user-inbox
+    if (me.role === "VENDOR" || me.role === "ADMIN") {
+      alert("Doar clienții (utilizatorii) pot trimite mesaje către vendor.");
+      return;
+    }
 
-  const pageUrl = `${origin}/magazin/${sdSlug || ""}`;
-  const shareImage =
-    coverUrl || avatarUrl || `${origin}/img/share-fallback.jpg`;
-  const prettyDelivery =
-    Array.isArray(delivery) && delivery.length
-      ? (delivery[0] === "counties"
-          ? delivery.slice(1)
-          : delivery
-        ).join(", ")
-      : "";
-  const seoPreloads = coverUrl
-    ? [{ href: coverUrl, as: "image", useInDom: true }]
-    : [];
+    try {
+      // trimitem tot ce avem: vendorId (dacă există), serviceId, slug
+      const res = await api("/api/user-inbox/ensure-thread", {
+        method: "POST",
+        body: {
+          vendorId: vendorId || null,
+          serviceId: serviceId || null,
+          storeSlug: sdSlug || slug || null,
+        },
+      });
 
-  // 🧭 TRACKING – vendorId + hook (PAGEVIEW + VIEW_*)
-  const vendorId =
-    _sellerData?.id ||
-    _sellerData?.vendorId ||
-    _sellerData?.profile?.vendorId ||
-    sellerData?.id ||
-    sellerData?.vendorId ||
-    sellerData?.profile?.vendorId ||
-    null;
+      if (!res?.threadId) {
+        alert("Nu am putut deschide conversația cu vendorul.");
+        return;
+      }
 
-  const { trackCTA /*, trackMESSAGE*/ } = useVendorTracking(
-    vendorId,
-    pageUrl
-  );
+      trackMESSAGE("Contact vendor");
+      // ducem userul în inbox-ul lui, pe thread-ul corect
+      navigate(`/cont/mesaje?thread=${encodeURIComponent(res.threadId)}`);
+    } catch (e) {
+      console.error("Nu am putut deschide conversația", e);
+      alert("Nu am putut deschide conversația cu vendorul. Încearcă din nou.");
+    }
+  }
 
-  // product modal open/edit
-    const openEditProduct = async (p) => {
+  // 👇 Handler NOU: când vrei să adaugi produs, verifici întâi acordurile
+  const handleAddProduct = async () => {
+    // fallback: dacă nu e owner, nu facem nimic
+    if (!isOwner) return;
+
+    try {
+      setGateState((s) => ({
+        ...s,
+        loading: true,
+        error: "",
+      }));
+
+      const resp = await api("/api/vendor/agreements/status", {
+        method: "GET",
+      });
+
+      const docsArr = Array.isArray(resp?.docs) ? resp.docs : [];
+      const byKey = {};
+      for (const d of docsArr) {
+        byKey[d.doc_key] = d;
+      }
+
+      const vendorDoc = byKey.VENDOR_TERMS || null;
+      const shippingDoc = byKey.SHIPPING_ADDENDUM || null;
+      const returnsDoc =
+        byKey.RETURNS_POLICY || byKey.RETURNS_POLICY_ACK || null;
+
+      const gateDocs = {
+        vendor_terms: vendorDoc && {
+          doc_key: vendorDoc.doc_key,
+          url: vendorDoc.url,
+          version: vendorDoc.version,
+          is_required: vendorDoc.is_required,
+        },
+        shipping_addendum: shippingDoc && {
+          doc_key: shippingDoc.doc_key,
+          url: shippingDoc.url,
+          version: shippingDoc.version,
+          is_required: shippingDoc.is_required,
+        },
+        returns_policy: returnsDoc && {
+          doc_key: returnsDoc.doc_key,
+          url: returnsDoc.url,
+          version: returnsDoc.version,
+          is_required: returnsDoc.is_required,
+        },
+      };
+
+      const allOK = !!resp?.allOK;
+
+      if (allOK) {
+        // toate acordurile required sunt acceptate -> deschidem direct modalul de produs
+        setGateState((s) => ({
+          ...s,
+          open: false,
+          loading: false,
+          error: "",
+          docs: gateDocs,
+          checks: {
+            vendor: !!(vendorDoc && vendorDoc.accepted),
+            shipping: !!(shippingDoc && shippingDoc.accepted),
+            returns: !!(returnsDoc && returnsDoc.accepted),
+          },
+        }));
+        openNewProduct();
+      } else {
+        // nu sunt toate acceptate -> afișăm poarta
+        setGateState({
+          open: true,
+          loading: false,
+          error: "",
+          docs: gateDocs,
+          checks: {
+            vendor: !!(vendorDoc && vendorDoc.accepted),
+            shipping: !!(shippingDoc && shippingDoc.accepted),
+            returns: !!(returnsDoc && returnsDoc.accepted),
+          },
+        });
+      }
+    } catch (e) {
+      console.error("agreements/status error", e);
+      // în caz de eroare de server, nu blocăm complet: deschidem direct modalul
+      setGateState((s) => ({
+        ...s,
+        loading: false,
+        error:
+          e?.message ||
+          "Nu am putut verifica acordurile. Poți încerca din nou mai târziu.",
+      }));
+      openNewProduct();
+    }
+  };
+
+  // handler pentru Accept în poartă (salvează și continuă către Add Product)
+  const handleAcceptGate = async () => {
+    const { docs, checks } = gateState;
+    if (!docs) return;
+
+    setGateState((s) => ({
+      ...s,
+      loading: true,
+      error: "",
+    }));
+
+    try {
+      const items = [];
+
+      if (checks.vendor && docs.vendor_terms?.version) {
+        items.push({
+          doc_key: docs.vendor_terms.doc_key || "VENDOR_TERMS",
+          version: docs.vendor_terms.version,
+        });
+      }
+
+      if (checks.shipping && docs.shipping_addendum?.version) {
+        items.push({
+          doc_key: docs.shipping_addendum.doc_key || "SHIPPING_ADDENDUM",
+          version: docs.shipping_addendum.version,
+        });
+      }
+
+      if (checks.returns && docs.returns_policy?.version) {
+        items.push({
+          doc_key: docs.returns_policy.doc_key || "RETURNS_POLICY_ACK",
+          version: docs.returns_policy.version,
+        });
+      }
+
+      if (!items.length) {
+        setGateState((s) => ({
+          ...s,
+          loading: false,
+          error: "Bifează cel puțin acordurile obligatorii.",
+        }));
+        return;
+      }
+
+      await api("/api/vendor/agreements/accept", {
+        method: "POST",
+        body: { items },
+      });
+
+      // succes: închidem poarta și deschidem direct formularul de produs
+      setGateState((s) => ({
+        ...s,
+        open: false,
+        loading: false,
+        error: "",
+      }));
+
+      openNewProduct();
+    } catch (e) {
+      console.error("agreements/accept error", e);
+      setGateState((s) => ({
+        ...s,
+        loading: false,
+        error:
+          e?.message ||
+          "Nu am putut salva acceptarea acordurilor. Încearcă din nou.",
+      }));
+    }
+  };
+
+  const openEditProduct = async (p) => {
     if (!p) return;
     const id = p.id || p._id;
     if (!id) return;
 
     try {
-      // 🔹 luăm produsul complet, cu toate câmpurile, din endpoint-ul de vendor
       const full = await api(
         `/api/vendors/products/${encodeURIComponent(id)}`,
         { method: "GET" }
@@ -765,7 +1247,6 @@ export default function ProfilMagazin() {
         currency: full.currency || "RON",
         isActive: full.isActive !== false,
 
-        // 🔸 câmpuri availability
         availability: (full.availability || "READY").toUpperCase(),
         leadTimeDays: Number.isFinite(Number(full.leadTimeDays))
           ? String(Number(full.leadTimeDays))
@@ -782,10 +1263,8 @@ export default function ProfilMagazin() {
         acceptsCustom: !!full.acceptsCustom,
         isHidden: !!full.isHidden,
 
-        // 🔸 culoare
         color: full.color || "",
 
-        // 🔸 detalii structurate
         materialMain: full.materialMain || "",
         technique: full.technique || "",
         styleTags: Array.isArray(full.styleTags)
@@ -811,57 +1290,99 @@ export default function ProfilMagazin() {
     setProdModalOpen(false);
     setEditingOverride(null);
   };
-
   const handleSaveProduct = async (e) => {
     e?.preventDefault?.();
+
     try {
-      // Construim payload comun pentru create + edit
-      const payload = {
-        title: (prodForm.title || "").trim(),
-        description: prodForm.description || "",
-        price: Number(prodForm.price) || 0,
-        images: Array.isArray(prodForm.images)
-          ? prodForm.images
-          : [],
-        category: prodForm.category || null,
+      const title = (prodForm.title || "").trim();
+      const description = prodForm.description || "";
+      const price = Number(prodForm.price);
+      const images = Array.isArray(prodForm.images) ? prodForm.images : [];
+      const category = (prodForm.category || "").trim();
+
+      const color = (prodForm.color || "").trim() || null;
+      const materialMain = (prodForm.materialMain || "").trim() || null;
+      const technique = (prodForm.technique || "").trim() || null;
+      const styleTags = (prodForm.styleTags || "").trim();
+      const occasionTags = (prodForm.occasionTags || "").trim();
+      const dimensions = (prodForm.dimensions || "").trim() || null;
+      const careInstructions =
+        (prodForm.careInstructions || "").trim() || null;
+      const specialNotes = (prodForm.specialNotes || "").trim() || null;
+
+      if (!title) {
+        alert("Te rog adaugă un titlu.");
+        return;
+      }
+      if (!Number.isFinite(price) || price < 0) {
+        alert("Preț invalid.");
+        return;
+      }
+      if (!category) {
+        alert("Selectează categoria produsului.");
+        return;
+      }
+
+      const basePayload = {
+        title,
+        description,
+        price,
+        images,
+        category,
         currency: prodForm.currency || "RON",
         isActive: prodForm.isActive !== false,
         isHidden: !!prodForm.isHidden,
-
-        availability: prodForm.availability || "READY",
         acceptsCustom: !!prodForm.acceptsCustom,
+        color,
+        materialMain,
+        technique,
+        styleTags,
+        occasionTags,
+        dimensions,
+        careInstructions,
+        specialNotes,
       };
 
-      if (prodForm.availability === "MADE_TO_ORDER") {
-        payload.leadTimeDays = Math.max(
-          1,
-          Number(prodForm.leadTimeDays || 1)
-        );
-        payload.readyQty = null;
-        payload.nextShipDate = null;
-      } else if (prodForm.availability === "READY") {
-        payload.readyQty =
-          prodForm.readyQty === "" || prodForm.readyQty == null
-            ? null
-            : Math.max(0, Number(prodForm.readyQty || 0));
-        payload.leadTimeDays = null;
-        payload.nextShipDate = null;
-      } else if (prodForm.availability === "PREORDER") {
-        payload.leadTimeDays = null;
-        payload.readyQty = 0;
+      const av = String(prodForm.availability || "READY").toUpperCase();
+
+      const payload = {
+        ...basePayload,
+        availability: av,
+        leadTimeDays: null,
+        readyQty: null,
+        nextShipDate: null,
+      };
+
+      if (av === "MADE_TO_ORDER") {
+        const lt = Number(prodForm.leadTimeDays || 0);
+        payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
+      }
+
+      if (av === "READY") {
+        if (prodForm.readyQty !== "" && prodForm.readyQty != null) {
+          const rq = Number(prodForm.readyQty);
+          payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
+        } else {
+          payload.readyQty = null;
+        }
+      }
+
+      if (av === "PREORDER") {
         payload.nextShipDate = prodForm.nextShipDate
-          ? new Date(prodForm.nextShipDate).toISOString()
+          ? dateOnlyToISO(prodForm.nextShipDate)
           : null;
-      } else if (prodForm.availability === "SOLD_OUT") {
-        payload.leadTimeDays = null;
+      }
+
+      if (av === "SOLD_OUT") {
         payload.readyQty = 0;
-        payload.nextShipDate = null;
       }
 
       let saved;
+      const isEdit =
+        !!editingOverride && (editingOverride.id || editingOverride._id);
 
-      // EDIT EXISTENT
-      if (editingOverride && (editingOverride.id || editingOverride._id)) {
+      if (isEdit) {
+        // 👉 UPDATE produs existent
         const id = editingOverride.id || editingOverride._id;
 
         saved = await api(
@@ -871,23 +1392,9 @@ export default function ProfilMagazin() {
             body: payload,
           }
         );
-
-        try {
-          window.dispatchEvent(
-            new CustomEvent("vendor:productUpdated", {
-              detail: { product: saved },
-            })
-          );
-        } catch {
-          ""
-        }
-
-        // CREATE NOU
       } else {
-        const sd =
-          sellerData?.slug ||
-          sellerData?.profile?.slug ||
-          slug;
+        // 👉 CREATE produs nou
+        const sd = sellerData?.slug || sellerData?.profile?.slug || slug;
 
         if (!sd) throw new Error("Slug lipsă la creare produs.");
 
@@ -898,21 +1405,20 @@ export default function ProfilMagazin() {
             body: payload,
           }
         );
-
-        try {
-          window.dispatchEvent(
-            new CustomEvent("vendor:productUpdated", {
-              detail: { product: saved },
-            })
-          );
-        } catch {
-          ""
-        }
       }
 
-      // Reîncarcă lista sigur, din server
-      if (typeof refetch === "function") {
-        setTimeout(() => refetch().catch(() => {}), 200);
+      // 🔔 Broadcast către listă:
+      try {
+        window.dispatchEvent(
+          new CustomEvent(
+            isEdit ? "vendor:productUpdated" : "vendor:productCreated",
+            {
+              detail: { product: saved },
+            }
+          )
+        );
+      } catch {
+        /* noop */
       }
 
       closeProductModal();
@@ -924,15 +1430,12 @@ export default function ProfilMagazin() {
   const isLoading = loading;
   const errorText = err;
 
-  /* ===================== TABS – ancore ===================== */
   const aboutRef = useRef(null);
   const infoRef = useRef(null);
   const productsRef = useRef(null);
   const reviewsRef = useRef(null);
 
   const [activeTab, setActiveTab] = useState("produse");
-
-  // 👇 flag care ne spune când scroll-ul e declanșat din click pe tab
   const clickScrollRef = useRef(false);
 
   const HEADER_OFFSET = useMemo(() => {
@@ -943,8 +1446,11 @@ export default function ProfilMagazin() {
     return app + tabs + 12;
   }, []);
 
+  // 👇 Tabs: includem "Despre" doar dacă showAboutSection e true
   const tabs = [
-    { key: "despre", label: "Despre", ref: aboutRef, hash: "#despre" },
+    ...(showAboutSection
+      ? [{ key: "despre", label: "Despre", ref: aboutRef, hash: "#despre" }]
+      : []),
     {
       key: "informatii",
       label: "Informații",
@@ -972,7 +1478,6 @@ export default function ProfilMagazin() {
     const rect = el.getBoundingClientRect();
     const absoluteY = window.scrollY + rect.top;
 
-    // marcăm că urmează un scroll programatic din click/tab
     clickScrollRef.current = true;
 
     window.scrollTo({
@@ -980,7 +1485,6 @@ export default function ProfilMagazin() {
       behavior: "smooth",
     });
 
-    // după ce se termină animația, permitem iar update-ul din scroll normal
     window.setTimeout(() => {
       clickScrollRef.current = false;
     }, 600);
@@ -994,9 +1498,11 @@ export default function ProfilMagazin() {
     }
     smoothScrollTo(t.ref);
     setActiveTab(key);
+    if (key === "recenzii") {
+      ensureReviewsLoaded();
+    }
   }
 
-  // init din hash, dacă există
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -1009,6 +1515,9 @@ export default function ProfilMagazin() {
       const absoluteY = window.scrollY + rect.top;
       window.scrollTo({ top: absoluteY - HEADER_OFFSET });
       setActiveTab(target.key);
+      if (target.key === "recenzii") {
+        ensureReviewsLoaded();
+      }
     }
 
     const onHash = () => {
@@ -1017,6 +1526,9 @@ export default function ProfilMagazin() {
       if (tt?.ref?.current) {
         smoothScrollTo(tt.ref);
         setActiveTab(tt.key);
+        if (tt.key === "recenzii") {
+          ensureReviewsLoaded();
+        }
       }
     };
 
@@ -1025,13 +1537,11 @@ export default function ProfilMagazin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [HEADER_OFFSET]);
 
-  // sincronizează activul cu SCROLL (schimbă la secțiunea cea mai vizibilă)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const io = new IntersectionObserver(
       (entries) => {
-        // dacă scroll-ul este declanșat programatic (din tab), nu reacționăm
         if (clickScrollRef.current) return;
 
         let best = { key: null, ratio: 0 };
@@ -1048,6 +1558,9 @@ export default function ProfilMagazin() {
           if (t && typeof history !== "undefined") {
             history.replaceState(null, "", t.hash);
           }
+          if (best.key === "recenzii") {
+            ensureReviewsLoaded();
+          }
         }
       },
       {
@@ -1061,8 +1574,6 @@ export default function ProfilMagazin() {
     return () => io.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [HEADER_OFFSET, tabs.map((t) => t.ref.current).join("|"), activeTab]);
-
-  /* ========================================================= */
 
   return (
     <>
@@ -1111,8 +1622,7 @@ export default function ProfilMagazin() {
             Încă nu ai configurat magazinul
           </h2>
           <p style={{ marginBottom: 16 }}>
-            Pentru a-ți publica magazinul, completează pașii de
-            onboarding.
+            Pentru a-ți publica magazinul, completează pașii de onboarding.
           </p>
           <button
             type="button"
@@ -1139,7 +1649,6 @@ export default function ProfilMagazin() {
         </div>
       ) : (
         <div className={styles.wrapper}>
-          {/* Banner (owner) */}
           {isOwner && !ownerChecks.loading && (
             <OwnerWarningBanner
               missingProfile={missingProfile}
@@ -1148,15 +1657,17 @@ export default function ProfilMagazin() {
             />
           )}
 
+          {showActivationHint && <ActivationHintBanner />}
+
           <div className={styles.cover}>
             {coverUrl ? (
               <img
                 src={coverUrl}
                 className={styles.coverImg}
                 alt="Copertă"
-                onError={(e) =>
-                  onImgError(e, 1200, 360, "Cover")
-                }
+                loading="lazy"
+                decoding="async"
+                onError={(e) => onImgError(e, 1200, 360, "Cover")}
               />
             ) : (
               <div
@@ -1188,7 +1699,6 @@ export default function ProfilMagazin() {
           </div>
 
           <div className={styles.card}>
-            {/* Header */}
             <div className={styles.headerRow}>
               <div className={styles.avatarWrap}>
                 {avatarUrl ? (
@@ -1196,9 +1706,9 @@ export default function ProfilMagazin() {
                     src={avatarUrl}
                     className={styles.avatar}
                     alt="Profil"
-                    onError={(e) =>
-                      onImgError(e, 160, 160, "Profil")
-                    }
+                    loading="lazy"
+                    decoding="async"
+                    onError={(e) => onImgError(e, 160, 160, "Profil")}
                   />
                 ) : (
                   <div
@@ -1212,9 +1722,7 @@ export default function ProfilMagazin() {
                     <button
                       type="button"
                       className={`${styles.editFab} ${styles.editFabAvatar}`}
-                      onClick={() =>
-                        avatarInputRef.current?.click()
-                      }
+                      onClick={() => avatarInputRef.current?.click()}
                       title="Schimbă fotografia de profil"
                       aria-label="Schimbă fotografia de profil"
                     >
@@ -1253,30 +1761,21 @@ export default function ProfilMagazin() {
                         const url = `${origin}/magazin/${sdSlug}`;
                         try {
                           await navigator.clipboard.writeText(url);
-                          // TRACK CTA: copy link
                           trackCTA("Copy profile link");
                           setCopied(true);
-                          setTimeout(
-                            () => setCopied(false),
-                            1500
-                          );
+                          setTimeout(() => setCopied(false), 1500);
                         } catch {
-                          const ta =
-                            document.createElement("textarea");
+                          const ta = document.createElement("textarea");
                           ta.value = url;
                           document.body.appendChild(ta);
                           ta.select();
                           try {
                             document.execCommand("copy");
-                            // TRACK CTA: copy link
                             trackCTA("Copy profile link");
                             setCopied(true);
-                            setTimeout(
-                              () => setCopied(false),
-                              1500
-                            );
+                            setTimeout(() => setCopied(false), 1500);
                           } catch {
-                            ""
+                            /* noop */
                           }
                           document.body.removeChild(ta);
                         }
@@ -1298,86 +1797,98 @@ export default function ProfilMagazin() {
                 )}
               </div>
 
-              {isOwner ? (
-                <div
-                  className={styles.actions}
-                  style={{ display: "flex", gap: 8 }}
-                >
-                  <button
-                    className={styles.followBtn}
-                    onClick={openNewProduct}
-                    title="Adaugă produs"
-                    type="button"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <FaPlus /> Adaugă produs
-                  </button>
-                </div>
-              ) : (
-                <div className={styles.actions}>
-                  <button
-                    className={styles.followBtn}
-                    onClick={() =>
-                      me
-                        ? (trackCTA("Follow"),
-                          alert(
-                            "Ai început să urmărești magazinul!"
-                          ))
-                        : (trackCTA("Follow"),
-                          navigate(
-                            "/autentificare?redirect=" +
-                              encodeURIComponent(
-                                window.location.pathname
-                              )
-                          ))
-                    }
-                    type="button"
-                  >
-                    Urmărește
-                  </button>
-                </div>
-              )}
+             <div
+  className={styles.actions}
+  style={{ display: "flex", gap: 8, alignItems: "center" }}
+>
+  <div className={styles.followersBadge}>
+    {followersCount} urmăritor
+    {followersCount === 1 ? "" : "i"}
+  </div>
+
+  {isOwner ? (
+    <button
+      className={styles.followBtn}
+      onClick={handleAddProduct}
+      title="Adaugă produs"
+      type="button"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+      }}
+    >
+      <FaPlus /> Adaugă produs
+    </button>
+  ) : (
+    <>
+      {/* Buton mesaj – doar pentru user logat */}
+      {isUser && (
+        <button
+          className={styles.followBtn}
+          type="button"
+          onClick={handleContactVendor}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            marginRight: 8,
+          }}
+        >
+          <MessageSquare size={16} />
+          Trimite mesaj
+        </button>
+      )}
+
+      <button
+        className={`${styles.followBtn} ${
+          following ? styles.followBtnActive : ""
+        }`}
+        onClick={toggleFollow}
+        type="button"
+        disabled={followLoading}
+      >
+        {followLoading
+          ? "Se actualizează..."
+          : following
+          ? "Nu mai urmări"
+          : "Urmărește"}
+      </button>
+    </>
+  )}
+</div>
+
             </div>
 
             <hr className={styles.hr} />
 
-            {/* ===== Bara de taburi (ancore) – se sincronizează cu scroll ===== */}
             <TabsNav
               items={tabs}
               activeKey={activeTab}
               onJump={onJump}
             />
 
-            {/* ===== SECȚIUNI cu ancore ===== */}
+            {/* Despre – doar dacă showAboutSection e true */}
+            {showAboutSection && (
+              <section
+                id="despre"
+                ref={aboutRef}
+                data-tab-key="despre"
+                className={`${styles.section} sectionAnchorPad`}
+              >
+                <AboutSection
+                 aboutText={aboutText}
+                  canEdit={isOwner}
+                  editAbout={editAbout}
+                  aboutDraft={aboutDraft}
+                  onToggleEditAbout={handleToggleEditAbout}
+                  onChangeAbout={handleChangeAbout}
+                  onSaveAbout={handleSaveAbout}
+                  savingAbout={savingAbout}
+                />
+              </section>
+            )}
 
-            {/* Despre */}
-            <section
-              id="despre"
-              ref={aboutRef}
-              data-tab-key="despre"
-              className={`${styles.section} sectionAnchorPad`}
-            >
-              <AboutSection
-                aboutText={aboutText}
-                canEdit={isOwner}
-                editAbout={false}
-                aboutDraft={aboutText}
-                onToggleEditAbout={() =>
-                  navigate(
-                    "/onboarding/details?tab=profil&solo=1"
-                  )
-                }
-                onChangeAbout={() => {}}
-                onSaveAbout={() => {}}
-                savingAbout={false}
-              />
-            </section>
-
-            {/* Informații */}
             <section
               id="informatii"
               ref={infoRef}
@@ -1394,27 +1905,22 @@ export default function ProfilMagazin() {
                 website={website}
                 leadTimes={leadTimes}
                 prettyDelivery={prettyDelivery}
-                editInfo={false}
-                savingInfo={false}
-                infoErr={""}
-                infoDraft={{}}
-                onChangeInfoDraft={() => {}}
+                editInfo={editInfo}
+                savingInfo={savingInfo}
+                infoErr={infoErr}
+                infoDraft={infoDraft}
+                onChangeInfoDraft={onChangeInfoDraft}
                 countySuggestions={countySuggestions}
                 countiesLoading={countiesLoading}
                 countiesErr={countiesErr}
                 onCountiesChange={onCountiesChange}
                 canEdit={isOwner}
-                onToggleEditInfo={() =>
-                  navigate(
-                    "/onboarding/details?tab=profil&solo=1"
-                  )
-                }
-                onSaveInfo={async () => {}}
-                onTrackCTA={trackCTA} // tracking cta
+                onToggleEditInfo={() => setEditInfo((x) => !x)}
+                onSaveInfo={saveInfoNow}
+                onTrackCTA={trackCTA}
               />
             </section>
 
-            {/* Produse */}
             <section
               id="produse"
               ref={productsRef}
@@ -1427,89 +1933,106 @@ export default function ProfilMagazin() {
                 viewMode={viewMode}
                 favorites={favorites}
                 navigate={navigate}
-                onAddFirstProduct={openNewProduct}
+                onAddFirstProduct={handleAddProduct}
                 productsCacheT={productsCacheT}
                 onEditProduct={openEditProduct}
+                categories={categories}
               />
             </section>
 
-            {/* Recenzii */}
             <section
               id="recenzii"
               ref={reviewsRef}
               data-tab-key="recenzii"
               className={`${styles.section} sectionAnchorPad`}
             >
-              <ReviewsSection
-                rating={rating}
-                reviews={revState.items}
-                totalCount={revState.total}
-                stats={revState.stats}
-                canWrite={viewMode !== "vendor" && !!me}
-                isVendorView={viewMode === "vendor"}
-                me={me}
-                onSubmit={onSubmitUserReview}
-                onOptimisticAdd={onOptimisticAdd}
-                onHelpful={onHelpful}
-                onReport={onReport}
-                onChangeQuery={changeQueryFromUI}
-                onVendorReply={async (reviewId, text) => {
-                  await api(
-                    `/api/reviews/${reviewId}/reply`,
-                    {
-                      method: "POST",
-                      body: { text },
-                    }
-                  );
-                  fetchReviews(query).catch(() => {});
-                }}
-                onVendorDeleteReply={async (reviewId) => {
-                  await api(
-                    `/api/reviews/${reviewId}/reply`,
-                    {
-                      method: "DELETE",
-                    }
-                  );
-                  fetchReviews(query).catch(() => {});
-                }}
-              />
+              <Suspense fallback={<div>Se încarcă recenziile…</div>}>
+                <ReviewsSection
+                  rating={revState.stats?.avg ?? rating}
+                  reviews={revState.items}
+                  totalCount={revState.total}
+                  stats={revState.stats}
+                  canWrite={viewMode !== "vendor" && !!me}
+                  isVendorView={viewMode === "vendor"}
+                  me={me}
+                  onSubmit={onSubmitUserReview}
+                  // ⛔ fără optimistic add pentru recenziile de magazin
+                  onHelpful={onHelpful}
+                  onReport={onReport}
+                  onChangeQuery={changeQueryFromUI}
+                  onVendorReply={async (reviewId, text) => {
+                    await api(
+                      `/api/vendor/store-reviews/${reviewId}/reply`,
+                      {
+                        method: "POST",
+                        body: { text },
+                      }
+                    );
+                    fetchReviews(query).catch(() => {});
+                  }}
+                  onUserDeleteReview={onDeleteUserReview}
+                  onVendorDeleteReply={async (reviewId) => {
+                    await api(
+                      `/api/vendor/store-reviews/${reviewId}/reply`,
+                      {
+                        method: "DELETE",
+                      }
+                    );
+                    fetchReviews(query).catch(() => {});
+                  }}
+                />
+              </Suspense>
             </section>
           </div>
         </div>
       )}
 
-      {/* Gate & Modal produs — rămân neschimbate */}
-      <VendorGateModal
-        open={gateOpen}
-        onClose={() => setGateOpen(false)}
-        gateLoading={gateLoading}
-        gateErr={gateErr}
-        gateDocs={gateDocs}
-        gateChecks={setGateChecks}
-        setGateChecks={setGateChecks}
-        onAccept={acceptVendorDocs}
-      />
+      <Suspense fallback={null}>
+        <VendorGateModal
+          open={gateState.open}
+          onClose={() =>
+            setGateState((s) => ({
+              ...s,
+              open: false,
+            }))
+          }
+          gateLoading={gateState.loading}
+          gateErr={gateState.error}
+          gateDocs={gateState.docs}
+          gateChecks={gateState.checks}
+          setGateChecks={(updater) =>
+            setGateState((s) => ({
+              ...s,
+              checks:
+                typeof updater === "function"
+                  ? updater(s.checks)
+                  : updater,
+            }))
+          }
+          onAccept={handleAcceptGate}
+        />
 
-      <ProductModal
-        open={prodModalOpen}
-        onClose={closeProductModal}
-        saving={savingProd}
-        editingProduct={editingOverride || editingProduct}
-        form={prodForm}
-        setForm={setProdForm}
-        categories={categories}
-        onSave={handleSaveProduct}
-        uploadFile={async (f) => {
-          const fd = new FormData();
-          fd.append("file", f);
-          const res = await fetch("/api/upload", {
-            method: "POST",
-            body: fd,
-          });
-          const { url } = await res.json();
-          return url;
-        }}
-      />
+        <ProductModal
+          open={prodModalOpen}
+          onClose={closeProductModal}
+          saving={savingProd}
+          editingProduct={editingOverride || editingProduct}
+          form={prodForm}
+          setForm={setProdForm}
+          categories={categories}
+          onSave={handleSaveProduct}
+          uploadFile={async (f) => {
+            const fd = new FormData();
+            fd.append("file", f);
+            const res = await fetch("/api/upload", {
+              method: "POST",
+              body: fd,
+            });
+            const { url } = await res.json();
+            return url;
+          }}
+        />
+      </Suspense>
     </>
   );
 }

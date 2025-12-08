@@ -1,0 +1,331 @@
+@import "../../../styles/variables.css";
+/* ===============================
+   LAYOUT GENERAL
+=================================*/
+
+.wrap {
+  display: flex;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  gap: 32px;
+  padding: 32px 24px;
+}
+
+@media (max-width: 900px) {
+  .wrap {
+    flex-direction: column;
+    gap: 20px;
+  }
+}
+
+/* ===============================
+   SIDEBAR
+=================================*/
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: 100%;
+  }
+}
+
+.sideHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.sideTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* TAB BUTTON */
+.tab {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid transparent;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  background: var(--surface);
+  border-color: var(--color-border);
+}
+
+.active {
+  background: var(--surface);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ICON BUTTON */
+.iconBtn {
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.iconBtn:hover {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+/* ===============================
+   MAIN CONTENT
+=================================*/
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* LOADING */
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-muted);
+  padding: 24px;
+}
+
+/* ===============================
+   CARD SECTION
+=================================*/
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 0;
+  overflow: hidden;
+}
+
+.cardHead {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cardTitle {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.title {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+.cardBody {
+  padding: 22px;
+}
+
+/* ===============================
+   FIELDS
+=================================*/
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field span {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.input {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: var(--surface);
+  color: var(--color-text);
+  transition: border 0.15s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* =============== GRID LAYOUTS =============== */
+
+.grid1 {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 700px) {
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===============================
+   CHECKBOX
+=================================*/
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+/* ===============================
+   BUTTONS
+=================================*/
+
+.primary {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.primary:hover {
+  background: var(--color-hover);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* DANGER button */
+.dangerBtn {
+  background: var(--color-danger);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.dangerBtn:hover {
+  background: #b91c1c;
+}
+
+/* ===============================
+   DANGER ZONE
+=================================*/
+
+.danger {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ===============================
+   AVATAR
+=================================*/
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+}
+
+/* ===============================
+   STATUS MESSAGES
+=================================*/
+
+.success {
+  background: rgba(22, 163, 74, 0.15);
+  color: var(--color-success);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+
+.error {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--color-danger);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+
+.warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--color-warning);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+
+/* ===============================
+   LINKS
+=================================*/
+
+.link {
+  color: var(--color-primary);
+  font-size: 0.9rem;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

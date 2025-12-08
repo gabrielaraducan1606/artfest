@@ -1,5 +1,5 @@
 /* src/pages/Desktop/Desktop.module.css */
-
+@import '../../../styles/variables.css';
 /* ============ Layout de bază ============ */
 
 .page {
@@ -492,5 +492,101 @@
   .actionsRow {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+/* ============ Bannere de atenționare (critical / warning) ============ */
+
+/* Banner foarte important – ex: entitate juridică */
+.cardCritical {
+  border-color: color-mix(in oklab, var(--color-danger) 75%, #ffffff 25%);
+  background:
+    radial-gradient(circle at 0 0, rgba(220, 38, 38, 0.12), transparent 55%),
+    radial-gradient(circle at 100% 0, rgba(220, 38, 38, 0.08), transparent 50%),
+    #fff5f5;
+  box-shadow: 0 14px 30px rgba(220, 38, 38, 0.18);
+  position: relative;
+  overflow: hidden;
+}
+
+/* mică bandă roșie sus ca accent */
+.cardCritical::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border-top: 3px solid var(--color-danger);
+  pointer-events: none;
+}
+
+/* titlul bannerului critical + icon */
+.cardCritical .cardHead h3 {
+  color: var(--color-danger);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardCritical .cardHead h3::before {
+  content: "⚠";
+  font-size: 16px;
+}
+
+/* text extra din banner */
+.cardCritical .subtle {
+  color: #7f1d1d;
+}
+
+/* buton din banner critical mai „apăsat” */
+.cardCritical .btnPrimary {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.cardCritical .btnPrimary:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-danger) 88%, #ffffff 12%);
+}
+
+/* Banner de warning – ex: abonament lipsă */
+.cardWarning {
+  border-color: color-mix(in oklab, var(--color-warning) 75%, #ffffff 25%);
+  background:
+    radial-gradient(circle at 0 0, rgba(245, 158, 11, 0.12), transparent 55%),
+    radial-gradient(circle at 100% 0, rgba(245, 158, 11, 0.08), transparent 50%),
+    #fffaf0;
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.22);
+  position: relative;
+  overflow: hidden;
+}
+
+.cardWarning::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border-top: 3px solid var(--color-warning);
+  pointer-events: none;
+}
+
+.cardWarning .cardHead h3 {
+  color: var(--color-warning);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardWarning .cardHead h3::before {
+  content: "ℹ";
+  font-size: 16px;
+}
+
+.cardWarning .subtle {
+  color: #92400e;
+}
+
+/* pe mobile, bannerele au un pic mai mult spațiu */
+@media (max-width: 700px) {
+  .cardCritical,
+  .cardWarning {
+    padding: 14px 12px 14px;
   }
 }

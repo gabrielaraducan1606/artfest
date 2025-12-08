@@ -2,14 +2,17 @@
 import jwt from "jsonwebtoken";
 import { prisma } from "../db.js";
 
-/** Setări de bază */
+/** Setări de bază pentru JWT & numele cookie-ului */
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const TOKEN_COOKIE = "token";
 
-/** Semnează un JWT cu exp 7 zile */
+/**
+ * Semnează un JWT cu exp 7 zile.
+ * payload tipic: { sub: userId, role: "USER"|"ADMIN"|"VENDOR", tv: tokenVersion }
+ */
 export function signToken(payload) {
   if (!JWT_SECRET) {
-    // Fail fast dacă lipsește în prod
+    // Fail fast în producție dacă lipsește secretul
     if (process.env.NODE_ENV === "production") {
       throw new Error("JWT_SECRET is not set");
     }
@@ -17,7 +20,11 @@ export function signToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
 
-/** Extrage token din cookie sau Authorization: Bearer */
+/**
+ * Extrage token-ul din request:
+ * - cookie: token
+ * - sau header: Authorization: Bearer <token>
+ */
 function getTokenFromReq(req) {
   const fromCookie = req.cookies?.[TOKEN_COOKIE];
   const fromHeader = req.headers.authorization?.startsWith("Bearer ")
@@ -26,16 +33,22 @@ function getTokenFromReq(req) {
   return fromCookie || fromHeader || null;
 }
 
-/** Middleware: necesită autentificare (401 dacă lipsește/invalid) */
+/**
+ * Middleware: necesită autentificare (401 dacă lipsește/invalid).
+ * - Verifică JWT-ul.
+ * - Setează req.user cu payload-ul din token.
+ */
 export function authRequired(req, res, next) {
   try {
     const token = getTokenFromReq(req);
     if (!token) return res.status(401).json({ error: "unauthenticated" });
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    if (!decoded?.sub) return res.status(401).json({ error: "unauthenticated" });
+    if (!decoded?.sub) {
+      return res.status(401).json({ error: "unauthenticated" });
+    }
 
-    // { sub, role, tv?, iat, exp }
+    // decoded conține { sub, role, tv?, iat, exp }
     req.user = decoded;
     next();
   } catch (e) {
@@ -44,7 +57,11 @@ export function authRequired(req, res, next) {
   }
 }
 
-/** Middleware: opțional — setează req.user dacă există token, altfel trece mai departe */
+/**
+ * Middleware: autentificare opțională.
+ * - Dacă token-ul este valid -> setează req.user.
+ * - Dacă lipsește / este invalid -> NU blochează request-ul.
+ */
 export function optionalAuth(req, _res, next) {
   try {
     const token = getTokenFromReq(req);
@@ -52,13 +69,16 @@ export function optionalAuth(req, _res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
     if (decoded?.sub) req.user = decoded;
   } catch (e) {
-    // nu blocăm request-ul dacă tokenul e invalid; doar nu setăm req.user
+    // token invalid: îl ignorăm, dar nu blocăm request-ul
     console.warn("optionalAuth token ignored:", e?.message || e);
   }
   next();
 }
 
-/** Middleware: roluri necesare (403 dacă rolul nu e în listă) */
+/**
+ * Middleware factory: verifică dacă user-ul are unul dintre rolurile cerute.
+ * Usage: router.get(..., authRequired, requireRole("ADMIN", "VENDOR"), handler)
+ */
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: "unauthenticated" });
@@ -69,18 +89,29 @@ export function requireRole(...roles) {
   };
 }
 
-/** Middleware: (nou) verifică tokenVersion din JWT vs DB, dacă tv e prezent */
+/**
+ * Middleware: verifică tokenVersion din JWT vs DB (dacă tv e prezent în token).
+ *
+ * - Dacă tokenul NU are tv => îl acceptăm (compatibilitate cu token-uri vechi).
+ * - Dacă ARE tv:
+ *    - citim user.tokenVersion din DB
+ *    - dacă diferă de req.user.tv => token invalid (ex: user a schimbat parola,
+ *      s-a dat "logout from all devices" etc.)
+ */
 export async function enforceTokenVersion(req, res, next) {
   try {
     const hasTv = typeof req?.user?.tv !== "undefined";
-    if (!hasTv) return next(); // compat: tokenuri vechi fără tv => le acceptăm
+    if (!hasTv) return next(); // compat: tokenuri vechi fără tv
+
     const u = await prisma.user.findUnique({
       where: { id: req.user.sub },
       select: { tokenVersion: true },
     });
+
     if (!u || u.tokenVersion !== req.user.tv) {
       return res.status(401).json({ error: "invalid_token" });
     }
+
     return next();
   } catch (e) {
     console.error("enforceTokenVersion error:", e?.message || e);

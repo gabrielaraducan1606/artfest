@@ -1,4 +1,5 @@
 @import '../../styles/variables.css';
+
 /* ================== Page shell ================== */
 .container {
   max-width: 1100px;
@@ -14,6 +15,98 @@
   margin: 8px 0 20px;
 }
 
+@media (max-width: 768px) {
+  .container {
+    margin: 24px auto;
+    padding: 0 12px;
+  }
+
+  .pageTitle {
+    font-size: 22px;
+    margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    margin: 20px auto;
+    padding: 0 10px;
+  }
+
+  .pageTitle {
+    font-size: 20px;
+  }
+}
+
+/* ================== Steps (progress indicator) ================== */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface) 96%, var(--color-border));
+  color: var(--color-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  font: inherit;
+}
+
+.step span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.stepActive {
+  border-color: color-mix(in oklab, var(--color-primary) 60%, var(--color-border));
+  background: color-mix(in oklab, var(--color-primary) 14%, var(--surface));
+  color: var(--color-primary);
+}
+
+.stepActive span {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.step:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-primary) 50%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .steps {
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .step {
+    padding: 5px 8px;
+  }
+
+  .step span {
+    width: 18px;
+    height: 18px;
+    font-size: 10px;
+  }
+}
+
 /* ================== Alerts & empties ================== */
 .alert {
   background: color-mix(in oklab, var(--color-danger) 12%, var(--surface));
@@ -23,6 +116,7 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   margin-bottom: 16px;
+  font-size: 14px;
 }
 
 .empty {
@@ -31,6 +125,7 @@
   padding: 20px;
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
+  font-size: 14px;
 }
 
 .linkPrimary {
@@ -139,9 +234,9 @@
     gap: 8px;
   }
   .itemMedia { grid-area: img; }
-  .itemTitle { grid-area: title; }
-  .itemQty { grid-area: qty; }
-  .itemPrice { grid-area: price; }
+  .itemTitle { grid-area: title; font-size: 14px; }
+  .itemQty { grid-area: qty; font-size: 13px; }
+  .itemPrice { grid-area: price; font-size: 14px; }
 }
 
 /* ================== Dividers & rows ================== */
@@ -159,11 +254,23 @@
   justify-content: space-between;
   gap: 12px;
   padding: 6px 0;
+  font-size: 14px;
 }
 
 .totalRow {
   font-size: 18px;
   font-weight: 700;
+}
+
+@media (max-width: 480px) {
+  .summaryRow,
+  .totalRow {
+    font-size: 13px;
+  }
+
+  .totalRow {
+    font-size: 16px;
+  }
 }
 
 /* ================== Form ================== */
@@ -199,8 +306,12 @@
   padding: 10px 12px;
   outline: none;
   box-shadow: var(--shadow-sm) inset;
-  transition: border-color .15s ease, box-shadow .15s ease;
+  transition:
+    border-color .15s ease,
+    box-shadow .15s ease,
+    background .15s ease;
   font: inherit;
+  width: 100%;
 }
 
 .field input:focus,
@@ -217,9 +328,124 @@
   grid-column: 1 / -1;
 }
 
+/* ====== Tip client PF / PJ ====== */
+.customerTypeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.customerTypeLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+.customerTypeOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.sectionLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 @media (max-width: 680px) {
   .formGrid {
     grid-template-columns: 1fr;
+  }
+
+  .customerTypeRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ====== Field error state (cu aria-invalid) ====== */
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"],
+.field textarea[aria-invalid="true"],
+.fieldFull input[aria-invalid="true"],
+.fieldFull select[aria-invalid="true"],
+.fieldFull textarea[aria-invalid="true"] {
+  border-color: color-mix(in oklab, var(--color-danger) 60%, var(--color-border));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-danger) 15%, transparent);
+}
+
+.fieldError {
+  font-size: 11px;
+  color: var(--color-danger);
+}
+
+/* Placeholder pentru select / loading */
+.selectPlaceholder {
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 4px);
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--color-muted);
+  background: color-mix(in oklab, var(--surface) 96%, var(--color-border));
+}
+
+/* ================== Autocomplete Județ ================== */
+.autocomplete {
+  position: relative;
+}
+
+.autocomplete input {
+  width: 100%;
+}
+
+.autocompleteList {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 4px);
+  box-shadow: var(--shadow-md);
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  z-index: 20;
+}
+
+.autocompleteItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background .12s ease;
+}
+
+.autocompleteItem:hover {
+  background: color-mix(in oklab, var(--surface) 90%, var(--color-border));
+}
+
+.autocompleteCode {
+  opacity: 0.7;
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+@media (max-width: 480px) {
+  .autocompleteItem {
+    font-size: 13px;
+    padding: 6px 8px;
+  }
+
+  .autocompleteCode {
+    font-size: 11px;
   }
 }
 
@@ -245,6 +471,7 @@
   font-size: 13px;
 }
 
+/* ================== Payment / radio ================== */
 .radioRow {
   display: flex;
   flex-wrap: wrap;
@@ -258,6 +485,7 @@
   gap: 8px;
   cursor: pointer;
   user-select: none;
+  font-size: 14px;
 }
 
 .radio input {
@@ -279,6 +507,13 @@
   color: var(--color-muted);
 }
 
+/* ================== Payment methods ================== */
+.paymentMethods {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* ================== Buttons ================== */
 .primaryBtn,
 .secondaryBtn {
@@ -291,8 +526,13 @@
   border: 1px solid transparent;
   font-weight: 600;
   cursor: pointer;
-  transition: transform .04s ease, filter .15s ease, background .15s ease, border-color .15s ease;
+  transition:
+    transform .04s ease,
+    filter .15s ease,
+    background .15s ease,
+    border-color .15s ease;
   user-select: none;
+  font-size: 14px;
 }
 
 .primaryBtn {
@@ -378,6 +618,7 @@
   margin: 0;
   padding-left: 18px;
   color: var(--color-muted);
+  font-size: 13px;
 }
 .bullets li { margin: 6px 0; }
 
@@ -386,9 +627,23 @@
   color: inherit;
   text-decoration: none;
 }
+
 .visuallyHidden {
   position: absolute !important;
   height: 1px; width: 1px;
   overflow: hidden; clip: rect(1px,1px,1px,1px);
   white-space: nowrap; border: 0; padding: 0; margin: -1px;
+}
+
+/* Text muted reuse */
+.muted {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+/* Helper text sub buton */
+.helperText {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-muted);
 }

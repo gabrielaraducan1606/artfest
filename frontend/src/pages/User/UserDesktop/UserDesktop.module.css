@@ -1,62 +1,784 @@
 @import "../../../styles/variables.css";
 
-.page { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; }
+/* Fallback variabile (dacă nu există în variables.css) */
+:root {
+  --color-bg: #0b0b0c;
+  --surface: #0f1012;
+  --color-text: #eaeaf0;
+  --color-text-muted: #a6a8b3;
+  --color-border: #23242a;
+  --color-primary: #7c3aed;
+  --color-hover: #6d28d9;
+  --color-warning: #f59e0b;
 
-.topbar { display: flex; align-items: center; justify-content: space-between; }
-.h1 { font-family: var(--font-title); font-weight: 800; margin: 0; }
-.subtle { color: #6b7280; }
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
 
-.actions { display: inline-flex; align-items: center; gap: 8px; }
+/* ===== Pagina: mobile first ===== */
+.page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 12px calc(16px + env(safe-area-inset-bottom));
+}
+
+/* ===== Topbar vechi (desktop) – dacă îl mai folosești undeva ===== */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.h1 {
+  font-family: var(--font-title, system-ui);
+  font-weight: 800;
+  margin: 0;
+}
+
+.subtle {
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .btn {
-  border: 1px solid var(--color-border); background: transparent; color: var(--color-text);
-  border-radius: 10px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  border-radius: 10px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  cursor: pointer;
 }
-.iconBtn { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--color-border); border-radius: 10px; background: transparent; }
-.iconBtn:hover { background: rgba(0,0,0,.04); }
 
-.error { color: #b91c1c; border: 1px solid #fecaca; background: #fef2f2; padding: 8px 10px; border-radius: 10px; }
-.loading { color: #6b7280; }
-
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
-.card { background: var(--surface); border: 1px solid var(--color-border); border-radius: 16px; padding: 12px; display: grid; gap: 8px; }
-.cardHead { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 8px; }
-.titleWrap { font-weight: 800; display: inline-flex; align-items: center; gap: 6px; }
-.title { font-weight: 800; }
-.link { color: var(--color-primary); font-weight: 700; }
-.cardBody { display: grid; gap: 8px; }
-
-.list { display: grid; gap: 6px; }
-.row, .rowLink {
-  display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center;
-  border: 1px solid var(--color-border); border-radius: 10px; padding: 8px;
+.btnGhost:hover {
+  background: color-mix(in oklab, #ffffff 3%, transparent);
 }
-.rowLink { cursor: pointer; }
-.rowTitle { font-weight: 700; }
-.rowSub { color: #6b7280; font-size: 12px; }
-.sum { font-weight: 800; }
-.grow { flex: 1; }
 
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  background: var(--surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: color-mix(in oklab, var(--color-primary) 8%, transparent);
+}
+
+/* Sticky top bar (ca AccountPage) */
+.stickyTop {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in oklab, var(--color-bg) 88%, transparent);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--color-border) 80%, transparent);
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  height: 52px;
+  padding: 0 4px;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 1rem;
+  text-align: center;
+  font-weight: 800;
+}
+
+/* ===== Mesaje eroare / loading ===== */
+.error {
+  color: #fecaca;
+  border: 1px solid #fecaca33;
+  background: #7f1d1d;
+  padding: 8px 10px;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+.loading {
+  color: var(--color-text-muted);
+  margin-top: 8px;
+}
+
+/* ===== Identitate (avatar + nume) ===== */
+.identity {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 2px 6px;
+}
+
+.avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+}
+
+.idText {
+  min-width: 0;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.name {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--color-primary);
+  border: 1px solid
+    color-mix(in oklab, var(--color-primary) 55%, transparent);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  border-radius: 9999px;
+  padding: 2px 6px;
+}
+
+.rolePill {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+
+/* ===== Card generic (cardBody / cardHead compatibile) ===== */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 10px;
+  margin: 8px 0;
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 8px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.titleWrap {
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title {
+  font-weight: 800;
+}
+
+.link {
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.cardBody {
+  display: grid;
+  gap: 8px;
+}
+
+/* ===== Progres profil + quick ===== */
+.progressWrap {
+  position: relative;
+  height: 8px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--color-border) 40%, transparent);
+}
+
+.progressBar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-primary) 85%, #fff),
+    var(--color-primary)
+  );
+  transition: width 0.35s ease;
+}
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0 8px;
+}
+
+.progressText {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.smallBtn {
+  font-weight: 800;
+  font-size: 0.9rem;
+  padding: 0.38rem 0.7rem;
+  border-radius: 9999px;
+  color: #fff;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  text-decoration: none;
+}
+
+.smallBtn:hover {
+  background: var(--color-hover);
+}
+
+/* ===== Quick grid ===== */
+.quickGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quickItem {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  text-decoration: none;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface) 94%, transparent);
+  border-radius: 12px;
+}
+
+.quickIcon {
+  position: relative;
+  height: 36px;
+  width: 36px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  border: 1px solid
+    color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
+}
+
+.quickBadge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+}
+
+.quickLabel {
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* ===== Banner onboarding ===== */
+.banner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid
+    color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
+}
+
+.bannerSub {
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+.bannerBtn {
+  text-decoration: none;
+  font-weight: 800;
+  border-radius: 9999px;
+  padding: 0.5rem 0.8rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+}
+
+.bannerBtn:hover {
+  background: var(--color-hover);
+}
+
+/* ===== Secțiuni ===== */
+.section {
+  margin-top: 10px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 4px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ===== Segmented control ===== */
+.segment {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: 9999px;
+  padding: 2px;
+}
+
+.segBtn {
+  min-width: 88px;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  border-radius: 9999px;
+}
+
+.segActive {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.segBtn:disabled {
+  opacity: 0.5;
+}
+
+/* ===== Liste mobile (recenzii / comentarii) ===== */
+.list {
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.itemCard {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.itemThumb {
+  display: block;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.itemThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.itemBody {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.itemTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.itemTitle {
+  font-weight: 700;
+  font-size: 0.98rem;
+  color: var(--color-text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemTime {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.starFull {
+  color: var(--color-warning);
+}
+
+.starEmpty {
+  color: var(--color-border);
+}
+
+.itemText {
+  margin: 0;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.itemActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.linkBtn,
+.linkBtnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-decoration: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.linkBtnDanger {
+  color: #dc2626;
+}
+
+/* ===== Row link generic + rânduri din dashboard ===== */
+.row,
+.rowLink {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  text-decoration: none;
+  color: var(--color-text);
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+}
+
+.row {
+  justify-content: space-between;
+}
+
+.rowLink {
+  cursor: pointer;
+}
+
+.rowLink:hover,
+.row:hover {
+  background: color-mix(in oklab, var(--color-primary) 8%, transparent);
+}
+
+.left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rowIcon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+}
+
+.rowLabel {
+  font-weight: 600;
+}
+
+.right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rowTitle {
+  font-weight: 700;
+}
+
+.rowSub {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.grow {
+  flex: 1;
+}
+
+.sum {
+  font-weight: 800;
+}
+
+/* 🔖 Badge pentru număr / status – folosit și la quick, și la comenzi */
 .badge {
-  border: 1px solid var(--color-border); border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 800;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  padding: 0 6px;
+  border: 1px solid var(--color-primary);
 }
-.st_paid { color: #065f46; background: #ecfdf5; border-color: #a7f3d0; }
-.st_shipped { color: #1e40af; background: #eff6ff; border-color: #bfdbfe; }
-.st_new { color: #92400e; background: #fffbeb; border-color: #fde68a; }
 
-.gridCards { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
-.tile { border: 1px solid var(--color-border); border-radius: 12px; padding: 8px; text-decoration: none; color: inherit; display: grid; gap: 6px; }
-.thumb { width: 100%; height: 90px; background: #f3f4f6; border-radius: 8px; }
-.tileTitle { font-weight: 700; }
-.price { color: var(--color-primary); font-weight: 800; }
+/* Statusuri comenzi – suprascriu culorile badge-ului */
+.st_default {
+  color: #e5e7eb;
+  background: #111827;
+  border-color: #374151;
+}
 
-.tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag { border: 1px solid var(--color-border); padding: 6px 10px; border-radius: 999px; text-decoration: none; color: inherit; }
-.tag:hover { background: rgba(0,0,0,.03); }
+.st_pending {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
 
-.empty { color: #6b7280; text-align: center; padding: 10px; border: 1px dashed var(--color-border); border-radius: 10px; }
+.st_processing {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
 
+.st_shipped {
+  color: #3730a3;
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.st_delivered {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.st_returned {
+  color: #9f1239;
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+.st_canceled {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+/* ===== Grid pentru cardurile de wishlist ===== */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Folosit pentru wishlist în dashboard */
+.gridCards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 8px;
+  text-decoration: none;
+  color: inherit;
+  display: grid;
+  gap: 6px;
+  background: var(--surface);
+}
+
+.tile:hover {
+  background: color-mix(in oklab, var(--color-primary) 8%, transparent);
+}
+
+.thumb {
+  width: 100%;
+  height: 90px;
+  background: #111827;
+  border-radius: 8px;
+}
+
+.tileTitle {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.price {
+  color: var(--color-primary);
+  font-weight: 800;
+}
+
+/* Tag-uri pentru recomandări */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  border-radius: 999px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 13px;
+}
+
+.tag:hover {
+  background: color-mix(in oklab, var(--color-primary) 8%, transparent);
+}
+
+/* Empty & load more */
+.empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 10px 6px;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+}
+
+.moreWrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.moreBtn {
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+  padding: 0.6rem 1rem;
+  border-radius: 9999px;
+  font-weight: 800;
+}
+
+.moreBtn:hover {
+  background: var(--color-hover);
+}
+
+/* Logout */
+.logoutBtn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+  border-radius: 9999px;
+  padding: 0.6rem 0.9rem;
+  font-weight: 800;
+}
+
+.logoutBtn:hover {
+  background: var(--color-hover);
+}
+
+/* Spațiu pentru bottom bar mobil */
+.bottomSpace {
+  height: calc(56px + env(safe-area-inset-bottom));
+}
+
+/* Responsivitate pentru grid-uri mai late (wishlist) */
 @media (max-width: 980px) {
-  .grid { grid-template-columns: 1fr; }
-  .gridCards { grid-template-columns: 1fr 1fr; }
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gridCards {
+    grid-template-columns: 1fr 1fr;
+  }
 }

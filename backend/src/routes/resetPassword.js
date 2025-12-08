@@ -11,9 +11,13 @@ export default async function resetPassword(req, res) {
   }
 
   try {
-    const { token, newPassword } = (req.body || {});
-    if (!token || !newPassword) return res.status(400).json({ message: "Date lipsă" });
-    if (newPassword.length < 6) return res.status(400).json({ message: "Parola prea scurtă" });
+    const { token, newPassword } = req.body || {};
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: "Date lipsă" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Parola prea scurtă" });
+    }
 
     const tokenHash = hashToken(token);
     const prt = await prisma.passwordResetToken.findUnique({
@@ -25,7 +29,9 @@ export default async function resetPassword(req, res) {
     }
 
     const user = prt.user;
-    if (!user) return res.status(400).json({ message: "Utilizator inexistent" });
+    if (!user) {
+      return res.status(400).json({ message: "Utilizator inexistent" });
+    }
 
     // 1) nu acceptăm parola identică
     const sameAsCurrent = await bcrypt.compare(newPassword, user.passwordHash);
@@ -62,10 +68,14 @@ export default async function resetPassword(req, res) {
         data: { userId: user.id, passwordHash: user.passwordHash },
       });
 
-      // setează parola nouă + revocă toate sesiunile (tokenVersion++)
+      // setează parola nouă + revocă toate sesiunile (tokenVersion++) + update lastPasswordChangeAt
       await tx.user.update({
         where: { id: user.id },
-        data: { passwordHash: newHash, tokenVersion: { increment: 1 } },
+        data: {
+          passwordHash: newHash,
+          tokenVersion: { increment: 1 },
+          lastPasswordChangeAt: new Date(), // 👈 important pt tabul de securitate
+        },
       });
 
       // marchează tokenul ca folosit
@@ -88,7 +98,9 @@ export default async function resetPassword(req, res) {
           select: { id: true },
         });
         if (extra.length) {
-          await tx.passwordHistory.deleteMany({ where: { id: { in: extra.map(x => x.id) } } });
+          await tx.passwordHistory.deleteMany({
+            where: { id: { in: extra.map((x) => x.id) } },
+          });
         }
       }
     });

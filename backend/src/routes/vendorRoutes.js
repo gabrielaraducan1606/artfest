@@ -1,6 +1,8 @@
+// server/routes/vendors.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired /*, requireRole*/ } from "../api/auth.js";
+import { normalizeCityName } from "../utils/cityUtils.js";
 
 const router = Router();
 
@@ -25,20 +27,31 @@ const cleanOrNull = (v) => {
 /* ===================== Inline middleware ===================== */
 /**
  * Permite accesul dacă:
- * - tokenul are role VENDOR/ADMIN, sau
+ * - tokenul are rol VENDOR/ADMIN, sau
  * - userul are deja un Vendor în DB (chiar dacă role-ul din JWT e încă USER).
  * Pune vendorul în req.meVendor pentru a evita query-uri duplicate.
  */
 async function vendorAccessRequired(req, res, next) {
   try {
-    if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") return next();
+    console.log("=== vendorAccessRequired ===");
+    console.log("req.user =", req.user);
+
+    if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") {
+      console.log("Role ok:", req.user.role, "-> next()");
+      return next();
+    }
+
     const v = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
     if (v) {
       req.meVendor = v;
+      console.log("Vendor found by userId -> next()");
       return next();
     }
+
+    console.log("No vendor + role not VENDOR/ADMIN -> 403");
     return res.status(403).json({ error: "forbidden" });
   } catch (e) {
+    console.error("vendorAccessRequired error:", e);
     return res.status(500).json({ error: "server_error" });
   }
 }
@@ -51,14 +64,20 @@ async function ensureVendorAndRole(userId) {
       const v = await tx.vendor.create({
         data: { userId, isActive: false, displayName: "" },
       });
-      const u = await tx.user.findUnique({ where: { id: userId }, select: { role: true } });
+      const u = await tx.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
       if (u && u.role !== "VENDOR") {
         await tx.user.update({ where: { id: userId }, data: { role: "VENDOR" } });
       }
       return v;
     });
   } else {
-    const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
     if (u && u.role !== "VENDOR") {
       await prisma.user.update({ where: { id: userId }, data: { role: "VENDOR" } });
     }
@@ -172,7 +191,7 @@ router.get("/me/onboarding-status", authRequired, async (req, res) => {
   res.json(onboarding);
 });
 
-// Abonamentul curent al vendorului logat
+// Abonamentul curent al vendorului logat (pentru sidebar etc.)
 router.get(
   "/me/subscription",
   authRequired,
@@ -180,15 +199,12 @@ router.get(
   async (req, res) => {
     try {
       const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
 
       if (!meVendor) {
-        // nu există vendor => nu avem abonament
         return res.json({ subscription: null });
       }
 
-      // luăm cel mai recent abonament (poate fi active, canceled etc.)
       const sub = await prisma.vendorSubscription.findFirst({
         where: { vendorId: meVendor.id },
         orderBy: { createdAt: "desc" },
@@ -206,14 +222,67 @@ router.get(
   }
 );
 
+// Status simplificat pentru Desktop (ok / nu ok)
+router.get(
+  "/me/subscription/status",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const meVendor =
+        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
+      if (!meVendor) {
+        return res.json({
+          ok: false,
+          code: "vendor_missing",
+          upgradeUrl: "/abonament",
+        });
+      }
+
+      const sub = await prisma.vendorSubscription.findFirst({
+        where: {
+          vendorId: meVendor.id,
+          status: "active", // SubscriptionStatus.active
+        },
+        orderBy: { createdAt: "desc" },
+        include: { plan: true },
+      });
+
+      if (!sub) {
+        return res.json({
+          ok: false,
+          code: "subscription_required",
+          upgradeUrl: "/abonament",
+        });
+      }
+
+      return res.json({
+        ok: true,
+        plan: {
+          code: sub.plan?.code || sub.planId || "custom",
+          name: sub.plan?.name || sub.plan?.code || "Plan activ",
+        },
+        endAt: sub.endAt ? sub.endAt.toISOString() : null,
+      });
+    } catch (e) {
+      console.error("GET /api/vendors/me/subscription/status error:", e);
+      return res.status(500).json({
+        ok: false,
+        code: "subscription_status_failed",
+        message: "Nu am putut verifica abonamentul.",
+      });
+    }
+  }
+);
+
 router.post(
   "/me/onboarding/reset",
   authRequired,
   vendorAccessRequired,
   async (req, res) => {
     const vendor =
-      req.meVendor ??
-      (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
     if (!vendor) return error(res, "vendor_profile_missing", 404);
     await prisma.vendorService.deleteMany({
       where: { vendorId: vendor.id, status: "DRAFT" },
@@ -234,6 +303,13 @@ router.get("/me/stats", authRequired, vendorAccessRequired, async (req, res) => 
     reviews: 0,
     window,
   });
+});
+
+/* ====== Activity feed pentru Desktop (placeholder) ====== */
+router.get("/me/activity", authRequired, vendorAccessRequired, async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 10, 50);
+  // Momentan nu avem un model de activity; întoarcem listă goală ca să nu dea 404.
+  res.json({ items: [] });
 });
 
 /* ===================== Service core ===================== */
@@ -367,15 +443,13 @@ router.delete(
     try {
       const { id } = req.params;
       const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
       const svc = await prisma.vendorService.findUnique({ where: { id } });
       if (!svc || svc.vendorId !== meVendor.id)
         return error(res, "service_not_found", 404);
 
-      // opțional: blocăm ștergerea dacă e activ
       if (svc.isActive && svc.status === "ACTIVE") {
         return error(
           res,
@@ -403,8 +477,7 @@ router.put(
     try {
       const { id } = req.params;
       const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
       const svc = await prisma.vendorService.findUnique({
@@ -447,6 +520,14 @@ router.put(
       if (typeof displayName === "string" && displayName.trim())
         payload.displayName = displayName.trim();
 
+      // setăm și citySlug pe profil, dacă avem city
+      if (payload.city) {
+        const citySlug = normalizeCityName(payload.city);
+        if (citySlug) {
+          payload.citySlug = citySlug;
+        }
+      }
+
       let nextSlug = null;
       if (typeof slug === "string" && slug.trim()) nextSlug = slugify(slug);
       else if (typeof payload.displayName === "string" && payload.displayName.trim())
@@ -467,10 +548,9 @@ router.put(
         update: { ...payload },
       });
 
-      // opțional: sincronizează câteva câmpuri pe Vendor
+      // sincronizăm câteva câmpuri pe Vendor (inclusiv city)
       if (mirrorVendor) {
         const vendorPatch = {
-          ...(payload.city !== undefined ? { city: payload.city ?? "" } : {}),
           ...(payload.phone !== undefined ? { phone: payload.phone ?? "" } : {}),
           ...(payload.email !== undefined ? { email: payload.email ?? "" } : {}),
           ...(payload.address !== undefined ? { address: payload.address ?? "" } : {}),
@@ -481,23 +561,30 @@ router.put(
             ? { displayName: payload.displayName ?? "" }
             : {}),
           ...(payload.website !== undefined ? { website: payload.website ?? "" } : {}),
-          // shortDescription NU o punem pe Vendor (e specifică serviciului/magazinului)
+          ...(payload.city !== undefined ? { city: payload.city ?? "" } : {}),
         };
+
+        // dacă avem city în payload, derivăm și citySlug pe Vendor
+        if (payload.city !== undefined) {
+          const vendorCitySlug = normalizeCityName(payload.city || "");
+          vendorPatch.citySlug = vendorCitySlug || null;
+        }
+
         if (Object.keys(vendorPatch).length) {
           await prisma.vendor
             .update({ where: { id: meVendor.id }, data: vendorPatch })
-            .catch(() => null);
+            .catch((e) => console.error("mirror vendor error", e));
         }
       }
 
-      // opțional: aliniază titlul/orașul pe VendorService dacă lipsesc
+      // opțional: aliniază titlul/orașul pe VendorService
       const svcPatch = {};
       if (payload.displayName) svcPatch.title = payload.displayName;
       if (payload.city) svcPatch.city = payload.city;
       if (Object.keys(svcPatch).length) {
         await prisma.vendorService
           .update({ where: { id }, data: svcPatch })
-          .catch(() => null);
+          .catch((e) => console.error("patch service from profile error", e));
       }
 
       res.json({ ok: true, profile: saved });
@@ -512,6 +599,7 @@ router.put(
         return res
           .status(404)
           .json({ error: "record_not_found", message: "Înregistrarea nu a fost găsită." });
+      console.error("profile_upsert_failed", e);
       res.status(500).json({
         error: "profile_upsert_failed",
         message: "Eroare internă la salvarea profilului.",
@@ -527,8 +615,7 @@ router.delete(
   async (req, res) => {
     const { id } = req.params;
     const meVendor =
-      req.meVendor ??
-      (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
     if (!meVendor) return error(res, "vendor_profile_missing", 404);
     const svc = await prisma.vendorService.findUnique({
       where: { id },
@@ -552,8 +639,7 @@ router.post(
     const { id } = req.params;
 
     const meVendor =
-      req.meVendor ??
-      (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
     if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
     const svc = await prisma.vendorService.findUnique({
@@ -567,10 +653,10 @@ router.post(
     const attrs = svc.attributes || {};
     const missing = [];
 
-    // ✅ aceleași verificări ca la tine:
     if (!p.displayName?.trim()) missing.push("Nume brand");
     if (!p.slug?.trim()) missing.push("Slug");
-    if (!p.address?.trim()) missing.push("Adresă");
+    if (!p.city?.trim()) missing.push("Oraș");
+    if (!p.address?.trim()) missing.push("Adresă completă pentru retur");
     if (!p.logoUrl && !p.coverUrl) missing.push("O imagine (logo/copertă)");
     if (!Array.isArray(p.delivery) || p.delivery.length === 0) {
       missing.push("Zonă acoperire");
@@ -583,7 +669,6 @@ router.post(
       return error(res, "missing_required_fields_profile", 400, { missing });
     }
 
-    // 🔧 AICI facem și vendorul activ, ca să treacă filtrul din /api/public/products
     const activated = await prisma.$transaction(async (tx) => {
       const updatedSvc = await tx.vendorService.update({
         where: { id },
@@ -613,8 +698,7 @@ router.post(
   async (req, res) => {
     const { id } = req.params;
     const meVendor =
-      req.meVendor ??
-      (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
     if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
     const svc = await prisma.vendorService.findUnique({
@@ -712,7 +796,6 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
     select: {
       id: true,
       displayName: true,
-      city: true,
       logoUrl: true,
       coverUrl: true,
       phone: true,
@@ -720,6 +803,8 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
       address: true,
       about: true,
       website: true,
+      entitySelfDeclared: true,
+      entitySelfDeclaredAt: true,
     },
   });
   if (!v) return error(res, "vendor_profile_missing", 404);
@@ -734,24 +819,72 @@ router.patch("/me", authRequired, vendorAccessRequired, async (req, res) => {
     typeof req.body.displayName === "string"
       ? req.body.displayName.trim()
       : undefined;
-  const city =
-    typeof req.body.city === "string" ? req.body.city.trim() : undefined;
-  if (!displayName && !city) return error(res, "nothing_to_update", 400);
+
+  if (!displayName) return error(res, "nothing_to_update", 400);
 
   const updated = await prisma.vendor.update({
     where: { id: v.id },
     data: {
       ...(displayName !== undefined ? { displayName } : {}),
-      ...(city !== undefined ? { city } : {}),
     },
-    select: { id: true, displayName: true, city: true },
+    select: {
+      id: true,
+      displayName: true,
+    },
   });
   res.json({ ok: true, vendor: updated });
 });
 
+/* ===================== Confirmare entitate juridică /me ===================== */
+router.post(
+  "/me/entity-confirm",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const vendor = await prisma.vendor.findUnique({
+        where: { userId: req.user.sub },
+      });
+      if (!vendor) return error(res, "vendor_profile_missing", 404);
+
+      if (vendor.entitySelfDeclared) {
+        return res.json({
+          ok: true,
+          already: true,
+          vendor: {
+            id: vendor.id,
+            entitySelfDeclared: vendor.entitySelfDeclared,
+            entitySelfDeclaredAt: vendor.entitySelfDeclaredAt,
+          },
+        });
+      }
+
+      const updated = await prisma.vendor.update({
+        where: { id: vendor.id },
+        data: {
+          entitySelfDeclared: true,
+          entitySelfDeclaredAt: new Date(),
+        },
+        select: {
+          id: true,
+          entitySelfDeclared: true,
+          entitySelfDeclaredAt: true,
+        },
+      });
+
+      return res.json({ ok: true, vendor: updated });
+    } catch (e) {
+      console.error("POST /api/vendors/me/entity-confirm error:", e);
+      return res.status(500).json({
+        error: "entity_confirm_failed",
+        message: "Nu am putut salva confirmarea.",
+      });
+    }
+  }
+);
+
 /* ===================== Subscription cancel /me ===================== */
 // Anulează abonamentul vendorului curent, dezactivează vendorul și toate serviciile lui.
-// Nu șterge contul de user și nici serviciile, doar le marchează inactive.
 router.post(
   "/me/subscription/cancel",
   authRequired,
@@ -761,16 +894,14 @@ router.post(
       const userId = req.user.sub;
 
       const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({ where: { userId } }));
+        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId } }));
 
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
-      // Căutăm abonamentul ACTIV al vendorului
       const activeSub = await prisma.vendorSubscription.findFirst({
         where: {
           vendorId: meVendor.id,
-          status: "active", // SubscriptionStatus.active
+          status: "active",
         },
         orderBy: { createdAt: "desc" },
         include: { plan: true },
@@ -786,11 +917,10 @@ router.post(
       const now = new Date();
 
       const result = await prisma.$transaction(async (tx) => {
-        // 1) marcăm abonamentul ca anulat și îi închidem perioada acum
         const updatedSub = await tx.vendorSubscription.update({
           where: { id: activeSub.id },
           data: {
-            status: "canceled", // SubscriptionStatus.canceled
+            status: "canceled",
             endAt: now,
             meta: {
               ...(activeSub.meta || {}),
@@ -801,7 +931,6 @@ router.post(
           include: { plan: true },
         });
 
-        // 2) dezactivăm toate serviciile active ale vendorului
         await tx.vendorService.updateMany({
           where: {
             vendorId: meVendor.id,
@@ -809,11 +938,10 @@ router.post(
           },
           data: {
             isActive: false,
-            status: "INACTIVE", // ServiceStatus.INACTIVE
+            status: "INACTIVE",
           },
         });
 
-        // 3) dezactivăm vendorul (magazinele nu mai apar public)
         await tx.vendor.update({
           where: { id: meVendor.id },
           data: { isActive: false },
@@ -828,6 +956,93 @@ router.post(
       return res.status(500).json({
         error: "subscription_cancel_failed",
         message: "Eroare internă la anularea abonamentului.",
+      });
+    }
+  }
+);
+
+/* ===================== Store profile reviews – vendor side ===================== */
+/**
+ * Vendor adaugă / editează răspuns la o recenzie de PROFIL (StoreReview),
+ * separat de recenziile de PRODUSE (Review).
+ */
+router.post(
+  "/store-reviews/:id/reply",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const reviewId = String(req.params.id || "").trim();
+      const text = String(req.body?.text || "").trim();
+      if (!reviewId || !text) {
+        return error(res, "invalid_input", 400);
+      }
+
+      const meVendor =
+        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      if (!meVendor) return error(res, "vendor_profile_missing", 404);
+
+      const review = await prisma.storeReview.findUnique({
+        where: { id: reviewId },
+      });
+      if (!review) return error(res, "review_not_found", 404);
+      if (review.vendorId !== meVendor.id)
+        return error(res, "forbidden", 403);
+
+      const reply = await prisma.storeReviewReply.upsert({
+        where: { reviewId },
+        update: { text },
+        create: {
+          reviewId,
+          vendorId: meVendor.id,
+          text,
+        },
+      });
+
+      return res.json({ ok: true, reply });
+    } catch (e) {
+      console.error("POST /api/vendors/store-reviews/:id/reply error:", e);
+      return res.status(500).json({
+        error: "store_review_reply_failed",
+        message: "Nu am putut salva răspunsul.",
+      });
+    }
+  }
+);
+
+/**
+ * Vendor șterge răspunsul la o recenzie de PROFIL (StoreReview)
+ */
+router.delete(
+  "/store-reviews/:id/reply",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const reviewId = String(req.params.id || "").trim();
+      if (!reviewId) return error(res, "invalid_input", 400);
+
+      const meVendor =
+        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      if (!meVendor) return error(res, "vendor_profile_missing", 404);
+
+      const review = await prisma.storeReview.findUnique({
+        where: { id: reviewId },
+      });
+      if (!review) return error(res, "review_not_found", 404);
+      if (review.vendorId !== meVendor.id)
+        return error(res, "forbidden", 403);
+
+      await prisma.storeReviewReply
+        .delete({ where: { reviewId } })
+        .catch(() => null);
+
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("DELETE /api/vendors/store-reviews/:id/reply error:", e);
+      return res.status(500).json({
+        error: "store_review_reply_delete_failed",
+        message: "Nu am putut șterge răspunsul.",
       });
     }
   }

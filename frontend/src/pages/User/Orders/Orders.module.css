@@ -6,6 +6,15 @@
   padding: 16px;
 }
 
+/* link-uri în toată pagina Orders (listă + detalii) */
+.page a,
+.page a:visited,
+.page a:hover {
+  text-decoration: none;
+  color: var(--color-primary);
+}
+
+/* header de pagină */
 .head {
   display: flex;
   gap: 16px;
@@ -21,8 +30,19 @@
   font-weight: 800;
   font-size: 24px;
 }
-.subtle { color: #6b7280; }
 
+.subtle {
+  color: #6b7280;
+}
+
+/* partea dreaptă din header: search + butoane filtre */
+.headRight {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* vechiul search (poți să îl ștergi dacă nu îl mai folosești) */
 .search {
   display: flex;
   gap: 8px;
@@ -38,12 +58,21 @@
   outline: none;
 }
 .input:focus {
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklab, var(--color-primary) 25%, transparent);
   border-color: var(--color-primary);
 }
 
+/* butoane pentru filtre/reset */
+.filterButtons {
+  display: flex;
+  gap: 8px;
+}
+
+/* tab-uri status */
 .tabs {
-  display: flex; flex-wrap: wrap;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   border-bottom: 1px solid var(--color-border);
   padding-bottom: 8px;
@@ -59,97 +88,464 @@
 }
 .tabActive {
   border-color: var(--color-primary);
-  background: color-mix(in oklab, var(--color-primary) 18%, var(--surface));
+  background: color-mix(
+    in oklab,
+    var(--color-primary) 18%,
+    var(--surface)
+  );
   color: var(--color-text);
 }
 
-.list { display: grid; gap: 12px; }
+/* listă de carduri (comenzi sau secțiuni detalii) */
+.list {
+  display: grid;
+  gap: 12px;
+}
 
+/* card generic */
 .card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--surface);
   padding: 10px;
+  cursor: pointer;         /* 🟢 face cardul clicabil în UI */
+  transition: background 0.15s ease;
 }
 
+/* header card comandă din listă */
 .cardHead {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; padding-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--color-border);
 }
-.orderMeta { display: flex; align-items: center; gap: 8px; }
-.orderId { font-weight: 700; }
-.date { color: #6b7280; font-size: 0.9rem; }
-.dot { width: 4px; height: 4px; border-radius: 999px; background: #c3c7cf; }
+.orderMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.orderId {
+  font-weight: 700;
+}
+.date {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+.dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #c3c7cf;
+}
 
-.total { font-weight: 600; }
+.total {
+  font-weight: 600;
+}
 
+/* STATUS BADGES */
 .badge {
   font-size: 12px;
   padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
 }
-.st_PENDING { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
-.st_PROCESSING { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-.st_SHIPPED { background: #ecfeff; color: #0e7490; border-color: #a5f3fc; }
-.st_DELIVERED { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
-.st_CANCELED { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
-.st_RETURNED { background: #f5f3ff; color: #5b21b6; border-color: #ddd6fe; }
+.st_PENDING {
+  background: #fff7ed;
+  color: #9a3412;
+  border-color: #fed7aa;
+}
+.st_PROCESSING {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+.st_SHIPPED {
+  background: #ecfeff;
+  color: #0e7490;
+  border-color: #a5f3fc;
+}
+.st_DELIVERED {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+.st_CANCELED {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+.st_RETURNED {
+  background: #f5f3ff;
+  color: #5b21b6;
+  border-color: #ddd6fe;
+}
 
-.itemList { list-style: none; padding: 8px 0 0; margin: 0; display: grid; gap: 8px; }
-.item { display: flex; gap: 10px; align-items: center; }
+/* ITEM LIST (produse din comandă) */
+.itemList {
+  list-style: none;
+  padding: 8px 0 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* imagine + link produs */
+.itemThumbLink {
+  text-decoration: none !important;
+  display: block;
+}
 .thumb {
-  width: 56px; height: 56px; border-radius: 8px; object-fit: cover;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
   border: 1px solid var(--color-border);
 }
-.itemInfo { display: grid; gap: 2px; }
-.itemTitle { font-weight: 600; }
-.itemMeta { color: #6b7280; font-size: 0.9rem; }
 
+/* titlu + meta produs */
+.itemInfo {
+  display: grid;
+  gap: 2px;
+}
+
+/* link pe titlul produsului (în detalii) */
+.itemTitleLink,
+.itemTitleLink:visited,
+.itemTitleLink:hover {
+  text-decoration: none !important;
+  color: var(--color-text);
+  font-weight: 600;
+  display: inline-block;
+}
+
+/* titlul produsului în listă (este chiar <Link> cu această clasă) */
+.itemTitle {
+  text-decoration: none !important;
+  color: var(--color-primary);
+  font-weight: 600;
+  display: inline-block;
+}
+
+.itemMeta {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+/* ACTION BUTTONS */
 .actionsRow {
-  display: flex; gap: 8px; flex-wrap: wrap;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
   border-top: 1px solid var(--color-border);
-  padding-top: 10px; margin-top: 8px;
+  padding-top: 10px;
+  margin-top: 8px;
 }
 
 .btnPrimary {
   background: var(--color-primary);
   color: #fff;
   border: 2px solid var(--color-primary);
-  padding: 8px 12px; border-radius: 9999px;
+  padding: 8px 12px;
+  border-radius: 9999px;
   cursor: pointer;
 }
-.btnPrimary:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.btnPrimary:hover {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
 
 .btnGhost {
-  background: transparent; color: var(--color-text);
+  background: transparent;
+  color: var(--color-text);
   border: 1px solid var(--color-border);
-  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  cursor: pointer;
+  text-decoration: none !important;
 }
-.btnGhost:hover { border-color: var(--color-primary); }
+.btnGhost:hover {
+  border-color: var(--color-primary);
+}
 
 .btnWarn {
-  background: #fff7ed; color: #9a3412;
+  background: #fff7ed;
+  color: #9a3412;
   border: 1px solid #fed7aa;
-  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  cursor: pointer;
 }
-.btnWarn:hover { background: #ffedd5; }
+.btnWarn:hover {
+  background: #ffedd5;
+}
 
+/* buton icon (filtre / reset / close modal) */
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.iconBtn svg {
+  width: 20px;
+  height: 20px;
+}
+.iconBtn:hover {
+  border-color: var(--color-primary);
+}
+.iconBtnLabel {
+  display: inline-block;
+}
+
+/* EMPTY STATE */
 .empty {
   text-align: center;
   border: 1px dashed var(--color-border);
   border-radius: var(--radius);
   padding: 24px;
 }
-.emptyTitle { font-weight: 700; margin-bottom: 6px; }
+.emptyTitle {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
 
-.loadMoreWrap { display: grid; place-items: center; margin: 14px 0; }
+/* TABEL (AWB / livrare în detalii) */
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 8px;
+}
 
-/* Mobile */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.table thead {
+  background: #f9fafb;
+}
+.table th,
+.table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+.table th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* load more */
+.loadMoreWrap {
+  display: grid;
+  place-items: center;
+  margin: 14px 0;
+}
+
+/* erori + spinner */
+.error {
+  color: #b91c1c;
+  font-size: 0.95rem;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* MODAL FILTRE (mobil) */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 16px;
+  width: min(420px, 90vw);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.3);
+}
+
+.modalHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.modalTitle {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.modalBody {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.modalBody label {
+  font-size: 0.9rem;
+  display: grid;
+  gap: 4px;
+}
+
+.modalBody input[type="text"] {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.modalSectionLabel {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.statusPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.statusPill {
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.statusPillActive {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 15%, var(--surface));
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* --- SEARCH BAR (cu buton icon submit) --- */
+.searchBar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 320px;
+}
+
+/* butonul cu icon – este SUBMIT */
+.searchBarIconBtn {
+  position: absolute;
+  left: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 0;
+}
+
+.searchBarIconBtn:hover {
+  color: var(--color-primary);
+}
+
+.searchBarInput {
+  width: 100%;
+  border-radius: 9999px;
+  padding: 10px 14px 10px 40px; /* icon + spacing */
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 0.95rem;
+  transition: border 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchBarInput:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklab, var(--color-primary) 25%, transparent);
+}
+
+/* MOBILE */
 @media (max-width: 640px) {
-  .head { align-items: stretch; }
-  .search { width: 100%; }
-  .input { width: 100%; min-width: 0; }
-  .cardHead { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .head {
+    align-items: stretch;
+  }
+
+  .headRight {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  .input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .filterButtons {
+    justify-content: flex-end;
+  }
+
+  .cardHead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .table th,
+  .table td {
+    padding: 6px 4px;
+  }
+
+  .tabs {
+    display: none !important;
+  }
+
+  .searchBar {
+    max-width: 100%;
+  }
 }

@@ -162,6 +162,13 @@
   text-decoration: underline;
 }
 
+/* opțional: dacă vrei un stil separat pt metoda de plată */
+.paymentMethod {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+
 /* ============ Badge-uri & status ============ */
 
 .badge {
@@ -330,30 +337,35 @@
   }
 }
 
-/* ============ Modal curier ============ */
+/* ============ Modal (curier + factură) ============ */
 
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(15, 23, 42, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 50;
+  z-index: 99999; /* peste navbar */
 }
 
 .modal {
   width: 100%;
   max-width: 560px;
+  max-height: 90vh;
+
   background: var(--surface);
   border-radius: 16px;
   border: 1px solid var(--color-border);
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+
   padding: 16px 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+
+  overflow-y: auto; /* pentru modalul de curier */
 }
 
 .modalHead {
@@ -367,6 +379,23 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
+}
+
+/* body scrollabil – folosit în InvoiceModal */
+.modalBody {
+  flex: 1 1 auto;
+  padding: 16px 18px 12px;
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+
+.modalBody::-webkit-scrollbar {
+  width: 8px;
+}
+.modalBody::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-muted) 45%, transparent);
+  border-radius: 10px;
 }
 
 .fieldset {
@@ -438,6 +467,7 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  margin-top: 8px;
 }
 
 /* ============ Grid detalii comandă ============ */
@@ -592,4 +622,246 @@
   .kv {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============ Tabs (Comenzi primite / plasate) ============ */
+
+.tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-border) 14%, transparent);
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.tab {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease-out,
+    color 0.15s ease-out,
+    box-shadow 0.15s ease-out,
+    transform 0.1s ease-out;
+}
+
+.tab:hover {
+  background: color-mix(in oklab, #ffffff 50%, transparent);
+  color: var(--color-text);
+}
+
+.tabActive {
+  background: #ffffff;
+  color: var(--color-text);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+/* pe mobile să nu se înghesuie */
+@media (max-width: 720px) {
+  .tabs {
+    width: auto;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+}
+
+/* ============ Modal Factură – overrides specifice ============ */
+
+.invoiceModal {
+  max-width: 760px;
+  max-height: 90vh;
+  padding: 0;        /* folosim padding în head/body/footer */
+  gap: 0;
+  overflow: hidden;  /* scroll doar în .modalBody */
+}
+
+/* header factură fix la scroll */
+.invoiceModal .modalHead {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* body factură – un pic mai aerisit decât curier */
+.invoiceModal .modalBody {
+  padding: 18px 18px 12px;
+}
+
+/* footer factură fix la scroll */
+.invoiceModal .modalActions {
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--surface);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+/* hint-ul de sub butoane în factura */
+.invoiceModal .muted {
+  padding: 0 18px 14px 18px;
+  font-size: 0.8rem;
+}
+
+/* form elements în factura – puțin mai mari */
+.invoiceModal .fieldset {
+  margin-bottom: 16px;
+}
+
+.invoiceModal .grid3 label {
+  font-size: 0.85rem;
+}
+
+.invoiceModal .input {
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  background: #ffffff;
+  color: var(--color-text);
+}
+
+/* tabel linii factură – compact + sticky header */
+.invoiceModal .tableWrap {
+  max-height: 260px;
+  border-radius: 10px;
+  overflow: auto;
+}
+
+.invoiceModal .table {
+  min-width: 640px;
+}
+
+.invoiceModal .table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* inputuri din tabel */
+.invoiceModal .table input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  padding: 4px 6px;
+  font-size: 0.8rem;
+  background: #ffffff;
+}
+
+/* totaluri factură */
+.invoiceModalTotals {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.invoiceModalTotalsBox {
+  min-width: 220px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--color-primary) 4%, #ffffff);
+  border: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
+  font-size: 0.85rem;
+}
+
+.invoiceModalTotalsBox div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.invoiceModalTotalsBox div:last-child {
+  margin-bottom: 0;
+}
+
+/* Responsive invoice modal */
+
+@media (max-width: 900px) {
+  .invoiceModal {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .invoiceModalTotalsBox {
+    width: 100%;
+  }
+
+  .invoiceModal .modalActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .invoiceModal .modalActions button {
+    width: 100%;
+  }
+}
+.invoiceHint {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+.orderRow {
+  cursor: pointer;
+}
+
+.orderRow:hover {
+  background: #f7f7f7;
+}
+
+.actionsCell {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* butoane mici, doar icon */
+.iconActionBtn {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.iconActionBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.iconActionBtn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+}
+.internalNoteBox {
+  background: rgba(148, 163, 184, 0.08);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.internalNoteLabel {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--color-muted);
 }

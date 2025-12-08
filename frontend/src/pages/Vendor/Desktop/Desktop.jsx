@@ -1,7 +1,7 @@
-// src/pages/Desktop/Desktop.jsx
+// DesktopV3.jsx
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { api } from "../../../lib/api";
-import { useAuth } from "../../../pages/Auth/Context/useAuth.js";
+import { useAuth } from "../../../pages/Auth/Context/context.js";
 import styles from "./Desktop.module.css";
 
 /* ---------- helpers mutate în afara componentei (fără deps) ---------- */
@@ -34,25 +34,24 @@ function extractCode(e) {
 function humanizeActivateError(e) {
   const code = extractCode(e);
   const missing = extractMissing(e);
+
+  if (code === "vendor_entity_not_confirmed") {
+    return "Pentru a activa serviciile, trebuie să confirmi că reprezinți o entitate juridică (PFA / SRL / II / IF). Poți face asta din bannerul de deasupra listei de servicii.";
+  }
+
   if (Array.isArray(missing) && missing.length) {
     return `Completează câmpurile obligatorii: ${missing.join(", ")}`;
   }
   if (code === "missing_required_fields_core") {
-    return "Completează titlul pachetului și orașul serviciului, apoi încearcă din nou.";
+    return "Completează câmpurile esențiale ale serviciului și profilului, apoi încearcă din nou.";
   }
-  if (code === "missing_required_fields_specs") {
-    return "Completează specificațiile obligatorii din secțiunea de detalii ale serviciului.";
+  if (code === "missing_required_fields_profile") {
+    return "Completează profilul magazinului (brand, adresă, zonă acoperire, imagine și acord Master), apoi încearcă din nou.";
   }
   return e?.message || "Nu am putut activa serviciul.";
 }
 
 /* ============================ Subscriptions hook ============================ */
-/**
- * Folosește endpointul: GET /api/vendors/me/subscription/status
- * { ok:false, code:"subscription_required", upgradeUrl:"/app/billing" }
- * sau
- * { ok:true, plan:{code,name}, endAt: ISO }
- */
 function useSubscriptionStatus({ auto = true } = {}) {
   const [state, setState] = useState({
     ok: null,
@@ -97,7 +96,6 @@ function useSubscriptionStatus({ auto = true } = {}) {
     }
   }, []);
 
-  // polling scurt după întoarcerea din plată (max 2 min, din 10 în 10 sec.)
   const startShortPolling = useCallback(() => {
     const startedAt = Date.now();
     const tick = async () => {
@@ -186,26 +184,41 @@ export default function DesktopV3() {
   const [activityLoading, setActivityLoading] = useState(true);
 
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState({}); // { [serviceId]: 'activate' | 'deactivate' | 'delete' }
+  const [busy, setBusy] = useState({});
   const [error, setError] = useState("");
 
+  // 🔹 INFO VENDOR (folosim entitySelfDeclared ca „confirmare entitate juridică”)
+  const [vendor, setVendor] = useState(null);
+  const [entityConfirmBusy, setEntityConfirmBusy] = useState(false);
+  const [entityConfirmError, setEntityConfirmError] = useState("");
+
   const sub = useSubscriptionStatus();
+
+  // dacă auth context-ul aduce deja vendor cu entitySelfDeclared, îl sincronizăm
+  useEffect(() => {
+    if (me?.vendor) {
+      setVendor(me.vendor);
+    }
+  }, [me]);
 
   const loadAllVendor = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [svc, ob] = await Promise.all([
+      const [svc, ob, v, st] = await Promise.all([
         api("/api/vendors/me/services?includeProfile=1").catch(() => ({
           items: [],
         })),
         api("/api/vendors/me/onboarding-status").catch(() => null),
+        api("/api/vendors/me").catch(() => null),
+        api("/api/vendors/me/stats?window=7d").catch(() => null),
       ]);
       setServices(svc?.items || []);
       setOnboarding(ob || null);
-      const st = await api("/api/vendors/me/stats?window=7d").catch(
-        () => null
-      );
+
+      // backend: GET /api/vendors/me întoarce { vendor: { ... } }
+      if (v?.vendor) setVendor(v.vendor);
+
       if (st) setStats(st);
     } catch (e) {
       setError(e?.message || "Eroare la încărcare");
@@ -228,7 +241,6 @@ export default function DesktopV3() {
     }
   }, []);
 
-  // Încarcă datele vendor doar după ce știm cine e userul
   useEffect(() => {
     if (authLoading) return;
     if (!me) {
@@ -364,13 +376,47 @@ export default function DesktopV3() {
     }
   }, []);
 
+  // 🔹 confirmarea entității juridice -> backend setează entitySelfDeclared
+  const onConfirmEntity = useCallback(async () => {
+    try {
+      setEntityConfirmBusy(true);
+      setEntityConfirmError("");
+      const d = await api("/api/vendors/me/entity-confirm", {
+        method: "POST",
+      });
+
+      // răspuns: { ok, already?, vendor: { id, entitySelfDeclared, entitySelfDeclaredAt } }
+      if (d?.vendor) {
+        setVendor((prev) => ({
+          ...(prev || {}),
+          ...d.vendor, // include entitySelfDeclared
+        }));
+      } else {
+        // fallback – forțăm local
+        setVendor((prev) => ({
+          ...(prev || {}),
+          entitySelfDeclared: true,
+        }));
+      }
+    } catch (e) {
+      setEntityConfirmError(
+        e?.message || "Nu am putut confirma entitatea juridică."
+      );
+    } finally {
+      setEntityConfirmBusy(false);
+    }
+  }, []);
+
   /* ---------------------------- Render gating ---------------------------- */
   if (authLoading || loading)
     return <div className={styles.page}>Se încarcă…</div>;
   if (!me || me.role !== "VENDOR")
-    return (
-      <div className={styles.page}>Acces doar pentru vendori.</div>
-    );
+    return <div className={styles.page}>Acces doar pentru vendori.</div>;
+
+  // 🔹 aici e cheia: folosim entitySelfDeclared
+  const entityConfirmed =
+    vendor?.entitySelfDeclared === true ||
+    me?.vendor?.entitySelfDeclared === true;
 
   return (
     <section className={styles.page}>
@@ -382,6 +428,53 @@ export default function DesktopV3() {
       />
 
       {error ? <div className={styles.errorBar}>{error}</div> : null}
+
+      {/* Banner confirmare entitate juridică – rămâne ca notă informativă + CTA-uri */}
+      {!entityConfirmed && (
+        <div
+          className={styles.card}
+          style={{ borderColor: "var(--color-warn)" }}
+        >
+          <div className={styles.cardHead}>
+            <h3>Confirmă că reprezinți o entitate juridică</h3>
+          </div>
+          <p className={styles.subtle}>
+            Pentru a activa serviciile și a apărea în căutări, trebuie să
+            confirmi că reprezinți o <b>entitate juridică</b> (PFA / SRL / II /
+            IF) și deții un <b>CUI/CIF</b> valid. Dacă acest cont nu este
+            destinat furnizării de servicii, ci doar utilizării platformei ca{" "}
+            <b>client</b>, poți solicita modificarea tipului de cont către
+            „user” prin <b>asistența tehnică</b>.
+            <br />
+            <br />
+            Dacă ai nevoie de ajutor, contactează-ne în secțiunea{" "}
+            <b>„Asistență tehnică”</b> din platformă.
+          </p>
+
+          {entityConfirmError && (
+            <div className={styles.errorBar}>{entityConfirmError}</div>
+          )}
+          <div className={styles.actionsRow}>
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.btnPrimary}`}
+              onClick={onConfirmEntity}
+              disabled={entityConfirmBusy}
+            >
+              {entityConfirmBusy
+                ? "Se confirmă…"
+                : "Confirm că sunt entitate juridică"}
+            </button>
+            {/* buton extra spre pagina de asistență */}
+            <a
+              href="/asistenta-tehnica"
+              className={`${styles.btn} ${styles.btnGhost}`}
+            >
+              Mergi la asistență
+            </a>
+          </div>
+        </div>
+      )}
 
       <SubscriptionAlert sub={sub} />
 
@@ -421,7 +514,6 @@ export default function DesktopV3() {
 /* ============================= Sub-componente ============================= */
 
 function Topbar({ me, completeness, sub, nextStep }) {
-  // badge abonament
   const subBadge = (() => {
     if (sub.loading)
       return (
@@ -430,9 +522,7 @@ function Topbar({ me, completeness, sub, nextStep }) {
     if (sub.ok) {
       const end = sub.endAt ? new Date(sub.endAt) : null;
       const daysLeft = end
-        ? Math.ceil(
-            (end - new Date()) / (1000 * 60 * 60 * 24)
-          )
+        ? Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24))
         : null;
       return (
         <span className={styles.badgeOk}>
@@ -593,8 +683,21 @@ function ServicesCard({
             const actLabel = isAct ? "Dezactivează" : "Activează";
             const actTitle = isAct ? "Dezactivează" : "Activează";
 
-            const missingCore =
-              !s.city || !s.profile?.displayName || !s.title;
+            // city poate exista, dar NU îl mai considerăm obligatoriu
+            const brandVal =
+              (s.profile?.displayName && s.profile.displayName.trim()) ||
+              "";
+            const titleVal = (s.title && s.title.trim()) || "";
+
+            const hasBrand = !!brandVal;
+            const hasTitle = !!titleVal;
+
+            const missingFields = [];
+            // orașul scos din blocanți
+            if (!hasTitle) missingFields.push("titlul");
+            if (!hasBrand) missingFields.push("numele de brand");
+
+            const missingCore = missingFields.length > 0;
 
             return (
               <li key={s.id} className={styles.serviceItem}>
@@ -619,10 +722,10 @@ function ServicesCard({
                       </>
                     ) : null}
                   </div>
-                  {missingCore && (
+                  {missingCore && !isAct && (
                     <div className={styles.serviceWarning}>
-                      Pentru a putea activa serviciul, completează orașul,
-                      titlul și numele de brand.
+                      Pentru a putea activa serviciul, completează{" "}
+                      {missingFields.join(", ")}.
                     </div>
                   )}
                 </div>

@@ -6,109 +6,418 @@
   padding: 16px;
 }
 
-.head { display: grid; gap: 10px; margin-bottom: 10px; }
-.h1 { margin: 0; font-family: var(--font-title); font-size: 24px; font-weight: 800; }
+/* ========================= */
+/*        HEADER PAGINĂ      */
+/* ========================= */
 
-.filters {
-  display: grid; grid-template-columns: 1.2fr 1fr 0.8fr 0.5fr 0.5fr 0.7fr;
-  gap: 8px;
+.head {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
 }
-.input, .inputN, .select {
+
+/* rândul cu titlu + sort + butoane icon */
+.headTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap; /* permite ruperea pe 2 rânduri */
+}
+
+.h1 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.headActions {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* butoane icon rotunde lângă titlu */
+.iconCircle {
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+  color: var(--color-text);
+}
+
+.iconCircle:hover {
+  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+/* ========================= */
+/*      BARA DE CĂUTARE      */
+/* ========================= */
+
+.searchRow {
+  margin-top: 12px;
+  width: 100%;
+}
+
+/* “pilula” completă */
+.searchShell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 8%, #e9e9f0);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* inputul din mijloc – fără border propriu */
+.searchInput {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  padding: 0 8px;
+  min-width: 0;
+}
+
+/* pentru că folosim .input și aici, anulăm borderul implicit */
+.searchInput.input {
+  border: none;
+  box-shadow: none;
+}
+
+/* stânga/dreapta: butoane rotunde cu icon */
+.searchIconBtn,
+.searchCameraBtn {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+/* icon search – primary */
+.searchIconBtn {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* icon camera – primary mai deschis */
+.searchCameraBtn {
+  background: color-mix(in oklab, var(--color-primary) 92%, #ffffff);
+  color: #fff;
+}
+
+.searchIconBtn:hover,
+.searchCameraBtn:hover {
+  filter: brightness(1.05);
+}
+
+/* focus general pe shell (când focus e pe input) */
+.searchShell:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+
+/* ========================= */
+/*   AUTOCOMPLETE SUGGEST    */
+/* ========================= */
+
+.suggestDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  z-index: 20;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  padding: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.suggestLoading,
+.suggestEmpty {
+  padding: 8px;
+  font-size: 13px;
+  color: var(--color-text-muted, #666);
+}
+
+.suggestSection {
+  padding: 6px;
+}
+
+.suggestSectionTitle {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  color: var(--color-text-muted, #777);
+}
+
+.suggestCategoryBtn {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.12s ease;
+}
+
+.suggestCategoryBtn:hover {
+  background: var(--surface, #f7f7f7);
+}
+
+.suggestProductsList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.suggestProductBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.suggestProductBtn:hover {
+  background: var(--surface, #f7f7f7);
+}
+
+.suggestProductThumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.suggestProductMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suggestProductTitle {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.suggestProductPrice {
+  font-size: 12px;
+  color: var(--color-text-muted, #666);
+}
+
+/* ========================= */
+/*        MODAL FILTRE       */
+/* ========================= */
+
+.filtersOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow-x: hidden; /* fără scrollbar orizontal */
+}
+
+.filtersModal {
+  background: var(--surface);
+  border-radius: 18px;
+  width: 100%;
+  max-width: 640px;      /* dialog îngust, centrat */
+  max-height: 90vh;
+  padding: 18px 20px 20px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.filtersModalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filtersTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* --- conținut filtre: UN SINGUR COLUM -- */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 4px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* inputuri/select-uri din modal */
+.input,
+.inputN,
+.select {
   border: 1px solid var(--color-border);
   background: var(--surface);
   color: var(--color-text);
   border-radius: var(--radius);
   padding: 10px 12px;
   outline: none;
+  font: inherit;
 }
-.input:focus, .inputN:focus, .select:focus {
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
+
+.inputN {
+  text-align: right;
+}
+
+.input:focus,
+.inputN:focus,
+.select:focus {
+  box-shadow: 0 0 0 3px
+    color-mix(in oklab, var(--color-primary) 20%, transparent);
   border-color: var(--color-primary);
 }
 
-.loading { padding: 24px; text-align: center; }
-
-.grid {
-  list-style: none; padding: 0; margin: 12px 0;
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+/* Acțiuni filtre: Aplică / Resetează */
+.filterActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
-.card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow .2s ease;
-}
-.card:hover { box-shadow: var(--shadow-md); }
-
-.cardLink { color: inherit; text-decoration: none; display: block; }
-
-.thumbWrap { aspect-ratio: 4/3; background: color-mix(in oklab, var(--color-bg) 60%, #0000); }
-.thumb { width: 100%; height: 100%; object-fit: cover; }
-
-.cardBody { padding: 10px; display: grid; gap: 4px; }
-.title {
-  font-weight: 600;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.meta { color: var(--color-muted); font-size: 0.9rem; }
-.vendor { font-weight: 600; color: var(--color-text); }
-.price { font-weight: 700; font-size: 1rem; }
-
-/* --- Actions per card --- */
-.cardActions {
-  margin: .5rem 10px 10px;
-  display:flex; align-items:center; justify-content: space-between;
-}
-
-.iconRow { display:flex; gap:.5rem; }
-
-/* butoane icon – folosesc doar variabile globale (no more --gray-*) */
-.iconBtn,
-.iconBtnOutline {
-  border-radius: 8px;
-  padding: .45rem .55rem;
-  cursor: pointer;
-  display:inline-flex; align-items:center; justify-content:center;
-  transition: filter .15s ease, background .15s ease, border-color .15s ease;
-  font-size: 1rem;
-}
-
-.iconBtn {
-  border: 1px solid var(--color-primary);
+.btnApply {
   background: var(--color-primary);
   color: #fff;
+  border: 1px solid var(--color-primary);
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  font: inherit;
 }
-.iconBtn:hover { filter: brightness(.97); background: var(--color-hover); border-color: var(--color-hover); }
 
-.iconBtnOutline {
-  border: 1px solid var(--color-border);
+.btnApply:hover {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
+
+.btnReset {
   background: var(--surface);
   color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font: inherit;
 }
-.iconBtnOutline:hover { filter: brightness(.97); }
 
-/* stări */
-.heartFilled { color: var(--color-primary); } /* roșu pentru favorite */
-.ownerBadge { font-size:.75rem; color: var(--color-muted); }
+.btnReset:hover {
+  filter: brightness(0.97);
+}
 
-/* Pagination */
+/* ========================= */
+/*        CONȚINUT LISTĂ     */
+/* ========================= */
+
+.loading {
+  padding: 24px;
+  text-align: center;
+}
+
+/* GRID produse (doar layout; cardul își are propriul CSS) */
+.grid {
+  margin: 12px 0;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+/* ========================= */
+/*         PAGINATION        */
+/* ========================= */
+
 .pagination {
-  display: flex; gap: 10px; align-items: center; justify-content: center;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
   margin: 14px 0;
 }
+
 .pagination button {
   border: 1px solid var(--color-border);
   background: var(--surface);
   color: var(--color-text);
-  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  cursor: pointer;
+  font: inherit;
 }
-.pagination button:hover { filter: brightness(.97); }
-.pagination button:disabled { opacity: .5; cursor: not-allowed; }
 
-/* Empty state */
+.pagination button:hover {
+  filter: brightness(0.97);
+}
+
+.pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ========================= */
+/*        EMPTY STATE        */
+/* ========================= */
+
 .empty {
   text-align: center;
   border: 1px dashed var(--color-border);
@@ -116,21 +425,380 @@
   padding: 24px;
   background: var(--surface);
 }
-.emptyTitle { font-weight: 700; margin-bottom: 6px; }
-.btnPrimary {
-  background: var(--color-primary); color: #fff; border: 2px solid var(--color-primary);
-  padding: 8px 12px; border-radius: 9999px; cursor: pointer;
-}
-.btnPrimary:hover { background: var(--color-hover); border-color: var(--color-hover); }
 
-/* Mobile */
+.emptyTitle {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  color: #fff;
+  border: 2px solid var(--color-primary);
+  padding: 8px 12px;
+  border-radius: 9999px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.btnPrimary:hover {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
+
+/* ========================= */
+/*   CHIP-URI FILTRE ACTIVE  */
+/* ========================= */
+
+.chipsWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #ddd);
+  background: var(--surface, #f7f7f7);
+  font-size: 12px;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: #fff;
+}
+
+.chipLabel {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.chipCloseIcon {
+  font-size: 10px;
+}
+
+/* ========================= */
+/*   REZUMAT SMART SEARCH    */
+/* ========================= */
+
+.smartSummaryWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.smartSummaryText {
+  font-size: 13px;
+  color: var(--color-text-muted, #666);
+}
+
+.smartCategorySuggest {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--color-border, #ddd);
+  background: #fff;
+  font-size: 12px;
+  gap: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* ========================= */
+/*  BANNER SEARCH BY IMAGE   */
+/* ========================= */
+
+.imageSearchNotice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.imageSearchText {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.imageSearchBtn {
+  padding: 4px 8px;
+}
+
+.imageSearchBtn.btnPrimary {
+  padding: 4px 10px;
+}
+
+/* ========================= */
+/*         RESPONSIVE        */
+/* ========================= */
+
 @media (max-width: 1024px) {
-  .grid { grid-template-columns: repeat(3, 1fr); }
+  .page {
+    padding: 12px;
+  }
 }
+
 @media (max-width: 768px) {
-  .filters { grid-template-columns: 1fr 1fr; }
-  .grid { grid-template-columns: repeat(2, 1fr); }
+  .h1 {
+    font-size: 20px;
+  }
+
+  /* butoane icon din header puțin mai mici */
+  .iconCircle {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  /* sort inline mai compact */
+  .selectInline {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  /* search pill mai „slabă” */
+  .searchShell {
+    padding: 3px 5px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+  }
+
+  .searchIconBtn,
+  .searchCameraBtn {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+  }
+
+  .searchInput {
+    font-size: 14px;
+  }
+
+  /* cards mai aproape între ele */
+  .grid {
+    gap: 12px;
+  }
+  .page {
+    padding: 10px;
+  }
+
+  .headTop {
+    align-items: flex-start;
+  }
+
+  .head {
+    gap: 8px;
+  }
+
+  /* modal ca bottom sheet */
+  .filtersOverlay {
+    align-items: flex-end;
+  }
+
+  .filtersModal {
+    max-width: 100%;
+    margin: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .filterActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filterActions button {
+    width: 100%;
+  }
 }
+
 @media (max-width: 480px) {
-  .grid { grid-template-columns: 1fr; }
+  .page {
+    padding: 8px;
+  }
+
+  .headTop {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .headActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* MODAL peste navbar */
+  .filtersOverlay {
+    align-items: flex-end;
+    z-index: 9999 !important;
+  }
+
+  .filtersModal {
+    z-index: 10000 !important;
+    margin: 0;
+    width: 100%;
+    border-radius: 18px 18px 0 0;
+    padding: 14px 14px 16px;
+  }
+  .h1 {
+    font-size: 18px;
+  }
+
+  /* header mai compact */
+  .headTop {
+    gap: 4px;
+  }
+
+  .iconCircle {
+    width: 30px;
+    height: 30px;
+    font-size: 13px;
+  }
+
+  .selectInline {
+    font-size: 11px;
+  }
+
+  /* search bar mai mic */
+  .searchShell {
+    padding: 2px 4px;
+  }
+
+  .searchIconBtn,
+  .searchCameraBtn {
+    width: 30px;
+    height: 30px;
+    font-size: 13px;
+  }
+
+  .searchInput {
+    font-size: 13px;
+  }
+
+  /* inputurile din modal: mai înguste ca padding și font */
+  .filters .input,
+  .filters .inputN,
+  .filters .select {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .filtersTitle {
+    font-size: 16px;
+  }
+
+  .btnApply,
+  .btnReset {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .chip {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  .smartSummaryText {
+    font-size: 12px;
+  }
+}
+
+/* select mic inline pentru sort */
+.selectInline {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #ddd);
+  font-size: 13px;
+  background: #fff;
+}
+
+/* ========================= */
+/*          SKELETON         */
+/* ========================= */
+
+.cardSkeleton {
+  border-radius: 16px;
+  padding: 8px;
+  background: #fff;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skelImage {
+  width: 100%;
+  padding-top: 75%;
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    #f3f4f6 0%,
+    #e5e7eb 50%,
+    #f3f4f6 100%
+  );
+  animation: skelShine 1.4s infinite;
+  background-size: 200% 100%;
+}
+
+.skelLine {
+  height: 12px;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+.skelLineShort {
+  height: 10px;
+  width: 60%;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+@keyframes skelShine {
+  0% {
+    background-position: -40% 0;
+  }
+  100% {
+    background-position: 140% 0;
+  }
+}
+
+/* checkbox „Personalizabile” mai curat */
+.filters label {
+  font-size: 13px;
+  color: var(--color-text-muted, #555);
+}
+
+.filters label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+/* Tablet & mobil – padding egal pe stânga și dreapta */
+@media (max-width: 768px) {
+  .page {
+    padding-left: 16px;
+    padding-right: 16px;  /* egal cu stânga */
+  }
+}
+
+/* Telefoane mici – și mai compact, dar simetric */
+@media (max-width: 480px) {
+  .page {
+    padding-left: 14px;
+    padding-right: 14px; /* egal cu stânga */
+  }
 }

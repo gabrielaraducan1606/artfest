@@ -1,0 +1,642 @@
+@import "../../../styles/variables.css";
+/* =============== Admin Desktop =============== */
+
+.page {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: 24px;
+}
+
+.h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.subtle {
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.error {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+/* =============== KPI Cards =============== */
+
+.kpiRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.kpi {
+  background: var(--surface);
+  padding: 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.kpiVal {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.kpiLabel {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* =============== Tabs =============== */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 15px;
+  transition: 0.25s;
+}
+
+.tab:hover {
+  background: var(--color-hover);
+  color: #fff;
+  border-color: var(--color-hover);
+}
+
+.tabActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+/* =============== Cardul principal =============== */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow-md);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.cardTitle {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* =============== Rezumat roluri =============== */
+
+.roleSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--color-muted);
+  margin-bottom: 10px;
+}
+
+.roleSummary span b {
+  color: var(--color-text);
+}
+
+/* =============== Filtre =============== */
+
+.filtersRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+  background: var(--surface);
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.filtersRow label span {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.filtersRow input,
+.filtersRow select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  font-size: 14px;
+}
+
+.filtersActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.resetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-danger);
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.resetBtn:hover {
+  background: #b91c1c;
+}
+
+.filtersCount {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* =============== Tabele =============== */
+
+.tableWrapper {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  background: var(--color-bg);
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.table tr:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+html[data-theme="dark"] .table tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* =============== Role badges + admin row =============== */
+
+.roleBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+/* USER */
+.roleBadgeUSER {
+  border-color: #9ca3af;
+  color: #374151;
+}
+
+/* VENDOR */
+.roleBadgeVENDOR {
+  border-color: var(--color-primary);
+  background: rgba(139, 92, 246, 0.06);
+  color: var(--color-primary);
+}
+
+/* ADMIN */
+.roleBadgeADMIN {
+  border-color: var(--color-danger);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--color-danger);
+}
+
+.rowAdmin {
+  background: rgba(220, 38, 38, 0.02);
+}
+
+html[data-theme="dark"] .rowAdmin {
+  background: rgba(239, 68, 68, 0.07);
+}
+
+/* =============== Email button (copy) =============== */
+
+.emailBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.emailBtn:hover {
+  text-decoration: underline;
+}
+/* =============== Rând clickable =============== */
+
+.clickableRow {
+  cursor: pointer;
+}
+
+.clickableRow:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+html[data-theme="dark"] .clickableRow:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* =============== Drawer detalii user =============== */
+
+.drawerOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 3000; /* ceva mai mare decât navbar-ul tău */
+}
+
+
+.drawer {
+  width: 380px;
+  max-width: 100%;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+}
+
+.drawerHeader {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.drawerTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.drawerSub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.drawerClose {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.drawerClose:hover {
+  color: var(--color-text);
+}
+
+.drawerBody {
+  padding: 14px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.drawerSection {
+  margin-bottom: 16px;
+}
+
+.drawerSection h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drawerField {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.drawerField span:first-child {
+  color: var(--color-muted);
+}
+
+.drawerField code {
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--color-bg);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.drawerFooter {
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drawerBtnSecondary,
+.drawerBtnDisabled {
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.drawerBtnSecondary:hover {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.drawerBtnDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =============== Paginare =============== */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  font-size: 13px;
+}
+
+.paginationInfo {
+  color: var(--color-muted);
+}
+
+.paginationControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.paginationBtn {
+  min-width: 34px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s,
+    transform 0.1s;
+}
+
+.paginationBtn:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.paginationBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.paginationBtnActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+/* =============== Acțiuni admin în drawer =============== */
+
+.drawerActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.adminActionBtn,
+.adminActionBtnDanger {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s, color 0.2s, border-color 0.2s,
+    transform 0.1s;
+}
+
+/* buton „normal” de acțiune (verify email, trimite reset etc.) */
+.adminActionBtn:hover:not(:disabled) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* buton de tip „danger” (suspendă / reactivează cont) */
+.adminActionBtnDanger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: rgba(220, 38, 38, 0.04);
+}
+
+.adminActionBtnDanger:hover:not(:disabled) {
+  background: var(--color-danger);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.adminActionBtn:disabled,
+.adminActionBtnDanger:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* mesaje feedback acțiuni */
+
+.actionError {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.actionSuccess {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #16a34a; /* verde ok-ish, poți să-l mapezi la un var dacă ai */
+}
+/* =============== Acțiuni admin în drawer =============== */
+
+.drawerActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.adminActionBtn,
+.adminActionBtnDanger {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s, color 0.2s, border-color 0.2s,
+    transform 0.1s;
+}
+
+.adminActionBtn:hover:not(:disabled) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.adminActionBtnDanger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: rgba(220, 38, 38, 0.04);
+}
+
+.adminActionBtnDanger:hover:not(:disabled) {
+  background: var(--color-danger);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.adminActionBtn:disabled,
+.adminActionBtnDanger:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.actionError {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.actionSuccess {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #16a34a;
+}
+.vendorStatusActive {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid #10b981;
+  color: #047857;
+}
+
+.vendorStatusInactive {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid #ef4444;
+  color: #b91c1c;
+}
+.drawerFieldColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.drawerFieldColumn > span {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+}

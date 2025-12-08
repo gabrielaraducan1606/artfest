@@ -12,6 +12,8 @@ import {
   Trash2,
   RefreshCcw,
   Loader2,
+  Bell,
+  Megaphone,
 } from "lucide-react";
 import settingsStyles from "./Settings.module.css";
 
@@ -21,8 +23,12 @@ import ProfileTab from "../Onboarding/OnBoardingDetails/tabs/ProfileTabBoarding.
 import BillingTab from "../Onboarding/OnBoardingDetails/tabs/BillingTab.jsx";
 import PaymentTab from "../Onboarding/OnBoardingDetails/tabs/PaymentTab.jsx";
 
+// 🔹 importă și componenta de marketing pe care o folosești la useri
+// ajustează path-ul dacă e altfel în proiectul tău
+import MarketingPreferences from "../../User/MarketingPreferences/MarketingPreferences.jsx";
+
 const VANITY_BASE = "www.artfest.ro";
-const FORGOT_PASSWORD_URL = "/reset-parola"; // pagina ta ForgotPassword
+const FORGOT_PASSWORD_URL = "/reset-parola";
 
 function cls(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -49,9 +55,7 @@ function Section({ icon, title, subtitle, children, right }) {
 }
 
 /* ===========================================================
-   Sub-componentă internă: SOLO mode din OnBoardingDetails
-   și îl randăm direct în chenarul din dreapta.
-   tab poate fi: "profil" | "facturare" | "plata"
+   EmbeddedOnboarding – același ca la tine
    =========================================================== */
 
 const slugify = (s = "") =>
@@ -73,7 +77,7 @@ function EmbeddedOnboarding({ tab }) {
   const [saveError, setSaveError] = useState({});
   const [billingStatus, setBillingStatus] = useState("idle");
 
-  const timers = useRef({}); // { [serviceId]: timeoutId }
+  const timers = useRef({});
 
   const fetchMyServices = useCallback(async () => {
     const d = await api("/api/vendors/me/services?includeProfile=1", {
@@ -116,7 +120,6 @@ function EmbeddedOnboarding({ tab }) {
     })();
   }, [fetchMyServices]);
 
-  // autosave infra
   function schedule(serviceId, fn, delay = 600) {
     if (timers.current[serviceId]) clearTimeout(timers.current[serviceId]);
     timers.current[serviceId] = setTimeout(fn, delay);
@@ -135,7 +138,6 @@ function EmbeddedOnboarding({ tab }) {
       const s = { ...next[idx] };
       const p = { ...(s.profile || {}) };
 
-      // auto-slug
       if (patch.displayName && !p.slug) {
         p.slug = slugify(patch.displayName);
       }
@@ -164,7 +166,8 @@ function EmbeddedOnboarding({ tab }) {
             setSaveState((m) => ({ ...m, [serviceId]: "error" }));
             setSaveError((m) => ({
               ...m,
-              [serviceId]: e?.message || "Eroare la salvarea profilului",
+              [serviceId]:
+                e?.message || "Eroare la salvarea profilului",
             }));
           }
         });
@@ -264,7 +267,7 @@ function EmbeddedOnboarding({ tab }) {
 }
 
 /* ===========================================================
-   Pagina principală: SettingsPage
+   Pagina principală: SettingsPage (vendor)
    =========================================================== */
 
 export default function SettingsPage() {
@@ -275,6 +278,16 @@ export default function SettingsPage() {
       key: "profile",
       label: "Profil magazin",
       icon: <UserIcon size={16} />,
+    },
+    {
+      key: "notifications",
+      label: "Notificări",
+      icon: <Bell size={16} />,
+    },
+    {
+      key: "marketing",
+      label: "Marketing",
+      icon: <Megaphone size={16} />,
     },
     {
       key: "security",
@@ -313,7 +326,87 @@ export default function SettingsPage() {
     load();
   }, [load]);
 
-  // ====== SECURITATE: schimbare parolă în cont ======
+  /* ================== NOTIFICĂRI (vendor) ================== */
+  const [notifications, setNotifications] = useState({
+    inAppMessageNew: true,
+    inAppBookingUpdates: true,
+    inAppEventReminders: true,
+  });
+  const [notifInitial, setNotifInitial] = useState(null);
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifErr, setNotifErr] = useState("");
+  const [notifOk, setNotifOk] = useState(false);
+
+  const canSaveNotifications =
+    !notifSaving &&
+    notifInitial &&
+    JSON.stringify(notifications) !== JSON.stringify(notifInitial);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const d = await api("/api/account/me/notifications", {
+        method: "GET",
+      });
+      const n = d.notifications || {};
+      const next = {
+        inAppMessageNew:
+          typeof n.inAppMessageNew === "boolean"
+            ? n.inAppMessageNew
+            : true,
+        inAppBookingUpdates:
+          typeof n.inAppBookingUpdates === "boolean"
+            ? n.inAppBookingUpdates
+            : true,
+        inAppEventReminders:
+          typeof n.inAppEventReminders === "boolean"
+            ? n.inAppEventReminders
+            : true,
+      };
+      setNotifications(next);
+      setNotifInitial(next);
+      setNotifErr("");
+      setNotifOk(false);
+    } catch (e) {
+      setNotifErr(
+        e?.message ||
+          "Nu am putut încărca preferințele de notificare. Încearcă din nou."
+      );
+    }
+  }, []);
+
+  const saveNotifications = useCallback(async () => {
+    setNotifErr("");
+    setNotifOk(false);
+    setNotifSaving(true);
+    try {
+      const d = await api("/api/account/me/notifications", {
+        method: "PATCH",
+        body: { notifications },
+      });
+      const next = d.notifications || notifications;
+      setNotifications(next);
+      setNotifInitial(next);
+      setNotifOk(true);
+    } catch (e) {
+      setNotifErr(
+        e?.data?.message ||
+          e?.message ||
+          "Nu am putut salva notificările. Te rugăm să încerci din nou."
+      );
+      setNotifOk(false);
+    } finally {
+      setNotifSaving(false);
+    }
+  }, [notifications]);
+
+  // încarcă notificările după ce știm că userul e autentificat
+  useEffect(() => {
+    if (!loading) {
+      loadNotifications();
+    }
+  }, [loading, loadNotifications]);
+
+  /* ================== SECURITATE ================== */
   const [oldPass, setOldPass] = useState("");
   const [newPass, setNewPass] = useState("");
   const [newPass2, setNewPass2] = useState("");
@@ -372,7 +465,7 @@ export default function SettingsPage() {
     }
   }, [oldPass, newPass, newPass2]);
 
-  // ====== ȘTERGERE CONT ======
+  /* ================== ȘTERGERE CONT ================== */
   const [deleting, setDeleting] = useState(false);
   const [deleteErr, setDeleteErr] = useState("");
 
@@ -390,10 +483,6 @@ export default function SettingsPage() {
         method: "DELETE",
       });
 
-      // opțional: poți apela și un endpoint de logout aici, dacă ai
-      // await api("/api/auth/logout", { method: "POST" }).catch(() => {});
-
-      // redirect după ștergere (ajustează după cum vrei)
       window.location.href = "/";
     } catch (e) {
       const msg =
@@ -412,7 +501,12 @@ export default function SettingsPage() {
           <div className={settingsStyles.sideTitle}>Setări cont</div>
           <button
             className={settingsStyles.iconBtn}
-            onClick={load}
+            onClick={() => {
+              load();
+              if (!loading) {
+                loadNotifications();
+              }
+            }}
             title="Reîncarcă"
           >
             <RefreshCcw size={16} />
@@ -437,27 +531,111 @@ export default function SettingsPage() {
       <main className={settingsStyles.content}>
         {loading && (
           <div className={settingsStyles.loading}>
-            <Loader2 className={settingsStyles.spin} size={18} /> Se
-            încarcă…
+            <Loader2 className={settingsStyles.spin} size={18} /> Se încarcă…
           </div>
         )}
 
-        {/* PROFIL MAGAZIN – folosește ProfileTab din onboarding */}
+        {/* PROFIL MAGAZIN */}
         {!loading && active === "profile" && (
           <EmbeddedOnboarding tab="profil" />
         )}
 
-        {/* DATE FACTURARE – BillingTab din onboarding */}
+        {/* NOTIFICĂRI (vendor) */}
+        {!loading && active === "notifications" && (
+          <Section
+            icon={<Bell size={18} />}
+            title="Notificări panou vendor"
+            subtitle="Controlează notificările pe care le vezi în panoul tău Artfest. Emailurile esențiale (comenzi, plăți, securitate) vor fi trimise în continuare."
+            right={
+              <button
+                className={settingsStyles.primary}
+                onClick={saveNotifications}
+                disabled={!canSaveNotifications}
+              >
+                {notifSaving ? "Se salvează…" : "Salvează notificările"}
+              </button>
+            }
+          >
+            <div className={settingsStyles.grid1}>
+              <label className={settingsStyles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={notifications.inAppMessageNew}
+                  onChange={(e) =>
+                    setNotifications((n) => ({
+                      ...n,
+                      inAppMessageNew: e.target.checked,
+                    }))
+                  }
+                />
+                <span>
+                  Afișează notificări când primesc mesaje noi / lead-uri de la
+                  clienți.
+                </span>
+              </label>
+
+              <label className={settingsStyles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={notifications.inAppBookingUpdates}
+                  onChange={(e) =>
+                    setNotifications((n) => ({
+                      ...n,
+                      inAppBookingUpdates: e.target.checked,
+                    }))
+                  }
+                />
+                <span>
+                  Afișează notificări pentru comenzi și rezervări (creare,
+                  confirmare, modificări, anulare).
+                </span>
+              </label>
+
+              <label className={settingsStyles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={notifications.inAppEventReminders}
+                  onChange={(e) =>
+                    setNotifications((n) => ({
+                      ...n,
+                      inAppEventReminders: e.target.checked,
+                    }))
+                  }
+                />
+                <span>
+                  Afișează remindere în aplicație pentru evenimente și livrări
+                  importante.
+                </span>
+              </label>
+
+              {notifErr && (
+                <div className={settingsStyles.error} role="alert">
+                  {notifErr}
+                </div>
+              )}
+              {notifOk && (
+                <div className={settingsStyles.success}>
+                  ✅ Preferințele de notificare au fost salvate.
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
+
+        {/* MARKETING – reutilizăm aceeași componentă ca la user */}
+        {!loading && active === "marketing" && <MarketingPreferences />}
+
+        {/* DATE FACTURARE */}
         {!loading && active === "billing" && (
           <EmbeddedOnboarding tab="facturare" />
         )}
 
-        {/* ABONAMENT – PaymentTab din onboarding */}
+        {/* ABONAMENT */}
         {!loading && active === "subscription" && (
           <EmbeddedOnboarding tab="plata" />
         )}
 
-        {/* SECURITATE – schimbare parolă în cont */}
+        {/* SECURITATE */}
         {!loading && active === "security" && (
           <Section
             icon={<Shield size={18} />}
@@ -533,10 +711,7 @@ export default function SettingsPage() {
               )}
 
               <div style={{ marginTop: 12 }}>
-                <a
-                  href={FORGOT_PASSWORD_URL}
-                  className={settingsStyles.link}
-                >
+                <a href={FORGOT_PASSWORD_URL} className={settingsStyles.link}>
                   Am uitat parola veche
                 </a>
               </div>
@@ -555,8 +730,8 @@ export default function SettingsPage() {
               <div>
                 <div className={settingsStyles.title}>Ștergere cont</div>
                 <div className={settingsStyles.subtitle}>
-                  Această acțiune nu poate fi anulată. Toate datele tale
-                  vor fi eliminate și nu vei mai putea accesa contul.
+                  Această acțiune nu poate fi anulată. Toate datele tale vor fi
+                  eliminate și nu vei mai putea accesa contul.
                 </div>
               </div>
 

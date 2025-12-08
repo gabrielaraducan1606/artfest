@@ -1,7 +1,11 @@
 // backend/src/routes/vendorNotificationsRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired, requireRole, enforceTokenVersion } from "../api/auth.js";
+import {
+  authRequired,
+  requireRole,
+  enforceTokenVersion,
+} from "../api/auth.js";
 
 const router = Router();
 
@@ -13,16 +17,35 @@ const router = Router();
  */
 router.use(authRequired, enforceTokenVersion, requireRole("VENDOR"));
 
-// helper: obține vendorId pentru userul logat
+/**
+ * helper: obține vendorId pentru userul logat
+ *
+ * încercăm în ordine:
+ * 1) req.user.vendorId (ideal, dacă îl pui în JWT la login)
+ * 2) căutăm vendor după userId (id/sub)
+ */
 async function getVendorIdForUser(req) {
-  // dacă l-ai pus direct în JWT la login, îl folosim
   if (req.user.vendorId) return req.user.vendorId;
 
-  // altfel, îl căutăm în DB
+  const userId = req.user.id || req.user.sub;
+
+  if (!userId) {
+    console.warn(
+      "[getVendorIdForUser] missing userId on req.user:",
+      JSON.stringify(req.user)
+    );
+    return null;
+  }
+
   const vendor = await prisma.vendor.findUnique({
-    where: { userId: req.user.sub },
+    where: { userId },
     select: { id: true },
   });
+
+  if (!vendor) {
+    console.warn("[getVendorIdForUser] no vendor for userId:", userId);
+  }
+
   return vendor?.id || null;
 }
 
@@ -32,7 +55,9 @@ async function getVendorIdForUser(req) {
  */
 router.get("/vendor/notifications", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  if (!vendorId) {
+    return res.status(403).json({ error: "no_vendor_for_user" });
+  }
 
   const { scope = "all", q = "" } = req.query;
 
@@ -43,8 +68,7 @@ router.get("/vendor/notifications", async (req, res) => {
   } else if (scope === "archived") {
     where = { ...where, archived: true };
   } else {
-    // "all" = toate ne-arhivate
-    where = { ...where, archived: false };
+    where = { ...where, archived: false }; // "all" = ne-arhivate
   }
 
   if (q) {
@@ -79,14 +103,17 @@ router.get("/vendor/notifications", async (req, res) => {
 
 /**
  * GET /api/vendor/notifications/unread-count
- * util pentru badge în header
  */
 router.get("/vendor/notifications/unread-count", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
   if (!vendorId) return res.json({ count: 0 });
 
   const count = await prisma.notification.count({
-    where: { vendorId, readAt: null, archived: false },
+    where: {
+      vendorId,
+      readAt: null,
+      archived: false,
+    },
   });
 
   res.json({ count });
@@ -97,7 +124,9 @@ router.get("/vendor/notifications/unread-count", async (req, res) => {
  */
 router.patch("/vendor/notifications/:id/read", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  if (!vendorId) {
+    return res.status(403).json({ error: "no_vendor_for_user" });
+  }
 
   const { id } = req.params;
 
@@ -114,7 +143,9 @@ router.patch("/vendor/notifications/:id/read", async (req, res) => {
  */
 router.patch("/vendor/notifications/:id/archive", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  if (!vendorId) {
+    return res.status(403).json({ error: "no_vendor_for_user" });
+  }
 
   const { id } = req.params;
   const { archived = true } = req.body || {};
@@ -132,7 +163,9 @@ router.patch("/vendor/notifications/:id/archive", async (req, res) => {
  */
 router.patch("/vendor/notifications/read-all", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  if (!vendorId) {
+    return res.status(403).json({ error: "no_vendor_for_user" });
+  }
 
   const result = await prisma.notification.updateMany({
     where: { vendorId, readAt: null, archived: false },

@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
 import { createPortal } from "react-dom";
+import { useLocation } from "react-router-dom";
 import {
   Heart,
   ShoppingCart,
@@ -17,7 +24,7 @@ import {
   LifeBuoy,
 } from "lucide-react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../pages/Auth/Context/useAuth.js";
+import { useAuth } from "../../pages/Auth/Context/context.js";
 import styles from "./Navbar.module.css";
 import logo from "../../assets/LogoArtfest.png";
 import Register from "../../pages/Auth/Register/Register";
@@ -130,14 +137,13 @@ function MobileBar({ me, unreadNotif, cartCount }) {
 
 /* ===================== Navbar principal ===================== */
 export default function Navbar() {
-  const { me, loading:  refresh } = useAuth();
+  const { me, loading: refresh } = useAuth();
 
   const [burgerOpen, setBurgerOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState("login");
   const [partnerOpen, setPartnerOpen] = useState(false);
 
-  const [srvZona, setSrvZona] = useState("");
   const [q, setQ] = useState("");
   const [scope] = useState("toate");
 
@@ -147,10 +153,10 @@ export default function Navbar() {
   const [unreadMsgs, setUnreadMsgs] = useState(0);
   const [unreadNotif, setUnreadNotif] = useState(0);
   const [onboarding, setOnboarding] = useState(null);
+  const [supportUnread, setSupportUnread] = useState(0); // 🔴 contor tichete suport
 
   const [uploadingImg, setUploadingImg] = useState(false);
 
-  // ✅ fără id duplicat — folosim ref-uri separate
   const fileInputDesktopRef = useRef(null);
   const fileInputMobileRef = useRef(null);
 
@@ -227,7 +233,9 @@ export default function Navbar() {
       }
       try {
         const wc = await api("/api/wishlist/count").catch(async () => {
-          const f = await api("/api/favorites/count").catch(() => ({ count: 0 }));
+          const f = await api("/api/favorites/count").catch(() => ({
+            count: 0,
+          }));
           return { count: f.count || 0 };
         });
         const cc = await api("/api/cart/count").catch(() => ({ count: 0 }));
@@ -261,48 +269,138 @@ export default function Navbar() {
         }));
         if (!alive) return;
         setVServices(d?.items || []);
-      } finally {""}
+      } finally {
+        ""
+      }
     })();
     return () => {
       alive = false;
     };
   }, [me?.role]);
 
- useEffect(() => {
-  let alive = true;
-  (async () => {
-    if (me) {
-      const notifUrl =
-        me.role === "VENDOR"
-          ? "/api/vendor/notifications/unread-count"
-          : "/api/notifications/unread-count";
+  // Notificări, mesaje, onboarding
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (me) {
+        const notifUrl =
+          me.role === "VENDOR"
+            ? "/api/vendor/notifications/unread-count"
+            : "/api/notifications/unread-count";
 
-      const notif = await api(notifUrl).catch(() => ({ count: 0 }));
-      if (alive) setUnreadNotif(notif?.count || 0);
-    } else {
-      setUnreadNotif(0);
+        const notif = await api(notifUrl).catch(() => ({ count: 0 }));
+        if (alive) setUnreadNotif(notif?.count || 0);
+      } else {
+        setUnreadNotif(0);
+      }
+
+      // Mesaje + onboarding
+      if (!me) {
+        if (alive) {
+          setUnreadMsgs(0);
+          setOnboarding(null);
+        }
+        return;
+      }
+
+      if (me.role === "VENDOR") {
+        const msgs = await api("/api/inbox/unread-count").catch(() => ({
+          count: 0,
+        }));
+        const ob = await api("/api/vendors/me/onboarding-status").catch(
+          () => null
+        );
+        if (!alive) return;
+        setUnreadMsgs(msgs?.count || 0);
+        setOnboarding(ob || null);
+        return;
+      }
+
+      if (me.role === "USER") {
+        const msgs = await api("/api/user-inbox/unread-count").catch(
+          () => ({ count: 0 })
+        );
+        if (!alive) return;
+        setUnreadMsgs(msgs?.count || 0);
+        setOnboarding(null);
+        return;
+      }
+
+      // orice alt rol (guest, admin)
+      if (alive) {
+        setUnreadMsgs(0);
+        setOnboarding(null);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [me?.role, me]);
+
+  // 🔴 funcție reutilizabilă pentru unread suport
+  const fetchSupportUnread = useCallback(async () => {
+    if (!me) {
+      setSupportUnread(0);
+      return;
     }
 
-    if (me?.role === "VENDOR") {
-      const msgs = await api("/api/inbox/unread-count").catch(() => ({
-        count: 0,
-      }));
-      const ob = await api("/api/vendors/me/onboarding-status").catch(
-        () => null
-      );
-      if (!alive) return;
-      setUnreadMsgs(msgs?.count || 0);
-      setOnboarding(ob || null);
+    let url;
+    if (me.role === "ADMIN") {
+      url = "/api/admin/support/unread-count";
+    } else if (me.role === "VENDOR") {
+      url = "/api/vendor/support/unread-count";
+    } else if (me.role === "USER") {
+      url = "/api/support/unread-count"; // adaptează dacă endpointul e altul
     } else {
-      setUnreadMsgs(0);
-      setOnboarding(null);
+      setSupportUnread(0);
+      return;
     }
-  })();
 
-  return () => {
-    alive = false;
-  };
-}, [me?.role, me]);
+    try {
+      const d = await api(url).catch(() => ({ count: 0 }));
+      setSupportUnread(d?.count || 0);
+    } catch {
+      setSupportUnread(0);
+    }
+  }, [me]);
+
+  // 🔴 Support unread count (admin / vendor / user)
+  useEffect(() => {
+    if (!me) {
+      setSupportUnread(0);
+      return;
+    }
+
+    // încărcare imediată
+    fetchSupportUnread();
+
+    // poll la 15s și la revenirea în tab
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchSupportUnread();
+      }
+    }, 15000);
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        fetchSupportUnread();
+      }
+    };
+
+    const onSupportChanged = () => {
+      fetchSupportUnread();
+    };
+
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("support:changed", onSupportChanged);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("support:changed", onSupportChanged);
+    };
+  }, [me, fetchSupportUnread]);
 
   // Body scroll lock pentru drawer mobil
   useEffect(() => {
@@ -343,7 +441,9 @@ export default function Navbar() {
       url.searchParams.delete("auth");
       const next = url.pathname + (url.search ? url.search : "") + url.hash;
       window.history.replaceState({}, "", next);
-    } catch {""}
+    } catch {
+      ""
+    }
   };
 
   function submitSearch(e) {
@@ -368,37 +468,64 @@ export default function Navbar() {
 
   const isVendor = me?.role === "VENDOR";
 
-  // Profiluri (vendor)
+  const supportHref = useMemo(() => {
+    if (!me) return "/support"; // guest
+
+    if (me.role === "ADMIN") {
+      return "/admin/support"; // admin
+    }
+
+    if (me.role === "VENDOR") {
+      return "/vendor/support"; // dashboard vendor
+    }
+
+    // restul = user normal
+    return "/account/support";
+  }, [me]);
+
   const profileLinks = useMemo(() => {
     const items = [];
     const has = (code) =>
       vServices.some((s) => (s?.type?.code || s?.typeCode) === code);
     if (has("photography")) items.push(["/vendor/photography", "Profil Fotograf"]);
-    if (has("products")) items.push(["/vendor/store", "Profil Magazin / Produse"]);
-    if (has("restaurant")) items.push(["/vendor/restaurant", "Profil Restaurant / Catering"]);
-    if (has("entertainment")) items.push(["/vendor/entertainment", "Profil Formație / DJ / MC"]);
-    if (has("decor_tent")) items.push(["/vendor/decor", "Profil Decor / Cort evenimente"]);
-    if (has("special_fx")) items.push(["/vendor/special-fx", "Profil Efecte speciale"]);
+    if (has("products"))
+      items.push(["/vendor/store", "Profil Magazin / Produse"]);
+    if (has("restaurant"))
+      items.push(["/vendor/restaurant", "Profil Restaurant / Catering"]);
+    if (has("entertainment"))
+      items.push(["/vendor/entertainment", "Profil Formație / DJ / MC"]);
+    if (has("decor_tent"))
+      items.push(["/vendor/decor", "Profil Decor / Cort evenimente"]);
+    if (has("special_fx"))
+      items.push(["/vendor/special-fx", "Profil Efecte speciale"]);
     if (has("florist")) items.push(["/vendor/florist", "Profil Florărie"]);
     if (has("bakery")) items.push(["/vendor/bakery", "Profil Cofetărie"]);
     return items;
   }, [vServices]);
 
-  // CTA „Continuă setup” (vendor)
   const nextStepCTA = useMemo(() => {
-    if (!onboarding?.exists)
-      return isVendor ? { label: "Începe setup", href: "/onboarding" } : null;
-    const map = {
-      selectServices: { label: "Alege servicii", href: "/onboarding" },
-      profile: { label: "Publică profilul", href: "/onboarding/details" },
-      done: null,
-    };
-    return map[onboarding?.nextStep] || null;
-  }, [onboarding, isVendor]);
+    if (!isVendor) return null;
+
+    const hasServices = Array.isArray(vServices) && vServices.length > 0;
+
+    if (!onboarding?.exists) {
+      return hasServices ? null : { label: "Începe setup", href: "/onboarding" };
+    }
+
+    if (onboarding.nextStep === "selectServices") {
+      if (hasServices) return null;
+      return { label: "Alege servicii", href: "/onboarding" };
+    }
+
+    if (onboarding.nextStep === "profile") {
+      return { label: "Publică profilul", href: "/onboarding/details" };
+    }
+
+    return null;
+  }, [onboarding, isVendor, vServices]);
 
   const ACHIZITII_LABEL = "Achiziții";
 
-  // === Căutare după imagine
   async function handleImagePicked(file) {
     if (!file) return;
     try {
@@ -411,12 +538,21 @@ export default function Navbar() {
         body: fd,
       });
 
-      const ids = Array.isArray(res?.items) ? res.items.map((x) => x.id).filter(Boolean) : [];
+      const ids = Array.isArray(res?.items)
+        ? res.items.map((x) => x.id).filter(Boolean)
+        : [];
       if (ids.length > 0) {
         try {
-          sessionStorage.setItem(`imgsearch:${res.searchId || "last"}`, JSON.stringify(res));
-        } catch {""}
-        window.location.href = `/produse?ids=${encodeURIComponent(ids.join(","))}`;
+          sessionStorage.setItem(
+            `imgsearch:${res.searchId || "last"}`,
+            JSON.stringify(res)
+          );
+        } catch {
+          ""
+        }
+        window.location.href = `/produse?ids=${encodeURIComponent(
+          ids.join(",")
+        )}`;
         return;
       }
 
@@ -433,7 +569,6 @@ export default function Navbar() {
     }
   }
 
-  // ✅ fără getElementById — folosim ref-urile dedicate
   function openImagePickerDesktop() {
     fileInputDesktopRef.current?.click();
   }
@@ -441,7 +576,6 @@ export default function Navbar() {
     fileInputMobileRef.current?.click();
   }
 
-  // redirect pentru Login din query param
   const loginRedirect = (() => {
     try {
       const sp = new URLSearchParams(window.location.search);
@@ -450,6 +584,137 @@ export default function Navbar() {
       return "/desktop";
     }
   })();
+
+  const location = useLocation();
+  const isAdmin = me?.role === "ADMIN";
+  const isAdminRoute = location.pathname.startsWith("/admin");
+
+  /* ================= NAVBAR SPECIAL PENTRU ADMIN ================= */
+  if (isAdmin && isAdminRoute) {
+    return (
+      <header className={styles.header}>
+        <div className={styles.container}>
+          {/* Stânga: logo + badge ADMIN */}
+          <div
+            style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}
+          >
+            <a
+              href="/"
+              aria-label="Artfest – Acasă"
+              title="Pagina principală"
+            >
+              <img src={logo} alt="Artfest" className={styles.logo} />
+            </a>
+          </div>
+
+          {/* Centru: link-uri admin */}
+          <nav className={styles.nav} aria-label="Meniu admin">
+            <a className={styles.navLink} href="/admin">
+              Dashboard
+            </a>
+            <a className={styles.navLink} href="/admin/marketing">
+              Marketing
+            </a>
+            <a className={styles.navLink} href="/admin/maintenance">
+              Mentenanta
+            </a>
+            {/* aici poți adăuga și alte link-uri de admin pe viitor */}
+          </nav>
+
+          {/* Dreapta: temă + suport + avatar + logout */}
+          <div className={styles.actionsRight}>
+            <button
+              className={styles.themeBtn}
+              onClick={toggleTheme}
+              aria-label="Comută tema"
+              type="button"
+              title="Comută tema"
+            >
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+
+            <a
+              className={styles.iconWrapper}
+              href={supportHref}
+              title="Asistență tehnică"
+              aria-label="Asistență tehnică"
+            >
+              <LifeBuoy size={22} />
+              {supportUnread > 0 && (
+                <span className={styles.badge}>
+                  {Math.min(supportUnread, 99)}
+                </span>
+              )}
+            </a>
+
+            <div className={styles.dropdown}>
+              <button
+                className={styles.avatarBtn}
+                title="Cont admin"
+                aria-label="Cont admin"
+                type="button"
+              >
+                <span className={styles.avatar}>{initials}</span>
+                <ChevronDown className={styles.dropdownIcon} size={14} />
+              </button>
+              <div
+                className={styles.dropdownContent}
+                style={{ padding: 10, minWidth: 240 }}
+              >
+                <ul
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    listStyle: "none",
+                    display: "grid",
+                    gap: 4,
+                  }}
+                >
+                  <li>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: "var(--color-text-muted)",
+                      }}
+                    >
+                      Logat ca <b>{me?.email}</b>
+                    </span>
+                  </li>
+                  <li
+                    style={{
+                      borderTop: "1px solid var(--color-border)",
+                      marginTop: 6,
+                      paddingTop: 6,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className={styles.accountBtn}
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        try {
+                          await api("/api/auth/logout", { method: "POST" });
+                          await refresh().catch(() => {});
+                        } catch {
+                          ""
+                        }
+                        window.location.href = "/autentificare";
+                      }}
+                      style={{ width: "100%", justifyContent: "center" }}
+                    >
+                      Deconectare
+                    </button>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  /* ================= NAVBAR NORMAL (user / vendor / guest) ================= */
 
   return (
     <header className={styles.header}>
@@ -482,45 +747,62 @@ export default function Navbar() {
             <>
               {/* ===== Achiziții ===== */}
               <div className={styles.dropdown} tabIndex={0}>
-                <a className={styles.navLink} href="#" role="button" aria-haspopup="menu">
+                <a
+                  className={styles.navLink}
+                  href="#"
+                  role="button"
+                  aria-haspopup="menu"
+                >
                   {ACHIZITII_LABEL}
                   <ChevronDown className={styles.dropdownIcon} size={14} />
                 </a>
-                <div className={styles.dropdownContent} role="menu" style={{ padding: 10, minWidth: 280 }}>
+                <div
+                  className={styles.dropdownContent}
+                  role="menu"
+                  style={{ padding: 10, minWidth: 280 }}
+                >
                   <div className={styles.menuGrid}>
                     <div>
                       <div className={styles.groupLabel}>Servicii digitale</div>
                       <div className={styles.colGrid}>
-                        <a href="/digitale/invitatie" role="menuitem">Invitație tip site</a>
-                        <a href="/digitale/asezare-mese" role="menuitem">Așezarea la mese (SMS)</a>
-                        <a href="/digitale/album-qr" role="menuitem">Album QR</a>
+                        <a href="/digitale/invitatie" role="menuitem">
+                          Invitație tip site
+                        </a>
+                        <a href="/digitale/asezare-mese" role="menuitem">
+                          Așezarea la mese (SMS)
+                        </a>
+                        <a href="/digitale/album-qr" role="menuitem">
+                          Album QR
+                        </a>
                       </div>
                     </div>
                     <div>
                       <div className={styles.groupLabel}>Produse</div>
                       <div className={styles.colGrid}>
-                        <a href="/produse" role="menuitem">Produse</a>
+                        <a href="/produse" role="menuitem">
+                          Produse
+                        </a>
                       </div>
                     </div>
                     <div>
                       <div className={styles.groupLabel}>Servicii</div>
                       <div className={styles.colGrid}>
-                        <a href="/servicii" role="menuitem">Toate serviciile</a>
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            window.location.href = `/servicii?zona=${encodeURIComponent(srvZona)}`;
+                        <a href="/magazine" role="menuitem">
+                          Magazine
+                        </a>
+                        <div
+                          style={{
+                            marginTop: 10,
+                            fontSize: 12,
+                            color: "var(--color-text-muted)",
+                            fontStyle: "italic",
+                            borderTop: "1px solid var(--color-border)",
+                            paddingTop: 6,
                           }}
-                          className={styles.zoneForm}
                         >
-                          <input
-                            className={styles.field}
-                            placeholder="Zonă (ex: București)"
-                            value={srvZona}
-                            onChange={(e) => setSrvZona(e.target.value)}
-                          />
-                          <button className={styles.primaryBtn} type="submit">Caută în zonă</button>
-                        </form>
+                          * Toate serviciile pentru evenimente vor fi
+                          disponibile în curând
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -529,15 +811,28 @@ export default function Navbar() {
 
               {/* ===== Profiluri ===== */}
               {profileLinks.length <= 1 ? (
-                <a className={styles.navLink} href={profileLinks[0]?.[0] || "/onboarding"}>
+                <a
+                  className={styles.navLink}
+                  href={profileLinks[0]?.[0] || "/onboarding"}
+                >
                   {profileLinks[0]?.[1] || "Profil"}
                 </a>
               ) : (
                 <div className={styles.dropdown} tabIndex={0}>
-                  <a className={styles.navLink} href="#" role="button" aria-haspopup="menu">
-                    Profiluri <ChevronDown className={styles.dropdownIcon} size={14} />
+                  <a
+                    className={styles.navLink}
+                    href="#"
+                    role="button"
+                    aria-haspopup="menu"
+                  >
+                    Profiluri{" "}
+                    <ChevronDown className={styles.dropdownIcon} size={14} />
                   </a>
-                  <div className={styles.dropdownContent} role="menu" style={{ padding: 8 }}>
+                  <div
+                    className={styles.dropdownContent}
+                    role="menu"
+                    style={{ padding: 8 }}
+                  >
                     <ul
                       style={{
                         margin: 0,
@@ -549,7 +844,9 @@ export default function Navbar() {
                     >
                       {profileLinks.map(([href, label]) => (
                         <li key={href}>
-                          <a href={href} role="menuitem">{label}</a>
+                          <a href={href} role="menuitem">
+                            {label}
+                          </a>
                         </li>
                       ))}
                     </ul>
@@ -557,11 +854,19 @@ export default function Navbar() {
                 </div>
               )}
 
-              {/* ===== Vizitatori / Mesaje / Asistență ===== */}
-             <a className={styles.navLink} href="/vendor/orders">Comenzile mele</a>
-            <a className={styles.navLink} href="/vendor/visitors">Vizitatori</a>    
+              {/* ===== Vizitatori / Comenzi ===== */}
+              <a className={styles.navLink} href="/vendor/orders">
+                Comenzile mele
+              </a>
+              <a className={styles.navLink} href="/vendor/visitors">
+                Vizitatori
+              </a>
               {nextStepCTA && (
-                <a className={styles.accountBtn} href={nextStepCTA.href} title="Următorul pas">
+                <a
+                  className={styles.accountBtn}
+                  href={nextStepCTA.href}
+                  title="Următorul pas"
+                >
                   {nextStepCTA.label}
                 </a>
               )}
@@ -569,26 +874,50 @@ export default function Navbar() {
           ) : (
             <>
               <div className={styles.dropdown} tabIndex={0}>
-                <a className={styles.navLink} href="#" role="button" aria-haspopup="menu">
+                <a
+                  className={styles.navLink}
+                  href="#"
+                  role="button"
+                  aria-haspopup="menu"
+                >
                   Servicii digitale
                   <ChevronDown className={styles.dropdownIcon} size={14} />
                 </a>
                 <div className={styles.dropdownContent} role="menu">
-                  <a href="/digitale/invitatie" role="menuitem">Invitație tip site</a>
-                  <a href="/digitale/asezare-mese" role="menuitem">Așezarea la mese (SMS)</a>
-                  <a href="/digitale/album-qr" role="menuitem">Album QR</a>
+                  <a href="/digitale/invitatie" role="menuitem">
+                    Invitație tip site
+                  </a>
+                  <a href="/digitale/asezare-mese" role="menuitem">
+                    Așezarea la mese (SMS)
+                  </a>
+                  <a href="/digitale/album-qr" role="menuitem">
+                    Album QR
+                  </a>
                 </div>
               </div>
 
-              <a className={styles.navLink} href="/produse">Produse</a>
+              <a className={styles.navLink} href="/produse">
+                Produse
+              </a>
 
               <div className={styles.dropdown} tabIndex={0}>
-                <a className={styles.navLink} href="#" role="button" aria-haspopup="menu">
+                <a
+                  className={styles.navLink}
+                  href="#"
+                  role="button"
+                  aria-haspopup="menu"
+                >
                   Servicii
                   <ChevronDown className={styles.dropdownIcon} size={14} />
                 </a>
-                <div className={styles.dropdownContent} role="menu" style={{ padding: 8 }}>
-                  <a href="/magazine" role="menuitem">Magazine</a>
+                <div
+                  className={styles.dropdownContent}
+                  role="menu"
+                  style={{ padding: 8 }}
+                >
+                  <a href="/magazine" role="menuitem">
+                    Magazine
+                  </a>
                   <div
                     style={{
                       marginTop: 10,
@@ -599,17 +928,23 @@ export default function Navbar() {
                       paddingTop: 6,
                     }}
                   >
-                    * Toate serviciile pentru evenimente vor fi disponibile în curând
+                    * Toate serviciile pentru evenimente vor fi disponibile în
+                    curând
                   </div>
                 </div>
               </div>
             </>
           )}
 
-          {/* Search – desktop */}
+          {/* Search – desktop (doar pentru non-vendor) */}
           {me?.role !== "VENDOR" && (
-            <form className={styles.search} onSubmit={submitSearch} role="search" aria-label="Căutare">
-              <SearchIcon size={18} className={styles.searchIcon} />
+            <form
+              className={styles.search}
+              onSubmit={submitSearch}
+              role="search"
+              aria-label="Căutare"
+            >
+              <SearchIcon size={30} className={styles.searchIcon} />
               <input
                 className={styles.input}
                 value={q}
@@ -618,7 +953,6 @@ export default function Navbar() {
                 aria-label="Caută"
               />
 
-              {/* ✅ input fișier (desktop) */}
               <input
                 ref={fileInputDesktopRef}
                 type="file"
@@ -651,7 +985,7 @@ export default function Navbar() {
           />
         )}
 
-        {/* Dreapta: acțiuni + cont + ASISTENȚĂ */}
+        {/* Dreapta: acțiuni + cont + asistență */}
         <div className={styles.actionsRight}>
           <button
             className={styles.themeBtn}
@@ -663,13 +997,43 @@ export default function Navbar() {
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
 
+          {/* Icon Desktop vendor */}
+          {isVendor && (
+            <a
+              className={styles.iconWrapper}
+              href="/desktop"
+              title="Desktop vendor"
+              aria-label="Desktop vendor"
+            >
+              <LayoutGrid size={22} />
+            </a>
+          )}
+
+          {/* Icon Desktop user (role USER) */}
+          {me && !isVendor && (
+            <a
+              className={styles.iconWrapper}
+              href="/desktop-user"
+              title="Desktop"
+              aria-label="Desktop"
+            >
+              <LayoutGrid size={22} />
+            </a>
+          )}
+
+          {/* Asistență (în funcție de tipul userului) */}
           <a
             className={styles.iconWrapper}
-            href="/asistenta-tehnica"
+            href={supportHref}
             title="Asistență tehnică"
             aria-label="Asistență tehnică"
           >
             <LifeBuoy size={22} />
+            {supportUnread > 0 && (
+              <span className={styles.badge}>
+                {Math.min(supportUnread, 99)}
+              </span>
+            )}
           </a>
 
           {me && (
@@ -688,10 +1052,10 @@ export default function Navbar() {
             </a>
           )}
 
-          {isVendor && (
+          {me && (
             <a
               className={styles.iconWrapper}
-              href="/mesaje"
+              href={isVendor ? "/mesaje" : "/cont/mesaje"}
               title="Mesaje"
               aria-label="Mesaje"
             >
@@ -704,7 +1068,7 @@ export default function Navbar() {
             </a>
           )}
 
-          {/* Wishlist (DESKTOP): doar când utilizatorul este logat) */}
+          {/* Wishlist (desktop) */}
           {me && (
             <a
               className={styles.iconWrapper}
@@ -721,7 +1085,7 @@ export default function Navbar() {
             </a>
           )}
 
-          {/* Coșul */}
+          {/* Coș */}
           <a
             className={styles.iconWrapper}
             href="/cos"
@@ -734,19 +1098,8 @@ export default function Navbar() {
                 {Math.min(cartCount, 99)}
               </span>
             )}
-            
           </a>
-  {/* 👇 Icon nou pentru Desktop – doar pentru vendor */}
-          {isVendor && (
-            <a
-              className={styles.iconWrapper}
-              href="/desktop"
-              title="Desktop vendor"
-              aria-label="Desktop vendor"
-            >
-              <LayoutGrid size={22} />
-            </a>
-          )}
+
           {/* Account */}
           {!me ? (
             <>
@@ -770,8 +1123,7 @@ export default function Navbar() {
                 Devino partener
               </button>
             </>
-                    ) : (
-            // Dropdown cont
+          ) : (
             <div className={styles.dropdown}>
               <button
                 className={styles.avatarBtn}
@@ -800,9 +1152,32 @@ export default function Navbar() {
                       {isVendor ? "Cont (mobil)" : "Contul meu"}
                     </a>
                   </li>
-                  <li>
-                    <a href="/setari">Setări</a>
-                  </li>
+                  {isVendor ? (
+                    <>
+                      <li>
+                        <a href="/vendor/orders">Comenzile mele</a>
+                      </li>
+                      <li>
+                        <a href="/vendor/invoices">Facturi</a>
+                      </li>
+                      <li>
+                        <a href="/setari">Setări</a>
+                      </li>
+                    </>
+                  ) : (
+                    <>
+                      <li>
+                        <a href="/comenzile-mele">Comenzile mele</a>
+                      </li>
+                      <li>
+                        <a href="/facturi">Facturi</a>
+                      </li>
+                      <li>
+                        <a href="/cont/setari">Setări</a>
+                      </li>
+                    </>
+                  )}
+
                   <li
                     style={{
                       borderTop: "1px solid var(--color-border)",
@@ -818,7 +1193,9 @@ export default function Navbar() {
                         try {
                           await api("/api/auth/logout", { method: "POST" });
                           await refresh().catch(() => {});
-                        } catch {""}
+                        } catch {
+                          ""
+                        }
                         window.location.href = "/autentificare";
                       }}
                       style={{ width: "100%", justifyContent: "center" }}
@@ -830,19 +1207,17 @@ export default function Navbar() {
               </div>
             </div>
           )}
-
         </div>
       </div>
 
-      {/* === Mobil: sus — Mesaje/Notificări la stânga, Căutare la mijloc, Asistență la dreapta === */}
+      {/* Mobile: top row cu mesaje/notif + search + asistență */}
       <div className={styles.mobileSearch}>
         <div className={styles.mobileSearchRow}>
-          {/* Stânga: Mesaje (vendor) + Notificări (logat) */}
           <div className={styles.mobileSearchLeft}>
-            {isVendor && (
+            {me && (
               <a
                 className={styles.iconWrapper}
-                href="/mesaje"
+                href={isVendor ? "/mesaje" : "/cont/mesaje"}
                 title="Mesaje"
                 aria-label="Mesaje"
               >
@@ -854,6 +1229,7 @@ export default function Navbar() {
                 )}
               </a>
             )}
+
             {me && (
               <a
                 className={styles.iconWrapper}
@@ -871,7 +1247,6 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Căutare (se întinde) */}
           <form
             className={`${styles.search} ${styles.searchSm}`}
             onSubmit={submitSearch}
@@ -879,7 +1254,7 @@ export default function Navbar() {
             aria-label="Căutare"
             style={{ flex: 1 }}
           >
-            <SearchIcon size={18} className={styles.searchIcon}/>
+            <SearchIcon size={18} className={styles.searchIcon} />
             <input
               className={styles.input}
               value={q}
@@ -888,7 +1263,6 @@ export default function Navbar() {
               aria-label="Caută"
             />
 
-            {/* ✅ input fișier (mobil) */}
             <input
               ref={fileInputMobileRef}
               type="file"
@@ -909,15 +1283,19 @@ export default function Navbar() {
             </button>
           </form>
 
-          {/* Dreapta: Asistență tehnică */}
           <div className={styles.mobileSearchRight}>
             <a
               className={styles.iconWrapper}
-              href="/asistenta-tehnica"
+              href={supportHref}
               title="Asistență tehnică"
               aria-label="Asistență tehnică"
             >
               <LifeBuoy size={22} />
+              {supportUnread > 0 && (
+                <span className={styles.badgeMini}>
+                  {Math.min(supportUnread, 99)}
+                </span>
+              )}
             </a>
           </div>
         </div>
@@ -934,7 +1312,9 @@ export default function Navbar() {
             className={styles.sellBtn}
             style={{
               borderColor:
-                authTab === "login" ? "var(--color-primary)" : "var(--color-border)",
+                authTab === "login"
+                  ? "var(--color-primary)"
+                  : "var(--color-border)",
             }}
             onClick={() => setAuthTab("login")}
             type="button"
@@ -976,7 +1356,7 @@ export default function Navbar() {
         <Register defaultAsVendor={true} inModal />
       </Modal>
 
-      {/* === Mobile: Bottom Navigation === */}
+      {/* Mobile bottom navigation */}
       <MobileBar me={me} unreadNotif={unreadNotif} cartCount={cartCount} />
     </header>
   );

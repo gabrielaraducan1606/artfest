@@ -1,0 +1,371 @@
+/* InvoicePage.module.css */
+
+.page {
+  min-height: calc(100vh - var(--appbar-h));
+  padding: 24px 20px 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* ================== Header pagină ================== */
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.title {
+  font-family: var(--font-title);
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-muted);
+}
+
+.headerRight {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+/* ================== Butoane & link-buton ================== */
+
+.linkBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-primary);
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.linkBtn:hover {
+  background: rgba(139, 92, 246, 0.05);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* ================== Card date facturare (vendor only) ================== */
+
+.billingCard {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.billingGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 16px;
+  font-size: 0.9rem;
+}
+
+.billingGrid div {
+  color: var(--color-text);
+}
+
+.billingGrid strong {
+  font-weight: 600;
+}
+
+/* ================== Rezumat (carduri sus) ================== */
+
+.summaryRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.summaryCard {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summaryLabel {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.summaryValue {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.summaryPill {
+  margin-top: 2px;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+/* ================== Filtre ================== */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.filterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.filterGroup label {
+  color: var(--color-muted);
+}
+
+.filterGroup select {
+  min-width: 160px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font: inherit;
+  outline: none;
+}
+
+.filterGroup select:focus {
+  border-color: var(--color-primary);
+}
+
+/* ================== Tabel facturi ================== */
+
+.tableWrap {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  background: rgba(0, 0, 0, 0.01);
+  font-weight: 500;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+}
+
+.table tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.01);
+}
+
+.table tbody tr:hover {
+  background: rgba(139, 92, 246, 0.04);
+}
+
+/* ================== Status badge ================== */
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.status_PAID {
+  color: var(--color-success);
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.07);
+}
+
+.status_UNPAID {
+  color: var(--color-muted);
+  border-color: rgba(107, 114, 128, 0.35);
+  background: rgba(107, 114, 128, 0.07);
+}
+
+.status_OVERDUE {
+  color: var(--color-warning);
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.07);
+}
+
+.status_CANCELLED {
+  color: var(--color-danger);
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.07);
+}
+
+/* ================== Mesaje info / eroare ================== */
+
+.info {
+  margin: 12px 2px;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.error {
+  margin: 12px 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
+
+/* ================== Tab-uri (vendor only) ================== */
+
+.tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--color-border);
+  margin-bottom: 16px;
+}
+
+.tab {
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: var(--color-muted);
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: rgba(139, 92, 246, 0.07);
+  color: var(--color-primary);
+}
+
+.tabActive {
+  background: var(--surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Panel placeholder pentru tab-ul 2 (dacă mai ai nevoie) */
+.placeholderPanel {
+  margin-top: 10px;
+}
+
+/* ================== Responsive ================== */
+
+@media (max-width: 900px) {
+  .billingGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 16px 12px 24px;
+  }
+
+  .pageHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .headerRight {
+    align-self: stretch;
+  }
+
+  .headerRight .linkBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .summaryRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tableWrap {
+    border-radius: var(--radius);
+  }
+
+  .table {
+    font-size: 0.85rem;
+  }
+
+  .table th,
+  .table td {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 600px) {
+  .billingGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .filterGroup select {
+    min-width: 0;
+  }
+
+  .tableWrap {
+    overflow-x: auto;
+  }
+
+  .table {
+    min-width: 700px; /* scroll orizontal pe ecrane foarte mici */
+  }
+}
+.clientSubline {
+  font-size: 12px;
+  opacity: 0.8;
+}

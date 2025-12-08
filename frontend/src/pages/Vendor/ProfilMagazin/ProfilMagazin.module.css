@@ -116,6 +116,32 @@
 .followBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
 .followBtn:active { transform: translateY(1px); }
 .followBtn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary), transparent 65%); }
+/* === Urmărire magazin: badge + stare activă === */
+
+/* badge cu numărul de urmăritori */
+.followersBadge {
+  align-self: center;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  border: 1px dashed var(--color-border);
+  background: color-mix(in oklab, var(--surface), var(--color-primary) 4%);
+  white-space: nowrap;
+}
+
+/* buton când user-ul DEJA urmărește magazinul */
+.followBtnActive {
+  background: transparent;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.followBtnActive:hover {
+  background: color-mix(in oklab, var(--color-primary), var(--surface) 90%);
+  border-color: var(--color-hover);
+}
 
 .primaryBtn {
   background: var(--color-primary); color: #fff; border: 0; border-radius: 10px;

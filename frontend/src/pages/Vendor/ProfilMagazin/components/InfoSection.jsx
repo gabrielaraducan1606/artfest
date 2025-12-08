@@ -7,7 +7,6 @@ export default function InfoSection({
   tags = [],
   city,
   country,
-  address,
   publicEmail,
   phone,
   website,
@@ -60,7 +59,9 @@ export default function InfoSection({
             <span className={s.metaLabel}>Tag-uri</span>
             <div className={s.tags}>
               {tags.map((t, i) => (
-                <span key={i} className={s.tag}>{t}</span>
+                <span key={i} className={s.tag}>
+                  {t}
+                </span>
               ))}
             </div>
           </div>
@@ -70,24 +71,24 @@ export default function InfoSection({
           <div className={s.metaRow}>
             <span className={s.metaLabel}>Locație</span>
             <span className={s.metaValue}>
-              {city}{country ? `, ${country}` : ""}
+              {city}
+              {country ? `, ${country}` : ""}
             </span>
           </div>
         )}
 
-        {(editInfo || address) && (
+        {/* 🔒 Adresa completă – DOAR în modul edit (nu este afișată public) */}
+        {editInfo && (
           <div className={s.metaRow}>
-            <span className={s.metaLabel}>Adresă</span>
-            {!editInfo ? (
-              <span className={s.metaValue}>{address || "—"}</span>
-            ) : (
-              <input
-                className={s.inputInline}
-                value={infoDraft.address}
-                onChange={(e) => onChangeInfoDraft({ address: e.target.value })}
-                placeholder="Str. Exemplu 10, București"
-              />
-            )}
+            <span className={s.metaLabel}>Adresă (internă)</span>
+            <input
+              className={s.inputInline}
+              value={infoDraft.address}
+              onChange={(e) =>
+                onChangeInfoDraft({ address: e.target.value })
+              }
+              placeholder="Str. Exemplu 10, București, jud. X"
+            />
           </div>
         )}
 
@@ -102,9 +103,15 @@ export default function InfoSection({
                   value={infoDraft.deliveryArr}
                   onChange={onCountiesChange}
                   suggestions={countySuggestions}
-                  placeholder={countiesLoading ? "Se încarcă județele…" : "Toată țara, București, Ilfov, Prahova…"}
+                  placeholder={
+                    countiesLoading
+                      ? "Se încarcă județele…"
+                      : "Toată țara, București, Ilfov, Prahova…"
+                  }
                 />
-                {countiesErr && <small className={s.errorField}>{countiesErr}</small>}
+                {countiesErr && (
+                  <small className={s.errorField}>{countiesErr}</small>
+                )}
               </div>
             )}
           </div>
@@ -119,7 +126,9 @@ export default function InfoSection({
               <input
                 className={s.inputInline}
                 value={infoDraft.leadTimes}
-                onChange={(e) => onChangeInfoDraft({ leadTimes: e.target.value })}
+                onChange={(e) =>
+                  onChangeInfoDraft({ leadTimes: e.target.value })
+                }
                 placeholder="Ex: 3–5 zile lucrătoare"
               />
             )}
@@ -146,7 +155,9 @@ export default function InfoSection({
                 className={s.inputInline}
                 value={infoDraft.email}
                 type="email"
-                onChange={(e) => onChangeInfoDraft({ email: e.target.value })}
+                onChange={(e) =>
+                  onChangeInfoDraft({ email: e.target.value })
+                }
                 placeholder="contact@brand.ro"
               />
             )}
@@ -172,7 +183,9 @@ export default function InfoSection({
               <input
                 className={s.inputInline}
                 value={infoDraft.phone}
-                onChange={(e) => onChangeInfoDraft({ phone: e.target.value })}
+                onChange={(e) =>
+                  onChangeInfoDraft({ phone: e.target.value })
+                }
                 placeholder="+40 7xx xxx xxx"
               />
             )}

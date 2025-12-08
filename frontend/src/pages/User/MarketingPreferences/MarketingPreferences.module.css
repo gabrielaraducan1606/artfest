@@ -1,0 +1,215 @@
+@import "../../../styles/variables.css";
+/* ============================
+   Card general pe pagină
+============================ */
+.pageWrapper {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.title {
+  font-family: var(--font-title);
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  font-size: 15px;
+  color: var(--color-muted);
+  margin-bottom: 24px;
+}
+
+/* ============================
+   Card container
+============================ */
+.card {
+  background: var(--surface);
+  padding: 24px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border);
+  margin-bottom: 28px;
+}
+
+.cardTitle {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+/* ============================
+   Form Groups
+============================ */
+.section {
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.section:last-child {
+  border-bottom: none;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.sectionDescription {
+  color: var(--color-muted);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+/* ============================
+   Radio group
+============================ */
+.radioGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.radioItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.radioItem:hover {
+  background: rgba(0,0,0,0.03);
+}
+
+.radioItem input[type="radio"] {
+  margin-top: 3px;
+}
+
+/* ============================
+   Checkbox grid
+============================ */
+.checkboxGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.checkboxItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.checkboxItem:hover {
+  background: rgba(0,0,0,0.03);
+}
+
+.checkboxLabel {
+  font-size: 14px;
+}
+
+/* ============================
+   Vendor block section
+============================ */
+.vendorBlockList {
+  margin-top: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.vendorBlockItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.vendorBlockItem:last-child {
+  border-bottom: none;
+}
+
+.vendorName {
+  font-weight: 500;
+}
+
+.unblockButton {
+  background: none;
+  border: none;
+  color: var(--color-danger);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.unblockButton:hover {
+  text-decoration: underline;
+}
+
+/* ============================
+   Save button
+============================ */
+.saveButton {
+  width: 100%;
+  margin-top: 20px;
+  padding: 12px;
+  font-size: 16px;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.saveButton:hover {
+  background: var(--color-hover);
+}
+
+.saveButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Success & error states */
+.successMsg {
+  margin-top: 16px;
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.errorMsg {
+  margin-top: 16px;
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+/* ============================
+   Responsive
+============================ */
+@media (max-width: 600px) {
+  .pageWrapper {
+    padding: 16px;
+  }
+
+  .title {
+    font-size: 24px;
+  }
+
+  .card {
+    padding: 18px;
+  }
+}

@@ -1,11 +1,10 @@
 /* ============ ProductCard – compact, premium, responsive ============ */
 
-/* Variabile locale pe card (evită conflicte globale) */
 .card {
   --pc-w: 320px;
   --pc-radius: 14px;
   --pc-gap: 10px;
-  --pc-img-h: 180px;
+  --pc-img-h: 190px;
 
   max-width: var(--pc-w);
   width: 100%;
@@ -19,7 +18,12 @@
 
   transition: transform 0.12s ease, box-shadow 0.2s ease,
     border-color 0.2s ease, background-color 0.2s ease;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
+
 .card:hover {
   transform: translateY(-2px);
   border-color: color-mix(
@@ -30,17 +34,19 @@
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.08);
 }
 
-/* stare pentru produse inactive/ascunse (folosită în JSX) */
 .cardInactive {
   opacity: 0.6;
   filter: grayscale(0.1);
 }
 
 /* ===== Media / imagine ===== */
+
 .media {
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
 }
+
 .image {
   display: block;
   width: 100%;
@@ -52,11 +58,13 @@
   background: var(--color-bg);
   transition: transform 0.25s ease;
 }
+
 .media:hover .image {
   transform: scale(1.02);
 }
 
-/* Badges pe imagine */
+/* ===== Badges ===== */
+
 .badges {
   position: absolute;
   top: 10px;
@@ -66,6 +74,7 @@
   gap: 6px;
   z-index: 2;
 }
+
 .badge {
   padding: 4px 8px;
   border-radius: 999px;
@@ -82,7 +91,6 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* tonuri pentru status */
 .badgeSuccess {
   background: color-mix(
     in srgb,
@@ -96,6 +104,7 @@
   );
   color: #166534;
 }
+
 .badgeWarning {
   background: color-mix(
     in srgb,
@@ -109,6 +118,7 @@
   );
   color: #92400e;
 }
+
 .badgeInfo {
   background: color-mix(
     in srgb,
@@ -122,6 +132,7 @@
   );
   color: #1e3a8a;
 }
+
 .badgeDanger {
   background: color-mix(
     in srgb,
@@ -197,7 +208,8 @@
   backdrop-filter: blur(2px);
 }
 
-/* ===== Dots (carousel indicators) ===== */
+/* ===== Dots ===== */
+
 .dots {
   position: absolute;
   left: 0;
@@ -210,6 +222,7 @@
   gap: 6px;
   pointer-events: auto;
 }
+
 .dot {
   width: 7px;
   height: 7px;
@@ -228,10 +241,12 @@
     background-color 0.15s ease,
     border-color 0.15s ease, opacity 0.15s ease;
 }
+
 .dot:hover {
   opacity: 1;
   transform: scale(1.1);
 }
+
 .dotActive {
   background: var(--color-primary);
   border-color: var(--color-primary);
@@ -240,9 +255,13 @@
 }
 
 /* ===== Conținut ===== */
+
 .cardBody {
   padding: calc(var(--pc-gap) + 2px)
     calc(var(--pc-gap) + 4px) var(--pc-gap);
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
 }
 
 .cardTitle {
@@ -252,7 +271,6 @@
   word-break: break-word;
 }
 
-/* hint de culoare principală sub titlu */
 .colorHint {
   margin: 2px 0 0;
   font-size: 0.85rem;
@@ -267,7 +285,6 @@
   margin-top: 4px;
 }
 
-/* zona preț + mini-informații */
 .metaLeft {
   display: flex;
   flex-direction: column;
@@ -285,12 +302,12 @@
   color: var(--color-muted);
 }
 
-/* ține „6 zile” sau „23 buc” pe un singur rând */
 .metaInline {
   white-space: nowrap;
 }
 
 /* Pastilă categorie */
+
 .catPill {
   border: 1px solid var(--color-border);
   background: var(--surface);
@@ -303,6 +320,7 @@
   transition: border-color 0.2s ease, background 0.2s ease,
     color 0.2s ease;
 }
+
 .catPill:hover {
   border-color: color-mix(
     in srgb,
@@ -316,14 +334,16 @@
   );
 }
 
-/* Acțiuni */
+/* ===== Acțiuni ===== */
+
 .cardActions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 10px;
   flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 8px;
 }
 
 .ownerRow {
@@ -332,7 +352,6 @@
   flex-wrap: wrap;
 }
 
-/* Icon buttons (fav / cart) */
 .iconRow {
   display: flex;
   gap: 8px;
@@ -350,6 +369,7 @@
     background-color 0.2s ease, border-color 0.2s ease,
     color 0.2s ease, box-shadow 0.2s ease;
 }
+
 .iconBtn {
   border: 2px solid var(--color-primary);
   background: var(--color-primary);
@@ -361,10 +381,12 @@
       transparent
     );
 }
+
 .iconBtn:hover {
   background: var(--color-hover);
   border-color: var(--color-hover);
 }
+
 .iconBtn:active,
 .iconBtnOutline:active {
   transform: translateY(1px);
@@ -375,6 +397,7 @@
   background: var(--surface);
   color: var(--color-text);
 }
+
 .iconBtnOutline:hover {
   border-color: color-mix(
     in srgb,
@@ -388,7 +411,6 @@
   );
 }
 
-/* Stare „favorit” */
 .heartFilled {
   color: var(--color-primary);
   border-color: color-mix(
@@ -412,7 +434,8 @@
     color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
-/* ===== Galerie (navi & thumbs) ===== */
+/* ===== Galerie – nav ===== */
+
 .navBtn {
   position: absolute;
   top: 50%;
@@ -428,17 +451,21 @@
   cursor: pointer;
   z-index: 2;
 }
+
 .navPrev {
   left: 8px;
 }
+
 .navNext {
   right: 8px;
 }
+
 .navBtn:hover {
   background: rgb(0 0 0 / 0.6);
 }
 
-/* ===== Butoane owner – icon-only ===== */
+/* ===== Butoane owner ===== */
+
 .ownerIconBtn {
   width: 40px;
   height: 40px;
@@ -454,6 +481,7 @@
     box-shadow 0.2s ease, transform 0.08s ease;
   box-shadow: var(--shadow-sm);
 }
+
 .ownerIconBtn:hover {
   border-color: color-mix(
     in srgb,
@@ -467,6 +495,7 @@
   );
   box-shadow: var(--shadow-md);
 }
+
 .ownerIconBtn:active {
   transform: translateY(1px);
 }
@@ -484,6 +513,7 @@
   );
   color: var(--color-danger);
 }
+
 .ownerIconDanger:hover {
   border-color: var(--color-danger);
   background: color-mix(
@@ -499,10 +529,12 @@
     );
 }
 
-/* Tooltips custom pentru icon-only */
+/* Tooltips */
+
 .ownerIconTip[data-tip] {
   position: relative;
 }
+
 .ownerIconTip[data-tip]::after {
   content: attr(data-tip);
   position: absolute;
@@ -524,6 +556,7 @@
   box-shadow: var(--shadow-sm);
   z-index: 3;
 }
+
 .ownerIconTip:hover::after,
 .ownerIconTip:focus-visible::after {
   opacity: 1;
@@ -545,22 +578,102 @@
 }
 
 /* ===== Responsive ===== */
-@media (max-width: 480px) {
-  .card {
-    --pc-w: 300px;
-    --pc-img-h: 170px;
-  }
-  .cardBody {
-    padding: 10px;
-  }
-}
-@media (max-width: 360px) {
+
+/* Tablet & mobile – ușor mai compacte */
+@media (max-width: 768px) {
   .card {
     --pc-w: 100%;
+    --pc-img-h: 180px;
+    --pc-radius: 12px;
+  }
+
+  .cardBody {
+    padding: 10px 10px 9px;
+  }
+
+  .cardTitle {
+    font-size: 0.96rem;
+  }
+
+  .badge {
+    font-size: 11px;
+    padding: 3px 7px;
+  }
+
+  .badgeImgs {
+    min-width: 24px;
+    height: 24px;
+    font-size: 11px;
+  }
+
+  .iconBtn,
+  .iconBtnOutline {
+    width: 34px;
+    height: 34px;
+  }
+
+  .ownerIconBtn {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* Telefoane mici – și mai compacte */
+@media (max-width: 480px) {
+  .card {
+    --pc-img-h: 170px;
+  }
+
+  .cardBody {
+    padding: 9px 9px 8px;
+  }
+
+  .cardTitle {
+    font-size: 0.94rem;
+  }
+
+  .colorHint {
+    font-size: 0.8rem;
+  }
+
+  .metaHint {
+    font-size: 0.75rem;
+  }
+
+  .catPill {
+    padding: 4px 8px;
+    font-size: 0.78rem;
+  }
+
+  .iconBtn,
+  .iconBtnOutline {
+    width: 32px;
+    height: 32px;
+  }
+
+  .ownerIconBtn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .badge {
+    font-size: 10px;
+  }
+
+  .badgeImgs {
+    min-width: 22px;
+    height: 22px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 360px) {
+  .card {
     --pc-img-h: 160px;
   }
+
   .cardTitle {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
   }
 }
 
@@ -568,4 +681,3 @@
 html[data-theme="dark"] .card {
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
 }
-

@@ -1,261 +1,637 @@
 @import "../../styles/variables.css";
-/* ===========================
-   Stores (Magazine) – Styles
-   Folosește variabilele globale din styles/theme.css
-   =========================== */
 
 .page {
-  display: grid;
-  gap: 16px;
-  min-height: 60vh;
-  background: var(--color-bg);
-  color: var(--color-text);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
 }
 
-/* ---------- Header & Filters ---------- */
+/* ========================= */
+/*        HEADER PAGINĂ      */
+/* ========================= */
+
 .head {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.headTop {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
 }
 
 .h1 {
   margin: 0;
   font-family: var(--font-title);
-  font-weight: 700;
-  font-size: 1.75rem;
-  letter-spacing: -0.01em;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.headActions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.iconCircle {
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
   color: var(--color-text);
 }
 
-.filters {
+.iconCircle:hover {
+  background: color-mix(
+    in oklab,
+    var(--color-primary) 6%,
+    var(--surface)
+  );
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+/* ========================= */
+/*      BARA DE CĂUTARE      */
+/* ========================= */
+
+.searchRow {
+  margin-top: 12px;
+  position: relative;
+}
+
+/* “pilula” completă */
+.searchShell {
   display: flex;
+  align-items: center;
   gap: 8px;
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  border: 1px solid
+    color-mix(
+      in oklab,
+      var(--color-primary) 8%,
+      #e9e9f0
+    );
+}
+
+/* inputul din mijloc – fără border propriu */
+.searchInput {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  padding: 0 8px;
+  min-width: 0;
+}
+
+/* pentru că folosim .input și aici, anulăm borderul implicit */
+.searchInput.input {
+  border: none;
+  box-shadow: none;
+}
+
+/* stânga: buton rotund cu icon de search */
+.searchIconBtn {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 16px;
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.searchIconBtn:hover {
+  filter: brightness(1.05);
+}
+
+/* focus general pe shell (când focus e pe input) */
+.searchShell:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px
+    color-mix(
+      in oklab,
+      var(--color-primary) 18%,
+      transparent
+    );
+}
+
+/* ========================= */
+/*      AUTOCOMPLETE         */
+/* ========================= */
+
+.suggestBox {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+  padding: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.suggestList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.suggestItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.suggestItem:hover {
+  background: #f5f5f7;
+}
+
+.suggestThumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.suggestText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suggestTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.suggestSubtitle {
+  font-size: 12px;
+  color: var(--color-text-muted, #666);
+}
+
+.suggestLoading,
+.suggestEmpty {
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--color-text-muted, #777);
+}
+
+/* ========================= */
+/*      REZUMAT FILTRE       */
+/* ========================= */
+
+.chipWrap {
+  display: flex;
   flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #ddd);
+  background: var(--surface, #f7f7f7);
+  font-size: 12px;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* info nr. rezultate */
+.resultsInfo {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted, #666);
+}
+
+/* ========================= */
+/*        MODAL FILTRE       */
+/* ========================= */
+
+.filtersOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.filtersModal {
+  background: var(--surface);
+  border-radius: 16px;
+  max-width: 640px;
+  width: 100%;
+  margin: 16px;
+  padding: 18px 18px 20px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.filtersModalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filtersTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(180px, 1fr)
+  );
+  gap: 10px 12px;
+  align-items: center;
+  margin-top: 4px;
 }
 
 .input,
 .select {
-  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  outline: none;
+  font: inherit;
+}
+
+.input:focus,
+.select:focus {
+  box-shadow: 0 0 0 3px
+    color-mix(
+      in oklab,
+      var(--color-primary) 20%,
+      transparent
+    );
+  border-color: var(--color-primary);
+}
+
+/* acțiuni modal: Aplică / Resetează */
+.filterActions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.btnApply {
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid var(--color-primary);
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  font: inherit;
+}
+
+.btnApply:hover {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
+
+.btnReset {
   background: var(--surface);
   color: var(--color-text);
   border: 1px solid var(--color-border);
+  padding: 10px 16px;
   border-radius: var(--radius);
-  padding: 8px 10px;
-  min-width: 180px;
-  outline: none;
-  box-shadow: var(--shadow-sm);
-  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+  cursor: pointer;
+  font: inherit;
 }
 
-.input::placeholder {
-  color: var(--color-text-muted);
+.btnReset:hover {
+  filter: brightness(0.97);
 }
 
-.input:focus-visible,
-.select:focus-visible {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+/* ========================= */
+/*        CONȚINUT LISTĂ     */
+/* ========================= */
+
+.loading {
+  padding: 24px;
+  text-align: center;
 }
 
-/* ---------- Grid ---------- */
 .grid {
+  margin: 12px 0;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(260px, 1fr)
+  );
   list-style: none;
   padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
-/* ---------- Card ---------- */
+/* ========================= */
+/*         CARD MAGAZIN      */
+/* ========================= */
+
 .card {
-  background: var(--color-bg-elev);
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 4px);
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
-  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-  will-change: transform;
-}
-
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-  border-color: color-mix(in srgb, var(--color-border) 60%, var(--color-primary) 40%);
+  list-style: none;
 }
 
 .cardLink {
-  display: block;
   width: 100%;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  text-align: left;
+  border-radius: 18px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
   cursor: pointer;
+  padding: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.12s ease,
+    border-color 0.15s ease;
 }
 
-.cardLink:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+.cardLink:hover {
+  box-shadow: 0 12px 30px
+    rgba(15, 23, 42, 0.12);
+  transform: translateY(-2px);
+  border-color: color-mix(
+    in oklab,
+    var(--color-primary) 35%,
+    var(--color-border)
+  );
 }
 
-/* imagine / thumb */
 .thumbWrap {
-  width: 100%;
-  aspect-ratio: 3 / 1;
-  background: var(--color-bg-muted);
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #f4f4f6;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .thumb {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  image-rendering: auto;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-/* conținut card */
 .cardBody {
-  display: grid;
-  gap: 6px;
-  padding: 12px;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .title {
-  font-weight: 600;
-  line-height: 1.2;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .meta {
-  color: var(--color-text-muted);
-  font-size: 0.92rem;
+  font-size: 13px;
+  color: var(--color-text-muted, #666);
 }
 
-/* badge-uri */
 .badges {
   display: flex;
-  gap: 6px;
-  align-items: center;
   flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 .badge {
-  font-size: 0.8rem;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  background: var(--surface);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
   border-radius: 999px;
-  padding: 2px 8px;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid
+    color-mix(
+      in oklab,
+      var(--color-primary) 24%,
+      var(--color-border)
+    );
+  background: color-mix(
+    in oklab,
+    var(--color-primary) 6%,
+    var(--surface)
+  );
 }
 
-/* descriere scurtă */
 .about {
-  margin: 6px 0 0;
-  font-size: 0.92rem;
-  line-height: 1.35;
-  color: var(--color-text);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted, #555);
+  max-height: 3em;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ---------- Pagination ---------- */
+/* ========================= */
+/*         PAGINATION        */
+/* ========================= */
+
 .pagination {
   display: flex;
+  gap: 10px;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 12px 0 4px;
+  margin: 14px 0;
 }
 
-.pagination > button {
+.pagination button {
+  border: 1px solid var(--color-border);
   background: var(--surface);
   color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
   padding: 8px 12px;
-  min-width: 100px;
+  border-radius: 9999px;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: background .15s ease, border-color .15s ease, transform .12s ease;
+  font: inherit;
 }
 
-.pagination > button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--surface) 85%, var(--color-primary) 15%);
-  border-color: color-mix(in srgb, var(--color-border) 60%, var(--color-primary) 40%);
+.pagination button:hover {
+  filter: brightness(0.97);
 }
 
-.pagination > button:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.pagination > button:disabled {
-  opacity: .5;
+.pagination button:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.pagination > span {
-  color: var(--color-text-muted);
-}
+/* ========================= */
+/*        EMPTY STATE        */
+/* ========================= */
 
-/* ---------- Empty & Loading ---------- */
-.loading,
 .empty {
   text-align: center;
-  padding: 40px 0;
-  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 24px;
+  background: var(--surface);
 }
 
 .emptyTitle {
-  margin-bottom: 12px;
-  font-weight: 600;
-  color: var(--color-text);
+  font-weight: 700;
+  margin-bottom: 6px;
 }
 
 .btnPrimary {
-  display: inline-block;
   background: var(--color-primary);
   color: #fff;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 70%, #0000);
-  border-radius: calc(var(--radius) + 2px);
+  border: 2px solid var(--color-primary);
   padding: 8px 12px;
-  text-decoration: none;
-  box-shadow: var(--shadow-sm);
-  transition: background .15s ease, transform .12s ease, box-shadow .15s ease;
+  border-radius: 9999px;
+  cursor: pointer;
+  font: inherit;
 }
 
 .btnPrimary:hover {
   background: var(--color-hover);
-  box-shadow: var(--shadow-md);
+  border-color: var(--color-hover);
 }
 
-.btnPrimary:active {
-  transform: translateY(1px);
+/* ========================= */
+/*        ERROR STATE        */
+/* ========================= */
+
+.errorBox {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  background: rgba(254, 226, 226, 0.7);
+  color: #991b1b;
+  font-size: 14px;
 }
 
-/* ---------- Utilitare ---------- */
-@media (max-width: 640px) {
-  .h1 { font-size: 1.5rem; }
-  .input, .select { min-width: 140px; }
+/* ========================= */
+/*         RESPONSIVE        */
+/* ========================= */
+
+@media (max-width: 1024px) {
+  .page {
+    padding: 12px;
+  }
 }
 
-@media (min-width: 1280px) {
-  .grid { gap: 16px; }
+@media (max-width: 768px) {
+  .page {
+    padding: 10px;
+  }
+
+  .headTop {
+    align-items: flex-start;
+  }
+
+  .head {
+    gap: 8px;
+  }
+
+  .filtersModal {
+    max-height: 90vh;
+    overflow: auto;
+  }
+
+  .searchShell {
+    width: 100%;
+  }
+
+  .cardLink {
+    padding: 8px;
+  }
 }
 
-/* focus vizibil pentru orice element „clicabil” din listă */
-.card button:focus-visible,
-.card a:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+@media (max-width: 480px) {
+  .page {
+    padding: 8px;
+  }
+
+  .filtersOverlay {
+    align-items: flex-end;
+    z-index: 9999 !important;
+  }
+
+  .filtersModal {
+    z-index: 10000 !important;
+    margin: 0;
+    width: 100%;
+    border-radius: 18px 18px 0 0;
+    padding: 14px 14px 16px;
+  }
+
+  .filters {
+    grid-template-columns: 1fr;
+  }
+
+  .filterActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filterActions button {
+    width: 100%;
+  }
+
+  .cardLink {
+    min-height: 88px;
+  }
+
+  .title {
+    font-size: 15px;
+  }
 }

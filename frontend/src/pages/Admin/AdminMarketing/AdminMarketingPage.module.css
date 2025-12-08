@@ -1,0 +1,362 @@
+@import "../../../styles/variables.css";
+/* Container principal din tab */
+
+.page {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.marketingRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---------- Statistici abonați (sus) ---------- */
+
+.marketingStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.marketingStatItem {
+  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.marketingStatLabel {
+  display: block;
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+
+.marketingStatVal {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* ---------- Formular campanie ---------- */
+
+.marketingForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+/* header formular (titlu + descriere) */
+
+.marketingFormHead h3 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.subtle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* mesaje */
+
+.error {
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
+.success {
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  background: rgba(22, 163, 74, 0.06);
+  border: 1px solid var(--color-success);
+  color: var(--color-success);
+  font-size: 13px;
+}
+
+/* rând de câmpuri (se împăturește frumos pe mobil) */
+
+.formRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* câmp individual (label) */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.field > span {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+
+/* input / select / textarea din formular */
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.25);
+}
+
+/* textarea pentru conținut */
+
+.field textarea {
+  min-height: 180px;
+  resize: vertical;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+/* ---------- Modul test (checkbox + email test) ---------- */
+
+.checkboxRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.checkboxRow input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.checkboxRow span {
+  user-select: none;
+}
+
+/* ---------- Actions (buton trimite) ---------- */
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.sendBtn {
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.2s, border-color 0.2s, transform 0.1s,
+    box-shadow 0.15s;
+}
+
+.sendBtn:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.sendBtn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+  box-shadow: none;
+}
+
+/* ---------- Card muted pentru "Istoric campanii" ---------- */
+
+.cardMuted {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--color-border);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.cardMuted h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cardMuted .subtle {
+  font-size: 13px;
+}
+
+/* ---------- Dark mode mici ajustări ---------- */
+
+html[data-theme="dark"] .cardMuted {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 768px) {
+  .marketingRoot {
+    gap: 16px;
+  }
+
+  .marketingStats {
+    grid-template-columns: 1fr;
+  }
+
+  .formRow {
+    flex-direction: column;
+  }
+
+  .formActions {
+    justify-content: stretch;
+  }
+
+  .sendBtn {
+    width: 100%;
+  }
+}
+.prefsHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.prefsFilters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.prefsFilters input[type="search"] {
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  min-width: 220px;
+}
+
+.prefsRefreshBtn {
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background: #f7f7f7;
+  cursor: pointer;
+}
+
+.prefsRefreshBtn:hover {
+  background: #eee;
+}
+
+.prefsTableWrap {
+  overflow-x: auto;
+}
+
+.prefsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.prefsTable th,
+.prefsTable td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+}
+
+.prefsTable th {
+  font-weight: 600;
+  background: #fafafa;
+}
+
+.prefsPagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.prefsPaginationBtns {
+  display: flex;
+  gap: 8px;
+}
+
+.prefsPaginationBtns button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background: #f7f7f7;
+  cursor: pointer;
+}
+
+.prefsPaginationBtns button[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.prefsPaginationBtns button:not([disabled]):hover {
+  background: #eee;
+}
+.tabsRow {
+  margin-top: 24px;
+  margin-bottom: 16px;
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.tabBtn {
+  border: none;
+  background: transparent;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 999px 999px 0 0;
+  border-bottom: 2px solid transparent;
+  color: #666;
+}
+
+.tabBtn:hover {
+  background: #f7f7f7;
+}
+
+.tabBtnActive {
+  background: #fff;
+  border-bottom-color: #111;
+  color: #111;
+  font-weight: 600;
+}

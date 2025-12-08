@@ -1,18 +1,23 @@
+
 import express from "express";
 import cookieParser from "cookie-parser";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import dotenv from "dotenv";
-import jwt from "jsonwebtoken"; // 🔹 pentru requireAuth
+
+// 👇 middleware-ul "oficial" de auth din proiect
+import { authRequired } from "./src/api/auth.js";
 
 // Încarcă .env DOAR în development (pe Render/production nu călcăm env-urile)
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override!
 }
 
-// ---- importă rutele existente din proiect ----
+/* ---------------- IMPORT RUTE EXISTENTE ---------------- */
+
 import { getLegalMeta, getLegalHtml } from "./src/api/legal.js";
+
 import authRouter from "./src/routes/authRoutes.js";
 import vendorsRouter from "./src/routes/vendorRoutes.js";
 import serviceTypesRouter from "./src/routes/serviceTypesRoutes.js";
@@ -22,19 +27,18 @@ import subscriptionRoutes from "./src/routes/subscriptionRoutes.js";
 import publicStoreRoutes from "./src/routes/publicStoreRoutes.js";
 import vendorProductRoutes from "./src/routes/vendorProductRoutes.js";
 import publicProductRoutes from "./src/routes/publicProductRoutes.js";
+
 import favoritesRoutes, {
   mountWishlistCountAlias,
 } from "./src/routes/favoritesRoutes.js";
+
 import cartRoutes from "./src/routes/cartRoutes.js";
-import reviewsRoutes from "./src/routes/reviewRoutes.js";
 import commentsRoutes from "./src/routes/commentsRoutes.js";
 import vendorVisitorsRoutes from "./src/routes/vendorVisitorsRoutes.js";
 import vendorVisitorsPublicRoutes from "./src/routes/vendorVisitorsPublicRoutes.js";
-import vendorLegalRoutes from "./src/routes/vendorLegalRoutes.js";
 import checkoutRoutes from "./src/routes/chekoutRoutes.js";
 import samedayRoutes from "./src/routes/samedayRoutes.js";
 import samedayWebhookRoutes from "./src/routes/samedayWebhookRoutes.js";
-import imageSearchRouter from "./src/routes/imageSearchRoutes.js";
 import notificationsRoutes from "./src/routes/vendorNotificationsRoutes.js";
 import geoRoutes from "./src/routes/geoRoutes.js";
 import shareRoutes from "./src/routes/shareRoutes.js";
@@ -44,15 +48,53 @@ import VendorSupportRoutes from "./src/routes/vendorSupportRoutes.js";
 import vendorOrdersRoutes from "./src/routes/vendorOrdersRoutes.js";
 import vendorMessagesRoutes from "./src/routes/vendorMessageRoutes.js";
 import publicContactRoutes from "./src/routes/publicMessagesRoutes.js";
+
 import changePassword from "./src/routes/changePasswordRoutes.js";
 import accountRoutes from "./src/routes/accountDeleteRoutes.js";
+import userOrdersRoutes from "./src/routes/userOrdersRoutes.js";
+
+import PublicSupportRoutes from "./src/routes/publicSupportRoutes.js";
+import UserSupportRoutes from "./src/routes/userSupportRoutes.js";
+import checkoutNetopiaRoutes from "./src/routes/checkoutNetopiaRoutes.js";
+
+import adminRoutes from "./src/routes/adminRoutes.js";
+import adminOrdersRoutes from "./src/routes/adminOrdersRoutes.js";
+import adminMarketingRoutes from "./src/routes/adminMarketingRoutes.js";
+import adminMaintenanceRoutes from "./src/routes/adminMaintenanceRoutes.js";
+
+import storeFollowRoutes from "./src/routes/storeFollowRoutes.js";
+import marketingRoutes from "./src/routes/userMarketingRoutes.js";
+
+import accountSettingsRouter from "./src/routes/userSettingsRoutes.js";
+import legalRoutes from "./src/routes/legalRoutes.js";
+import AdminSupportRoutes from "./src/routes/adminSupportRoutes.js";
+import userMessagesRoutes from "./src/routes/userMessagesRoutes.js";
+import vendorInvoicesRouter from "./src/routes/vendorInvoices.js";
+
+import vendorInboxThreadsRouter from "./src/routes/vendorInboxThreadsRoutes.js";
+import userConsentsRoutes from "./src/routes/adminUserConsentPolicies.js";
+import vendorPoliciesRoutes from "./src/routes/vendorPoliciesRoutes.js";
+import adminVendorAcceptancesRoutes from "./src/routes/adminVendorPolicies.js";
+import productReviewsRouter from "./src/routes/reviewsProductRoutes.js";
+import { GuestSupportRoutes } from "./src/routes/guestSupportRoutes.js";
+
+import userRoutes from "./src/routes/userRoutes.js";
+import userNotificationsRoutes from "./src/routes/userNotificationsRoutes.js";
+import storeReviewsRouter from "./src/routes/reviewsStoreRoutes.js";
+// ...
+import adminCitiesRouter from "./src/routes/adminCitiesRoutes.js";
+import userInvoicesRouter from "./src/routes/userInvoicesRoutes.js";
+
+// 🔔 JOB: follow-up notifications
+import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
+
+/* ---------------- APP + CORS ---------------- */
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-/* ----------------------- C O R S  robust ----------------------- */
 // CORS_ORIGIN în env (Render): ex.
-// CORS_ORIGIN=https://artfest-marketplace.netlify.app,https://artfest.onrender.com
+// CORS_ORIGIN=http://localhost:5173,https://artfest-marketplace.netlify.app
 const rawOrigins = (process.env.CORS_ORIGIN || "")
   .split(",")
   .map((s) => s.trim())
@@ -71,7 +113,7 @@ const allowedOrigins = rawOrigins.map((s) =>
 const allowNetlifyPreviewsFor = "artfest-marketplace";
 
 const isAllowed = (origin) => {
-  if (!origin) return true; // healthchecks, curl
+  if (!origin) return true; // healthchecks, curl, curl local etc
   const o = origin.replace(/\/$/, "").toLowerCase();
   if (allowedOrigins.includes(o)) return true;
   if (
@@ -86,16 +128,7 @@ const isAllowed = (origin) => {
 
 app.set("trust proxy", 1);
 
-// --- STRIPE WEBHOOK RAW (DECOMENTEZI CÂND IMPLEMENTEZI STRIPE) ---
-// !!! ATENȚIE: trebuie să stea ÎNAINTE de express.json() / urlencoded()
-// import { stripeWebhookHandler } from "./src/payments/webhooks/stripeWebhook.js";
-// app.post(
-//   "/api/billing/webhooks/stripe",
-//   express.raw({ type: "application/json" }),
-//   stripeWebhookHandler
-// );
-// ------------------------------------------------------------------
-
+// CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (isAllowed(origin)) {
@@ -115,7 +148,8 @@ app.use((req, res, next) => {
     return res.status(403).json({ error: "cors_blocked" });
   }
 });
-/* -------------------------------------------------------------- */
+
+/* ---------------- SEC & COMMON MIDDLEWARE ---------------- */
 
 app.use(
   helmet({
@@ -125,56 +159,69 @@ app.use(
 app.use(compression());
 app.use(cookieParser());
 
-// Parserele standard (vin DUPĂ posibila rută raw de mai sus)
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-/* 🔐 requireAuth – protejează rutele care au nevoie de user logat */
-function requireAuth(req, res, next) {
-  try {
-    // ajustează dacă numele cookie-ului tău este altul
-    const cookieToken =
-      req.cookies?.authToken || req.cookies?.token || null;
-    const header = req.headers.authorization;
-    const headerToken = header?.startsWith("Bearer ")
-      ? header.slice("Bearer ".length)
-      : null;
+/* ---------------- RUTE ADMIN ---------------- */
 
-    const token = cookieToken || headerToken;
+app.use("/api/admin/maintenance", adminMaintenanceRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/admin", adminOrdersRoutes);
+app.use("/api/admin/marketing", adminMarketingRoutes);
+app.use("/api/admin/support", AdminSupportRoutes);
+app.use("/api/admin", userConsentsRoutes);
+app.use("/api/admin", adminVendorAcceptancesRoutes);
+app.use("/api/admin", adminCitiesRouter);
 
-    if (!token) {
-      return res.status(401).json({ message: "Neautentificat" });
-    }
+/* ---------------- RUTE GUEST ---------------- */
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+app.use("/api/guest", GuestSupportRoutes);
 
-    // adaptează la payload-ul pe care îl pui în JWT la login
-    // ex: { userId, email } sau { id, email }
-    const userId = payload.userId || payload.id;
-    if (!userId) {
-      return res.status(401).json({ message: "Token invalid" });
-    }
+/* ---------------- RUTE USER ---------------- */
 
-    req.user = {
-      id: userId,
-      email: payload.email,
-      ...payload,
-    };
+app.use("/api/user/orders", userOrdersRoutes);
 
-    next();
-  } catch (e) {
-    console.error("requireAuth error:", e?.message || e);
-    return res.status(401).json({ message: "Neautentificat" });
-  }
-}
+app.use("/api/notifications", userNotificationsRoutes);
+app.use("/api/user", userRoutes);
 
-/* Health */
+app.use("/api/public", publicProductRoutes);
+app.use("/api", productReviewsRouter);
+app.use("/api", storeReviewsRouter);
+
+app.use("/api/public", publicStoreRoutes);
+app.use("/api", geoRoutes);
+app.use("/api", userInvoicesRouter);
+
+// rutele de marketing user – au authRequired în interiorul routerului
+app.use("/api", marketingRoutes);
+
+app.use("/api/public/support", PublicSupportRoutes);
+
+app.use("/api/stores", storeFollowRoutes);
+app.use("/api/support", UserSupportRoutes);
+
+app.use("/api/user-inbox", userMessagesRoutes);
+
+app.use("/api/account", accountSettingsRouter);
+
+/* ---------------- ALTE RUTE ---------------- */
+
+app.use("/api", checkoutNetopiaRoutes);
+
+app.use(legalRoutes); // include /api/legal + /legal/:type.html
+
+app.use("/api/inbox", vendorMessagesRoutes);
+app.use("/api/admin", vendorPoliciesRoutes);
+
+/* ---------------- HEALTH ---------------- */
+
 app.get("/healthz", (_req, res) => res.send("ok"));
 app.get("/api/health", (_req, res) =>
   res.json({ ok: true, ts: new Date().toISOString() })
 );
 
-/* Rate limit pe /api */
+/* ---------------- RATE LIMIT PE /api ---------------- */
+
 app.use(
   "/api",
   rateLimit({
@@ -185,11 +232,11 @@ app.use(
   })
 );
 
-/* Rute */
+/* ---------------- RESTUL DE RUTE /api ---------------- */
+
 app.get("/api/legal", getLegalMeta);
 app.get("/legal/:type.html", getLegalHtml);
 
-app.use("/api", vendorLegalRoutes);
 app.use("/api", checkoutRoutes);
 app.use("/api", samedayRoutes);
 app.use("/api", samedayWebhookRoutes);
@@ -200,70 +247,87 @@ app.use("/api/service-types", serviceTypesRouter);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/vendors", billingRoutes);
 app.use("/api", subscriptionRoutes);
-app.use("/api/public", publicStoreRoutes);
 app.use("/api", vendorProductRoutes);
-app.use("/api/public", publicProductRoutes);
 app.use("/api/favorites", favoritesRoutes);
 mountWishlistCountAlias(app);
 app.use("/api", cartRoutes);
 app.use("/api", notificationsRoutes);
-app.use("/api", reviewsRoutes);
 app.use("/api", commentsRoutes);
-app.use("/api/vendors/me/visitors", vendorVisitorsRoutes); // PROTEJAT
-app.use("/api/visitors", vendorVisitorsPublicRoutes); // PUBLIC tracking
-app.use("/api", imageSearchRouter);
-app.use("/api", geoRoutes);
+
+app.use("/api/vendors/me/visitors", vendorVisitorsRoutes); // PROTEJAT prin auth în router
+app.use("/api/visitors", vendorVisitorsPublicRoutes); // public tracking
+
 app.use("/api", agreementsRoutes);
 
+app.use("/api", vendorInboxThreadsRouter);
 app.use("/api/vendors", vendorStoreRouter);
+app.use("/api", vendorInvoicesRouter);
 
-app.use("/api/support", VendorSupportRoutes);
+app.use("/api/vendor/support", VendorSupportRoutes);
 app.use("/api/vendor", vendorOrdersRoutes);
-app.use("/api/inbox", vendorMessagesRoutes);
+
 app.use("/public", publicContactRoutes);
 
-// 🔹 ruta pentru schimbarea parolei când userul e logat
-app.post("/api/account/change-password", requireAuth, changePassword);
+/* ---------------- CHANGE PASSWORD + ACCOUNT ROUTES ---------------- */
+
+// 👇 aici folosim authRequired din ./src/api/auth.js
+app.post("/api/account/change-password", authRequired, changePassword);
 app.use("/api", accountRoutes);
+
+/* ---------------- PARTAJARE & ADS ---------------- */
 
 app.use("/share", shareRoutes);
 
-/* -------------------- Ads stub pentru dev -------------------- */
 app.get("/api/ads", (req, res) => {
   const placement = String(req.query.placement || "hero_top");
   res.json({ placement, items: [] });
 });
+
 app.post("/api/ads/:id/impression", (_req, res) => res.sendStatus(204));
 app.post("/api/ads/:id/click", (_req, res) => res.sendStatus(204));
-/* ------------------------------------------------------------ */
 
-/* Redirect scurt către pagina publică a magazinului */
+/* ---------------- REDIRECT MAGAZIN ---------------- */
+
 app.get("/@:slug", (req, res) =>
   res.redirect(301, `/magazin/${encodeURIComponent(req.params.slug)}`)
 );
 
-/* Handler de erori */
+/* ---------------- HANDLER GLOBAL DE ERORI ---------------- */
+
 app.use((err, _req, res, _next) => {
   console.error("UNCAUGHT:", err?.message || err);
   if (err?.message === "Not allowed by CORS") {
     return res.status(403).json({ error: "cors_blocked" });
   }
   if (err?.type === "entity.too.large") {
-    return res
-      .status(413)
-      .json({
-        error: "payload_too_large",
-        message: "Body prea mare (max 10MB).",
-      });
+    return res.status(413).json({
+      error: "payload_too_large",
+      message: "Body prea mare (max 10MB).",
+    });
   }
   res.status(500).json({ error: "server_error" });
 });
 
-/* Start */
+/* ---------------- START SERVER ---------------- */
+
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`API up on port ${PORT}`);
   console.log("CORS allowed:", allowedOrigins);
+
+  // 🔔 JOB FOLLOW-UP:
+  runFollowUpNotificationJob().catch((err) =>
+    console.error("followUpNotificationJob (startup) failed:", err)
+  );
+
+  const intervalMs = 10 * 60 * 1000;
+  setInterval(() => {
+    runFollowUpNotificationJob().catch((err) =>
+      console.error("followUpNotificationJob (interval) failed:", err)
+    );
+  }, intervalMs);
 });
+
+/* ---------------- ENV REQUIRED ---------------- */
 
 const must = (name) => {
   if (!process.env[name] || !String(process.env[name]).trim()) {
@@ -272,9 +336,9 @@ const must = (name) => {
   }
 };
 
-must("DATABASE_URL"); // îl ai
-must("CORS_ORIGIN"); // ex: http://localhost:5173
-must("JWT_SECRET"); // IMPORTANT pentru login cookie
+must("DATABASE_URL");
+must("CORS_ORIGIN");
+must("JWT_SECRET");
 // must("DIRECT_URL"); // doar dacă păstrezi directUrl în prisma/schema.prisma
 
 process.on("SIGTERM", () => server.close(() => process.exit(0)));

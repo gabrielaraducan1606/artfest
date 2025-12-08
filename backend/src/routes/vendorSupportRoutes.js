@@ -1,3 +1,4 @@
+// backend/src/routes/supportVendorRoutes.js
 import { Router } from "express";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
@@ -67,10 +68,15 @@ function requireAuth() {
   };
 }
 
+// 🔴 IMPORTANT: vendor vede doar tichetele cu audience = VENDOR (și deschise de el)
 async function ensureOwnTicketOrAdmin(user, ticketId) {
   if (user?.role === "ADMIN") return true;
   const t = await prisma.supportTicket.findFirst({
-    where: { id: ticketId, requesterId: user.id },
+    where: {
+      id: ticketId,
+      requesterId: user.id,
+      audience: "VENDOR",
+    },
     select: { id: true },
   });
   return !!t;
@@ -110,16 +116,17 @@ const paramsMessageId = z.object({ mid: z.string().min(1) });
 
 const bodyMessage = z.object({
   body: z.string().optional().default(""),
-  attachments: z.array(
-    z.object({
-      url: z.string().url(),
-      name: z.string().optional(),
-      filename: z.string().optional(),
-      mimeType: z.string().optional(),
-      mime: z.string().optional(),
-      size: z.number().int().optional(),
-    })
-  )
+  attachments: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        name: z.string().optional(),
+        filename: z.string().optional(),
+        mimeType: z.string().optional(),
+        mime: z.string().optional(),
+        size: z.number().int().optional(),
+      })
+    )
     .optional()
     .default([]),
 });
@@ -131,7 +138,7 @@ const bodyEditMessage = z.object({
 /* ========================= Router ========================= */
 export const VendorSupportRoutes = Router();
 
-/** GET /api/support/me/tickets  (cu paginare) */
+/** GET /api/vendor/support/me/tickets  (cu paginare) */
 VendorSupportRoutes.get("/me/tickets", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
@@ -148,6 +155,7 @@ VendorSupportRoutes.get("/me/tickets", requireAuth(), async (req, res) => {
 
   const where = {
     requesterId: user.id,
+    audience: "VENDOR", // ⬅️ doar tichete de vendor
     ...(status !== "all" && {
       status: status === "open" ? "OPEN" : status === "pending" ? "PENDING" : "CLOSED",
     }),
@@ -170,12 +178,12 @@ VendorSupportRoutes.get("/me/tickets", requireAuth(), async (req, res) => {
     const nextOffset = offset + items.length;
     res.json({ items, total, hasMore: nextOffset < total, nextOffset });
   } catch (e) {
-    console.error("me/tickets error:", e);
+    console.error("vendor me/tickets error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** POST /api/support/tickets */
+/** POST /api/vendor/support/tickets */
 VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
@@ -195,6 +203,7 @@ VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
       data: {
         requesterId: user.id,
         vendorId: vendor?.id ?? null,
+        audience: "VENDOR",
         subject,
         category,
         priority: priority.toUpperCase(),
@@ -208,12 +217,12 @@ VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
 
     res.status(201).json({ ticket: mapTicketToUI(ticket) });
   } catch (e) {
-    console.error("create ticket error:", e);
+    console.error("vendor create ticket error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** DELETE /api/support/tickets/:id  (owner/admin) */
+/** DELETE /api/vendor/support/tickets/:id  (owner/admin) */
 VendorSupportRoutes.delete("/tickets/:id", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
   const parsedParams = paramsTicketId.safeParse(req.params);
@@ -232,12 +241,12 @@ VendorSupportRoutes.delete("/tickets/:id", requireAuth(), async (req, res) => {
     });
     res.json({ ok: true });
   } catch (e) {
-    console.error("delete ticket error:", e);
+    console.error("vendor delete ticket error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** GET /api/support/tickets/:id/messages  (cu paginare) */
+/** GET /api/vendor/support/tickets/:id/messages  (cu paginare) */
 VendorSupportRoutes.get("/tickets/:id/messages", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
@@ -260,7 +269,11 @@ VendorSupportRoutes.get("/tickets/:id/messages", requireAuth(), async (req, res)
         skip: offset,
         take: limit,
         select: {
-          id: true, body: true, createdAt: true, authorId: true, system: true,
+          id: true,
+          body: true,
+          createdAt: true,
+          authorId: true,
+          system: true,
           attachments: { select: { url: true, filename: true, mime: true } },
         },
       }),
@@ -283,12 +296,12 @@ VendorSupportRoutes.get("/tickets/:id/messages", requireAuth(), async (req, res)
     const nextOffset = offset + items.length;
     res.json({ items, total, hasMore: nextOffset < total, nextOffset });
   } catch (e) {
-    console.error("get messages error:", e);
+    console.error("vendor get messages error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** POST /api/support/tickets/:id/messages */
+/** POST /api/vendor/support/tickets/:id/messages */
 VendorSupportRoutes.post("/tickets/:id/messages", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
@@ -336,12 +349,12 @@ VendorSupportRoutes.post("/tickets/:id/messages", requireAuth(), async (req, res
 
     res.status(201).json({ ok: true });
   } catch (e) {
-    console.error("post message error:", e);
+    console.error("vendor post message error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** PATCH /api/support/messages/:mid (edit) */
+/** PATCH /api/vendor/support/messages/:mid (edit) */
 VendorSupportRoutes.patch("/messages/:mid", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
@@ -375,12 +388,12 @@ VendorSupportRoutes.patch("/messages/:mid", requireAuth(), async (req, res) => {
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("edit message error:", e);
+    console.error("vendor edit message error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** DELETE /api/support/messages/:mid */
+/** DELETE /api/vendor/support/messages/:mid */
 VendorSupportRoutes.delete("/messages/:mid", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
@@ -416,12 +429,12 @@ VendorSupportRoutes.delete("/messages/:mid", requireAuth(), async (req, res) => 
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("delete message error:", e);
+    console.error("vendor delete message error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** PATCH /api/support/tickets/:id/read */
+/** PATCH /api/vendor/support/tickets/:id/read */
 VendorSupportRoutes.patch("/tickets/:id/read", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
@@ -441,12 +454,12 @@ VendorSupportRoutes.patch("/tickets/:id/read", requireAuth(), async (req, res) =
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("mark read error:", e);
+    console.error("vendor mark read error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
 
-/** GET /api/support/faqs */
+/** GET /api/vendor/support/faqs */
 VendorSupportRoutes.get("/faqs", async (req, res) => {
   const q = (req.query.q ?? "").toString();
 
@@ -470,7 +483,50 @@ VendorSupportRoutes.get("/faqs", async (req, res) => {
 
     res.json({ items });
   } catch (e) {
-    console.error("faqs error:", e);
+    console.error("vendor faqs error:", e);
+    res.status(500).json({ error: "server_error" });
+  }
+});
+VendorSupportRoutes.get("/unread-count", requireAuth(), async (req, res) => {
+  const user = req.sessionUser;
+
+  try {
+    // luăm vendorul asociat userului
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: user.id },
+      select: { id: true },
+    });
+
+    if (!vendor) {
+      return res.json({ count: 0 });
+    }
+
+    const tickets = await prisma.supportTicket.findMany({
+      where: {
+        audience: "VENDOR",
+        vendorId: vendor.id,
+      },
+      select: {
+        id: true,
+        lastMessageAt: true,
+        reads: {
+          where: { userId: user.id },
+          select: { lastReadAt: true },
+          take: 1,
+        },
+      },
+    });
+
+    const count = tickets.reduce((acc, t) => {
+      const lastReadAt = t.reads[0]?.lastReadAt || null;
+      if (!lastReadAt) return acc + 1;
+      if (t.lastMessageAt && t.lastMessageAt > lastReadAt) return acc + 1;
+      return acc;
+    }, 0);
+
+    res.json({ count });
+  } catch (e) {
+    console.error("vendor/support unread-count error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });

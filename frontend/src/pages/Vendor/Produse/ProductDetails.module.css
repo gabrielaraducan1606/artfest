@@ -187,6 +187,13 @@
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.04);
 }
 
+.titleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .title {
   font-family: var(--font-title);
   font-size: clamp(1.4rem, 2.2vw, 1.8rem);
@@ -222,22 +229,43 @@
   margin: 10px 0 8px;
 }
 
-/* descriere scurtă sub preț */
-.descClamp {
-  font-size: 14px;
+.ownerNote {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+
+/* descriere scurtă / inline – desktop only, pe mobil o mutăm în tab */
+.inlineDetailsBox {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--color-border);
+}
+.inlineBoxTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.inlineDescription {
+  font-size: 0.9rem;
   line-height: 1.5;
   opacity: 0.9;
-  margin-bottom: 12px;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .inlineDetailsBox {
+    display: none; /* pe mobil o afișăm în taburile mobile */
+  }
 }
 
 /* CTA row */
 .ctaRow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  justify-content: space-between;
   flex-wrap: wrap;
   margin-bottom: 16px;
 }
@@ -639,7 +667,7 @@
   text-decoration: underline;
 }
 
-/* ============ Acordeoane (recenzii / comentarii / descriere) ============ */
+/* ============ Acordeoane (desktop) ============ */
 .accordion {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -819,4 +847,145 @@
 
 .specList li {
   margin-bottom: 4px;
+}
+.detailTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 4px;
+  margin-right: 4px;
+  margin-top: 2px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* slider „Mai multe din acest magazin” */
+.relatedSlider {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.relatedScroll {
+  overflow-x: auto;
+  display: flex;
+  gap: 12px;
+  scroll-snap-type: x mandatory;
+  padding: 4px 0;
+}
+
+/* cardurile deja au stil; important e să nu se micșoreze */
+.relatedScroll .relatedCard {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+.sliderArrow {
+  display: none; /* ascuns pe mobil, doar swipe */
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.1);
+  background: #fff;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+}
+
+.sliderArrowLeft {
+  margin-right: 8px;
+}
+
+.sliderArrowRight {
+  margin-left: 8px;
+}
+
+@media (min-width: 768px) {
+  .sliderArrow {
+    display: flex; /* pe desktop apar săgețile */
+  }
+}
+
+/* secțiune pentru produsele similare din alte magazine (dacă vrei alt spacing) */
+.relatedSecAlt {
+  margin-top: 24px;
+}
+
+.ctaIconGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ============ Tabs mobile (sub preț, în card) ============ */
+.mobileTabs {
+  display: none;
+}
+
+.mobileTabPanels {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobileTabs {
+    display: inline-flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.02);
+    border: 1px solid var(--color-border);
+    overflow-x: auto;
+  }
+
+  .mobileTab {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    cursor: pointer;
+    color: var(--color-text);
+    transition:
+      background 0.12s ease,
+      color 0.12s ease,
+      box-shadow 0.12s ease,
+      transform 0.12s ease;
+  }
+
+  .mobileTab:hover {
+    background: rgba(0, 0, 0, 0.03);
+    transform: translateY(-1px);
+  }
+
+  .mobileTabActive {
+    background: var(--color-primary);
+    color: #fff;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  }
+
+  .mobileTabPanels {
+    display: block;
+    margin-top: 10px;
+  }
+
+  .mobileTabPanel {
+    padding-top: 6px;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+}
+.vatInfo {
+  font-size: 0.8rem;
+  color: #4b5563;
+  margin-top: 4px;
+}
+.priceMeta {
+  margin-top: 4px;
+  font-size: 0.9rem;
+  color: #666;
 }

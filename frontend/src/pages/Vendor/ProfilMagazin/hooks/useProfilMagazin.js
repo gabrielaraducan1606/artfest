@@ -1,4 +1,4 @@
-// client/src/pages/Store/ProfilMagazin/hooks/useProfilMagazin.js
+// client/src/pages/Vendor/ProfilMagazin/hooks/useProfilMagazin.js
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../lib/api.js";
 
@@ -146,6 +146,7 @@ const FALLBACK_CATEGORIES_DETAILED = Object.entries(
     groupLabel: FALLBACK_CATEGORY_GROUP_LABELS[group] || "Altele",
   };
 });
+
 export const FALLBACK_CATEGORIES = Object.keys(FALLBACK_CATEGORY_LABELS);
 
 /* ========= Helpers URL + cache-buster ========= */
@@ -171,9 +172,11 @@ export const withCache = (url, t) =>
 export function useDebouncedCallback(fn, delay = 600) {
   const fnRef = useRef(fn);
   const tRef = useRef(null);
+
   useEffect(() => {
     fnRef.current = fn;
   }, [fn]);
+
   const call = useCallback(
     (...args) => {
       if (tRef.current) clearTimeout(tRef.current);
@@ -181,12 +184,14 @@ export function useDebouncedCallback(fn, delay = 600) {
     },
     [delay]
   );
+
   useEffect(
     () => () => {
       tRef.current && clearTimeout(tRef.current);
     },
     []
   );
+
   return call;
 }
 
@@ -238,15 +243,41 @@ const normalizePhone = (v) => {
   return v || "";
 };
 
-// helper pt PREORDER ca în ProductEditModal
+/* ===== Form produs gol – în afara hook-ului ca să nu se re-creeze ===== */
+const EMPTY_PROD_FORM = {
+  title: "",
+  description: "",
+  price: "",
+  images: [],
+  category: "",
+  color: "",
+  availability: "READY",
+  leadTimeDays: "",
+  readyQty: "",
+  nextShipDate: "",
+  acceptsCustom: false,
+  isHidden: false,
+  isActive: true,
 
-export default function useProfilMagazin(slug) {
+  // detalii structurate
+  materialMain: "",
+  technique: "",
+  styleTags: "",
+  occasionTags: "",
+  dimensions: "",
+  careInstructions: "",
+  specialNotes: "",
+};
+
+export default function useProfilMagazin(slug, opts = {}) {
+  const meFromProps = opts.me ?? null;
+
   const [sellerData, setSellerData] = useState(null);
   const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [rating, setRating] = useState(0);
 
-  const [me, setMe] = useState(null);
+  const [me, setMe] = useState(meFromProps);
   const [isOwner, setIsOwner] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -255,40 +286,14 @@ export default function useProfilMagazin(slug) {
 
   const [favorites, setFavorites] = useState(() => new Set());
 
-  // IMPORTANT: poate fi array de obiecte sau array de string-uri (compat)
   const [categories, setCategories] = useState(FALLBACK_CATEGORIES_DETAILED);
+  const categoriesLoadedRef = useRef(false);
 
-  // form produs (create/edit) – extins cu câmpuri structurate
-  const emptyProdForm = {
-    title: "",
-    description: "",
-    price: "",
-    images: [],
-    category: "",
-    color: "",
-    availability: "READY",
-    leadTimeDays: "",
-    readyQty: "",
-    nextShipDate: "",
-    acceptsCustom: false,
-    isHidden: false,
-    isActive: true,
-
-    // detalii structurate
-    materialMain: "",
-    technique: "",
-    styleTags: "", // comma-separated string
-    occasionTags: "", // comma-separated string
-    dimensions: "",
-    careInstructions: "",
-    specialNotes: "",
-  };
-
-  // ===== produs (create/edit) =====
+  // form produs (create/edit)
   const [prodModalOpen, setProdModalOpen] = useState(false);
   const [savingProd, setSavingProd] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [prodForm, setProdForm] = useState(emptyProdForm);
+  const [prodForm, setProdForm] = useState(EMPTY_PROD_FORM);
 
   /* ===== GATE: acceptări vendor ===== */
   const [gateOpen, setGateOpen] = useState(false);
@@ -314,7 +319,13 @@ export default function useProfilMagazin(slug) {
     leadTimes: "",
   });
 
-  const serviceId = sellerData?._id || sellerData?.serviceId || null;
+  // 🔧 serviceId – fără _id, luăm id-ul serviciului din ce primim de la backend
+  const serviceId =
+    sellerData?.serviceId ||            // dacă îl trimiți direct
+    sellerData?.service?.id ||          // dacă ai câmp service
+    sellerData?.profile?.serviceId ||   // dacă vine prin profile
+    sellerData?.id ||                   // fallback: id-ul obiectului, dacă știi că e VendorService.id
+    null;
 
   /* ===== județe pentru ChipsInput ===== */
   const {
@@ -324,311 +335,6 @@ export default function useProfilMagazin(slug) {
     err: countiesErr,
   } = useRoCounties();
 
-  const onCountiesChange = (arr) => {
-    const clean = Array.isArray(arr) ? arr.filter(Boolean) : [];
-    if (clean.includes(allCountry.name)) {
-      setInfoDraft((d) => ({ ...d, deliveryArr: [allCountry.name] }));
-      debouncedAutoSave({ ...infoDraft, deliveryArr: [allCountry.name] });
-      return;
-    }
-    const uniq = [...new Set(clean)]
-      .filter((n) => n !== allCountry.name)
-      .sort((a, b) => a.localeCompare(b, "ro"));
-    setInfoDraft((d) => ({ ...d, deliveryArr: uniq }));
-    debouncedAutoSave({ ...infoDraft, deliveryArr: uniq });
-  };
-
-  /* ========= fetch combinat ========= */
-  const fetchEverything = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    setNeedsOnboarding(false);
-    try {
-      // categorii: încearcă detailed -> simple -> fallback
-      try {
-        const det = await api("/api/public/categories/detailed");
-        if (Array.isArray(det) && det.length && typeof det[0] === "object") {
-          setCategories(det);
-        } else {
-          const list = await api("/api/public/categories");
-          if (Array.isArray(list) && list.length) {
-            if (typeof list[0] === "string") {
-              const detFromSimple = list.map((key) => ({
-                key,
-                label: FALLBACK_CATEGORY_LABELS[key] || key,
-                group: key.split("_")[0] || "alte",
-                groupLabel:
-                  FALLBACK_CATEGORY_GROUP_LABELS[key.split("_")[0]] ||
-                  "Altele",
-              }));
-              setCategories(detFromSimple);
-            } else {
-              setCategories(list);
-            }
-          } else {
-            setCategories(FALLBACK_CATEGORIES_DETAILED);
-          }
-        }
-      } catch {
-        setCategories(FALLBACK_CATEGORIES_DETAILED);
-      }
-
-      // me
-      let meNow = null;
-      try {
-        const d = await api("/api/auth/me");
-        meNow = d?.user || null;
-        setMe(meNow);
-      } catch {
-        setMe(null);
-      }
-
-      const cb = `cb=${Date.now()}`;
-
-      // magazin
-      let shop;
-      try {
-        const seller = await api(
-          `/api/public/store/${encodeURIComponent(slug)}?${cb}`
-        );
-        shop = seller;
-      } catch (e) {
-        if ([404, 400].includes(e?.status)) {
-          setErr("Magazinul nu a fost găsit.");
-          setSellerData(null);
-          setProducts([]);
-          setReviews([]);
-          setRating(0);
-          setLoading(false);
-          return;
-        }
-        throw e;
-      }
-      setSellerData(shop);
-
-      // owner?
-      const owner =
-        !!meNow &&
-        !!shop?.userId &&
-        (meNow.id === shop.userId || meNow.sub === shop.userId);
-      setIsOwner(owner);
-
-      // produse – suportă atât array simplu, cât și { items: [...] }
-      try {
-        const resp = await api(
-          `/api/public/store/${encodeURIComponent(slug)}/products?${cb}`
-        );
-        const itemsRaw = Array.isArray(resp?.items)
-          ? resp.items
-          : Array.isArray(resp)
-          ? resp
-          : [];
-
-        let itemsToSet = itemsRaw;
-
-        // 🔹 Dacă ești owner, îmbogățim produsele cu datele complete
-        // din /api/vendors/products/:id ca să avem availability, readyQty etc.
-        if (owner && itemsRaw.length) {
-          itemsToSet = await Promise.all(
-            itemsRaw.map(async (it) => {
-              const id = it.id || it._id;
-              if (!id) return it;
-              try {
-                const full = await api(
-                  `/api/vendors/products/${encodeURIComponent(id)}`
-                );
-                return { ...it, ...full };
-              } catch {
-                return it;
-              }
-            })
-          );
-        }
-
-        setProducts(itemsToSet);
-      } catch {
-        setProducts([]);
-      }
-
-      // favorite (aliniat cu backend vendorsRoutes)
-      try {
-        const fav = await api("/api/vendors/favorites");
-        const ids = new Set(
-          (Array.isArray(fav?.items) ? fav.items : []).map((x) => x.productId)
-        );
-        setFavorites(ids);
-      } catch {
-        /* ignore */
-      }
-
-      // recenzii
-      try {
-        const [rev, avg] = await Promise.all([
-          api(
-            `/api/public/store/${encodeURIComponent(slug)}/reviews?${cb}`
-          ),
-          api(
-            `/api/public/store/${encodeURIComponent(
-              slug
-            )}/reviews/average?${cb}`
-          ),
-        ]);
-        setReviews(Array.isArray(rev) ? rev : []);
-        setRating(Number(avg?.average || 0));
-      } catch {
-        setReviews([]);
-        setRating(0);
-      }
-    } catch (error) {
-      console.error("Eroare încărcare profil magazin:", error);
-      setErr("Nu am putut încărca magazinul.");
-    } finally {
-      setLoading(false);
-    }
-  }, [slug]);
-
-  useEffect(() => {
-    fetchEverything();
-  }, [fetchEverything]);
-
-  // inițializează draftul când avem date magazin
-  useEffect(() => {
-    if (!sellerData) return;
-    const deliveryArr = Array.isArray(sellerData.delivery)
-      ? sellerData.delivery
-      : [];
-    setInfoDraft({
-      address: sellerData.address || "",
-      phone: sellerData.phone || "",
-      email: sellerData.publicEmail || "",
-      deliveryArr,
-      leadTimes: sellerData.leadTimes || "",
-    });
-  }, [sellerData]);
-
-  // cache-buster pe imagini profil
-  const cacheT = useMemo(
-    () =>
-      sellerData?.updatedAt
-        ? new Date(sellerData.updatedAt).getTime()
-        : Date.now(),
-    [sellerData?.updatedAt]
-  );
-
-  // cache-buster dedicat produselor (actualizat doar când se schimbă lista)
-  const productsCacheTRef = useRef(Date.now());
-  useEffect(() => {
-    productsCacheTRef.current = Date.now();
-  }, [products]);
-
-  const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
-
-  async function uploadFile(file) {
-    const fd = new FormData();
-    fd.append("file", file);
-    const { url } = await api("/api/upload", { method: "POST", body: fd });
-    return url;
-  }
-
-  /**
-   * GATE: obține versiunile curente ale documentelor obligatorii.
-   */
-  async function loadVendorAcceptances() {
-    setGateLoading(true);
-    setGateErr("");
-    try {
-      const d = await api("/api/vendor/agreements/status");
-      const docs = Array.isArray(d?.docs) ? d.docs : [];
-
-      const meta = {};
-      let checks = { vendor: false, shipping: false, returns: false };
-
-      for (const it of docs) {
-        if (it.doc_key === "VENDOR_TERMS") {
-          meta.vendor_terms = { url: it.url, version: it.version };
-          checks.vendor = !!it.accepted;
-        }
-        if (it.doc_key === "SHIPPING_ADDENDUM") {
-          meta.shipping_addendum = { url: it.url, version: it.version };
-          checks.shipping = !!it.accepted;
-        }
-        if (it.doc_key === "RETURNS_POLICY") {
-          meta.returns_policy = { url: it.url, version: it.version };
-          checks.returns = !!it.accepted;
-        }
-      }
-
-      setGateDocs(meta);
-      setGateChecks(checks);
-
-      const allOK = !!d?.allOK;
-      return { allOK };
-    } catch (e) {
-      setGateErr(e?.message || "Nu s-a putut verifica acordurile.");
-      return { allOK: false };
-    } finally {
-      setGateLoading(false);
-    }
-  }
-
-  /**
-   * GATE: trimite acceptările bifate.
-   */
-  async function acceptVendorDocs() {
-    try {
-      const items = [];
-
-      if (gateChecks.vendor && gateDocs.vendor_terms?.version) {
-        items.push({
-          doc_key: "VENDOR_TERMS",
-          version: gateDocs.vendor_terms.version,
-        });
-      }
-      if (gateChecks.shipping && gateDocs.shipping_addendum?.version) {
-        items.push({
-          doc_key: "SHIPPING_ADDENDUM",
-          version: gateDocs.shipping_addendum.version,
-        });
-      }
-      if (gateChecks.returns && gateDocs.returns_policy?.version) {
-        items.push({
-          doc_key: "RETURNS_POLICY",
-          version: gateDocs.returns_policy.version,
-        });
-      }
-
-      if (!items.length) {
-        setGateErr("Bifează documentele obligatorii.");
-        return;
-      }
-
-      await api("/api/vendor/agreements/accept", {
-        method: "POST",
-        body: { items },
-      });
-
-      setGateOpen(false);
-      setEditingProduct(null);
-      setProdForm(emptyProdForm);
-      setProdModalOpen(true);
-    } catch (e) {
-      setGateErr(e?.message || "Eroare la salvarea acceptărilor.");
-    }
-  }
-
-  const openNewProduct = async () => {
-    if (!isOwner) return;
-    const { allOK } = await loadVendorAcceptances();
-    if (allOK) {
-      setEditingProduct(null);
-      setProdForm(emptyProdForm);
-      setProdModalOpen(true);
-    } else {
-      setGateOpen(true);
-    }
-  };
-
-  /* ====== SAVE INFO ====== */
   const saveProfilePart = useCallback(
     async (patch) => {
       if (!isOwner || !serviceId) return;
@@ -648,7 +354,9 @@ export default function useProfilMagazin(slug) {
               ...(patch.phone !== undefined
                 ? { phone: normalizePhone(patch.phone) || null }
                 : {}),
-              ...(patch.email !== undefined ? { email: patch.email || null } : {}),
+              ...(patch.email !== undefined
+                ? { email: patch.email || null }
+                : {}),
               ...(patch.deliveryArr !== undefined
                 ? { delivery: patch.deliveryArr || [] }
                 : {}),
@@ -724,7 +432,6 @@ export default function useProfilMagazin(slug) {
     [isOwner, serviceId]
   );
 
-  // auto-save cu debounce (profile + leadTimes)
   const debouncedAutoSave = useDebouncedCallback((draft) => {
     saveProfilePart({
       address: draft.address,
@@ -735,6 +442,308 @@ export default function useProfilMagazin(slug) {
     saveLeadTimes(draft.leadTimes);
   }, 600);
 
+  const onCountiesChange = (arr) => {
+    const clean = Array.isArray(arr) ? arr.filter(Boolean) : [];
+    if (clean.includes(allCountry.name)) {
+      const one = [allCountry.name];
+      setInfoDraft((d) => ({ ...d, deliveryArr: one }));
+      debouncedAutoSave({ ...infoDraft, deliveryArr: one });
+      return;
+    }
+    const uniq = [...new Set(clean)]
+      .filter((n) => n !== allCountry.name)
+      .sort((a, b) => a.localeCompare(b, "ro"));
+    setInfoDraft((d) => ({ ...d, deliveryArr: uniq }));
+    debouncedAutoSave({ ...infoDraft, deliveryArr: uniq });
+  };
+
+  /* ========= fetch combinat ========= */
+  const fetchEverything = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    setNeedsOnboarding(false);
+
+    const cb = `cb=${Date.now()}`;
+
+    try {
+      // categorii
+      if (!categoriesLoadedRef.current) {
+        try {
+          const det = await api("/api/public/categories/detailed");
+          if (Array.isArray(det) && det.length && typeof det[0] === "object") {
+            setCategories(det);
+            categoriesLoadedRef.current = true;
+          } else {
+            const list = await api("/api/public/categories");
+            if (Array.isArray(list) && list.length) {
+              if (typeof list[0] === "string") {
+                const detFromSimple = list.map((key) => ({
+                  key,
+                  label: FALLBACK_CATEGORY_LABELS[key] || key,
+                  group: key.split("_")[0] || "alte",
+                  groupLabel:
+                    FALLBACK_CATEGORY_GROUP_LABELS[key.split("_")[0]] ||
+                    "Altele",
+                }));
+                setCategories(detFromSimple);
+              } else {
+                setCategories(list);
+              }
+              categoriesLoadedRef.current = true;
+            } else {
+              setCategories(FALLBACK_CATEGORIES_DETAILED);
+              categoriesLoadedRef.current = true;
+            }
+          }
+        } catch {
+          setCategories(FALLBACK_CATEGORIES_DETAILED);
+          categoriesLoadedRef.current = true;
+        }
+      }
+
+      // me (doar dacă nu a venit din props)
+      let meNow = meFromProps;
+      if (!meFromProps) {
+        try {
+          const d = await api("/api/auth/me");
+          meNow = d?.user || null;
+          setMe(meNow);
+        } catch {
+          setMe(null);
+          meNow = null;
+        }
+      }
+
+      // magazin
+      let shop;
+      try {
+        shop = await api(
+          `/api/public/store/${encodeURIComponent(slug)}?${cb}`
+        );
+      } catch (e) {
+        if ([404, 400].includes(e?.status)) {
+          setErr("Magazinul nu a fost găsit.");
+          setSellerData(null);
+          setProducts([]);
+          setReviews([]);
+          setRating(0);
+          setLoading(false);
+          return;
+        }
+        throw e;
+      }
+      setSellerData(shop);
+
+      // owner?
+      const owner =
+        !!meNow &&
+        !!shop?.userId &&
+        (meNow.id === shop.userId || meNow.sub === shop.userId);
+      setIsOwner(owner);
+
+      // produse
+      try {
+        const resp = await api(
+          `/api/public/store/${encodeURIComponent(slug)}/products?${cb}`
+        );
+        const itemsRaw = Array.isArray(resp?.items)
+          ? resp.items
+          : Array.isArray(resp)
+          ? resp
+          : [];
+
+        let itemsToSet = itemsRaw;
+
+        if (owner && itemsRaw.length) {
+          itemsToSet = await Promise.all(
+            itemsRaw.map(async (it) => {
+              const id = it.id || it._id;
+              if (!id) return it;
+              try {
+                const full = await api(
+                  `/api/vendors/products/${encodeURIComponent(id)}`
+                );
+                return { ...it, ...full };
+              } catch {
+                return it;
+              }
+            })
+          );
+        }
+
+        setProducts(itemsToSet);
+      } catch {
+        setProducts([]);
+      }
+
+      // favorite
+      try {
+        const fav = await api("/api/vendors/favorites");
+        const ids = new Set(
+          (Array.isArray(fav?.items) ? fav.items : []).map(
+            (x) => x.productId
+          )
+        );
+        setFavorites(ids);
+      } catch {
+        /* ignore */
+      }
+
+      // rating mediu (recenzii magazin)
+      try {
+        const avg = await api(
+          `/api/public/store/${encodeURIComponent(
+            slug
+          )}/reviews/average?${cb}`
+        );
+        setRating(Number(avg?.average || 0));
+        setReviews([]);
+      } catch {
+        setRating(0);
+        setReviews([]);
+      }
+    } catch (error) {
+      console.error("Eroare încărcare profil magazin:", error);
+      setErr("Nu am putut încărca magazinul.");
+    } finally {
+      setLoading(false);
+    }
+  }, [slug, meFromProps]);
+
+  useEffect(() => {
+    fetchEverything();
+  }, [fetchEverything]);
+
+  // inițializează draftul când avem date magazin
+  useEffect(() => {
+    if (!sellerData) return;
+    const deliveryArr = Array.isArray(sellerData.delivery)
+      ? sellerData.delivery
+      : [];
+    setInfoDraft({
+      address: sellerData.address || "",
+      phone: sellerData.phone || "",
+      email: sellerData.publicEmail || "",
+      deliveryArr,
+      leadTimes: sellerData.leadTimes || "",
+    });
+  }, [sellerData]);
+
+  // cache-buster pe imagini profil
+  const cacheT = useMemo(
+    () =>
+      sellerData?.updatedAt
+        ? new Date(sellerData.updatedAt).getTime()
+        : Date.now(),
+    [sellerData?.updatedAt]
+  );
+
+  // cache-buster dedicat produselor
+  const productsCacheTRef = useRef(Date.now());
+  useEffect(() => {
+    productsCacheTRef.current = Date.now();
+  }, [products]);
+
+  const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
+
+  async function uploadFile(file) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const { url } = await api("/api/upload", { method: "POST", body: fd });
+    return url;
+  }
+
+  /* ====== GATE: status documente ====== */
+  async function loadVendorAcceptances() {
+    setGateLoading(true);
+    setGateErr("");
+    try {
+      const d = await api("/api/vendor/agreements/status");
+      const docs = Array.isArray(d?.docs) ? d.docs : [];
+
+      const meta = {};
+      let checks = { vendor: false, shipping: false, returns: false };
+
+      for (const it of docs) {
+        if (it.doc_key === "VENDOR_TERMS") {
+          meta.vendor_terms = { url: it.url, version: it.version };
+          checks.vendor = !!it.accepted;
+        }
+        if (it.doc_key === "SHIPPING_ADDENDUM") {
+          meta.shipping_addendum = { url: it.url, version: it.version };
+          checks.shipping = !!it.accepted;
+        }
+        if (it.doc_key === "RETURNS_POLICY_ACK") {
+  meta.returns_policy = { url: it.url, version: it.version };
+  checks.returns = !!it.accepted;
+}
+      }
+
+      setGateDocs(meta);
+      setGateChecks(checks);
+
+      const allOK = !!d?.allOK;
+      return { allOK };
+    } catch (e) {
+      setGateErr(e?.message || "Nu s-a putut verifica acordurile.");
+      return { allOK: false };
+    } finally {
+      setGateLoading(false);
+    }
+  }
+
+  /* ====== GATE: salvare acceptări ====== */
+    /* ====== GATE: salvare acceptări ====== */
+  async function acceptVendorDocs() {
+    setGateLoading(true);
+    setGateErr("");
+
+    try {
+      const items = [];
+
+      if (gateChecks.vendor && gateDocs.vendor_terms?.version) {
+        items.push({
+          doc_key: "VENDOR_TERMS",
+          version: gateDocs.vendor_terms.version,
+        });
+      }
+
+      if (gateChecks.shipping && gateDocs.shipping_addendum?.version) {
+        items.push({
+          doc_key: "SHIPPING_ADDENDUM",
+          version: gateDocs.shipping_addendum.version,
+        });
+      }
+
+      if (gateChecks.returns && gateDocs.returns_policy?.version) {
+        items.push({
+          doc_key: "RETURNS_POLICY_ACK",
+          version: gateDocs.returns_policy.version,
+        });
+      }
+
+      if (!items.length) {
+        setGateErr("Bifează documentele obligatorii.");
+        return;
+      }
+
+      await api("/api/vendor/agreements/accept", {
+        method: "POST",
+        body: { items },
+      });
+
+      // după ce acceptă, închidem poarta și deschidem direct ProductModal
+      setGateOpen(false);
+      setEditingProduct(null);
+      setProdForm(EMPTY_PROD_FORM);
+      setProdModalOpen(true);
+    } catch (e) {
+      setGateErr(e?.message || "Eroare la salvarea acceptărilor.");
+    } finally {
+      setGateLoading(false);
+    }
+  }
+
   const onChangeInfoDraft = (patch) => {
     setInfoDraft((d) => {
       const next = { ...d, ...patch };
@@ -743,7 +752,6 @@ export default function useProfilMagazin(slug) {
     });
   };
 
-  // ✅ commit imediat, folosit de butonul “Salvează”
   const saveInfoNow = useCallback(async () => {
     const d = infoDraft;
     await Promise.all([
@@ -758,6 +766,35 @@ export default function useProfilMagazin(slug) {
     setEditInfo(false);
   }, [infoDraft, saveProfilePart, saveLeadTimes]);
 
+  /* ====== NEW PRODUCT (deschide modal + gate DOAR la primul produs) ====== */
+  const openNewProduct = async () => {
+    if (!isOwner) return;
+
+    const hasAnyProduct =
+      Array.isArray(products) && products.length > 0;
+
+    // 👉 Dacă există deja produse, NU mai afișăm poarta.
+    if (hasAnyProduct) {
+      setEditingProduct(null);
+      setProdForm(EMPTY_PROD_FORM);
+      setProdModalOpen(true);
+      return;
+    }
+
+    // 👉 Dacă nu există niciun produs, verificăm acordurile
+    const { allOK } = await loadVendorAcceptances();
+
+    if (allOK) {
+      // a acceptat deja acordurile (ex: în onboarding)
+      setEditingProduct(null);
+      setProdForm(EMPTY_PROD_FORM);
+      setProdModalOpen(true);
+    } else {
+      // nu a acceptat, afișăm poarta
+      setGateOpen(true);
+    }
+  };
+
   /* ====== SAVE PRODUCT (create/edit) ====== */
   const dateOnlyToISO = (yyyyMmDd) => {
     if (!yyyyMmDd) return null;
@@ -767,7 +804,6 @@ export default function useProfilMagazin(slug) {
     return dt.toISOString();
   };
 
-  /* ====== SAVE PRODUCT (create/edit) ====== */
   const onSaveProduct = async (e) => {
     e.preventDefault();
     if (!isOwner) return;
@@ -779,15 +815,15 @@ export default function useProfilMagazin(slug) {
     const images = Array.isArray(prodForm.images) ? prodForm.images : [];
     const color = (prodForm.color || "").trim() || null;
 
-    // câmpuri structurate
     const materialMain = (prodForm.materialMain || "").trim() || null;
     const technique = (prodForm.technique || "").trim() || null;
-    const styleTags = (prodForm.styleTags || "").trim(); // string, backend le poate sparge
-    const occasionTags = (prodForm.occasionTags || "").trim(); // string
+    const styleTags = (prodForm.styleTags || "").trim();
+    const occasionTags = (prodForm.occasionTags || "").trim();
     const dimensions = (prodForm.dimensions || "").trim() || null;
     const careInstructions =
       (prodForm.careInstructions || "").trim() || null;
-    const specialNotes = (prodForm.specialNotes || "").trim() || null;
+    const specialNotes =
+      (prodForm.specialNotes || "").trim() || null;
 
     if (!title) return alert("Te rog adaugă un titlu.");
     if (!Number.isFinite(price) || price < 0)
@@ -817,15 +853,13 @@ export default function useProfilMagazin(slug) {
         specialNotes,
       };
 
-      // normalizăm availability o singură dată
       const av = String(prodForm.availability || "READY").toUpperCase();
 
       if (editingProduct && (editingProduct.id || editingProduct._id)) {
-        // ========= EDIT =========
+        // EDIT
         const payload = {
           ...basePayload,
           availability: av,
-          // resetăm explicit câmpurile corelate și le punem doar unde are sens
           leadTimeDays: null,
           readyQty: null,
           nextShipDate: null,
@@ -846,7 +880,7 @@ export default function useProfilMagazin(slug) {
             payload.readyQty =
               Number.isFinite(rq) && rq >= 0 ? rq : 0;
           } else {
-            payload.readyQty = null; // necunoscut
+            payload.readyQty = null;
           }
         }
 
@@ -869,7 +903,7 @@ export default function useProfilMagazin(slug) {
           }
         );
       } else {
-        // ========= CREATE =========
+        // CREATE
         const payload = {
           ...basePayload,
           availability: av,
@@ -918,7 +952,7 @@ export default function useProfilMagazin(slug) {
 
       setProdModalOpen(false);
       setEditingProduct(null);
-      setProdForm(emptyProdForm);
+      setProdForm(EMPTY_PROD_FORM);
 
       fetchEverything();
     } catch (error) {

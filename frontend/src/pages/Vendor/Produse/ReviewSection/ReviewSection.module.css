@@ -1,109 +1,509 @@
-/* src/pages/ProductDetails/components/ReviewsSection.module.css */
+/* src/pages/ProductDetails/ReviewSection/ReviewSection.module.css */
 
-.section {
+.wrap {
   margin-top: 36px;
   background: var(--surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 20px;
+  border-radius: 16px;
+  padding: 22px 20px;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+}
+
+/* Header & rezumat */
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
 }
 
 .title {
   font-family: var(--font-title);
-  font-weight: 600;
+  font-weight: 650;
   font-size: 20px;
-  margin: 0 0 12px;
+  letter-spacing: 0.01em;
+  margin: 0 0 4px;
 }
 
-.muted {
+.meta {
+  margin: 0;
   color: #7a7a7a;
-  font-weight: 400;
+  font-size: 14px;
 }
 
-.summaryRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+.stars {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+  margin-left: 4px;
+  color: #facc15;
 }
 
-.avg {
-  font-size: 28px;
-  font-weight: 700;
-}
-
-.stars, .itemStars {
-  letter-spacing: 1px;
-  user-select: none;
-}
-.starFull { color: #f5c542; }
-.starEmpty { color: #c9c9c9; }
+/* Listă recenzii */
 
 .list {
   display: grid;
   gap: 12px;
-  margin-bottom: 16px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
 }
+
 .item {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 12px;
+  border-radius: 14px;
+  padding: 12px 14px;
   background: var(--color-bg);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease,
+    transform 0.12s ease;
 }
+
+.item:hover {
+  border-color: rgba(79, 70, 229, 0.25);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+
 .itemHead {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
+  gap: 8px;
+  margin-bottom: 4px;
 }
-.text {
-  margin: 6px 0 8px;
+
+.ratingValue {
+  font-weight: 600;
+  font-size: 14px;
 }
-.meta {
+
+.badgeVerified {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 6px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.09);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.25);
+}
+
+.itemMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.author {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.date {
   color: #888;
 }
 
-.empty {
-  padding: 14px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius);
-  text-align: center;
-  color: #888;
-  background: var(--color-bg);
+/* Text recenzie */
+
+.comment {
+  margin: 6px 0 6px;
+  line-height: 1.5;
 }
+
+/* Imagini recenzie */
+
+.imagesRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+
+.reviewImage {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  transition: transform 0.12s ease, box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.reviewImage:hover {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+  border-color: rgba(79, 70, 229, 0.25);
+}
+
+/* Răspuns vânzător */
+
+.replyBox {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(
+    135deg,
+    rgba(129, 140, 248, 0.06),
+    rgba(59, 130, 246, 0.04)
+  );
+  border: 1px solid rgba(129, 140, 248, 0.35);
+}
+
+.replyLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4f46e5;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.replyText {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.replyDate {
+  font-size: 11px;
+  color: #888;
+}
+
+/* Acțiuni recenzie (utilă / raportează) */
+
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-primary);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease,
+    border-color 0.12s ease, transform 0.08s ease;
+}
+
+.actionBtn svg {
+  font-size: 13px;
+}
+
+.actionBtn:hover {
+  background: rgba(79, 70, 229, 0.06);
+  border-color: rgba(79, 70, 229, 0.2);
+  transform: translateY(-0.5px);
+}
+
+.actionBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Note & mesaje */
+
+.ownerNote {
+  font-size: 14px;
+  color: #7a7a7a;
+  margin: 8px 0 16px;
+}
+
+.formTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.loginPrompt {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.loginPrompt a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+/* Formular recenzie nouă */
 
 .form {
   display: grid;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.fieldGroup {
+  display: grid;
+  gap: 6px;
 }
 
 .label {
   font-weight: 600;
+  font-size: 14px;
 }
 
-.input, .textarea, .primaryBtn {
-  border-radius: var(--radius);
-  font-family: var(--font-body);
+.starsSelector {
+  display: inline-flex;
+  gap: 4px;
 }
 
-.input, .textarea {
+.starBtn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 24px;
+  padding: 0;
+  color: #d4d4d4;
+  transition: color 0.12s ease, transform 0.08s ease;
+}
+
+.starBtnActive {
+  color: #facc15;
+  transform: translateY(-1px);
+}
+
+.starBtn:hover {
+  transform: translateY(-1px) scale(1.03);
+}
+
+.textarea {
+  border-radius: 12px;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
   color: var(--color-text);
   padding: 10px 12px;
+  font-family: var(--font-body);
+  resize: vertical;
+  min-height: 90px;
+  font-size: 14px;
+  line-height: 1.5;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.textarea::placeholder {
+  color: #a1a1aa;
+}
+
+.textarea:focus-visible {
+  outline: none;
+  border-color: rgba(79, 70, 229, 0.8);
+  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.2);
 }
 
 .primaryBtn {
-  background: var(--color-primary);
-  color: white;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
   border: none;
-  padding: 10px 14px;
+  color: #fff;
+  padding: 10px 18px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  justify-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 10px 30px rgba(79, 70, 229, 0.25);
+  transition: transform 0.1s ease, box-shadow 0.1s ease,
+    opacity 0.1s ease;
+}
+
+.primaryBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 40px rgba(79, 70, 229, 0.35);
+}
+
+.primaryBtn:active {
+  transform: translateY(0);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.2);
+}
+
+.primaryBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+.filesHint {
+  font-size: 12px;
+  color: #777;
+}
+
+/* Info – există deja recenzie acest cont (dacă o folosești) */
+
+.infoExisting {
+  margin: 6px 0 12px;
+  font-size: 14px;
+  color: #4b5563;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(250, 204, 21, 0.06);
+  border: 1px solid rgba(250, 204, 21, 0.5);
+}
+
+.infoExisting strong {
+  font-weight: 600;
+}
+
+/* ===== Modal raportare recenzie ===== */
+
+.reportOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.reportCard {
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  padding: 20px 22px 18px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.55);
+  animation: reportIn 0.14s ease-out;
+}
+
+.reportTitle {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.reportTextMuted {
+  font-size: 13px;
+  color: #777;
+  margin: 0 0 14px;
+}
+
+.reportOptions {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.reportOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
   cursor: pointer;
 }
-.primaryBtn:hover { background: var(--color-hover); }
 
-.loginPrompt {
-  margin-top: 8px;
+.reportOption input {
+  margin-top: 3px;
+}
+
+.reportTextarea {
+  width: 100%;
+  min-height: 70px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 8px 10px;
+  font-family: var(--font-body);
+  font-size: 14px;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+
+.reportActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.reportCancelBtn {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 6px 8px;
+}
+
+.reportCancelBtn:hover {
+  text-decoration: underline;
+}
+
+.reportSubmitBtn {
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #fff;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 10px 30px rgba(79, 70, 229, 0.25);
+  transition: transform 0.1s ease, box-shadow 0.1s ease,
+    opacity 0.1s ease;
+}
+
+.reportSubmitBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 36px rgba(79, 70, 229, 0.35);
+}
+
+.reportSubmitBtn:disabled {
+  opacity: 0.6;
+  box-shadow: none;
+  cursor: default;
+}
+
+/* Animare intrare modal */
+@keyframes reportIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Mobile */
+
+@media (max-width: 600px) {
+  .wrap {
+    margin-top: 24px;
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .reportCard {
+    margin: 0 14px;
+    padding: 16px 16px 14px;
+    border-radius: 18px;
+  }
+
+  .item {
+    padding: 10px 10px;
+  }
+
+  .reviewImage {
+    width: 72px;
+    height: 72px;
+  }
 }

@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 
 // __dirname safe pentru ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 // urcă din src/lib/ până la rădăcina backend, apoi intră în /legal
 const LEGAL_DIR = path.resolve(__dirname, "../../legal");
 
@@ -30,6 +31,7 @@ function checksumSHA256(s) {
 
 /**
  * Încarcă un fișier legal (Markdown + frontmatter YAML)
+ * type = "tos" | "privacy" | "vendor_terms" | "shipping_addendum" | "returns"
  */
 export function loadLegalDoc(type) {
   const file = MAP[type];
@@ -42,7 +44,11 @@ export function loadLegalDoc(type) {
 
   const raw = fs.readFileSync(fp, "utf8");
   const parsed = matter(raw);
-  const html = marked.parse(`# ${parsed.data?.title || ""}\n\n${parsed.content}`);
+
+  // Titlul vine din frontmatter, dar îl punem și ca H1 în HTML
+  const html = marked.parse(
+    `# ${parsed.data?.title || ""}\n\n${parsed.content}`.trim()
+  );
 
   return {
     type,

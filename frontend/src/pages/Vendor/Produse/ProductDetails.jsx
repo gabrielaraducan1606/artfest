@@ -1,16 +1,18 @@
+// src/pages/ProductDetails/ProductDetails.jsx
 import React, {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
 } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { api } from "../../../lib/api";
+import { api } from "../../../lib/api.js";
 import styles from "./ProductDetails.module.css";
 import {
   FaChevronLeft,
-  FaChevronRight,
   FaChevronDown,
   FaShareAlt,
   FaShoppingCart,
@@ -23,28 +25,59 @@ import {
   productPlaceholder,
   avatarPlaceholder,
   onImgError,
-} from "../../../components/utils/imageFallback";
+} from "../../../components/utils/imageFallback.js";
 
-import ReviewsSection from "./ReviewSection/ReviewSection";
-import CommentsSection from "./CommentSection/CommentSection";
-import { guestCart } from "../../../lib/guestCart";
+import { useIsMobile } from "./hooks/useIsMobile.js";
+import { ProductGallery } from "./components/ProductGallery.jsx";
+import { StoreProductsSlider } from "./components/StoreProductsSlider.jsx";
+import { SimilarProductsGrid } from "./components/SimilarProductsGrid.jsx";
+import { ImageZoom } from "./components/ImageZoom";
+import DetailsContent from "./components/DetailsContent.jsx";
+import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
+import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 
-// ✅ EDIT MODAL – componenta ta existentă
-import ProductEditModal from "../ProfilMagazin/modals/ProductEditModal";
+// lazy: Reviews & Comments (performanță)
+const ReviewsSection = lazy(() => import("./ReviewSection/ReviewSection"));
+const CommentsSection = lazy(() => import("./CommentSection/CommentSection"));
+// lazy: ProductModal ca înainte
+const ProductModal = lazy(() =>
+  import("../ProfilMagazin/modals/ProductModal.jsx")
+);
 
-/* ========= Helpers URL + cache-buster (acceptă data:/blob:) ========= */
-const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-const isHttp = (u = "") => /^https?:\/\//i.test(u);
-const isDataOrBlob = (u = "") => /^(data|blob):/i.test(u);
-const resolveFileUrl = (u) => {
-  if (!u) return "";
-  if (isHttp(u) || isDataOrBlob(u)) return u;
-  const path = u.startsWith("/") ? u : `/${u}`;
-  return BACKEND_BASE ? `${BACKEND_BASE}${path}` : path;
+// helper dată – ca în ProfilMagazin (PREORDER)
+const dateOnlyToISO = (yyyyMmDd) => {
+  if (!yyyyMmDd) return null;
+  const [y, m, d] = String(yyyyMmDd).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d, 12, 0, 0);
+  return dt.toISOString();
 };
-const withCache = (url, t) => {
-  if (!url || !isHttp(url)) return url;
-  return url.includes("?") ? `${url}&t=${t}` : `${url}?t=${t}`;
+
+const emptyProdForm = {
+  id: "",
+  title: "",
+  description: "",
+  price: 0,
+  images: [],
+  category: "",
+  currency: "RON",
+  isActive: true,
+
+  availability: "READY",
+  leadTimeDays: "",
+  readyQty: "",
+  nextShipDate: "",
+  acceptsCustom: false,
+  isHidden: false,
+
+  color: "",
+  materialMain: "",
+  technique: "",
+  styleTags: "",
+  occasionTags: "",
+  dimensions: "",
+  careInstructions: "",
+  specialNotes: "",
 };
 
 export default function ProductDetails() {
@@ -56,9 +89,10 @@ export default function ProductDetails() {
 
   const [me, setMe] = useState(null);
   const [favorites, setFavorites] = useState(() => new Set());
-
   const [product, setProduct] = useState(null);
-  const [related, setRelated] = useState([]);
+
+  const [storeProducts, setStoreProducts] = useState([]);
+  const [similarProducts, setSimilarProducts] = useState([]);
 
   const [reviews, setReviews] = useState([]);
   const [avg, setAvg] = useState({ average: 0, count: 0 });
@@ -78,21 +112,27 @@ export default function ProductDetails() {
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
 
-  // acordeoane: toate închise by default
+  // acordioane desktop
   const [openAccordions, setOpenAccordions] = useState({
     details: false,
     reviews: false,
     comments: false,
   });
 
-  // ✅ state pentru edit modal
+  // tab-uri mobile
+  const [activeMobileTab, setActiveMobileTab] = useState("descriere");
+  const isMobile = useIsMobile(768);
+
+  // edit modal
   const [editOpen, setEditOpen] = useState(false);
-  const [editProduct, setEditProduct] = useState(null);
-  const [editLoading, setEditLoading] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [prodForm, setProdForm] = useState(emptyProdForm);
+  const [savingProd, setSavingProd] = useState(false);
+  const [categories, setCategories] = useState([]);
 
   const mountedRef = useRef(true);
 
-  // pentru swipe pe mobil
+  // swipe mobil
   const touchStartX = useRef(null);
   const touchEndX = useRef(null);
 
@@ -103,11 +143,13 @@ export default function ProductDetails() {
     };
   }, []);
 
+  // reset la schimbare product id
   useEffect(() => {
     setActiveIdx(0);
     setQty(1);
     setEditOpen(false);
-    setEditProduct(null);
+    setEditingProduct(null);
+    setProdForm(emptyProdForm);
   }, [id]);
 
   const cacheT = useMemo(
@@ -115,103 +157,6 @@ export default function ProductDetails() {
       product?.updatedAt ? new Date(product.updatedAt).getTime() : Date.now(),
     [product?.updatedAt]
   );
-
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // me (ignora erori)
-      const meRes = await api("/api/auth/me").catch(() => null);
-      if (!mountedRef.current) return;
-      setMe(meRes?.user || null);
-
-      // produs PUBLIC
-      const p = await api(`/api/products/${encodeURIComponent(id)}`);
-      if (!mountedRef.current) return;
-      setProduct(p);
-
-      // reviews & average din răspuns
-      const revs = Array.isArray(p?.reviews) ? p.reviews : [];
-      setReviews(revs);
-      setAvg({
-        average: typeof p?.averageRating === "number" ? p.averageRating : 0,
-        count: revs.length || 0,
-      });
-
-      // favorites → doar IDs (mai ieftin)
-      api("/api/favorites/ids")
-        .then((fav) => {
-          if (!mountedRef.current) return;
-          const set = new Set(Array.isArray(fav?.items) ? fav.items : []);
-          setFavorites(set);
-        })
-        .catch(() => {});
-
-      // related: din același magazin (dacă avem slug)
-      if (p?.service?.profile?.slug) {
-        api(`/api/store/${encodeURIComponent(p.service.profile.slug)}/products`)
-          .then((items) => {
-            if (!mountedRef.current) return;
-            const list = Array.isArray(items) ? items : [];
-            setRelated(list.filter((x) => x.id !== p.id).slice(0, 8));
-          })
-          .catch(() => mountedRef.current && setRelated([]));
-      } else {
-        setRelated([]);
-      }
-
-      // comments (dacă nu ai listă publică, lasă gol)
-      setComments([]);
-    } catch (e) {
-      if (mountedRef.current)
-        setError(e?.message || "Nu am putut încărca produsul.");
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    loadAll();
-  }, [loadAll]);
-
-  // ——— Ownership robust: compar atât vendorId-urile cât și userId-urile ———
-  const myVendorId = me?.vendor?.id ?? null;
-  const myUserId = me?.id ?? me?.sub ?? null;
-
-  const ownerVendorId =
-    product?.service?.vendor?.id ??
-    product?.vendor?.id ??
-    product?.ownerVendorId ??
-    null;
-
-  const ownerUserId =
-    product?.service?.vendor?.userId ?? product?.vendor?.userId ?? null;
-
-  const isOwner = useMemo(() => {
-    const byVendor =
-      !!myVendorId && !!ownerVendorId && myVendorId === ownerVendorId;
-    const byUser = !!myUserId && !!ownerUserId && myUserId === ownerUserId;
-    return byVendor || byUser;
-  }, [myVendorId, myUserId, ownerVendorId, ownerUserId]);
-
-  // view mode
-  const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
-
-  // helper: cere login (o folosim DOAR pt favorite/recenzii/comentarii)
-  const requireAuth = (fn) => (...args) => {
-    if (!me) {
-      alert(
-        "Trebuie să fii autentificat pentru a adăuga produse în wishlist."
-      );
-      const redir = encodeURIComponent(
-        window.location.pathname + window.location.search
-      );
-      navigate(`/autentificare?redirect=${redir}`);
-      return;
-    }
-    return fn(...args);
-  };
 
   const images = useMemo(() => {
     const list =
@@ -226,11 +171,11 @@ export default function ProductDetails() {
   }, [images]);
 
   const activeSrc = useMemo(
-    () =>
-      withCache(resolveFileUrl(images[activeIdx] || images[0]), cacheT),
+    () => withCache(resolveFileUrl(images[activeIdx] || images[0]), cacheT),
     [images, activeIdx, cacheT]
   );
 
+  // prefetch următoarea imagine (pentru UX)
   useEffect(() => {
     const next = images[(activeIdx + 1) % images.length];
     if (!next) return;
@@ -253,7 +198,11 @@ export default function ProductDetails() {
     [product?.currency]
   );
 
-  // text de disponibilitate pt. Detalii produs
+  const priceInfo = useMemo(() => {
+    if (!product || displayPrice == null) return null;
+    return "TVA inclus în preț.";
+  }, [product, displayPrice]);
+
   const availabilityText = useMemo(() => {
     if (!product?.availability) return null;
     switch (product.availability) {
@@ -282,29 +231,79 @@ export default function ProductDetails() {
     }
   }, [product]);
 
-  // coș + favorite
+  const isSoldOut = product?.availability === "SOLD_OUT";
+
+  // ownership
+  const myVendorId = me?.vendor?.id ?? null;
+  const myUserId = me?.id ?? me?.sub ?? null;
+
+  const ownerVendorId =
+    product?.service?.vendor?.id ??
+    product?.vendor?.id ??
+    product?.ownerVendorId ??
+    null;
+
+  const ownerUserId =
+    product?.service?.vendor?.userId ?? product?.vendor?.userId ?? null;
+
+  const isOwner = useMemo(() => {
+    const byVendor =
+      !!myVendorId && !!ownerVendorId && myVendorId === ownerVendorId;
+    const byUser = !!myUserId && !!ownerUserId && myUserId === ownerUserId;
+    return byVendor || byUser;
+  }, [myVendorId, myUserId, ownerVendorId, ownerUserId]);
+
+  const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
+
+  const requireAuth = (fn) => (...args) => {
+    if (!me) {
+      alert(
+        "Pentru a salva produsele tale preferate și a putea reveni la ele oricând, te rugăm să te autentifici. Te așteptăm cu drag, durează doar câteva secunde! 💛"
+      );
+      const redir = encodeURIComponent(
+        window.location.pathname + window.location.search
+      );
+      navigate(`/autentificare?redirect=${redir}`);
+      return;
+    }
+    return fn(...args);
+  };
+
   const onAddToCart = async () => {
-    if (!product || isOwner || adding) return;
+    if (!product || isOwner || adding || isSoldOut) return;
+
+    if (!me) {
+      alert(
+        "Majoritatea produselor pot fi personalizate, iar pentru a putea vorbi cu artizanul și salva preferințele tale, este nevoie să te autentifici. Te așteptăm cu drag, durează doar câteva secunde! ✨"
+      );
+
+      const redir = encodeURIComponent(
+        window.location.pathname + window.location.search
+      );
+      navigate(`/autentificare?redirect=${redir}`);
+
+      return;
+    }
+
     try {
       setAdding(true);
-      if (me) {
-        const r = await api(`/api/cart/add`, {
-          method: "POST",
-          body: { productId: product.id, qty },
-        });
-        if (r?.error === "cannot_add_own_product") {
-          alert("Nu poți adăuga în coș propriul produs.");
-          return;
-        }
-      } else {
-        // GUEST: scriem în localStorage
-        guestCart.add(product.id, qty);
+
+      const r = await api(`/api/cart/add`, {
+        method: "POST",
+        body: { productId: product.id, qty },
+      });
+
+      if (r?.error === "cannot_add_own_product") {
+        alert("Nu poți adăuga în coș propriul produs.");
+        return;
       }
+
       try {
         window.dispatchEvent(new CustomEvent("cart:changed"));
       } catch {
         /* ignore */
       }
+
       alert("Produs adăugat în coș.");
     } catch (e) {
       const msg =
@@ -317,7 +316,7 @@ export default function ProductDetails() {
       setAdding(false);
     }
   };
-  // aici NU mai cerem login — coșul funcționează și ca guest
+
   const addToCartAny = onAddToCart;
 
   const isFav = useMemo(
@@ -328,7 +327,6 @@ export default function ProductDetails() {
   const toggleFavorite = async () => {
     if (!product || isOwner) return;
     const prev = isFav;
-    // optimistic
     setFavorites((set) => {
       const next = new Set(set);
       prev ? next.delete(product.id) : next.add(product.id);
@@ -340,7 +338,6 @@ export default function ProductDetails() {
         body: { productId: product.id },
       });
       if (r?.error === "cannot_favorite_own_product") {
-        // revert
         setFavorites((set) => {
           const next = new Set(set);
           prev ? next.add(product.id) : next.delete(product.id);
@@ -349,7 +346,6 @@ export default function ProductDetails() {
         alert("Nu poți adăuga la favorite un produs care îți aparține.");
       }
     } catch (e) {
-      // revert pe eroare
       setFavorites((set) => {
         const next = new Set(set);
         prev ? next.add(product.id) : next.delete(product.id);
@@ -363,7 +359,6 @@ export default function ProductDetails() {
       alert(msg);
     }
   };
-  // Wishlist: cere login (cu alert deja în requireAuth)
   const toggleFavoriteSafe = requireAuth(toggleFavorite);
 
   const shareIt = async () => {
@@ -392,35 +387,218 @@ export default function ProductDetails() {
     }
   };
 
-  const submitReview = async (e) => {
-    e?.preventDefault?.();
+  /* ========= Recenzii produs – loader ========= */
+  const loadReviewsForProduct = useCallback(async (prodId) => {
+    try {
+      const [list, stats] = await Promise.all([
+        api(
+          `/api/public/product/${encodeURIComponent(
+            prodId
+          )}/reviews?sort=recent&skip=0&take=50`
+        ),
+        api(
+          `/api/public/product/${encodeURIComponent(
+            prodId
+          )}/reviews/average`
+        ),
+      ]);
+
+      const items = Array.isArray(list?.items) ? list.items : [];
+
+      if (!mountedRef.current) return;
+
+      setReviews(items);
+      setAvg({
+        average: typeof stats?.average === "number" ? stats.average : 0,
+        count: typeof stats?.count === "number" ? stats.count : items.length,
+      });
+    } catch {
+      if (!mountedRef.current) return;
+      setReviews([]);
+      setAvg({ average: 0, count: 0 });
+    }
+  }, []);
+
+  /* ========= Loader principal produs (optimizat) ========= */
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [meRes, p] = await Promise.all([
+        api("/api/auth/me").catch(() => null),
+        api(`/api/public/products/${encodeURIComponent(id)}`),
+      ]);
+
+      if (!mountedRef.current) return;
+
+      setMe(meRes?.user || null);
+      setProduct(p);
+      setLoading(false); // produsul poate fi afișat deja
+
+      // restul în background (nu mai blochează pagina)
+      loadReviewsForProduct(p.id);
+
+      api("/api/favorites/ids")
+        .then((fav) => {
+          if (!mountedRef.current) return;
+          const set = new Set(Array.isArray(fav?.items) ? fav.items : []);
+          setFavorites(set);
+        })
+        .catch(() => {});
+
+      if (p?.service?.profile?.slug) {
+        api(
+          `/api/public/store/${encodeURIComponent(
+            p.service.profile.slug
+          )}/products`
+        )
+          .then((items) => {
+            if (!mountedRef.current) return;
+            const list = Array.isArray(items) ? items : [];
+            setStoreProducts(list.filter((x) => x.id !== p.id));
+          })
+          .catch(() => mountedRef.current && setStoreProducts([]));
+      } else {
+        setStoreProducts([]);
+      }
+
+      // produse similare – filtrate după produsul curent (categorie / culoare / tag-uri),
+      // cu fallback dacă rămânem cu prea puține rezultate
+      try {
+        const params = new URLSearchParams();
+        params.set("limit", "48"); // luăm mai multe, filtrăm pe client
+        params.set("sort", "popular");
+        if (p.category) params.set("category", p.category);
+        if (p.color) params.set("color", p.color);
+
+        const res = await api(`/api/public/products?${params.toString()}`);
+        if (mountedRef.current) {
+          const items = Array.isArray(res?.items) ? res.items : [];
+
+          // scoatem produsul curent
+          const baseList = items.filter((it) => it.id !== p.id);
+
+          const same = (a, b) =>
+            a && b && String(a).toLowerCase() === String(b).toLowerCase();
+
+          const splitTags = (v) =>
+            String(v || "")
+              .split(",")
+              .map((t) => t.trim().toLowerCase())
+              .filter(Boolean);
+
+          const productStyleTags = splitTags(p.styleTags);
+          const productOccasionTags = splitTags(p.occasionTags);
+
+          // 1. strict: aceeași categorie
+          let strict = baseList.filter((it) => same(it.category, p.category));
+
+          // 2. + aceeași culoare (dacă produsul are culoare)
+          if (p.color) {
+            strict = strict.filter((it) => same(it.color, p.color));
+          }
+
+          // 3. + styleTags comune (dacă există)
+          if (productStyleTags.length) {
+            strict = strict.filter((it) => {
+              const itsTags = splitTags(it.styleTags);
+              return itsTags.some((tag) => productStyleTags.includes(tag));
+            });
+          }
+
+          // 4. + occasionTags comune (dacă există)
+          if (productOccasionTags.length) {
+            strict = strict.filter((it) => {
+              const itsTags = splitTags(it.occasionTags);
+              return itsTags.some((tag) => productOccasionTags.includes(tag));
+            });
+          }
+
+          let finalList = strict;
+
+          // dacă lista strictă e prea mică, relaxăm treptat
+          if (finalList.length < 4) {
+            // fallback 1: doar categorie
+            finalList = baseList.filter((it) => same(it.category, p.category));
+          }
+
+          if (finalList.length < 4) {
+            // fallback 2: orice alt produs (fără produsul curent)
+            finalList = baseList;
+          }
+
+          setSimilarProducts(finalList.slice(0, 12));
+        }
+      } catch {
+        if (mountedRef.current) setSimilarProducts([]);
+      }
+
+      setComments([]);
+    } catch (e) {
+      if (mountedRef.current)
+        setError(e?.message || "Nu am putut încărca produsul.");
+      setLoading(false);
+    }
+  }, [id, loadReviewsForProduct]);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
+  /* ========= Submit review cu imagini ========= */
+  const submitReview = async ({ rating, comment, images }) => {
     if (isOwner) return;
-    if (!me)
+    if (!me) {
       return navigate(
         `/autentificare?redirect=${encodeURIComponent(
           window.location.pathname + window.location.search
         )}`
       );
-    if (revRating < 1 || revRating > 5)
-      return alert("Alege un rating între 1 și 5.");
+    }
+    if (rating < 1 || rating > 5) {
+      alert("Alege un rating între 1 și 5.");
+      return;
+    }
+
     try {
       setSubmittingReview(true);
-      await api("/api/reviews", {
-        method: "POST",
-        body: { productId: product.id, rating: revRating, comment: revText },
+
+      const form = new FormData();
+      form.append("productId", product.id);
+      form.append("rating", String(rating));
+      form.append("comment", comment || "");
+
+      (images || []).forEach((file) => {
+        form.append("images", file);
       });
+
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        body: form,
+      });
+
+      if (!res.ok) {
+        let msg = "Nu am putut trimite recenzia.";
+        try {
+          const err = await res.json();
+          if (err?.error === "rate_limited") {
+            msg =
+              "Ai atins limita de recenzii. Poți trimite maximum 10 recenzii la 24 de ore.";
+          } else if (err?.error === "cannot_review_own_product") {
+            msg = "Nu poți lăsa recenzie pentru propriul produs.";
+          }
+        } catch {
+          /* ignore */
+        }
+        alert(msg);
+        return;
+      }
+
       setRevRating(0);
       setRevText("");
-      const fresh = await api(`/api/products/${encodeURIComponent(id)}`);
-      const fRevs = Array.isArray(fresh?.reviews) ? fresh.reviews : [];
-      setReviews(fRevs);
-      setAvg({
-        average:
-          typeof fresh?.averageRating === "number"
-            ? fresh.averageRating
-            : 0,
-        count: fRevs.length || 0,
-      });
+
+      await loadReviewsForProduct(product.id);
     } catch (e2) {
       alert(e2?.message || "Nu am putut trimite recenzia.");
     } finally {
@@ -476,11 +654,31 @@ export default function ProductDetails() {
     product?.service?.profile?.displayName,
   ]);
 
-  // JSON-LD
+  const hasDescription =
+    typeof product?.description === "string" &&
+    product.description.trim().length > 0;
+
   const imagesForLd = useMemo(
     () => images.map((u) => resolveFileUrl(u)),
     [images]
   );
+
+  const schemaAvailability = useMemo(() => {
+    switch (product?.availability) {
+      case "READY":
+        return "https://schema.org/InStock";
+      case "MADE_TO_ORDER":
+        return "https://schema.org/PreOrder";
+      case "PREORDER":
+        return "https://schema.org/PreOrder";
+      case "SOLD_OUT":
+        return "https://schema.org/OutOfStock";
+      default:
+        return "https://schema.org/InStock";
+    }
+  }, [product?.availability]);
+
+  const displayPriceForLd = displayPrice ?? undefined;
 
   const jsonLd = useMemo(
     () => ({
@@ -496,11 +694,11 @@ export default function ProductDetails() {
       offers: {
         "@type": "Offer",
         priceCurrency: product?.currency || "RON",
-        price: displayPrice ?? undefined,
-        availability: "https://schema.org/InStock",
+        price: displayPriceForLd,
+        availability: schemaAvailability,
       },
     }),
-    [product, imagesForLd, displayPrice]
+    [product, imagesForLd, displayPriceForLd, schemaAvailability]
   );
 
   // swipe handlers
@@ -526,13 +724,11 @@ export default function ProductDetails() {
       return;
     }
     const diff = touchStartX.current - touchEndX.current;
-    const threshold = 40; // px
+    const threshold = 40;
     if (Math.abs(diff) > threshold) {
       if (diff > 0) {
-        // swipe left -> următoarea
         setActiveIdx((i) => (i + 1) % images.length);
       } else {
-        // swipe right -> precedenta
         setActiveIdx((i) => (i - 1 + images.length) % images.length);
       }
     }
@@ -547,23 +743,229 @@ export default function ProductDetails() {
     }));
   };
 
-  // ✅ încarcă produsul „de vendor” pentru edit, ca în carduri
+  // categorii pt ProductModal
+  const ensureCategories = useCallback(async () => {
+    if (categories.length) return;
+    try {
+      const c = await api("/api/public/categories/detailed").catch(() => []);
+      if (!mountedRef.current) return;
+      setCategories(Array.isArray(c) ? c : []);
+    } catch {
+      if (mountedRef.current) setCategories([]);
+    }
+  }, [categories.length]);
+
+  const uploadFile = async (f) => {
+    const fd = new FormData();
+    fd.append("file", f);
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) throw new Error("Upload eșuat");
+    const { url } = await res.json();
+    return url;
+  };
+
   const openEditModal = useCallback(async () => {
     if (!product?.id) return;
     try {
-      setEditLoading(true);
+      await ensureCategories();
+
       const full = await api(
-        `/api/vendor/products/${encodeURIComponent(product.id)}`
+        `/api/vendors/products/${encodeURIComponent(product.id)}`
       );
+
       if (!mountedRef.current) return;
-      setEditProduct(full);
+
+      setEditingProduct(full);
+
+      const price =
+        typeof full?.price === "number"
+          ? full.price
+          : Number.isFinite(full?.priceCents)
+          ? full.priceCents / 100
+          : 0;
+
+      setProdForm({
+        id: full.id || full._id || "",
+        title: full.title || "",
+        description: full.description || "",
+        price,
+        images: Array.isArray(full.images) ? full.images : [],
+        category: full.category || "",
+        currency: full.currency || "RON",
+        isActive: full.isActive !== false,
+
+        availability: (full.availability || "READY").toUpperCase(),
+        leadTimeDays: Number.isFinite(Number(full.leadTimeDays))
+          ? String(Number(full.leadTimeDays))
+          : "",
+        readyQty:
+          full.readyQty === null || full.readyQty === undefined
+            ? ""
+            : Number.isFinite(Number(full.readyQty))
+            ? String(Number(full.readyQty))
+            : "",
+        nextShipDate: full.nextShipDate
+          ? String(full.nextShipDate).slice(0, 10)
+          : "",
+        acceptsCustom: !!full.acceptsCustom,
+        isHidden: !!full.isHidden,
+
+        color: full.color || "",
+        materialMain: full.materialMain || "",
+        technique: full.technique || "",
+        styleTags: Array.isArray(full.styleTags)
+          ? full.styleTags.join(", ")
+          : full.styleTags || "",
+        occasionTags: Array.isArray(full.occasionTags)
+          ? full.occasionTags.join(", ")
+          : full.occasionTags || "",
+        dimensions: full.dimensions || "",
+        careInstructions: full.careInstructions || "",
+        specialNotes: full.specialNotes || "",
+      });
+
       setEditOpen(true);
     } catch (e) {
       alert(e?.message || "Nu am putut încărca produsul pentru editare.");
-    } finally {
-      if (mountedRef.current) setEditLoading(false);
     }
-  }, [product?.id]);
+  }, [product?.id, ensureCategories]);
+
+  const handleSaveProduct = async (e) => {
+    e?.preventDefault?.();
+    if (!editingProduct || !prodForm.id) {
+      alert("Nu am găsit produsul pentru salvare.");
+      return;
+    }
+
+    try {
+      setSavingProd(true);
+
+      const title = (prodForm.title || "").trim();
+      const description = prodForm.description || "";
+      const price = Number(prodForm.price);
+      const imagesArr = Array.isArray(prodForm.images) ? prodForm.images : [];
+      const category = (prodForm.category || "").trim();
+
+      const color = (prodForm.color || "").trim() || null;
+      const materialMain = (prodForm.materialMain || "").trim() || null;
+      const technique = (prodForm.technique || "").trim() || null;
+      const styleTags = (prodForm.styleTags || "").trim();
+      const occasionTags = (prodForm.occasionTags || "").trim();
+      const dimensions = (prodForm.dimensions || "").trim() || null;
+      const careInstructions =
+        (prodForm.careInstructions || "").trim() || null;
+      const specialNotes = (prodForm.specialNotes || "").trim() || null;
+
+      if (!title) {
+        alert("Te rog adaugă un titlu.");
+        setSavingProd(false);
+        return;
+      }
+      if (!Number.isFinite(price) || price < 0) {
+        alert("Preț invalid.");
+        setSavingProd(false);
+        return;
+      }
+      if (!category) {
+        alert("Selectează categoria produsului.");
+        setSavingProd(false);
+        return;
+      }
+
+      const basePayload = {
+        title,
+        description,
+        price,
+        images: imagesArr,
+        category,
+        currency: prodForm.currency || "RON",
+        isActive: prodForm.isActive !== false,
+        isHidden: !!prodForm.isHidden,
+
+        acceptsCustom: !!prodForm.acceptsCustom,
+
+        color,
+        materialMain,
+        technique,
+        styleTags,
+        occasionTags,
+        dimensions,
+        careInstructions,
+        specialNotes,
+      };
+
+      const av = String(prodForm.availability || "READY").toUpperCase();
+
+      const payload = {
+        ...basePayload,
+        availability: av,
+        leadTimeDays: null,
+        readyQty: null,
+        nextShipDate: null,
+      };
+
+      if (av === "MADE_TO_ORDER") {
+        const lt = Number(prodForm.leadTimeDays || 0);
+        payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
+      }
+
+      if (av === "READY") {
+        if (prodForm.readyQty !== "" && prodForm.readyQty != null) {
+          const rq = Number(prodForm.readyQty);
+          payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
+        } else {
+          payload.readyQty = null;
+        }
+      }
+
+      if (av === "PREORDER") {
+        payload.nextShipDate = prodForm.nextShipDate
+          ? dateOnlyToISO(prodForm.nextShipDate)
+          : null;
+      }
+
+      if (av === "SOLD_OUT") {
+        payload.readyQty = 0;
+      }
+
+      const pid = editingProduct.id || editingProduct._id;
+
+      const saved = await api(
+        `/api/vendors/products/${encodeURIComponent(pid)}`,
+        {
+          method: "PUT",
+          body: payload,
+        }
+      );
+
+      try {
+        window.dispatchEvent(
+          new CustomEvent("vendor:productUpdated", {
+            detail: { product: saved },
+          })
+        );
+      } catch {
+        /* noop */
+      }
+
+      setProduct((prev) => ({ ...(prev || {}), ...(saved || {}) }));
+
+      setEditOpen(false);
+      setEditingProduct(null);
+    } catch (er) {
+      alert(er?.message || "Nu am putut salva produsul.");
+    } finally {
+      setSavingProd(false);
+    }
+  };
+
+  const hasStructuredDetails = getHasStructuredDetails(
+    product,
+    availabilityText
+  );
 
   if (loading)
     return <div className={styles.pageWrap}>Se încarcă…</div>;
@@ -572,19 +974,18 @@ export default function ProductDetails() {
     return (
       <div className={styles.pageWrap}>
         <p>{error || "Produsul nu a fost găsit."}</p>
-        <button className={styles.linkBtn} onClick={() => navigate(-1)}>
+        <button
+          className={styles.linkBtn}
+          onClick={() => navigate(-1)}
+          type="button"
+        >
           <FaChevronLeft /> Înapoi
         </button>
       </div>
     );
 
-  const hasDescription =
-    typeof product.description === "string" &&
-    product.description.trim().length > 0;
-
   return (
     <div className={styles.pageWrap}>
-      {/* JSON-LD SEO */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -592,7 +993,11 @@ export default function ProductDetails() {
 
       {/* Breadcrumbs */}
       <div className={styles.breadcrumbs}>
-        <button className={styles.linkBtn} onClick={() => navigate(-1)}>
+        <button
+          className={styles.linkBtn}
+          onClick={() => navigate(-1)}
+          type="button"
+        >
           <FaChevronLeft /> Înapoi
         </button>
         <span className={styles.sep}>/</span>
@@ -615,82 +1020,25 @@ export default function ProductDetails() {
       </div>
 
       <div className={styles.grid}>
-        {/* Gallery */}
-        <div className={styles.gallery}>
-          <div
-            className={styles.mainImgWrap}
-            onClick={() => setZoomOpen(true)}
-            role="button"
-            tabIndex={0}
-            aria-label="Deschide imaginea la dimensiune mare"
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
-          >
-            <img
-              src={activeSrc}
-              srcSet={`${withCache(
-                resolveFileUrl(images[activeIdx]),
-                cacheT
-              )} 1000w`}
-              sizes="(max-width: 980px) 100vw, 58vw"
-              alt={product.title}
-              className={styles.mainImg}
-              onError={(e) => onImgError(e, 1000, 750, "Produs")}
-            />
-            {images.length > 1 && (
-              <>
-                <button
-                  className={`${styles.navBtn} ${styles.left}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveIdx(
-                      (i) => (i - 1 + images.length) % images.length
-                    );
-                  }}
-                  aria-label="Imaginea anterioară"
-                >
-                  <FaChevronLeft />
-                </button>
-                <button
-                  className={`${styles.navBtn} ${styles.right}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActiveIdx((i) => (i + 1) % images.length);
-                  }}
-                  aria-label="Imaginea următoare"
-                >
-                  <FaChevronRight />
-                </button>
-              </>
-            )}
-          </div>
-          {images.length > 1 && (
-            <div className={styles.thumbs}>
-              {images.map((u, i) => (
-                <button
-                  key={`${u}-${i}`}
-                  className={`${styles.thumb} ${
-                    i === activeIdx ? styles.thumbActive : ""
-                  }`}
-                  onClick={() => setActiveIdx(i)}
-                  aria-label={`Miniatură ${i + 1}`}
-                >
-                  <img
-                    loading="lazy"
-                    src={withCache(resolveFileUrl(u), cacheT)}
-                    alt={`mini-${i}`}
-                    onError={(e) => onImgError(e, 160, 120, "Produs")}
-                  />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Galerie extrasă în componentă separată */}
+        <ProductGallery
+          productTitle={product.title}
+          images={images}
+          activeIdx={activeIdx}
+          setActiveIdx={setActiveIdx}
+          activeSrc={activeSrc}
+          cacheT={cacheT}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          setZoomOpen={setZoomOpen}
+        />
 
-        {/* Info */}
+        {/* Info + tabs mobile */}
         <div className={styles.infoCard}>
-          <h1 className={styles.title}>{product.title}</h1>
+          <div className={styles.titleRow}>
+            <h1 className={styles.title}>{product.title}</h1>
+          </div>
 
           {(product.vendor?.displayName ||
             product?.service?.profile?.displayName) && (
@@ -717,10 +1065,20 @@ export default function ProductDetails() {
           )}
 
           {displayPrice != null && (
-            <div className={styles.price}>{fmt.format(displayPrice)}</div>
+            <>
+              <div className={styles.price}>{fmt.format(displayPrice)}</div>
+              {priceInfo && (
+                <div className={styles.priceInfo}>{priceInfo}</div>
+              )}
+            </>
           )}
 
-          {/* Availability & extras (badges) */}
+          {isOwner && (
+            <p className={styles.ownerNote}>
+              Ești proprietarul acestui produs.
+            </p>
+          )}
+
           {product.availability && (
             <div className={styles.availabilityRow}>
               {product.availability === "READY" && (
@@ -767,31 +1125,38 @@ export default function ProductDetails() {
             </div>
           )}
 
+          {hasDescription && (
+            <div className={styles.inlineDetailsBox}>
+              <h2 className={styles.inlineBoxTitle}>Descriere produs</h2>
+              <p className={styles.inlineDescription}>
+                {product.description}
+              </p>
+            </div>
+          )}
+
+          {/* CTA row */}
           <div className={styles.ctaRow}>
-            {viewMode === "vendor" ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  flexWrap: "wrap",
-                }}
-              >
-                <p className={styles.muted} style={{ margin: 0 }}>
-                  Ești proprietarul acestui produs.
-                </p>
-                <button
-                  type="button"
-                  className={styles.primaryBtn}
-                  onClick={openEditModal}
-                  disabled={editLoading}
-                >
-                  <FaEdit style={{ marginRight: 6 }} />
-                  {editLoading ? "Se încarcă…" : "Editează produs"}
-                </button>
-              </div>
-            ) : (
+            {viewMode !== "vendor" && (
               <>
+                <button
+                  className={styles.primaryBtn}
+                  onClick={addToCartAny}
+                  disabled={adding || isSoldOut}
+                  title={
+                    isSoldOut
+                      ? "Produs indisponibil momentan"
+                      : "Adaugă în coș"
+                  }
+                  type="button"
+                >
+                  <FaShoppingCart />{" "}
+                  {isSoldOut
+                    ? "Stoc epuizat"
+                    : adding
+                    ? "Se adaugă…"
+                    : "Adaugă în coș"}
+                </button>
+
                 <div className={styles.qtyRow}>
                   <button
                     type="button"
@@ -832,15 +1197,7 @@ export default function ProductDetails() {
                     +
                   </button>
                 </div>
-                <button
-                  className={styles.primaryBtn}
-                  onClick={addToCartAny}
-                  disabled={adding}
-                  title="Adaugă în coș"
-                >
-                  <FaShoppingCart />{" "}
-                  {adding ? "Se adaugă…" : "Adaugă în coș"}
-                </button>
+
                 <button
                   className={`${styles.iconBtn} ${
                     isFav ? styles.heartFilled : ""
@@ -853,19 +1210,37 @@ export default function ProductDetails() {
                   title={
                     isFav ? "Elimină din favorite" : "Adaugă la favorite"
                   }
+                  type="button"
                 >
                   {isFav ? <FaHeart /> : <FaRegHeart />}
                 </button>
               </>
             )}
-            <button
-              className={styles.iconBtn}
-              onClick={shareIt}
-              aria-label="Distribuie"
-              title="Distribuie"
-            >
-              <FaShareAlt />
-            </button>
+
+            <div className={styles.ctaIconGroup}>
+              <button
+                className={styles.iconBtn}
+                onClick={shareIt}
+                aria-label="Distribuie"
+                title="Distribuie"
+                type="button"
+              >
+                <FaShareAlt />
+              </button>
+
+              {isOwner && (
+                <button
+                  type="button"
+                  className={`${styles.iconBtn} ${styles.editIconBtn}`}
+                  onClick={openEditModal}
+                  disabled={savingProd}
+                  aria-label="Editează produsul"
+                  title="Editează produsul"
+                >
+                  <FaEdit />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Mini card magazin */}
@@ -918,257 +1293,330 @@ export default function ProductDetails() {
               )}
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Acordeon: Detalii produs */}
-      <section className={styles.descriptionSection}>
-        <div className={styles.accordion}>
-          <button
-            type="button"
-            className={styles.accordionHeader}
-            onClick={() => toggleAccordion("details")}
-            aria-expanded={openAccordions.details}
-          >
-            <div className={styles.accordionTitleWrap}>
-              <span className={styles.accordionTitle}>Detalii produs</span>
-              {hasDescription && (
-                <span className={styles.accordionMeta}>
-                  Vezi descrierea completă și informații suplimentare
-                </span>
-              )}
-            </div>
-            <span className={styles.accordionIcon}>
-              <FaChevronDown />
-            </span>
-          </button>
-          {openAccordions.details && (
-            <div className={styles.accordionBody}>
-              {availabilityText && (
-                <p className={styles.detailsLine}>
-                  <strong>Disponibilitate:</strong> {availabilityText}
-                </p>
-              )}
-              {product.acceptsCustom && (
-                <p className={styles.detailsLine}>
-                  <strong>Personalizare:</strong> Acest produs poate fi
-                  realizat și în variantă personalizată. Poți discuta
-                  detaliile direct cu artizanul după plasarea comenzii.
-                </p>
-              )}
-              {product.color && (
-                <p className={styles.detailsLine}>
-                  <strong>Culoare principală:</strong> {product.color}
-                </p>
-              )}
-              {hasDescription && (
-                <p className={styles.fullDesc}>{product.description}</p>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Acordeon: Recenzii produs */}
-      <section className={styles.reviewsSection}>
-        <div className={styles.accordion}>
-          <button
-            type="button"
-            className={styles.accordionHeader}
-            onClick={() => toggleAccordion("reviews")}
-            aria-expanded={openAccordions.reviews}
-          >
-            <div className={styles.accordionTitleWrap}>
-              <span className={styles.accordionTitle}>Recenzii produs</span>
-              <span className={styles.accordionMeta}>
-                {avg.count > 0
-                  ? `${avg.average.toFixed(1)} ★ · ${avg.count} recenzii`
-                  : "Nu există recenzii încă"}
-              </span>
-            </div>
-            <span className={styles.accordionIcon}>
-              <FaChevronDown />
-            </span>
-          </button>
-          {openAccordions.reviews && (
-            <div className={styles.accordionBody}>
-              <ReviewsSection
-                avg={avg}
-                reviews={reviews}
-                isOwner={isOwner}
-                isLoggedIn={!!me}
-                onSubmit={submitReview}
-                submitting={submittingReview}
-                revRating={revRating}
-                setRevRating={setRevRating}
-                revText={revText}
-                setRevText={setRevText}
-              />
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Acordeon: Întrebări & comentarii */}
-      <section className={styles.commentsSection}>
-        <div className={styles.accordion}>
-          <button
-            type="button"
-            className={styles.accordionHeader}
-            onClick={() => toggleAccordion("comments")}
-            aria-expanded={openAccordions.comments}
-          >
-            <div className={styles.accordionTitleWrap}>
-              <span className={styles.accordionTitle}>
-                Întrebări & comentarii
-              </span>
-              <span className={styles.accordionMeta}>
-                Pune o întrebare sau lasă un mesaj pentru vânzător
-              </span>
-            </div>
-            <span className={styles.accordionIcon}>
-              <FaChevronDown />
-            </span>
-          </button>
-          {openAccordions.comments && (
-            <div className={styles.accordionBody}>
-              <CommentsSection
-                comments={comments}
-                isOwner={isOwner}
-                isLoggedIn={!!me}
-                onSubmit={submitComment}
-                submitting={submittingComment}
-                commentText={commentText}
-                setCommentText={setCommentText}
-              />
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Produse similare / din același magazin */}
-      <section className={styles.relatedSec}>
-        <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
-        <div className={styles.relatedGrid}>
-          {related.length === 0 ? (
-            <div className={styles.emptyBox}>Nu sunt produse similare.</div>
-          ) : (
-            related.map((p) => {
-              const img =
-                Array.isArray(p.images) && p.images[0]
-                  ? withCache(resolveFileUrl(p.images[0]), cacheT)
-                  : productPlaceholder(480, 360, "Produs");
-              const price =
-                typeof p.price === "number"
-                  ? p.price
-                  : Number.isFinite(p.priceCents)
-                  ? p.priceCents / 100
-                  : null;
-              return (
+          {/* Tabs mobile */}
+          {isMobile && (
+            <>
+              <div
+                className={styles.mobileTabs}
+                aria-label="Secțiuni produs"
+                role="tablist"
+              >
                 <button
-                  key={p.id}
-                  className={styles.relatedCard}
-                  onMouseEnter={() =>
-                    api(`/api/products/${encodeURIComponent(p.id)}`).catch(
-                      () => {}
-                    )
-                  }
-                  onClick={() => navigate(`/produs/${p.id}`)}
-                  aria-label={`Vezi ${p.title}`}
+                  type="button"
+                  className={`${styles.mobileTab} ${
+                    activeMobileTab === "descriere"
+                      ? styles.mobileTabActive
+                      : ""
+                  }`}
+                  onClick={() => setActiveMobileTab("descriere")}
+                  role="tab"
+                  aria-selected={activeMobileTab === "descriere"}
+                  aria-controls="tab-descriere"
                 >
-                  <img
-                    loading="lazy"
-                    src={img}
-                    alt={p.title}
-                    onError={(e) => onImgError(e, 480, 360, "Produs")}
-                  />
-                  <div className={styles.relBody}>
-                    <div className={styles.relTitle}>{p.title}</div>
-                    {price != null && (
-                      <div className={styles.relPrice}>
-                        {new Intl.NumberFormat("ro-RO", {
-                          style: "currency",
-                          currency: p.currency || "RON",
-                        }).format(price)}
+                  Descriere
+                </button>
+                {hasStructuredDetails && (
+                  <button
+                    type="button"
+                    className={`${styles.mobileTab} ${
+                      activeMobileTab === "detalii"
+                        ? styles.mobileTabActive
+                        : ""
+                    }`}
+                    onClick={() => setActiveMobileTab("detalii")}
+                    role="tab"
+                    aria-selected={activeMobileTab === "detalii"}
+                    aria-controls="tab-detalii"
+                  >
+                    Detalii
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`${styles.mobileTab} ${
+                    activeMobileTab === "recenzii"
+                      ? styles.mobileTabActive
+                      : ""
+                  }`}
+                  onClick={() => setActiveMobileTab("recenzii")}
+                  role="tab"
+                  aria-selected={activeMobileTab === "recenzii"}
+                  aria-controls="tab-recenzii"
+                >
+                  Recenzii
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.mobileTab} ${
+                    activeMobileTab === "intrebari"
+                      ? styles.mobileTabActive
+                      : ""
+                  }`}
+                  onClick={() => setActiveMobileTab("intrebari")}
+                  role="tab"
+                  aria-selected={activeMobileTab === "intrebari"}
+                  aria-controls="tab-intrebari"
+                >
+                  Întrebări
+                </button>
+              </div>
+
+              <div className={styles.mobileTabPanels}>
+                <div
+                  id="tab-descriere"
+                  role="tabpanel"
+                  hidden={activeMobileTab !== "descriere"}
+                >
+                  {activeMobileTab === "descriere" && (
+                    <div className={styles.mobileTabPanel}>
+                      {hasDescription ? (
+                        <p>{product.description}</p>
+                      ) : (
+                        <p>Nu există încă o descriere pentru acest produs.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {hasStructuredDetails && (
+                  <div
+                    id="tab-detalii"
+                    role="tabpanel"
+                    hidden={activeMobileTab !== "detalii"}
+                  >
+                    {activeMobileTab === "detalii" && (
+                      <div className={styles.mobileTabPanel}>
+                        <DetailsContent
+                          product={product}
+                          availabilityText={availabilityText}
+                        />
                       </div>
                     )}
                   </div>
-                </button>
-              );
-            })
+                )}
+
+                <div
+                  id="tab-recenzii"
+                  role="tabpanel"
+                  hidden={activeMobileTab !== "recenzii"}
+                >
+                  {activeMobileTab === "recenzii" && (
+                    <div className={styles.mobileTabPanel}>
+                      <Suspense fallback={<div>Se încarcă recenziile…</div>}>
+                        <ReviewsSection
+                          avg={avg}
+                          reviews={reviews}
+                          isOwner={isOwner}
+                          isLoggedIn={!!me}
+                          currentUserId={myUserId} 
+                          onSubmit={submitReview}
+                          submitting={submittingReview}
+                          revRating={revRating}
+                          setRevRating={setRevRating}
+                          revText={revText}
+                          setRevText={setRevText}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  id="tab-intrebari"
+                  role="tabpanel"
+                  hidden={activeMobileTab !== "intrebari"}
+                >
+                  {activeMobileTab === "intrebari" && (
+                    <div className={styles.mobileTabPanel}>
+                      <Suspense
+                        fallback={<div>Se încarcă comentariile…</div>}
+                      >
+                        <CommentsSection
+                          comments={comments}
+                          isOwner={isOwner}
+                          isLoggedIn={!!me}
+                          onSubmit={submitComment}
+                          submitting={submittingComment}
+                          commentText={commentText}
+                          setCommentText={setCommentText}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
-      </section>
+      </div>
 
-      {/* Zoom modal simplu */}
-      {zoomOpen && (
-        <div
-          className={styles.zoomBackdrop}
-          onClick={() => setZoomOpen(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className={styles.zoomInner}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img src={activeSrc} alt="Zoom" className={styles.zoomImg} />
-            {images.length > 1 && (
-              <div className={styles.zoomNav}>
-                <button
-                  onClick={() =>
-                    setActiveIdx(
-                      (i) => (i - 1 + images.length) % images.length
-                    )
-                  }
-                  aria-label="Imaginea anterioară"
-                >
-                  <FaChevronLeft />
-                </button>
-                <button
-                  onClick={() =>
-                    setActiveIdx((i) => (i + 1) % images.length)
-                  }
-                  aria-label="Imaginea următoare"
-                >
-                  <FaChevronRight />
-                </button>
+      {/* Desktop: Detalii / Recenzii / Întrebări pe acordeon */}
+      {!isMobile && hasStructuredDetails && (
+        <section className={styles.descriptionSection}>
+          <div className={styles.accordion}>
+            <button
+              type="button"
+              className={styles.accordionHeader}
+              onClick={() => toggleAccordion("details")}
+              aria-expanded={openAccordions.details}
+            >
+              <div className={styles.accordionTitleWrap}>
+                <span className={styles.accordionTitle}>
+                  Detalii produs
+                </span>
+                <span className={styles.accordionMeta}>
+                  Informații despre disponibilitate, material, dimensiuni și
+                  alte detalii
+                </span>
+              </div>
+              <span className={styles.accordionIcon}>
+                <FaChevronDown />
+              </span>
+            </button>
+
+            {openAccordions.details && (
+              <div className={styles.accordionBody}>
+                <DetailsContent
+                  product={product}
+                  availabilityText={availabilityText}
+                />
               </div>
             )}
-            <button
-              className={styles.zoomClose}
-              onClick={() => setZoomOpen(false)}
-              aria-label="Închide"
-            >
-              ×
-            </button>
           </div>
-        </div>
+        </section>
       )}
 
-      {/* ✅ MODAL DE EDITARE PRODUS – doar pentru owner, cu date de vendor */}
-      {isOwner && editOpen && (
-        <ProductEditModal
-          open={editOpen}
-          onClose={() => setEditOpen(false)}
-          product={editProduct || product}
-          onSaved={(updated) => {
-            if (updated) {
-              setProduct((prev) => ({ ...(prev || {}), ...(updated || {}) }));
-              // anunțăm și restul UI-ului (carduri etc.)
-              try {
-                window.dispatchEvent(
-                  new CustomEvent("vendor:productUpdated", {
-                    detail: { product: updated },
-                  })
-                );
-              } catch {
-                /* noop */
-              }
-            }
-            setEditOpen(false);
-          }}
+      {!isMobile && (
+        <section className={styles.reviewsSection}>
+          <div className={styles.accordion}>
+            <button
+              type="button"
+              className={styles.accordionHeader}
+              onClick={() => toggleAccordion("reviews")}
+              aria-expanded={openAccordions.reviews}
+            >
+              <div className={styles.accordionTitleWrap}>
+                <span className={styles.accordionTitle}>
+                  Recenzii produs
+                </span>
+                <span className={styles.accordionMeta}>
+                  {avg.count > 0
+                    ? `${avg.average.toFixed(1)} ★ · ${avg.count} recenzii`
+                    : "Nu există recenzii încă"}
+                </span>
+              </div>
+              <span className={styles.accordionIcon}>
+                <FaChevronDown />
+              </span>
+            </button>
+            {openAccordions.reviews && (
+              <div className={styles.accordionBody}>
+                <Suspense fallback={<div>Se încarcă recenziile…</div>}>
+                  <ReviewsSection
+                    avg={avg}
+                    reviews={reviews}
+                    isOwner={isOwner}
+                    isLoggedIn={!!me}
+                    onSubmit={submitReview}
+                    submitting={submittingReview}
+                    revRating={revRating}
+                    setRevRating={setRevRating}
+                    revText={revText}
+                    setRevText={setRevText}
+                  />
+                </Suspense>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {!isMobile && (
+        <section className={styles.commentsSection}>
+          <div className={styles.accordion}>
+            <button
+              type="button"
+              className={styles.accordionHeader}
+              onClick={() => toggleAccordion("comments")}
+              aria-expanded={openAccordions.comments}
+            >
+              <div className={styles.accordionTitleWrap}>
+                <span className={styles.accordionTitle}>
+                  Întrebări & comentarii
+                </span>
+                <span className={styles.accordionMeta}>
+                  Pune o întrebare sau lasă un mesaj pentru vânzător
+                </span>
+              </div>
+              <span className={styles.accordionIcon}>
+                <FaChevronDown />
+              </span>
+            </button>
+            {openAccordions.comments && (
+              <div className={styles.accordionBody}>
+                <Suspense fallback={<div>Se încarcă comentariile…</div>}>
+                  <CommentsSection
+                    comments={comments}
+                    isOwner={isOwner}
+                    isLoggedIn={!!me}
+                    onSubmit={submitComment}
+                    submitting={submittingComment}
+                    commentText={commentText}
+                    setCommentText={setCommentText}
+                  />
+                </Suspense>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Produse din acest magazin */}
+      <section className={styles.relatedSec}>
+        <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
+        <StoreProductsSlider
+          products={storeProducts}
+          cacheT={cacheT}
+          navigate={navigate}
         />
+      </section>
+
+      {/* Produse similare */}
+      <SimilarProductsGrid
+        products={similarProducts}
+        cacheT={cacheT}
+        navigate={navigate}
+      />
+
+      {/* Zoom imagini */}
+      <ImageZoom
+        open={zoomOpen}
+        images={images}
+        activeIdx={activeIdx}
+        setActiveIdx={setActiveIdx}
+        activeSrc={activeSrc}
+        onClose={() => setZoomOpen(false)}
+      />
+
+      {/* ProductModal */}
+      {isOwner && (
+        <Suspense fallback={null}>
+          <ProductModal
+            open={editOpen}
+            onClose={() => {
+              setEditOpen(false);
+              setEditingProduct(null);
+            }}
+            saving={savingProd}
+            editingProduct={editingProduct}
+            form={prodForm}
+            setForm={setProdForm}
+            categories={categories}
+            onSave={handleSaveProduct}
+            uploadFile={uploadFile}
+          />
+        </Suspense>
       )}
     </div>
   );

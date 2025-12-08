@@ -1,5 +1,5 @@
 /**
- * ProductModal cu secțiuni în acordeon
+ * ProductModal cu secțiuni în acordeon + câmpuri cu constante (autocomplete + chips)
  */
 import {
   useEffect,
@@ -12,39 +12,28 @@ import Modal from "../ui/Modal";
 import styles from "../components/css/ProductModal.module.css";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
+import { api } from "../../../../lib/api"; // 👈 NOU: pentru a citi TVA din billing
 
-// Sugestie de descriere din câmpurile structurate
-const generateDescriptionFromForm = (f) => {
-  if (!f) return "";
-  const parts = [];
+// IMPORTURI CONSTANTE (ajustează path-urile dacă e nevoie)
+import {
+  COLORS_DETAILED,
+} from "../../../../../../backend/src/constants/colors.js";
+import {
+  MATERIALS_DETAILED,
+} from "../../../../../../backend/src/constants/materials.js";
+import {
+  TECHNIQUES_DETAILED,
+} from "../../../../../../backend/src/constants/tehniques.js";
 
-  if (f.materialMain?.trim()) {
-    parts.push(`Acest produs este realizat din ${f.materialMain.trim()}.`);
-  }
-  if (f.technique?.trim()) {
-    parts.push(`Fiecare piesă este ${f.technique.trim()}.`);
-  }
-  if (f.dimensions?.trim()) {
-    parts.push(`Dimensiuni aproximative: ${f.dimensions.trim()}.`);
-  }
-  const occ = f.occasionTags?.trim();
-  if (occ) {
-    parts.push(`Potrivit ca ${occ}.`);
-  }
-  const style = f.styleTags?.trim();
-  if (style) {
-    parts.push(`Stil: ${style}.`);
-  }
-  if (f.careInstructions?.trim()) {
-    parts.push(`Îngrijire: ${f.careInstructions.trim()}.`);
-  }
-  if (f.specialNotes?.trim()) {
-    const note = f.specialNotes.trim();
-    parts.push(note.endsWith(".") ? note : `${note}.`);
-  }
-
-  return parts.join(" ");
-};
+import {
+  STYLE_TAGS_DETAILED,
+} from "../../../../../../backend/src/constants/stylesTags.js";
+import {
+  OCCASION_TAGS_DETAILED,
+} from "../../../../../../backend/src/constants/occasinsTags.js";
+import {
+  CARE_TAGS_DETAILED,
+} from "../../../../../../backend/src/constants/careInstructions.js";
 
 // ====== Mic component de acordeon pentru secțiuni ======
 function AccordionSection({ id, title, open, onToggle, children }) {
@@ -75,6 +64,523 @@ function AccordionSection({ id, title, open, onToggle, children }) {
   );
 }
 
+// ====== TagComboField: multi-tag (stil / ocazii / îngrijire) ======
+function TagComboField({
+  id,
+  label,
+  value,      // CSV: "a, b, c"
+  onChange,   // primește CSV
+  options,    // array de string (labeluri)
+  placeholder,
+  note,
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const [openList, setOpenList] = useState(false);
+  const wrapRef = useRef(null);
+
+  const tags = useMemo(
+    () =>
+      String(value || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    [value]
+  );
+
+  useEffect(() => {
+    if (!openList) return;
+    const handleClickOutside = (e) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target)) {
+        setOpenList(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [openList]);
+
+  const normalize = (s) =>
+    String(s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
+  const addTag = (token) => {
+    const norm = String(token || "").trim();
+    if (!norm) return;
+    const existing = new Set(tags);
+    if (existing.has(norm)) {
+      setInputValue("");
+      return;
+    }
+    const next = [...tags, norm];
+    onChange(next.join(", "));
+    setInputValue("");
+  };
+
+  const removeTag = (tag) => {
+    const next = tags.filter((t) => t !== tag);
+    onChange(next.join(", "));
+  };
+
+  const suggestions = useMemo(() => {
+    const q = normalize(inputValue);
+    const existing = new Set(tags.map((t) => normalize(t)));
+    return options
+      .filter((opt) => !existing.has(normalize(opt)))
+      .filter((opt) => !q || normalize(opt).includes(q))
+      .slice(0, 20);
+  }, [options, tags, inputValue]);
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(inputValue);
+      return;
+    }
+    if (e.key === "Backspace" && !inputValue && tags.length > 0) {
+      e.preventDefault();
+      removeTag(tags[tags.length - 1]);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ marginBottom: 12 }}>
+      {label && (
+        <label className={styles.label} htmlFor={id}>
+          {label}
+        </label>
+      )}
+      <div
+        className={styles.input}
+        style={{
+          minHeight: 40,
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 6,
+          paddingTop: 6,
+          paddingBottom: 6,
+        }}
+        onClick={() => {
+          setOpenList(true);
+          const el = document.getElementById(id);
+          if (el) el.focus();
+        }}
+      >
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              borderRadius: 999,
+              fontSize: "0.75rem",
+              background: "rgba(0,0,0,0.06)",
+            }}
+          >
+            {tag}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                removeTag(tag);
+              }}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: "0.8rem",
+                lineHeight: 1,
+                padding: 0,
+              }}
+              aria-label={`Șterge tag ${tag}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+
+        <input
+          id={id}
+          value={inputValue}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            setOpenList(true);
+          }}
+          onKeyDown={onKeyDown}
+          placeholder={tags.length ? "" : placeholder}
+          style={{
+            flex: 1,
+            minWidth: 80,
+            border: "none",
+            outline: "none",
+            fontSize: "0.85rem",
+            background: "transparent",
+          }}
+        />
+      </div>
+      {note && (
+        <div
+          style={{
+            fontSize: "0.7rem",
+            opacity: 0.7,
+            marginTop: 4,
+          }}
+        >
+          {note}
+        </div>
+      )}
+      {tags.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          style={{
+            marginTop: 4,
+            fontSize: "0.7rem",
+            textDecoration: "underline",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            opacity: 0.7,
+          }}
+        >
+          Șterge toate valorile
+        </button>
+      )}
+      {openList && (
+        <div
+          style={{
+            marginTop: 4,
+            borderRadius: 6,
+            border: "1px solid rgba(0,0,0,0.08)",
+            background: "#fff",
+            maxHeight: 200,
+            overflowY: "auto",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+            zIndex: 20,
+            position: "relative",
+          }}
+        >
+          {/* HEADER + BUTON ÎNCHIDE */}
+          <div
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderBottom: "1px solid rgba(0,0,0,0.06)",
+              background: "#fafafa",
+              fontSize: "0.8rem",
+            }}
+          >
+            <span style={{ fontWeight: 600 }}>
+              {label || "Sugestii"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setOpenList(false)}
+              aria-label="Închide lista de sugestii"
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: "1rem",
+                lineHeight: 1,
+                padding: "0 4px",
+                opacity: 0.7,
+              }}
+            >
+              ×
+            </button>
+          </div>
+
+          {suggestions.length > 0 ? (
+            suggestions.map((opt) => (
+              <div
+                key={opt}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => addTag(opt)}
+                style={{
+                  padding: "6px 10px",
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                }}
+              >
+                {opt}
+              </div>
+            ))
+          ) : (
+            inputValue && (
+              <div
+                style={{
+                  padding: "6px 10px",
+                  fontSize: "0.8rem",
+                  color: "rgba(0,0,0,0.6)",
+                }}
+              >
+                Nicio sugestie – poți folosi varianta tastată de tine.
+              </div>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ====== SingleTagComboField: un singur chip (material / tehnică / culoare) ======
+function SingleTagComboField({
+  id,
+  label,
+  value,      // string simplu
+  onChange,   // primește string simplu
+  options,    // [{ key, label }]
+  placeholder,
+  note,
+  useOptionKeyAsValue = false, // 👈 nou: doar pentru câmpuri care trimit key la backend
+}) {
+  const [inputValue, setInputValue] = useState("");
+  const [openList, setOpenList] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    setInputValue("");
+  }, [value]);
+
+  useEffect(() => {
+    if (!openList) return;
+    const handleClickOutside = (e) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target)) {
+        setOpenList(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [openList]);
+
+  const normalize = (s) =>
+    String(s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
+  const labelForValue = useMemo(() => {
+    if (!value) return "";
+    const match = options.find(
+      (opt) =>
+        normalize(opt.key) === normalize(value) ||
+        normalize(opt.label) === normalize(value)
+    );
+    return match?.label || value || "";
+  }, [options, value]);
+
+  const suggestions = useMemo(() => {
+    const q = normalize(inputValue);
+    return options
+      .filter((opt) => normalize(opt.label) !== normalize(value))
+      .filter((opt) => !q || normalize(opt.label).includes(q))
+      .slice(0, 50);
+  }, [options, inputValue, value]);
+
+  const setChip = (token) => {
+    const norm = String(token || "").trim();
+    if (!norm) {
+      onChange("");
+      setInputValue("");
+      setOpenList(false);
+      return;
+    }
+
+    const matched = options.find(
+      (opt) =>
+        normalize(opt.label) === normalize(norm) ||
+        normalize(opt.key) === normalize(norm)
+    );
+
+    const valueToSave = matched
+      ? useOptionKeyAsValue
+        ? matched.key      // 👈 pentru colors: salvăm key
+        : matched.label    // pentru material/tehnică: salvăm label
+      : norm;              // fallback: free text
+
+    onChange(valueToSave);
+    setInputValue("");
+    setOpenList(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      setChip(inputValue);
+      return;
+    }
+    if (e.key === "Backspace" && !inputValue && value) {
+      e.preventDefault();
+      onChange("");
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpenList(false);
+    }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ marginBottom: 12 }}>
+      {label && (
+        <label className={styles.label} htmlFor={id}>
+          {label}
+        </label>
+      )}
+
+      <div
+        className={styles.input}
+        style={{
+          minHeight: 40,
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 6,
+          paddingTop: 6,
+          paddingBottom: 6,
+        }}
+        onClick={() => {
+          setOpenList(true);
+          const el = document.getElementById(id);
+          if (el) el.focus();
+        }}
+      >
+        {value && (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 8px",
+              borderRadius: 999,
+              fontSize: "0.75rem",
+              background: "rgba(0,0,0,0.06)",
+            }}
+          >
+            {labelForValue}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("");
+              }}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: "0.8rem",
+                lineHeight: 1,
+                padding: 0,
+              }}
+              aria-label={`Șterge valoarea ${value}`}
+            >
+              ×
+            </button>
+          </span>
+        )}
+
+        <input
+          id={id}
+          value={inputValue}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            setOpenList(true);
+          }}
+          onKeyDown={onKeyDown}
+          onBlur={() => {
+            // mic delay ca să permită click pe sugestie
+            setTimeout(() => setOpenList(false), 120);
+          }}
+          placeholder={value ? "" : placeholder}
+          style={{
+            flex: 1,
+            minWidth: 80,
+            border: "none",
+            outline: "none",
+            fontSize: "0.85rem",
+            background: "transparent",
+          }}
+        />
+      </div>
+
+      {note && (
+        <div
+          style={{
+            fontSize: "0.7rem",
+            opacity: 0.7,
+            marginTop: 4,
+          }}
+        >
+          {note}
+        </div>
+      )}
+
+      {openList && suggestions.length > 0 && (
+        <div
+          style={{
+            marginTop: 4,
+            borderRadius: 6,
+            border: "1px solid rgba(0,0,0,0.08)",
+            background: "#fff",
+            maxHeight: 200,
+            overflowY: "auto",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+            zIndex: 20,
+            position: "relative",
+          }}
+        >
+          {suggestions.map((opt) => (
+            <div
+              key={opt.key || opt.label}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setChip(opt.key)}
+              style={{
+                padding: "6px 10px",
+                fontSize: "0.85rem",
+                cursor: "pointer",
+              }}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {openList && suggestions.length === 0 && inputValue && (
+        <div
+          style={{
+            marginTop: 4,
+            padding: "6px 10px",
+            fontSize: "0.8rem",
+            borderRadius: 6,
+            border: "1px solid rgba(0,0,0,0.08)",
+            background: "#fff",
+            color: "rgba(0,0,0,0.6)",
+          }}
+        >
+          Nicio sugestie – poți folosi varianta tastată de tine.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProductModal({
   open,
   onClose,
@@ -99,29 +605,111 @@ export default function ProductModal({
 
   // starea de deschidere pentru secțiunile acordeonului
   const [openSections, setOpenSections] = useState({
-  basic: false,
-  details: false,
-  category: false,
-  availability: false,
-  images: false,
-});
+    basic: false,
+    details: false,
+    category: false,
+    availability: false,
+    images: false,
+  });
 
   const toggleSection = useCallback((key) => {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   }, []);
 
-  // când se deschide modalul, poți reseta secțiunile dacă vrei
+  // când se deschide modalul, resetăm secțiunile
   useEffect(() => {
-  if (open) {
-    setOpenSections({
-      basic: false,
-      details: false,
-      category: false,
-      availability: false,
-      images: false,
-    });
-  }
-}, [open]);
+    if (open) {
+      setOpenSections({
+        basic: false,
+        details: false,
+        category: false,
+        availability: false,
+        images: false,
+      });
+    }
+  }, [open]);
+
+  // ================= TVA din date de facturare =================
+  const [vatState, setVatState] = useState({
+    loading: false,
+    error: "",
+    status: null, // "payer" | "non_payer" | null
+    rate: null,   // număr (ex: 19)
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    setVatState((s) => ({ ...s, loading: true, error: "" }));
+
+    (async () => {
+      try {
+        const resp = await api("/api/vendors/me/billing", {
+          method: "GET",
+        });
+        if (!alive) return;
+        const billing = resp?.billing;
+        if (billing) {
+          const r = billing.vatRate ? Number(billing.vatRate) : null;
+          setVatState({
+            loading: false,
+            error: "",
+            status: billing.vatStatus || null,
+            rate: Number.isFinite(r) ? r : null,
+          });
+        } else {
+          setVatState({
+            loading: false,
+            error: "",
+            status: null,
+            rate: null,
+          });
+        }
+      } catch (e) {
+        if (!alive) return;
+        setVatState({
+          loading: false,
+          error:
+            e?.message ||
+            "Nu am putut încărca informațiile de TVA ale magazinului.",
+          status: null,
+          rate: null,
+        });
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
+  // Calcul TVA plecând de la ideea că prețul introdus este PREȚ FINAL CU TVA
+  const vatComputed = useMemo(() => {
+    const gross = Number(form.price) || 0;
+    const rate =
+      vatState.status === "payer" && vatState.rate
+        ? vatState.rate
+        : 0;
+
+    if (!gross || !rate) {
+      return {
+        gross,
+        rate,
+        net: gross,
+        vatAmount: 0,
+      };
+    }
+
+    const factor = 1 + rate / 100;
+    const net = +(gross / factor).toFixed(2);
+    const vatAmount = +(gross - net).toFixed(2);
+
+    return { gross, rate, net, vatAmount };
+  }, [form.price, vatState.status, vatState.rate]);
+
+  const { gross, rate: vatRateNum, net, vatAmount } = vatComputed;
+
+  // ============================================================
 
   // Detectăm forma categoriilor
   const isDetailed =
@@ -154,7 +742,7 @@ export default function ProductModal({
     [options]
   );
 
-  // ===== Combobox state =====
+  // ===== Combobox state (categorie) =====
   const [query, setQuery] = useState("");
   const [openList, setOpenList] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -193,13 +781,14 @@ export default function ProductModal({
     };
   }, [openList, computeComboDirection]);
 
-  // închidere la click în afara combobox-ului
+  // închidere la click în afara combobox-ului categorie
   useEffect(() => {
     if (!openList) return;
     const handleClickOutside = (e) => {
       if (!wrapRef.current) return;
       if (!wrapRef.current.contains(e.target)) {
         setOpenList(false);
+        setActiveIndex(-1);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -217,7 +806,7 @@ export default function ProductModal({
     setQuery(getLabelFor(form.category));
   }, [form?.category, getLabelFor]);
 
-  // Filtrare tolerantă la diacritice
+  // Filtrare tolerantă la diacritice pt. categorii
   const normalize = useCallback(
     (s) =>
       String(s || "")
@@ -238,7 +827,7 @@ export default function ProductModal({
     );
   }, [options, query, normalize]);
 
-  // Grupare pentru afișare
+  // Grupare pentru afișare (categorii)
   const grouped = useMemo(() => {
     const by = new Map();
     for (const o of filtered) {
@@ -273,18 +862,19 @@ export default function ProductModal({
     }
   }, [openList, flatWithHeaders]);
 
-  // Select
+  // Select categorie
   const selectOption = useCallback(
     (opt) => {
       if (!opt) return;
       setForm((s) => ({ ...s, category: opt.key }));
       setQuery(opt.label);
       setOpenList(false);
+      setActiveIndex(-1);
     },
     [setForm]
   );
 
-  // Keyboard pe input
+  // Keyboard pe input (combobox)
   const onInputKeyDown = useCallback(
     (e) => {
       if (!openList && ["ArrowDown", "ArrowUp"].includes(e.key)) {
@@ -315,9 +905,36 @@ export default function ProductModal({
       } else if (e.key === "Escape") {
         e.preventDefault();
         setOpenList(false);
+        setActiveIndex(-1);
       }
     },
     [openList, activeIndex, flatWithHeaders, selectOption]
+  );
+
+  // Opțiuni pentru câmpurile cu constante (single chip + multi-tag)
+  const materialOptions = useMemo(
+    () => MATERIALS_DETAILED.map((m) => ({ key: m.key, label: m.label })),
+    []
+  );
+  const techniqueOptions = useMemo(
+    () => TECHNIQUES_DETAILED.map((t) => ({ key: t.key, label: t.label })),
+    []
+  );
+  const colorOptions = useMemo(
+    () => COLORS_DETAILED.map((c) => ({ key: c.key, label: c.label })),
+    []
+  );
+  const styleOptions = useMemo(
+    () => STYLE_TAGS_DETAILED.map((t) => t.label),
+    []
+  );
+  const occasionOptions = useMemo(
+    () => OCCASION_TAGS_DETAILED.map((t) => t.label),
+    []
+  );
+  const careOptions = useMemo(
+    () => CARE_TAGS_DETAILED.map((t) => t.label),
+    []
   );
 
   // ====== Images: DnD + Paste + Main image ======
@@ -439,62 +1056,42 @@ export default function ProductModal({
 
   // normalizează câmpurile când se schimbă availability
   useEffect(() => {
-  setForm((s) => {
-    // dacă nu e setată deloc disponibilitatea în form,
-    // nu mai băgăm noi "READY" din burtă
-    const av = s.availability;
-    if (!av) return s;
+    setForm((s) => {
+      const av = s.availability;
+      if (!av) return s;
 
-    const next = { ...s };
+      const next = { ...s };
 
-    if (av === "READY") {
-      next.leadTimeDays = "";
-      next.nextShipDate = "";
-      next.readyQty =
-        next.readyQty === "" || !Number.isFinite(Number(next.readyQty))
-          ? null
-          : Math.max(0, Number(next.readyQty));
-    } else if (av === "MADE_TO_ORDER") {
-      next.readyQty = 0;
-      next.nextShipDate = "";
-      if (
-        !Number.isFinite(Number(next.leadTimeDays)) ||
-        Number(next.leadTimeDays) < 1
-      ) {
+      if (av === "READY") {
         next.leadTimeDays = "";
+        next.nextShipDate = "";
+        next.readyQty =
+          next.readyQty === "" || !Number.isFinite(Number(next.readyQty))
+            ? null
+            : Math.max(0, Number(next.readyQty));
+      } else if (av === "MADE_TO_ORDER") {
+        next.readyQty = 0;
+        next.nextShipDate = "";
+        if (
+          !Number.isFinite(Number(next.leadTimeDays)) ||
+          Number(next.leadTimeDays) < 1
+        ) {
+          next.leadTimeDays = "";
+        }
+      } else if (av === "PREORDER") {
+        next.readyQty = 0;
+        next.leadTimeDays = "";
+      } else if (av === "SOLD_OUT") {
+        next.readyQty = 0;
+        next.leadTimeDays = "";
+        next.nextShipDate = "";
       }
-    } else if (av === "PREORDER") {
-      next.readyQty = 0;
-      next.leadTimeDays = "";
-    } else if (av === "SOLD_OUT") {
-      next.readyQty = 0;
-      next.leadTimeDays = "";
-      next.nextShipDate = "";
-    }
 
-    return next;
-  });
-}, [setForm, form.availability]);
+      return next;
+    });
+  }, [setForm, form.availability]);
 
-
-  const generatedDescription = useMemo(
-    () => generateDescriptionFromForm(form),
-    [form]
-  );
-
-  const handleUseGeneratedDescription = () => {
-    if (!generatedDescription) return;
-    if (form.description?.trim()) {
-      const ok = window.confirm(
-        "Înlocuiești descrierea existentă cu cea generată?"
-      );
-      if (!ok) return;
-    }
-    setForm((s) => ({
-      ...s,
-      description: generatedDescription,
-    }));
-  };
+  const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
 
   return (
     <Modal
@@ -560,6 +1157,63 @@ export default function ProductModal({
               required
             />
 
+            {/* 👇 Aici afișăm clar TVA-ul, pe baza datelor din billing */}
+            <div
+              style={{
+                fontSize: "0.78rem",
+                marginTop: 4,
+                marginBottom: 8,
+                color: "#4B5563",
+                lineHeight: 1.4,
+              }}
+            >
+              {vatState.loading ? (
+                <span>Se încarcă setările de TVA ale magazinului…</span>
+              ) : vatState.status === "payer" && vatRateNum ? (
+                <>
+                  <div>
+                    Conform datelor de facturare, magazinul este{" "}
+                    <strong>plătitor de TVA</strong>, cotă{" "}
+                    <strong>{vatRateNum}%</strong>.
+                  </div>
+                  {gross > 0 && (
+                    <div style={{ marginTop: 2 }}>
+                      Pentru prețul introdus:{" "}
+                      <strong>{net.toFixed(2)} RON</strong> (fără TVA) +{" "}
+                      <strong>{vatAmount.toFixed(2)} RON</strong> TVA (
+                      {vatRateNum}%) ={" "}
+                      <strong>{gross.toFixed(2)} RON</strong> (preț
+                      final).
+                    </div>
+                  )}
+                </>
+              ) : vatState.status === "non_payer" ? (
+                <div>
+                  Conform datelor de facturare,{" "}
+                  <strong>nu ești plătitor de TVA</strong>. Prețul
+                  introdus este tratat ca sumă finală (nu se evidențiază
+                  TVA separat pe factură).
+                </div>
+              ) : (
+                <div>
+                  Nu am găsit informații despre statutul tău de TVA în{" "}
+                  <strong>Date facturare</strong>. Completează acea
+                  secțiune pentru a vedea detaliat TVA-ul aferent
+                  produselor.
+                </div>
+              )}
+              {vatState.error && (
+                <div
+                  style={{
+                    marginTop: 2,
+                    color: "#B91C1C",
+                  }}
+                >
+                  {vatState.error}
+                </div>
+              )}
+            </div>
+
             <label className={styles.label}>Status vizibilitate</label>
             <div
               style={{
@@ -574,10 +1228,15 @@ export default function ProductModal({
                   type="checkbox"
                   checked={!!form.isActive}
                   onChange={(e) =>
-                    setForm((s) => ({
-                      ...s,
-                      isActive: e.target.checked,
-                    }))
+                    setForm((s) => {
+                      const checked = e.target.checked;
+                      return {
+                        ...s,
+                        isActive: checked,
+                        // dacă activ devine true, ascuns devine false
+                        isHidden: checked ? false : s.isHidden,
+                      };
+                    })
                   }
                 />
                 Activ
@@ -591,10 +1250,15 @@ export default function ProductModal({
                   type="checkbox"
                   checked={!!form.isHidden}
                   onChange={(e) =>
-                    setForm((s) => ({
-                      ...s,
-                      isHidden: e.target.checked,
-                    }))
+                    setForm((s) => {
+                      const checked = e.target.checked;
+                      return {
+                        ...s,
+                        isHidden: checked,
+                        // dacă ascuns devine true, activ devine false
+                        isActive: checked ? false : s.isActive,
+                      };
+                    })
                   }
                 />
                 Ascuns
@@ -624,48 +1288,56 @@ export default function ProductModal({
               rows={5}
             />
 
-            <label className={styles.label} htmlFor="product-material">
-              Material principal
-            </label>
-            <input
+            {/* MATERIAL (single chip) */}
+            <SingleTagComboField
               id="product-material"
-              className={styles.input}
+              label="Material principal"
               value={form.materialMain || ""}
-              onChange={updateField("materialMain")}
+              onChange={(val) =>
+                setForm((s) => ({ ...s, materialMain: val }))
+              }
+              options={materialOptions}
               placeholder="ex: lemn de pin, ceramică, bumbac organic"
+              note="Poți alege un material din sugestii sau poți scrie exact materialul folosit, dacă nu se regăsește în listă."
             />
 
-            <label className={styles.label} htmlFor="product-technique">
-              Tehnică / cum este lucrat
-            </label>
-            <input
+            {/* TEHNICĂ (single chip) */}
+            <SingleTagComboField
               id="product-technique"
-              className={styles.input}
+              label="Tehnică / cum este lucrat"
               value={form.technique || ""}
-              onChange={updateField("technique")}
+              onChange={(val) =>
+                setForm((s) => ({ ...s, technique: val }))
+              }
+              options={techniqueOptions}
               placeholder="ex: pictat manual, croșetat, turnat în matriță"
+              note="Poți selecta o tehnică din sugestii sau poți descrie liber metoda ta."
             />
 
-            <label className={styles.label} htmlFor="product-style-tags">
-              Stil (tag-uri separate prin virgulă)
-            </label>
-            <input
+            {/* STIL (multi-tag) */}
+            <TagComboField
               id="product-style-tags"
-              className={styles.input}
+              label="Stil (tag-uri separate prin virgulă)"
               value={form.styleTags || ""}
-              onChange={updateField("styleTags")}
+              onChange={(val) =>
+                setForm((s) => ({ ...s, styleTags: val }))
+              }
+              options={styleOptions}
               placeholder="ex: rustic, boho, minimalist"
+              note="Poți adăuga unul sau mai multe stiluri. Alege din sugestii sau scrie propriile variante; apasă Enter pentru a crea un tag."
             />
 
-            <label className={styles.label} htmlFor="product-occasion-tags">
-              Ocazii (tag-uri separate prin virgulă)
-            </label>
-            <input
+            {/* OCAZII (multi-tag) */}
+            <TagComboField
               id="product-occasion-tags"
-              className={styles.input}
+              label="Ocazii (tag-uri separate prin virgulă)"
               value={form.occasionTags || ""}
-              onChange={updateField("occasionTags")}
+              onChange={(val) =>
+                setForm((s) => ({ ...s, occasionTags: val }))
+              }
+              options={occasionOptions}
               placeholder="ex: cadou casă nouă, zi de naștere"
+              note="Poți combina ocazii din sugestii sau poți adăuga altele noi scriindu-le și apăsând Enter."
             />
 
             <label className={styles.label} htmlFor="product-dimensions">
@@ -679,18 +1351,17 @@ export default function ProductModal({
               placeholder="ex: 20 x 30 cm"
             />
 
-            <label
-              className={styles.label}
-              htmlFor="product-care-instructions"
-            >
-              Instrucțiuni de îngrijire
-            </label>
-            <input
+            {/* ÎNGRIJIRE (multi-tag) */}
+            <TagComboField
               id="product-care-instructions"
-              className={styles.input}
+              label="Instrucțiuni de îngrijire"
               value={form.careInstructions || ""}
-              onChange={updateField("careInstructions")}
+              onChange={(val) =>
+                setForm((s) => ({ ...s, careInstructions: val }))
+              }
+              options={careOptions}
               placeholder="ex: șterge ușor cu o cârpă umedă"
+              note="Poți alege una sau mai multe instrucțiuni din sugestii sau poți scrie propriile recomandări (Enter pentru a crea un tag)."
             />
 
             <label className={styles.label} htmlFor="product-notes">
@@ -705,59 +1376,18 @@ export default function ProductModal({
               placeholder="ex: fiecare piesă este unică, pot apărea mici variații față de fotografie"
             />
 
-            {generatedDescription && (
-              <div className={styles.generatedWrap}>
-                <label className={styles.label}>
-                  Sugestie de descriere (generată din câmpurile de mai sus)
-                </label>
-                <div
-                  style={{
-                    fontSize: "0.85rem",
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border:
-                      "1px dashed rgba(0,0,0,0.12)",
-                    background: "rgba(0,0,0,0.02)",
-                    whiteSpace: "pre-wrap",
-                    marginBottom: 6,
-                  }}
-                >
-                  {generatedDescription}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    fontSize: "0.75rem",
-                    opacity: 0.85,
-                  }}
-                >
-                  <span>
-                    Poți copia textul de mai sus în câmpul
-                    „Descriere” și să îl ajustezi.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleUseGeneratedDescription}
-                    className={styles.smallBtn}
-                    style={{ padding: "4px 8px" }}
-                  >
-                    Folosește această descriere
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <label className={styles.label} htmlFor="product-color">
-              Culoare principală
-            </label>
-            <input
+            {/* CULOARE (single chip) */}
+            <SingleTagComboField
               id="product-color"
-              className={styles.input}
+              label="Culoare principală"
               value={form.color || ""}
-              onChange={updateField("color")}
-              placeholder="Ex: alb, verde salvie, roz pudră"
+              onChange={(val) =>
+                setForm((s) => ({ ...s, color: val }))
+              }
+              options={colorOptions}
+              useOptionKeyAsValue={true}
+              placeholder="ex: alb, verde salvie, roz pudră"
+              note="Poți alege o culoare din sugestii sau poți scrie exact nuanța pe care o folosești."
             />
 
             <label className={styles.checkbox}>
@@ -815,6 +1445,13 @@ export default function ProductModal({
                   }}
                   onFocus={() => setOpenList(true)}
                   onKeyDown={onInputKeyDown}
+                  onBlur={() => {
+                    // mic delay ca să nu se închidă înainte de click pe opțiune
+                    setTimeout(() => {
+                      setOpenList(false);
+                      setActiveIndex(-1);
+                    }, 120);
+                  }}
                   placeholder="Caută categorie (tastează)…"
                   autoComplete="off"
                 />
@@ -1047,17 +1684,48 @@ export default function ProductModal({
             onToggle={() => toggleSection("images")}
           >
             <label className={styles.label}>Imagini produs</label>
+
             <div className={styles.imagesRow} onPaste={onPasteImages}>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={async (e) => {
-                  const files = Array.from(e.target.files || []);
-                  e.target.value = "";
-                  await onFilesPicked(files);
-                }}
-              />
+              {/* butonul custom + text separat */}
+              <div className={styles.fileUploadWrapper}>
+                <input
+                  id="product-images-input"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className={styles.fileInputHidden}
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+
+                    if (files.length === 0) {
+                      setUploadInfo("Niciun fișier ales");
+                    } else if (files.length === 1) {
+                      setUploadInfo(files[0].name);
+                    } else {
+                      setUploadInfo(
+                        `${files.length} fișiere selectate`
+                      );
+                    }
+
+                    // resetăm inputul ca să poți alege din nou aceleași fișiere
+                    e.target.value = "";
+                    await onFilesPicked(files);
+                  }}
+                />
+
+                <label
+                  htmlFor="product-images-input"
+                  className={styles.fileUploadButton}
+                >
+                  Alegeți fișierele
+                </label>
+
+                <span className={styles.fileUploadInfo}>
+                  {uploadInfo}
+                </span>
+              </div>
+
+              {/* thumbnails, dacă există imagini */}
               {!!form.images?.length && (
                 <div className={styles.thumbGrid}>
                   {form.images.map((img, idx) => (
@@ -1099,7 +1767,7 @@ export default function ProductModal({
                             fontWeight: idx === 0 ? 800 : 500,
                           }}
                         >
-                          {idx === 0 ? "★ Cover" : "☆ Cover"}
+                          {idx === 0 ? "★ " : "☆ "}
                         </button>
                         <button
                           type="button"
@@ -1114,6 +1782,7 @@ export default function ProductModal({
                   ))}
                 </div>
               )}
+
               <div className={styles.tip}>
                 • Poți încărca imagini (input sau paste din clipboard).
                 <br />

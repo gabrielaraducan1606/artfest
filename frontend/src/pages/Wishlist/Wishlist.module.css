@@ -1,14 +1,24 @@
 /* ==============================
-   Wishlist.module.css (complet)
+   Wishlist.module.css
    ============================== */
 
 /* container & layout */
 .container {
+  --wl-gap: 12px;
+  --wl-card-radius: 14px;
+  --wl-transition: 0.16s ease;
+  --wl-ring: 2px;
+  --wl-shadow: 0 18px 30px rgba(15, 23, 42, 0.16);
+  --wl-grid-auto-flow: row;
+
   max-width: min(1200px, 100%);
   margin-inline: auto;
   padding: clamp(12px, 2vw, 24px);
+  padding-left: max(clamp(12px, 2vw, 24px), env(safe-area-inset-left));
+  padding-right: max(clamp(12px, 2vw, 24px), env(safe-area-inset-right));
 }
 
+/* ====== HEAD DESKTOP ====== */
 .head {
   display: flex;
   flex-wrap: wrap;
@@ -32,11 +42,18 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* să nu se lungească textele aiurea pe mobile */
+.controls > * {
+  white-space: nowrap;
 }
 
 .muted {
   color: var(--color-muted, #6b7280);
   font-size: 13px;
+  margin: 0;
 }
 
 .select {
@@ -48,12 +65,90 @@
   border-radius: 10px;
   font: inherit;
   cursor: pointer;
-  transition: border-color var(--wl-transition), box-shadow var(--wl-transition);
+  transition:
+    border-color var(--wl-transition),
+    box-shadow var(--wl-transition);
 }
 .select:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 var(--wl-ring) color-mix(in srgb, var(--color-primary) 35%, transparent);
+  box-shadow: 0 0 0 var(--wl-ring)
+    color-mix(in srgb, var(--color-primary) 35%, transparent);
   border-color: var(--color-primary);
+}
+
+/* ====== HEAD MOBIL (buton filtrare/acțiuni) ====== */
+
+.headMobile {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.controlsMobileToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background var(--wl-transition),
+    border-color var(--wl-transition),
+    box-shadow var(--wl-transition),
+    transform var(--wl-transition);
+}
+.controlsMobileToggle:hover {
+  background: color-mix(
+    in srgb,
+    var(--surface) 88%,
+    var(--color-bg) 12%
+  );
+}
+.controlsMobileToggle:active {
+  transform: translateY(1px);
+}
+.controlsMobileToggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 var(--wl-ring)
+    color-mix(in srgb, var(--color-primary) 35%, transparent);
+  border-color: var(--color-primary);
+}
+.controlsMobileIcon {
+  font-size: 14px;
+}
+
+/* panoul care se deschide sub head pe mobil */
+.controlsMobilePanel {
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: color-mix(
+    in srgb,
+    var(--surface) 96%,
+    var(--color-bg) 4%
+  );
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  display: grid;
+  gap: 8px;
+}
+.controlsMobileRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.controlsMobileActions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
 }
 
 /* grid responsive */
@@ -61,22 +156,31 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--wl-gap);
+  grid-auto-flow: var(--wl-grid-auto-flow);
 }
 @media (min-width: 560px) {
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (min-width: 900px) {
-  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 @media (min-width: 1160px) {
-  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 /* 5 coloane – ecrane mari */
 @media (min-width: 1440px) {
-  .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 
-/* card */
+/* card – layout desktop/tablet */
 .card {
   border: 1px solid var(--color-border);
   background: var(--surface);
@@ -85,24 +189,58 @@
   overflow: clip;
   display: grid;
   grid-template-rows: auto auto 1fr;
-  transition: transform var(--wl-transition), box-shadow var(--wl-transition), border-color var(--wl-transition);
-  will-change: transform;
+  transition:
+    transform var(--wl-transition),
+    box-shadow var(--wl-transition),
+    border-color var(--wl-transition),
+    background-color var(--wl-transition);
+  content-visibility: auto;
+  contain-intrinsic-size: 320px 420px; /* hint pentru înălțime */
 }
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--wl-shadow);
-  border-color: color-mix(in srgb, var(--color-border) 70%, var(--color-primary) 30%);
+
+/* Hover doar pe device-uri cu mouse */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    will-change: transform;
+    transform: translateY(-2px);
+    box-shadow: var(--wl-shadow);
+    border-color: color-mix(
+      in srgb,
+      var(--color-border) 70%,
+      var(--color-primary) 30%
+    );
+  }
 }
 
 /* Highlight select — fallback + :has() */
 .card[data-selected="true"] {
-  border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-border) 30%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 70%,
+    var(--color-border) 30%
+  );
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--color-primary) 25%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--color-primary) 6%,
+    var(--surface) 94%
+  );
 }
 @supports selector(:has(*)) {
   .card:has(.cardTop input:checked) {
-    border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-border) 30%);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+    border-color: color-mix(
+      in srgb,
+      var(--color-primary) 70%,
+      var(--color-border) 30%
+    );
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--color-primary) 25%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--color-primary) 6%,
+      var(--surface) 94%
+    );
   }
 }
 
@@ -113,9 +251,14 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
-  background: color-mix(in srgb, var(--surface) 80%, var(--color-bg) 20%);
+  background: color-mix(
+    in srgb,
+    var(--surface) 80%,
+    var(--color-bg) 20%
+  );
   border-bottom: 1px dashed var(--color-border);
 }
+
 .cardTop input[type="checkbox"] {
   width: 18px;
   height: 18px;
@@ -123,14 +266,25 @@
   cursor: pointer;
 }
 
+/* data adăugare */
+.cardDate {
+  font-size: 11px;
+  color: var(--color-muted, #6b7280);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
 /* thumbnail */
 .thumbBtn {
   all: unset;
   cursor: pointer;
+  display: block;
 }
 .thumbBtn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 var(--wl-ring) color-mix(in srgb, var(--color-primary) 35%, transparent);
+  box-shadow: 0 0 0 var(--wl-ring)
+    color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 .thumb {
   width: 100%;
@@ -170,15 +324,49 @@
   color: var(--color-muted, #6b7280);
 }
 
-/* actions */
+/* actions – layout desktop */
+/* actions – icon-only (toate device-urile) */
 .actions {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: 1fr;
   margin-top: 6px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end; /* jos-dreapta */
+  gap: 8px;
 }
+
+/* butoane rotunde, doar icon – global */
+.actions .btn,
+.actions .btnPrimary,
+.actions .btnDanger {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0;   /* ascunde orice text, dacă rămâne */
+  line-height: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.actions .btn svg,
+.actions .btnPrimary svg,
+.actions .btnDanger svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  display: block;
+  margin: 0;      /* centrare perfectă */
+}
+
 @media (min-width: 450px) {
-  .actions { grid-template-columns: 1fr 1fr; }
+  .actions {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 /* buttons */
@@ -190,39 +378,119 @@
   border-radius: 12px;
   cursor: pointer;
   font-weight: 600;
-  transition: background var(--wl-transition), border-color var(--wl-transition), transform var(--wl-transition), box-shadow var(--wl-transition);
+  font-size: 13px;
+  transition:
+    background var(--wl-transition),
+    border-color var(--wl-transition),
+    transform var(--wl-transition),
+    box-shadow var(--wl-transition);
+    
 }
-.btn:hover { background: color-mix(in srgb, var(--surface) 70%, var(--color-bg) 30%); }
-.btn:active { transform: translateY(1px); }
+.btn:hover {
+  background: color-mix(
+    in srgb,
+    var(--surface) 70%,
+    var(--color-bg) 30%
+  );
+}
+.btn:active {
+  transform: translateY(1px);
+}
 .btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 var(--wl-ring) color-mix(in srgb, var(--color-primary) 35%, transparent);
+  box-shadow: 0 0 0 var(--wl-ring)
+    color-mix(in srgb, var(--color-primary) 35%, transparent);
   border-color: var(--color-primary);
 }
 .btn:disabled {
-  opacity: .5;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
-  background: color-mix(in srgb, var(--surface) 85%, var(--color-bg) 15%);
+  background: color-mix(
+    in srgb,
+    var(--surface) 85%,
+    var(--color-bg) 15%
+  );
 }
 
 .btnPrimary {
   background: var(--color-primary);
   color: #fff;
-  border-color: color-mix(in srgb, var(--color-primary) 80%, #000 20%);
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 80%,
+    #000 20%
+  );
 }
 .btnPrimary:hover {
   background: var(--color-hover);
   border-color: var(--color-hover);
 }
 .btnDanger {
-  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--color-border) 70%);
-  color: color-mix(in srgb, var(--color-danger) 85%, var(--color-text) 15%);
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 30%,
+    var(--color-border) 70%
+  );
+  color: color-mix(
+    in srgb,
+    var(--color-danger) 85%,
+    var(--color-text) 15%
+  );
 }
 .btnDanger:hover {
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border) 55%);
+  background: color-mix(
+    in srgb,
+    var(--color-danger) 10%,
+    transparent
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 45%,
+    var(--color-border) 55%
+  );
+}
+
+/* buton ghost – „Golește tot” */
+.btnGhost {
+  border-style: dashed;
+  border-color: var(--color-border);
+  background: transparent;
+  color: var(--color-muted, #6b7280);
+}
+.btnGhost:hover {
+  border-style: solid;
+  background: color-mix(
+    in srgb,
+    var(--surface) 92%,
+    var(--color-bg) 8%
+  );
+  color: var(--color-text);
+}
+
+/* bară mică de info */
+.infoBar {
+  margin: 8px 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(
+    in srgb,
+    var(--color-primary) 8%,
+    var(--surface) 92%
+  );
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-primary) 30%,
+      var(--color-border) 70%
+    );
+  color: color-mix(
+    in srgb,
+    var(--color-text) 80%,
+    var(--color-primary) 20%
+  );
+  font-size: 13px;
 }
 
 /* links */
@@ -231,20 +499,39 @@
   text-decoration: none;
   font-weight: 600;
 }
-.linkPrimary:hover { text-decoration: underline; }
+.linkPrimary:hover {
+  text-decoration: underline;
+}
 
 /* states */
 .alert {
-  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-border) 65%);
-  background: color-mix(in srgb, var(--color-danger) 6%, var(--surface) 94%);
-  color: color-mix(in srgb, var(--color-danger) 75%, var(--color-text) 25%);
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-danger) 35%,
+      var(--color-border) 65%
+    );
+  background: color-mix(
+    in srgb,
+    var(--color-danger) 6%,
+    var(--surface) 94%
+  );
+  color: color-mix(
+    in srgb,
+    var(--color-danger) 75%,
+    var(--color-text) 25%
+  );
   padding: 10px 12px;
   border-radius: 12px;
   margin-bottom: 12px;
 }
 .empty {
   border: 1px dashed var(--color-border);
-  background: color-mix(in srgb, var(--surface) 90%, var(--color-bg) 10%);
+  background: color-mix(
+    in srgb,
+    var(--surface) 90%,
+    var(--color-bg) 10%
+  );
   color: var(--color-muted, #6b7280);
   border-radius: 14px;
   padding: clamp(16px, 3vw, 24px);
@@ -261,82 +548,324 @@
   border: 1px solid;
 }
 .stateWarning {
-  border-color: color-mix(in srgb, var(--color-warning) 40%, var(--color-border) 60%);
-  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-  color: color-mix(in srgb, var(--color-warning) 80%, var(--color-text) 20%);
+  border-color: color-mix(
+    in srgb,
+    var(--color-warning) 40%,
+    var(--color-border) 60%
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-warning) 12%,
+    transparent
+  );
+  color: color-mix(
+    in srgb,
+    var(--color-warning) 80%,
+    var(--color-text) 20%
+  );
 }
 .stateDanger {
-  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border) 60%);
-  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
-  color: color-mix(in srgb, var(--color-danger) 85%, var(--color-text) 15%);
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 40%,
+    var(--color-border) 60%
+  );
+  background: color-mix(
+    in srgb,
+    var(--color-danger) 10%,
+    transparent
+  );
+  color: color-mix(
+    in srgb,
+    var(--color-danger) 85%,
+    var(--color-text) 15%
+  );
 }
 
 /* infinite scroll sentinel */
-.sentinel { width: 100%; height: 48px; }
+.sentinel {
+  width: 100%;
+  height: 48px;
+}
+
+/* ============================= */
+/*   MOBILE – layout orizontal   */
+/*   + butoane icon-only         */
+/* ============================= */
+
+@media (max-width: 640px) {
+  /* ascundem header-ul mare, folosim varianta cu buton de filtrare */
+  .head {
+    display: none;
+  }
+
+  .headMobile {
+    display: flex;
+  }
+
+  .controlsMobileActions {
+    grid-template-columns: 1fr;
+  }
+
+  /* card: top, apoi thumb + body (acțiunile stau în body, jos-dreapta) */
+  .card {
+    grid-template-columns: 100px 1fr;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "top top"
+      "thumb body";
+    align-items: stretch;
+    contain-intrinsic-size: 220px 140px;
+  }
+
+  .cardTop {
+    grid-area: top;
+    padding-inline: 10px;
+  }
+
+  .thumbBtn {
+    grid-area: thumb;
+  }
+
+  .cardBody {
+    grid-area: body;
+    padding: 8px 10px 8px 10px;
+    gap: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  /* titlu pe un singur rând */
+  .cardTitle {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+  }
+
+  .cardPrice {
+    font-size: 14px;
+  }
+
+  /* magazin pe rând separat, cu ellipsis */
+  .cardMeta {
+    font-size: 11px;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* acțiunile la baza blocului de text, lipite de dreapta, icon-only orizontal */
+  .actions {
+    margin-top: 4px;
+    align-self: flex-end;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    padding-right: 0;
+  }
+
+  /* butoane rotunde, doar icon (ca la Cart) */
+  .actions .btn,
+  .actions .btnPrimary,
+  .actions .btnDanger {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0;      /* ascunde textul, păstrează icon-ul */
+    line-height: 0;    /* centrare perfectă a icon-ului */
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .actions .btn svg,
+  .actions .btnPrimary svg,
+  .actions .btnDanger svg {
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
+    display: block;
+    margin-right:3%;
+  }
+
+  /* coș – primary plin */
+  .actions .btnPrimary {
+    background: var(--color-primary);
+    color: #fff;
+    border-color: var(--color-primary);
+  }
+  .actions .btnPrimary:hover {
+    background: var(--color-hover);
+    border-color: var(--color-hover);
+  }
+
+  /* elimină – accent roșu discret */
+  .actions .btnDanger {
+    background: color-mix(
+      in srgb,
+      var(--color-danger) 8%,
+      transparent
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-danger) 45%,
+      var(--color-border) 55%
+    );
+    color: color-mix(
+      in srgb,
+      var(--color-danger) 85%,
+      var(--color-text) 15%
+    );
+  }
+  .actions .btnDanger:hover {
+    background: color-mix(
+      in srgb,
+      var(--color-danger) 16%,
+      transparent
+    );
+    border-color: color-mix(
+      in srgb,
+      var(--color-danger) 65%,
+      var(--color-border) 35%
+    );
+  }
+
+  /* text mai mic pe mobil în head / acțiuni */
+  .headMobile .title {
+    font-size: 18px;
+  }
+
+  .headMobile .muted,
+  .controlsMobilePanel .muted {
+    font-size: 12px;
+  }
+
+  .controlsMobileToggle {
+    font-size: 12px;
+  }
+
+  .controlsMobileToggle span {
+    font-size: 12px;
+  }
+}
 
 /* Very small devices (≤360px) */
 @media (max-width: 360px) {
-  .container { padding: 12px; }
-  .btn { padding: 10px 12px; border-radius: 14px; }
-  .cardTitle { font-size: 14px; }
+  .container {
+    padding: 12px;
+  }
+  .btn {
+    padding: 10px 12px;
+    border-radius: 14px;
+  }
+  .cardTitle {
+    font-size: 12.5px;
+  }
 }
 
 /* Touch devices */
 @media (pointer: coarse) {
-  .btn { padding: 12px 14px; min-height: 44px; }
-  .cardTop input[type="checkbox"] { width: 22px; height: 22px; }
-  .select { min-height: 44px; }
+  .btn {
+    padding: 12px 14px;
+    min-height: 44px;
+  }
+  .cardTop input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+  },
+  .controlsMobileRow input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+  .select {
+    min-height: 44px;
+  }
 }
 
 /* Make controls wrap nicely on small screens */
 @media (max-width: 420px) {
-  .controls { width: 100%; row-gap: 10px; }
-  .controls > * { flex: 1 1 auto; }
+  .controls {
+    width: 100%;
+    row-gap: 10px;
+    justify-content: flex-start;
+  }
+  .controls > * {
+    flex: 0 1 auto;
+  }
 }
 
 /* reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
-
-/* ===== extra polish ===== */
 
 /* Dark mode hover contrast */
 @media (prefers-color-scheme: dark) {
   .card:hover {
-    border-color: color-mix(in srgb, var(--color-border) 60%, var(--color-primary) 40%);
-  }
-}
-
-/* Performanță: evită layout/paint când cardul nu e vizibil */
-.card {
-  content-visibility: auto;
-  contain-intrinsic-size: 320px 420px; /* hint pentru înălțimea cardului */
-}
-
-/* Hover doar pe device-uri cu mouse */
-@media (hover: hover) and (pointer: fine) {
-  .card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--wl-shadow);
-    border-color: color-mix(in srgb, var(--color-border) 70%, var(--color-primary) 30%);
+    border-color: color-mix(
+      in srgb,
+      var(--color-border) 60%,
+      var(--color-primary) 40%
+    );
   }
 }
 
 /* High-contrast / Forced Colors (Windows) */
 @media (forced-colors: active) {
-  .btn, .card, .select, .alert { border: 1px solid ButtonText; }
-  .btnPrimary { background: Highlight; color: HighlightText; }
-  .btn:focus-visible, .thumbBtn:focus-visible { outline: 2px solid Highlight; box-shadow: none; }
-}
-
-/* Safe-area (iOS notch) */
-.container {
-  padding-left: max(clamp(12px, 2vw, 24px), env(safe-area-inset-left));
-  padding-right: max(clamp(12px, 2vw, 24px), env(safe-area-inset-right));
+  .btn,
+  .card,
+  .select,
+  .alert {
+    border: 1px solid ButtonText;
+  }
+  .btnPrimary {
+    background: Highlight;
+    color: HighlightText;
+  }
+  .btn:focus-visible,
+  .thumbBtn:focus-visible {
+    outline: 2px solid Highlight;
+    box-shadow: none;
+  }
 }
 
 /* RTL ready */
-:root { --wl-grid-auto-flow: row; }
-.grid { grid-auto-flow: var(--wl-grid-auto-flow); }
-:dir(rtl) .cardTop { direction: rtl; }
+:dir(rtl) .cardTop {
+  direction: rtl;
+}
+/* ===== Wishlist header primary button (disabled but visible) ===== */
+
+.head .btnPrimary:disabled,
+.headMobile .btnPrimary:disabled {
+  /* anulăm stilul generic de disabled */
+  opacity: 1; /* sau 0.7 dacă vrei totuși un pic de „muted” */
+  background: color-mix(
+    in srgb,
+    var(--color-primary) 8%,
+    var(--surface) 92%
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--color-primary) 55%,
+    transparent
+  );
+  color: color-mix(
+    in srgb,
+    var(--color-primary) 80%,
+    var(--color-text) 20%
+  );
+  cursor: not-allowed; /* păstrăm senzația de disabled */
+}
