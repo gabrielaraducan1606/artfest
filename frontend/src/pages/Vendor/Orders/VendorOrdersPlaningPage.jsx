@@ -13,7 +13,7 @@ import {
   LayoutPanelLeft,
   FileText,
   X,
-  MessageSquare, // 🔹 icon Mesaje
+  MessageSquare,
 } from "lucide-react";
 import styles from "./OrdersPlaning.module.css";
 
@@ -51,16 +51,7 @@ const STATUS_LABEL = STATUS_OPTIONS.reduce((acc, s) => {
   return acc;
 }, {});
 
-// Lead status UI (din inbox)
-const LEAD_STATUS_LABEL = {
-  nou: "Nou",
-  in_discutii: "În discuții",
-  oferta_trimisa: "Ofertă trimisă",
-  rezervat: "Rezervat",
-  pierdut: "Pierdut",
-};
-
-// capacitate orientativă per zi (poți ajusta sau scoate)
+// capacitate orientativă per zi
 const CAPACITY_PER_DAY = 10;
 
 // luni ca început de săptămână
@@ -139,7 +130,7 @@ function getPlanDate(order) {
   return order.pickupDate || order.eventDate || order.createdAt;
 }
 
-// range helper pentru leads
+// range helper pentru zile
 function getDateKey(d) {
   return new Date(d).toISOString().slice(0, 10);
 }
@@ -197,12 +188,7 @@ function VendorOrdersPlanningContent() {
   const [err, setErr] = useState("");
   const [items, setItems] = useState([]);
 
-  // 🔽 LEADS (din inbox / threads)
-  const [leadItems, setLeadItems] = useState([]);
-  const [loadingLeads, setLoadingLeads] = useState(false);
-  const [errLeads, setErrLeads] = useState("");
-
-  // filtre avansate (comun pentru comenzi + lead-uri)
+  // filtre avansate (comenzi)
   const [searchText, setSearchText] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("");
   const [productTypeFilter, setProductTypeFilter] = useState("");
@@ -262,40 +248,6 @@ function VendorOrdersPlanningContent() {
     };
   }, [status, calendarMode, currentDate]);
 
-  // === efect: încărcare LEAD-uri (din inbox) în același interval ===
-  useEffect(() => {
-    let alive = true;
-
-    async function run() {
-      setLoadingLeads(true);
-      setErrLeads("");
-
-      try {
-        const { start, end } = getRange(calendarMode, currentDate);
-
-        const qs = new URLSearchParams({
-          from: start.toISOString().slice(0, 10),
-          to: end.toISOString().slice(0, 10),
-        }).toString();
-
-        const res = await api(`/api/inbox/planning/leads?${qs}`);
-        if (!alive) return;
-        setLeadItems(Array.isArray(res?.items) ? res.items : []);
-      } catch {
-        if (!alive) return;
-        setErrLeads("Nu am putut încărca lead-urile din mesaje.");
-      } finally {
-        if (alive) setLoadingLeads(false);
-      }
-    }
-
-    run();
-
-    return () => {
-      alive = false;
-    };
-  }, [calendarMode, currentDate]);
-
   const { start: rangeStart, end: rangeEnd } = getRange(
     calendarMode,
     currentDate
@@ -354,24 +306,6 @@ function VendorOrdersPlanningContent() {
     });
   }, [items, searchText, eventTypeFilter, productTypeFilter, locationFilter]);
 
-  // 🔽 aplicăm filtrele pe LEAD-uri (folosim doar search + tip eveniment + locație)
-  const filteredLeads = useMemo(() => {
-    const search = searchText.trim().toLowerCase();
-    return leadItems.filter((l) => {
-      if (eventTypeFilter && l.eventType !== eventTypeFilter) return false;
-      if (locationFilter && l.eventLocation !== locationFilter) return false;
-
-      if (!search) return true;
-
-      const haystack = [l.name, l.phone, l.eventType, l.eventLocation]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(search);
-    });
-  }, [leadItems, searchText, eventTypeFilter, locationFilter]);
-
   // grupare pe zile pentru COMENZI (week / month) din items FILTRATE
   const ordersByDay =
     calendarMode === "year"
@@ -384,22 +318,6 @@ function VendorOrdersPlanningContent() {
               const p = getPlanDate(o);
               if (!p) return false;
               const s = getDateKey(p);
-              return s === dayStr;
-            }),
-          };
-        });
-
-  // grupare pe zile pentru LEAD-URI
-  const leadsByDay =
-    calendarMode === "year"
-      ? []
-      : days.map((d) => {
-          const dayStr = getDateKey(d);
-          return {
-            date: d,
-            items: filteredLeads.filter((l) => {
-              if (!l.eventDate) return false;
-              const s = getDateKey(l.eventDate);
               return s === dayStr;
             }),
           };
@@ -488,18 +406,6 @@ function VendorOrdersPlanningContent() {
       conversionRate,
     };
   }, [filteredItems]);
-
-  // statistici LEAD-uri pe interval
-  const totalLeadsInterval = filteredLeads.length;
-  const leadStatusCounts = useMemo(
-    () =>
-      filteredLeads.reduce((acc, l) => {
-        const st = l.status || "nou";
-        acc[st] = (acc[st] || 0) + 1;
-        return acc;
-      }, {}),
-    [filteredLeads]
-  );
 
   // NAV între intervale
   function handlePrevPeriod() {
@@ -613,8 +519,8 @@ function VendorOrdersPlanningContent() {
           <div>
             <h1 className={styles.h1}>Planificare comenzi</h1>
             <p className={styles.muted}>
-              Calendar + board de producție pentru comenzi, ridicări, livrări
-              și lead-uri de evenimente venite din mesaje.
+              Calendar + board de producție pentru comenzi, ridicări și
+              livrări.
             </p>
           </div>
         </div>
@@ -784,21 +690,6 @@ function VendorOrdersPlanningContent() {
         <span>
           Anulate: <strong>{intervalCancelledCount}</strong>
         </span>
-
-        {/* 🔽 sumar LEAD-uri evenimente */}
-        <span className={styles.intervalLeadsSummary}>
-          Lead-uri evenimente:{" "}
-          <strong>{totalLeadsInterval}</strong>
-          {totalLeadsInterval > 0 && (
-            <span className={styles.muted}>
-              {" "}
-              · Rezervate:{" "}
-              <strong>{leadStatusCounts.rezervat || 0}</strong> · Ofertă
-              trimisă:{" "}
-              <strong>{leadStatusCounts.oferta_trimisa || 0}</strong>
-            </span>
-          )}
-        </span>
       </div>
 
       {/* 🔢 REZUMAT CONTABIL – „mini contabilitate” pe interval */}
@@ -902,7 +793,7 @@ function VendorOrdersPlanningContent() {
           {(calendarMode === "week" || calendarMode === "month") && (
             <div className={styles.calendar}>
               <div className={styles.calendarGrid}>
-                {ordersByDay.map(({ date, items: dayOrders }, idx) => {
+                {ordersByDay.map(({ date, items: dayOrders }) => {
                   const todayStr = new Date().toISOString().slice(0, 10);
                   const dayStr = date.toISOString().slice(0, 10);
                   const isToday = todayStr === dayStr;
@@ -913,8 +804,6 @@ function VendorOrdersPlanningContent() {
                   const loadState = getDayLoadState(dayOrders);
                   const loadClass =
                     styles["calendarDayLoad_" + loadState] || "";
-
-                  const dayLeads = leadsByDay[idx]?.items || [];
 
                   return (
                     <div
@@ -937,10 +826,9 @@ function VendorOrdersPlanningContent() {
                             {date.getDate()}
                           </div>
                         </div>
-                        {(dayOrders.length > 0 || dayLeads.length > 0) && (
+                        {dayOrders.length > 0 && (
                           <span className={styles.dayBadge}>
-                            {dayOrders.length} comenzi ·{" "}
-                            {dayLeads.length} lead-uri
+                            {dayOrders.length} comenzi
                           </span>
                         )}
                       </div>
@@ -1035,13 +923,11 @@ function VendorOrdersPlanningContent() {
                           </div>
                         ))}
 
-                        {!loading &&
-                          dayOrders.length === 0 &&
-                          dayLeads.length === 0 && (
-                            <div className={styles.emptyDay}>
-                              Nicio activitate
-                            </div>
-                          )}
+                        {!loading && dayOrders.length === 0 && (
+                          <div className={styles.emptyDay}>
+                            Nicio activitate
+                          </div>
+                        )}
 
                         {dayOrders.length > 3 && (
                           <div className={styles.moreHint}>
@@ -1049,118 +935,21 @@ function VendorOrdersPlanningContent() {
                           </div>
                         )}
                       </div>
-
-                      {/* 🔽 LEAD-uri evenimente (vizual separat) */}
-                      {dayLeads.length > 0 && (
-                        <div className={styles.calendarDayLeads}>
-                          {dayLeads.slice(0, 3).map((l) => {
-                            const threadId =
-                              l.messageThreadId || l.threadId;
-                            const unread =
-                              l.messageUnreadCount ??
-                              l.unreadCount ??
-                              0;
-
-                            return (
-                              <div
-                                key={l.id}
-                                className={styles.leadPill}
-                                onClick={(e) =>
-                                  e.stopPropagation()
-                                }
-                              >
-                                <div className={styles.leadPillTop}>
-                                  <span className={styles.leadName}>
-                                    {l.name || "Vizitator"}
-                                  </span>
-                                  {l.status && (
-                                    <span
-                                      className={`${styles.leadStatus} ${
-                                        styles[
-                                          "leadStatus_" + l.status
-                                        ]
-                                      }`}
-                                    >
-                                      {LEAD_STATUS_LABEL[l.status] ||
-                                        l.status}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className={styles.leadPillMeta}>
-                                  {l.eventType && (
-                                    <span>{l.eventType}</span>
-                                  )}
-                                  {l.eventLocation && (
-                                    <>
-                                      {" "}
-                                      · <span>{l.eventLocation}</span>
-                                    </>
-                                  )}
-                                  {(l.budgetMin ||
-                                    l.budgetMax) && (
-                                    <>
-                                      {" "}
-                                      ·{" "}
-                                      <span>
-                                        Buget:{" "}
-                                        {l.budgetMin
-                                          ? `${l.budgetMin}€`
-                                          : "?"}{" "}
-                                        –{" "}
-                                        {l.budgetMax
-                                          ? `${l.budgetMax}€`
-                                          : "?"}
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-
-                                {/* 🔗 link rapid în mesaje, dacă avem thread */}
-                                {threadId && (
-                                  <Link
-                                    to={`/vendor/messages?threadId=${threadId}`}
-                                    className={styles.leadLink}
-                                    onClick={(e) =>
-                                      e.stopPropagation()
-                                    }
-                                  >
-                                    <MessageSquare size={12} /> Mesaje
-                                    {unread > 0 && (
-                                      <span
-                                        className={
-                                          styles.unreadDot
-                                        }
-                                      >
-                                        {unread}
-                                      </span>
-                                    )}
-                                  </Link>
-                                )}
-                              </div>
-                            );
-                          })}
-                          {dayLeads.length > 3 && (
-                            <div className={styles.moreHintLeads}>
-                              +{dayLeads.length - 3} lead-uri…
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
               </div>
 
-              {(loading || loadingLeads) && (
+              {loading && (
                 <div className={styles.loading}>
                   <Loader2 className={styles.spin} size={18} /> Se
                   încarcă…
                 </div>
               )}
 
-              {(err || errLeads) && (
+              {err && (
                 <p className={styles.error} style={{ marginTop: 8 }}>
-                  {err || errLeads}
+                  {err}
                 </p>
               )}
             </div>
@@ -1176,15 +965,6 @@ function VendorOrdersPlanningContent() {
                     const p = getPlanDate(o);
                     if (!p) return false;
                     const d = new Date(p);
-                    return (
-                      d.getFullYear() === dt.getFullYear() &&
-                      d.getMonth() === dt.getMonth()
-                    );
-                  });
-
-                  const monthLeads = filteredLeads.filter((l) => {
-                    if (!l.eventDate) return false;
-                    const d = new Date(l.eventDate);
                     return (
                       d.getFullYear() === dt.getFullYear() &&
                       d.getMonth() === dt.getMonth()
@@ -1218,25 +998,22 @@ function VendorOrdersPlanningContent() {
                         <span>
                           {preparing} în pregătire · {confirmed} confirmate
                         </span>
-                        <span>
-                          {monthLeads.length} lead-uri evenimente
-                        </span>
                       </div>
                     </button>
                   );
                 })}
               </div>
 
-              {(loading || loadingLeads) && (
+              {loading && (
                 <div className={styles.loading}>
                   <Loader2 className={styles.spin} size={18} /> Se
                   încarcă…
                 </div>
               )}
 
-              {(err || errLeads) && (
+              {err && (
                 <p className={styles.error} style={{ marginTop: 8 }}>
-                  {err || errLeads}
+                  {err}
                 </p>
               )}
             </section>
@@ -1244,15 +1021,14 @@ function VendorOrdersPlanningContent() {
         </>
       )}
 
-      {/* VIEW: BOARD (KANBAN) – rămâne doar pe COMENZI */}
+      {/* VIEW: BOARD (KANBAN) – doar COMENZI */}
       {viewMode === "board" && (
         <section className={styles.board}>
           <header className={styles.boardHead}>
             <h2>Board comenzi pe status</h2>
             <p className={styles.muted}>
-              To-do vizual pentru producție: câte comenzi sunt noi, în
-              lucru, confirmate sau finalizate în intervalul selectat.  
-              Lead-urile de eveniment apar în calendarul de mai sus.
+              To-do vizual pentru producție: câte comenzi sunt noi, în lucru,
+              confirmate sau finalizate în intervalul selectat.
             </p>
           </header>
 
@@ -1384,7 +1160,7 @@ function VendorOrdersPlanningContent() {
                                   Detalii
                                 </Link>
 
-                                {/* 🔗 buton Mesaje dacă există thread */}
+                                {/* buton Mesaje dacă există thread */}
                                 {threadId && (
                                   <Link
                                     to={`/vendor/messages?threadId=${threadId}`}
@@ -1547,19 +1323,12 @@ function VendorOrdersPlanningContent() {
         </section>
       )}
 
-      {/* MODAL ZI (detalii pe o zi: comenzi + lead-uri) */}
+      {/* MODAL ZI (detalii pe o zi: doar comenzi) */}
       {selectedDay && (
         <DayDetailsModal
           date={selectedDay}
           orders={
             ordersByDay.find(
-              (d) =>
-                d.date.toISOString().slice(0, 10) ===
-                selectedDay.toISOString().slice(0, 10)
-            )?.items || []
-          }
-          leads={
-            leadsByDay.find(
               (d) =>
                 d.date.toISOString().slice(0, 10) ===
                 selectedDay.toISOString().slice(0, 10)
@@ -1642,12 +1411,11 @@ function VendorOrdersPlanningContent() {
   );
 }
 
-/* ===== DayDetailsModal: detalii pentru o zi ===== */
+/* ===== DayDetailsModal: detalii pentru o zi (doar comenzi) ===== */
 
 function DayDetailsModal({
   date,
   orders,
-  leads,
   onClose,
   onOpenNotes,
   navigate,
@@ -1673,16 +1441,7 @@ function DayDetailsModal({
     {}
   );
 
-  const leadStatusCounts = leads.reduce(
-    (acc, l) => {
-      const st = l.status || "nou";
-      acc[st] = (acc[st] || 0) + 1;
-      return acc;
-    },
-    {}
-  );
-
-  // 🔢 mic rezumat contabil pe zi
+  // mic rezumat contabil pe zi
   const fulfilledAmount = orders.reduce(
     (acc, o) =>
       o.status === "fulfilled" ? acc + (Number(o.total) || 0) : acc,
@@ -1739,9 +1498,6 @@ function DayDetailsModal({
             Comenzi în această zi: <strong>{orders.length}</strong>
           </span>
           <span>
-            Lead-uri evenimente: <strong>{leads.length}</strong>
-          </span>
-          <span>
             Valoare comenzi: <strong>{formatMoney(totalAmount)}</strong>
           </span>
           <span>
@@ -1762,16 +1518,6 @@ function DayDetailsModal({
               {Object.entries(statusCounts).map(([st, count]) => (
                 <span key={st}>
                   {STATUS_LABEL[st] || st}: <strong>{count}</strong>
-                </span>
-              ))}
-            </span>
-          )}
-          {Object.keys(leadStatusCounts).length > 0 && (
-            <span className={styles.daySummaryStatuses}>
-              {Object.entries(leadStatusCounts).map(([st, count]) => (
-                <span key={st}>
-                  {LEAD_STATUS_LABEL[st] || st}:{" "}
-                  <strong>{count}</strong>
                 </span>
               ))}
             </span>
@@ -1861,88 +1607,6 @@ function DayDetailsModal({
                       >
                         <FileText size={14} /> Notițe
                       </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-
-        {/* LISTĂ LEAD-URI */}
-        {leads.length > 0 && (
-          <>
-            <h4 className={styles.daySectionTitle}>
-              Lead-uri evenimente (din Mesaje)
-            </h4>
-            <ul className={styles.dayLeadsList}>
-              {leads.map((l) => {
-                const threadId = l.messageThreadId || l.threadId;
-                const unread =
-                  l.messageUnreadCount ?? l.unreadCount ?? 0;
-
-                return (
-                  <li key={l.id} className={styles.dayLeadItem}>
-                    <div className={styles.dayLeadHeader}>
-                      <div>
-                        <div className={styles.leadName}>
-                          {l.name || "Vizitator"}
-                        </div>
-                        <div className={styles.leadPillMeta}>
-                          {l.eventType && <span>{l.eventType}</span>}
-                          {l.eventLocation && (
-                            <>
-                              {" "}
-                              · <span>{l.eventLocation}</span>
-                            </>
-                          )}
-                          {(l.budgetMin || l.budgetMax) && (
-                            <>
-                              {" "}
-                              ·{" "}
-                              <span>
-                                Buget:{" "}
-                                {l.budgetMin
-                                  ? `${l.budgetMin}€`
-                                  : "?"}{" "}
-                                –{" "}
-                                {l.budgetMax
-                                  ? `${l.budgetMax}€`
-                                  : "?"}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        {l.phone && (
-                          <div className={styles.leadPhone}>{l.phone}</div>
-                        )}
-                      </div>
-
-                      <div className={styles.dayLeadHeaderRight}>
-                        {l.status && (
-                          <span
-                            className={`${styles.leadStatus} ${
-                              styles["leadStatus_" + l.status]
-                            }`}
-                          >
-                            {LEAD_STATUS_LABEL[l.status] || l.status}
-                          </span>
-                        )}
-
-                        {threadId && (
-                          <Link
-                            to={`/vendor/messages?threadId=${threadId}`}
-                            className={styles.leadLink}
-                          >
-                            <MessageSquare size={14} />
-                            {unread > 0 && (
-                              <span className={styles.unreadDot}>
-                                {unread}
-                              </span>
-                            )}
-                          </Link>
-                        )}
-                      </div>
                     </div>
                   </li>
                 );

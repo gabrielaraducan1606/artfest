@@ -19,7 +19,7 @@ import {
   XCircle,
 } from "lucide-react";
 import styles from "./Orders.module.css";
-import SubscriptionBanner from "../OnBoarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
+import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
 
 // ⬇️ ajustează acest import după structura ta reală
 import UserOrdersPage from "../../User/Orders/UserOrders";
@@ -120,11 +120,22 @@ export default function VendorOrdersPage() {
   // 🔹 pornire conversație client
   const [startingMessageOrderId, setStartingMessageOrderId] = useState(null);
 
+  // 🔹 modal filtre
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
   const query = useMemo(
     () => ({ q, status, from, to, page, pageSize, reloadToken }),
     [q, status, from, to, page, pageSize, reloadToken]
   );
+
+  function handleResetFilters() {
+    setPage(1);
+    setQ("");
+    setStatus("new"); // revenim la „Nouă” ca înainte
+    setFrom("");
+    setTo("");
+  }
 
   // 🔹 Load comenzi vendor
   useEffect(() => {
@@ -311,6 +322,18 @@ export default function VendorOrdersPage() {
     }
   }
 
+  // mici badge-uri cu rezumat filtre active (ex: Status: Nouă, Dată: 2025-01-01–2025-01-31)
+  const hasActiveFilters = !!(status || from || to);
+  const activeFiltersLabel = [
+    status && `Status: ${
+      STATUS_OPTIONS.find((s) => s.value === status)?.label || status
+    }`,
+    from && `De la: ${from}`,
+    to && `Până la: ${to}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <main className={styles.page}>
       <SubscriptionBanner />
@@ -404,20 +427,6 @@ export default function VendorOrdersPage() {
             >
               <Download size={16} /> Export
             </button>
-
-            <button
-              className={styles.secondaryBtn}
-              onClick={() => {
-                setPage(1);
-                setQ("");
-                setStatus("new"); // revenim la „Nouă”
-                setFrom("");
-                setTo("");
-              }}
-              title="Resetează filtre"
-            >
-              <RefreshCw size={16} /> Reset
-            </button>
           </div>
         )}
       </div>
@@ -448,7 +457,7 @@ export default function VendorOrdersPage() {
       {/* 🔹 Conținut tab 1: comenzi primite (vendor) */}
       {activeTab === "vendor" && (
         <>
-          {/* Filtre */}
+          {/* Bară compactă: căutare + buton Filtre */}
           <div className={styles.filters}>
             <div className={styles.inputWrap}>
               <Search size={16} className={styles.inputIcon} />
@@ -464,50 +473,20 @@ export default function VendorOrdersPage() {
               />
             </div>
 
-            <div className={styles.selectWrap}>
-              <Filter size={16} />
-              <select
-                value={status}
-                onChange={(e) => {
-                  setPage(1);
-                  setStatus(e.target.value);
-                }}
-                className={styles.select}
-                aria-label="Filtru status"
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setFiltersOpen(true)}
+                aria-label="Deschide filtre"
               >
-                {STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className={styles.dateWrap}>
-              <Calendar size={16} />
-              <input
-                type="date"
-                value={from}
-                onChange={(e) => {
-                  setPage(1);
-                  setFrom(e.target.value);
-                }}
-                className={styles.input}
-                aria-label="De la data"
-              />
-            </div>
-            <div className={styles.dateWrap}>
-              <Calendar size={16} />
-              <input
-                type="date"
-                value={to}
-                onChange={(e) => {
-                  setPage(1);
-                  setTo(e.target.value);
-                }}
-                className={styles.input}
-                aria-label="Până la data"
-              />
+                <Filter size={16} /> Filtre
+              </button>
+              {hasActiveFilters && (
+                <span className={styles.muted} style={{ fontSize: 12 }}>
+                  {activeFiltersLabel}
+                </span>
+              )}
             </div>
           </div>
 
@@ -987,6 +966,106 @@ export default function VendorOrdersPage() {
                 setCancelOrder(null);
               }}
             />
+          )}
+
+          {/* 🔹 Modal FILTRE: status + interval de date + reset */}
+          {filtersOpen && (
+            <div
+              className={styles.modalBackdrop}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className={styles.modal}>
+                <div className={styles.modalHead}>
+                  <h3>Filtre comenzi</h3>
+                  <button
+                    className={styles.iconBtn}
+                    onClick={() => setFiltersOpen(false)}
+                    aria-label="Închide"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className={styles.modalBody}>
+                  <fieldset className={styles.fieldset}>
+                    <legend>Status comandă</legend>
+                    <div className={styles.selectWrap}>
+                      <Filter size={16} />
+                      <select
+                        value={status}
+                        onChange={(e) => {
+                          setPage(1);
+                          setStatus(e.target.value);
+                        }}
+                        className={styles.select}
+                        aria-label="Filtru status"
+                      >
+                        {STATUS_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </fieldset>
+
+                  <fieldset className={styles.fieldset}>
+                    <legend>Interval de timp</legend>
+                    <div className={styles.grid3}>
+                      <label>
+                        De la data
+                        <div className={styles.dateWrap}>
+                          <Calendar size={16} />
+                          <input
+                            type="date"
+                            value={from}
+                            onChange={(e) => {
+                              setPage(1);
+                              setFrom(e.target.value);
+                            }}
+                            className={styles.input}
+                            aria-label="De la data"
+                          />
+                        </div>
+                      </label>
+                      <label>
+                        Până la data
+                        <div className={styles.dateWrap}>
+                          <Calendar size={16} />
+                          <input
+                            type="date"
+                            value={to}
+                            onChange={(e) => {
+                              setPage(1);
+                              setTo(e.target.value);
+                            }}
+                            className={styles.input}
+                            aria-label="Până la data"
+                          />
+                        </div>
+                      </label>
+                      <div />
+                    </div>
+                  </fieldset>
+                </div>
+
+                <div className={styles.modalActions}>
+                  <button
+                    className={styles.secondaryBtn}
+                    onClick={handleResetFilters}
+                  >
+                    <RefreshCw size={16} /> Resetează filtrele
+                  </button>
+                  <button
+                    className={styles.primaryBtn}
+                    onClick={() => setFiltersOpen(false)}
+                  >
+                    Aplică filtrele
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}
@@ -1854,7 +1933,7 @@ function InvoiceModal({ order, onClose, onSaved }) {
                       </div>
                       <div>
                         Total de plată:{" "}
-                        <strong>{formatMoney(totals.grandTotal)}</strong>
+                          <strong>{formatMoney(totals.grandTotal)}</strong>
                       </div>
                     </div>
                   </div>
