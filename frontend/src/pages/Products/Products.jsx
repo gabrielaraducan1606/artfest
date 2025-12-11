@@ -47,16 +47,14 @@ export default function ProductsPage() {
   const searchRef = useRef(null);
 
   // 👇 hook de căutare după imagine (reutilizabil)
- const {
-  searching: imageSearching,
-  fileInputRef: imageInputRef,
-  openPicker: openImagePicker,
-  handleFileChange: handleImageFileChange,
-} = useImageSearch();
+  const {
+    searching: imageSearching,
+    fileInputRef: imageInputRef,
+    openPicker: openImagePicker,
+    handleFileChange: handleImageFileChange,
+  } = useImageSearch();
 
-
-  // query params
-  const pageParam = Number(params.get("page") || 1);
+  // query params (fără page pentru infinite scroll)
   const ids = params.get("ids") || "";
 
   const qParam = params.get("q") || "";
@@ -86,9 +84,12 @@ export default function ProductsPage() {
 
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(pageParam);
+  const [loading, setLoading] = useState(true); // prima pagină
+  const [page, setPage] = useState(1);
   const limit = 24;
+
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const [smartInfo, setSmartInfo] = useState(null);
   const [appliedFiltersInfo, setAppliedFiltersInfo] = useState(null);
@@ -115,7 +116,7 @@ export default function ProductsPage() {
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
-  // sync din URL
+  // sync din URL -> filtre locale + reset pentru infinite scroll
   useEffect(() => {
     setLocalFilters({
       q: qParam,
@@ -133,6 +134,11 @@ export default function ProductsPage() {
       acceptsCustom: acceptsCustomParam,
       leadTimeMax: leadTimeMaxParam,
     });
+
+    // când se schimbă query-ul sau filtrele: resetăm listă + paginare
+    setItems([]);
+    setPage(1);
+    setHasMore(true);
   }, [
     qParam,
     categoryParam,
@@ -149,10 +155,6 @@ export default function ProductsPage() {
     acceptsCustomParam,
     leadTimeMaxParam,
   ]);
-
-  useEffect(() => {
-    setPage(pageParam);
-  }, [pageParam]);
 
   // load me + favorites
   useEffect(() => {
@@ -181,66 +183,89 @@ export default function ProductsPage() {
     })();
   }, []);
 
-  // load products
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p = new URLSearchParams();
-      p.set("page", String(page));
-      p.set("limit", String(limit));
-      p.set("serviceType", "products");
+  // load products – suportă prima pagină + append pentru infinite scroll
+  const load = useCallback(
+    async (pageToLoad = 1, append = false) => {
+      if (pageToLoad === 1 && !append) {
+        setLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
 
-      if (ids) p.set("ids", ids);
-      if (qParam) p.set("q", qParam);
-      if (categoryParam) p.set("category", categoryParam);
-      if (cityParam) p.set("city", cityParam);
-      if (!ids && sortParam) p.set("sort", sortParam);
-      if (minPriceParam) p.set("minPrice", minPriceParam);
-      if (maxPriceParam) p.set("maxPrice", maxPriceParam);
+      try {
+        const p = new URLSearchParams();
+        p.set("page", String(pageToLoad));
+        p.set("limit", String(limit));
+        p.set("serviceType", "products");
 
-      if (colorParam) p.set("color", colorParam);
-      if (materialParam) p.set("materialMain", materialParam);
-      if (techniqueParam) p.set("technique", techniqueParam);
-      if (styleTagParam) p.set("styleTag", styleTagParam);
-      if (occasionTagParam) p.set("occasionTag", occasionTagParam);
-      if (availabilityParam) p.set("availability", availabilityParam);
-      if (leadTimeMaxParam) p.set("leadTimeMax", leadTimeMaxParam);
-      if (acceptsCustomParam) p.set("acceptsCustom", "1");
+        if (ids) p.set("ids", ids);
+        if (qParam) p.set("q", qParam);
+        if (categoryParam) p.set("category", categoryParam);
+        if (cityParam) p.set("city", cityParam);
+        if (!ids && sortParam) p.set("sort", sortParam);
+        if (minPriceParam) p.set("minPrice", minPriceParam);
+        if (maxPriceParam) p.set("maxPrice", maxPriceParam);
 
-      const urlQuery = p.toString();
-      console.log("PRODUCTS API REQUEST:", `/api/public/products?${urlQuery}`);
+        if (colorParam) p.set("color", colorParam);
+        if (materialParam) p.set("materialMain", materialParam);
+        if (techniqueParam) p.set("technique", techniqueParam);
+        if (styleTagParam) p.set("styleTag", styleTagParam);
+        if (occasionTagParam) p.set("occasionTag", occasionTagParam);
+        if (availabilityParam) p.set("availability", availabilityParam);
+        if (leadTimeMaxParam) p.set("leadTimeMax", leadTimeMaxParam);
+        if (acceptsCustomParam) p.set("acceptsCustom", "1");
 
-      const res = await api(`/api/public/products?${urlQuery}`);
-      console.log("PRODUCTS API RESPONSE:", res);
+        const urlQuery = p.toString();
+        console.log("PRODUCTS API REQUEST:", `/api/public/products?${urlQuery}`);
 
-      setItems(res?.items || []);
-      setTotal(res?.total || 0);
-      setSmartInfo(res?.smart || null);
-      setAppliedFiltersInfo(res?.appliedFilters || null);
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    ids,
-    qParam,
-    categoryParam,
-    cityParam,
-    sortParam,
-    minPriceParam,
-    maxPriceParam,
-    colorParam,
-    materialParam,
-    techniqueParam,
-    styleTagParam,
-    occasionTagParam,
-    availabilityParam,
-    leadTimeMaxParam,
-    acceptsCustomParam,
-    page,
-  ]);
+        const res = await api(`/api/public/products?${urlQuery}`);
+        console.log("PRODUCTS API RESPONSE:", res);
 
+        const newItems = res?.items || [];
+        const totalFromApi = res?.total || 0;
+
+        setItems((prev) =>
+          append ? [...prev, ...newItems] : newItems
+        );
+        setTotal(totalFromApi);
+        setSmartInfo(res?.smart || null);
+        setAppliedFiltersInfo(res?.appliedFilters || null);
+
+        const totalPages = Math.max(
+          1,
+          Math.ceil(totalFromApi / limit)
+        );
+        setHasMore(pageToLoad < totalPages);
+      } finally {
+        if (pageToLoad === 1 && !append) {
+          setLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
+      }
+    },
+    [
+      ids,
+      qParam,
+      categoryParam,
+      cityParam,
+      sortParam,
+      minPriceParam,
+      maxPriceParam,
+      colorParam,
+      materialParam,
+      techniqueParam,
+      styleTagParam,
+      occasionTagParam,
+      availabilityParam,
+      leadTimeMaxParam,
+      acceptsCustomParam,
+    ]
+  );
+
+  // prima pagină (sau când se schimbă filtrele prin deps din load)
   useEffect(() => {
-    load();
+    load(1, false);
   }, [load]);
 
   // autocomplete
@@ -289,11 +314,6 @@ export default function ProductsPage() {
       document.removeEventListener("touchstart", handleClickOutside);
     };
   }, []);
-
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(total / limit)),
-    [total]
-  );
 
   // facete din items
   const facets = useMemo(() => {
@@ -506,6 +526,7 @@ export default function ProductsPage() {
 
     if (!ids && f.sort) p.set("sort", f.sort);
 
+    // lăsăm page=1 în URL pentru compat, dar nu mai citim din el
     p.set("page", "1");
 
     setFiltersOpen(false);
@@ -543,12 +564,6 @@ export default function ProductsPage() {
     navigate(`/produse?${p.toString()}`);
   };
 
-  const handlePageChange = (newPage) => {
-    const p = new URLSearchParams(params);
-    p.set("page", String(newPage));
-    navigate(`/produse?${p.toString()}`);
-  };
-
   const handleSuggestionCategoryClick = (catKey) => {
     const p = new URLSearchParams();
     p.set("q", localFilters.q || "");
@@ -570,31 +585,43 @@ export default function ProductsPage() {
     navigate(`/produse?${p.toString()}`);
   };
 
+  // === Infinite scroll: când ajungem aproape de bottom, încărcăm pagina următoare ===
+  useEffect(() => {
+    if (!hasMore) return;
+
+    const handleScroll = () => {
+      const scrollPosition =
+        window.innerHeight + window.scrollY;
+      const threshold = document.body.offsetHeight - 400;
+
+      if (
+        scrollPosition >= threshold &&
+        !loading &&
+        !isLoadingMore &&
+        hasMore
+      ) {
+        setPage((prev) => prev + 1);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [loading, isLoadingMore, hasMore]);
+
+  // când page crește (>1), încărcăm următoarea pagină și concatenăm
+  useEffect(() => {
+    if (page === 1) return;
+    load(page, true);
+  }, [page, load]);
+
   return (
     <section className={styles.page}>
       <header className={styles.head}>
         <div className={styles.headTop}>
           <h1 className={styles.h1}>Produse</h1>
           <div className={styles.headActions}>
-            {!ids && (
-              <select
-                className={styles.selectInline}
-                value={localFilters.sort}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    sort: e.target.value,
-                  }))
-                }
-                title="Sortează produsele"
-              >
-                {SORTS.map((s) => (
-                  <option key={s.v} value={s.v}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            )}
 
             <button
               type="button"
@@ -1153,39 +1180,20 @@ export default function ProductsPage() {
             </div>
           )}
 
-          <Pagination
-            page={page}
-            totalPages={totalPages}
-            onChange={handlePageChange}
-          />
+          {isLoadingMore && (
+            <div className={styles.loading}>
+              Se încarcă mai multe produse…
+            </div>
+          )}
+
+          {!hasMore && total > 0 && (
+            <div className={styles.resultsInfo}>
+              Ai ajuns la finalul listei de produse.
+            </div>
+          )}
         </>
       )}
     </section>
-  );
-}
-
-function Pagination({ page, totalPages, onChange }) {
-  if (totalPages <= 1) return null;
-  const prev = Math.max(1, page - 1);
-  const next = Math.min(totalPages, page + 1);
-  return (
-    <div className={styles.pagination}>
-      <button
-        disabled={page <= 1}
-        onClick={() => onChange(prev)}
-      >
-        Înapoi
-      </button>
-      <span>
-        Pagina {page} din {totalPages}
-      </span>
-      <button
-        disabled={page >= totalPages}
-        onClick={() => onChange(next)}
-      >
-        Înainte
-      </button>
-    </div>
   );
 }
 

@@ -466,6 +466,8 @@ export default function Navbar() {
       .toUpperCase();
   }, [me]);
 
+    const avatarUrl = me?.avatarUrl || null;
+
   const isVendor = me?.role === "VENDOR";
 
   const supportHref = useMemo(() => {
@@ -648,15 +650,24 @@ export default function Navbar() {
             </a>
 
             <div className={styles.dropdown}>
-              <button
-                className={styles.avatarBtn}
-                title="Cont admin"
-                aria-label="Cont admin"
-                type="button"
-              >
-                <span className={styles.avatar}>{initials}</span>
-                <ChevronDown className={styles.dropdownIcon} size={14} />
-              </button>
+             <button
+  className={styles.avatarBtn}
+  title="Cont admin"
+  aria-label="Cont admin"
+  type="button"
+>
+  {avatarUrl ? (
+    <img
+      src={avatarUrl}
+      alt={me?.name || me?.email || "Avatar"}
+      className={styles.avatarImg}
+    />
+  ) : (
+    <span className={styles.avatar}>{initials}</span>
+  )}
+  <ChevronDown className={styles.dropdownIcon} size={14} />
+</button>
+
               <div
                 className={styles.dropdownContent}
                 style={{ padding: 10, minWidth: 240 }}
@@ -900,39 +911,10 @@ export default function Navbar() {
                 Produse
               </a>
 
-              <div className={styles.dropdown} tabIndex={0}>
-                <a
-                  className={styles.navLink}
-                  href="#"
-                  role="button"
-                  aria-haspopup="menu"
-                >
-                  Servicii
-                  <ChevronDown className={styles.dropdownIcon} size={14} />
-                </a>
-                <div
-                  className={styles.dropdownContent}
-                  role="menu"
-                  style={{ padding: 8 }}
-                >
-                  <a href="/magazine" role="menuitem">
-                    Magazine
-                  </a>
-                  <div
-                    style={{
-                      marginTop: 10,
-                      fontSize: 12,
-                      color: "var(--color-text-muted)",
-                      fontStyle: "italic",
-                      borderTop: "1px solid var(--color-border)",
-                      paddingTop: 6,
-                    }}
-                  >
-                    * Toate serviciile pentru evenimente vor fi disponibile în
-                    curând
-                  </div>
-                </div>
-              </div>
+              <a className={styles.navLink} href="/magazine">
+  Magazine
+</a>
+
             </>
           )}
 
@@ -1125,15 +1107,23 @@ export default function Navbar() {
             </>
           ) : (
             <div className={styles.dropdown}>
-              <button
-                className={styles.avatarBtn}
-                title="Contul meu"
-                aria-label="Contul meu"
-                type="button"
-              >
-                <span className={styles.avatar}>{initials}</span>
-                <ChevronDown className={styles.dropdownIcon} size={14} />
-              </button>
+               <button
+    className={styles.avatarBtn}
+    title="Contul meu"
+    aria-label="Contul meu"
+    type="button"
+  >
+    {avatarUrl ? (
+      <img
+        src={avatarUrl}
+        alt={me?.name || me?.email || "Avatar"}
+        className={styles.avatarImg}
+      />
+    ) : (
+      <span className={styles.avatar}>{initials}</span>
+    )}
+    <ChevronDown className={styles.dropdownIcon} size={14} />
+  </button>
               <div
                 className={styles.dropdownContent}
                 style={{ padding: 10, minWidth: 240 }}

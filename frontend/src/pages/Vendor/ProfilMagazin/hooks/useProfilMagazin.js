@@ -295,17 +295,6 @@ export default function useProfilMagazin(slug, opts = {}) {
   const [editingProduct, setEditingProduct] = useState(null);
   const [prodForm, setProdForm] = useState(EMPTY_PROD_FORM);
 
-  /* ===== GATE: acceptări vendor ===== */
-  const [gateOpen, setGateOpen] = useState(false);
-  const [gateLoading, setGateLoading] = useState(false);
-  const [gateErr, setGateErr] = useState("");
-  const [gateDocs, setGateDocs] = useState({});
-  const [gateChecks, setGateChecks] = useState({
-    vendor: false,
-    shipping: false,
-    returns: false,
-  });
-
   /* ====== INFO inline edit ====== */
   const [editInfo, setEditInfo] = useState(false);
   const [savingInfo, setSavingInfo] = useState(false);
@@ -653,97 +642,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     return url;
   }
 
-  /* ====== GATE: status documente ====== */
-  async function loadVendorAcceptances() {
-    setGateLoading(true);
-    setGateErr("");
-    try {
-      const d = await api("/api/vendor/agreements/status");
-      const docs = Array.isArray(d?.docs) ? d.docs : [];
-
-      const meta = {};
-      let checks = { vendor: false, shipping: false, returns: false };
-
-      for (const it of docs) {
-        if (it.doc_key === "VENDOR_TERMS") {
-          meta.vendor_terms = { url: it.url, version: it.version };
-          checks.vendor = !!it.accepted;
-        }
-        if (it.doc_key === "SHIPPING_ADDENDUM") {
-          meta.shipping_addendum = { url: it.url, version: it.version };
-          checks.shipping = !!it.accepted;
-        }
-        if (it.doc_key === "RETURNS_POLICY_ACK") {
-  meta.returns_policy = { url: it.url, version: it.version };
-  checks.returns = !!it.accepted;
-}
-      }
-
-      setGateDocs(meta);
-      setGateChecks(checks);
-
-      const allOK = !!d?.allOK;
-      return { allOK };
-    } catch (e) {
-      setGateErr(e?.message || "Nu s-a putut verifica acordurile.");
-      return { allOK: false };
-    } finally {
-      setGateLoading(false);
-    }
-  }
-
-  /* ====== GATE: salvare acceptări ====== */
-    /* ====== GATE: salvare acceptări ====== */
-  async function acceptVendorDocs() {
-    setGateLoading(true);
-    setGateErr("");
-
-    try {
-      const items = [];
-
-      if (gateChecks.vendor && gateDocs.vendor_terms?.version) {
-        items.push({
-          doc_key: "VENDOR_TERMS",
-          version: gateDocs.vendor_terms.version,
-        });
-      }
-
-      if (gateChecks.shipping && gateDocs.shipping_addendum?.version) {
-        items.push({
-          doc_key: "SHIPPING_ADDENDUM",
-          version: gateDocs.shipping_addendum.version,
-        });
-      }
-
-      if (gateChecks.returns && gateDocs.returns_policy?.version) {
-        items.push({
-          doc_key: "RETURNS_POLICY_ACK",
-          version: gateDocs.returns_policy.version,
-        });
-      }
-
-      if (!items.length) {
-        setGateErr("Bifează documentele obligatorii.");
-        return;
-      }
-
-      await api("/api/vendor/agreements/accept", {
-        method: "POST",
-        body: { items },
-      });
-
-      // după ce acceptă, închidem poarta și deschidem direct ProductModal
-      setGateOpen(false);
-      setEditingProduct(null);
-      setProdForm(EMPTY_PROD_FORM);
-      setProdModalOpen(true);
-    } catch (e) {
-      setGateErr(e?.message || "Eroare la salvarea acceptărilor.");
-    } finally {
-      setGateLoading(false);
-    }
-  }
-
   const onChangeInfoDraft = (patch) => {
     setInfoDraft((d) => {
       const next = { ...d, ...patch };
@@ -767,32 +665,13 @@ export default function useProfilMagazin(slug, opts = {}) {
   }, [infoDraft, saveProfilePart, saveLeadTimes]);
 
   /* ====== NEW PRODUCT (deschide modal + gate DOAR la primul produs) ====== */
-  const openNewProduct = async () => {
+    /* ====== NEW PRODUCT – doar deschide modalul, fără gate ====== */
+  const openNewProduct = () => {
     if (!isOwner) return;
 
-    const hasAnyProduct =
-      Array.isArray(products) && products.length > 0;
-
-    // 👉 Dacă există deja produse, NU mai afișăm poarta.
-    if (hasAnyProduct) {
-      setEditingProduct(null);
-      setProdForm(EMPTY_PROD_FORM);
-      setProdModalOpen(true);
-      return;
-    }
-
-    // 👉 Dacă nu există niciun produs, verificăm acordurile
-    const { allOK } = await loadVendorAcceptances();
-
-    if (allOK) {
-      // a acceptat deja acordurile (ex: în onboarding)
-      setEditingProduct(null);
-      setProdForm(EMPTY_PROD_FORM);
-      setProdModalOpen(true);
-    } else {
-      // nu a acceptat, afișăm poarta
-      setGateOpen(true);
-    }
+    setEditingProduct(null);
+    setProdForm(EMPTY_PROD_FORM);
+    setProdModalOpen(true);
   };
 
   /* ====== SAVE PRODUCT (create/edit) ====== */
@@ -1004,19 +883,9 @@ export default function useProfilMagazin(slug, opts = {}) {
     prodForm,
     setProdForm,
 
-    // gate
-    gateOpen,
-    setGateOpen,
-    gateLoading,
-    gateErr,
-    gateDocs,
-    gateChecks,
-    setGateChecks,
-
     // actions
     fetchEverything,
     uploadFile,
-    acceptVendorDocs,
     openNewProduct,
     onSaveProduct,
   };

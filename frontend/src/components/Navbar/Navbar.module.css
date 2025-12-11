@@ -642,3 +642,18 @@
     backdrop-filter: saturate(120%) blur(10px);
   }
 }
+.avatarImg {
+  width: 28px;          /* la fel ca .avatar */
+  height: 28px;         /* la fel ca .avatar */
+  border-radius: 999px; /* cerc */
+  object-fit: cover;    /* să umple cercul frumos */
+  display: block;       /* elimină spațiul de inline-img */
+}
+.avatarImg {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  object-fit: cover;
+  display: block;
+  border: 2px solid var(--color-primary); /* opțional */
+}

@@ -1,10 +1,16 @@
-import SupportPageBase from "../../SupportBase/SupportBasePage.jsx";
+// src/pages/User/UserSupport/UserSupportPage.jsx
+import { useParams } from "react-router-dom";
+import SupportPageBase from "../../SupportBase/SupportBasePage"; // <-- verifică path-ul real
 
 export default function UserSupportPage() {
+  const { ticketId } = useParams();
+
   return (
     <SupportPageBase
-      // endpoint-ul pentru suport useri (miri)
       supportBase="/api/support"
+      listPath="/me/tickets"
+      hideNewTicket={false}
+      initialTicketId={ticketId || null}
     />
   );
 }

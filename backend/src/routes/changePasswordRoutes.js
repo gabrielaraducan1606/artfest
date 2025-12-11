@@ -10,8 +10,8 @@ export default async function changePassword(req, res) {
   }
 
   try {
-    // TODO: adaptează la auth-ul tău (ex: req.user.id, req.auth.userId etc.)
-    const userId = req.user?.id;
+    // 👇 authRequired pune { sub, role, tv } în req.user
+    const userId = req.user?.sub || req.user?.id;
     if (!userId) {
       return res.status(401).json({ message: "Neautentificat" });
     }
@@ -69,18 +69,22 @@ export default async function changePassword(req, res) {
     const newHash = await bcrypt.hash(newPassword, 12);
 
     await prisma.$transaction(async (tx) => {
-      // mută parola veche în istoric
+      // mutăm parola veche în istoric
       await tx.passwordHistory.create({
         data: { userId: user.id, passwordHash: user.passwordHash },
       });
 
-      // setează parola nouă + revocă toate sesiunile (tokenVersion++)
+      // setăm parola nouă + revocăm sesiunile + logăm momentul schimbării
       await tx.user.update({
         where: { id: user.id },
-        data: { passwordHash: newHash, tokenVersion: { increment: 1 } },
+        data: {
+          passwordHash: newHash,
+          tokenVersion: { increment: 1 },
+          lastPasswordChangeAt: new Date(),
+        },
       });
 
-      // păstrează doar ultimele N parole în istoric
+      // păstrăm doar ultimele N parole în istoric
       if (PASSWORD_HISTORY_LIMIT > 0) {
         const extra = await tx.passwordHistory.findMany({
           where: { userId: user.id },
@@ -95,6 +99,9 @@ export default async function changePassword(req, res) {
         }
       }
     });
+
+    // mic log de debug
+    console.log("Parola schimbată pentru user", user.id, "din settings");
 
     return res.json({ ok: true });
   } catch (e) {

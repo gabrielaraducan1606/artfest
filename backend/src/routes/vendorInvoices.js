@@ -1,11 +1,11 @@
-// ==============================
-// File: server/routes/vendorInvoices.js
-// ==============================
+// backend/src/routes/vendorInvoices.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { z } from "zod";
 import PDFDocument from "pdfkit"; // npm install pdfkit
+import { notifyUserOnInvoiceIssued } from "../services/notifications.js"; // 🔔 notificare in-app
+import { sendInvoiceIssuedEmail } from "../lib/mailer.js"; // ✉️ email factură emisă
 
 const router = Router();
 
@@ -105,7 +105,6 @@ router.get("/vendors/me/invoices", authRequired, async (req, res) => {
       totalGross: Number(inv.totalGross || 0),
       currency: inv.currency || "RON",
       status: inv.status,
-      // chiar dacă nu avem pdfUrl salvat, putem genera on-the-fly:
       downloadUrl: `/api/vendor/invoices/${inv.id}/pdf`,
     }));
 
@@ -154,7 +153,6 @@ router.get("/vendors/me/client-invoices", authRequired, async (req, res) => {
       totalGross: Number(inv.totalGross || 0),
       currency: inv.currency || "RON",
       status: inv.status,
-      // la fel, generăm PDF dinamic
       downloadUrl: `/api/vendor/invoices/${inv.id}/pdf`,
     }));
 
@@ -244,302 +242,319 @@ async function getNextInvoiceNumber(vendorId) {
 
 /**
  * GET /api/vendor/orders/:orderId/invoice
- *
- * Suportă atât cazul în care :orderId este Shipment.id,
- * cât și cazul în care este Order.id.
  */
-router.get("/vendor/orders/:orderId/invoice", authRequired, async (req, res) => {
-  try {
-    const vendor = await getCurrentVendorByUser(req.user.sub);
-    if (!vendor) {
-      return res.status(403).json({ error: "not_a_vendor" });
-    }
+router.get(
+  "/vendor/orders/:orderId/invoice",
+  authRequired,
+  async (req, res) => {
+    try {
+      const vendor = await getCurrentVendorByUser(req.user.sub);
+      if (!vendor) {
+        return res.status(403).json({ error: "not_a_vendor" });
+      }
 
-    const paramId = String(req.params.orderId);
+      const paramId = String(req.params.orderId);
 
-    // 1) încercăm ca Shipment.id
-    let shipment = await prisma.shipment.findFirst({
-      where: { id: paramId, vendorId: vendor.id },
-      include: {
-        order: true,
-        items: true,
-      },
-    });
-
-    // 2) dacă nu găsim, încercăm ca Order.id
-    if (!shipment) {
-      shipment = await prisma.shipment.findFirst({
-        where: { orderId: paramId, vendorId: vendor.id },
+      // 1) încercăm ca Shipment.id
+      let shipment = await prisma.shipment.findFirst({
+        where: { id: paramId, vendorId: vendor.id },
         include: {
           order: true,
           items: true,
         },
       });
-    }
 
-    if (!shipment) {
-      console.warn("[InvoiceDraft] Shipment not found for vendor", {
-        vendorId: vendor.id,
-        paramId,
+      // 2) dacă nu găsim, încercăm ca Order.id
+      if (!shipment) {
+        shipment = await prisma.shipment.findFirst({
+          where: { orderId: paramId, vendorId: vendor.id },
+          include: {
+            order: true,
+            items: true,
+          },
+        });
+      }
+
+      if (!shipment) {
+        console.warn("[InvoiceDraft] Shipment not found for vendor", {
+          vendorId: vendor.id,
+          paramId,
+        });
+        return res.status(404).json({ error: "order_not_found_for_vendor" });
+      }
+
+      const order = shipment.order;
+      const billingProfile = await prisma.vendorBilling.findUnique({
+        where: { vendorId: vendor.id },
       });
-      return res.status(404).json({ error: "order_not_found_for_vendor" });
-    }
 
-    const order = shipment.order;
-    const billingProfile = await prisma.vendorBilling.findUnique({
-      where: { vendorId: vendor.id },
-    });
+      const existing = await prisma.invoice.findFirst({
+        where: {
+          vendorId: vendor.id,
+          orderId: order.id,
+          direction: "VENDOR_TO_CLIENT",
+        },
+        include: { lines: true },
+      });
 
-    const existing = await prisma.invoice.findFirst({
-      where: {
-        vendorId: vendor.id,
-        orderId: order.id,
-        direction: "VENDOR_TO_CLIENT",
-      },
-      include: { lines: true },
-    });
+      if (existing) {
+        const dto = mapInvoiceToDraftDto(existing, billingProfile, order);
+        return res.json({ invoice: dto });
+      }
 
-    if (existing) {
-      const dto = mapInvoiceToDraftDto(existing, billingProfile, order);
-      return res.json({ invoice: dto });
-    }
-
-    const lines =
-      shipment.items?.length > 0
-        ? shipment.items.map((it) => ({
-            description: it.title,
-            qty: it.qty,
-            unitPrice: Number(it.price || 0),
-            vatRate: 19,
-          }))
-        : [
-            {
-              description: "Produse comandă",
-              qty: 1,
-              unitPrice: Number(order.total || 0),
+      const lines =
+        shipment.items?.length > 0
+          ? shipment.items.map((it) => ({
+              description: it.title,
+              qty: it.qty,
+              unitPrice: Number(it.price || 0),
               vatRate: 19,
-            },
-          ];
+            }))
+          : [
+              {
+                description: "Produse comandă",
+                qty: 1,
+                unitPrice: Number(order.total || 0),
+                vatRate: 19,
+              },
+            ];
 
-    const today = new Date().toISOString().slice(0, 10);
-    const shipping = order.shippingAddress || {};
+      const today = new Date().toISOString().slice(0, 10);
+      const shipping = order.shippingAddress || {};
 
-    const draft = {
-      series: "FA",
-      number: "",
-      issueDate: today,
-      dueDate: today,
-      currency: order.currency || "RON",
-      notes: "",
-      vendor: billingProfile
-        ? {
-            name: billingProfile.companyName,
-            cui: billingProfile.cui || "",
-            regCom: billingProfile.regCom || "",
-            address: billingProfile.address || "",
-            iban: billingProfile.iban || "",
-            bank: billingProfile.bank || "",
-          }
-        : null,
-      customer: {
-        name: shipping.name || "",
-        email: shipping.email || "",
-        phone: shipping.phone || "",
-        address:
-          shipping.address ||
-          [
-            shipping.street,
-            shipping.city,
-            shipping.county,
-            shipping.postalCode,
-          ]
-            .filter(Boolean)
-            .join(", "),
-      },
-      lines,
-    };
+      const draft = {
+        series: "FA",
+        number: "",
+        issueDate: today,
+        dueDate: today,
+        currency: order.currency || "RON",
+        notes: "",
+        vendor: billingProfile
+          ? {
+              name: billingProfile.companyName,
+              cui: billingProfile.cui || "",
+              regCom: billingProfile.regCom || "",
+              address: billingProfile.address || "",
+              iban: billingProfile.iban || "",
+              bank: billingProfile.bank || "",
+            }
+          : null,
+        customer: {
+          name: shipping.name || "",
+          email: shipping.email || "",
+          phone: shipping.phone || "",
+          address:
+            shipping.address ||
+            [
+              shipping.street,
+              shipping.city,
+              shipping.county,
+              shipping.postalCode,
+            ]
+              .filter(Boolean)
+              .join(", "),
+        },
+        lines,
+      };
 
-    return res.json({ invoice: draft });
-  } catch (err) {
-    console.error("GET /vendor/orders/:orderId/invoice FAILED:", err);
-    res.status(500).json({
-      error: "invoice_draft_failed",
-      message: err?.message || "Nu am putut încărca draftul de factură.",
-    });
+      return res.json({ invoice: draft });
+    } catch (err) {
+      console.error("GET /vendor/orders/:orderId/invoice FAILED:", err);
+      res.status(500).json({
+        error: "invoice_draft_failed",
+        message: err?.message || "Nu am putut încărca draftul de factură.",
+      });
+    }
   }
-});
+);
 
 /* ========= 5) Salvează & (opțional) trimite factura ========= */
 
 /**
  * POST /api/vendor/orders/:orderId/invoice
  */
-router.post("/vendor/orders/:orderId/invoice", authRequired, async (req, res) => {
-  try {
-    const vendor = await getCurrentVendorByUser(req.user.sub);
-    if (!vendor) {
-      return res.status(403).json({ error: "not_a_vendor" });
-    }
+router.post(
+  "/vendor/orders/:orderId/invoice",
+  authRequired,
+  async (req, res) => {
+    try {
+      const vendor = await getCurrentVendorByUser(req.user.sub);
+      if (!vendor) {
+        return res.status(403).json({ error: "not_a_vendor" });
+      }
 
-    const paramId = String(req.params.orderId);
-    const { invoice, sendEmail } = InvoicePayload.parse(req.body || {});
+      const paramId = String(req.params.orderId);
+      const { invoice, sendEmail } = InvoicePayload.parse(req.body || {});
 
-    // încercăm mai întâi ca Shipment.id, apoi ca Order.id
-    let shipment = await prisma.shipment.findFirst({
-      where: { id: paramId, vendorId: vendor.id },
-      include: { order: true },
-    });
-
-    if (!shipment) {
-      shipment = await prisma.shipment.findFirst({
-        where: { orderId: paramId, vendorId: vendor.id },
+      // încercăm mai întâi ca Shipment.id, apoi ca Order.id
+      let shipment = await prisma.shipment.findFirst({
+        where: { id: paramId, vendorId: vendor.id },
         include: { order: true },
       });
-    }
 
-    if (!shipment || !shipment.order) {
-      console.warn("[InvoiceSave] Shipment not found for vendor", {
-        vendorId: vendor.id,
-        paramId,
-      });
-      return res.status(404).json({ error: "order_not_found_for_vendor" });
-    }
+      if (!shipment) {
+        shipment = await prisma.shipment.findFirst({
+          where: { orderId: paramId, vendorId: vendor.id },
+          include: { order: true },
+        });
+      }
 
-    const order = shipment.order;
+      if (!shipment || !shipment.order) {
+        console.warn("[InvoiceSave] Shipment not found for vendor", {
+          vendorId: vendor.id,
+          paramId,
+        });
+        return res.status(404).json({ error: "order_not_found_for_vendor" });
+      }
 
-    // totaluri
-    let totalNet = 0;
-    let totalVat = 0;
+      const order = shipment.order;
 
-    for (const ln of invoice.lines) {
-      const base = Number(ln.qty || 0) * Number(ln.unitPrice || 0);
-      const vat = (base * Number(ln.vatRate || 0)) / 100;
-      totalNet += base;
-      totalVat += vat;
-    }
-    const totalGross = totalNet + totalVat;
+      // totaluri
+      let totalNet = 0;
+      let totalVat = 0;
 
-    const issueDate = new Date(invoice.issueDate);
-    const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : issueDate;
+      for (const ln of invoice.lines) {
+        const base = Number(ln.qty || 0) * Number(ln.unitPrice || 0);
+        const vat = (base * Number(ln.vatRate || 0)) / 100;
+        totalNet += base;
+        totalVat += vat;
+      }
+      const totalGross = totalNet + totalVat;
 
-    let invoiceStatus = "UNPAID";
-    if (order.status === "PAID" || order.status === "FULFILLED") {
-      invoiceStatus = "PAID";
-    }
+      const issueDate = new Date(invoice.issueDate);
+      const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : issueDate;
 
-    const existing = await prisma.invoice.findFirst({
-      where: {
-        vendorId: vendor.id,
-        orderId: order.id,
-        direction: "VENDOR_TO_CLIENT",
-      },
-      include: { lines: true },
-    });
+      let invoiceStatus = "UNPAID";
+      if (order.status === "PAID" || order.status === "FULFILLED") {
+        invoiceStatus = "PAID";
+      }
 
-    const number =
-      invoice.number && invoice.number.trim().length > 0
-        ? invoice.number.trim()
-        : await getNextInvoiceNumber(vendor.id);
-
-    const commonData = {
-      series: invoice.series || "FA",
-      number,
-      issueDate,
-      dueDate,
-      currency: invoice.currency || "RON",
-      notes: invoice.notes || "",
-      clientName: invoice.customer?.name || "",
-      clientEmail: invoice.customer?.email || "",
-      clientPhone: invoice.customer?.phone || "",
-      clientAddress: invoice.customer?.address || "",
-      totalNet,
-      totalVat,
-      totalGross,
-      status: invoiceStatus,
-      direction: "VENDOR_TO_CLIENT",
-      type: "OTHER",
-      periodFrom: null,
-      periodTo: null,
-    };
-
-    const linesCreate = invoice.lines.map((ln) => {
-      const qty = Number(ln.qty || 0);
-      const unitNet = Number(ln.unitPrice || 0);
-      const vatRate = Number(ln.vatRate || 0);
-      const base = qty * unitNet;
-      const vat = (base * vatRate) / 100;
-
-      return {
-        description: ln.description,
-        quantity: qty,
-        unitNet,
-        vatRate,
-        totalNet: base,
-        totalVat: vat,
-        totalGross: base + vat,
-      };
-    });
-
-    let saved;
-    if (existing) {
-      saved = await prisma.invoice.update({
-        where: { id: existing.id },
-        data: {
-          ...commonData,
-          lines: {
-            deleteMany: { invoiceId: existing.id },
-            create: linesCreate,
-          },
-        },
-        include: { lines: true },
-      });
-    } else {
-      saved = await prisma.invoice.create({
-        data: {
-          ...commonData,
+      const existing = await prisma.invoice.findFirst({
+        where: {
           vendorId: vendor.id,
           orderId: order.id,
-          lines: {
-            create: linesCreate,
-          },
+          direction: "VENDOR_TO_CLIENT",
         },
         include: { lines: true },
       });
-    }
 
-    // TODO: aici poți genera și XML e-Factura (UBL 2.1 / RO_CIUS) pentru ANAF
-    // folosind aceleași date din "saved" + VendorBilling.
+      const number =
+        invoice.number && invoice.number.trim().length > 0
+          ? invoice.number.trim()
+          : await getNextInvoiceNumber(vendor.id);
 
-    // opțional: trimiți mail clientului cu link către PDF
-    if (sendEmail && saved.clientEmail) {
-      try {
-        // await mailer.sendInvoiceEmail({
-        //   to: saved.clientEmail,
-        //   pdfUrl: `/api/vendor/invoices/${saved.id}/pdf`,
-        // });
-      } catch (e) {
-        console.error("Failed to send invoice email:", e);
+      const commonData = {
+        series: invoice.series || "FA",
+        number,
+        issueDate,
+        dueDate,
+        currency: invoice.currency || "RON",
+        notes: invoice.notes || "",
+        clientName: invoice.customer?.name || "",
+        clientEmail: invoice.customer?.email || "",
+        clientPhone: invoice.customer?.phone || "",
+        clientAddress: invoice.customer?.address || "",
+        totalNet,
+        totalVat,
+        totalGross,
+        status: invoiceStatus,
+        direction: "VENDOR_TO_CLIENT",
+        type: "OTHER",
+        periodFrom: null,
+        periodTo: null,
+      };
+
+      const linesCreate = invoice.lines.map((ln) => {
+        const qty = Number(ln.qty || 0);
+        const unitNet = Number(ln.unitPrice || 0);
+        const vatRate = Number(ln.vatRate || 0);
+        const base = qty * unitNet;
+        const vat = (base * vatRate) / 100;
+
+        return {
+          description: ln.description,
+          quantity: qty,
+          unitNet,
+          vatRate,
+          totalNet: base,
+          totalVat: vat,
+          totalGross: base + vat,
+        };
+      });
+
+      let saved;
+      if (existing) {
+        saved = await prisma.invoice.update({
+          where: { id: existing.id },
+          data: {
+            ...commonData,
+            lines: {
+              deleteMany: { invoiceId: existing.id },
+              create: linesCreate,
+            },
+          },
+          include: { lines: true },
+        });
+      } else {
+        saved = await prisma.invoice.create({
+          data: {
+            ...commonData,
+            vendorId: vendor.id,
+            orderId: order.id,
+            lines: {
+              create: linesCreate,
+            },
+          },
+          include: { lines: true },
+        });
       }
-    }
 
-    res.json({
-      ok: true,
-      invoiceId: saved.id,
-      pdfUrl: `/api/vendor/invoices/${saved.id}/pdf`,
-    });
-  } catch (err) {
-    console.error("POST /vendor/orders/:orderId/invoice FAILED:", err);
-    res.status(500).json({
-      error: "invoice_save_failed",
-      message: err?.message || "Nu am putut salva sau trimite factura.",
-    });
+      // 🔔 notificare către user când se emite PRIMA dată factura
+      try {
+        if (!existing) {
+          await notifyUserOnInvoiceIssued(order.id, saved.id);
+        }
+      } catch (e) {
+        console.error("notifyUserOnInvoiceIssued failed:", e);
+      }
+
+      // ✉️ opțional: trimite mail clientului cu info despre factură
+      if (sendEmail && saved.clientEmail) {
+        try {
+          const invoiceFrontendPath = `/comanda/${order.id}`; // ajustează dacă ai altă rută
+
+          await sendInvoiceIssuedEmail({
+            to: saved.clientEmail,
+            orderId: order.id,
+            invoiceNumber: saved.number,
+            totalGross: saved.totalGross,
+            currency: saved.currency || "RON",
+            invoiceFrontendPath,
+          });
+        } catch (e) {
+          console.error("Failed to send invoice email:", e);
+        }
+      }
+
+      res.json({
+        ok: true,
+        invoiceId: saved.id,
+        pdfUrl: `/api/vendor/invoices/${saved.id}/pdf`,
+      });
+    } catch (err) {
+      console.error("POST /vendor/orders/:orderId/invoice FAILED:", err);
+      res.status(500).json({
+        error: "invoice_save_failed",
+        message: err?.message || "Nu am putut salva sau trimite factura.",
+      });
+    }
   }
-});
+);
 
 /* ========= 6) PDF viewer / download ========= */
+
 /**
  * GET /api/vendor/invoices/:id/pdf
- * -> generează un PDF on-the-fly și îl trimite browser-ului
  */
 router.get("/vendor/invoices/:id/pdf", authRequired, async (req, res) => {
   try {
@@ -581,9 +596,10 @@ router.get("/vendor/invoices/:id/pdf", authRequired, async (req, res) => {
 function generateInvoicePdfResponse(res, invoice, billingProfile) {
   const doc = new PDFDocument({ size: "A4", margin: 50 });
 
-  const fileName = `Factura-${invoice.series || "FA"}-${invoice.number || invoice.id}.pdf`;
+  const fileName = `Factura-${invoice.series || "FA"}-${
+    invoice.number || invoice.id
+  }.pdf`;
   res.setHeader("Content-Type", "application/pdf");
-  // inline => browser o afișează, dar user poate să o și descarce
   res.setHeader(
     "Content-Disposition",
     `inline; filename="${fileName.replace(/"/g, "")}"`
@@ -592,10 +608,7 @@ function generateInvoicePdfResponse(res, invoice, billingProfile) {
   doc.pipe(res);
 
   // Header
-  doc
-    .fontSize(18)
-    .text("FACTURĂ", { align: "right" })
-    .moveDown(0.3);
+  doc.fontSize(18).text("FACTURĂ", { align: "right" }).moveDown(0.3);
 
   doc
     .fontSize(10)
@@ -624,7 +637,10 @@ function generateInvoicePdfResponse(res, invoice, billingProfile) {
       .text(`Banca: ${billingProfile.bank || "-"}`)
       .moveDown(1);
   } else {
-    doc.fontSize(10).text("Nu sunt completate datele de facturare ale vendorului.").moveDown(1);
+    doc
+      .fontSize(10)
+      .text("Nu sunt completate datele de facturare ale vendorului.")
+      .moveDown(1);
   }
 
   // CLIENT
@@ -638,7 +654,10 @@ function generateInvoicePdfResponse(res, invoice, billingProfile) {
     .moveDown(1);
 
   // Linii
-  doc.fontSize(11).text("Detalii produse / servicii:", { underline: true }).moveDown(0.5);
+  doc
+    .fontSize(11)
+    .text("Detalii produse / servicii:", { underline: true })
+    .moveDown(0.5);
 
   const tableTop = doc.y + 5;
   const colX = {
@@ -651,16 +670,13 @@ function generateInvoicePdfResponse(res, invoice, billingProfile) {
 
   doc
     .fontSize(9)
-    .text("Descriere", colX.desc, tableTop, { bold: true })
+    .text("Descriere", colX.desc, tableTop)
     .text("Cant.", colX.qty, tableTop)
     .text("Preț unitar", colX.unit, tableTop)
     .text("TVA %", colX.vat, tableTop)
     .text("Total (cu TVA)", colX.total, tableTop);
 
-  doc
-    .moveTo(40, tableTop - 3)
-    .lineTo(555, tableTop - 3)
-    .stroke();
+  doc.moveTo(40, tableTop - 3).lineTo(555, tableTop - 3).stroke();
 
   let y = tableTop + 12;
   const lines = invoice.lines || [];
@@ -697,16 +713,29 @@ function generateInvoicePdfResponse(res, invoice, billingProfile) {
 
   doc
     .fontSize(10)
-    .text(`Total fără TVA: ${totalNet.toFixed(2)} ${invoice.currency || "RON"}`, {
-      align: "right",
-    })
-    .text(`TVA: ${totalVat.toFixed(2)} ${invoice.currency || "RON"}`, {
-      align: "right",
-    })
+    .text(
+      `Total fără TVA: ${totalNet.toFixed(2)} ${
+        invoice.currency || "RON"
+      }`,
+      {
+        align: "right",
+      }
+    )
+    .text(
+      `TVA: ${totalVat.toFixed(2)} ${invoice.currency || "RON"}`,
+      {
+        align: "right",
+      }
+    )
     .fontSize(12)
-    .text(`Total de plată: ${totalGross.toFixed(2)} ${invoice.currency || "RON"}`, {
-      align: "right",
-    })
+    .text(
+      `Total de plată: ${totalGross.toFixed(2)} ${
+        invoice.currency || "RON"
+      }`,
+      {
+        align: "right",
+      }
+    )
     .moveDown(2);
 
   if (invoice.notes) {

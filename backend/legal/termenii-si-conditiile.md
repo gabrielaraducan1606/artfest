@@ -1,130 +1,162 @@
 ---
-title: "Termeni și Condiții de utilizare"
+title: "Termeni și Condiții"
 version: "1.0.0"
 valid_from: "2025-10-07"
+slug: "general_terms"
 ---
 
-# Termeni și Condiții de utilizare — Artfest
+# Termeni și Condiții — Artfest
 
 Ultima actualizare: 7 octombrie 2025
 
-Prezentul document („Termenii”) stabilește condițiile în care poți utiliza platforma **Artfest** („Platforma”). Prin crearea unui cont sau prin folosirea Platformei, declari că ai citit, ai înțeles și accepți acești Termeni.
+Prezentele Termeni și Condiții („Termenii”) stabilesc regulile de utilizare a platformei **Artfest** („Platforma”), inclusiv a magazinului online și a funcționalităților de marketplace.
+
+Prin crearea unui cont, prin folosirea Platformei sau prin plasarea unei comenzi, declari că ai citit, ai înțeles și accepți acești Termeni, precum și documentele conexe:
+- **Politica de confidențialitate**;
+- **Politica de retur**;
+- pentru vânzători: **Acordul Marketplace pentru Vânzători** și eventualele anexe (ex. Anexa de Expediere & Curierat).
 
 ---
 
-## 1. Descrierea serviciului
+## 1. Definiții
 
-Artfest este un **marketplace online** care conectează artizani, creatori și furnizori de produse/servicii pentru evenimente („Vânzători”) cu clienți („Cumpărători”).
-
-Platforma:
-
-- permite Vânzătorilor să își listeze produsele/serviciile;
-- permite Cumpărătorilor să descopere, să comande și, după caz, să rezerve produse/servicii;
-- facilitează procesarea comenzilor și livrarea prin parteneri (curieri).
-
-**Contractul de vânzare** se încheie **direct între Vânzător și Cumpărător**. Artfest nu este parte la contractul de vânzare, ci pune la dispoziție infrastructura tehnică.
+- **Platforma / Artfest** – site-ul și aplicațiile operate de Artfest, care permit vizualizarea și achiziționarea de produse, precum și listarea acestora de către Vânzători.
+- **Utilizator** – orice persoană care vizitează sau folosește Platforma (client, vizitator, vânzător).
+- **Client / Cumpărător** – Utilizator care plasează comenzi de produse prin Platformă.
+- **Vânzător** – utilizator (persoană fizică autorizată sau persoană juridică) care listează produse spre vânzare, în baza Acordului Marketplace pentru Vânzători.
+- **Comandă** – un document electronic generat prin Platformă, care reprezintă intenția Cumpărătorului de a achiziționa produse.
+- **Cont** – secțiunea din Platformă accesibilă pe bază de autentificare, care conține datele Utilizatorului și istoricul anumitor acțiuni.
 
 ---
 
-## 2. Crearea contului și eligibilitate
+## 2. Operatorul Platformei
 
-- Pentru a utiliza Platforma, este necesar un cont de utilizator (client sau vânzător).
-- Declari că ai cel puțin 18 ani și capacitatea de a încheia contracte.
-- La creare, trebuie să furnizezi date reale, complete și actuale.
+Platforma este operată de **Artfest**, entitate juridică înregistrată conform legii, denumită în continuare „Artfest” sau „noi”.
 
-Prin creare de cont, accepți **Termenii și Condițiile**, **Politica de confidențialitate** și, dacă ești vânzător, **Acordul Marketplace pentru Vânzători**.
+Datele complete de identificare, inclusiv adresa și datele de contact, sunt disponibile în secțiunea „Contact” / „Despre noi” a Platformei și în Politica de confidențialitate.
 
 ---
 
-## 3. Securitatea contului
+## 3. Acceptarea Termenilor
 
-- Ești responsabil pentru păstrarea confidențialității credențialelor (parolă, acces la e-mail etc.).
-- Orice activitate desfășurată prin contul tău este prezumată a fi realizată de tine.
-- Te obligi să ne notifici fără întârziere în cazul oricărei suspiciuni de acces neautorizat.
+3.1. Utilizarea Platformei implică acceptarea necondiționată a acestor Termeni.
 
-Platforma poate **suspenda sau închide contul** în caz de:
+3.2. Dacă nu ești de acord cu Termenii, te rugăm să nu folosești Platforma.
 
-- încălcare a acestor Termeni;
-- fraudă, abuz, tentative de înșelăciune;
-- folosirea Platformei în scopuri ilegale sau contrare bunelor moravuri.
+3.3. Artfest își rezervă dreptul de a actualiza Termenii. Versiunea curentă este disponibilă permanent pe Platformă, iar data ultimei actualizări este indicată în partea de sus a documentului.
 
 ---
 
-## 4. Utilizarea permisă a Platformei
+## 4. Crearea și administrarea contului
 
-Este interzis:
+4.1. Pentru a beneficia de anumite servicii (plasarea de comenzi, salvarea preferințelor, listarea de produse etc.), este necesară crearea unui cont.
 
-- să postezi conținut ilegal, ofensator, discriminatoriu sau care încalcă drepturile altora;
-- să folosești Platforma pentru spam, phishing, sau alte activități frauduloase;
-- să încerci accesarea neautorizată a sistemelor, datelor sau conturilor altor utilizatori;
-- să copiezi, reproduci sau utilizezi conținutul Platformei în alt mod decât cel permis.
+4.2. Utilizatorul se obligă să furnizeze date reale, complete și actuale și să le actualizeze ori de câte ori este necesar.
 
-Artfest își rezervă dreptul de a șterge conținut sau de a restricționa accesul în caz de încălcare.
+4.3. Utilizatorul este responsabil pentru:
+- păstrarea confidențialității datelor de autentificare;
+- toate acțiunile efectuate prin contul său.
 
----
-
-## 5. Comenzi, rezervări și livrare
-
-- Cumpărătorul poate comanda produsele/serviciile listate de Vânzători.
-- Informațiile despre produse (preț, descriere, termene) sunt furnizate de Vânzători, care poartă responsabilitatea pentru corectitudinea lor.
-- Livrarea produselor fizice este efectuată de curierii parteneri; Artfest poate transmite datele de livrare strict în acest scop.
-- Regulile de retur, anulare și garanție sunt descrise în **Politica de retur** și în informațiile fiecărui Vânzător.
+4.4. Artfest poate suspenda sau închide conturi în cazul încălcării Termenilor, al fraudelor sau al utilizării abuzive a Platformei.
 
 ---
 
-## 6. Date de contact și comunicare
+## 5. Rolul Platformei în relația Client – Vânzător
 
-Platforma pune la dispoziție:
+5.1. Pentru produsele vândute în regim de marketplace, **contractul de vânzare se încheie direct între Vânzător și Cumpărător**. Artfest oferă infrastructura tehnică ce permite:
+- listarea produselor de către Vânzători;
+- plasarea de comenzi de către Clienți;
+- procesarea plăților, livrarea și returul produselor, în condițiile detaliate în documentele specifice.
 
-- **sistem de mesaje interne** între Cumpărători și Vânzători;
-- câmpuri opționale pentru ca Vânzătorii să afișeze **telefon** și **email public** pe profil.
+5.2. Pentru anumite produse/servicii, Artfest poate avea și calitatea de vânzător direct; în acest caz, acest lucru va fi indicat explicit.
 
-Dacă un Vânzător își afișează telefonul sau e-mailul public, acestea pot fi folosite de Cumpărători pentru a-l contacta direct. Platforma recomandă păstrarea comunicării prin sistemul intern pentru siguranță și trasabilitate.
-
-Artfest poate transmite notificări privind:
-
-- statusul comenzilor;
-- modificări ale termenilor și politicilor;
-- mesaje necesare pentru funcționarea contului.
+5.3. Artfest nu este parte la contractul de vânzare încheiat între Client și Vânzător (cu excepția cazurilor în care este indicat ca vânzător) și nu garantează:
+- disponibilitatea permanentă a produselor;
+- calitatea sau conformitatea produselor cu descrierea, acestea fiind responsabilitatea Vânzătorului.
 
 ---
 
-## 7. Livrare, retur și răspunderea pentru produse
+## 6. Comenzi, prețuri și plăți
 
-- Vânzătorul este responsabil pentru pregătirea, ambalarea și predarea produselor către curier.
-- Orice problemă legată de calitatea produselor, termene de execuție sau conformitate se soluționează în primul rând între Cumpărător și Vânzător.
-- Artfest poate media, fără a garanta soluționarea în favoarea uneia dintre părți.
+6.1. Clientul poate plasa comenzi prin intermediul Platformei, urmând pașii indicați.
 
----
+6.2. Înainte de finalizarea comenzii, clientul are posibilitatea de a verifica și, dacă este cazul, de a corecta datele introduse.
 
-## 8. Proprietate intelectuală
+6.3. Prețurile afișate:
+- sunt exprimate în moneda indicată și includ toate taxele aplicabile (TVA, dacă este cazul);
+- pot fi modificate de Vânzători sau de Artfest, fără notificare prealabilă pentru viitor. Comenzile deja plasate nu vor fi afectate.
 
-- Denumirea „Artfest”, logo-urile și elementele de identitate vizuală sunt proprietatea Platformei.
-- Conținutul postat de Vânzători (texte, fotografii, creații) rămâne proprietatea acestora, care garantează că au dreptul de a-l utiliza și de a-l comercializa.
-- Este interzisă copierea, distribuirea sau folosirea conținutului în alte scopuri fără permisiunea prealabilă.
+6.4. Metodele de plată disponibile sunt afișate în Platformă și pot include:
+- plată online cu cardul;
+- plată ramburs;
+- alte metode specifice.
 
----
-
-## 9. Limitarea răspunderii
-
-În limitele maxime permise de lege:
-
-- Artfest nu răspunde pentru pierderi indirecte, de oportunitate, pierderi de date sau profit;
-- răspunderea totală a Platformei, dacă se dovedește că există, este limitată la sumele de comision plătite de utilizator către Platformă în ultimele 12 luni.
-
-Nu garantăm că Platforma va fi disponibilă în permanență sau că va fi lipsită de erori, dar vom depune eforturi rezonabile pentru remedierea acestora.
+6.5. Comanda este considerată acceptată atunci când:
+- este confirmată explicit de Vânzător sau de Artfest (după caz); și/sau
+- Clientul primește o notificare de tip „comanda a fost expediată”.
 
 ---
 
-## 10. Modificarea Termenilor
+## 7. Livrare și retur
 
-Putem actualiza periodic acești Termeni. Versiunea curentă și data intrării în vigoare sunt afișate la începutul documentului. Continuarea utilizării Platformei după orice modificare reprezintă acceptarea noilor Termeni.
+7.1. Condițiile de livrare (timp estimativ, curieri disponibili, costuri) sunt afișate în Platformă și pot varia în funcție de produs și de Vânzător.
+
+7.2. Politica privind retururile este detaliată în **Politica de retur**, care face parte din acești Termeni.
+
+7.3. Drepturile legale ale consumatorilor (ex. dreptul de retragere în 14 zile) se aplică în condițiile prevăzute de lege.
 
 ---
 
-## 11. Contact
+## 8. Recenzii și conținut generat de Utilizatori
 
-Pentru întrebări sau reclamații legate de Platformă, ne poți contacta la:  
-**suport@artfest.ro**
+8.1. Utilizatorii pot publica recenzii și comentarii despre produse sau despre experiența lor.
 
-> Acest document are caracter general și nu înlocuiește consultanța juridică individuală.
+8.2. La publicarea de conținut, Utilizatorul se obligă să:
+- nu folosească un limbaj jignitor, discriminatoriu sau ilegal;
+- nu dezvăluie date personale ale unor terți fără consimțământ;
+- nu posteze conținut publicitar sau spam.
+
+8.3. Artfest își rezervă dreptul de a modera, edita sau șterge conținutul care încalcă acești Termeni sau legea.
+
+---
+
+## 9. Drepturi de proprietate intelectuală
+
+9.1. Platforma, designul, logo-urile și elementele grafice, precum și conținutul propriu Artfest sunt protejate de drepturi de proprietate intelectuală și nu pot fi folosite fără acordul nostru.
+
+9.2. Conținutul încărcat de Vânzători (texte, imagini, descrieri) aparține acestora sau este folosit cu acordul deținătorilor de drepturi. Vânzătorii garantează că dețin toate drepturile necesare.
+
+9.3. Utilizatorii pot folosi conținutul din Platformă exclusiv pentru uz personal, non-comercial, cu respectarea legii și a acestor Termeni.
+
+---
+
+## 10. Răspundere
+
+10.1. În limita permisă de lege, Artfest nu poate fi ținut răspunzător pentru:
+- pierderi indirecte, de profit sau de oportunitate;
+- erori de funcționare ale Platformei cauzate de factori externi (rețele, furnizori de internet etc.);
+- conținutul, disponibilitatea sau calitatea produselor listate de Vânzători.
+
+10.2. Artfest depune eforturi rezonabile pentru ca informațiile afișate pe Platformă să fie corecte și actualizate, dar nu poate garanta absența completă a erorilor.
+
+---
+
+## 11. Forță majoră
+
+11.1. Nicio parte nu va fi răspunzătoare pentru neexecutarea obligațiilor sale dacă aceasta se datorează unui eveniment de forță majoră, astfel cum este definit de lege.
+
+---
+
+## 12. Modificarea Termenilor
+
+12.1. Artfest poate modifica oricând acești Termeni. Versiunea actualizată va fi disponibilă în Platformă, cu menționarea datei ultimei actualizări.
+
+12.2. Continuarea utilizării Platformei după intrarea în vigoare a modificărilor reprezintă acceptarea noilor Termeni.
+
+---
+
+## 13. Lege aplicabilă și jurisdicție
+
+Acești Termeni sunt guvernați de legea română. Orice dispută va fi soluționată de instanțele competente din România, dacă nu se ajunge la o soluție amiabilă.
+
+> **Notă:** Acest document are rol de șablon informativ. Pentru siguranță juridică deplină, recomandăm consultarea unui avocat.

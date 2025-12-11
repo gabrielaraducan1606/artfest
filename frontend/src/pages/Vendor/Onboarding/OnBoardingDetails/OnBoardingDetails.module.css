@@ -1390,3 +1390,39 @@ a.ghostBtn:focus-visible {
   cursor: default;
   box-shadow: none;
 }
+/* ===== Bloc acord curierat Sameday ===== */
+.courierBox {
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  margin-bottom: 6px;
+
+  border: 1px dashed color-mix(
+    in oklab,
+    var(--color-border),
+    var(--color-primary) 18%
+  );
+  background: color-mix(
+    in oklab,
+    var(--surface-elevated, #f9fafb),
+    var(--color-primary) 6%
+  );
+
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+/* când e în dark mode, să nu lucească prea tare */
+@media (prefers-color-scheme: dark) {
+  .courierBox {
+    border-color: color-mix(
+      in oklab,
+      var(--color-primary),
+      black 35%
+    );
+    background: color-mix(
+      in oklab,
+      #020617,
+      var(--color-primary) 12%
+    );
+  }
+}

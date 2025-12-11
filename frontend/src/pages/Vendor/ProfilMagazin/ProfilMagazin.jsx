@@ -34,6 +34,53 @@ const ReviewsSection = lazy(() => import("./components/ReviewsSection.jsx"));
 const VendorGateModal = lazy(() => import("./modals/VendorGateModal"));
 const ProductModal = lazy(() => import("./modals/ProductModal"));
 
+/* ========================= Helpers pentru erori activate ========================= */
+function extractMissing(e) {
+  try {
+    return (
+      e?.missing ||
+      e?.data?.missing ||
+      e?.response?.data?.missing ||
+      e?.body?.missing ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+function extractCode(e) {
+  try {
+    return (
+      e?.error ||
+      e?.code ||
+      e?.data?.error ||
+      e?.response?.data?.error ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+function humanizeActivateError(e) {
+  const code = extractCode(e);
+  const missing = extractMissing(e);
+
+  if (code === "vendor_entity_not_confirmed") {
+    return "Pentru a activa serviciile, trebuie să confirmi că reprezinți o entitate juridică (PFA / SRL / II / IF). Poți face asta din bannerul de deasupra listei de servicii din Dashboard.";
+  }
+
+  if (Array.isArray(missing) && missing.length) {
+    return `Completează câmpurile obligatorii: ${missing.join(", ")}`;
+  }
+  if (code === "missing_required_fields_core") {
+    return "Completează câmpurile esențiale ale serviciului și profilului, apoi încearcă din nou.";
+  }
+  if (code === "missing_required_fields_profile") {
+    return "Completează profilul magazinului (brand, adresă, zonă acoperire, imagine și acord Master), apoi încearcă din nou.";
+  }
+  return e?.message || "Nu am putut activa serviciul.";
+}
+
 /* ========================== TRACKING helpers ========================== */
 function makeId() {
   try {
@@ -242,31 +289,7 @@ function OwnerWarningBanner({
   );
 }
 
-function ActivationHintBanner() {
-  return (
-    <div
-      role="note"
-      aria-label="Activează magazinul din Dashboard"
-      style={{
-        margin: "0 0 16px",
-        padding: 12,
-        border: "1px solid #3B82F6",
-        background: "#EFF6FF",
-        color: "#1D4ED8",
-        borderRadius: 8,
-      }}
-    >
-      <strong style={{ display: "block", marginBottom: 6 }}>
-        Ultimul pas pentru a apărea în căutări
-      </strong>
-      <div>
-        Pentru ca magazinul să fie <b>activ</b> și să apară în rezultatele
-        de căutare, mergi în <b>Desktop &gt; Serviciile mele</b> și apasă
-        butonul <b>„Activează”</b> pentru acest serviciu.
-      </div>
-    </div>
-  );
-}
+// ⛔️ ActivationHintBanner A FOST SCOS – nu mai trimitem userul în Desktop pentru activare
 
 function broadcastProfileUpdated(serviceIdOrSlug) {
   try {
@@ -343,16 +366,15 @@ export default function ProfilMagazin() {
 
   // stare locală pentru poarta de acorduri
   const [gateState, setGateState] = useState({
-    open: false,
-    loading: false,
-    error: "",
-    docs: null,
-    checks: {
-      vendor: false,
-      shipping: false,
-      returns: false,
-    },
-  });
+  open: false,
+  loading: false,
+  error: "",
+  docs: null,
+  checks: {
+    declaration: false,      // ✅ folosit de VendorGateModal
+    vendorTermsRead: false,  // opțional
+  },
+});
 
   const [profilePatch, setProfilePatch] = useState({});
   const [localCacheT, setLocalCacheT] = useState(Date.now());
@@ -469,20 +491,41 @@ export default function ProfilMagazin() {
     return Boolean(flag);
   }, [sellerData]);
 
-  const showActivationHint = useMemo(() => {
-    if (!isOwner) return false;
-    if (ownerChecks.loading) return false;
-    if (!ownerChecks.hasActiveSub) return false;
-    if (missingProfile.length > 0) return false;
-    if (serviceIsActive) return false;
-    return true;
-  }, [isOwner, ownerChecks, missingProfile, serviceIsActive]);
+  // ========= City labels din CityDictionary (public) =========
+  const [cityLabelMap, setCityLabelMap] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/public/stores/cities");
+        if (!res.ok) return;
+        const data = await res.json();
+        const map = {};
+        if (Array.isArray(data?.cities)) {
+          for (const c of data.cities) {
+            if (c.slug && c.label) {
+              map[c.slug] = c.label;
+            }
+          }
+        }
+        if (!alive) return;
+        setCityLabelMap(map);
+      } catch {
+        // noop – fallback la city brut
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // ========= Date bază din sellerData (inclusiv slug) =========
   const {
     shopName,
     brandStory,
     city,
+    citySlug: rawCitySlug,
     country,
     address,
     coverImageUrl: coverRaw,
@@ -496,6 +539,23 @@ export default function ProfilMagazin() {
     slug: sdSlug,
     profile,
   } = sellerData;
+
+  // slug-ul de oraș preferat (service/profile/vendor)
+  const citySlug =
+    profile?.citySlug ||
+    rawCitySlug ||
+    sellerData?.service?.citySlug ||
+    sellerData?.vendor?.citySlug ||
+    null;
+
+  // ✅ Oraș afișat – iau label din dicționar dacă există, altfel fallback pe city din profil
+  const niceCity =
+    (citySlug && cityLabelMap && cityLabelMap[citySlug]) ||
+    profile?.city ||
+    sellerData?.service?.city ||
+    sellerData?.vendor?.city ||
+    city ||
+    "";
 
   const shortText = useMemo(
     () =>
@@ -1058,168 +1118,126 @@ export default function ProfilMagazin() {
     }
   }
 
-  // 👇 Handler NOU: când vrei să adaugi produs, verifici întâi acordurile
   const handleAddProduct = async () => {
-    // fallback: dacă nu e owner, nu facem nimic
-    if (!isOwner) return;
+  if (!isOwner) return;
 
-    try {
-      setGateState((s) => ({
-        ...s,
-        loading: true,
-        error: "",
-      }));
+  // 🟢 dacă există deja produse, nu mai afișăm poarta – direct ProductModal
+  const hasProducts = Array.isArray(products) && products.length > 0;
+  if (hasProducts) {
+    openNewProduct();
+    return;
+  }
 
-      const resp = await api("/api/vendor/agreements/status", {
-        method: "GET",
-      });
-
-      const docsArr = Array.isArray(resp?.docs) ? resp.docs : [];
-      const byKey = {};
-      for (const d of docsArr) {
-        byKey[d.doc_key] = d;
-      }
-
-      const vendorDoc = byKey.VENDOR_TERMS || null;
-      const shippingDoc = byKey.SHIPPING_ADDENDUM || null;
-      const returnsDoc =
-        byKey.RETURNS_POLICY || byKey.RETURNS_POLICY_ACK || null;
-
-      const gateDocs = {
-        vendor_terms: vendorDoc && {
-          doc_key: vendorDoc.doc_key,
-          url: vendorDoc.url,
-          version: vendorDoc.version,
-          is_required: vendorDoc.is_required,
-        },
-        shipping_addendum: shippingDoc && {
-          doc_key: shippingDoc.doc_key,
-          url: shippingDoc.url,
-          version: shippingDoc.version,
-          is_required: shippingDoc.is_required,
-        },
-        returns_policy: returnsDoc && {
-          doc_key: returnsDoc.doc_key,
-          url: returnsDoc.url,
-          version: returnsDoc.version,
-          is_required: returnsDoc.is_required,
-        },
-      };
-
-      const allOK = !!resp?.allOK;
-
-      if (allOK) {
-        // toate acordurile required sunt acceptate -> deschidem direct modalul de produs
-        setGateState((s) => ({
-          ...s,
-          open: false,
-          loading: false,
-          error: "",
-          docs: gateDocs,
-          checks: {
-            vendor: !!(vendorDoc && vendorDoc.accepted),
-            shipping: !!(shippingDoc && shippingDoc.accepted),
-            returns: !!(returnsDoc && returnsDoc.accepted),
-          },
-        }));
-        openNewProduct();
-      } else {
-        // nu sunt toate acceptate -> afișăm poarta
-        setGateState({
-          open: true,
-          loading: false,
-          error: "",
-          docs: gateDocs,
-          checks: {
-            vendor: !!(vendorDoc && vendorDoc.accepted),
-            shipping: !!(shippingDoc && shippingDoc.accepted),
-            returns: !!(returnsDoc && returnsDoc.accepted),
-          },
-        });
-      }
-    } catch (e) {
-      console.error("agreements/status error", e);
-      // în caz de eroare de server, nu blocăm complet: deschidem direct modalul
-      setGateState((s) => ({
-        ...s,
-        loading: false,
-        error:
-          e?.message ||
-          "Nu am putut verifica acordurile. Poți încerca din nou mai târziu.",
-      }));
-      openNewProduct();
-    }
-  };
-
-  // handler pentru Accept în poartă (salvează și continuă către Add Product)
-  const handleAcceptGate = async () => {
-    const { docs, checks } = gateState;
-    if (!docs) return;
-
+  // 🔴 dacă este primul produs -> verificăm declarația de produse
+  try {
     setGateState((s) => ({
       ...s,
       loading: true,
       error: "",
     }));
 
-    try {
-      const items = [];
+    const resp = await api("/api/vendor/product-declaration/status", {
+      method: "GET",
+    });
 
-      if (checks.vendor && docs.vendor_terms?.version) {
-        items.push({
-          doc_key: docs.vendor_terms.doc_key || "VENDOR_TERMS",
-          version: docs.vendor_terms.version,
-        });
-      }
-
-      if (checks.shipping && docs.shipping_addendum?.version) {
-        items.push({
-          doc_key: docs.shipping_addendum.doc_key || "SHIPPING_ADDENDUM",
-          version: docs.shipping_addendum.version,
-        });
-      }
-
-      if (checks.returns && docs.returns_policy?.version) {
-        items.push({
-          doc_key: docs.returns_policy.doc_key || "RETURNS_POLICY_ACK",
-          version: docs.returns_policy.version,
-        });
-      }
-
-      if (!items.length) {
-        setGateState((s) => ({
-          ...s,
-          loading: false,
-          error: "Bifează cel puțin acordurile obligatorii.",
-        }));
-        return;
-      }
-
-      await api("/api/vendor/agreements/accept", {
-        method: "POST",
-        body: { items },
-      });
-
-      // succes: închidem poarta și deschidem direct formularul de produs
+    // dacă declarația este deja acceptată -> nu mai arătăm poarta
+    if (resp?.accepted) {
       setGateState((s) => ({
         ...s,
+        loading: false,
         open: false,
-        loading: false,
-        error: "",
+        docs: {
+          vendor_terms: {
+            doc_key: "VENDOR_TERMS",
+            url: resp.docUrl || "/legal/vendor/terms",
+            version: resp.version || null,
+          },
+        },
       }));
-
       openNewProduct();
-    } catch (e) {
-      console.error("agreements/accept error", e);
-      setGateState((s) => ({
-        ...s,
-        loading: false,
-        error:
-          e?.message ||
-          "Nu am putut salva acceptarea acordurilor. Încearcă din nou.",
-      }));
+      return;
     }
-  };
+
+    // nu e acceptată -> deschidem poarta cu link la acord
+    setGateState({
+      open: true,
+      loading: false,
+      error: "",
+      docs: {
+        vendor_terms: {
+          doc_key: "VENDOR_TERMS",
+          url: resp?.docUrl || "/legal/vendor/terms",
+          version: resp?.version || null,
+        },
+      },
+      checks: {
+        declaration: false,
+        vendorTermsRead: false,
+      },
+    });
+  } catch (e) {
+    console.error("product-declaration/status error", e);
+    // în caz de eroare, nu blocăm complet: deschidem direct modalul
+    setGateState((s) => ({
+      ...s,
+      loading: false,
+      error:
+        e?.message ||
+        "Nu am putut verifica declarația produselor. Poți continua să adaugi produsul.",
+    }));
+    openNewProduct();
+  }
+};
+
+  const handleAcceptGate = async () => {
+  const { docs, checks } = gateState;
+  const vendorTerms = docs?.vendor_terms;
+
+  if (!vendorTerms) return;
+
+  if (!checks.declaration) {
+    setGateState((s) => ({
+      ...s,
+      error:
+        "Trebuie să confirmi declarația de conformitate pentru a continua.",
+    }));
+    return;
+  }
+
+  setGateState((s) => ({
+    ...s,
+    loading: true,
+    error: "",
+  }));
+
+  try {
+    await api("/api/vendor/product-declaration/accept", {
+      method: "POST",
+      body: {
+        version: vendorTerms.version || "v1.0",
+      },
+    });
+
+    // după acceptare, poarta nu se mai arată la următoarele click-uri
+    setGateState((s) => ({
+      ...s,
+      open: false,
+      loading: false,
+      error: "",
+    }));
+
+    openNewProduct();
+  } catch (e) {
+    console.error("product-declaration/accept error", e);
+    setGateState((s) => ({
+      ...s,
+      loading: false,
+      error:
+        e?.message ||
+        "Nu am putut salva acceptarea declarației. Încearcă din nou.",
+    }));
+  }
+};
 
   const openEditProduct = async (p) => {
     if (!p) return;
@@ -1575,6 +1593,105 @@ export default function ProfilMagazin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [HEADER_OFFSET, tabs.map((t) => t.ref.current).join("|"), activeTab]);
 
+  /* ========== Stare & handler pentru activare/dezactivare magazin ========== */
+  const [activationBusy, setActivationBusy] = useState(false);
+  const [activationError, setActivationError] = useState("");
+
+  async function handleToggleActive() {
+    if (!isOwner || !serviceId || activationBusy) return;
+
+    // dacă vrem să ACTIVĂM
+    if (!serviceIsActive) {
+      // 1) abonament
+      if (ownerChecks.hasActiveSub === false) {
+        alert(
+          "Pentru a activa magazinul, ai nevoie de un abonament activ. Vei fi dus la pagina de abonament."
+        );
+        navigate("/onboarding/details?tab=plata&solo=1");
+        return;
+      }
+
+      // 2) profil + facturare
+      const blocking = [];
+
+      if (missingProfile.length) {
+        blocking.push("Profil magazin: " + missingProfile.join(", "));
+      }
+
+      if (ownerChecks.missingBilling?.length) {
+        blocking.push(
+          "Date facturare: " + ownerChecks.missingBilling.join(", ")
+        );
+      }
+
+      if (blocking.length) {
+        alert(
+          `Pentru a activa magazinul, trebuie să completezi:\n- ${blocking.join(
+            "\n- "
+          )}\n\nPoți completa din secțiunea „Informații” și din onboarding (tab-urile Profil / Facturare).`
+        );
+        // îl ducem vizual în tab-ul de informații
+        onJump("informatii");
+        return;
+      }
+    }
+
+    try {
+      setActivationBusy(true);
+      setActivationError("");
+
+      if (serviceIsActive) {
+        // 👉 DEZACTIVARE
+        await api(
+          `/api/vendors/me/services/${encodeURIComponent(
+            serviceId
+          )}/deactivate`,
+          { method: "POST" }
+        );
+
+        setProfilePatch((p) => ({
+          ...p,
+          isActive: false,
+          status: "INACTIVE",
+          profile: {
+            ...(sellerData.profile || {}),
+            ...(p.profile || {}),
+            serviceIsActive: false,
+            status: "INACTIVE",
+          },
+        }));
+      } else {
+        // 👉 ACTIVARE
+        await api(
+          `/api/vendors/me/services/${encodeURIComponent(
+            serviceId
+          )}/activate`,
+          { method: "POST" }
+        );
+
+        setProfilePatch((p) => ({
+          ...p,
+          isActive: true,
+          status: "ACTIVE",
+          profile: {
+            ...(sellerData.profile || {}),
+            ...(p.profile || {}),
+            serviceIsActive: true,
+            status: "ACTIVE",
+          },
+        }));
+      }
+
+      broadcastProfileUpdated(sdSlug || slug);
+    } catch (e) {
+      const msg = humanizeActivateError(e);
+      alert(msg);
+      setActivationError(msg);
+    } finally {
+      setActivationBusy(false);
+    }
+  }
+
   return (
     <>
       <SEO
@@ -1657,7 +1774,7 @@ export default function ProfilMagazin() {
             />
           )}
 
-          {showActivationHint && <ActivationHintBanner />}
+          {/* ActivationHintBanner a fost scos */}
 
           <div className={styles.cover}>
             {coverUrl ? (
@@ -1797,67 +1914,117 @@ export default function ProfilMagazin() {
                 )}
               </div>
 
-             <div
-  className={styles.actions}
-  style={{ display: "flex", gap: 8, alignItems: "center" }}
->
-  <div className={styles.followersBadge}>
-    {followersCount} urmăritor
-    {followersCount === 1 ? "" : "i"}
-  </div>
+              <div
+                className={styles.actions}
+                style={{ display: "flex", flexDirection: "column", gap: 4 }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <div className={styles.followersBadge}>
+                    {followersCount} urmăritor
+                    {followersCount === 1 ? "" : "i"}
+                  </div>
 
-  {isOwner ? (
-    <button
-      className={styles.followBtn}
-      onClick={handleAddProduct}
-      title="Adaugă produs"
-      type="button"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-      }}
-    >
-      <FaPlus /> Adaugă produs
-    </button>
-  ) : (
-    <>
-      {/* Buton mesaj – doar pentru user logat */}
-      {isUser && (
-        <button
-          className={styles.followBtn}
-          type="button"
-          onClick={handleContactVendor}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            marginRight: 8,
-          }}
-        >
-          <MessageSquare size={16} />
-          Trimite mesaj
-        </button>
-      )}
+                  {isOwner ? (
+                    <>
+                      <button
+                        className={styles.followBtn}
+                        onClick={handleAddProduct}
+                        title="Adaugă produs"
+                        type="button"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <FaPlus /> Adaugă produs
+                      </button>
 
-      <button
-        className={`${styles.followBtn} ${
-          following ? styles.followBtnActive : ""
-        }`}
-        onClick={toggleFollow}
-        type="button"
-        disabled={followLoading}
-      >
-        {followLoading
-          ? "Se actualizează..."
-          : following
-          ? "Nu mai urmări"
-          : "Urmărește"}
-      </button>
-    </>
-  )}
-</div>
+                      <button
+                        className={styles.followBtn}
+                        type="button"
+                        onClick={handleToggleActive}
+                        disabled={
+                          activationBusy || ownerChecks.loading || !serviceId
+                        }
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                        title={
+                          serviceIsActive
+                            ? "Dezactivează magazinul (nu mai apare în căutări)"
+                            : "Activează magazinul (va apărea în căutări)"
+                        }
+                      >
+                        {activationBusy
+                          ? serviceIsActive
+                            ? "Se dezactivează…"
+                            : "Se activează…"
+                          : serviceIsActive
+                          ? "Dezactivează magazin"
+                          : "Activează magazin"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {isUser && (
+                        <button
+                          className={styles.followBtn}
+                          type="button"
+                          onClick={handleContactVendor}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            marginRight: 8,
+                          }}
+                        >
+                          <MessageSquare size={16} />
+                          Trimite mesaj
+                        </button>
+                      )}
 
+                      <button
+                        className={`${styles.followBtn} ${
+                          following ? styles.followBtnActive : ""
+                        }`}
+                        onClick={toggleFollow}
+                        type="button"
+                        disabled={followLoading}
+                      >
+                        {followLoading
+                          ? "Se actualizează..."
+                          : following
+                          ? "Nu mai urmări"
+                          : "Urmărește"}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {isOwner && activationError && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "#b91c1c",
+                      textAlign: "right",
+                      maxWidth: 360,
+                      marginLeft: "auto",
+                    }}
+                  >
+                    {activationError}
+                  </div>
+                )}
+              </div>
             </div>
 
             <hr className={styles.hr} />
@@ -1877,7 +2044,7 @@ export default function ProfilMagazin() {
                 className={`${styles.section} sectionAnchorPad`}
               >
                 <AboutSection
-                 aboutText={aboutText}
+                  aboutText={aboutText}
                   canEdit={isOwner}
                   editAbout={editAbout}
                   aboutDraft={aboutDraft}
@@ -1897,7 +2064,7 @@ export default function ProfilMagazin() {
             >
               <InfoSection
                 tags={tags}
-                city={city}
+                city={niceCity}
                 country={country}
                 address={address}
                 publicEmail={publicEmail}
@@ -1956,7 +2123,6 @@ export default function ProfilMagazin() {
                   isVendorView={viewMode === "vendor"}
                   me={me}
                   onSubmit={onSubmitUserReview}
-                  // ⛔ fără optimistic add pentru recenziile de magazin
                   onHelpful={onHelpful}
                   onReport={onReport}
                   onChangeQuery={changeQueryFromUI}

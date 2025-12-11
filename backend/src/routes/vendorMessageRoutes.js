@@ -6,7 +6,7 @@ import {
   enforceTokenVersion,
   requireRole,
 } from "../api/auth.js";
-import { createUserNotification } from "../services/notifications.js"; // 🔔 nou
+import { createUserNotification } from "../services/notifications.js"; // 🔔
 
 const router = express.Router();
 
@@ -782,18 +782,20 @@ router.post("/threads/:id/messages", async (req, res) => {
   });
 
   // 🔔 notificare pentru USER
-  try {
-    if (thread.userId) {
-      await createUserNotification(thread.userId, {
-        type: "message",
-        title: `Mesaj nou de la ${thread.vendor?.displayName || "vendor"}`,
-        body: msg.body.slice(0, 140),
-        link: "/cont/mesaje", // pagina de mesaje a userului
-      });
-    }
-  } catch (e) {
-    console.error("Nu am putut crea notificarea pentru user (mesaj nou):", e);
+  // 🔔 notificare pentru USER
+try {
+  if (thread.userId) {
+    await createUserNotification(thread.userId, {
+      type: "message",
+      title: `Mesaj nou de la ${thread.vendor?.displayName || "vendor"}`,
+      body: msg.body.slice(0, 140),
+      // ducem userul în pagina de mesaje + thread selectat
+      link: `/cont/mesaje?threadId=${thread.id}`,
+    });
   }
+} catch (e) {
+  console.error("Nu am putut crea notificarea pentru user (mesaj nou):", e);
+}
 
   res.status(201).json({ ok: true, id: msg.id, createdAt: msg.createdAt });
 });

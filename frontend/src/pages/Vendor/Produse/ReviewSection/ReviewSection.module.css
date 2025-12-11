@@ -1,15 +1,18 @@
 /* src/pages/ProductDetails/ReviewSection/ReviewSection.module.css */
 
+/* ===== Container principal ===== */
+
 .wrap {
   margin-top: 36px;
   background: var(--surface);
   border: 1px solid var(--color-border);
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 22px 20px;
-  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.09);
 }
 
-/* Header & rezumat */
+/* ===== Header & rezumat ===== */
+
 .header {
   display: flex;
   align-items: flex-start;
@@ -28,7 +31,7 @@
 
 .meta {
   margin: 0;
-  color: #7a7a7a;
+  color: #6b7280;
   font-size: 14px;
 }
 
@@ -40,10 +43,11 @@
   color: #facc15;
 }
 
-/* Listă recenzii */
+/* ===== Listă recenzii ===== */
 
 .list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   margin: 0 0 20px;
   padding: 0;
@@ -52,22 +56,40 @@
 
 .item {
   border: 1px solid var(--color-border);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 12px 14px;
   background: var(--color-bg);
   transition: box-shadow 0.15s ease, border-color 0.15s ease,
-    transform 0.12s ease;
+    transform 0.12s ease, background-color 0.12s ease;
 }
 
 .item:hover {
   border-color: rgba(79, 70, 229, 0.25);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
   transform: translateY(-1px);
+  background: radial-gradient(
+      circle at top left,
+      rgba(79, 70, 229, 0.04),
+      transparent 55%
+    ),
+    var(--color-bg);
 }
+
+/* top: info + meniu 3 puncte */
+
+.itemTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Info stânga */
 
 .itemHead {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 4px;
 }
@@ -81,12 +103,13 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  margin-left: 6px;
+  margin-left: 4px;
   font-size: 11px;
   border-radius: 999px;
   background: rgba(22, 163, 74, 0.09);
   color: #15803d;
   border: 1px solid rgba(22, 163, 74, 0.25);
+  white-space: nowrap;
 }
 
 .itemMeta {
@@ -95,7 +118,7 @@
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #888;
+  color: #9ca3af;
   margin-bottom: 4px;
 }
 
@@ -105,17 +128,103 @@
 }
 
 .date {
-  color: #888;
+  color: #9ca3af;
 }
 
-/* Text recenzie */
+/* ===== Meniu 3 puncte (copy / edit / delete / report) ===== */
+
+.itemMenuWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.menuToggleBtn {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  padding: 4px 6px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  transition: background-color 0.12s ease, color 0.12s ease,
+    transform 0.08s ease;
+}
+
+.menuToggleBtn:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #4b5563;
+  transform: translateY(-0.5px);
+}
+
+.menuToggleBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Dropdown */
+
+.itemMenu {
+  position: absolute;
+  top: 26px;
+  right: 0;
+  min-width: 180px;
+  padding: 6px 0;
+  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
+  z-index: 20;
+}
+
+.itemMenuItem,
+.itemMenuItemDanger {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 7px 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  color: #374151;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.itemMenuItem svg,
+.itemMenuItemDanger svg {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.itemMenuItem:hover {
+  background: rgba(79, 70, 229, 0.06);
+  color: #111827;
+}
+
+.itemMenuItemDanger {
+  color: #b91c1c;
+}
+
+.itemMenuItemDanger:hover {
+  background: rgba(248, 113, 113, 0.09);
+  color: #991b1b;
+}
+
+/* ===== Text recenzie ===== */
 
 .comment {
   margin: 6px 0 6px;
-  line-height: 1.5;
+  line-height: 1.55;
+  font-size: 14px;
+  color: var(--color-text);
 }
 
-/* Imagini recenzie */
+/* ===== Imagini recenzie ===== */
 
 .imagesRow {
   display: flex;
@@ -131,21 +240,22 @@
   border-radius: 10px;
   border: 1px solid var(--color-border);
   transition: transform 0.12s ease, box-shadow 0.12s ease,
-    border-color 0.12s ease;
+    border-color 0.12s ease, filter 0.12s ease;
 }
 
 .reviewImage:hover {
   transform: translateY(-1px) scale(1.01);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
   border-color: rgba(79, 70, 229, 0.25);
+  filter: saturate(1.05);
 }
 
-/* Răspuns vânzător */
+/* ===== Răspuns vânzător ===== */
 
 .replyBox {
   margin-top: 8px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   background: linear-gradient(
     135deg,
     rgba(129, 140, 248, 0.06),
@@ -155,25 +265,26 @@
 }
 
 .replyLabel {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: #4f46e5;
   margin-bottom: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
 
 .replyText {
   font-size: 14px;
   margin-bottom: 4px;
+  color: #111827;
 }
 
 .replyDate {
   font-size: 11px;
-  color: #888;
+  color: #6b7280;
 }
 
-/* Acțiuni recenzie (utilă / raportează) */
+/* ===== Acțiuni recenzie (utilă etc.) ===== */
 
 .actionsRow {
   display: flex;
@@ -195,7 +306,7 @@
   padding: 4px 10px;
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease,
-    border-color 0.12s ease, transform 0.08s ease;
+    border-color 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease;
 }
 
 .actionBtn svg {
@@ -208,16 +319,29 @@
   transform: translateY(-0.5px);
 }
 
+/* stare activă – userul a dat "Utilă" */
+.actionBtnActive {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 8px 22px rgba(79, 70, 229, 0.35);
+}
+
+.actionBtnActive svg {
+  transform: translateY(-0.5px);
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.3));
+}
+
 .actionBtn:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
-/* Note & mesaje */
+/* ===== Note & mesaje ===== */
 
 .ownerNote {
   font-size: 14px;
-  color: #7a7a7a;
+  color: #6b7280;
   margin: 8px 0 16px;
 }
 
@@ -237,7 +361,7 @@
   text-decoration: underline;
 }
 
-/* Formular recenzie nouă */
+/* ===== Formular recenzie nouă ===== */
 
 .form {
   display: grid;
@@ -290,7 +414,8 @@
   min-height: 90px;
   font-size: 14px;
   line-height: 1.5;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease,
+    background-color 0.12s ease;
 }
 
 .textarea::placeholder {
@@ -301,6 +426,12 @@
   outline: none;
   border-color: rgba(79, 70, 229, 0.8);
   box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.2);
+  background: radial-gradient(
+      circle at top left,
+      rgba(79, 70, 229, 0.03),
+      transparent 55%
+    ),
+    var(--color-bg);
 }
 
 .primaryBtn {
@@ -340,10 +471,10 @@
 
 .filesHint {
   font-size: 12px;
-  color: #777;
+  color: #6b7280;
 }
 
-/* Info – există deja recenzie acest cont (dacă o folosești) */
+/* Info – dacă vei folosi vreodată „ai deja o recenzie” */
 
 .infoExisting {
   margin: 6px 0 12px;
@@ -483,27 +614,76 @@
   }
 }
 
-/* Mobile */
+/* ===== Responsive ===== */
 
+/* Tablete / ecrane medii */
+@media (max-width: 900px) {
+  .wrap {
+    margin-top: 28px;
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .itemTop {
+    align-items: flex-start;
+  }
+
+  .comment {
+    font-size: 13px;
+  }
+}
+
+/* Mobile */
 @media (max-width: 600px) {
   .wrap {
     margin-top: 24px;
-    padding: 16px;
+    padding: 14px 12px;
     border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  }
+
+  .title {
+    font-size: 18px;
+  }
+
+  .item {
+    padding: 10px 9px;
+    border-radius: 13px;
+  }
+
+  .itemTop {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .badgeVerified {
+    margin-top: 2px;
+  }
+
+  .reviewImage {
+    width: 72px;
+    height: 72px;
+  }
+
+  .actionsRow {
+    gap: 6px;
+  }
+
+  .actionBtn {
+    font-size: 12px;
+    padding: 4px 9px;
   }
 
   .reportCard {
     margin: 0 14px;
     padding: 16px 16px 14px;
     border-radius: 18px;
-  }
-
-  .item {
-    padding: 10px 10px;
-  }
-
-  .reviewImage {
-    width: 72px;
-    height: 72px;
   }
 }

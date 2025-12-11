@@ -1,4 +1,5 @@
 @import "../../../styles/variables.css";
+
 /* ===============================
    LAYOUT GENERAL
 =================================*/
@@ -16,6 +17,7 @@
   .wrap {
     flex-direction: column;
     gap: 20px;
+    padding: 24px 16px;
   }
 }
 
@@ -47,10 +49,26 @@
   color: var(--color-text);
 }
 
+/* ===============================
+   TABS
+=================================*/
+
 .tabs {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+@media (max-width: 900px) {
+  .tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* TAB BUTTON */
@@ -67,6 +85,7 @@
   gap: 8px;
   align-items: center;
   transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
 
 .tab:hover {
@@ -134,6 +153,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 
 .cardTitle {
@@ -155,6 +175,18 @@
 
 .cardBody {
   padding: 22px;
+}
+
+@media (max-width: 700px) {
+  .cardHead {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 16px 18px;
+  }
+
+  .cardBody {
+    padding: 18px;
+  }
 }
 
 /* ===============================
@@ -181,6 +213,7 @@
   background: var(--surface);
   color: var(--color-text);
   transition: border 0.15s;
+  width: 100%;
 }
 
 .input:focus {
@@ -218,6 +251,13 @@
   gap: 12px;
   font-size: 0.95rem;
   cursor: pointer;
+  width: auto;
+}
+
+@media (max-width: 700px) {
+  .checkboxRow {
+    align-items: flex-start;
+  }
 }
 
 /* ===============================
@@ -244,6 +284,13 @@
   cursor: not-allowed;
 }
 
+@media (max-width: 700px) {
+  .cardHead .primary {
+    width: 100%;
+    text-align: center;
+  }
+}
+
 /* DANGER button */
 .dangerBtn {
   background: var(--color-danger);
@@ -260,6 +307,12 @@
   background: #b91c1c;
 }
 
+@media (max-width: 700px) {
+  .dangerBtn {
+    width: 100%;
+  }
+}
+
 /* ===============================
    DANGER ZONE
 =================================*/
@@ -271,6 +324,13 @@
   gap: 16px;
 }
 
+@media (max-width: 700px) {
+  .danger {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* ===============================
    AVATAR
 =================================*/
@@ -279,6 +339,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .avatar {
@@ -328,4 +389,25 @@
 
 .link:hover {
   text-decoration: underline;
+}
+
+.helperText {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.linkButton {
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.linkButton:hover {
+  color: var(--color-hover);
 }

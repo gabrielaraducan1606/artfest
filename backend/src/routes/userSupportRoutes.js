@@ -103,11 +103,21 @@ const qMessages = z.object({
   limit: z.coerce.number().min(1).max(100).default(30),
 });
 
+const attachmentSchema = z.object({
+  url: z.string().url(),
+  name: z.string().optional(),
+  filename: z.string().optional(),
+  mimeType: z.string().optional(),
+  mime: z.string().optional(),
+  size: z.number().int().optional(),
+});
+
 const bodyCreateTicket = z.object({
   subject: z.string().min(3),
   category: z.string().default("general"),
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   message: z.string().min(1),
+  attachments: z.array(attachmentSchema).optional().default([]),
 });
 
 const paramsTicketId = z.object({ id: z.string().min(1) });
@@ -115,19 +125,7 @@ const paramsMessageId = z.object({ mid: z.string().min(1) });
 
 const bodyMessage = z.object({
   body: z.string().optional().default(""),
-  attachments: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        name: z.string().optional(),
-        filename: z.string().optional(),
-        mimeType: z.string().optional(),
-        mime: z.string().optional(),
-        size: z.number().int().optional(),
-      })
-    )
-    .optional()
-    .default([]),
+  attachments: z.array(attachmentSchema).optional().default([]),
 });
 
 const bodyEditMessage = z.object({
@@ -190,23 +188,62 @@ UserSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "bad_request", details: parsed.error.flatten() });
   }
-  const { subject, category, priority, message } = parsed.data;
+  const { subject, category, priority, message, attachments } = parsed.data;
 
   try {
-    const ticket = await prisma.supportTicket.create({
-      data: {
-        requesterId: user.id,
-        vendorId: null, // ⬅️ user normal, nu vendor
-        audience: "USER",
-        subject,
-        category,
-        priority: priority.toUpperCase(),
-        status: "OPEN",
-        lastMessageAt: new Date(),
-        messages: { create: { authorId: user.id, body: message } },
-        reads: { create: { userId: user.id, lastReadAt: new Date() } },
-      },
-      select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+    const ticket = await prisma.$transaction(async (tx) => {
+      // 1) Creează tichetul
+      const createdTicket = await tx.supportTicket.create({
+        data: {
+          requesterId: user.id,
+          vendorId: null, // ⬅️ user normal, nu vendor
+          audience: "USER",
+          subject,
+          category,
+          priority: priority.toUpperCase(),
+          status: "OPEN",
+          lastMessageAt: new Date(),
+        },
+        select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+      });
+
+      // 2) Mesajul inițial
+      const msg = await tx.supportMessage.create({
+        data: {
+          ticketId: createdTicket.id,
+          authorId: user.id,
+          body: (message || "").trim() || "(fișier)",
+        },
+        select: { id: true },
+      });
+
+      // 3) Atașamentele, dacă există
+      if (attachments && attachments.length) {
+        await tx.supportAttachment.createMany({
+          data: attachments.map((a, idx) => ({
+            ticketId: createdTicket.id,
+            messageId: msg.id,
+            url: a.url,
+            filename:
+              a.name ??
+              a.filename ??
+              `attachment-${idx + 1}`,
+            mime: a.mimeType ?? a.mime ?? null,
+            size: a.size ?? null,
+          })),
+        });
+      }
+
+      // 4) Mark read pentru user
+      await tx.supportRead.create({
+        data: {
+          ticketId: createdTicket.id,
+          userId: user.id,
+          lastReadAt: new Date(),
+        },
+      });
+
+      return createdTicket;
     });
 
     res.status(201).json({ ticket: mapTicketToUI(ticket) });
@@ -319,12 +356,16 @@ UserSupportRoutes.post("/tickets/:id/messages", requireAuth(), async (req, res) 
 
       if (attachments?.length) {
         await tx.supportAttachment.createMany({
-          data: attachments.map((a) => ({
+          data: attachments.map((a, idx) => ({
             ticketId: id,
             messageId: msg.id,
             url: a.url,
-            filename: a.name ?? a.filename ?? null,
+            filename:
+              a.name ??
+              a.filename ??
+              `attachment-${idx + 1}`,
             mime: a.mimeType ?? a.mime ?? null,
+            size: a.size ?? null,
           })),
         });
       }
@@ -453,7 +494,7 @@ UserSupportRoutes.patch("/tickets/:id/read", requireAuth(), async (req, res) => 
   }
 });
 
-/** GET /api/support/faqs  (poți reutiliza exact ce ai la vendor) */
+/** GET /api/support/unread-count */
 UserSupportRoutes.get("/unread-count", requireAuth(), async (req, res) => {
   const user = req.sessionUser; // <-- userul autenticat (id, role)
 
@@ -487,6 +528,5 @@ UserSupportRoutes.get("/unread-count", requireAuth(), async (req, res) => {
     res.status(500).json({ error: "server_error" });
   }
 });
-
 
 export default UserSupportRoutes;

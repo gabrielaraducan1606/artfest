@@ -41,7 +41,9 @@ async function vendorAccessRequired(req, res, next) {
       return next();
     }
 
-    const v = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
+    const v = await prisma.vendor.findUnique({
+      where: { userId: req.user.sub },
+    });
     if (v) {
       req.meVendor = v;
       console.log("Vendor found by userId -> next()");
@@ -69,7 +71,10 @@ async function ensureVendorAndRole(userId) {
         select: { role: true },
       });
       if (u && u.role !== "VENDOR") {
-        await tx.user.update({ where: { id: userId }, data: { role: "VENDOR" } });
+        await tx.user.update({
+          where: { id: userId },
+          data: { role: "VENDOR" },
+        });
       }
       return v;
     });
@@ -79,7 +84,10 @@ async function ensureVendorAndRole(userId) {
       select: { role: true },
     });
     if (u && u.role !== "VENDOR") {
-      await prisma.user.update({ where: { id: userId }, data: { role: "VENDOR" } });
+      await prisma.user.update({
+        where: { id: userId },
+        data: { role: "VENDOR" },
+      });
     }
   }
   return vendor;
@@ -88,12 +96,17 @@ async function ensureVendorAndRole(userId) {
 async function computeOnboardingStatus(vendor) {
   if (!vendor) return { exists: false, nextStep: "createVendor" };
   const [drafts, actives, brandedCount] = await prisma.$transaction([
-    prisma.vendorService.count({ where: { vendorId: vendor.id, status: "DRAFT" } }),
+    prisma.vendorService.count({
+      where: { vendorId: vendor.id, status: "DRAFT" },
+    }),
     prisma.vendorService.count({
       where: { vendorId: vendor.id, status: "ACTIVE", isActive: true },
     }),
     prisma.serviceProfile.count({
-      where: { service: { vendorId: vendor.id }, displayName: { not: null } },
+      where: {
+        service: { vendorId: vendor.id },
+        displayName: { not: null },
+      },
     }),
   ]);
   const hasProfile = !!vendor.displayName || brandedCount > 0;
@@ -134,7 +147,10 @@ router.get("/vendor-services/brand/check", async (req, res) => {
 
   let available = true;
   for (const e of existing) {
-    if (e.slug === slug && (!excludeServiceId || e.serviceId !== excludeServiceId)) {
+    if (
+      e.slug === slug &&
+      (!excludeServiceId || e.serviceId !== excludeServiceId)
+    ) {
       available = false;
       break;
     }
@@ -173,7 +189,9 @@ router.get("/vendor-services/brand/check-name", async (req, res) => {
 
 /* ===================== /me dashboards ===================== */
 router.get("/me/services", authRequired, async (req, res) => {
-  const meVendor = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
+  const meVendor = await prisma.vendor.findUnique({
+    where: { userId: req.user.sub },
+  });
   if (!meVendor) return res.json({ items: [] });
   const includeProfile = String(req.query.includeProfile || "") === "1";
   const list = await prisma.vendorService.findMany({
@@ -185,7 +203,9 @@ router.get("/me/services", authRequired, async (req, res) => {
 });
 
 router.get("/me/onboarding-status", authRequired, async (req, res) => {
-  const vendor = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
+  const vendor = await prisma.vendor.findUnique({
+    where: { userId: req.user.sub },
+  });
   if (!vendor) return res.json({ exists: false, nextStep: "createVendor" });
   const onboarding = await computeOnboardingStatus(vendor);
   res.json(onboarding);
@@ -199,7 +219,10 @@ router.get(
   async (req, res) => {
     try {
       const meVendor =
-        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+        }));
 
       if (!meVendor) {
         return res.json({ subscription: null });
@@ -230,7 +253,10 @@ router.get(
   async (req, res) => {
     try {
       const meVendor =
-        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+        }));
 
       if (!meVendor) {
         return res.json({
@@ -282,7 +308,10 @@ router.post(
   vendorAccessRequired,
   async (req, res) => {
     const vendor =
-      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ??
+      (await prisma.vendor.findUnique({
+        where: { userId: req.user.sub },
+      }));
     if (!vendor) return error(res, "vendor_profile_missing", 404);
     await prisma.vendorService.deleteMany({
       where: { vendorId: vendor.id, status: "DRAFT" },
@@ -293,30 +322,107 @@ router.post(
 );
 
 /* ====== Stats pentru Desktop (vizitatori/leaduri etc) ====== */
-router.get("/me/stats", authRequired, vendorAccessRequired, async (req, res) => {
-  const window = String(req.query.window || "7d");
-  // Deocamdată, returnăm 0 peste tot ca să nu dea 404 / să nu pice UI-ul.
-  res.json({
-    visitors: 0,
-    leads: 0,
-    messages: 0,
-    reviews: 0,
-    window,
-  });
-});
+router.get(
+  "/me/stats",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const window = String(req.query.window || "7d");
+      const userId = req.user.sub;
+
+      // luăm vendor-ul curent
+      const vendor =
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId },
+          select: { id: true },
+        }));
+
+      if (!vendor) {
+        return res.json({
+          visitors: 0,
+          leads: 0,
+          messages: 0,
+          productReviewsTotal: 0,
+          storeReviewsTotal: 0,
+          followers: 0,
+          window,
+        });
+      }
+
+      const vendorId = vendor.id;
+
+      // momentan lăsăm 0 la astea, doar ca să nu stricăm UI
+      const visitors = 0;
+      const leads = 0;
+      const messages = 0;
+
+      // ⚠️ exact aceeași condiție ca în /api/reviews/received
+      const productWhere = {
+        status: "APPROVED",
+        product: {
+          service: { vendorId },
+        },
+      };
+
+      const storeWhere = {
+        status: "APPROVED",
+        vendorId,
+      };
+
+      const [productReviewsTotal, storeReviewsTotal] = await Promise.all([
+        prisma.review.count({ where: productWhere }),
+        prisma.storeReview.count({ where: storeWhere }),
+      ]);
+
+      // dacă ai o tabelă cu urmăritori, modifici aici;
+      // deocamdată 0 ca să nu dea eroare
+      const followers = 0;
+
+      console.log("VENDOR STATS", {
+        vendorId,
+        productReviewsTotal,
+        storeReviewsTotal,
+      });
+
+      return res.json({
+        visitors,
+        leads,
+        messages,
+        productReviewsTotal,
+        storeReviewsTotal,
+        followers,
+        window,
+      });
+    } catch (e) {
+      console.error("GET /api/vendors/me/stats error:", e);
+      return res.status(500).json({
+        error: "vendor_stats_failed",
+        message: "Nu am putut încărca statisticile.",
+      });
+    }
+  }
+);
 
 /* ====== Activity feed pentru Desktop (placeholder) ====== */
-router.get("/me/activity", authRequired, vendorAccessRequired, async (req, res) => {
-  const limit = Math.min(Number(req.query.limit) || 10, 50);
-  // Momentan nu avem un model de activity; întoarcem listă goală ca să nu dea 404.
-  res.json({ items: [] });
-});
+router.get(
+  "/me/activity",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    // Momentan nu avem un model de activity; întoarcem listă goală ca să nu dea 404.
+    res.json({ items: [] });
+  }
+);
 
 /* ===================== Service core ===================== */
 // Creează / upsertează servicii și (dacă e cazul) promovează rolul la VENDOR
 router.post("/me/services", authRequired, async (req, res) => {
   try {
-    if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
+    if (!req.user?.sub)
+      return res.status(401).json({ error: "unauthorized" });
     const userId = req.user.sub;
 
     const meVendor = await ensureVendorAndRole(userId);
@@ -333,19 +439,25 @@ router.post("/me/services", authRequired, async (req, res) => {
         ...(Array.isArray(codes) ? codes.map(String) : []),
       ].filter(Boolean);
       if (!allCodes.length)
-        return res
-          .status(400)
-          .json({ error: "no_service_types", message: "trimite typeCode sau codes[]" });
+        return res.status(400).json({
+          error: "no_service_types",
+          message: "trimite typeCode sau codes[]",
+        });
       types = await prisma.serviceType.findMany({
         where: { code: { in: allCodes } },
       });
     }
-    if (!types.length) return res.status(404).json({ error: "service_types_not_found" });
+    if (!types.length)
+      return res
+        .status(404)
+        .json({ error: "service_types_not_found" });
 
     const items = [];
     for (const t of types) {
       const draft = await prisma.vendorService.upsert({
-        where: { vendor_type_unique: { vendorId: meVendor.id, typeId: t.id } },
+        where: {
+          vendor_type_unique: { vendorId: meVendor.id, typeId: t.id },
+        },
         update: {},
         create: {
           vendorId: meVendor.id,
@@ -354,6 +466,10 @@ router.post("/me/services", authRequired, async (req, res) => {
           isActive: false,
           coverageAreas: [],
           mediaUrls: [],
+          // 👇 curierul este acum implicit activ pe toate serviciile
+          attributes: {
+            courierEnabled: true,
+          },
         },
         include: { type: true, profile: true },
       });
@@ -391,7 +507,9 @@ router.patch(
 
       const meVendor = req.meVendor ?? (await ensureVendorAndRole(userId));
 
-      const svc = await prisma.vendorService.findUnique({ where: { id } });
+      const svc = await prisma.vendorService.findUnique({
+        where: { id },
+      });
       if (!svc || svc.vendorId !== meVendor.id)
         return error(res, "service_not_found", 404);
 
@@ -417,9 +535,19 @@ router.patch(
       }
       if (typeof currency === "string") data.currency = currency;
       if (typeof city === "string") data.city = city.trim();
-      if (Array.isArray(coverageAreas)) data.coverageAreas = coverageAreas.map(String);
-      if (Array.isArray(mediaUrls)) data.mediaUrls = mediaUrls.map(String);
-      if (attributes && typeof attributes === "object") data.attributes = attributes;
+      if (Array.isArray(coverageAreas))
+        data.coverageAreas = coverageAreas.map(String);
+      if (Array.isArray(mediaUrls))
+        data.mediaUrls = mediaUrls.map(String);
+
+      if (attributes && typeof attributes === "object") {
+        const attrs = { ...(svc.attributes || {}), ...attributes };
+
+        // 👇 curierul nu mai e opțional: îl forțăm să rămână activ
+        attrs.courierEnabled = true;
+
+        data.attributes = attrs;
+      }
 
       const updated = await prisma.vendorService.update({
         where: { id },
@@ -443,20 +571,22 @@ router.delete(
     try {
       const { id } = req.params;
       const meVendor =
-        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+        }));
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
-      const svc = await prisma.vendorService.findUnique({ where: { id } });
+      const svc = await prisma.vendorService.findUnique({
+        where: { id },
+      });
       if (!svc || svc.vendorId !== meVendor.id)
         return error(res, "service_not_found", 404);
 
       if (svc.isActive && svc.status === "ACTIVE") {
-        return error(
-          res,
-          "service_active_cannot_delete",
-          400,
-          { hint: "Dezactivează serviciul înainte de a-l șterge." }
-        );
+        return error(res, "service_active_cannot_delete", 400, {
+          hint: "Dezactivează serviciul înainte de a-l șterge.",
+        });
       }
 
       await prisma.vendorService.delete({ where: { id } });
@@ -477,7 +607,10 @@ router.put(
     try {
       const { id } = req.params;
       const meVendor =
-        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+        }));
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
       const svc = await prisma.vendorService.findUnique({
@@ -500,7 +633,7 @@ router.put(
         tagline,
         about,
         website,
-        shortDescription, // vine din frontend (ProfileTab)
+        shortDescription,
         mirrorVendor = true,
       } = req.body || {};
 
@@ -529,8 +662,12 @@ router.put(
       }
 
       let nextSlug = null;
-      if (typeof slug === "string" && slug.trim()) nextSlug = slugify(slug);
-      else if (typeof payload.displayName === "string" && payload.displayName.trim())
+      if (typeof slug === "string" && slug.trim())
+        nextSlug = slugify(slug);
+      else if (
+        typeof payload.displayName === "string" &&
+        payload.displayName.trim()
+      )
         nextSlug = slugify(payload.displayName);
 
       if (nextSlug) {
@@ -538,7 +675,10 @@ router.put(
           where: { slug: nextSlug, NOT: { serviceId: id } },
           select: { serviceId: true },
         });
-        if (clash) return error(res, "service_brand_unavailable", 409, { slug: nextSlug });
+        if (clash)
+          return error(res, "service_brand_unavailable", 409, {
+            slug: nextSlug,
+          });
         payload.slug = nextSlug;
       }
 
@@ -551,17 +691,33 @@ router.put(
       // sincronizăm câteva câmpuri pe Vendor (inclusiv city)
       if (mirrorVendor) {
         const vendorPatch = {
-          ...(payload.phone !== undefined ? { phone: payload.phone ?? "" } : {}),
-          ...(payload.email !== undefined ? { email: payload.email ?? "" } : {}),
-          ...(payload.address !== undefined ? { address: payload.address ?? "" } : {}),
-          ...(payload.logoUrl !== undefined ? { logoUrl: payload.logoUrl ?? "" } : {}),
-          ...(payload.coverUrl !== undefined ? { coverUrl: payload.coverUrl ?? "" } : {}),
-          ...(payload.about !== undefined ? { about: payload.about ?? "" } : {}),
+          ...(payload.phone !== undefined
+            ? { phone: payload.phone ?? "" }
+            : {}),
+          ...(payload.email !== undefined
+            ? { email: payload.email ?? "" }
+            : {}),
+          ...(payload.address !== undefined
+            ? { address: payload.address ?? "" }
+            : {}),
+          ...(payload.logoUrl !== undefined
+            ? { logoUrl: payload.logoUrl ?? "" }
+            : {}),
+          ...(payload.coverUrl !== undefined
+            ? { coverUrl: payload.coverUrl ?? "" }
+            : {}),
+          ...(payload.about !== undefined
+            ? { about: payload.about ?? "" }
+            : {}),
           ...(payload.displayName !== undefined
             ? { displayName: payload.displayName ?? "" }
             : {}),
-          ...(payload.website !== undefined ? { website: payload.website ?? "" } : {}),
-          ...(payload.city !== undefined ? { city: payload.city ?? "" } : {}),
+          ...(payload.website !== undefined
+            ? { website: payload.website ?? "" }
+            : {}),
+          ...(payload.city !== undefined
+            ? { city: payload.city ?? "" }
+            : {}),
         };
 
         // dacă avem city în payload, derivăm și citySlug pe Vendor
@@ -584,7 +740,9 @@ router.put(
       if (Object.keys(svcPatch).length) {
         await prisma.vendorService
           .update({ where: { id }, data: svcPatch })
-          .catch((e) => console.error("patch service from profile error", e));
+          .catch((e) =>
+            console.error("patch service from profile error", e)
+          );
       }
 
       res.json({ ok: true, profile: saved });
@@ -596,9 +754,10 @@ router.put(
           target: e?.meta?.target,
         });
       if (e?.code === "P2025")
-        return res
-          .status(404)
-          .json({ error: "record_not_found", message: "Înregistrarea nu a fost găsită." });
+        return res.status(404).json({
+          error: "record_not_found",
+          message: "Înregistrarea nu a fost găsită.",
+        });
       console.error("profile_upsert_failed", e);
       res.status(500).json({
         error: "profile_upsert_failed",
@@ -615,7 +774,10 @@ router.delete(
   async (req, res) => {
     const { id } = req.params;
     const meVendor =
-      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ??
+      (await prisma.vendor.findUnique({
+        where: { userId: req.user.sub },
+      }));
     if (!meVendor) return error(res, "vendor_profile_missing", 404);
     const svc = await prisma.vendorService.findUnique({
       where: { id },
@@ -623,14 +785,16 @@ router.delete(
     });
     if (!svc || svc.vendorId !== meVendor.id)
       return error(res, "service_not_found", 404);
-    await prisma.serviceProfile.delete({ where: { serviceId: id } }).catch(() => null);
+    await prisma.serviceProfile
+      .delete({ where: { serviceId: id } })
+      .catch(() => null);
     res.json({ ok: true });
   }
 );
 
 /* ===================== Activate / Deactivate service ===================== */
 
-// ACTIVARE – verifică doar câmpurile din tab-ul „Profil vendor”
+// ACTIVARE – verifică profil + entitate juridică + date facturare + acorduri
 router.post(
   "/me/services/:id/activate",
   authRequired,
@@ -639,8 +803,20 @@ router.post(
     const { id } = req.params;
 
     const meVendor =
-      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ??
+      (await prisma.vendor.findUnique({
+        where: { userId: req.user.sub },
+      }));
     if (!meVendor) return error(res, "vendor_profile_missing", 404);
+
+    // 1) entitatea juridică trebuie confirmată
+    if (!meVendor.entitySelfDeclared) {
+      return error(res, "vendor_entity_not_confirmed", 400, {
+        missing: [
+          'Confirmă că reprezinți o entitate juridică (bannerul galben de sus – "Confirm că sunt entitate juridică")',
+        ],
+      });
+    }
 
     const svc = await prisma.vendorService.findUnique({
       where: { id },
@@ -649,6 +825,56 @@ router.post(
     if (!svc || svc.vendorId !== meVendor.id)
       return error(res, "service_not_found", 404);
 
+    // 2) date de facturare complete
+    const billing = await prisma.vendorBilling.findUnique({
+      where: { vendorId: meVendor.id },
+    });
+
+    const missingBilling = [];
+    const isEmpty = (v) => !v || !String(v).trim();
+
+    if (!billing) {
+      missingBilling.push('datele de facturare (tab "Plată & facturare")');
+    } else {
+      if (isEmpty(billing.legalType))
+        missingBilling.push("tip entitate (SRL / PFA / II / IF)");
+      if (isEmpty(billing.companyName))
+        missingBilling.push("denumirea entității (facturare)");
+      if (isEmpty(billing.cui))
+        missingBilling.push("CUI-ul pentru facturare");
+      if (isEmpty(billing.regCom))
+        missingBilling.push("Nr. Registrul Comerțului");
+      if (isEmpty(billing.address))
+        missingBilling.push("adresa de facturare");
+      if (isEmpty(billing.iban))
+        missingBilling.push("IBAN-ul de încasare");
+      if (isEmpty(billing.bank)) missingBilling.push("banca");
+      if (isEmpty(billing.email))
+        missingBilling.push("emailul de facturare");
+      if (isEmpty(billing.contactPerson))
+        missingBilling.push("persoana de contact (facturare)");
+      if (isEmpty(billing.phone))
+        missingBilling.push("telefonul de contact (facturare)");
+
+      if (isEmpty(billing.vatStatus))
+        missingBilling.push("status TVA (plătitor / neplătitor)");
+      if (billing.vatStatus === "payer" && isEmpty(billing.vatRate))
+        missingBilling.push("cota de TVA aplicată");
+
+      if (!billing.vatResponsibilityConfirmed) {
+        missingBilling.push(
+          "confirmarea responsabilității pentru informațiile TVA"
+        );
+      }
+    }
+
+    if (missingBilling.length) {
+      return error(res, "missing_required_fields_billing", 400, {
+        missing: missingBilling,
+      });
+    }
+
+    // 3) verificările pe profilul serviciului + acordurile obligatorii
     const p = svc.profile || {};
     const attrs = svc.attributes || {};
     const missing = [];
@@ -656,17 +882,29 @@ router.post(
     if (!p.displayName?.trim()) missing.push("Nume brand");
     if (!p.slug?.trim()) missing.push("Slug");
     if (!p.city?.trim()) missing.push("Oraș");
-    if (!p.address?.trim()) missing.push("Adresă completă pentru retur");
-    if (!p.logoUrl && !p.coverUrl) missing.push("O imagine (logo/copertă)");
+    if (!p.address?.trim())
+      missing.push("Adresă completă pentru retur");
+    if (!p.logoUrl && !p.coverUrl)
+      missing.push("O imagine (logo/copertă)");
     if (!Array.isArray(p.delivery) || p.delivery.length === 0) {
       missing.push("Zonă acoperire");
     }
+
+    // 👇 acorduri legale obligatorii (curierat inclus)
     if (!attrs.masterAgreementAccepted) {
-      missing.push("Acordul Master");
+      missing.push("Acceptarea Acordului Master pentru Vânzători");
+    }
+    if (!attrs.courierAddendumAccepted) {
+      missing.push("Acceptarea anexei de curierat Sameday");
+    }
+    if (!attrs.returnsPolicyAccepted) {
+      missing.push("Acceptarea Politicii de retur pentru vânzători");
     }
 
     if (missing.length) {
-      return error(res, "missing_required_fields_profile", 400, { missing });
+      return error(res, "missing_required_fields_profile", 400, {
+        missing,
+      });
     }
 
     const activated = await prisma.$transaction(async (tx) => {
@@ -698,7 +936,10 @@ router.post(
   async (req, res) => {
     const { id } = req.params;
     const meVendor =
-      req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      req.meVendor ??
+      (await prisma.vendor.findUnique({
+        where: { userId: req.user.sub },
+      }));
     if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
     const svc = await prisma.vendorService.findUnique({
@@ -724,7 +965,9 @@ router.get("/debug/products", async (req, res, next) => {
       take: 50,
       orderBy: { createdAt: "desc" },
       include: {
-        service: { include: { type: true, vendor: true, profile: true } },
+        service: {
+          include: { type: true, vendor: true, profile: true },
+        },
       },
     });
 
@@ -766,7 +1009,9 @@ router.post("/favorites/toggle", authRequired, async (req, res) => {
   if (!productId) return error(res, "invalid_product_id", 400);
 
   try {
-    const p = await prisma.product.findUnique({ where: { id: productId } });
+    const p = await prisma.product.findUnique({
+      where: { id: productId },
+    });
     if (!p || !p.isActive)
       return res
         .status(409)
@@ -780,7 +1025,9 @@ router.post("/favorites/toggle", authRequired, async (req, res) => {
     if (e?.code === "P2002") {
       await prisma.favorite
         .delete({
-          where: { userId_productId: { userId: req.user.sub, productId } },
+          where: {
+            userId_productId: { userId: req.user.sub, productId },
+          },
         })
         .catch(() => null);
       return res.json({ ok: true, favored: false });
@@ -811,29 +1058,36 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
   res.json({ vendor: v });
 });
 
-router.patch("/me", authRequired, vendorAccessRequired, async (req, res) => {
-  const v = await prisma.vendor.findUnique({ where: { userId: req.user.sub } });
-  if (!v) return error(res, "vendor_profile_missing", 404);
+router.patch(
+  "/me",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    const v = await prisma.vendor.findUnique({
+      where: { userId: req.user.sub },
+    });
+    if (!v) return error(res, "vendor_profile_missing", 404);
 
-  const displayName =
-    typeof req.body.displayName === "string"
-      ? req.body.displayName.trim()
-      : undefined;
+    const displayName =
+      typeof req.body.displayName === "string"
+        ? req.body.displayName.trim()
+        : undefined;
 
-  if (!displayName) return error(res, "nothing_to_update", 400);
+    if (!displayName) return error(res, "nothing_to_update", 400);
 
-  const updated = await prisma.vendor.update({
-    where: { id: v.id },
-    data: {
-      ...(displayName !== undefined ? { displayName } : {}),
-    },
-    select: {
-      id: true,
-      displayName: true,
-    },
-  });
-  res.json({ ok: true, vendor: updated });
-});
+    const updated = await prisma.vendor.update({
+      where: { id: v.id },
+      data: {
+        ...(displayName !== undefined ? { displayName } : {}),
+      },
+      select: {
+        id: true,
+        displayName: true,
+      },
+    });
+    res.json({ ok: true, vendor: updated });
+  }
+);
 
 /* ===================== Confirmare entitate juridică /me ===================== */
 router.post(
@@ -894,7 +1148,8 @@ router.post(
       const userId = req.user.sub;
 
       const meVendor =
-        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId } }));
+        req.meVendor ??
+        (await prisma.vendor.findUnique({ where: { userId } }));
 
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
@@ -952,7 +1207,10 @@ router.post(
 
       return res.json({ ok: true, subscription: result });
     } catch (e) {
-      console.error("POST /api/vendors/me/subscription/cancel error:", e);
+      console.error(
+        "POST /api/vendors/me/subscription/cancel error:",
+        e
+      );
       return res.status(500).json({
         error: "subscription_cancel_failed",
         message: "Eroare internă la anularea abonamentului.",
@@ -979,7 +1237,10 @@ router.post(
       }
 
       const meVendor =
-        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+        }));
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
       const review = await prisma.storeReview.findUnique({
@@ -1023,7 +1284,10 @@ router.delete(
       if (!reviewId) return error(res, "invalid_input", 400);
 
       const meVendor =
-        req.meVendor ?? (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+        }));
       if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
       const review = await prisma.storeReview.findUnique({
@@ -1039,7 +1303,10 @@ router.delete(
 
       return res.json({ ok: true });
     } catch (e) {
-      console.error("DELETE /api/vendors/store-reviews/:id/reply error:", e);
+      console.error(
+        "DELETE /api/vendors/store-reviews/:id/reply error:",
+        e
+      );
       return res.status(500).json({
         error: "store_review_reply_delete_failed",
         message: "Nu am putut șterge răspunsul.",

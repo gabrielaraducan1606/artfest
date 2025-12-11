@@ -5,10 +5,6 @@
 -- multiple migrations, each migration adding only one value to
 -- the enum.
 
-
-ALTER TYPE "ReviewStatus" ADD VALUE 'HIDDEN';
-ALTER TYPE "ReviewStatus" ADD VALUE 'DELETED';
-
 -- CreateTable
 CREATE TABLE "ProductReviewEditLog" (
     "id" TEXT NOT NULL,

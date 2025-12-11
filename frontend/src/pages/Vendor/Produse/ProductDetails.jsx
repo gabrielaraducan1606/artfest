@@ -111,6 +111,7 @@ export default function ProductDetails() {
 
   const [commentText, setCommentText] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState(null);
 
   // acordioane desktop
   const [openAccordions, setOpenAccordions] = useState({
@@ -150,6 +151,9 @@ export default function ProductDetails() {
     setEditOpen(false);
     setEditingProduct(null);
     setProdForm(emptyProdForm);
+    setComments([]);
+    setCommentText("");
+    setEditingCommentId(null);
   }, [id]);
 
   const cacheT = useMemo(
@@ -419,6 +423,26 @@ export default function ProductDetails() {
     }
   }, []);
 
+  /* ========= Comentarii produs – loader ========= */
+  const loadCommentsForProduct = useCallback(async (prodId) => {
+    try {
+      const res = await api(
+        `/api/public/product/${encodeURIComponent(
+          prodId
+        )}/comments?skip=0&take=50`
+      );
+
+      const items = Array.isArray(res?.items) ? res.items : [];
+      if (!mountedRef.current) return;
+
+      setComments(items);
+    } catch (e) {
+      console.error("loadCommentsForProduct error", e);
+      if (!mountedRef.current) return;
+      setComments([]);
+    }
+  }, []);
+
   /* ========= Loader principal produs (optimizat) ========= */
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -436,8 +460,9 @@ export default function ProductDetails() {
       setProduct(p);
       setLoading(false); // produsul poate fi afișat deja
 
-      // restul în background (nu mai blochează pagina)
+      // recenzii + comentarii (în background)
       loadReviewsForProduct(p.id);
+      loadCommentsForProduct(p.id);
 
       api("/api/favorites/ids")
         .then((fav) => {
@@ -463,8 +488,7 @@ export default function ProductDetails() {
         setStoreProducts([]);
       }
 
-      // produse similare – filtrate după produsul curent (categorie / culoare / tag-uri),
-      // cu fallback dacă rămânem cu prea puține rezultate
+      // produse similare – filtrate după produsul curent
       try {
         const params = new URLSearchParams();
         params.set("limit", "48"); // luăm mai multe, filtrăm pe client
@@ -533,14 +557,12 @@ export default function ProductDetails() {
       } catch {
         if (mountedRef.current) setSimilarProducts([]);
       }
-
-      setComments([]);
     } catch (e) {
       if (mountedRef.current)
         setError(e?.message || "Nu am putut încărca produsul.");
       setLoading(false);
     }
-  }, [id, loadReviewsForProduct]);
+  }, [id, loadReviewsForProduct, loadCommentsForProduct]);
 
   useEffect(() => {
     loadAll();
@@ -606,6 +628,27 @@ export default function ProductDetails() {
     }
   };
 
+  /* ========= Edit / submit comentariu ========= */
+
+  const startEditComment = (comment) => {
+    setEditingCommentId(comment.id);
+    setCommentText(comment.text || "");
+
+    // scroll la formular, să vadă clar că editează
+    const formTextarea = document.querySelector(
+      "#tab-intrebari textarea, .commentsSection textarea"
+    );
+    if (formTextarea) {
+      formTextarea.scrollIntoView({ behavior: "smooth", block: "start" });
+      formTextarea.focus();
+    }
+  };
+
+  const cancelEditComment = () => {
+    setEditingCommentId(null);
+    setCommentText("");
+  };
+
   const submitComment = async (e) => {
     e?.preventDefault?.();
     if (isOwner) return;
@@ -615,24 +658,31 @@ export default function ProductDetails() {
           window.location.pathname + window.location.search
         )}`
       );
+
     const text = commentText.trim();
     if (!text) return;
+
     try {
       setSubmittingComment(true);
-      await api("/api/comments", {
-        method: "POST",
-        body: { productId: product.id, text },
-      });
-      setCommentText("");
-      setComments((prev) => [
-        ...prev,
-        {
-          id: `tmp_${Date.now()}`,
-          text,
-          userName: me?.name || "Tu",
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+
+      if (editingCommentId) {
+        // editare comentariu existent
+        await api(`/api/comments/${encodeURIComponent(editingCommentId)}`, {
+          method: "PATCH",
+          body: { text },
+        });
+        setEditingCommentId(null);
+        setCommentText("");
+      } else {
+        // comentariu nou
+        await api("/api/comments", {
+          method: "POST",
+          body: { productId: product.id, text },
+        });
+        setCommentText("");
+      }
+
+      await loadCommentsForProduct(product.id);
     } catch (e2) {
       alert(e2?.message || "Nu am putut trimite comentariul.");
     } finally {
@@ -1409,7 +1459,7 @@ export default function ProductDetails() {
                           reviews={reviews}
                           isOwner={isOwner}
                           isLoggedIn={!!me}
-                          currentUserId={myUserId} 
+                          currentUserId={myUserId}
                           onSubmit={submitReview}
                           submitting={submittingReview}
                           revRating={revRating}
@@ -1440,6 +1490,13 @@ export default function ProductDetails() {
                           submitting={submittingComment}
                           commentText={commentText}
                           setCommentText={setCommentText}
+                          currentUserId={myUserId}
+                          editingCommentId={editingCommentId}
+                          onStartEditComment={startEditComment}
+                          onCancelEditComment={cancelEditComment}
+                          onAfterChange={() =>
+                            loadCommentsForProduct(product.id)
+                          }
                         />
                       </Suspense>
                     </div>
@@ -1518,6 +1575,7 @@ export default function ProductDetails() {
                     reviews={reviews}
                     isOwner={isOwner}
                     isLoggedIn={!!me}
+                    currentUserId={myUserId}
                     onSubmit={submitReview}
                     submitting={submittingReview}
                     revRating={revRating}
@@ -1564,6 +1622,11 @@ export default function ProductDetails() {
                     submitting={submittingComment}
                     commentText={commentText}
                     setCommentText={setCommentText}
+                    currentUserId={myUserId}
+                    editingCommentId={editingCommentId}
+                    onStartEditComment={startEditComment}
+                    onCancelEditComment={cancelEditComment}
+                    onAfterChange={() => loadCommentsForProduct(product.id)}
                   />
                 </Suspense>
               </div>

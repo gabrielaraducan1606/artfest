@@ -558,80 +558,206 @@
   color: #991b1b;
   font-size: 14px;
 }
-
 /* ========================= */
-/*         RESPONSIVE        */
+/*        RESPONSIVE         */
 /* ========================= */
 
-@media (max-width: 1024px) {
-  .page {
-    padding: 12px;
-  }
-}
-
+/* Tablet */
 @media (max-width: 768px) {
   .page {
     padding: 10px;
   }
 
-  .headTop {
-    align-items: flex-start;
+  /* titlu + butoane */
+  .h1 {
+    font-size: 20px;
   }
 
-  .head {
-    gap: 8px;
+  .iconCircle {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
   }
 
-  .filtersModal {
-    max-height: 90vh;
-    overflow: auto;
-  }
-
+  /* Search bar */
   .searchShell {
-    width: 100%;
+    padding: 3px 6px;
+  }
+  .searchInput {
+    font-size: 14px;
+    padding: 0 6px;
+  }
+  .searchIconBtn {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
   }
 
+  /* Sugestii */
+  .suggestItem {
+    padding: 5px 6px;
+  }
+  .suggestThumb {
+    width: 32px;
+    height: 32px;
+  }
+  .suggestTitle {
+    font-size: 12px;
+  }
+  .suggestSubtitle {
+    font-size: 11px;
+  }
+
+  /* Carduri */
   .cardLink {
     padding: 8px;
+    gap: 8px;
+    border-radius: 14px;
+  }
+  .thumbWrap {
+    width: 64px;
+    height: 64px;
+  }
+  .title {
+    font-size: 15px;
+  }
+  .meta,
+  .about {
+    font-size: 12px;
+  }
+
+  .badge {
+    font-size: 10px;
+    padding: 2px 6px;
   }
 }
 
+/* Telefoane mici */
 @media (max-width: 480px) {
   .page {
     padding: 8px;
   }
 
+  /* HEADER compact */
+  .headTop {
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+  }
+
+  .h1 {
+    font-size: 18px;
+  }
+
+  .iconCircle {
+    width: 30px;
+    height: 30px;
+    font-size: 13px;
+  }
+
+  /* BARA DE CĂUTARE mai mică */
+  .searchShell {
+    padding: 2px 4px;
+    border-radius: 12px;
+  }
+  .searchInput {
+    font-size: 13px;
+    padding: 0 4px;
+  }
+  .searchIconBtn {
+    width: 30px;
+    height: 30px;
+    font-size: 13px;
+  }
+
+  /* Sugestii compacte */
+  .suggestBox {
+    border-radius: 10px;
+    padding: 4px;
+    max-height: 280px;
+  }
+  .suggestItem {
+    padding: 4px 6px;
+    gap: 6px;
+  }
+  .suggestThumb {
+    width: 28px;
+    height: 28px;
+  }
+  .suggestTitle {
+    font-size: 12px;
+  }
+  .suggestSubtitle {
+    font-size: 10px;
+  }
+
+  /* Carduri SUPER COMPACTE */
+  .cardLink {
+    padding: 6px;
+    min-height: 72px;
+    gap: 8px;
+  }
+  .thumbWrap {
+    width: 56px;
+    height: 56px;
+  }
+  .title {
+    font-size: 14px;
+  }
+  .meta,
+  .about {
+    font-size: 11px;
+  }
+  .badge {
+    font-size: 9px;
+    padding: 2px 5px;
+  }
+
+  /* Grid mai îngust */
+  .grid {
+    gap: 12px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* MODAL FILTRE în stil bottom-sheet */
   .filtersOverlay {
     align-items: flex-end;
-    z-index: 9999 !important;
   }
 
   .filtersModal {
-    z-index: 10000 !important;
     margin: 0;
-    width: 100%;
-    border-radius: 18px 18px 0 0;
-    padding: 14px 14px 16px;
+    border-radius: 20px 20px 0 0;
+    padding: 14px;
   }
 
   .filters {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .input,
+  .select {
+    padding: 8px 10px;
+    font-size: 14px;
   }
 
   .filterActions {
     flex-direction: column;
-    align-items: stretch;
+    gap: 6px;
   }
 
   .filterActions button {
     width: 100%;
+    padding: 10px;
+    font-size: 14px;
   }
 
-  .cardLink {
-    min-height: 88px;
+  /* Pagination */
+  .pagination {
+    gap: 8px;
   }
-
-  .title {
-    font-size: 15px;
+  .pagination button {
+    padding: 6px 10px;
+    font-size: 13px;
   }
 }

@@ -225,9 +225,13 @@ router.get(
       }
 
       // allOK = toate documentele marcate is_required === true sunt acceptate
-      const allOK = docs
-        .filter((d) => d.is_required)
-        .every((d) => d.accepted === true);
+    // allOK = toate documentele required sunt acceptate,
+// DAR doar dacă există cel puțin un document required
+const requiredDocs = docs.filter((d) => d.is_required);
+
+const allOK =
+  requiredDocs.length > 0 &&
+  requiredDocs.every((d) => d.accepted === true);
 
       res.json({ docs, allOK });
     } catch (e) {
@@ -349,6 +353,120 @@ router.post(
       return res.json({ ok: true });
     } catch (e) {
       console.error("POST /api/legal/vendor-accept error:", e);
+      return res.status(500).json({ error: "server_error" });
+    }
+  }
+);
+// GET /api/vendor/product-declaration/status
+// Scop:
+//  - spune dacă vendorul logat a acceptat deja declarația de conformitate a produselor
+//  - returnează și versiunea, dacă există
+router.get(
+  "/vendor/product-declaration/status",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const meVendor =
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+          select: { id: true },
+        }));
+
+      if (!meVendor) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+
+      const decl = await prisma.vendorProductDeclaration.findUnique({
+        where: { vendorId: meVendor.id },
+      });
+
+      if (!decl) {
+        return res.json({
+          accepted: false,
+          version: null,
+        });
+      }
+
+      return res.json({
+        accepted: true,
+        version: decl.version,
+        acceptedAt: decl.acceptedAt,
+      });
+    } catch (e) {
+      console.error("GET /vendor/product-declaration/status error:", e);
+      return res.status(500).json({ error: "server_error" });
+    }
+  }
+);
+// POST /api/vendor/product-declaration/accept
+//
+// Body (opțional):
+//  {
+//    version?: "1.0.0",      // dacă vrei să o trimiți din FE; altfel folosim default
+//    textSnapshot?: "...."   // dacă vrei să salvezi și textul exact
+//  }
+//
+// Scop:
+//  - marchează pe vendor faptul că a acceptat declarația de conformitate a produselor
+//  - dacă există deja o înregistrare, o lăsăm în pace (nu e nevoie să o rescriem)
+router.post(
+  "/vendor/product-declaration/accept",
+  authRequired,
+  vendorAccessRequired,
+  async (req, res) => {
+    try {
+      const meVendor =
+        req.meVendor ??
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+          select: { id: true },
+        }));
+
+      if (!meVendor) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+
+      const body = req.body || {};
+      const version = body.version ? String(body.version) : "1.0.0";
+      const textSnapshot =
+        typeof body.textSnapshot === "string" ? body.textSnapshot : null;
+
+      // dacă există deja o declarație pentru vendor, nu mai creăm alta
+      const existing = await prisma.vendorProductDeclaration.findUnique({
+        where: { vendorId: meVendor.id },
+      });
+
+      if (existing) {
+        // opțional: poți decide să faci update cu versiune nouă
+        // aici eu doar returnez statusul existent
+        return res.json({
+          ok: true,
+          alreadyAccepted: true,
+          version: existing.version,
+          acceptedAt: existing.acceptedAt,
+        });
+      }
+
+      const created = await prisma.vendorProductDeclaration.create({
+        data: {
+          vendorId: meVendor.id,
+          version,
+          text: textSnapshot,
+          // ip + ua pentru audit (dacă le ai în req)
+          ip: req.ip || null,
+          ua: req.headers["user-agent"] || null,
+        },
+      });
+
+      return res.json({
+        ok: true,
+        version: created.version,
+        acceptedAt: created.acceptedAt,
+      });
+    } catch (e) {
+      console.error("POST /vendor/product-declaration/accept error:", e);
       return res.status(500).json({ error: "server_error" });
     }
   }

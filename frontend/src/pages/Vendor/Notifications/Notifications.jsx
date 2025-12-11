@@ -19,7 +19,7 @@ import {
   Clock, // 👈 pentru followup
 } from "lucide-react";
 import styles from "./Notifications.module.css";
-import SubscriptionBanner from "../OnBoarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner";
+import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
 
 /* ===== Config ===== */
 const USE_DEMO_FALLBACK = false;

@@ -237,6 +237,26 @@
   color: #6b7280;
   font-size: 0.9rem;
 }
+/* corp card: produse + coloană dreapta */
+.cardBody {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  
+}
+
+/* coloana din dreapta (contact artizan) */
+.cardBodyRight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  min-width: 180px;
+  padding-top: 1.5%;
+}
 
 /* ACTION BUTTONS */
 .actionsRow {
@@ -312,14 +332,33 @@
 /* EMPTY STATE */
 .empty {
   text-align: center;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius);
-  padding: 24px;
+  border-radius: 16px;
+  padding: 28px 24px;
+  max-width: 420px;
+  margin: 32px auto;
+  background: color-mix(in oklab, var(--surface) 92%, var(--color-primary) 8%);
+  border: 1px solid
+    color-mix(in oklab, var(--color-border) 70%, var(--color-primary) 30%);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
 }
+
 .emptyTitle {
   font-weight: 700;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
+  font-size: 1.05rem;
 }
+
+/* butonul din empty state un pic mai sus, să nu fie lipit */
+.empty .btnPrimary {
+  margin-top: 10px;
+  background-color: transparent;
+}
+
 
 /* TABEL (AWB / livrare în detalii) */
 .tableWrap {
@@ -548,4 +587,13 @@
   .searchBar {
     max-width: 100%;
   }
+    .cardBody {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cardBodyRight {
+    align-items: flex-start;
+  }
+
 }

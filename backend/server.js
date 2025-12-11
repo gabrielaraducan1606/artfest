@@ -50,7 +50,7 @@ import vendorMessagesRoutes from "./src/routes/vendorMessageRoutes.js";
 import publicContactRoutes from "./src/routes/publicMessagesRoutes.js";
 
 import changePassword from "./src/routes/changePasswordRoutes.js";
-import accountRoutes from "./src/routes/accountDeleteRoutes.js";
+import accountDeleteRoutes from "./src/routes/accountDeleteRoutes.js";
 import userOrdersRoutes from "./src/routes/userOrdersRoutes.js";
 
 import PublicSupportRoutes from "./src/routes/publicSupportRoutes.js";
@@ -84,6 +84,7 @@ import storeReviewsRouter from "./src/routes/reviewsStoreRoutes.js";
 // ...
 import adminCitiesRouter from "./src/routes/adminCitiesRoutes.js";
 import userInvoicesRouter from "./src/routes/userInvoicesRoutes.js";
+import accountRoutes from "./src/routes/accountRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -174,16 +175,18 @@ app.use("/api/admin", adminVendorAcceptancesRoutes);
 app.use("/api/admin", adminCitiesRouter);
 
 /* ---------------- RUTE GUEST ---------------- */
-
+app.use("/api/upload", uploadRoutes);
 app.use("/api/guest", GuestSupportRoutes);
 
 /* ---------------- RUTE USER ---------------- */
 
+app.use("/api/support", UserSupportRoutes);
+app.post("/api/account/change-password", authRequired, changePassword);
 app.use("/api/user/orders", userOrdersRoutes);
 
 app.use("/api/notifications", userNotificationsRoutes);
 app.use("/api/user", userRoutes);
-
+app.use("/api/account", accountRoutes);
 app.use("/api/public", publicProductRoutes);
 app.use("/api", productReviewsRouter);
 app.use("/api", storeReviewsRouter);
@@ -198,7 +201,6 @@ app.use("/api", marketingRoutes);
 app.use("/api/public/support", PublicSupportRoutes);
 
 app.use("/api/stores", storeFollowRoutes);
-app.use("/api/support", UserSupportRoutes);
 
 app.use("/api/user-inbox", userMessagesRoutes);
 
@@ -271,8 +273,7 @@ app.use("/public", publicContactRoutes);
 /* ---------------- CHANGE PASSWORD + ACCOUNT ROUTES ---------------- */
 
 // 👇 aici folosim authRequired din ./src/api/auth.js
-app.post("/api/account/change-password", authRequired, changePassword);
-app.use("/api", accountRoutes);
+app.use("/api", accountDeleteRoutes);
 
 /* ---------------- PARTAJARE & ADS ---------------- */
 

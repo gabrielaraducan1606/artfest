@@ -21,6 +21,7 @@ enum Role {
 enum UserStatus {
   ACTIVE
   SUSPENDED
+  DELETED
 }
 
 enum ServiceStatus {
@@ -116,7 +117,7 @@ model User {
   phone          String?
   // Legacy full name (compatibilitate)
   name           String?
-  // 👇 ADĂUGĂ ASTEA
+  // 👇 câmpuri extra profil
   city           String?
   avatarUrl      String?
   preferences    Json?
@@ -140,6 +141,11 @@ model User {
   emailVerifiedAt         DateTime?
   emailVerificationTokens EmailVerificationToken[]
 
+  // 👇 NOI câmpuri pentru schimbare email cu confirmare
+  emailChangeToken     String?
+  emailChangeNewEmail  String?
+  emailChangeExpiresAt DateTime?
+
   // Relații 1–1 / 1–n
   vendor              Vendor?
   passwordResetTokens PasswordResetToken[]
@@ -157,6 +163,8 @@ model User {
   reviews       Review[]
   ReviewHelpful ReviewHelpful[]
   ReviewReport  ReviewReport[]
+
+  commentReports CommentReport[] @relation("CommentReportReporter")
 
   // 🔹 recenzii de MAGAZIN (Store*)
   storeReviews       StoreReview[]
@@ -183,6 +191,8 @@ model User {
   marketingCampaigns MarketingCampaign[]
   // 👇 nou – relația cu Order
   orders             Order[]
+
+  @@index([emailChangeToken])
 }
 
 model InactiveUserLog {
@@ -352,12 +362,14 @@ model Vendor {
   address              String?
   delivery             String[]
   city                 String?
-  citySlug             String? @db.VarChar(64) 
+  citySlug             String?   @db.VarChar(64)
   // declarație pe proprie răspundere că este entitate juridică
   entitySelfDeclared   Boolean   @default(false)
   entitySelfDeclaredAt DateTime?
 
   billing VendorBilling?
+
+productDeclaration VendorProductDeclaration?
 
   services      VendorService[]
   subscriptions VendorSubscription[]
@@ -382,6 +394,27 @@ model Vendor {
 
   @@index([isActive], name: "vendor_isActive_idx")
   @@index([citySlug], name: "vendor_citySlug_idx")
+}
+
+model VendorProductDeclaration {
+  id       String @id @default(cuid())
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendorId String @unique
+
+  // versiunea textului de declarație pe care o folosești în UI / fișier
+  version String  @default("1.0.0")
+
+  // opțional: snapshot al textului la momentul acceptării
+  text      String?
+  acceptedAt DateTime @default(now())
+
+  // pentru audit (opțional)
+  ip String?
+  ua String?
+
+  meta Json?
+
+  @@index([vendorId])
 }
 
 model VendorBilling {
@@ -492,7 +525,7 @@ model ServiceProfile {
   delivery    String[]
   about       String?
   city        String?
-citySlug    String? @db.VarChar(64)   
+  citySlug    String?  @db.VarChar(64)
 
   shortDescription String? @db.VarChar(160)
   tagline          String?
@@ -502,7 +535,7 @@ citySlug    String? @db.VarChar(64)
 
   // 🔹 nou – pt /stores & filtrare după oraș
   @@index([city], name: "service_profile_city_idx")
-  @@index([citySlug], name: "service_profile_citySlug_idx") 
+  @@index([citySlug], name: "service_profile_citySlug_idx")
 }
 
 /**
@@ -835,8 +868,24 @@ model Comment {
   parentId  String?
   createdAt DateTime @default(now())
 
+  // 👇 nou – raportări
+  reports CommentReport[]
+
   @@index([productId])
   @@index([userId])
+}
+
+model CommentReport {
+  id String @id @default(cuid())
+
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId String
+
+  reporter   User   @relation("CommentReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reporterId String
+
+  reason    String
+  createdAt DateTime @default(now())
 }
 
 model CartItem {
@@ -1286,6 +1335,9 @@ enum NotificationType {
   system
   email
   followup // 👈 nou – pentru remindere de follow-up lead
+  support
+  invoice
+  shipping
 }
 
 model Notification {
@@ -1440,6 +1492,7 @@ model StoreReviewEditLog {
   @@index([reviewId, createdAt])
   @@index([editorId, createdAt])
 }
+
 model CityDictionary {
   // slug normalizat, fără diacritice (ex: "bacau")
   slug String @id @db.VarChar(64)

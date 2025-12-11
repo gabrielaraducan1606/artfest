@@ -1,0 +1,718 @@
+@import "../../../styles/variables.css";
+
+/* ============ Layout general ============ */
+.wrap {
+  display: flex;
+  max-width: 1100px;
+  margin: 16px auto;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+  min-height: 520px;
+
+  height: 600px;
+  max-height: 600px;
+}
+
+/* ============ Sidebar conversații ============ */
+.sidebar {
+  width: 32%;
+  min-width: 260px;
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  min-height: 0;
+}
+
+.sideHead {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sideTitle {
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.iconBtn {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.iconBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
+}
+
+.active {
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--color-primary);
+}
+
+.iconBtnLoading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+.searchBar {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.searchBar input {
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--color-bg);
+}
+
+.searchBar input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.2);
+}
+
+/* Toggle grupare conversații */
+.groupToggleRow {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.groupToggle {
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.groupToggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-primary);
+}
+
+.scopeTabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 4px;
+  border-radius: 999px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.tab.active {
+  background: rgba(139, 92, 246, 0.09);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.threadList {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.threadList {
+  scrollbar-width: thin;
+}
+
+.threadList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.threadList::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+.threadItem {
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid rgba(229, 229, 229, 0.7);
+  background: transparent;
+  display: flex;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.threadItem:last-child {
+  border-bottom: none;
+}
+
+.threadItem:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.selected {
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.unread .threadName {
+  font-weight: 600;
+}
+
+.threadAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.threadBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.threadRowTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.threadName {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+/* Badge număr comandă în listă + header */
+.threadOrderBadge,
+.peerOrderBadge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(148, 163, 184, 0.18);
+  color: #0f172a;
+  vertical-align: middle;
+}
+
+.threadTime {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.threadRowBottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+
+.threadLastMsg {
+  font-size: 12px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* acțiuni icon în listă */
+.threadInlineActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.threadIconBtn {
+  border: none;
+  background: transparent;
+  padding: 2px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.threadIconBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-primary);
+}
+
+.threadIconBtnDanger:hover {
+  color: var(--color-danger);
+}
+
+.unreadBadge {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.threadStatus {
+  font-size: 10px;
+  color: var(--color-muted);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.empty,
+.error,
+.loading {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+/* ============ Chat ============ */
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  min-height: 0;
+}
+
+.chatHead {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.hideDesktop {
+  display: none;
+}
+
+.hideMobile {
+  display: inline-flex;
+}
+
+.chatPeer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatarLg {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.peerName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.peerSub {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.chatActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.msgList {
+  flex: 1;
+  padding: 10px 14px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.msgList {
+  scrollbar-width: thin;
+}
+
+.msgList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.msgList::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+/* ============ Bule ============ */
+.bubbleRow {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+.left {
+  justify-content: flex-start;
+}
+
+.right {
+  justify-content: flex-end;
+}
+
+.avatarSm {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  margin-right: 6px;
+  margin-top: 4px;
+}
+
+.bubble {
+  max-width: 68%;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  box-shadow: var(--shadow-sm);
+  word-wrap: break-word;
+}
+
+.mine {
+  background: var(--color-primary);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.theirs {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-bottom-left-radius: 4px;
+}
+
+.bodyText {
+  white-space: pre-wrap;
+}
+
+.meta {
+  margin-top: 3px;
+  font-size: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  opacity: 0.8;
+}
+
+.meta span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.readTick {
+  font-size: 11px;
+  color: rgba(224, 224, 255, 0.7);
+  letter-spacing: -1px;
+}
+
+.readTickRead {
+  color: #c4b5fd;
+}
+
+.readTickPending {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.readTickFailed {
+  font-size: 11px;
+  color: var(--color-danger);
+}
+
+/* ============ Composer ============ */
+.composer {
+  padding: 8px 10px;
+  border-top: 1px solid var(--color-border);
+  background: var(--surface);
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.input {
+  flex: 1;
+  resize: none;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  padding: 7px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+
+  min-height: 40px;
+  max-height: 80px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.input::-webkit-scrollbar {
+  width: 5px;
+}
+
+.input::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.2);
+}
+
+.sendBtn {
+  border: none;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 13px;
+  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.sendBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sendBtn:not(:disabled):hover {
+  background: var(--color-hover);
+}
+
+.chatEmpty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+/* ============ Tabs comenzi în mod grupat ============ */
+.orderTabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.orderTab,
+.orderTabActive {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  white-space: nowrap;
+}
+
+.orderTabActive {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.orderTabDate {
+  margin-left: 4px;
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+/* ============ Backdrop pentru mobil ============ */
+.mobileBackdrop {
+  display: none;
+}
+
+/* ============ Responsive (mobil) ============ */
+@media (max-width: 768px) {
+  .wrap {
+    flex-direction: column;
+    max-width: 100%;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+    border-left: none;
+    border-right: none;
+    height: 100vh;
+    max-height: 100vh;
+  }
+
+  .sidebar {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .hideDesktop {
+    display: inline-flex;
+  }
+
+  .hideMobile {
+    display: none;
+  }
+
+  /* ascundem acțiunile inline în listă pe mobil,
+     păstrăm doar acțiunile din header-ul conversației */
+  .threadInlineActions {
+    display: none;
+  }
+
+  /* header-ul de chat se rupe pe 2 rânduri pe mobil */
+  .chatHead {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .chatPeer {
+    flex: 1 1 100%;
+  }
+
+  .chatActions {
+    width: 100%;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  /* CHAT ca bottom-sheet */
+  .chat {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: 100%;
+    height: 80vh;
+    max-height: 80vh;
+    background: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    box-shadow: 0 -8px 20px rgba(15, 23, 42, 0.18);
+    overflow: hidden;
+
+    transform: translateY(100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+
+    z-index: 10001;
+  }
+
+  /* când există conversație selectată -> sheet deschis */
+  .wrap[data-mobile-open="1"] .chat {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobileBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.35);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease-out;
+    z-index: 10000;
+  }
+
+  .wrap[data-mobile-open="1"] + .mobileBackdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}

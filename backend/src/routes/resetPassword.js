@@ -1,9 +1,10 @@
 // src/routes/resetPassword.js
-import { prisma } from "../db.js"; // ajustează dacă fișierul tău e în altă parte
-import { hashToken } from "../utils/passwordReset.js";
 import bcrypt from "bcrypt";
+import { prisma } from "../db.js"; // ajustează dacă fișierul e în altă parte
+import { hashToken } from "../utils/passwordReset.js";
 
 const PASSWORD_HISTORY_LIMIT = Number(process.env.PASSWORD_HISTORY_LIMIT || 5);
+const PASSWORD_MIN_LENGTH = Number(process.env.PASSWORD_MIN_LENGTH || 8);
 
 export default async function resetPassword(req, res) {
   if (req.method && req.method !== "POST") {
@@ -15,8 +16,12 @@ export default async function resetPassword(req, res) {
     if (!token || !newPassword) {
       return res.status(400).json({ message: "Date lipsă" });
     }
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: "Parola prea scurtă" });
+
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
+      return res.status(400).json({
+        error: "weak_password",
+        message: `Parola trebuie să aibă cel puțin ${PASSWORD_MIN_LENGTH} caractere.`,
+      });
     }
 
     const tokenHash = hashToken(token);
@@ -24,6 +29,7 @@ export default async function resetPassword(req, res) {
       where: { tokenHash },
       include: { user: true },
     });
+
     if (!prt || prt.usedAt || prt.expiresAt < new Date()) {
       return res.status(400).json({ message: "Token invalid sau expirat" });
     }
@@ -33,7 +39,7 @@ export default async function resetPassword(req, res) {
       return res.status(400).json({ message: "Utilizator inexistent" });
     }
 
-    // 1) nu acceptăm parola identică
+    // 1) nu acceptăm parola identică cu cea curentă
     const sameAsCurrent = await bcrypt.compare(newPassword, user.passwordHash);
     if (sameAsCurrent) {
       return res.status(400).json({
@@ -50,6 +56,7 @@ export default async function resetPassword(req, res) {
         take: PASSWORD_HISTORY_LIMIT,
         select: { passwordHash: true },
       });
+
       for (const h of recent) {
         if (await bcrypt.compare(newPassword, h.passwordHash)) {
           return res.status(400).json({
@@ -68,17 +75,17 @@ export default async function resetPassword(req, res) {
         data: { userId: user.id, passwordHash: user.passwordHash },
       });
 
-      // setează parola nouă + revocă toate sesiunile (tokenVersion++) + update lastPasswordChangeAt
+      // setează parola nouă + revocă toate sesiunile (tokenVersion++) + lastPasswordChangeAt
       await tx.user.update({
         where: { id: user.id },
         data: {
           passwordHash: newHash,
           tokenVersion: { increment: 1 },
-          lastPasswordChangeAt: new Date(), // 👈 important pt tabul de securitate
+          lastPasswordChangeAt: new Date(),
         },
       });
 
-      // marchează tokenul ca folosit
+      // marchează tokenul curent ca folosit
       await tx.passwordResetToken.update({
         where: { id: prt.id },
         data: { usedAt: new Date() },

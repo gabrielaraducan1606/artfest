@@ -1,4 +1,3 @@
-// server/routes/productReviews.routes.js
 import { Router } from "express";
 import multer from "multer";
 import crypto from "crypto";
@@ -477,6 +476,24 @@ router.post("/reviews/:id/helpful", authRequired, async (req, res) => {
   }
   res.json({ ok: true });
 });
+// DELETE /api/reviews/:id/helpful  – user-ul își retrage "utilă"
+router.delete("/reviews/:id/helpful", authRequired, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await prisma.reviewHelpful.deleteMany({
+      where: {
+        reviewId: id,
+        userId: req.user.sub,
+      },
+    });
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/reviews/:id/helpful error", e);
+    return res.status(500).json({ error: "helpful_delete_failed" });
+  }
+});
 
 // POST /api/reviews/:id/report
 router.post("/reviews/:id/report", authRequired, async (req, res) => {
@@ -489,6 +506,50 @@ router.post("/reviews/:id/report", authRequired, async (req, res) => {
   });
 
   res.json({ ok: true });
+});
+
+/**
+ * DELETE /api/reviews/:id
+ * User își șterge propria recenzie de PRODUS
+ */
+router.delete("/reviews/:id", authRequired, async (req, res) => {
+  try {
+    const reviewId = String(req.params.id || "").trim();
+    const userId = req.user.sub;
+
+    if (!reviewId) {
+      return res.status(400).json({ error: "invalid_review_id" });
+    }
+
+    const existing = await prisma.review.findUnique({
+      where: { id: reviewId },
+      select: { id: true, userId: true, productId: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "review_not_found" });
+    }
+
+    if (existing.userId !== userId) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    await prisma.$transaction([
+      prisma.reviewHelpful.deleteMany({ where: { reviewId } }),
+      prisma.reviewReport.deleteMany({ where: { reviewId } }),
+      prisma.reviewReply.deleteMany({ where: { reviewId } }),
+      prisma.reviewImage.deleteMany({ where: { reviewId } }),
+      prisma.review.delete({ where: { id: reviewId } }),
+    ]);
+
+    // recalculează stats produs
+    await recalcProductStats(existing.productId);
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/reviews/:id error", e);
+    res.status(500).json({ error: "product_review_delete_failed" });
+  }
 });
 
 /* ===== Vendor actions – reply la recenzie PRODUS ===== */
@@ -594,6 +655,7 @@ router.delete(
     res.json({ ok: true });
   }
 );
+
 /* ================== LISTE PENTRU CONT UTILIZATOR ================== */
 /**
  * GET /api/reviews/my
@@ -604,7 +666,10 @@ router.get("/reviews/my", authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.limit || "10", 10))
+    );
     const skip = (page - 1) * limit;
 
     const [total, items] = await Promise.all([
@@ -668,7 +733,10 @@ router.get("/reviews/received", authRequired, async (req, res) => {
     }
 
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.limit || "10", 10))
+    );
     const skip = (page - 1) * limit;
 
     const where = {
@@ -715,49 +783,6 @@ router.get("/reviews/received", authRequired, async (req, res) => {
   } catch (e) {
     console.error("GET /api/reviews/received error", e);
     res.status(500).json({ error: "reviews_received_failed" });
-  }
-});
-/**
- * DELETE /api/reviews/:id
- * User își șterge propria recenzie de PRODUS
- */
-router.delete("/reviews/:id", authRequired, async (req, res) => {
-  try {
-    const reviewId = String(req.params.id || "").trim();
-    const userId = req.user.sub;
-
-    if (!reviewId) {
-      return res.status(400).json({ error: "invalid_review_id" });
-    }
-
-    const existing = await prisma.review.findUnique({
-      where: { id: reviewId },
-      select: { id: true, userId: true, productId: true },
-    });
-
-    if (!existing) {
-      return res.status(404).json({ error: "review_not_found" });
-    }
-
-    if (existing.userId !== userId) {
-      return res.status(403).json({ error: "forbidden" });
-    }
-
-    await prisma.$transaction([
-      prisma.reviewHelpful.deleteMany({ where: { reviewId } }),
-      prisma.reviewReport.deleteMany({ where: { reviewId } }),
-      prisma.reviewReply.deleteMany({ where: { reviewId } }),
-      prisma.reviewImage.deleteMany({ where: { reviewId } }),
-      prisma.review.delete({ where: { id: reviewId } }),
-    ]);
-
-    // recalculează stats produs
-    await recalcProductStats(existing.productId);
-
-    return res.json({ ok: true });
-  } catch (e) {
-    console.error("DELETE /api/reviews/:id error", e);
-    res.status(500).json({ error: "product_review_delete_failed" });
   }
 });
 

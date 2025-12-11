@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Filter, RotateCcw, Search as SearchIcon } from "lucide-react";
+import {
+  Filter,
+  RotateCcw,
+  Search as SearchIcon,
+  MessageSquare, // pentru butonul "Contactează artizanul"
+} from "lucide-react";
 import { api } from "../../../lib/api";
 import styles from "./Orders.module.css";
 
@@ -189,6 +194,66 @@ export default function OrdersPage() {
     }
   }
 
+  /**
+   * Contactează artizanul pentru această comandă.
+   * - dacă avem shipments cu vendorId pe obiectul din listă, le folosim direct
+   * - altfel facem fetch la detaliile comenzii și extragem vendorId de acolo
+   */
+  async function contactVendorForOrder(order) {
+    try {
+      let vendorId = null;
+
+      // 1. încercăm din datele deja primite în listă
+      if (Array.isArray(order.shipments) && order.shipments.length > 0) {
+        const first = order.shipments.find((s) => s.vendorId);
+        if (first && first.vendorId) {
+          vendorId = first.vendorId;
+        }
+      }
+
+      // 2. dacă nu avem, încărcăm detaliile comenzii
+      if (!vendorId) {
+        const details = await api(
+          `/api/user/orders/${encodeURIComponent(order.id)}`
+        );
+        const shipments = Array.isArray(details?.shipments)
+          ? details.shipments
+          : [];
+        const first = shipments.find((s) => s.vendorId);
+        if (first && first.vendorId) {
+          vendorId = first.vendorId;
+        }
+      }
+
+      if (!vendorId) {
+        alert(
+          "Nu am putut identifica artizanul pentru această comandă. Te rugăm deschide detaliile comenzii sau contactează suportul."
+        );
+        return;
+      }
+
+      const res = await api("/api/user-inbox/ensure-thread", {
+        method: "POST",
+        body: { vendorId },
+      });
+
+      const threadId = res?.threadId;
+      if (!threadId) {
+        throw new Error("Nu am primit ID-ul conversației.");
+      }
+
+      window.location.href = `/cont/mesaje?thread=${encodeURIComponent(
+        threadId
+      )}`;
+    } catch (e) {
+      console.error(e);
+      alert(
+        e?.message ||
+          "Nu am putut deschide conversația cu artizanul. Încearcă din nou sau contactează suportul."
+      );
+    }
+  }
+
   if (!me && !loading) {
     return (
       <div className={styles.page}>
@@ -285,6 +350,7 @@ export default function OrdersPage() {
               order={o}
               onCancel={cancelOrder}
               onReorder={reorder}
+              onContact={contactVendorForOrder} // 👈 handler Contactează artizanul
               busy={busyId === o.id}
             />
           ))}
@@ -381,8 +447,7 @@ export default function OrdersPage() {
 }
 
 /* ====== sub-componente ====== */
-
-function OrderCard({ order, onCancel, onReorder, busy }) {
+function OrderCard({ order, onCancel, onReorder, onContact, busy }) {
   const navigate = useNavigate();
 
   const canCancel = !!order.cancellable;
@@ -427,12 +492,10 @@ function OrderCard({ order, onCancel, onReorder, busy }) {
           <div className={styles.date}>{createdLabel}</div>
         </div>
         <div className={styles.total}>
-          Total:{" "}
-          <b>{money(order.totalCents, order.currency)}</b>
+          Total: <b>{money(order.totalCents, order.currency)}</b>
         </div>
       </header>
 
-      {/* Info suplimentară pentru persoane juridice */}
       {isCompany && (
         <div style={{ marginTop: 4, marginBottom: 4 }}>
           <span className={styles.subtle}>
@@ -442,40 +505,60 @@ function OrderCard({ order, onCancel, onReorder, busy }) {
         </div>
       )}
 
-      {/* Produse din comanda (agregat multi-vendor) */}
-      <ul className={styles.itemList}>
-        {order.items?.map((it) => (
-          <li className={styles.item} key={it.id}>
-            <Link
-              to={it.productId ? `/produs/${it.productId}` : "#"}
-              className={styles.itemThumbLink}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <img
-                src={it.image || "/placeholder.png"}
-                alt={it.title}
-                className={styles.thumb}
-                loading="lazy"
-              />
-            </Link>
-
-            <div className={styles.itemInfo}>
+      {/* corp card: produse (stânga) + buton contactează (dreapta) */}
+      <div className={styles.cardBody}>
+        {/* Produse din comandă */}
+        <ul className={styles.itemList}>
+          {order.items?.map((it) => (
+            <li className={styles.item} key={it.id}>
               <Link
                 to={it.productId ? `/produs/${it.productId}` : "#"}
-                className={styles.itemTitle}
-                onClick={(e) => e.stopPropagation()}
+                className={styles.itemThumbLink}
+                onClick={(e) => e.stopPropagation()} // rămâne: vrem să mergem la produs, nu la detalii comandă
               >
-                {it.title}
+                <img
+                  src={it.image || "/placeholder.png"}
+                  alt={it.title}
+                  className={styles.thumb}
+                  loading="lazy"
+                />
               </Link>
-              <div className={styles.itemMeta}>
-                Cantitate: <b>{it.qty}</b> · Preț:{" "}
-                <b>{money(it.priceCents, order.currency)}</b>
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
 
+              <div className={styles.itemInfo}>
+                <Link
+                  to={it.productId ? `/produs/${it.productId}` : "#"}
+                  className={styles.itemTitle}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {it.title}
+                </Link>
+                <div className={styles.itemMeta}>
+                  Cantitate: <b>{it.qty}</b> · Preț:{" "}
+                  <b>{money(it.priceCents, order.currency)}</b>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        {/* partea din dreapta – Contactează artizanul */}
+        <div
+          className={styles.cardBodyRight}
+          onClick={(e) => e.stopPropagation()} // aici vrem să NU deschidem detaliile, ci să facem contact
+        >
+          <button
+            type="button"
+            className={styles.btnGhost}
+            onClick={() => onContact(order)}
+            title="Scrie artizanului pentru această comandă"
+          >
+            <MessageSquare size={16} style={{ marginRight: 4 }} />
+            Contactează artizanul
+          </button>
+        </div>
+      </div>
+
+      {/* Footer – doar acțiuni pe comandă, nu deschide detalii la click înăuntru */}
       <footer
         className={styles.actionsRow}
         onClick={(e) => e.stopPropagation()}
@@ -487,6 +570,7 @@ function OrderCard({ order, onCancel, onReorder, busy }) {
         >
           Detalii comandă
         </button>
+
         {canReorder && (
           <button
             className={styles.btnPrimary}

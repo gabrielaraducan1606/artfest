@@ -6,6 +6,7 @@ import { api } from "../../../../../lib/api";
 /* versiuni politici (audit) */
 const MASTER_VENDOR_AGREEMENT_VERSION = "v1.0";
 const COURIER_POLICY_VERSION = "v1.0"; // Sameday
+const RETURNS_POLICY_VERSION = "v1.0";
 
 /* utils */
 const isPhoneRO = (v) => /^(\+4)?0?7\d{8}$/.test((v || "").replace(/\s+/g, ""));
@@ -16,6 +17,35 @@ const slugify = (s = "") =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/(^-|-$)/g, "");
+
+/* ===== helper upload direct în R2 via /api/upload ===== */
+async function uploadToR2(file) {
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    body: form,
+    credentials: "include", // important dacă folosești cookie-uri pt auth
+  });
+
+  if (!res.ok) {
+    let errMsg = "Upload eșuat. Încearcă din nou.";
+    try {
+      const data = await res.json();
+      if (data?.message) errMsg = data.message;
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(errMsg);
+  }
+
+  const data = await res.json(); // { ok, url, key }
+  if (!data?.ok || !data?.url) {
+    throw new Error("Upload eșuat. Răspuns invalid de la server.");
+  }
+  return data.url;
+}
 
 /* mici piese UI */
 function Row({ id, label, children, error, help }) {
@@ -209,7 +239,6 @@ function ServiceCard({
   saveError,
   updateProfile,
   updateServiceBasics,
-  uploadFile,
   slugTouchedMap,
   setSlugTouchedMap,
   setErr,
@@ -250,14 +279,21 @@ function ServiceCard({
     p.slug
   );
 
-  // set default livrare = „Curier Sameday” o singură dată
+  // set default livrare = „Curier Sameday” și activează curierul implicit o singură dată
   useEffect(() => {
     const current = Array.isArray(attrs.deliveryMethods)
       ? attrs.deliveryMethods
       : [];
+    const patch = {};
     if (!current.includes("Curier Sameday")) {
+      patch.deliveryMethods = ["Curier Sameday"];
+    }
+    if (!attrs.courierEnabled) {
+      patch.courierEnabled = true; // curierul este implicit activ
+    }
+    if (Object.keys(patch).length > 0) {
       updateServiceBasics(idx, {
-        attributes: { ...attrs, deliveryMethods: ["Curier Sameday"] },
+        attributes: { ...attrs, ...patch },
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -268,9 +304,10 @@ function ServiceCard({
     if (!f) return;
     try {
       if (!/^image\/(png|jpe?g|webp)$/i.test(f.type))
-        throw new Error("PNG/JPG/WebP doar.");
+        throw new Error("Acceptăm doar PNG / JPG / WebP.");
       if (f.size > 3 * 1024 * 1024) throw new Error("Maxim 3 MB.");
-      const url = await uploadFile(f);
+
+      const url = await uploadToR2(f);
       updateProfile(idx, { [key]: url });
     } catch (er) {
       setErr?.(er?.message || "Upload eșuat");
@@ -340,28 +377,39 @@ function ServiceCard({
     );
 
   const comBadge =
-    !Array.isArray(p.delivery) || p.delivery.length === 0 ? (
+    !Array.isArray(p.delivery) ||
+    p.delivery.length === 0 ||
+    !attrs.courierAddendumAccepted ? (
       <span className={styles.badgeBad}>incomplet</span>
     ) : (
       <span className={styles.badgeOk}>ok</span>
     );
 
-  const accBadge = !attrs.masterAgreementAccepted ? (
-    <span className={styles.badgeBad}>incomplet</span>
-  ) : (
-    <span className={styles.badgeOk}>ok</span>
-  );
+  const accBadge =
+    !attrs.masterAgreementAccepted || !attrs.returnsPolicyAccepted ? (
+      <span className={styles.badgeBad}>incomplet</span>
+    ) : (
+      <span className={styles.badgeOk}>ok</span>
+    );
 
   /* ==== Short Description limits & helpers ==== */
   const SHORT_MAX = 120;
   const shortLen = (p.shortDescription || "").length;
   const tooLong = shortLen > SHORT_MAX;
 
-  // URL acord vânzători cu fallback
+  // URL acorduri cu fallback
   const baseApiUrl = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
   const vendorAgreementUrl = baseApiUrl
     ? `${baseApiUrl}/acord-vanzatori`
-    : "/legal/acord-vanzatori";
+    : "/acord-vanzatori";
+
+  const returnsPolicyUrl = baseApiUrl
+    ? `${baseApiUrl}/politica-retur`
+    : "/politica-retur";
+
+  const courierPolicyUrl = baseApiUrl
+    ? `${baseApiUrl}/anexa-expediere`
+    : "/anexa-expediere";
 
   return (
     <div className={styles.card} key={service.id} style={{ padding: 0 }}>
@@ -667,7 +715,11 @@ function ServiceCard({
           onToggle={() => setOpen((o) => (o === 1 ? -1 : 1))}
           badge={comBadge}
         >
-          <Row id={`deliveryMethods-${service.id}`} label="Metodă de livrare">
+          {/* Metoda de livrare informativă */}
+          <Row
+            id={`deliveryMethods-${service.id}`}
+            label="Metodă de livrare pe platformă"
+          >
             <input
               id={`deliveryMethods-${service.id}`}
               className={styles.input}
@@ -675,18 +727,55 @@ function ServiceCard({
               readOnly
             />
             <small className={styles.help}>
-              Livrarea pe platformă se face exclusiv prin{" "}
-              <strong>Sameday</strong>. Detalii și acceptare sunt în{" "}
-              <a
-                href="/legal/vendor/onboarding"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Acordul Master
-              </a>
-              .
+              Livrarea comenzilor prin platformă se face prin curierul{" "}
+              <strong>Sameday</strong>.
             </small>
           </Row>
+
+          {/* Anexa de curierat – acord obligatoriu */}
+          <div className={`${styles.stack} ${styles.courierBox}`}>
+            <label className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={!!attrs.courierAddendumAccepted}
+                onChange={async (e) => {
+                  const checked = !!e.target.checked;
+                  setAttrs({
+                    courierEnabled: true, // rămâne mereu activ la nivel de atribute
+                    courierAddendumAccepted: checked,
+                    courierAddendumVersion: COURIER_POLICY_VERSION,
+                    courierAddendumAcceptedAt: checked
+                      ? new Date().toISOString()
+                      : null,
+                  });
+                  if (checked) {
+                    try {
+                      await api("/api/legal/vendor-accept", {
+                        method: "POST",
+                        body: {
+                          accept: [{ type: "shipping_addendum" }],
+                        },
+                      });
+                    } catch {
+                      /* retry ulterior */
+                    }
+                  }
+                }}
+              />
+              <span>
+                Accept{" "}
+                <a href={courierPolicyUrl} target="_blank" rel="noreferrer">
+                  Anexa de curierat Sameday
+                </a>{" "}
+                ({COURIER_POLICY_VERSION})
+              </span>
+            </label>
+            <small className={styles.help}>
+              Anexa de curierat reglementează modul de preluare, livrare și
+              facturare a transportului prin Sameday atunci când trimiți
+              colete prin platformă.
+            </small>
+          </div>
 
           <Row
             id={`delivery-${service.id}`}
@@ -707,21 +796,6 @@ function ServiceCard({
               <small className={styles.fieldError}>{countiesErr}</small>
             )}
           </Row>
-
-          <div className={styles.stack}>
-            <small className={styles.help}>
-              Politica Sameday ({COURIER_POLICY_VERSION}) este inclusă în
-              Acordul Master.{" "}
-              <a
-                href="/policies/courier-sameday"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Vezi detalii
-              </a>
-              .
-            </small>
-          </div>
         </SectionCard>
       </div>
 
@@ -734,6 +808,7 @@ function ServiceCard({
           onToggle={() => setOpen((o) => (o === 2 ? -1 : 2))}
           badge={accBadge}
         >
+          {/* Acordul Master */}
           <div className={styles.stack}>
             <label className={styles.checkRow}>
               <input
@@ -753,11 +828,7 @@ function ServiceCard({
                       await api("/api/legal/vendor-accept", {
                         method: "POST",
                         body: {
-                          accept: [
-                            { type: "vendor_terms" },
-                            { type: "shipping_addendum" },
-                            { type: "returns" },
-                          ],
+                          accept: [{ type: "vendor_terms" }],
                         },
                       });
                     } catch {
@@ -768,21 +839,61 @@ function ServiceCard({
               />
               <span>
                 Accept{" "}
-                <a
-                  href={vendorAgreementUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
+                <a href={vendorAgreementUrl} target="_blank" rel="noreferrer">
                   Acordul Master pentru Vânzători
                 </a>{" "}
                 ({MASTER_VENDOR_AGREEMENT_VERSION})
               </span>
             </label>
             <small className={styles.help}>
-              Include: Termenii vânzători, Politica de listare, Taxe & plăți,
-              Livrare (incl. Sameday) și Retur. Fără acceptarea acestui acord nu
+              Include: Termenii pentru vânzători, Politica de listare și
+              informații despre taxe & plăți. Fără acceptarea acestui acord nu
               putem activa profilul tău public și nu poți primi comenzi prin
               platformă.
+            </small>
+          </div>
+
+          {/* Politica de retur – acord separat */}
+          <div className={styles.stack} style={{ marginTop: 12 }}>
+            <label className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={!!attrs.returnsPolicyAccepted}
+                onChange={async (e) => {
+                  const checked = !!e.target.checked;
+                  setAttrs({
+                    returnsPolicyAccepted: checked,
+                    returnsPolicyVersion: RETURNS_POLICY_VERSION,
+                    returnsPolicyAcceptedAt: checked
+                      ? new Date().toISOString()
+                      : null,
+                  });
+                  if (checked) {
+                    try {
+                      await api("/api/legal/vendor-accept", {
+                        method: "POST",
+                        body: {
+                          accept: [{ type: "returns" }],
+                        },
+                      });
+                    } catch {
+                      /* retry ulterior */
+                    }
+                  }
+                }}
+              />
+              <span>
+                Confirm că am citit și accept{" "}
+                <a href={returnsPolicyUrl} target="_blank" rel="noreferrer">
+                  Politica de retur pentru vânzători
+                </a>{" "}
+                ({RETURNS_POLICY_VERSION})
+              </span>
+            </label>
+            <small className={styles.help}>
+              Politica de retur definește ce drepturi au clienții, în ce
+              condiții primești produsele înapoi și ce obligații ai tu ca
+              vânzător pentru rambursări și schimburi.
             </small>
           </div>
 
@@ -805,7 +916,6 @@ export default function ProfileTab({
   saveError,
   updateProfile,
   updateServiceBasics,
-  uploadFile,
   isSavingAny,
   hasNameConflict,
   onContinue,
@@ -835,15 +945,18 @@ export default function ProfileTab({
       if (!p.address?.trim()) list.push("Adresă sediu / atelier");
       if (!p.logoUrl && !p.coverUrl)
         list.push("O imagine (logo sau copertă)");
-      // Descriere scurtă este opțională — nu o adăugăm la blocanți
 
       // Comercial & livrare
       if (!Array.isArray(p.delivery) || p.delivery.length === 0)
         list.push("Zonă acoperire");
+      if (!a.courierAddendumAccepted)
+        list.push("Acceptarea anexei de curierat Sameday");
 
       // Acorduri
       if (!a.masterAgreementAccepted)
         list.push("Acceptarea Acordului Master pentru Vânzători");
+      if (!a.returnsPolicyAccepted)
+        list.push("Acceptarea Politicii de retur pentru vânzători");
 
       break; // validăm doar primul serviciu
     }
@@ -902,7 +1015,6 @@ export default function ProfileTab({
               saveError={saveError[s.id] || ""}
               updateProfile={updateProfile}
               updateServiceBasics={updateServiceBasics}
-              uploadFile={uploadFile}
               slugTouchedMap={slugTouchedMap}
               setSlugTouchedMap={setSlugTouchedMap}
               setErr={setErr}

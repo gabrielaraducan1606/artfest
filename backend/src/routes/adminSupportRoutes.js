@@ -4,6 +4,10 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { sendGuestSupportReplyEmail } from "../lib/mailer.js";
+import {
+  notifyUserOnSupportReply,
+  notifyUserOnSupportStatusChange,
+} from "../services/notifications.js";
 
 const lc = (x) => (x ?? "").toLowerCase();
 
@@ -43,15 +47,10 @@ const mapTicketToUI = (t) => ({
 
 // ======================= Zod Schemas =======================
 
-// 👇 am adăugat audience = guest + role filter
 const qTickets = z.object({
   status: z.enum(["all", "open", "pending", "closed"]).default("all"),
-  audience: z
-    .enum(["all", "user", "vendor", "guest"])
-    .default("all"),
-  role: z
-    .enum(["all", "user", "vendor", "admin"])
-    .default("all"),
+  audience: z.enum(["all", "user", "vendor", "guest"]).default("all"),
+  role: z.enum(["all", "user", "vendor", "admin"]).default("all"),
   q: z.string().optional().default(""),
   requesterId: z.string().optional(),
   vendorId: z.string().optional(),
@@ -68,21 +67,18 @@ const qMessages = z.object({
 const paramsTicketId = z.object({ id: z.string().min(1) });
 const paramsMessageId = z.object({ mid: z.string().min(1) });
 
+const attachmentSchema = z.object({
+  url: z.string().url(),
+  name: z.string().optional(),
+  filename: z.string().optional(),
+  mimeType: z.string().optional(),
+  mime: z.string().optional(),
+  size: z.number().int().optional(),
+});
+
 const bodyMessage = z.object({
   body: z.string().optional().default(""),
-  attachments: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        name: z.string().optional(),
-        filename: z.string().optional(),
-        mimeType: z.string().optional(),
-        mime: z.string().optional(),
-        size: z.number().int().optional(),
-      })
-    )
-    .optional()
-    .default([]),
+  attachments: z.array(attachmentSchema).optional().default([]),
 });
 
 const bodyEditMessage = z.object({
@@ -146,7 +142,7 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
     priority,
   } = parsed.data;
 
-    const where = {
+  const where = {
     ...(status !== "all" && {
       status:
         status === "open"
@@ -156,7 +152,7 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
           : "CLOSED",
     }),
 
-    // 👇 audience: USER / VENDOR / GUEST
+    // audience: USER / VENDOR / GUEST
     ...(audience !== "all" && {
       audience:
         audience === "user"
@@ -179,7 +175,7 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
           : "LOW",
     }),
 
-    // 👇 filtrare după rolul userului (USER / VENDOR / ADMIN) – corect pentru Prisma
+    // filtrare după rolul userului (USER / VENDOR / ADMIN)
     ...(role !== "all" && {
       requester: {
         is: {
@@ -194,16 +190,12 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
     }),
   };
 
-
   try {
     const [total, rows] = await Promise.all([
       prisma.supportTicket.count({ where }),
       prisma.supportTicket.findMany({
         where,
-        orderBy: [
-          { lastMessageAt: "desc" },
-          { updatedAt: "desc" },
-        ],
+        orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
         skip: offset,
         take: limit,
         select: {
@@ -246,6 +238,7 @@ AdminSupportRoutes.get("/tickets", async (req, res) => {
 /**
  * PATCH /api/admin/support/tickets/:id
  * - schimbă status / priority (sau ambele)
+ * 🔔 notifică userul dacă este tichet de tip USER și se schimbă statusul
  */
 AdminSupportRoutes.patch("/tickets/:id", async (req, res) => {
   const parsedParams = paramsTicketId.safeParse(req.params);
@@ -319,6 +312,18 @@ AdminSupportRoutes.patch("/tickets/:id", async (req, res) => {
       },
     });
 
+    // 🔔 notificăm doar userii finali (audience=USER)
+    if (updated.audience === "USER") {
+      try {
+        await notifyUserOnSupportStatusChange(updated.id, updated.status);
+      } catch (err) {
+        console.error(
+          "admin/support notify user on status change error:",
+          err
+        );
+      }
+    }
+
     res.json(mapTicketToUI(updated));
   } catch (e) {
     console.error("admin/support patch ticket error:", e);
@@ -376,15 +381,6 @@ AdminSupportRoutes.get("/tickets/:id/messages", async (req, res) => {
       select: { id: true },
     });
     if (!ticket) return res.status(404).json({ error: "not_found" });
-// dacă e guest → trimitem email
-if (ticket.audience === "GUEST" && ticket.requesterEmail) {
-  await sendGuestSupportReplyEmail({
-    to: ticket.requesterEmail,
-    name: ticket.requesterName || "",
-    subject: ticket.subject,
-    reply: cleanBody,
-  });
-}
 
     const where = { ticketId: id };
     const [total, rows] = await Promise.all([
@@ -431,6 +427,7 @@ if (ticket.audience === "GUEST" && ticket.requesterEmail) {
 
 /**
  * POST /api/admin/support/tickets/:id/messages
+ * 🔔 trimite notificări user + email la guest
  */
 AdminSupportRoutes.post("/tickets/:id/messages", async (req, res) => {
   const admin = req.user;
@@ -448,10 +445,19 @@ AdminSupportRoutes.post("/tickets/:id/messages", async (req, res) => {
   const { id } = parsedParams.data;
   const { body, attachments } = parsedBody.data;
 
+  const cleanBody = (body || "").trim() || "(fișier)";
+
   try {
     const ticket = await prisma.supportTicket.findUnique({
       where: { id },
-      select: { id: true },
+      select: {
+        id: true,
+        audience: true,
+        requesterId: true,
+        requesterEmail: true,
+        requesterName: true,
+        subject: true,
+      },
     });
     if (!ticket) return res.status(404).json({ error: "not_found" });
 
@@ -460,19 +466,23 @@ AdminSupportRoutes.post("/tickets/:id/messages", async (req, res) => {
         data: {
           ticketId: id,
           authorId: adminId,
-          body: (body || "").trim() || "(fișier)",
+          body: cleanBody,
         },
         select: { id: true },
       });
 
       if (attachments?.length) {
         await tx.supportAttachment.createMany({
-          data: attachments.map((a) => ({
+          data: attachments.map((a, idx) => ({
             ticketId: id,
             messageId: msg.id,
             url: a.url,
-            filename: a.name ?? a.filename ?? null,
+            filename:
+              a.name ??
+              a.filename ??
+              `attachment-${idx + 1}`,
             mime: a.mimeType ?? a.mime ?? null,
+            size: a.size ?? null,
           })),
         });
       }
@@ -505,6 +515,32 @@ AdminSupportRoutes.post("/tickets/:id/messages", async (req, res) => {
         console.error("admin/support upsert read failed:", err);
       }
     });
+
+    // ✉️ dacă e GUEST → trimitem email cu răspunsul
+    if (ticket.audience === "GUEST" && ticket.requesterEmail) {
+      try {
+        await sendGuestSupportReplyEmail({
+          to: ticket.requesterEmail,
+          name: ticket.requesterName || "",
+          subject: ticket.subject || "Tichet suport",
+          reply: cleanBody,
+        });
+      } catch (err) {
+        console.error("admin/support guest reply email failed:", err);
+      }
+    }
+
+    // 🔔 dacă e USER logat → notificări în app
+    if (ticket.audience === "USER" && ticket.requesterId) {
+      try {
+        await notifyUserOnSupportReply(ticket.id, {
+          messagePreview: cleanBody,
+        });
+        await notifyUserOnSupportStatusChange(ticket.id, "OPEN");
+      } catch (err) {
+        console.error("admin/support notify user on reply error:", err);
+      }
+    }
 
     res.status(201).json({ ok: true });
   } catch (e) {

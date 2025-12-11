@@ -1,3 +1,4 @@
+// frontend/src/pages/user/UserMessagesPage.jsx
 import {
   useCallback,
   useEffect,
@@ -19,7 +20,7 @@ import {
   ChevronLeft,
   Trash2,
 } from "lucide-react";
-import styles from "../../Vendor/Mesaje/Messages.module.css";
+import styles from "./UserMessages.module.css";
 
 const API_BASE = "/api/user-inbox";
 
@@ -90,28 +91,31 @@ function useThreads({ scope, q, groupByStore }) {
     return () => clearTimeout(id);
   }, [q]);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      params.set("scope", scope || "all");
-      if (dq) params.set("q", dq);
-      if (groupByStore) params.set("groupBy", "store");
+  const reload = useCallback(
+    async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set("scope", scope || "all");
+        if (dq) params.set("q", dq);
+        if (groupByStore) params.set("groupBy", "store");
 
-      const url = `${API_BASE}/threads?${params.toString()}`;
-      const d = await api(url).catch(() => null);
-      if (d?.items) {
-        setItems(d.items);
-      } else {
-        setItems([]);
+        const url = `${API_BASE}/threads?${params.toString()}`;
+        const d = await api(url).catch(() => null);
+        if (d?.items) {
+          setItems(d.items);
+        } else {
+          setItems([]);
+        }
+      } catch (e) {
+        setError(e?.message || "Eroare la încărcarea conversațiilor");
+      } finally {
+        setLoading(false);
       }
-    } catch (e) {
-      setError(e?.message || "Eroare la încărcarea conversațiilor");
-    } finally {
-      setLoading(false);
-    }
-  }, [scope, dq, groupByStore]);
+    },
+    [scope, dq, groupByStore]
+  );
 
   useEffect(() => {
     reload();
@@ -178,8 +182,9 @@ function autoResize(el) {
 /* ========= Pagina ========= */
 export default function UserMessagesPage() {
   const [searchParams] = useSearchParams();
-  const initialThreadFromUrl =
-    searchParams.get("thread") || searchParams.get("threadId") || null;
+  // citim threadId din URL, suportăm și ?thread= ca fallback
+  const threadIdFromUrl =
+    searchParams.get("threadId") || searchParams.get("thread") || null;
 
   const [scope, setScope] = useState("all"); // all | unread | archived
   const [q, setQ] = useState("");
@@ -193,32 +198,45 @@ export default function UserMessagesPage() {
     setItems: setThreads,
   } = useThreads({ scope, q, groupByStore });
 
-  const [selectedId, setSelectedId] = useState(initialThreadFromUrl); // poate fi id de thread sau id de magazin
-  const [activeThreadId, setActiveThreadId] = useState(null); // mereu threadId real
+  // id-ul selectat în sidebar (poate fi id de thread sau de grup magazin)
+  const [selectedId, setSelectedId] = useState(null);
+  // mereu threadId real pentru chat-ul din dreapta
+  const [activeThreadId, setActiveThreadId] = useState(null);
 
-  // selectăm implicit ceva când vin thread-urile
+  // --- swipe state pentru bottom sheet pe mobil ---
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef(null);
+
+  // dacă URL-ul conține threadId, îl folosim ca selecție
+  useEffect(() => {
+    if (threadIdFromUrl) {
+      setSelectedId(String(threadIdFromUrl));
+    }
+  }, [threadIdFromUrl]);
+
+   // selectăm implicit ceva doar pe desktop când vin thread-urile
   useEffect(() => {
     if (!threads.length) return;
 
-    // dacă ai un thread specific în URL și încă nu e selectat
-    if (!selectedId && initialThreadFromUrl) {
-      const exists = threads.some(
-        (t) => String(t.id) === String(initialThreadFromUrl)
-      );
-      if (exists) {
-        setSelectedId(String(initialThreadFromUrl));
-        return;
-      }
-    }
+    const isBrowser = typeof window !== "undefined";
+    const isMobile =
+      isBrowser &&
+      window.matchMedia &&
+      window.matchMedia("(max-width: 768px)").matches;
 
-    // fallback: primul item
-    if (!selectedId && threads[0]) {
+    // dacă avem threadId în URL, nu ne mai băgăm
+    if (threadIdFromUrl) return;
+
+    // auto-select DOAR pe desktop
+    if (!selectedId && !isMobile && threads[0]) {
       setSelectedId(threads[0].id);
     }
-  }, [threads, selectedId, initialThreadFromUrl]);
+  }, [threads, selectedId, threadIdFromUrl]);
 
   const current = useMemo(
-    () => threads.find((t) => String(t.id) === String(selectedId)) || null,
+    () =>
+      threads.find((t) => String(t.id) === String(selectedId)) || null,
     [threads, selectedId]
   );
 
@@ -243,7 +261,7 @@ export default function UserMessagesPage() {
     }
   }, [current, groupByStore]);
 
-  // thread-ul activ (comanda selectată în tab)
+  // thread-ul activ (comanda selectată în tab, în mod grupat)
   const activeThread = useMemo(() => {
     if (!current) return null;
     if (groupByStore && Array.isArray(current.threads) && current.threads.length) {
@@ -330,7 +348,7 @@ export default function UserMessagesPage() {
   }, [threads, scope]);
 
   const isGroupedView = groupByStore;
-  const hasCurrent = !!current;
+  const hasCurrent = !!activeThread;
 
   const selectItem = (id) => {
     setSelectedId(id);
@@ -404,406 +422,462 @@ export default function UserMessagesPage() {
     }
   };
 
+  // ==== swipe handlers pentru bottom-sheet pe mobil ====
+  const handleSheetTouchStart = (e) => {
+    if (!current || !activeThread) return;
+    const touch = e.touches[0];
+    dragStartRef.current = touch.clientY;
+    setIsDragging(true);
+  };
+
+  const handleSheetTouchMove = (e) => {
+    if (!isDragging || dragStartRef.current == null) return;
+    const touch = e.touches[0];
+    const diff = touch.clientY - dragStartRef.current;
+    if (diff > 0) {
+      setDragY(diff);
+    }
+  };
+
+  const handleSheetTouchEnd = () => {
+    if (!isDragging) return;
+    const threshold = 80; // px până când considerăm swipe de închidere
+    if (dragY > threshold) {
+      clearSelection();
+    }
+    setIsDragging(false);
+    setDragY(0);
+    dragStartRef.current = null;
+  };
+
   return (
-    <div className={styles.wrap} data-view={hasCurrent ? "chat" : "list"}>
-      {/* Sidebar conversații */}
-      <aside className={styles.sidebar}>
-        <div className={styles.sideHead}>
-          <div className={styles.sideTitle}>
-            <MessageSquare size={18} /> Mesaje
-          </div>
-          <button
-            className={`${styles.iconBtn} ${
-              loadingThreads ? styles.iconBtnLoading : ""
-            }`}
-            title="Reîncarcă"
-            onClick={reloadThreads}
-            type="button"
-          >
-            <Loader2
-              size={16}
-              className={loadingThreads ? styles.spin : ""}
-            />
-          </button>
-        </div>
-
-        <div className={styles.searchBar}>
-          <SearchIcon size={16} />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Caută magazin, telefon, mesaj…"
-          />
-          <button
-            className={styles.iconBtn}
-            title="Filtre (în curând)"
-            type="button"
-          >
-            <Filter size={16} />
-          </button>
-        </div>
-
-        {/* bifa de grupare pe magazin */}
-        <div className={styles.groupToggleRow}>
-          <label className={styles.groupToggle}>
-            <input
-              type="checkbox"
-              checked={groupByStore}
-              onChange={(e) => {
-                setGroupByStore(e.target.checked);
-                setSelectedId(null);
-                setActiveThreadId(null);
-              }}
-            />
-            Grupare conversații pe magazin
-          </label>
-        </div>
-
-        <div className={styles.scopeTabs}>
-          <button
-            className={`${styles.tab} ${
-              scope === "all" ? styles.active : ""
-            }`}
-            onClick={() => setScope("all")}
-            type="button"
-          >
-            <Inbox size={14} /> Toate
-          </button>
-          <button
-            className={`${styles.tab} ${
-              scope === "unread" ? styles.active : ""
-            }`}
-            onClick={() => setScope("unread")}
-            type="button"
-          >
-            Necitite
-          </button>
-          <button
-            className={`${styles.tab} ${
-              scope === "archived" ? styles.active : ""
-            }`}
-            onClick={() => setScope("archived")}
-            type="button"
-          >
-            <Archive size={14} /> Arhivate
-          </button>
-        </div>
-
-        <div className={styles.threadList}>
-          {loadingThreads && !threads.length && (
-            <div className={styles.empty}>Se încarcă…</div>
-          )}
-          {errThreads && (
-            <div className={styles.error}>
-              Nu am putut încărca conversațiile.
+    <>
+      <div
+        className={styles.wrap}
+        data-mobile-open={hasCurrent ? "1" : "0"}
+      >
+        {/* Sidebar conversații */}
+        <aside className={styles.sidebar}>
+          <div className={styles.sideHead}>
+            <div className={styles.sideTitle}>
+              <MessageSquare size={18} /> Mesaje
             </div>
-          )}
-          {!loadingThreads && !visibleThreads.length && (
-            <div className={styles.empty}>Nu există conversații.</div>
-          )}
-
-          {visibleThreads.map((t) => {
-            const isSelected = String(t.id) === String(selectedId);
-            const hasUnread = (t.unreadCount || 0) > 0;
-            const name = t.name || "Magazin";
-            const lastMsg = t.lastMsg || "Fără mesaje recente";
-
-            const isStoreGroup =
-              isGroupedView && Array.isArray(t.threads);
-
-            // în mod negrupat avem orderSummary pentru fiecare thread
-            const orderBadge =
-              !isStoreGroup && t.orderSummary && shortOrderId(t.orderSummary);
-
-            return (
-              <div
-                key={t.id}
-                className={`${styles.threadItem} ${
-                  isSelected ? styles.selected : ""
-                } ${hasUnread ? styles.unread : ""}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => selectItem(t.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    selectItem(t.id);
-                  }
-                }}
-              >
-                <div className={styles.threadAvatar}>
-                  {initialsOf(name)}
-                </div>
-                <div className={styles.threadBody}>
-                  <div className={styles.threadRowTop}>
-                    <span className={styles.threadName}>
-                      {name}
-                      {orderBadge && (
-                        <span className={styles.threadOrderBadge}>
-                          {" · "}Comanda {orderBadge}
-                        </span>
-                      )}
-                    </span>
-                    <span className={styles.threadTime}>
-                      {fmtTime(t.lastAt)}
-                    </span>
-                  </div>
-
-                  <div className={styles.threadRowBottom}>
-                    <span className={styles.threadLastMsg}>
-                      {lastMsg}
-                    </span>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      {t.archived && (
-                        <span className={styles.threadStatus}>
-                          Arhivat
-                        </span>
-                      )}
-
-                      {/* acțiuni inline DOAR în mod negrupat (altfel n-avem threadId direct) */}
-                      {!isStoreGroup && (
-                        <span className={styles.threadInlineActions}>
-                          <button
-                            type="button"
-                            className={styles.threadIconBtn}
-                            title={
-                              t.archived
-                                ? "Dezarhivează conversația"
-                                : "Arhivează conversația"
-                            }
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              archiveThread(t.id, !t.archived);
-                            }}
-                          >
-                            <Archive size={14} />
-                          </button>
-
-                          <button
-                            type="button"
-                            className={`${styles.threadIconBtn} ${styles.threadIconBtnDanger}`}
-                            title="Șterge conversația"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              deleteThread(t.id);
-                            }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </span>
-                      )}
-
-                      {hasUnread && (
-                        <span className={styles.unreadBadge}>
-                          {t.unreadCount}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* Chat */}
-      <section className={styles.chat}>
-        {!current || !activeThread ? (
-          <div className={styles.chatEmpty}>
-            <MessageSquare size={28} />
-            <div>Selectează o conversație din listă.</div>
-          </div>
-        ) : (
-          <>
-            <header className={styles.chatHead}>
-              {/* back doar pe mobil */}
-              <button
-                className={`${styles.iconBtn} ${styles.hideDesktop}`}
-                onClick={clearSelection}
-                title="Înapoi la listă"
-                type="button"
-              >
-                <ChevronLeft size={18} />
-              </button>
-
-              <div className={styles.chatPeer}>
-                <div className={styles.avatarLg}>
-                  {initialsOf(current.name || "M")}
-                </div>
-                <div>
-                  <div className={styles.peerName}>
-                    {current.name || "Magazin"}
-                    {/* în mod negrupat: badge cu număr comandă */}
-                    {!isGroupedView &&
-                      activeThread.orderSummary &&
-                      shortOrderId(activeThread.orderSummary) && (
-                        <span className={styles.peerOrderBadge}>
-                          {" · "}Comanda{" "}
-                          {shortOrderId(activeThread.orderSummary)}
-                        </span>
-                      )}
-                  </div>
-                  {current.phone && (
-                    <div className={styles.peerSub}>
-                      {current.phone}
-                    </div>
-                  )}
-                  <div className={styles.peerSub}>
-                    {activeThread.archived
-                      ? "Conversație arhivată"
-                      : "Conversație activă"}
-                    {isGroupedView && current.threads?.length ? (
-                      <>
-                        {" · "}
-                        {current.threads.length} conversații cu acest magazin
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              <div className={styles.chatActions}>
-                {/* buton arhivare / dezarhivare */}
-                {currentThreadId && (
-                  <button
-                    className={styles.iconBtn}
-                    title={
-                      activeThread.archived
-                        ? "Dezarhivează"
-                        : "Arhivează"
-                    }
-                    onClick={() =>
-                      archiveThread(currentThreadId, !activeThread.archived)
-                    }
-                    type="button"
-                  >
-                    <Archive size={18} />
-                  </button>
-                )}
-
-                {/* buton ștergere conversație */}
-                {currentThreadId && (
-                  <button
-                    className={styles.iconBtn}
-                    title="Șterge conversația"
-                    onClick={() => deleteThread(currentThreadId)}
-                    type="button"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                )}
-              </div>
-            </header>
-
-            {/* tab-uri comenzi în mod grupat */}
-            {isGroupedView &&
-              Array.isArray(current.threads) &&
-              current.threads.length > 1 && (
-                <div className={styles.orderTabs}>
-                  {current.threads.map((th) => {
-                    const sid = shortOrderId(th.orderSummary);
-                    return (
-                      <button
-                        key={th.threadId}
-                        type="button"
-                        className={
-                          th.threadId === currentThreadId
-                            ? styles.orderTabActive
-                            : styles.orderTab
-                        }
-                        onClick={() => setActiveThreadId(th.threadId)}
-                      >
-                        <span>
-                          {sid
-                            ? `Comanda ${sid}`
-                            : "Conversație fără comandă"}
-                        </span>
-                        {th.lastAt && (
-                          <span className={styles.orderTabDate}>
-                            {fmtDate(th.lastAt)}
-                          </span>
-                        )}
-                        {th.unreadCount > 0 && (
-                          <span className={styles.unreadBadge}>
-                            {th.unreadCount}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-            <div className={styles.msgList} ref={listRef}>
-              {loadingMsgs && (
-                <div className={styles.loading}>Se încarcă…</div>
-              )}
-              {errMsgs && (
-                <div className={styles.error}>
-                  Nu am putut încărca mesajele.
-                </div>
-              )}
-              {msgs.map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  mine={m.from === "me"}
-                  msg={m}
-                />
-              ))}
-            </div>
-
-            <footer className={styles.composer}>
-              {/* attach e doar placeholder deocamdată */}
-              <button
-                className={styles.iconBtn}
-                title="Atașează (în curând)"
-                type="button"
-              >
-                <Paperclip size={18} />
-              </button>
-              <textarea
-                className={styles.input}
-                rows={1}
-                placeholder="Scrie un mesaj…"
-                value={text}
-                onChange={(e) => {
-                  setText(e.target.value);
-                  autoResize(e.target);
-                }}
-                onKeyDown={handleKey}
-                title="Trimite (Enter) · Linie nouă (Shift+Enter)"
+            <button
+              className={`${styles.iconBtn} ${
+                loadingThreads ? styles.iconBtnLoading : ""
+              }`}
+              title="Reîncarcă"
+              onClick={reloadThreads}
+              type="button"
+            >
+              <Loader2
+                size={16}
+                className={loadingThreads ? styles.spin : ""}
               />
-              <button
-                className={styles.sendBtn}
-                onClick={handleSend}
-                disabled={!text.trim() || sending || !currentThreadId}
-                type="button"
-              >
-                {sending ? (
-                  <>
-                    <Loader2 size={16} className={styles.spin} /> Se
-                    trimite…
-                  </>
-                ) : (
-                  <>
-                    <Send size={16} /> Trimite
-                  </>
+            </button>
+          </div>
+
+          <div className={styles.searchBar}>
+            <SearchIcon size={16} />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Caută magazin, telefon, mesaj…"
+            />
+            <button
+              className={styles.iconBtn}
+              title="Filtre (în curând)"
+              type="button"
+            >
+              <Filter size={16} />
+            </button>
+          </div>
+
+          {/* bifa de grupare pe magazin */}
+          <div className={styles.groupToggleRow}>
+            <label className={styles.groupToggle}>
+              <input
+                type="checkbox"
+                checked={groupByStore}
+                onChange={(e) => {
+                  setGroupByStore(e.target.checked);
+                  setSelectedId(null);
+                  setActiveThreadId(null);
+                }}
+              />
+              Grupare conversații pe magazin
+            </label>
+          </div>
+
+          <div className={styles.scopeTabs}>
+            <button
+              className={`${styles.tab} ${
+                scope === "all" ? styles.active : ""
+              }`}
+              onClick={() => setScope("all")}
+              type="button"
+            >
+              <Inbox size={14} /> Toate
+            </button>
+            <button
+              className={`${styles.tab} ${
+                scope === "unread" ? styles.active : ""
+              }`}
+              onClick={() => setScope("unread")}
+              type="button"
+            >
+              Necitite
+            </button>
+            <button
+              className={`${styles.tab} ${
+                scope === "archived" ? styles.active : ""
+              }`}
+              onClick={() => setScope("archived")}
+              type="button"
+            >
+              <Archive size={14} /> Arhivate
+            </button>
+          </div>
+
+          <div className={styles.threadList}>
+            {loadingThreads && !threads.length && (
+              <div className={styles.empty}>Se încarcă…</div>
+            )}
+            {errThreads && (
+              <div className={styles.error}>
+                Nu am putut încărca conversațiile.
+              </div>
+            )}
+            {!loadingThreads && !visibleThreads.length && (
+              <div className={styles.empty}>Nu există conversații.</div>
+            )}
+
+            {visibleThreads.map((t) => {
+              const isSelected = String(t.id) === String(selectedId);
+              const hasUnread = (t.unreadCount || 0) > 0;
+              const name = t.name || "Magazin";
+              const lastMsg = t.lastMsg || "Fără mesaje recente";
+
+              const isStoreGroup =
+                isGroupedView && Array.isArray(t.threads);
+
+              const orderBadge =
+                !isStoreGroup && t.orderSummary && shortOrderId(t.orderSummary);
+
+              return (
+                <div
+                  key={t.id}
+                  className={`${styles.threadItem} ${
+                    isSelected ? styles.selected : ""
+                  } ${hasUnread ? styles.unread : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => selectItem(t.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      selectItem(t.id);
+                    }
+                  }}
+                >
+                  <div className={styles.threadAvatar}>
+                    {initialsOf(name)}
+                  </div>
+                  <div className={styles.threadBody}>
+                    <div className={styles.threadRowTop}>
+                      <span className={styles.threadName}>
+                        {name}
+                        {orderBadge && (
+                          <span className={styles.threadOrderBadge}>
+                            {" · "}Comanda {orderBadge}
+                          </span>
+                        )}
+                      </span>
+                      <span className={styles.threadTime}>
+                        {fmtTime(t.lastAt)}
+                      </span>
+                    </div>
+
+                    <div className={styles.threadRowBottom}>
+                      <span className={styles.threadLastMsg}>
+                        {lastMsg}
+                      </span>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        {t.archived && (
+                          <span className={styles.threadStatus}>
+                            Arhivat
+                          </span>
+                        )}
+
+                        {/* acțiuni inline DOAR în mod negrupat */}
+                        {!isStoreGroup && (
+                          <span className={styles.threadInlineActions}>
+                            <button
+                              type="button"
+                              className={styles.threadIconBtn}
+                              title={
+                                t.archived
+                                  ? "Dezarhivează conversația"
+                                  : "Arhivează conversația"
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                archiveThread(t.id, !t.archived);
+                              }}
+                            >
+                              <Archive size={14} />
+                            </button>
+
+                            <button
+                              type="button"
+                              className={`${styles.threadIconBtn} ${styles.threadIconBtnDanger}`}
+                              title="Șterge conversația"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                deleteThread(t.id);
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </span>
+                        )}
+
+                        {hasUnread && (
+                          <span className={styles.unreadBadge}>
+                            {t.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+
+        {/* Chat (desktop normal, mobil bottom-sheet cu swipe) */}
+        <section
+          className={styles.chat}
+          style={
+            isDragging
+              ? {
+                  transform: `translateY(${dragY}px)`,
+                  transition: "none",
+                }
+              : undefined
+          }
+          onTouchStart={handleSheetTouchStart}
+          onTouchMove={handleSheetTouchMove}
+          onTouchEnd={handleSheetTouchEnd}
+        >
+          {!current || !activeThread ? (
+            <div className={styles.chatEmpty}>
+              <MessageSquare size={28} />
+              <div>Selectează o conversație din listă.</div>
+            </div>
+          ) : (
+            <>
+              <header className={styles.chatHead}>
+                {/* back doar pe mobil */}
+                <button
+                  className={`${styles.iconBtn} ${styles.hideDesktop}`}
+                  onClick={clearSelection}
+                  title="Înapoi la listă"
+                  type="button"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+
+                <div className={styles.chatPeer}>
+                  <div className={styles.avatarLg}>
+                    {initialsOf(current.name || "M")}
+                  </div>
+                  <div>
+                    <div className={styles.peerName}>
+                      {current.name || "Magazin"}
+                      {/* în mod negrupat: badge cu număr comandă */}
+                      {!isGroupedView &&
+                        activeThread.orderSummary &&
+                        shortOrderId(activeThread.orderSummary) && (
+                          <span className={styles.peerOrderBadge}>
+                            {" · "}Comanda{" "}
+                            {shortOrderId(activeThread.orderSummary)}
+                          </span>
+                        )}
+                    </div>
+                    {current.phone && (
+                      <div className={styles.peerSub}>
+                        {current.phone}
+                      </div>
+                    )}
+                    <div className={styles.peerSub}>
+                      {activeThread.archived
+                        ? "Conversație arhivată"
+                        : "Conversație activă"}
+                      {isGroupedView && current.threads?.length ? (
+                        <>
+                          {" · "}
+                          {current.threads.length} conversații cu acest magazin
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.chatActions}>
+                  {/* buton arhivare / dezarhivare */}
+                  {currentThreadId && (
+                    <button
+                      className={styles.iconBtn}
+                      title={
+                        activeThread.archived
+                          ? "Dezarhivează"
+                          : "Arhivează"
+                      }
+                      onClick={() =>
+                        archiveThread(
+                          currentThreadId,
+                          !activeThread.archived
+                        )
+                      }
+                      type="button"
+                    >
+                      <Archive size={18} />
+                    </button>
+                  )}
+
+                  {/* buton ștergere conversație */}
+                  {currentThreadId && (
+                    <button
+                      className={styles.iconBtn}
+                      title="Șterge conversația"
+                      onClick={() => deleteThread(currentThreadId)}
+                      type="button"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                </div>
+              </header>
+
+              {/* tab-uri comenzi în mod grupat */}
+              {isGroupedView &&
+                Array.isArray(current.threads) &&
+                current.threads.length > 1 && (
+                  <div className={styles.orderTabs}>
+                    {current.threads.map((th) => {
+                      const sid = shortOrderId(th.orderSummary);
+                      return (
+                        <button
+                          key={th.threadId}
+                          type="button"
+                          className={
+                            th.threadId === currentThreadId
+                              ? styles.orderTabActive
+                              : styles.orderTab
+                          }
+                          onClick={() => setActiveThreadId(th.threadId)}
+                        >
+                          <span>
+                            {sid
+                              ? `Comanda ${sid}`
+                              : "Conversație fără comandă"}
+                          </span>
+                          {th.lastAt && (
+                            <span className={styles.orderTabDate}>
+                              {fmtDate(th.lastAt)}
+                            </span>
+                          )}
+                          {th.unreadCount > 0 && (
+                            <span className={styles.unreadBadge}>
+                              {th.unreadCount}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-              </button>
-            </footer>
-          </>
-        )}
-      </section>
-    </div>
+
+              <div className={styles.msgList} ref={listRef}>
+                {loadingMsgs && (
+                  <div className={styles.loading}>Se încarcă…</div>
+                )}
+                {errMsgs && (
+                  <div className={styles.error}>
+                    Nu am putut încărca mesajele.
+                  </div>
+                )}
+                {msgs.map((m) => (
+                  <MessageBubble
+                    key={m.id}
+                    mine={m.from === "me"}
+                    msg={m}
+                  />
+                ))}
+              </div>
+
+              <footer className={styles.composer}>
+                {/* attach e doar placeholder deocamdată */}
+                <button
+                  className={styles.iconBtn}
+                  title="Atașează (în curând)"
+                  type="button"
+                >
+                  <Paperclip size={18} />
+                </button>
+                <textarea
+                  className={styles.input}
+                  rows={1}
+                  placeholder="Scrie un mesaj…"
+                  value={text}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    autoResize(e.target);
+                  }}
+                  onKeyDown={handleKey}
+                  title="Trimite (Enter) · Linie nouă (Shift+Enter)"
+                />
+                <button
+                  className={styles.sendBtn}
+                  onClick={handleSend}
+                  disabled={!text.trim() || sending || !currentThreadId}
+                  type="button"
+                >
+                  {sending ? (
+                    <>
+                      <Loader2 size={16} className={styles.spin} /> Se
+                      trimite…
+                    </>
+                  ) : (
+                    <>
+                      <Send size={16} /> Trimite
+                    </>
+                  )}
+                </button>
+              </footer>
+            </>
+          )}
+        </section>
+      </div>
+
+      {/* Backdrop full-screen pe mobil – tap pe el închide conversația */}
+      {hasCurrent && (
+        <div
+          className={styles.mobileBackdrop}
+          onClick={clearSelection}
+        />
+      )}
+    </>
   );
 }
 

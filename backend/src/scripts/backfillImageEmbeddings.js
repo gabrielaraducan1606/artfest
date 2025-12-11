@@ -1,90 +1,148 @@
-// server/scripts/backfillImageEmbeddings.js
+// src/scripts/backfillImageEmbeddings.js
 import { prisma } from "../db.js";
 import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
 import fetch from "node-fetch";
 
-// adaptează dacă imaginile tale nu sunt URL-uri HTTP absolute
-async function fetchImageBuffer(url) {
-  if (!url) {
-    throw new Error("URL imagine gol");
+// Dacă în DB ai URL-uri relative (ex: "/uploads/xyz.jpg"),
+// setează în .env ceva de genul:
+// IMAGE_BASE_URL=https://artfest.ro
+const IMAGE_BASE_URL = process.env.IMAGE_BASE_URL || "";
+
+// helper: detectăm dacă e data URL (data:image/png;base64,...)
+function isDataUrl(value) {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+// descarcă imaginea ca Buffer, suportând:
+// - data URL
+// - URL absolut (http/https)
+// - URL relativ (dacă avem IMAGE_BASE_URL)
+async function fetchImageBuffer(rawUrl) {
+  if (!rawUrl) {
+    throw new Error("URL imagine lipsă");
+  }
+  if (typeof rawUrl !== "string") {
+    throw new Error("URL imagine nu este string");
   }
 
-  // dacă ai URL-uri relative (ex: /uploads/...), trebuie să le prefixezi cu origin:
-  // const fullUrl = url.startsWith("http")
-  //   ? url
-  //   : `https://domeniul-tau.ro${url}`;
-  const fullUrl = url;
+  const url = rawUrl.trim();
 
-  const res = await fetch(fullUrl);
+  // 1) data URL (base64)
+  if (isDataUrl(url)) {
+    const commaIndex = url.indexOf(",");
+    if (commaIndex === -1) {
+      throw new Error("data URL invalid (nu conține ,)");
+    }
+    const base64Part = url.slice(commaIndex + 1);
+    if (!base64Part) {
+      throw new Error("data URL invalid (nu are conținut base64)");
+    }
+    return Buffer.from(base64Part, "base64");
+  }
+
+  // 2) URL absolut (http/https)
+  let finalUrl = url;
+  if (!/^https?:\/\//i.test(url)) {
+    // 3) URL relativ → avem nevoie de IMAGE_BASE_URL
+    if (!IMAGE_BASE_URL) {
+      throw new Error(
+        `URL relativ (${url}) dar IMAGE_BASE_URL nu este setat în env`
+      );
+    }
+    finalUrl =
+      IMAGE_BASE_URL.replace(/\/+$/, "") + "/" + url.replace(/^\/+/, "");
+  }
+
+  const res = await fetch(finalUrl);
   if (!res.ok) {
     throw new Error(
-      `Nu am putut descărca imaginea: ${fullUrl} (${res.status})`
+      `Nu am putut descărca imaginea: ${finalUrl} (status ${res.status})`
     );
   }
-  const ab = await res.arrayBuffer();
-  return Buffer.from(ab);
+  const arrayBuffer = await res.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 async function processProduct(p) {
-  const firstImage = Array.isArray(p.images) ? p.images[0] : null;
+  const firstImage =
+    Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null;
+
   if (!firstImage) {
     console.log(`- [SKIP] Produs ${p.id} nu are imagini.`);
-    return;
+    return false;
   }
 
-  // verificăm dacă există deja embedding pt product_id + image_index 0
+  // verificăm dacă există deja embedding pentru product_id + image_index 0
   const existing = await prisma.$queryRawUnsafe(
     `
-    SELECT id
-    FROM product_image_embeddings
-    WHERE product_id = $1 AND image_index = 0
-    LIMIT 1
+      SELECT id
+      FROM product_image_embeddings
+      WHERE product_id = $1 AND image_index = 0
+      LIMIT 1
     `,
     p.id
   );
 
-  if (existing.length > 0) {
-    console.log(`- [SKIP] Produs ${p.id} are deja embedding.`);
-    return;
+  if (Array.isArray(existing) && existing.length > 0) {
+    console.log(
+      `- [SKIP] Produs ${p.id} are deja embedding (product_image_embeddings.id=${existing[0].id})`
+    );
+    return false;
   }
 
   try {
-    console.log(`- Procesez produs ${p.id} (img: ${firstImage})...`);
-
+    console.log(`- Procesez produs ${p.id}...`);
+    // 1) luăm imaginea ca buffer
     const imgBuffer = await fetchImageBuffer(firstImage);
-    const emb = await imageToEmbedding(imgBuffer);
-    const vec = toPgVectorLiteral(emb);
 
+    // 2) facem embedding
+    const emb = await imageToEmbedding(imgBuffer);
+    const vec = toPgVectorLiteral(emb); // '[0.1,0.2,...]'
+
+    // 3) inserăm în pgvector
     await prisma.$executeRawUnsafe(
       `
-      INSERT INTO product_image_embeddings (product_id, image_index, embedding)
-      VALUES ($1, $2, CAST($3 AS vector))
+        INSERT INTO product_image_embeddings (product_id, image_index, embedding)
+        VALUES ($1, $2, CAST($3 AS vector))
       `,
       p.id,
       0,
       vec
     );
 
-    console.log(`✓ Gata produs ${p.id}`);
+    console.log(`  ✓ OK produs ${p.id}`);
+    return true;
   } catch (err) {
-    console.error(`✗ Eroare la produsul ${p.id}:`, err.message);
+    console.error(
+      `  ✗ Eroare la produsul ${p.id}:`,
+      err?.message || err
+    );
+    return false;
   }
 }
 
 async function main() {
   console.log("Încep backfill embeddings...");
 
-  const batchSize = 100;
+  const batchSize = 50;
   let skip = 0;
-  let totalProcessed = 0;
+  let processed = 0;
+  let inserted = 0;
+
+  // iei din DB doar produse active care au cel puțin o imagine
+  // (condiția pe images nu filtrează perfect, dar e ok, filtrăm noi în cod)
+  const total = await prisma.product.count({
+    where: {
+      isActive: true,
+    },
+  });
+
+  console.log(`Total produse active: ${total}`);
 
   while (true) {
     const products = await prisma.product.findMany({
       where: {
         isActive: true,
-        // dacă images e listă scalară:
-        // images: { isEmpty: false },
-        // dacă e JSON: scoate filtrul și filtrezi în JS
       },
       select: {
         id: true,
@@ -92,6 +150,9 @@ async function main() {
       },
       skip,
       take: batchSize,
+      orderBy: {
+        createdAt: "asc",
+      },
     });
 
     if (!products.length) break;
@@ -101,14 +162,17 @@ async function main() {
     );
 
     for (const p of products) {
-      await processProduct(p);
-      totalProcessed++;
+      processed++;
+      const ok = await processProduct(p);
+      if (ok) inserted++;
     }
 
-    skip += batchSize;
+    skip += products.length;
   }
 
-  console.log(`Gata backfill embeddings. Produse procesate: ${totalProcessed}`);
+  console.log(
+    `Gata backfill embeddings. Produse procesate: ${processed}, embeddings inserate: ${inserted}`
+  );
 }
 
 main()

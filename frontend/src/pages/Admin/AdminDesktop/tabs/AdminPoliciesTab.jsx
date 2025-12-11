@@ -1,4 +1,6 @@
+// AdminPoliciesTab.jsx
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import styles from "../AdminDesktop.module.css";
 
 function formatDate(dateString) {
@@ -29,6 +31,7 @@ function createDefaultVendorFilters() {
     hasVendorTerms: "ALL", // ALL | YES | NO
     hasShipping: "ALL",
     hasReturns: "ALL",
+    hasProductDecl: "ALL",
   };
 }
 
@@ -45,6 +48,9 @@ export default function AdminPoliciesTab({
     createDefaultVendorFilters
   );
   const [vendorPage, setVendorPage] = useState(1);
+
+  // vendor selectat pentru drawer
+  const [selectedVendor, setSelectedVendor] = useState(null);
 
   /* ========== USERS ========== */
 
@@ -160,6 +166,12 @@ export default function AdminPoliciesTab({
       list = list.filter((r) => !r.returnsAccepted);
     }
 
+    if (vendorFilters.hasProductDecl === "YES") {
+      list = list.filter((r) => r.productDeclarationAccepted);
+    } else if (vendorFilters.hasProductDecl === "NO") {
+      list = list.filter((r) => !r.productDeclarationAccepted);
+    }
+
     list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return list;
@@ -200,7 +212,7 @@ export default function AdminPoliciesTab({
           </label>
 
           <label>
-            <span>Termeni & condiții (TOS)</span>
+            <span>Termeni &amp; condiții (TOS)</span>
             <select
               value={userFilters.hasTos}
               onChange={(e) =>
@@ -348,6 +360,23 @@ export default function AdminPoliciesTab({
             </select>
           </label>
 
+          <label>
+            <span>Declarație produse</span>
+            <select
+              value={vendorFilters.hasProductDecl}
+              onChange={(e) =>
+                handleVendorFilterChange((f) => ({
+                  ...f,
+                  hasProductDecl: e.target.value,
+                }))
+              }
+            >
+              <option value="ALL">Toți</option>
+              <option value="YES">Doar cu declarație</option>
+              <option value="NO">Fără declarație</option>
+            </select>
+          </label>
+
           <div className={styles.filtersActions}>
             <button
               type="button"
@@ -365,6 +394,7 @@ export default function AdminPoliciesTab({
         <VendorAgreementsTable
           rows={vendorPaginatedRows}
           totalItems={vendorTotalItems}
+          onShowVendorDetails={setSelectedVendor}
         />
 
         <Pagination
@@ -373,6 +403,14 @@ export default function AdminPoliciesTab({
           totalItems={vendorTotalItems}
           onPageChange={setVendorPage}
         />
+
+        {/* Drawer detalii per vendor */}
+        {selectedVendor && (
+          <VendorDetailsDrawer
+            vendor={selectedVendor}
+            onClose={() => setSelectedVendor(null)}
+          />
+        )}
       </section>
     </>
   );
@@ -443,7 +481,7 @@ function UserConsentsTable({ rows, totalItems }) {
 
 /* ========== Vendor table ========== */
 
-function VendorAgreementsTable({ rows, totalItems }) {
+function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
   if (!rows?.length) {
     return (
       <p className={styles.subtle}>
@@ -467,6 +505,8 @@ function VendorAgreementsTable({ rows, totalItems }) {
             <th>Acord Master</th>
             <th>Shipping addendum</th>
             <th>Politică retur</th>
+            <th>Declarație produse</th>
+            <th>Detalii</th>
           </tr>
         </thead>
         <tbody>
@@ -499,6 +539,22 @@ function VendorAgreementsTable({ rows, totalItems }) {
                       r.returnsAcceptedAt
                     )})`
                   : "Nu"}
+              </td>
+              <td>
+                {r.productDeclarationAccepted
+                  ? `Da (v${r.productDeclarationVersion || "?"}, ${formatDate(
+                      r.productDeclarationAcceptedAt
+                    )})`
+                  : "Nu"}
+              </td>
+              <td>
+                <button
+                  type="button"
+                  className={styles.emailBtn}
+                  onClick={() => onShowVendorDetails?.(r)}
+                >
+                  Detalii
+                </button>
               </td>
             </tr>
           ))}
@@ -570,4 +626,203 @@ function Pagination({ page, totalPages, totalItems, onPageChange }) {
       </div>
     </div>
   );
+}
+
+/* ========== VendorDetailsDrawer ========== */
+
+function VendorDetailsDrawer({ vendor, onClose }) {
+  if (!vendor) return null;
+  if (typeof document === "undefined") return null;
+
+  const {
+    vendorName,
+    vendorEmail,
+    userEmail,
+    vendorId,
+    createdAt,
+
+    // curierat (informativ, din VendorService.attributes)
+    wantsCourier,
+    courierAddendumToggleAccepted,
+    courierServicesCount,
+    courierSample,
+
+    // acorduri legale (VendorAcceptance)
+    vendorTermsAccepted,
+    vendorTermsVersion,
+    vendorTermsAcceptedAt,
+
+    shippingAccepted,
+    shippingVersion,
+    shippingAcceptedAt,
+
+    returnsAccepted,
+    returnsVersion,
+    returnsAcceptedAt,
+
+    productDeclarationAccepted,
+    productDeclarationVersion,
+    productDeclarationAcceptedAt,
+  } = vendor;
+
+  const node = (
+    <div className={styles.drawerOverlay} onClick={onClose}>
+      <aside
+        className={styles.drawer}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Detalii vendor"
+      >
+        <header className={styles.drawerHeader}>
+          <div>
+            <h3 className={styles.drawerTitle}>
+              {vendorName || "Vendor fără nume"}
+            </h3>
+            <p className={styles.drawerSub}>
+              {vendorEmail || "—"} {userEmail && <>· User: {userEmail}</>}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={styles.drawerClose}
+            onClick={onClose}
+            aria-label="Închide"
+          >
+            ×
+          </button>
+        </header>
+
+        <div className={styles.drawerBody}>
+          {/* Identitate */}
+          <section className={styles.drawerSection}>
+            <h4>Identitate</h4>
+            <div className={styles.drawerField}>
+              <span>Vendor ID</span>
+              <code>{vendorId}</code>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Nume vendor</span>
+              <span>{vendorName || "—"}</span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Email vendor</span>
+              <span>{vendorEmail || "—"}</span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Email user</span>
+              <span>{userEmail || "—"}</span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Creat la</span>
+              <span>{formatDate(createdAt)}</span>
+            </div>
+          </section>
+
+          {/* Curierat integrat (profil servicii) */}
+          <section className={styles.drawerSection}>
+            <h4>Curierat integrat (profil servicii)</h4>
+            <div className={styles.drawerField}>
+              <span>courierEnabled (profil servicii)</span>
+              <span>{wantsCourier ? "Da" : "Nu"}</span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Anexă curierat bifată (profil)</span>
+              <span>{courierAddendumToggleAccepted ? "Da" : "Nu"}</span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Număr servicii</span>
+              <span>
+                {courierServicesCount != null ? courierServicesCount : "—"}
+              </span>
+            </div>
+
+            {courierSample && (
+              <div className={styles.drawerField}>
+                <span>Exemplu serviciu</span>
+                <span>
+                  ID serviciu: <code>{courierSample.id}</code>
+                  <br />
+                  courierEnabled: {courierSample.courierEnabled ? "Da" : "Nu"}
+                  <br />
+                  courierAddendumAccepted:{" "}
+                  {courierSample.courierAddendumAccepted ? "Da" : "Nu"}
+                  <br />
+                  Versiune anexă:{" "}
+                  {courierSample.courierAddendumVersion || "—"}
+                  <br />
+                  Acceptată la:{" "}
+                  {courierSample.courierAddendumAcceptedAt
+                    ? formatDate(courierSample.courierAddendumAcceptedAt)
+                    : "—"}
+                </span>
+              </div>
+            )}
+
+            <p className={styles.subtle}>
+              * Valorile de mai sus vin din{" "}
+              <code>VendorService.attributes</code> (checkbox-urile din
+              onboarding), nu din istoricul legal (
+              <code>VendorAcceptance</code>).
+            </p>
+          </section>
+
+          {/* Acorduri legale */}
+          <section className={styles.drawerSection}>
+            <h4>Acorduri legale (VendorAcceptance)</h4>
+            <div className={styles.drawerField}>
+              <span>Acord Master vânzători</span>
+              <span>
+                {vendorTermsAccepted
+                  ? `Da (v${vendorTermsVersion || "?"}, ${formatDate(
+                      vendorTermsAcceptedAt
+                    )})`
+                  : "Nu"}
+              </span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Shipping addendum</span>
+              <span>
+                {shippingAccepted
+                  ? `Da (v${shippingVersion || "?"}, ${formatDate(
+                      shippingAcceptedAt
+                    )})`
+                  : "Nu"}
+              </span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Politică retur</span>
+              <span>
+                {returnsAccepted
+                  ? `Da (v${returnsVersion || "?"}, ${formatDate(
+                      returnsAcceptedAt
+                    )})`
+                  : "Nu"}
+              </span>
+            </div>
+            <div className={styles.drawerField}>
+              <span>Declarație produse</span>
+              <span>
+                {productDeclarationAccepted
+                  ? `Da (v${productDeclarationVersion || "?"}, ${formatDate(
+                      productDeclarationAcceptedAt
+                    )})`
+                  : "Nu"}
+              </span>
+            </div>
+          </section>
+        </div>
+
+        <footer className={styles.drawerFooter}>
+          <button
+            type="button"
+            className={styles.drawerBtnSecondary}
+            onClick={onClose}
+          >
+            Închide
+          </button>
+        </footer>
+      </aside>
+    </div>
+  );
+
+  return createPortal(node, document.body);
 }

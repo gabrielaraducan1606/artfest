@@ -19,8 +19,6 @@ import {
   ArrowLeft,
   Sun,
   Moon,
-  MapPin,
-  CreditCard,
   FileText,
   ShieldHalf,
   CheckCircle2,
@@ -63,30 +61,6 @@ function getInitials(me) {
     .toUpperCase();
 }
 
-/* ---------- utilitare pentru blocurile de desktop combinate ---------- */
-function fmt(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  const today = new Date();
-  const isToday = d.toDateString() === today.toDateString();
-  if (isToday)
-    return d.toLocaleTimeString("ro-RO", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  return d.toLocaleDateString("ro-RO", {
-    day: "2-digit",
-    month: "short",
-  });
-}
-
-function money(cents, cur = "RON") {
-  if (typeof cents !== "number") return "—";
-  return new Intl.NumberFormat("ro-RO", {
-    style: "currency",
-    currency: cur,
-  }).format(cents / 100);
-}
 
 // label-uri frumoase pentru status comenzi
 const STATUS_LABELS = {
@@ -116,7 +90,7 @@ function RowLink({ to, label, icon, badge }) {
   );
 }
 
-/* ===== carduri dashboard (combinate cu desktop) ===== */
+/* ===== card generic (îl folosim doar pt Wishlist acum) ===== */
 function CardDash({ title, icon, cta, children }) {
   return (
     <section className={styles.card}>
@@ -145,8 +119,20 @@ export default function UserDesktop() {
   /* ====== identitate + tema ====== */
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
+
   const [unreadNotif, setUnreadNotif] = useState(0);
-  const [unreadMsgs, setUnreadMsgs] = useState(0);
+  const [unreadMsgs, setUnreadMsgs] = useState(0); // inbox vendor (doar pt VENDOR)
+
+  // 🔢 numărul de produse în coș și în wishlist
+  const [cartCount, setCartCount] = useState(0);
+  const [wishlistCount, setWishlistCount] = useState(0);
+
+  // 🔢 numărul de mesaje necitite în inbox-ul userului
+  const [userUnreadMsgs, setUserUnreadMsgs] = useState(0);
+
+  // 🔢 numărul de tichete suport cu mesaje noi
+  const [supportUnread, setSupportUnread] = useState(0);
+
   const [onboarding, setOnboarding] = useState(null);
 
   const [theme, setTheme] = useState(() => {
@@ -196,27 +182,32 @@ export default function UserDesktop() {
     ? "Administrator"
     : "Utilizator";
 
-  /* ====== date pentru dashboard (blocurile /api/user/desktop) ====== */
-  const [deskOrders, setDeskOrders] = useState([]);
-  const [deskWishlist, setDeskWishlist] = useState([]);
-  const [deskRecs, setDeskRecs] = useState([]);
-  const [deskMsgs, setDeskMsgs] = useState([]);
-  const [deskNotifs, setDeskNotifs] = useState([]);
 
   useEffect(() => {
     if (!me) return;
     let alive = true;
     (async () => {
       try {
-        const notif = await api("/api/notifications/unread-count").catch(
-          () => ({ count: 0 })
-        );
-        const msgs = isVendor
-          ? await api("/api/inbox/unread-count").catch(() => ({ count: 0 }))
-          : { count: 0 };
+        const [notif, vendorInbox, cart, wishlist, userInbox, support] =
+          await Promise.all([
+            api("/api/notifications/unread-count").catch(() => ({ count: 0 })),
+            isVendor
+              ? api("/api/inbox/unread-count").catch(() => ({ count: 0 }))
+              : Promise.resolve({ count: 0 }),
+            api("/api/cart/count").catch(() => ({ count: 0 })),
+            api("/api/wishlist/count").catch(() => ({ count: 0 })), // alias favorites
+            api("/api/user-inbox/unread-count").catch(() => ({ count: 0 })),
+            api("/api/support/unread-count").catch(() => ({ count: 0 })),
+          ]);
+
         if (!alive) return;
+
         setUnreadNotif(notif?.count || 0);
-        setUnreadMsgs(msgs?.count || 0);
+        setUnreadMsgs(vendorInbox?.count || 0);
+        setCartCount(cart?.count || 0);
+        setWishlistCount(wishlist?.count || 0);
+        setUserUnreadMsgs(userInbox?.count || 0);
+        setSupportUnread(support?.count || 0);
       } catch {
         /* ignore */
       }
@@ -232,21 +223,12 @@ export default function UserDesktop() {
         }
       }
 
-      // 📊 încărcăm blocurile de "desktop" pentru USER (comenzi, notificări etc.)
+      // 📊 blocurile de "desktop" pentru USER (comenzi, notificări etc.)
       if (isUser) {
         try {
           const desktop = await api("/api/user/desktop").catch(() => null);
           if (!alive || !desktop) return;
-          setDeskOrders(desktop.orders || []);
-          setDeskWishlist(desktop.wishlist || []);
-          setDeskRecs(desktop.recs || []);
-          setDeskMsgs(desktop.messages || []);
-          setDeskNotifs(
-            (desktop.notifications || []).map((n) => ({
-              ...n,
-              href: n.href || n.link || null, // aliniază cu /api/notifications
-            }))
-          );
+          
         } catch {
           /* ignore */
         }
@@ -257,7 +239,7 @@ export default function UserDesktop() {
     };
   }, [me, isVendor, isUser]);
 
-  /* ====== recenzii & comentarii (mobile list + load more) ====== */
+  /* ====== recenzii & comentarii (mobile list + paginare) ====== */
   const [revTab, setRevTab] = useState("sent"); // "sent" | "received"
   const [comTab, setComTab] = useState(isVendor ? "received" : "sent");
 
@@ -370,10 +352,7 @@ export default function UserDesktop() {
     }
   }
 
-  // Card „Ultimele recenzii” – luăm primele 3 recenzii trimise
-  const deskReviews = reviewsSent.slice(0, 3);
-
-  // quick grid (fără "Dashboard", cu "Setări")
+  /* ===== Quick grid cu badge-uri (inclus Mesaje & Suport) ===== */
   const quick = [
     {
       to: "/notificari",
@@ -381,25 +360,48 @@ export default function UserDesktop() {
       icon: <Bell size={20} />,
       badge: unreadNotif,
     },
+    {
+      to: "/cos",
+      label: "Coș",
+      icon: <ShoppingCart size={20} />,
+      badge: cartCount,
+    },
+    {
+      to: "/wishlist",
+      label: "Dorințe",
+      icon: <Heart size={20} />,
+      badge: wishlistCount,
+    },
+    // Mesaje + Suport pentru user final
+    ...(isUser
+      ? [
+          {
+            to: "/cont/mesaje",
+            label: "Mesaje",
+            icon: <MessageSquare size={20} />,
+            badge: userUnreadMsgs,
+          },
+          {
+            to: "/account/support",
+            label: "Suport",
+            icon: <LifeBuoy size={20} />,
+            badge: supportUnread,
+          },
+        ]
+      : []),
+    // Mesaje pentru vânzător (inbox-ul de vendor)
     ...(isVendor
       ? [
           {
-            to: "/mesaje",
-            label: "Mesaje",
+            to: "/cont/mesaje",
+            label: "Mesaje clienți",
             icon: <MessageSquare size={20} />,
             badge: unreadMsgs,
           },
         ]
       : []),
-    { to: "/wishlist", label: "Dorințe", icon: <Heart size={20} /> },
-    ...(isUser
-      ? [{ to: "/comenzile-mele", label: "Comenzi", icon: <Package size={20} /> }]
-      : []),
     { to: "/cont/setari", label: "Setări", icon: <Settings size={20} /> },
-    ...(isVendor
-      ? [{ to: "/magazine", label: "Magazinul meu", icon: <Store size={20} /> }]
-      : []),
-  ].slice(0, 6);
+  ].slice(0, 6); // păstrăm max 6 tile-uri
 
   // Logout
   async function handleLogout(e) {
@@ -509,180 +511,11 @@ export default function UserDesktop() {
         </div>
       )}
 
-      {/* ===== Dashboard (blocurile /api/user/desktop, în stil mobil) ===== */}
+      {/* ===== Dashboard (doar Wishlist scurt) ===== */}
       {isUser && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Activitate recentă</h2>
 
-          {/* Ultimele recenzii (din reviewsSent) */}
-          <CardDash
-            title="Ultimele recenzii"
-            icon={<Star size={16} />}
-            cta={{ href: "#recenzii", label: "Vezi toate" }}
-          >
-            {!deskReviews.length ? (
-              <EmptyDash text="Nu ai recenzii încă." />
-            ) : (
-              <ul className={styles.list}>
-                {deskReviews.map((r) => (
-                  <li
-                    key={r.id}
-                    className={styles.rowLink}
-                    onClick={() =>
-                      window.location.href =
-                        (r.productUrl || "/") + (r.id ? `#rev-${r.id}` : "")
-                    }
-                  >
-                    <div className={styles.rowTitle}>
-                      {r.productTitle || r.title || "Produs / Magazin"}
-                    </div>
-                    <div className={styles.rowSub}>
-                      {r.rating} ★ ·{" "}
-                      {new Date(r.createdAt).toLocaleDateString("ro-RO")}
-                    </div>
-                    <ArrowRight size={14} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardDash>
-
-          {/* Comenzi recente */}
-          <CardDash
-            title="Comenzile mele"
-            icon={<Package size={16} />}
-            cta={{ href: "/comenzile-mele", label: "Vezi toate" }}
-          >
-            {!deskOrders.length ? (
-              <EmptyDash text="Nicio comandă încă." />
-            ) : (
-              <ul className={styles.list}>
-                {deskOrders.map((o) => {
-                  const status = (o.status || "PENDING")
-                    .toString()
-                    .toUpperCase();
-                  const label = STATUS_LABELS[status] || status;
-                  const statusClass =
-                    styles[`st_${status.toLowerCase()}`] ||
-                    styles.st_default;
-                  return (
-                    <li key={o.id} className={styles.rowLink}>
-                      <div className={styles.rowTitle}>#{o.id}</div>
-                      <div className={styles.rowSub}>{fmt(o.createdAt)}</div>
-                      <div className={styles.grow} />
-                      <span className={`${styles.badge} ${statusClass}`}>
-                        {label}
-                      </span>
-                      <div className={styles.sum}>
-                        {money(o.totalCents, o.currency || "RON")}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardDash>
-
-          {/* Notificări */}
-          <CardDash
-            title="Notificări"
-            icon={<Bell size={16} />}
-            cta={{ href: "/notificari", label: "Toate notificările" }}
-          >
-            {!deskNotifs.length ? (
-              <EmptyDash text="Nu ai notificări noi." />
-            ) : (
-              <ul className={styles.list}>
-                {deskNotifs.map((n) => (
-                  <li
-                    key={n.id}
-                    className={styles.rowLink}
-                    onClick={() => n.href && (window.location.href = n.href)}
-                  >
-                    <div className={styles.rowTitle}>{n.title}</div>
-                    <div className={styles.rowSub}>{fmt(n.createdAt)}</div>
-                    <ArrowRight size={14} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardDash>
-
-          {/* Mesaje */}
-          <CardDash
-            title="Mesaje"
-            icon={<MessageSquare size={16} />}
-            cta={{ href: "/cont/mesaje", label: "Deschide inbox" }}
-          >
-            {!deskMsgs.length ? (
-              <EmptyDash text="Nu ai conversații." />
-            ) : (
-              <ul className={styles.list}>
-                {deskMsgs.map((m) => (
-                  <li
-                    key={m.id}
-                    className={styles.rowLink}
-                    onClick={() => m.href && (window.location.href = m.href)}
-                  >
-                    <div className={styles.rowTitle}>{m.from}</div>
-                    <div className={styles.rowSub}>{m.preview}</div>
-                    <div className={styles.grow} />
-                    <div className={styles.rowSub}>{fmt(m.createdAt)}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardDash>
-
-          {/* Wishlist scurt */}
-          <CardDash
-            title="Din lista ta de dorințe"
-            icon={<Heart size={16} />}
-            cta={{ href: "/wishlist", label: "Gestionează" }}
-          >
-            {!deskWishlist.length ? (
-              <EmptyDash text="Lista ta e goală." />
-            ) : (
-              <div className={styles.gridCards}>
-                {deskWishlist.slice(0, 6).map((p) => (
-                  <a
-                    key={p.id}
-                    className={styles.tile}
-                    href={`/produs/${p.id}`}
-                  >
-                    <div className={styles.thumb} aria-hidden />
-                    <div className={styles.tileTitle}>{p.title}</div>
-                    <div className={styles.price}>
-                      {money(p.priceCents, p.currency || "RON")}
-                    </div>
-                  </a>
-                ))}
-              </div>
-            )}
-          </CardDash>
-
-          {/* Recomandări */}
-          <CardDash
-            title="Recomandate pentru tine"
-            icon={<ShoppingCart size={16} />}
-            cta={{ href: "/servicii", label: "Vezi mai multe" }}
-          >
-            {!deskRecs.length ? (
-              <EmptyDash text="Nu avem încă recomandări." />
-            ) : (
-              <div className={styles.tags}>
-                {deskRecs.map((r) => (
-                  <a
-                    key={r.id}
-                    className={styles.tag}
-                    href={r.href || "#"}
-                  >
-                    {r.title}
-                  </a>
-                ))}
-              </div>
-            )}
-          </CardDash>
         </section>
       )}
 
@@ -698,7 +531,10 @@ export default function UserDesktop() {
               className={`${styles.segBtn} ${
                 revTab === "sent" ? styles.segActive : ""
               }`}
-              onClick={() => setRevTab("sent")}
+              onClick={() => {
+                setRevTab("sent");
+                if (revPage !== 1) loadReviews(1, true);
+              }}
             >
               Trimise
             </button>
@@ -707,7 +543,10 @@ export default function UserDesktop() {
               className={`${styles.segBtn} ${
                 revTab === "received" ? styles.segActive : ""
               }`}
-              onClick={() => setRevTab("received")}
+              onClick={() => {
+                setRevTab("received");
+                if (revPage !== 1) loadReviews(1, true);
+              }}
               disabled={!isVendor}
               title={!isVendor ? "Doar pentru vânzători" : undefined}
             >
@@ -750,11 +589,9 @@ export default function UserDesktop() {
                 <div className={styles.itemActions}>
                   {revTab === "sent" ? (
                     <>
-                      {/* Editarea: mergem pe pagina produsului și scroll la recenzie */}
                       <a
                         href={
-                          (r.productUrl || "#") +
-                          (r.id ? `#rev-${r.id}` : "")
+                          (r.productUrl || "#") + (r.id ? `#rev-${r.id}` : "")
                         }
                         className={styles.linkBtn}
                       >
@@ -771,7 +608,9 @@ export default function UserDesktop() {
                   ) : (
                     isVendor && (
                       <a
-                        href={(r.productUrl || "#") + (r.id ? `#rev-${r.id}` : "")}
+                        href={
+                          (r.productUrl || "#") + (r.id ? `#rev-${r.id}` : "")
+                        }
                         className={styles.linkBtn}
                       >
                         <Reply size={14} /> Răspunde
@@ -791,17 +630,26 @@ export default function UserDesktop() {
               </div>
             )}
 
-          {revHasMore && (
-            <div className={styles.moreWrap}>
-              <button
-                className={styles.moreBtn}
-                onClick={() => loadReviews(revPage + 1, false)}
-                disabled={revLoading}
-              >
-                Vezi mai mult
-              </button>
-            </div>
-          )}
+          {/* Paginare mică: Înapoi / Înainte */}
+          <div className={styles.pager}>
+            <button
+              type="button"
+              className={styles.pagerBtn}
+              onClick={() => revPage > 1 && loadReviews(revPage - 1, true)}
+              disabled={revLoading || revPage === 1}
+            >
+              ← <span>Înapoi</span>
+            </button>
+            <span className={styles.pagerLabel}>Pagina {revPage}</span>
+            <button
+              type="button"
+              className={styles.pagerBtn}
+              onClick={() => loadReviews(revPage + 1, true)}
+              disabled={revLoading || !revHasMore}
+            >
+              <span>Înainte</span> →
+            </button>
+          </div>
         </div>
       </section>
 
@@ -817,7 +665,10 @@ export default function UserDesktop() {
               className={`${styles.segBtn} ${
                 comTab === "sent" ? styles.segActive : ""
               }`}
-              onClick={() => setComTab("sent")}
+              onClick={() => {
+                setComTab("sent");
+                if (comPage !== 1) loadComments(1, true);
+              }}
             >
               Trimise
             </button>
@@ -826,7 +677,10 @@ export default function UserDesktop() {
               className={`${styles.segBtn} ${
                 comTab === "received" ? styles.segActive : ""
               }`}
-              onClick={() => setComTab("received")}
+              onClick={() => {
+                setComTab("received");
+                if (comPage !== 1) loadComments(1, true);
+              }}
               disabled={!isVendor}
               title={!isVendor ? "Doar pentru vânzători" : undefined}
             >
@@ -866,7 +720,6 @@ export default function UserDesktop() {
                 <div className={styles.itemActions}>
                   {comTab === "sent" ? (
                     <>
-                      {/* Pentru comentarii (store reviews) editarea o faci pe pagina magazinului */}
                       <a
                         href={c.productUrl || "#"}
                         className={styles.linkBtn}
@@ -904,21 +757,30 @@ export default function UserDesktop() {
               </div>
             )}
 
-          {comHasMore && (
-            <div className={styles.moreWrap}>
-              <button
-                className={styles.moreBtn}
-                onClick={() => loadComments(comPage + 1, false)}
-                disabled={comLoading}
-              >
-                Vezi mai mult
-              </button>
-            </div>
-          )}
+          {/* Paginare mică pentru comentarii */}
+          <div className={styles.pager}>
+            <button
+              type="button"
+              className={styles.pagerBtn}
+              onClick={() => comPage > 1 && loadComments(comPage - 1, true)}
+              disabled={comLoading || comPage === 1}
+            >
+              ← <span>Înapoi</span>
+            </button>
+            <span className={styles.pagerLabel}>Pagina {comPage}</span>
+            <button
+              type="button"
+              className={styles.pagerBtn}
+              onClick={() => loadComments(comPage + 1, true)}
+              disabled={comLoading || !comHasMore}
+            >
+              <span>Înainte</span> →
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* ===== Setări & ajutor (fără „Securitate”) ===== */}
+      {/* ===== Setări & ajutor (link pe /cont/setari + pagini legale) ===== */}
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Setări & securitate</h2>
         <div className={styles.card}>
@@ -927,23 +789,34 @@ export default function UserDesktop() {
             label="Setări cont"
             icon={<Settings size={20} />}
           />
+
+          {/* Ajutor & suport cu badge de tichete noi */}
           <RowLink
-            to="/gdpr"
-            label="Datele mele (GDPR)"
+            to="/account/support"
+            label="Ajutor & suport"
+            icon={<LifeBuoy size={20} />}
+            badge={supportUnread}
+          />
+
+          {/* Documente legale acceptate la crearea contului */}
+          <RowLink
+            to="/termeni-si-conditii"
+            label="Termeni și condiții"
+            icon={<FileText size={20} />}
+          />
+          <RowLink
+            to="/politica-de-confidentialitate"
+            label="Politica de confidențialitate"
             icon={<ShieldHalf size={20} />}
           />
           <RowLink
-            to="/adrese"
-            label="Adrese de livrare"
-            icon={<MapPin size={20} />}
+            to="/politica-de-retur"
+            label="Politica de retur"
+            icon={<FileText size={20} />}
           />
+
           <RowLink
-            to="/plati"
-            label="Metode de plată"
-            icon={<CreditCard size={20} />}
-          />
-          <RowLink
-            to="/documente"
+            to="/facturi"
             label="Facturi / documente"
             icon={<FileText size={20} />}
           />
@@ -966,7 +839,7 @@ export default function UserDesktop() {
               icon={<Users size={20} />}
             />
             <RowLink
-              to="/mesaje"
+              to="/cont/mesaje"
               label="Mesaje"
               icon={<MessageSquare size={20} />}
               badge={unreadMsgs}

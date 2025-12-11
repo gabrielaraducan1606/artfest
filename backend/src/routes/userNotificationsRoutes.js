@@ -26,7 +26,17 @@ router.get("/", async (req, res) => {
     return res.status(401).json({ error: "no_user_id_in_token" });
   }
 
-  const { scope = "all", q = "" } = req.query;
+  const {
+    scope = "all",
+    q = "",
+    page: pageRaw = "1",
+    limit: limitRaw = "20",
+  } = req.query;
+
+  // page & limit safe
+  const page = Math.max(parseInt(pageRaw, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 100);
+  const skip = (page - 1) * limit;
 
   let where = { userId };
 
@@ -35,7 +45,8 @@ router.get("/", async (req, res) => {
   } else if (scope === "archived") {
     where = { ...where, archived: true };
   } else {
-    where = { ...where, archived: false }; // "all" = ne-arhivate
+    // "all" = ne-arhivate
+    where = { ...where, archived: false };
   }
 
   if (q) {
@@ -49,10 +60,12 @@ router.get("/", async (req, res) => {
     };
   }
 
-  const items = await prisma.notification.findMany({
+  // cerem limit + 1 ca să știm dacă există pagină următoare
+  const rawItems = await prisma.notification.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    take: 50,
+    skip,
+    take: limit + 1,
     select: {
       id: true,
       type: true,
@@ -65,7 +78,15 @@ router.get("/", async (req, res) => {
     },
   });
 
-  res.json({ items });
+  const hasMore = rawItems.length > limit;
+  const items = hasMore ? rawItems.slice(0, limit) : rawItems;
+
+  res.json({
+    items,
+    page,
+    limit,
+    hasMore,
+  });
 });
 
 /**

@@ -3,6 +3,7 @@
 // loadLegalDoc / loadMany știu să încarce din filesystem / config
 // documentele legale (TOS, privacy, vendor terms etc.)
 import { loadLegalDoc, loadMany } from "../lib/legal.js";
+import { prisma } from "../db.js";
 
 /**
  * GET /api/legal?types=tos,privacy,...
@@ -30,25 +31,24 @@ export function getLegalMeta(req, res) {
       : ["tos", "privacy"]; // fallback: dacă nu se specifică nimic, trimitem TOS + Privacy
 
     // încărcăm din lib toate documentele cerute
-    const out = loadMany(types).map((d) => ({
-      type: d.type,
-      title: d.title,
-      version: d.version,
-      checksum: d.checksum,
-      // URL-ul public unde poate fi afișat documentul în frontend
-      url:
-        d.type === "tos"
-          ? "/termenii-si-conditiile"
-          : d.type === "privacy"
-          ? "/confidentialitate"
-          : d.type === "vendor_terms"
-          ? "/acord-vanzatori"              // 🔴 AICI am făcut mapping-ul frumos
-          : d.type === "shipping_addendum"
-          ? "/legal/vendor/expediere"
-          : d.type === "returns"
-          ? "/retur"
-          : "#", // fallback pentru tipuri ne-mapate
-    }));
+  const out = loadMany(types).map((d) => ({
+  type: d.type,
+  title: d.title,
+  version: d.version,
+  checksum: d.checksum,
+  url:
+    d.type === "tos"
+      ? "/termenii-si-conditiile"
+      : d.type === "privacy"
+      ? "/confidentialitate"
+      : d.type === "vendor_terms"
+      ? "/acord-vanzatori"
+      : d.type === "shipping_addendum"
+      ? "/anexa-expediere"         // ✅ slug frumos
+      : d.type === "returns"
+      ? "/politica-retur"          // ✅ slug frumos
+      : "#",
+}));
 
     res.json(out);
   } catch (e) {
@@ -103,8 +103,8 @@ export function getLegalHtml(req, res) {
     <h1>${d.title}</h1>
     <p class="meta">
       Versiune: v${d.version}${
-        d.valid_from ? ` • valabil din ${d.valid_from}` : ""
-      }
+      d.valid_from ? ` • valabil din ${d.valid_from}` : ""
+    }
     </p>
     ${d.html}
   </body>
@@ -112,5 +112,136 @@ export function getLegalHtml(req, res) {
   } catch (e) {
     console.error("getLegalHtml error:", e);
     res.status(404).send("Document inexistent.");
+  }
+}
+
+/**
+ * POST /api/legal/vendor-accept
+ *
+ * Body:
+ * {
+ *   accept: [
+ *     { type: "vendor_terms" },
+ *     { type: "shipping_addendum" },
+ *     { type: "returns" }
+ *   ]
+ * }
+ *
+ * Scop:
+ *  - Salvează în DB acceptările vendorului (VendorAcceptance),
+ *    folosind versiunea + checksum din loadLegalDoc().
+ */
+
+// mapare tip din frontend -> enum VendorDoc din Prisma
+const TYPE_TO_VENDOR_DOC = {
+  vendor_terms: "VENDOR_TERMS",
+  shipping_addendum: "SHIPPING_ADDENDUM",
+  returns: "RETURNS_POLICY_ACK",
+};
+
+export async function postVendorAccept(req, res) {
+  try {
+    const userId = req.user?.sub;
+    if (!userId) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId },
+    });
+
+    if (!vendor) {
+      return res.status(404).json({
+        error: "vendor_profile_missing",
+        message: "Nu există un profil de vendor pentru acest utilizator.",
+      });
+    }
+
+    const items = Array.isArray(req.body?.accept) ? req.body.accept : [];
+    if (!items.length) {
+      return res.status(400).json({
+        error: "invalid_input",
+        message: "Trimite accept: [{ type }] în body.",
+      });
+    }
+
+    const now = new Date();
+    const results = [];
+
+    await prisma.$transaction(async (tx) => {
+      for (const item of items) {
+        const rawType = String(item?.type || "").trim();
+        const docEnum = TYPE_TO_VENDOR_DOC[rawType];
+
+        if (!docEnum) {
+          results.push({
+            type: rawType,
+            ok: false,
+            code: "unknown_type",
+          });
+          continue;
+        }
+
+        // luăm documentul din lib ca să avem versiunea + checksum
+        let doc;
+        try {
+          doc = loadLegalDoc(rawType);
+        } catch (e) {
+          console.error("loadLegalDoc failed for", rawType, e);
+          results.push({
+            type: rawType,
+            ok: false,
+            code: "doc_not_found",
+          });
+          continue;
+        }
+
+        try {
+          const acceptance = await tx.vendorAcceptance.create({
+            data: {
+              vendorId: vendor.id,
+              document: docEnum, // VendorDoc enum
+              version: String(doc.version),
+              checksum: doc.checksum || null,
+              acceptedAt: now,
+            },
+          });
+
+          results.push({
+            type: rawType,
+            ok: true,
+            document: docEnum,
+            version: String(doc.version),
+            acceptanceId: acceptance.id,
+          });
+        } catch (e) {
+          // P2002 = unique constraint (vendorId, document, version)
+          if (e?.code === "P2002") {
+            results.push({
+              type: rawType,
+              ok: true,
+              code: "already_accepted",
+              document: docEnum,
+              version: String(doc.version),
+            });
+          } else {
+            console.error("vendorAcceptance.create error:", e);
+            throw e;
+          }
+        }
+      }
+    });
+
+    return res.json({
+      ok: true,
+      vendorId: vendor.id,
+      results,
+    });
+  } catch (e) {
+    console.error("postVendorAccept error:", e);
+    return res.status(500).json({
+      error: "vendor_accept_failed",
+      message: "Nu am putut salva acceptările.",
+    });
   }
 }

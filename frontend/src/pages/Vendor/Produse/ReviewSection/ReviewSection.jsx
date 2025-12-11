@@ -1,7 +1,16 @@
-// src/pages/ProductDetails/ReviewSection/ReviewSection.jsx
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { FaStar, FaRegStar, FaFlag, FaThumbsUp } from "react-icons/fa";
+import {
+  FaStar,
+  FaRegStar,
+  FaFlag,
+  FaThumbsUp,
+  FaRegThumbsUp,
+  FaEllipsisV,
+  FaCopy,
+  FaEdit,
+  FaTrash,
+} from "react-icons/fa";
 import styles from "./ReviewSection.module.css";
 import { api } from "../../../../lib/api.js";
 
@@ -46,14 +55,19 @@ export default function ReviewSection({
   setRevRating,
   revText,
   setRevText,
+  currentUserId, // ID-ul userului logat (trimis din părinte)
 }) {
   const location = useLocation();
-  const redirect = encodeURIComponent(
-    location.pathname + location.search
-  );
+  const redirect = encodeURIComponent(location.pathname + location.search);
 
   // local copy pentru a putea incrementa helpful etc.
-  const [localReviews, setLocalReviews] = useState(reviews || []);
+  const [localReviews, setLocalReviews] = useState(
+    (reviews || []).map((r) => ({
+      ...r,
+      likedByMe: r.likedByMe || false,
+      helpfulCount: r.helpfulCount ?? 0,
+    }))
+  );
   const [files, setFiles] = useState([]);
 
   // dialog raportare
@@ -64,8 +78,18 @@ export default function ReviewSection({
   const [reportNote, setReportNote] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
 
+  // meniu 3 puncte
+  const [activeMenuId, setActiveMenuId] = useState(null);
+
   useEffect(() => {
-    setLocalReviews(reviews || []);
+    // resetăm lista locală când vin review-urile noi
+    setLocalReviews(
+      (reviews || []).map((r) => ({
+        ...r,
+        likedByMe: r.likedByMe || false,
+        helpfulCount: r.helpfulCount ?? 0,
+      }))
+    );
   }, [reviews]);
 
   // scroll la #rev-... dacă vine din admin
@@ -80,22 +104,55 @@ export default function ReviewSection({
     }
   }, [location.hash, localReviews.length]);
 
-  const handleHelpful = async (reviewId) => {
-    try {
-      await api(`/api/reviews/${encodeURIComponent(reviewId)}/helpful`, {
-        method: "POST",
-      });
+  const isMyReview = (r) =>
+    currentUserId && r.userId && r.userId === currentUserId;
 
-      // incrementăm local, ca feedback
+  /* ========= HELPFUL TOGGLE ========= */
+  const handleHelpful = async (review) => {
+    if (!isLoggedIn) {
+      alert("Pentru a marca o recenzie ca utilă, te rugăm să te autentifici.");
+      return;
+    }
+
+    const alreadyLiked = !!review.likedByMe;
+
+    try {
+      if (alreadyLiked) {
+        // UNLIKE
+        await api(
+          `/api/reviews/${encodeURIComponent(review.id)}/helpful`,
+          {
+            method: "DELETE",
+          }
+        );
+      } else {
+        // LIKE
+        await api(
+          `/api/reviews/${encodeURIComponent(review.id)}/helpful`,
+          {
+            method: "POST",
+          }
+        );
+      }
+
+      // actualizăm local: +1 sau -1 (fără să scădem sub 0)
       setLocalReviews((prev) =>
         prev.map((r) =>
-          r.id === reviewId
-            ? { ...r, helpfulCount: (r.helpfulCount || 0) + 1 }
+          r.id === review.id
+            ? {
+                ...r,
+                likedByMe: !alreadyLiked,
+                helpfulCount: Math.max(
+                  0,
+                  (r.helpfulCount || 0) + (alreadyLiked ? -1 : 1)
+                ),
+              }
             : r
         )
       );
     } catch (e) {
-      alert(e?.message || "Nu am putut marca recenzia ca utilă.");
+      console.error(e);
+      alert(e?.message || "Nu am putut actualiza statusul de util.");
     }
   };
 
@@ -122,9 +179,7 @@ export default function ReviewSection({
     try {
       setReportSubmitting(true);
       await api(
-        `/api/reviews/${encodeURIComponent(
-          reportingReview.id
-        )}/report`,
+        `/api/reviews/${encodeURIComponent(reportingReview.id)}/report`,
         {
           method: "POST",
           body: { reason: fullReason },
@@ -155,6 +210,52 @@ export default function ReviewSection({
       images: files,
     });
     setFiles([]);
+  };
+
+  // ====== acțiuni pentru meniul cu 3 puncte ======
+
+  const handleCopyComment = async (review) => {
+    if (!review.comment) return;
+    try {
+      await navigator.clipboard.writeText(review.comment);
+      alert("Textul recenziei a fost copiat în clipboard.");
+    } catch (e) {
+      console.error(e);
+      alert("Nu am putut copia textul. Încearcă din nou.");
+    }
+  };
+
+  const handleEditReview = (review) => {
+    setRevRating(review.rating || 0);
+    setRevText(review.comment || "");
+
+    const formEl = document.querySelector("#product-reviews form");
+    if (formEl) {
+      formEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    setActiveMenuId(null);
+  };
+
+  const handleDeleteReview = async (review) => {
+    const ok = window.confirm(
+      "Sigur vrei să ștergi această recenzie? Acțiunea nu poate fi anulată."
+    );
+    if (!ok) return;
+
+    try {
+      await api(`/api/reviews/${encodeURIComponent(review.id)}`, {
+        method: "DELETE",
+      });
+
+      setLocalReviews((prev) => prev.filter((r) => r.id !== review.id));
+      alert("Recenzia a fost ștearsă.");
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Nu am putut șterge recenzia.");
+    } finally {
+      setActiveMenuId(null);
+    }
   };
 
   const canWriteReview = !isOwner && isLoggedIn;
@@ -188,28 +289,88 @@ export default function ReviewSection({
               id={`rev-${r.id}`} // important pentru linkul din admin
               className={styles.item}
             >
-              <div className={styles.itemHead}>
-                <Stars value={r.rating} />
-                <span className={styles.ratingValue}>{r.rating}.0</span>
-                {r.verified && (
-                  <span className={styles.badgeVerified}>
-                    Achiziție verificată
-                  </span>
+              <div className={styles.itemTop}>
+                <div>
+                  <div className={styles.itemHead}>
+                    <Stars value={r.rating} />
+                    <span className={styles.ratingValue}>{r.rating}.0</span>
+                    {r.verified && (
+                      <span className={styles.badgeVerified}>
+                        Achiziție verificată
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={styles.itemMeta}>
+                    <span className={styles.author}>
+                      {r.userName || "Client"}
+                    </span>
+                    <span className={styles.date}>
+                      {formatDate(r.createdAt)}
+                    </span>
+                  </div>
+                </div>
+
+                {isLoggedIn && (
+                  <div className={styles.itemMenuWrap}>
+                    <button
+                      type="button"
+                      className={styles.menuToggleBtn}
+                      onClick={() =>
+                        setActiveMenuId(activeMenuId === r.id ? null : r.id)
+                      }
+                      aria-haspopup="true"
+                      aria-expanded={activeMenuId === r.id}
+                    >
+                      <FaEllipsisV />
+                    </button>
+
+                    {activeMenuId === r.id && (
+                      <div className={styles.itemMenu}>
+                        <button
+                          type="button"
+                          className={styles.itemMenuItem}
+                          onClick={() => handleCopyComment(r)}
+                        >
+                          <FaCopy /> <span>Copiază textul</span>
+                        </button>
+
+                        {isMyReview(r) && (
+                          <>
+                            <button
+                              type="button"
+                              className={styles.itemMenuItem}
+                              onClick={() => handleEditReview(r)}
+                            >
+                              <FaEdit /> <span>Editează</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.itemMenuItemDanger}
+                              onClick={() => handleDeleteReview(r)}
+                            >
+                              <FaTrash /> <span>Șterge</span>
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          type="button"
+                          className={styles.itemMenuItem}
+                          onClick={() => {
+                            openReportDialog(r);
+                            setActiveMenuId(null);
+                          }}
+                        >
+                          <FaFlag /> <span>Raportează</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div className={styles.itemMeta}>
-                <span className={styles.author}>
-                  {r.userName || "Client"}
-                </span>
-                <span className={styles.date}>
-                  {formatDate(r.createdAt)}
-                </span>
-              </div>
-
-              {r.comment && (
-                <p className={styles.comment}>{r.comment}</p>
-              )}
+              {r.comment && <p className={styles.comment}>{r.comment}</p>}
 
               {r.images && r.images.length > 0 && (
                 <div className={styles.imagesRow}>
@@ -239,11 +400,13 @@ export default function ReviewSection({
               <div className={styles.actionsRow}>
                 <button
                   type="button"
-                  className={styles.actionBtn}
-                  onClick={() => handleHelpful(r.id)}
+                  className={`${styles.actionBtn} ${
+                    r.likedByMe ? styles.actionBtnActive : ""
+                  }`}
+                  onClick={() => handleHelpful(r)}
                   title="Marchează recenzia ca utilă"
                 >
-                  <FaThumbsUp />{" "}
+                  {r.likedByMe ? <FaThumbsUp /> : <FaRegThumbsUp />}{" "}
                   <span>
                     Utilă{" "}
                     {r.helpfulCount != null && r.helpfulCount > 0
@@ -251,15 +414,7 @@ export default function ReviewSection({
                       : ""}
                   </span>
                 </button>
-
-                <button
-                  type="button"
-                  className={styles.actionBtn}
-                  onClick={() => openReportDialog(r)}
-                  title="Raportează recenzia"
-                >
-                  <FaFlag /> <span>Raportează</span>
-                </button>
+                {/* Butonul de Raportează e în meniul cu 3 puncte */}
               </div>
             </li>
           ))}
@@ -374,10 +529,7 @@ export default function ReviewSection({
 
             <div className={styles.reportOptions}>
               {DEFAULT_REPORT_REASONS.map((reason) => (
-                <label
-                  key={reason}
-                  className={styles.reportOption}
-                >
+                <label key={reason} className={styles.reportOption}>
                   <input
                     type="radio"
                     name="reportReason"
@@ -413,9 +565,7 @@ export default function ReviewSection({
                 onClick={handleSendReport}
                 disabled={reportSubmitting}
               >
-                {reportSubmitting
-                  ? "Se trimite…"
-                  : "Trimite raportarea"}
+                {reportSubmitting ? "Se trimite…" : "Trimite raportarea"}
               </button>
             </div>
           </div>

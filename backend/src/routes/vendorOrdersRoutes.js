@@ -10,6 +10,7 @@ import {
   notifyUserOnInvoiceIssued,
   notifyUserOnShipmentPickupScheduled,
 } from "../services/notifications.js"; // 🔔 nou
+import { sendShipmentPickupEmail } from "../lib/mailer.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -680,11 +681,18 @@ router.post(
         courierProvider: "YOUR_PROVIDER",
         courierService: "standard24h",
       },
+      include: {
+        order: true,
+      },
     });
 
-    // 🔔 notificare către USER că a fost programată ridicarea / AWB
+    const o = updated.order;
+
+    const etaLabel = pickup.day === "today" ? "azi" : "mâine";
+    const slotLabel = pickup.slot || "14-18";
+
+    // 🔔 notificare in-app către USER că a fost programată ridicarea / AWB
     try {
-      const o = s.order;
       if (o?.id && o.userId) {
         await notifyUserOnShipmentPickupScheduled(o.id, updated.id);
       }
@@ -692,11 +700,40 @@ router.post(
       console.error("notifyUserOnShipmentPickupScheduled failed:", e);
     }
 
+    // ✉️ email către client: „comanda a fost predată curierului”
+    try {
+      const shippingAddress = o?.shippingAddress || {};
+      let to = shippingAddress.email || null;
+
+      // fallback: dacă nu avem email în shippingAddress, luăm din user
+      if (!to && o?.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: o.userId },
+          select: { email: true },
+        });
+        to = user?.email || null;
+      }
+
+      if (to) {
+        await sendShipmentPickupEmail({
+          to,
+          orderId: o.id,
+          awb: updated.awb,
+          trackingUrl: updated.trackingUrl,
+          etaLabel,
+          slotLabel,
+        });
+      }
+    } catch (e) {
+      console.error("sendShipmentPickupEmail failed:", e);
+      // nu dăm fail la request doar pentru că nu a mers mailul
+    }
+
     res.json({
       ok: true,
       awb: updated.awb,
-      eta: pickup.day === "today" ? "azi" : "mâine",
-      slot: pickup.slot || "14-18",
+      eta: etaLabel,       // ex: "azi" / "mâine"
+      slot: slotLabel,     // ex: "14-18"
       labelUrl: updated.labelUrl,
       trackingUrl: updated.trackingUrl,
     });

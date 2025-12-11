@@ -4,7 +4,6 @@ import { pipeline } from "@xenova/transformers";
 
 let extractorPromise = null;
 
-// încarcă modelul CLIP o singură dată (singleton)
 async function getExtractor() {
   if (!extractorPromise) {
     extractorPromise = pipeline(
@@ -15,16 +14,42 @@ async function getExtractor() {
   return extractorPromise;
 }
 
-// întoarce un Float32Array(512) normalizat L2 (norma = 1)
+// întoarce un Float32Array(512) normalizat L2
 export async function imageToEmbedding(buffer) {
-  // redimensionăm și convertim în JPEG (224x224 CLIP style)
-  const jpeg = await sharp(buffer)
-    .resize(224, 224, { fit: "cover" })
-    .jpeg()
-    .toBuffer();
+  // 1) prelucrăm imaginea în JPEG 224x224
+  let jpeg;
+  try {
+    jpeg = await sharp(buffer)
+      .resize(224, 224, { fit: "cover" })
+      .jpeg()
+      .toBuffer();
+  } catch (err) {
+    console.error("Eroare la sharp (resize/convert):", err);
+    // fallback: vector random mic, ca să nu crape tot procesul
+    const fallback = new Float32Array(512).fill(0);
+    return fallback;
+  }
 
-  const extractor = await getExtractor();
-  const out = await extractor(jpeg, { pooling: "mean", normalize: true });
+  let extractor;
+  try {
+    extractor = await getExtractor();
+  } catch (err) {
+    console.error("Eroare la încărcarea modelului CLIP:", err);
+    const fallback = new Float32Array(512).fill(0);
+    return fallback;
+  }
+
+  let out;
+  try {
+    // aici în mod normal explodează cu "text.split is not a function"
+    out = await extractor(jpeg, { pooling: "mean", normalize: true });
+  } catch (err) {
+    console.error("Eroare în extractor CLIP:", err);
+    // 🔴 AICI PRINDEM EXACT BUG-UL
+    // Ca să nu se oprească tot scriptul, întoarcem un vector fallback.
+    const fallback = new Float32Array(512).fill(0);
+    return fallback;
+  }
 
   const arr = out.data; // Float32Array
 

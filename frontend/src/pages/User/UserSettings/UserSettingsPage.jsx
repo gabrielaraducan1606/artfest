@@ -1,5 +1,5 @@
 // src/pages/Account/UserSettingsPage.jsx
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   User as UserIcon,
   Shield,
@@ -233,19 +233,43 @@ export default function UserSettingsPage() {
   const [savingPass, setSavingPass] = useState(false);
   const [passOk, setPassOk] = useState(false);
   const [passErr, setPassErr] = useState("");
+  const [passErrCode, setPassErrCode] = useState("");
 
-  const MIN_LEN = 6;
+  const MIN_LEN = 8;
+
+  // scor de complexitate 0..5
+  const passScore = useMemo(() => {
+    const len = newPass.length >= MIN_LEN ? 1 : 0;
+    const lower = /[a-z]/.test(newPass) ? 1 : 0;
+    const upper = /[A-Z]/.test(newPass) ? 1 : 0;
+    const digit = /\d/.test(newPass) ? 1 : 0;
+    const symbol = /[^A-Za-z0-9]/.test(newPass) ? 1 : 0;
+    return len + lower + upper + digit + symbol;
+  }, [newPass]);
+
+  const [capsOnPass, setCapsOnPass] = useState(false);
+  const [passFocused, setPassFocused] = useState(false);
 
   const canSavePass =
     oldPass.length > 0 &&
     newPass.length >= MIN_LEN &&
     newPass2.length >= MIN_LEN &&
     newPass === newPass2 &&
+    passScore >= 3 &&
     !savingPass;
+
+  function handleNewPassKey(ev) {
+    try {
+      setCapsOnPass(!!ev.getModifierState?.("CapsLock"));
+    } catch {
+      // ignorăm
+    }
+  }
 
   const changePassword = useCallback(async () => {
     setPassErr("");
     setPassOk(false);
+    setPassErrCode("");
 
     if (newPass.length < MIN_LEN) {
       setPassErr(`Parola trebuie să aibă cel puțin ${MIN_LEN} caractere.`);
@@ -253,6 +277,12 @@ export default function UserSettingsPage() {
     }
     if (newPass !== newPass2) {
       setPassErr("Parolele nu se potrivesc.");
+      return;
+    }
+    if (passScore < 3) {
+      setPassErr(
+        "Parola este prea slabă. Folosește o combinație de litere mari/mici, cifre și simboluri."
+      );
       return;
     }
 
@@ -268,14 +298,19 @@ export default function UserSettingsPage() {
       setNewPass("");
       setNewPass2("");
     } catch (e) {
+      const code = e?.data?.error || "";
+      setPassErrCode(code);
+
       const serverMsg =
         e?.data?.message ||
-        (e?.data?.error === "invalid_current_password" &&
+        (code === "invalid_current_password" &&
           "Parola curentă nu este corectă.") ||
-        (e?.data?.error === "same_as_current" &&
+        (code === "same_as_current" &&
           "Parola nouă nu poate fi identică cu parola curentă.") ||
-        (e?.data?.error === "password_reused" &&
+        (code === "password_reused" &&
           "Nu poți reutiliza una dintre ultimele parole.") ||
+        (code === "weak_password" &&
+          "Parola este prea slabă. Te rugăm să folosești o combinație de litere mari/mici, cifre și simboluri.") ||
         e?.message ||
         "Nu am putut schimba parola.";
       setPassErr(serverMsg);
@@ -283,7 +318,7 @@ export default function UserSettingsPage() {
     } finally {
       setSavingPass(false);
     }
-  }, [oldPass, newPass, newPass2]);
+  }, [oldPass, newPass, newPass2, passScore]);
 
   /* ================== SECURITATE: EMAIL ================== */
 
@@ -292,65 +327,65 @@ export default function UserSettingsPage() {
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailOk, setEmailOk] = useState(false);
   const [emailErr, setEmailErr] = useState("");
+  const [pendingEmailInfo, setPendingEmailInfo] = useState("");
 
   const canSaveEmail =
     newEmail.trim().length > 0 &&
     emailCurrentPass.trim().length > 0 &&
     !emailSaving;
 
-  const changeEmail = useCallback(async () => {
-    setEmailErr("");
-    setEmailOk(false);
-
-    const emailTrimmed = newEmail.trim().toLowerCase();
-
-    if (!emailTrimmed.includes("@") || !emailTrimmed.includes(".")) {
-      setEmailErr("Te rugăm să introduci un email valid.");
-      return;
-    }
-
-    if (emailTrimmed === profile.email.toLowerCase()) {
-      setEmailErr("Emailul nou este identic cu cel curent.");
-      return;
-    }
-
-    setEmailSaving(true);
-    try {
-      const d = await api("/api/account/change-email", {
-        method: "POST",
-        body: {
-          currentPassword: emailCurrentPass,
-          newEmail: emailTrimmed,
-        },
-      });
-
-      const u = d.user || {};
-      const updatedEmail = u.email || emailTrimmed;
-
-      setProfile((p) => ({
-        ...p,
-        email: updatedEmail,
-      }));
-
-      setNewEmail("");
-      setEmailCurrentPass("");
-      setEmailOk(true);
-    } catch (e) {
-      const msg =
-        e?.data?.message ||
-        (e?.data?.error === "invalid_current_password" &&
-          "Parola curentă nu este corectă.") ||
-        (e?.data?.error === "email_taken" &&
-          "Există deja un cont cu acest email.") ||
-        (e?.data?.error === "same_email" &&
-          "Emailul nou este identic cu cel curent.") ||
-        e?.message ||
-        "Nu am putut schimba emailul.";
-      setEmailErr(msg);
+  const changeEmail = useCallback(() => {
+    (async () => {
+      setEmailErr("");
       setEmailOk(false);
-    } finally {
-      setEmailSaving(false);
-    }
+      setPendingEmailInfo("");
+
+      const emailTrimmed = newEmail.trim().toLowerCase();
+
+      if (!emailTrimmed.includes("@") || !emailTrimmed.includes(".")) {
+        setEmailErr("Te rugăm să introduci un email valid.");
+        return;
+      }
+
+      if (emailTrimmed === profile.email.toLowerCase()) {
+        setEmailErr("Emailul nou este identic cu cel curent.");
+        return;
+      }
+
+      setEmailSaving(true);
+      try {
+        const d = await api("/api/account/change-email", {
+          method: "POST",
+          body: {
+            currentPassword: emailCurrentPass,
+            newEmail: emailTrimmed,
+          },
+        });
+
+        const pending = d.pendingEmail || emailTrimmed;
+
+        // nu schimbăm încă email-ul în profil; așteptăm confirmarea din email
+        setPendingEmailInfo(pending);
+        setNewEmail("");
+        setEmailCurrentPass("");
+        setEmailOk(true);
+      } catch (e) {
+        const msg =
+          e?.data?.message ||
+          (e?.data?.error === "invalid_current_password" &&
+            "Parola curentă nu este corectă.") ||
+          (e?.data?.error === "email_taken" &&
+            "Există deja un cont cu acest email.") ||
+          (e?.data?.error === "same_email" &&
+            "Emailul nou este identic cu cel curent.") ||
+          e?.message ||
+          "Nu am putut schimba emailul.";
+        setEmailErr(msg);
+        setEmailOk(false);
+      } finally {
+        setEmailSaving(false);
+      }
+    })();
   }, [newEmail, emailCurrentPass, profile.email]);
 
   /* ================== ȘTERGERE CONT ================== */
@@ -447,6 +482,19 @@ export default function UserSettingsPage() {
                   value={profile.email}
                   disabled
                 />
+
+                <p className={settingsStyles.helperText}>
+                  Adresa de email folosită la conectare se poate schimba din
+                  tabul{" "}
+                  <button
+                    type="button"
+                    className={settingsStyles.linkButton}
+                    onClick={() => setActive("security")}
+                  >
+                    „Securitate”
+                  </button>
+                  .
+                </p>
               </label>
 
               <div className={settingsStyles.grid2}>
@@ -543,7 +591,7 @@ export default function UserSettingsPage() {
           <Section
             icon={<Bell size={18} />}
             title="Notificări în aplicație"
-            subtitle="Controlează notificările pe care le vezi în contul tău Artfest. Emailurile esențiale legate de comenzi și securitate vor fi trimise în continuare, indiferent de aceste setări."
+            subtitle="Controlează notificările pe care le vezi în contul tău Artfest. Emailurile esențiale legate de comenzi și securitate vor fi trimise în continuare, indiferent de aceste setări. momentan sunt pentru comenzi, suport implementate. "
             right={
               <button
                 className={settingsStyles.primary}
@@ -658,6 +706,10 @@ export default function UserSettingsPage() {
                       type="password"
                       value={newPass}
                       onChange={(e) => setNewPass(e.target.value)}
+                      onKeyUp={handleNewPassKey}
+                      onKeyDown={handleNewPassKey}
+                      onFocus={() => setPassFocused(true)}
+                      onBlur={() => setPassFocused(false)}
                       placeholder={`Cel puțin ${MIN_LEN} caractere`}
                     />
                   </label>
@@ -685,9 +737,42 @@ export default function UserSettingsPage() {
                   </div>
                 )}
 
+                {newPass && (
+                  <div
+                    style={{ marginTop: 4, fontSize: 12, color: "#6b7280" }}
+                  >
+                    Complexitate parolă:{" "}
+                    {passScore <= 2
+                      ? "slabă"
+                      : passScore === 3
+                      ? "medie"
+                      : "puternică"}
+                    . Recomandat: litere mari/mici, cifre și simboluri.
+                  </div>
+                )}
+
+                {capsOnPass && passFocused && (
+                  <div className={settingsStyles.warn}>
+                    CapsLock este activ – ai grijă la literele mari.
+                  </div>
+                )}
+
                 {passErr && (
                   <div className={settingsStyles.error} role="alert">
                     {passErr}
+                  </div>
+                )}
+
+                {passErrCode === "invalid_current_password" && (
+                  <div className={settingsStyles.helperText}>
+                    Dacă nu îți amintești parola curentă, poți folosi opțiunea{" "}
+                    <a
+                      href={FORGOT_PASSWORD_URL}
+                      className={settingsStyles.link}
+                    >
+                      „Am uitat parola”
+                    </a>
+                    .
                   </div>
                 )}
 
@@ -763,7 +848,10 @@ export default function UserSettingsPage() {
 
                 {emailOk && (
                   <div className={settingsStyles.success}>
-                    ✅ Emailul a fost actualizat.
+                    ✅ Ți-am trimis un email de confirmare la{" "}
+                    <strong>{pendingEmailInfo}</strong>. Te rugăm să accesezi
+                    linkul din acel email pentru a finaliza schimbarea
+                    adresei de email.
                   </div>
                 )}
               </div>

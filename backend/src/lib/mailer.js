@@ -9,6 +9,12 @@ import {
   // 👇 ADĂUGAT — template guest
   guestSupportConfirmationTemplate,
   guestSupportReplyTemplate,
+
+  // 👇 ADĂUGAT — template schimbare email
+  emailChangeVerificationTemplate,
+
+  // 👇 ADĂUGAT — template factură emisă
+  invoiceIssuedEmailTemplate,
 } from "./emailTemplates.js";
 
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
@@ -42,7 +48,12 @@ function withLogo(templateFn, props = {}) {
    === GUEST SUPPORT EMAILS — ADĂUGAT ===
    ============================================================ */
 
-export async function sendGuestSupportConfirmationEmail({ to, name, subject, message }) {
+export async function sendGuestSupportConfirmationEmail({
+  to,
+  name,
+  subject,
+  message,
+}) {
   const transporter = makeTransport();
 
   const { html, text, subject: emailSubject, logoCid } = withLogo(
@@ -67,7 +78,12 @@ export async function sendGuestSupportConfirmationEmail({ to, name, subject, mes
   });
 }
 
-export async function sendGuestSupportReplyEmail({ to, name, subject, reply }) {
+export async function sendGuestSupportReplyEmail({
+  to,
+  name,
+  subject,
+  reply,
+}) {
   const transporter = makeTransport();
 
   const { html, text, subject: emailSubject, logoCid } = withLogo(
@@ -94,15 +110,12 @@ export async function sendGuestSupportReplyEmail({ to, name, subject, reply }) {
 
 /**
  * ✉️ Trimite email de verificare cont (signup)
- * - folosește verificationEmailTemplate
- * - atașează logo cu cid, pentru a fi randat inline în HTML
  */
 export async function sendVerificationEmail({ to, link }) {
   const transporter = makeTransport();
-  const { html, text, subject, logoCid } = withLogo(
-    verificationEmailTemplate,
-    { link }
-  );
+  const { html, text, subject, logoCid } = withLogo(verificationEmailTemplate, {
+    link,
+  });
 
   return transporter.sendMail({
     from: process.env.EMAIL_FROM,
@@ -118,7 +131,6 @@ export async function sendVerificationEmail({ to, link }) {
         contentType: "image/png",
       },
     ],
-    // headere pentru a marca mesajul ca auto-generat
     headers: {
       "Auto-Submitted": "auto-generated",
       "X-Auto-Response-Suppress": "All",
@@ -129,7 +141,6 @@ export async function sendVerificationEmail({ to, link }) {
 
 /**
  * ✉️ Trimite email de resetare parolă
- * - folosește resetPasswordEmailTemplate
  */
 export async function sendPasswordResetEmail({ to, link }) {
   const transporter = makeTransport();
@@ -161,7 +172,39 @@ export async function sendPasswordResetEmail({ to, link }) {
 }
 
 /**
- * helper mic pentru formatat sume în RON (sau altă valută)
+ * ✉️ Trimite email de confirmare schimbare email
+ */
+export async function sendEmailChangeVerificationEmail({ to, link }) {
+  const transporter = makeTransport();
+  const { html, text, subject, logoCid } = withLogo(
+    emailChangeVerificationTemplate,
+    { link }
+  );
+
+  return transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject,
+    html,
+    text,
+    attachments: [
+      {
+        filename: "logo-artfest-240.png",
+        path: "https://artfest.ro/assets/LogoArtfest.png",
+        cid: logoCid,
+        contentType: "image/png",
+      },
+    ],
+    headers: {
+      "Auto-Submitted": "auto-generated",
+      "X-Auto-Response-Suppress": "All",
+      Precedence: "bulk",
+    },
+  });
+}
+
+/**
+ * helper mic pentru formatat sume
  */
 function formatMoney(value, currency = "RON") {
   const v = Number(value || 0);
@@ -182,10 +225,6 @@ function stripHtml(html = "") {
 
 /**
  * ✉️ Emailuri de marketing (campanii, newsletter)
- *
- * - primește HTML-ul specific campaniei + subiect + preheader
- * - îl învelește într-un layout standard (card, logo, footer legal)
- * - generează automat versiunea text (text/plain) din HTML
  */
 export async function sendMarketingEmail({ to, subject, html, preheader }) {
   if (!to || !subject || !html) return;
@@ -244,10 +283,7 @@ export async function sendMarketingEmail({ to, subject, html, preheader }) {
 }
 
 /**
- * ✉️ Email avertizare cont inactiv (urmează să fie șters)
- *
- * - îi spui userului până la ce dată trebuie să se conecteze ca să nu fie șters
- * - include buton către APP_URL (dacă există)
+ * ✉️ Email avertizare cont inactiv
  */
 export async function sendInactiveAccountWarningEmail({ to, deleteAt }) {
   if (!to || !deleteAt) return;
@@ -332,11 +368,6 @@ export async function sendInactiveAccountWarningEmail({ to, deleteAt }) {
 
 /**
  * ✉️ Email de confirmare comandă (commerce)
- *
- * - primește detalii comandă + items
- * - calculează subtotal, transport, total
- * - construiește un tabel cu produsele și un rezumat de adresă
- * - acum poate afișa și adresele magazinelor (storeAddresses)
  */
 export async function sendOrderConfirmationEmail({
   to,
@@ -547,9 +578,7 @@ export async function sendOrderConfirmationEmail({
     address.county || "",
     address.phone ? `Tel: ${address.phone}` : "",
     "",
-    storeAddressesTextLines.length
-      ? "Adrese retur magazine:"
-      : "",
+    storeAddressesTextLines.length ? "Adrese retur magazine:" : "",
     ...storeAddressesTextLines,
     "",
     orderLink ? `Poți vedea comanda aici: ${orderLink}` : "",
@@ -833,10 +862,6 @@ export async function sendOrderCancelledByUserEmail({ to, order }) {
  *  🔐 NOI: mailuri de securitate (parolă veche + login suspect)
  * =======================================================*/
 
-/**
- * ✉️ Email „îți recomandăm să-ți schimbi parola” (parola foarte veche)
- * - folosește passwordStaleReminderEmailTemplate
- */
 export async function sendPasswordStaleReminderEmail({
   to,
   passwordAgeDays,
@@ -876,10 +901,6 @@ export async function sendPasswordStaleReminderEmail({
   });
 }
 
-/**
- * ✉️ Email „am observat încercări eșuate de login” (activitate suspectă)
- * - folosește suspiciousLoginWarningEmailTemplate
- */
 export async function sendSuspiciousLoginWarningEmail({ to }) {
   if (!to) return;
 
@@ -917,15 +938,11 @@ export async function sendSuspiciousLoginWarningEmail({ to }) {
  *  🔔 NOU: mail follow-up vendor
  * =======================================================*/
 
-/**
- * ✉️ Email follow-up pentru vendor (lead reminder)
- * - se trimite DOAR vendorului, nu clientului
- */
 export async function sendVendorFollowUpReminderEmail({
   to,
   contactName,
   followUpAt,
-  threadLink, // ex: /mesaje?threadId=...
+  threadLink,
 }) {
   if (!to) return;
 
@@ -944,6 +961,172 @@ export async function sendVendorFollowUpReminderEmail({
       link: fullLink,
     }
   );
+
+  return transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject,
+    html,
+    text,
+    attachments: [
+      {
+        filename: "logo-artfest-240.png",
+        path: "https://artfest.ro/assets/LogoArtfest.png",
+        cid: logoCid,
+        contentType: "image/png",
+      },
+    ],
+    headers: {
+      "Auto-Submitted": "auto-generated",
+      "X-Auto-Response-Suppress": "All",
+      Precedence: "bulk",
+    },
+  });
+}
+
+/* =========================================================
+ *  ✉️ NOU: email „factura a fost emisă”
+ * =======================================================*/
+
+export async function sendInvoiceIssuedEmail({
+  to,
+  orderId,
+  invoiceNumber,
+  totalGross,
+  currency = "RON",
+  invoiceFrontendPath, // ex: /comanda/123 sau /cont/facturi?order=...
+}) {
+  if (!to || !orderId) return;
+
+  const transporter = makeTransport();
+
+  const totalLabel = formatMoney(totalGross || 0, currency);
+
+  const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
+  const link =
+    baseUrl && invoiceFrontendPath
+      ? `${baseUrl}${invoiceFrontendPath}`
+      : baseUrl
+      ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
+      : undefined;
+
+  const { html, text, subject, logoCid } = withLogo(
+    invoiceIssuedEmailTemplate,
+    {
+      orderId,
+      invoiceNumber,
+      totalLabel,
+      link,
+    }
+  );
+
+  return transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject,
+    html,
+    text,
+    attachments: [
+      {
+        filename: "logo-artfest-240.png",
+        path: "https://artfest.ro/assets/LogoArtfest.png",
+        cid: logoCid,
+        contentType: "image/png",
+      },
+    ],
+    headers: {
+      "Auto-Submitted": "auto-generated",
+      "X-Auto-Response-Suppress": "All",
+      Precedence: "bulk",
+    },
+  });
+}
+/* =========================================================
+ *  ✉️ NOU: email „comanda a fost predată curierului”
+ * =======================================================*/
+
+export async function sendShipmentPickupEmail({
+  to,
+  orderId,
+  awb,
+  trackingUrl,
+  etaLabel,   // ex: "azi" / "mâine"
+  slotLabel,  // ex: "14-18"
+}) {
+  if (!to) return;
+
+  const transporter = makeTransport();
+  const logoCid = "artfest-logo";
+
+  const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
+  const orderLink = baseUrl
+    ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
+    : null;
+
+  const subject = `Comanda ta a fost predată curierului - ${BRAND_NAME}`;
+
+  const html = `
+  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+    <div style="text-align:center;margin-bottom:20px;">
+      <img src="cid:${logoCid}" alt="${BRAND_NAME} logo" width="120" height="120"
+           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    </div>
+
+    <h2 style="color:#111827;margin:0 0 8px;">Comanda ta este în drum spre tine 🚚</h2>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+      Comanda ta pe <strong>${BRAND_NAME}</strong> a fost predată curierului.
+    </p>
+
+    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+      <strong>Număr comandă:</strong> ${orderId}<br>
+      <strong>AWB:</strong> ${awb || "-"}<br>
+      <strong>Livrare estimată:</strong> ${etaLabel || "-"} în intervalul ${slotLabel || "-"}
+    </p>
+
+    ${
+      trackingUrl
+        ? `
+    <p style="text-align:center;margin:18px 0;">
+      <a href="${trackingUrl}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+        Urmărește coletul
+      </a>
+    </p>
+    <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
+      Sau accesează linkul: <a href="${trackingUrl}" style="color:#4f46e5;">${trackingUrl}</a>
+    </p>
+    `
+        : ""
+    }
+
+    ${
+      orderLink
+        ? `
+    <p style="color:#6b7280;font-size:13px;margin:16px 0 0;text-align:center;">
+      Poți vedea detaliile comenzii aici: <a href="${orderLink}" style="color:#4b5563;">${orderLink}</a>
+    </p>
+    `
+        : ""
+    }
+
+    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+      Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+    </p>
+  </div>
+  `;
+
+  const textLines = [
+    `Comanda ta pe ${BRAND_NAME} a fost predată curierului.`,
+    `Număr comandă: ${orderId}`,
+    awb ? `AWB: ${awb}` : "",
+    etaLabel || slotLabel
+      ? `Livrare estimată: ${etaLabel || ""} în intervalul ${slotLabel || ""}`.trim()
+      : "",
+    trackingUrl ? `Poți urmări coletul aici: ${trackingUrl}` : "",
+    orderLink ? `Detalii comandă: ${orderLink}` : "",
+  ].filter(Boolean);
+
+  const text = textLines.join("\n");
 
   return transporter.sendMail({
     from: process.env.EMAIL_FROM,

@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
   useCallback,
+  useRef,
 } from "react";
 import {
   useSearchParams,
@@ -29,10 +30,9 @@ export default function StoresPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
-  // === query params din URL ===
-  const page = Number(params.get("page") || 1);
+  // === query params din URL (fără page) ===
   const qParam = params.get("q") || "";
-  const cityParam = params.get("city") || ""; // 👈 slug
+  const cityParam = params.get("city") || ""; // slug
   const sortParam = params.get("sort") || "new";
 
   const limit = 24;
@@ -40,8 +40,13 @@ export default function StoresPage() {
   // === state listă ===
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // pentru prima pagină
   const [error, setError] = useState(null);
+
+  // === infinite scroll ===
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // === orașe pentru filtre (slug + label) ===
   const [cityOptions, setCityOptions] = useState([]);
@@ -67,6 +72,9 @@ export default function StoresPage() {
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
+  // ref pentru zona de căutare + dropdown sugestii
+  const searchAreaRef = useRef(null);
+
   // sincronizează filtrele locale când se schimbă URL-ul
   useEffect(() => {
     setLocalFilters({
@@ -74,6 +82,10 @@ export default function StoresPage() {
       city: cityParam, // slug
       sort: sortParam,
     });
+    // când se schimbă filtrele, resetăm listă + paginare
+    setItems([]);
+    setPage(1);
+    setHasMore(true);
   }, [qParam, cityParam, sortParam]);
 
   // închide modal la Escape
@@ -101,39 +113,61 @@ export default function StoresPage() {
     })();
   }, []);
 
-  // === încărcare magazine din API, în funcție de URL ===
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const p = new URLSearchParams();
-      p.set("page", String(page));
-      p.set("limit", String(limit));
-      if (qParam) p.set("q", qParam);
-      if (cityParam) p.set("city", cityParam); // slug
-      if (sortParam) p.set("sort", sortParam);
+  // === funcție de load generică (folosită pentru prima pagină + load mai multe) ===
+  const load = useCallback(
+    async (pageToLoad = 1, append = false) => {
+      if (pageToLoad === 1 && !append) {
+        setLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+      setError(null);
 
-      const res = await api(`/api/public/stores?${p.toString()}`);
-      setItems(res?.items || []);
-      setTotal(res?.total || 0);
-    } catch (e) {
-      console.error(e);
-      setError("A apărut o eroare la încărcarea magazinelor.");
-      setItems([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, qParam, cityParam, sortParam]);
+      try {
+        const p = new URLSearchParams();
+        p.set("page", String(pageToLoad));
+        p.set("limit", String(limit));
+        if (qParam) p.set("q", qParam);
+        if (cityParam) p.set("city", cityParam); // slug
+        if (sortParam) p.set("sort", sortParam);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+        const res = await api(`/api/public/stores?${p.toString()}`);
+        const newItems = res?.items || [];
+        const totalFromApi = res?.total || 0;
 
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(total / limit)),
-    [total]
+        setItems((prev) =>
+          append ? [...prev, ...newItems] : newItems
+        );
+        setTotal(totalFromApi);
+
+        const totalPages = Math.max(
+          1,
+          Math.ceil(totalFromApi / limit)
+        );
+        setHasMore(pageToLoad < totalPages);
+      } catch (e) {
+        console.error(e);
+        setError("A apărut o eroare la încărcarea magazinelor.");
+        if (!append) {
+          setItems([]);
+          setTotal(0);
+        }
+        setHasMore(false);
+      } finally {
+        if (pageToLoad === 1 && !append) {
+          setLoading(false);
+        } else {
+          setIsLoadingMore(false);
+        }
+      }
+    },
+    [qParam, cityParam, sortParam]
   );
+
+  // === încarcă prima pagină atunci când se schimbă filtrele (sau la mount) ===
+  useEffect(() => {
+    load(1, false);
+  }, [load, qParam, cityParam, sortParam]);
 
   // === autocomplete: sugestii magazine pentru q ===
   useEffect(() => {
@@ -148,7 +182,9 @@ export default function StoresPage() {
       try {
         setSuggestLoading(true);
         const data = await api(
-          `/api/public/stores/suggest?q=${encodeURIComponent(q)}`
+          `/api/public/stores/suggest?q=${encodeURIComponent(
+            q
+          )}`
         );
         setSuggestions(data || null);
       } catch (e) {
@@ -162,7 +198,25 @@ export default function StoresPage() {
     return () => clearTimeout(handle);
   }, [localFilters.q]);
 
-  // === Aplică filtre (scrie în URL) ===
+  // === Închide sugestiile la click în afara barei de căutare ===
+  useEffect(() => {
+    if (!suggestions) return;
+
+    const handleClickOutside = (e) => {
+      if (!searchAreaRef.current) return;
+      if (searchAreaRef.current.contains(e.target)) return;
+      setSuggestions(null);
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () =>
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+  }, [suggestions]);
+
+  // === Aplică filtre (scrie în URL, resetează implicit page la 1) ===
   const applyFilters = () => {
     const f = localFilters;
     const p = new URLSearchParams();
@@ -171,8 +225,7 @@ export default function StoresPage() {
     if (f.city) p.set("city", f.city); // slug
     if (f.sort) p.set("sort", f.sort);
 
-    p.set("page", "1");
-
+    // nu mai avem page în URL; pagina 1 e implicit
     setFiltersOpen(false);
     setSuggestions(null);
     navigate(`/magazine?${p.toString()}`);
@@ -190,13 +243,6 @@ export default function StoresPage() {
     navigate("/magazine");
   };
 
-  // === Paginare ===
-  const handlePageChange = (newPage) => {
-    const p = new URLSearchParams(params);
-    p.set("page", String(newPage));
-    navigate(`/magazine?${p.toString()}`);
-  };
-
   const handleSuggestionClick = (store) => {
     setSuggestions(null);
     const to = store.profileSlug
@@ -204,6 +250,35 @@ export default function StoresPage() {
       : `/magazin/${store.id}`;
     navigate(to);
   };
+
+  // === Infinite scroll: când ajungem aproape de bottom, încărcăm pagina următoare ===
+  useEffect(() => {
+    if (!hasMore) return;
+
+    const handleScroll = () => {
+      const scrollPosition =
+        window.innerHeight + window.scrollY;
+      const threshold = document.body.offsetHeight - 400;
+
+      if (
+        scrollPosition >= threshold &&
+        !loading &&
+        !isLoadingMore &&
+        hasMore
+      ) {
+        setPage((prev) => prev + 1);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [loading, isLoadingMore, hasMore]);
+
+  // când page crește (>1), încărcăm următoarea pagină și concatenăm
+  useEffect(() => {
+    if (page === 1) return;
+    load(page, true);
+  }, [page, load]);
 
   return (
     <section className={styles.page}>
@@ -235,6 +310,7 @@ export default function StoresPage() {
 
         {/* bara de căutare principală (pilulă) – caută full-text magazine */}
         <form
+          ref={searchAreaRef}
           className={styles.searchRow}
           onSubmit={(e) => {
             e.preventDefault();
@@ -303,14 +379,8 @@ export default function StoresPage() {
                                 className={styles.suggestThumb}
                               />
                             )}
-                            <div
-                              className={styles.suggestText}
-                            >
-                              <div
-                                className={
-                                  styles.suggestTitle
-                                }
-                              >
+                            <div className={styles.suggestText}>
+                              <div className={styles.suggestTitle}>
                                 {title}
                               </div>
                               {subtitle && (
@@ -487,11 +557,19 @@ export default function StoresPage() {
               />
             ))}
           </ul>
-          <Pagination
-            page={page}
-            totalPages={totalPages}
-            onChange={handlePageChange}
-          />
+
+          {/* Loader mic la final când încărcăm încă o pagină */}
+          {isLoadingMore && (
+            <div className={styles.loading}>
+              Se încarcă mai multe magazine…
+            </div>
+          )}
+
+          {!hasMore && total > 0 && (
+            <div className={styles.resultsInfo}>
+              Ai ajuns la finalul listei.
+            </div>
+          )}
         </>
       )}
     </section>
@@ -539,31 +617,6 @@ function StoreCard({ s, onClick }) {
         </div>
       </button>
     </li>
-  );
-}
-
-function Pagination({ page, totalPages, onChange }) {
-  if (totalPages <= 1) return null;
-  const prev = Math.max(1, page - 1);
-  const next = Math.min(totalPages, page + 1);
-  return (
-    <div className={styles.pagination}>
-      <button
-        disabled={page <= 1}
-        onClick={() => onChange(prev)}
-      >
-        Înapoi
-      </button>
-      <span>
-        Pagina {page} din {totalPages}
-      </span>
-      <button
-        disabled={page >= totalPages}
-        onClick={() => onChange(next)}
-      >
-        Înainte
-      </button>
-    </div>
   );
 }
 

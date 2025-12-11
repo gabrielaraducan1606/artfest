@@ -594,31 +594,55 @@ export default function SupportPageBase({
     return () => window.removeEventListener("keydown", onKey);
   }, [isMobileView, hideNewTicket]);
 
-  async function handleCreate(e) {
-    e.preventDefault();
-    if (!form.subject.trim() || !form.message.trim()) return;
-    setCreating(true);
-    try {
-      const payload = { ...form, attachments: [] };
-      const d = await api(`${supportBase}/tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).catch(() => null);
+ async function handleCreate(e) {
+  e.preventDefault();
+  if (!form.subject.trim() || !form.message.trim()) return;
+  setCreating(true);
 
-      if (d?.ticket?.id) {
-        await reload({ hard: true });
-        setSelectedId(d.ticket.id);
-      } else {
-        await reload({ hard: true });
-      }
-      setForm({
-        subject: "",
-        category: "general",
-        priority: "medium",
-        message: "",
-        attachments: [],
+  try {
+    // 1) upload atașamente dacă există
+    let uploaded = [];
+    if (form.attachments?.length) {
+      const fd = new FormData();
+      form.attachments.forEach((f) => fd.append("files", f));
+
+      const up = await api("/api/upload/support", {
+        method: "POST",
+        body: fd,
       });
+
+      uploaded = (up?.items || []).map((x) => ({
+        url: x.url,
+        name: x.name || "attachment",
+        size: x.size || null,
+        mimeType: x.mimeType || null,
+      }));
+    }
+
+    // 2) trimitem tichetul cu lista de atașamente
+    const { ...rest } = form;
+    const payload = { ...rest, attachments: uploaded };
+
+    const d = await api(`${supportBase}/tickets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => null);
+
+    if (d?.ticket?.id) {
+      await reload({ hard: true });
+      setSelectedId(d.ticket.id);
+    } else {
+      await reload({ hard: true });
+    }
+
+    setForm({
+      subject: "",
+      category: "general",
+      priority: "medium",
+      message: "",
+      attachments: [],
+    });
 
       if (isMobileView) {
         setMobileTab("tickets");
@@ -644,25 +668,25 @@ export default function SupportPageBase({
     // 1) upload atașamente (opțional)
     let uploaded = [];
     if (files.length) {
-      const formData = new FormData();
-      files.forEach((f) => formData.append("files", f));
-      try {
-        const up = await api("/api/upload", {
-          method: "POST",
-          body: formData,
-        });
-        uploaded = (up?.items || up?.files || up?.urls || []).map(
-          (x) => ({
-            url: x.url || x,
-            name: x.name || "attachment",
-            size: x.size || null,
-            mimeType: x.type || null,
-          })
-        );
-      } catch (e) {
-        console.warn("upload failed:", e?.message);
-      }
-    }
+  const formData = new FormData();
+  files.forEach((f) => formData.append("files", f));
+
+  try {
+    const up = await api("/api/upload/support", {
+      method: "POST",
+      body: formData,
+    });
+
+    uploaded = (up?.items || []).map((x) => ({
+      url: x.url,
+      name: x.name || "attachment",
+      size: x.size || null,
+      mimeType: x.mimeType || null,
+    }));
+  } catch (e) {
+    console.warn("upload failed:", e?.message);
+  }
+}
 
     // 2) optimistic
     const optimistic = {

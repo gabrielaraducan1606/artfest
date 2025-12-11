@@ -92,6 +92,7 @@ body {
   padding: 12px;
   box-shadow: var(--shadow-1);
 }
+
 .supportMeta {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -123,6 +124,7 @@ body {
   background: #9ca3af;
   box-shadow: 0 0 0 4px rgba(156, 163, 175, 0.18);
 }
+
 .mutedSmall {
   font-size: 10.5px;
   line-height: 1.4;
@@ -523,24 +525,27 @@ body {
   gap: 6px;
 }
 
-/* ===== Mesaje ===== */
+/* ===== Mesaje (view chat mai curat) ===== */
 .msgList {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px;
+  padding: 12px 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.02),
-    transparent 80%
-  );
+  gap: 10px;
+  background: radial-gradient(circle at top, rgba(0, 0, 0, 0.02), transparent 55%);
   min-width: 0;
-
-  /* oprește "lungirea" paginii și forțează scroll intern pe conversații */
   max-height: calc(100vh - 230px);
+}
+
+/* un pic mai compact pe mobil */
+@media (max-width: 768px) {
+  .msgList {
+    padding: 10px 8px 12px;
+    gap: 8px;
+    max-height: calc(100vh - 190px);
+  }
 }
 
 .empty,
@@ -550,74 +555,116 @@ body {
   padding: 10px;
 }
 
+/* rândul care aliniază bulele stânga/dreapta */
 .bubbleRow {
   display: flex;
   align-items: flex-start;
-  
+  margin-bottom: 2px;
 }
+
 .bubbleLeft {
   justify-content: flex-start;
 }
+
 .bubbleRight {
   justify-content: flex-end;
 }
 
-/* container extra pt acțiuni mesaj */
+/* container pt bulă + acțiuni */
 .msgBubbleWrap {
   position: relative;
   display: inline-flex;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 6px;
+  max-width: 100%;
 }
 
+/* bula în sine */
 .bubble {
   display: inline-block;
-  max-width: 68%;
-  padding: 8px 10px;
-  border-radius: 12px;
+  max-width: min(78%, 580px);
+  padding: 9px 11px 7px;
+  border-radius: 18px;
   font-size: 13px;
-  line-height: 1.25;
-  border: 1px solid var(--color-border);
-  background: #f8fafc;
+  line-height: 1.4;
+  background: #f9fafb;
   color: var(--color-text);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.09);
+  word-wrap: break-word;
+  word-break: break-word;
 }
+
+/* mesajele mele – accent, aliniate la dreapta */
 .mine {
   background: var(--color-primary);
   color: #fff;
-  border-color: var(--color-primary);
+  border: none;
+  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: 18px;
 }
+
+/* mesajele suportului – fundal deschis, neutru */
 .theirs {
-  background: #f3f4f6;
+  background: #ffffff;
+  border: none;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 18px;
 }
+
+/* zona pt oră + status */
 .meta {
   font-size: 10px;
-  opacity: 0.8;
-  margin-top: 2px;
+  opacity: 0.75;
+  margin-top: 4px;
+  text-align: right;
 }
 
+/* dacă bulele au atașamente, separăm puțin textul de listă */
+.bubble ul {
+  margin-top: 6px;
+}
+
+/* mesaj eșuat – contur fin roșu */
 .failed {
-  box-shadow: inset 0 0 0 2px #ef4444;
+  box-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.09),
+    0 0 0 1px #fca5a5;
 }
 
-/* acțiuni mesaj (vizibile la hover desktop, persistente pe mobil) */
+/* acțiuni mesaj (desktop: apar doar la hover) */
 .msgActions {
   display: none;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
 }
+
 .msgBubbleWrap:hover .msgActions {
   display: inline-flex;
 }
-.danger {
-  border-color: #ef4444 !important;
-  color: #ef4444 !important;
+
+/* pe mobil le lăsăm vizibile mereu, ca să fie descoperibile */
+@media (max-width: 768px) {
+  .msgActions {
+    display: inline-flex;
+  }
 }
-.danger:hover {
-  background: color-mix(
-    in oklab,
-    #ef4444 10%,
-    transparent
-  );
+
+/* buton de scroll la ultimele mesaje */
+.toBottom {
+  position: sticky;
+  bottom: 8px;
+  margin-left: auto;
+  background: #111827;
+  color: #fff;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* ===== Composer ===== */
@@ -876,20 +923,6 @@ body {
   color: inherit;
 }
 
-/* ==== Scroll to latest ==== */
-.toBottom {
-  position: sticky;
-  bottom: 10px;
-  margin-left: auto;
-  background: #111827;
-  color: #fff;
-  border: 0;
-  border-radius: 999px;
-  padding: 8px 12px;
-  box-shadow: var(--shadow-2);
-  cursor: pointer;
-}
-
 /* ===== Helper pt acordeoane ===== */
 .accordion {
   border-radius: 12px;
@@ -1102,4 +1135,30 @@ svg {
 
 .phoneLink:hover {
   text-decoration: none;
+}
+@media (max-width: 768px) {
+  /* font global un pic mai mic pe mobil */
+  body {
+    font-size: 14px;
+  }
+
+  .wrap {
+    padding: 8px 10px 72px;
+    gap: 10px;
+  }
+
+  .card {
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  }
+
+  .head {
+    font-size: 14px;
+    gap: 6px;
+  }
+
+  label {
+    font-size: 12px;
+  }
 }

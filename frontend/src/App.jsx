@@ -1,3 +1,4 @@
+// src/App.jsx
 import {
   BrowserRouter,
   Routes,
@@ -183,7 +184,7 @@ export default function App() {
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/multumim" element={<ThankYou />} />
 
-          {/* Legal afișate în React (cookie + politica de retur UI) */}
+          {/* Legal afișate în React */}
           <Route path="/politica-cookie" element={<CookiesPolicy />} />
           <Route path="/politica-de-retur" element={<ReturnPolicy />} />
           <Route path="/cookie-banner" element={<CookieBanner />} />
@@ -196,7 +197,7 @@ export default function App() {
           <Route path="/comanda/:id" element={<MyOrderDetailsPage />} />
           <Route path="/cont" element={<AccountPage />} />
           <Route path="/cont/setari" element={<UserSettingsPage />} />
-           <Route path="/notificari" element={<UserNotificationsPage />} />
+          <Route path="/notificari" element={<UserNotificationsPage />} />
           <Route
             path="/cont/mesaje"
             element={
@@ -297,8 +298,23 @@ export default function App() {
             }
           />
 
-          {/* Suport */}
-          <Route path="/account/support" element={<UserSupportPage />} />
+          {/* Suport user + guest */}
+          <Route
+            path="/account/support"
+            element={
+              <RequireUser>
+                <UserSupportPage />
+              </RequireUser>
+            }
+          />
+          <Route
+            path="/account/support/tickets/:ticketId"
+            element={
+              <RequireUser>
+                <UserSupportPage />
+              </RequireUser>
+            }
+          />
           <Route path="/support" element={<GuestSupportPage />} />
 
           {/* Setări & Notificări Vendor */}
@@ -311,7 +327,7 @@ export default function App() {
             }
           />
           <Route
-            path="/notificari"
+            path="/vendor/notifications"
             element={
               <RequireVendor>
                 <NotificationsPage />

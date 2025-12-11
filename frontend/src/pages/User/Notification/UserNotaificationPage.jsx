@@ -1,4 +1,3 @@
-// src/pages/UserNotifications/UserNotificationsPage.jsx
 import { useCallback, useEffect, useState } from "react";
 import {
   Bell,
@@ -15,6 +14,9 @@ const TABS = [
   { id: "unread", label: "Necitite" },
   { id: "archived", label: "Arhivate" },
 ];
+
+// NEW: câte notificări afișăm per “pagină”
+const PAGE_SIZE = 20;
 
 function fmt(ts) {
   if (!ts) return "";
@@ -35,6 +37,9 @@ export default function UserNotificationsPage() {
   const [error, setError] = useState("");
   const [markingAll, setMarkingAll] = useState(false);
 
+  // NEW: câte notificări sunt vizibile acum
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
   // 🔔 helper: anunță Navbar-ul că s-au schimbat notificările
   const notifyNavbar = useCallback(() => {
     try {
@@ -47,6 +52,10 @@ export default function UserNotificationsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+
+    // NEW: resetăm vizibilul când facem un load nou (schimbare tab / căutare)
+    setVisibleCount(PAGE_SIZE);
+
     try {
       const params = new URLSearchParams();
       params.set("scope", scope);
@@ -64,6 +73,32 @@ export default function UserNotificationsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // NEW: infinite scroll – când ajungi aproape de bottom, creștem visibleCount
+  useEffect(() => {
+    if (!items.length) return;
+
+    function onScroll() {
+      const scrollPos = window.innerHeight + window.scrollY;
+      const threshold = document.body.offsetHeight - 300; // 300px înainte de bottom
+
+      if (
+        scrollPos >= threshold &&
+        !loading &&
+        visibleCount < items.length
+      ) {
+        setVisibleCount((prev) =>
+          Math.min(prev + PAGE_SIZE, items.length)
+        );
+      }
+    }
+
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [items.length, loading, visibleCount]);
+
+  // NEW: slice din items doar ce vrem să afișăm
+  const visibleItems = items.slice(0, visibleCount);
 
   const unreadCount = items.filter((n) => !n.readAt && !n.archived).length;
 
@@ -203,9 +238,9 @@ export default function UserNotificationsPage() {
       )}
 
       {/* ===== Listă notificări ===== */}
-      {items.length > 0 && (
+      {visibleItems.length > 0 && (
         <ul className={styles.list}>
-          {items.map((n) => {
+          {visibleItems.map((n) => {
             const isUnread = !n.readAt;
 
             return (
@@ -264,6 +299,13 @@ export default function UserNotificationsPage() {
             );
           })}
         </ul>
+      )}
+
+      {/* NEW: fallback vizual – dacă mai sunt dar nu sunt încă randate */}
+      {!loading && visibleCount < items.length && (
+        <div className={styles.info}>
+          Derulează în jos pentru a încărca mai multe notificări…
+        </div>
       )}
     </div>
   );

@@ -4,6 +4,27 @@ import { api } from "../../../lib/api";
 import { useAuth } from "../../../pages/Auth/Context/context.js";
 import styles from "./Desktop.module.css";
 
+import {
+  LayoutDashboard,
+  Bell,
+  MessageSquare,
+  Users,
+  Package,
+  Heart,
+  Settings,
+  LifeBuoy,
+  Store,
+  LogOut,
+  ShieldCheck,
+  MapPin,
+  CreditCard,
+  FileText,
+  Lock,
+  ShieldHalf,
+  CheckCircle2,
+  ShoppingCart,
+} from "lucide-react";
+
 /* ---------- helpers mutate în afara componentei (fără deps) ---------- */
 function extractMissing(e) {
   try {
@@ -37,6 +58,15 @@ function humanizeActivateError(e) {
 
   if (code === "vendor_entity_not_confirmed") {
     return "Pentru a activa serviciile, trebuie să confirmi că reprezinți o entitate juridică (PFA / SRL / II / IF). Poți face asta din bannerul de deasupra listei de servicii.";
+  }
+
+  if (code === "missing_required_fields_billing") {
+    if (Array.isArray(missing) && missing.length) {
+      return `Completează datele de facturare: ${missing.join(
+        ", "
+      )} (tab „Plată & facturare”).`;
+    }
+    return "Completează datele de facturare în tab-ul „Plată & facturare”, apoi încearcă din nou.";
   }
 
   if (Array.isArray(missing) && missing.length) {
@@ -136,36 +166,16 @@ function useSubscriptionStatus({ auto = true } = {}) {
   };
 }
 
-/* ======================= Helpers pentru activity feed ======================= */
-function labelForActivity(type) {
-  switch (type) {
-    case "visit":
-      return "Vizită";
-    case "lead":
-      return "Cerere ofertă";
-    case "message":
-      return "Mesaj";
-    case "review":
-      return "Review";
-    default:
-      return "Activitate";
-  }
+/* ------- mici utilitare pentru identitate (din Account) ------- */
+function displayName(me) {
+  if (!me) return "Utilizator";
+  if (me.name) return me.name;
+  const full = `${me.firstName || ""} ${me.lastName || ""}`.trim();
+  return full || me.email || "Utilizator";
 }
-
-function activityText(item) {
-  const name = item.serviceName || "serviciul tău";
-  switch (item.type) {
-    case "visit":
-      return `Ai primit o vizită nouă pe „${name}”.`;
-    case "lead":
-      return `Cerere nouă de ofertă pentru „${name}”.`;
-    case "message":
-      return `Mesaj nou pentru „${name}”.`;
-    case "review":
-      return `Review nou pentru „${name}”.`;
-    default:
-      return item.text || `Actualizare pentru „${name}”.`;
-  }
+function getInitials(me) {
+  const s = displayName(me).split(" ").filter(Boolean);
+  return ((s[0]?.[0] || "U") + (s[1]?.[0] || "")).toUpperCase();
 }
 
 /* =============================== Componenta =============================== */
@@ -174,25 +184,33 @@ export default function DesktopV3() {
 
   const [services, setServices] = useState([]);
   const [onboarding, setOnboarding] = useState(null);
+
+  // stats vendor (vizitatori + urmăritori)
   const [stats, setStats] = useState({
     visitors: 0,
-    leads: 0,
-    messages: 0,
-    reviews: 0,
+    followers: 0,
   });
-  const [activity, setActivity] = useState([]);
-  const [activityLoading, setActivityLoading] = useState(true);
+
+  // număr real de recenzii produs / magazin
+  const [reviewCounts, setReviewCounts] = useState({
+    product: 0,
+    store: 0,
+  });
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState({});
   const [error, setError] = useState("");
 
-  // 🔹 INFO VENDOR (folosim entitySelfDeclared ca „confirmare entitate juridică”)
+  // INFO VENDOR (entitate juridică)
   const [vendor, setVendor] = useState(null);
   const [entityConfirmBusy, setEntityConfirmBusy] = useState(false);
   const [entityConfirmError, setEntityConfirmError] = useState("");
 
   const sub = useSubscriptionStatus();
+
+  // cont / account bits (unread counts)
+  const [unreadNotif, setUnreadNotif] = useState(0);
+  const [unreadMsgs, setUnreadMsgs] = useState(0);
 
   // dacă auth context-ul aduce deja vendor cu entitySelfDeclared, îl sincronizăm
   useEffect(() => {
@@ -205,21 +223,33 @@ export default function DesktopV3() {
     setLoading(true);
     setError("");
     try {
-      const [svc, ob, v, st] = await Promise.all([
+      const [svc, ob, v, st, prodRev, storeRev] = await Promise.all([
         api("/api/vendors/me/services?includeProfile=1").catch(() => ({
           items: [],
         })),
         api("/api/vendors/me/onboarding-status").catch(() => null),
         api("/api/vendors/me").catch(() => null),
         api("/api/vendors/me/stats?window=7d").catch(() => null),
+        api("/api/reviews/received?page=1&limit=1").catch(() => null),
+        api("/api/comments/received?page=1&limit=1").catch(() => null),
       ]);
+
       setServices(svc?.items || []);
       setOnboarding(ob || null);
 
-      // backend: GET /api/vendors/me întoarce { vendor: { ... } }
       if (v?.vendor) setVendor(v.vendor);
 
-      if (st) setStats(st);
+      if (st) {
+        setStats({
+          visitors: st.visitors ?? 0,
+          followers: st.followers ?? 0, // când îl adaugi în backend
+        });
+      }
+
+      setReviewCounts({
+        product: prodRev?.total ?? 0,
+        store: storeRev?.total ?? 0,
+      });
     } catch (e) {
       setError(e?.message || "Eroare la încărcare");
     } finally {
@@ -227,19 +257,32 @@ export default function DesktopV3() {
     }
   }, []);
 
-  const loadActivity = useCallback(async () => {
-    setActivityLoading(true);
-    try {
-      const d = await api("/api/vendors/me/activity?limit=10").catch(
-        () => null
-      );
-      setActivity(d?.items || []);
-    } catch {
-      setActivity([]);
-    } finally {
-      setActivityLoading(false);
-    }
-  }, []);
+  // notificări / mesaje necitite
+  useEffect(() => {
+    if (!me) return;
+    let alive = true;
+    (async () => {
+      try {
+        const notif = await api("/api/notifications/unread-count").catch(
+          () => ({ count: 0 })
+        );
+        const msgs =
+          me.role === "VENDOR"
+            ? await api("/api/inbox/unread-count").catch(() => ({
+                count: 0,
+              }))
+            : { count: 0 };
+        if (!alive) return;
+        setUnreadNotif(notif?.count || 0);
+        setUnreadMsgs(msgs?.count || 0);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [me]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -249,11 +292,10 @@ export default function DesktopV3() {
     }
     if (me.role === "VENDOR") {
       loadAllVendor();
-      loadActivity();
     } else {
       setLoading(false);
     }
-  }, [authLoading, me, loadAllVendor, loadActivity]);
+  }, [authLoading, me, loadAllVendor]);
 
   const completeness = useMemo(() => {
     if (!services.length) return 0;
@@ -376,7 +418,7 @@ export default function DesktopV3() {
     }
   }, []);
 
-  // 🔹 confirmarea entității juridice -> backend setează entitySelfDeclared
+  // confirmarea entității juridice
   const onConfirmEntity = useCallback(async () => {
     try {
       setEntityConfirmBusy(true);
@@ -385,14 +427,12 @@ export default function DesktopV3() {
         method: "POST",
       });
 
-      // răspuns: { ok, already?, vendor: { id, entitySelfDeclared, entitySelfDeclaredAt } }
       if (d?.vendor) {
         setVendor((prev) => ({
           ...(prev || {}),
-          ...d.vendor, // include entitySelfDeclared
+          ...d.vendor,
         }));
       } else {
-        // fallback – forțăm local
         setVendor((prev) => ({
           ...(prev || {}),
           entitySelfDeclared: true,
@@ -413,10 +453,64 @@ export default function DesktopV3() {
   if (!me || me.role !== "VENDOR")
     return <div className={styles.page}>Acces doar pentru vendori.</div>;
 
-  // 🔹 aici e cheia: folosim entitySelfDeclared
   const entityConfirmed =
     vendor?.entitySelfDeclared === true ||
     me?.vendor?.entitySelfDeclared === true;
+
+  const isVendor = me.role === "VENDOR";
+  const isAdmin = me.role === "ADMIN";
+  const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
+
+  // scurtături
+  const quick = [
+    {
+      to: "/notificari",
+      label: "Notificări",
+      icon: <Bell size={20} />,
+      badge: unreadNotif,
+    },
+    {
+      to: "/mesaje",
+      label: "Mesaje",
+      icon: <MessageSquare size={20} />,
+      badge: unreadMsgs,
+    },
+    {
+      to: "/wishlist",
+      label: "Dorințe",
+      icon: <Heart size={20} />,
+    },
+    {
+      to: "/cos",
+      label: "Coș",
+      icon: <ShoppingCart size={20} />,
+    },
+    {
+      to: "/vendor/store",
+      label: "Magazinul meu",
+      icon: <Store size={20} />,
+    },
+    {
+      to: "/setari",
+      label: "Setări",
+      icon: <Settings size={20} />,
+    },
+    {
+      to: "/vendor/support",
+      label: "Asistență",
+      icon: <LifeBuoy size={20} />,
+    },
+    {
+      to: "/vendor/invoices",
+      label: "Facturi",
+      icon: <FileText size={20} />,
+    },
+    {
+      to: "/vendor/orders",
+      label: "Comenzi",
+      icon: <Package size={20} />,
+    },
+  ];
 
   return (
     <section className={styles.page}>
@@ -429,7 +523,13 @@ export default function DesktopV3() {
 
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 
-      {/* Banner confirmare entitate juridică – rămâne ca notă informativă + CTA-uri */}
+      {/* card de identitate / account */}
+      <IdentityCard me={me} roleLabel={roleLabel} />
+
+      {/* scurtături stil Account */}
+      <QuickCard quick={quick} />
+
+      {/* Banner confirmare entitate juridică */}
       {!entityConfirmed && (
         <div
           className={styles.card}
@@ -465,9 +565,8 @@ export default function DesktopV3() {
                 ? "Se confirmă…"
                 : "Confirm că sunt entitate juridică"}
             </button>
-            {/* buton extra spre pagina de asistență */}
             <a
-              href="/asistenta-tehnica"
+              href="/vendor/support"
               className={`${styles.btn} ${styles.btnGhost}`}
             >
               Mergi la asistență
@@ -480,9 +579,9 @@ export default function DesktopV3() {
 
       <div className={styles.kpiRow}>
         <KPI label="Vizitatori (7d)" value={stats.visitors ?? 0} />
-        <KPI label="Lead-uri (7d)" value={stats.leads ?? 0} />
-        <KPI label="Mesaje (7d)" value={stats.messages ?? 0} />
-        <KPI label="Review-uri (7d)" value={stats.reviews ?? 0} />
+        <KPI label="Recenzii produs" value={reviewCounts.product ?? 0} />
+        <KPI label="Recenzii magazin" value={reviewCounts.store ?? 0} />
+        <KPI label="Urmăritori" value={stats.followers ?? 0} />
       </div>
 
       <div className={styles.grid}>
@@ -497,16 +596,19 @@ export default function DesktopV3() {
             onDelete={onDelete}
             onPreview={onPreview}
           />
-
-          <ActivityCard
-            activity={activity}
-            loading={activityLoading}
-            onReload={loadActivity}
-          />
         </div>
 
-        <Sidebar sub={sub} stats={stats} />
+        <Sidebar sub={sub} />
       </div>
+
+      {/* secțiuni account: setări, vendor, admin, logout */}
+      <SettingsAndSecurityCard />
+
+      {isVendor && <VendorLinksCard unreadMsgs={unreadMsgs} />}
+
+      {isAdmin && <AdminCard />}
+
+      <LogoutCard />
     </section>
   );
 }
@@ -584,6 +686,99 @@ function Topbar({ me, completeness, sub, nextStep }) {
   );
 }
 
+function IdentityCard({ me, roleLabel }) {
+  const initials = getInitials(me);
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <h3>Contul meu</h3>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontWeight: 600,
+            background: "var(--color-bg-soft, #eee)",
+          }}
+        >
+          {initials}
+        </div>
+        <div>
+          <div
+            style={{
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            {displayName(me)}
+            {me?.verified && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  fontSize: 12,
+                }}
+              >
+                <CheckCircle2 size={14} style={{ marginRight: 2 }} /> Verificat
+              </span>
+            )}
+          </div>
+          <div className={styles.subtle}>{roleLabel}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuickCard({ quick }) {
+  if (!quick.length) return null;
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <h3>Scurtături</h3>
+      </div>
+      <div className={styles.actionsRow} style={{ flexWrap: "wrap" }}>
+        {quick.map((q) => (
+          <a
+            key={q.to}
+            href={q.to}
+            className={`${styles.btn} ${styles.btnGhost}`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 6,
+            }}
+          >
+            {q.icon}
+            <span>{q.label}</span>
+            {q.badge > 0 && (
+              <span
+                style={{
+                  marginLeft: "auto",
+                  fontSize: 11,
+                  padding: "0 6px",
+                  borderRadius: 999,
+                  border: "1px solid currentColor",
+                }}
+              >
+                {Math.min(q.badge, 99)}
+              </span>
+            )}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SubscriptionAlert({ sub }) {
   if (sub.loading || sub.ok) return null;
   return (
@@ -636,12 +831,7 @@ function OnboardingCard({ nextStep }) {
         >
           Completează detalii
         </a>
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href="/vendor/visitors"
-        >
-          Vezi vizitatorii
-        </a>
+       
       </div>
     </div>
   );
@@ -683,7 +873,6 @@ function ServicesCard({
             const actLabel = isAct ? "Dezactivează" : "Activează";
             const actTitle = isAct ? "Dezactivează" : "Activează";
 
-            // city poate exista, dar NU îl mai considerăm obligatoriu
             const brandVal =
               (s.profile?.displayName && s.profile.displayName.trim()) ||
               "";
@@ -693,7 +882,6 @@ function ServicesCard({
             const hasTitle = !!titleVal;
 
             const missingFields = [];
-            // orașul scos din blocanți
             if (!hasTitle) missingFields.push("titlul");
             if (!hasBrand) missingFields.push("numele de brand");
 
@@ -791,55 +979,7 @@ function ServicesCard({
   );
 }
 
-function ActivityCard({ activity, loading, onReload }) {
-  return (
-    <div className={styles.card}>
-      <div className={styles.cardHead}>
-        <h3>Activitate recentă</h3>
-        <button
-          className={`${styles.btn} ${styles.btnGhost}`}
-          type="button"
-          onClick={onReload}
-        >
-          Reîncarcă
-        </button>
-      </div>
-      {loading ? (
-        <p className={styles.subtle}>Se încarcă activitatea…</p>
-      ) : activity.length === 0 ? (
-        <p className={styles.subtle}>
-          Încă nu ai activitate recentă. Când vei primi vizite, cereri sau
-          review-uri, le vei vedea aici.
-        </p>
-      ) : (
-        <ul className={styles.timeline}>
-          {activity.map((item) => (
-            <li key={item.id} className={styles.timelineItem}>
-              <div className={styles.timelineMain}>
-                <span className={styles.timelineType}>
-                  {labelForActivity(item.type)}
-                </span>
-                <span className={styles.timelineText}>
-                  {activityText(item)}
-                </span>
-              </div>
-              <span className={styles.timelineTime}>
-                {item.createdAt
-                  ? new Date(item.createdAt).toLocaleString("ro-RO", {
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    })
-                  : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function Sidebar({ sub, stats }) {
+function Sidebar({ sub }) {
   return (
     <aside className={styles.colSide}>
       <div className={styles.card}>
@@ -899,42 +1039,136 @@ function Sidebar({ sub, stats }) {
           </>
         )}
       </div>
+    </aside>
+  );
+}
 
-      <div className={styles.card}>
-        <div className={styles.cardHead}>
-          <h3>Vizitatori</h3>
-        </div>
-        <p className={styles.subtle}>
-          Ultimele 7 zile: <b>{stats.visitors ?? 0}</b>
-        </p>
+/* ===== secțiuni Account adăugate dedesubt ===== */
+
+function SettingsAndSecurityCard() {
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <h3>Setări & securitate</h3>
+      </div>
+      <div className={styles.actionsCol}>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/setari">
+          <Settings size={18} style={{ marginRight: 6 }} /> Setări cont
+        </a>
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href="/setari/securitate"
+        >
+          <Lock size={18} style={{ marginRight: 6 }} /> Securitate
+        </a>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/gdpr">
+          <ShieldHalf size={18} style={{ marginRight: 6 }} /> Datele mele (GDPR)
+        </a>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/adrese">
+          <MapPin size={18} style={{ marginRight: 6 }} /> Adrese de livrare
+        </a>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/plati">
+          <CreditCard size={18} style={{ marginRight: 6 }} /> Metode de plată
+        </a>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/invoices">
+          <FileText size={18} style={{ marginRight: 6 }} /> Facturi / documente
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function VendorLinksCard({ unreadMsgs }) {
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <h3>Vânzător</h3>
+      </div>
+      <div className={styles.actionsCol}>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/planner">
+          <LayoutDashboard size={18} style={{ marginRight: 6 }} /> Planificator
+          comenzi
+        </a>
         <a
           className={`${styles.btn} ${styles.btnGhost}`}
           href="/vendor/visitors"
         >
-          Vezi vizitatorii
+          <Users size={18} style={{ marginRight: 6 }} /> Vizitatori
+        </a>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/mesaje">
+          <MessageSquare size={18} style={{ marginRight: 6 }} /> Mesaje
+          {unreadMsgs > 0 && (
+            <span
+              style={{
+                marginLeft: "auto",
+                fontSize: 11,
+                padding: "0 6px",
+                borderRadius: 999,
+                border: "1px solid currentColor",
+              }}
+            >
+              {Math.min(unreadMsgs, 99)}
+            </span>
+          )}
+        </a>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/magazine">
+          <Store size={18} style={{ marginRight: 6 }} /> Magazine / Produse
+        </a>
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href="/vendor/support"
+        >
+          <LifeBuoy size={18} style={{ marginRight: 6 }} /> Asistență tehnică
         </a>
       </div>
+    </div>
+  );
+}
 
-      <div className={styles.card}>
-        <div className={styles.cardHead}>
-          <h3>Asistență</h3>
-        </div>
-        <div className={styles.actionsCol}>
-          <a
-            className={`${styles.btn} ${styles.btnGhost}`}
-            href="/asistenta-tehnica"
-          >
-            Suport & FAQ
-          </a>
-          <a
-            className={`${styles.btn} ${styles.btnGhost}`}
-            href="/ghid-imagini"
-          >
-            Ghid imagini
-          </a>
-        </div>
+function AdminCard() {
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <h3>Administrare</h3>
       </div>
-    </aside>
+      <div className={styles.actionsCol}>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/admin">
+          <ShieldCheck size={18} style={{ marginRight: 6 }} /> Panou Admin
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function LogoutCard() {
+  async function handleLogout(e) {
+    e.preventDefault();
+    try {
+      await api("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
+    }
+    window.location.href = "/autentificare";
+  }
+
+  return (
+    <div className={styles.card}>
+      <button
+        className={`${styles.btn} ${styles.btnDanger}`}
+        type="button"
+        onClick={handleLogout}
+        style={{
+          width: "100%",
+          justifyContent: "center",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <LogOut size={18} />
+        Deconectare
+      </button>
+    </div>
   );
 }
 

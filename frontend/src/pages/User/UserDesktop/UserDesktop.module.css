@@ -14,6 +14,17 @@
   --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.04);
 }
 
+/* ===== bază & smooth scroll ===== */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* ===== Pagina: mobile first ===== */
 .page {
   max-width: 560px;
@@ -181,7 +192,7 @@
   border: 1px solid var(--color-border);
   border-radius: 14px;
   padding: 10px;
-  margin: 8px 0;
+  margin: 10px 0;
   box-shadow: var(--shadow-sm);
   display: grid;
   gap: 8px;
@@ -222,7 +233,7 @@
   gap: 8px;
 }
 
-/* ===== Progres profil + quick ===== */
+/* ===== Progres profil (dacă îl mai folosești) ===== */
 .progressWrap {
   position: relative;
   height: 8px;
@@ -337,6 +348,12 @@
   background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
 }
 
+.bannerText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .bannerSub {
   color: var(--color-text-muted);
   font-size: 0.92rem;
@@ -358,7 +375,11 @@
 
 /* ===== Secțiuni ===== */
 .section {
-  margin-top: 10px;
+  margin-top: 12px;
+}
+
+.section + .section {
+  margin-top: 18px;
 }
 
 .sectionHead {
@@ -519,6 +540,7 @@
   border: 0;
   background: transparent;
   color: var(--color-primary);
+  cursor: pointer;
 }
 
 .linkBtnDanger {
@@ -577,6 +599,10 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.chev {
+  opacity: 0.7;
 }
 
 .rowTitle {
@@ -720,7 +746,7 @@
   background: color-mix(in oklab, var(--color-primary) 8%, transparent);
 }
 
-/* Empty & load more */
+/* Empty */
 .empty {
   text-align: center;
   color: var(--color-text-muted);
@@ -729,23 +755,52 @@
   border-radius: 12px;
 }
 
-.moreWrap {
+/* ===== Paginare recenzii / comentarii ===== */
+.pager {
+  margin-top: 10px;
+  padding: 4px 0;
   display: flex;
+  align-items: center;
   justify-content: center;
-  margin-top: 6px;
-}
-
-.moreBtn {
-  background: var(--color-primary);
-  color: #fff;
-  border: 1px solid var(--color-primary);
-  padding: 0.6rem 1rem;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
   border-radius: 9999px;
-  font-weight: 800;
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
 }
 
-.moreBtn:hover {
-  background: var(--color-hover);
+.pagerLabel {
+  min-width: 70px;
+  text-align: center;
+}
+
+.pagerBtn {
+  padding: 6px 11px;
+  border-radius: 9999px;
+  border: 1px solid
+    color-mix(in oklab, var(--color-primary) 25%, var(--color-border));
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+  color: var(--color-primary);
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.02);
+}
+
+.pagerBtn span {
+  font-size: 0.9em;
+}
+
+.pagerBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+}
+
+.pagerBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* Logout */
@@ -767,6 +822,35 @@
   background: var(--color-hover);
 }
 
+/* ===== micro-animații pe elemente interactive ===== */
+button,
+a,
+.rowLink,
+.quickItem,
+.tile,
+.tag,
+.pagerBtn,
+.logoutBtn {
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
+}
+
+button:active,
+a:active,
+.rowLink:active,
+.quickItem:active,
+.tile:active,
+.tag:active,
+.pagerBtn:active,
+.logoutBtn:active {
+  transform: translateY(1px) scale(0.99);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+
 /* Spațiu pentru bottom bar mobil */
 .bottomSpace {
   height: calc(56px + env(safe-area-inset-bottom));
@@ -780,5 +864,22 @@
 
   .gridCards {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Ecrane foarte mici (telefoane mici) */
+@media (max-width: 360px) {
+  .page {
+    padding-inline: 8px;
+  }
+
+  .segment {
+    overflow: hidden;
+  }
+
+  .segBtn {
+    min-width: 80px;
+    padding-inline: 8px;
+    font-size: 0.82rem;
   }
 }

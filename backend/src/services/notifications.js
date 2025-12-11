@@ -38,7 +38,6 @@ export async function createVendorNotification(vendorId, data) {
 
 /* ============================================================
    🔔 HELPERI – NOTIFICĂRI CĂTRE USER PENTRU COMENZI
-   Folosiți din vendorOrdersRoutes
 ============================================================ */
 
 /**
@@ -102,7 +101,7 @@ export async function notifyUserOnOrderStatusChange(orderId, vendorUiStatus) {
     type: "order",
     title,
     body,
-    link: `/comanda/${o.id}`, // pagina detaliu comandă pentru user
+    link: `/comanda/${o.id}`,
   });
 }
 
@@ -139,10 +138,7 @@ export async function notifyUserOnInvoiceIssued(orderId, invoiceId) {
 /**
  * Notifică userul când vendorul programează ridicarea coletului / generează AWB.
  */
-export async function notifyUserOnShipmentPickupScheduled(
-  orderId,
-  shipmentId
-) {
+export async function notifyUserOnShipmentPickupScheduled(orderId, shipmentId) {
   const [order, shipment] = await Promise.all([
     prisma.order.findUnique({
       where: { id: orderId },
@@ -176,5 +172,114 @@ export async function notifyUserOnShipmentPickupScheduled(
     title: `Coletul pentru comanda #${order.id} este în drum spre tine`,
     body,
     link: `/comanda/${order.id}`,
+  });
+}
+
+/* ============================================================
+   🔔 NOTIFICĂRI – TICHHETE DE SUPORT (USER FINAL)
+============================================================ */
+
+/**
+ * Notifică userul când primește un răspuns nou la tichetul său.
+ */
+export async function notifyUserOnSupportReply(ticketId, options = {}) {
+  const { messagePreview = "" } = options;
+
+  const ticket = await prisma.supportTicket.findUnique({
+    where: { id: ticketId },
+    select: {
+      id: true,
+      subject: true,
+      requesterId: true,
+      audience: true,
+    },
+  });
+
+  if (!ticket || !ticket.requesterId) return null;
+  if (ticket.audience !== "USER") return null; // doar tichetele de user final
+
+  const subject = ticket.subject || "tichet de suport";
+
+  let body = `Ai primit un răspuns nou la tichetul tău "${subject}".`;
+  if (messagePreview) {
+    const trimmed = messagePreview.trim();
+    if (trimmed) {
+      const short =
+        trimmed.length > 120
+          ? trimmed.slice(0, 117).trimEnd() + "..."
+          : trimmed;
+      body += `\n\n„${short}”`;
+    }
+  }
+
+  return createUserNotification(ticket.requesterId, {
+    type: "support",
+    title: `Răspuns nou la tichetul tău`,
+    body,
+    // 👇 ducem userul direct în pagina de suport, cu tichetul deschis
+    link: `/account/support/tickets/${ticket.id}`,
+  });
+}
+
+/**
+ * Notifică userul când i se schimbă statusul tichetului.
+ * newStatus = "OPEN" | "PENDING" | "CLOSED"
+ */
+export async function notifyUserOnSupportStatusChange(ticketId, newStatus) {
+  const ticket = await prisma.supportTicket.findUnique({
+    where: { id: ticketId },
+    select: {
+      id: true,
+      subject: true,
+      requesterId: true,
+      audience: true,
+    },
+  });
+
+  if (!ticket || !ticket.requesterId) return null;
+  if (ticket.audience !== "USER") return null;
+
+  const subject = ticket.subject || "tichet de suport";
+  const statusUc = String(newStatus || "").toUpperCase();
+
+  let title = `Status actualizat pentru tichetul tău`;
+  let body = `Statusul tichetului "${subject}" a fost actualizat.`;
+
+  if (statusUc === "OPEN") {
+    title = `Tichetul tău a fost redeschis`;
+    body = `Tichetul "${subject}" a fost redeschis de echipa de suport.`;
+  } else if (statusUc === "PENDING") {
+    title = `Tichetul tău este în curs de soluționare`;
+    body = `Tichetul "${subject}" este în lucru la echipa de suport.`;
+  } else if (statusUc === "CLOSED") {
+    title = `Tichetul tău a fost închis`;
+    body = `Tichetul "${subject}" a fost marcat ca rezolvat/închis. Dacă mai ai întrebări, poți deschide un tichet nou.`;
+  }
+
+  return createUserNotification(ticket.requesterId, {
+    type: "support",
+    title,
+    body,
+    link: `/account/support/tickets/${ticket.id}`,
+  });
+}
+
+/**
+ * Notifică userul când primește un mesaj nou în inbox (de la vendor).
+ * Primește întregul thread (cu vendor.displayName) ca să nu mai facă alt query.
+ */
+export async function notifyUserOnInboxMessage(thread, messageBody) {
+  if (!thread || !thread.userId) return null;
+
+  const trimmed = String(messageBody || "").trim();
+  const short =
+    trimmed.length > 140 ? trimmed.slice(0, 137).trimEnd() + "..." : trimmed;
+
+  return createUserNotification(thread.userId, {
+    type: "message",
+    title: `Mesaj nou de la ${thread.vendor?.displayName || "magazin"}`,
+    body: short || "Ai primit un mesaj nou în conversația cu magazinul.",
+    // 👉 adaptează ruta dacă la tine în frontend e altfel
+    link: `/cont/mesaje?threadId=${thread.id}`,
   });
 }

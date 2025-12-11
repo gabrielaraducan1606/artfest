@@ -589,7 +589,7 @@ router.post("/login", async (req, res) => {
       data: { lastLoginAt: new Date() },
     });
 
-    const jwt = signToken({
+          const jwt = signToken({
       sub: user.id,
       role: user.role,
       tv: user.tokenVersion,
@@ -607,15 +607,24 @@ router.post("/login", async (req, res) => {
       maxAge,
     });
 
+    const displayName =
+      user.name ||
+      [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+      "";
+
     res.json({
       ok: true,
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
+        name: displayName,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatarUrl: user.avatarUrl,
         role: user.role,
       },
     });
+
   } catch (e) {
     console.error("LOGIN error:", e);
     return res.status(500).json({ error: "login_failed" });
@@ -634,7 +643,10 @@ router.get("/me", authRequired, enforceTokenVersion, async (req, res) => {
       select: {
         id: true,
         email: true,
-        name: true,
+        firstName: true,
+        lastName: true,
+        name: true,       // nume legacy, dacă există
+        avatarUrl: true,  // 👈 IMPORTANT pentru navbar
         role: true,
         vendor: {
           select: {
@@ -644,6 +656,7 @@ router.get("/me", authRequired, enforceTokenVersion, async (req, res) => {
         },
       },
     });
+
     if (!me) {
       const isProd = process.env.NODE_ENV === "production";
       res.clearCookie("token", {
@@ -654,12 +667,25 @@ router.get("/me", authRequired, enforceTokenVersion, async (req, res) => {
       });
       return res.status(401).json({ error: "user_not_found" });
     }
-    res.json({ user: me });
+
+    // derivăm un name frumos din first+last dacă e nevoie
+    const displayName =
+      me.name ||
+      [me.firstName, me.lastName].filter(Boolean).join(" ") ||
+      "";
+
+    res.json({
+      user: {
+        ...me,
+        name: displayName,
+      },
+    });
   } catch (e) {
     console.error("ME route error:", e);
     return res.status(500).json({ error: "me_failed" });
   }
 });
+
 
 /** GET /api/auth/exists?email=
  *
