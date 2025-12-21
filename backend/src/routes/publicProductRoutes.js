@@ -59,6 +59,10 @@ const baseProductSelect = {
   isHidden: true,
   category: true,
   color: true,
+
+  // 👇 NOU
+  colorVariants: true,
+
   availability: true,
   leadTimeDays: true,
   readyQty: true,
@@ -131,6 +135,11 @@ function mapPublicProduct(p) {
     isHidden: !!p.isHidden,
     category: p.category || null,
     color: p.color || null,
+
+    // 👇 NOU – trimitem la front lista de variante de culoare
+    colorVariants: Array.isArray(p.colorVariants)
+      ? p.colorVariants
+      : [],
 
     // disponibilitate
     availability:
@@ -506,6 +515,11 @@ router.get("/store/:slug/products", async (req, res) => {
         createdAt: p.createdAt,
         category: p.category || null,
         color: p.color || null,
+
+        // 👇 NOU
+        colorVariants: Array.isArray(p.colorVariants)
+          ? p.colorVariants
+          : [],
 
         availability:
           typeof p.availability === "string"
@@ -1206,7 +1220,6 @@ router.get("/products/suggest", async (req, res, next) => {
       })
       .slice(0, 6)
       .map((c) => ({
-
         key: c.key,
         label: c.label,
         group: c.group || null,
@@ -1306,6 +1319,11 @@ router.get("/products/:id", async (req, res, next) => {
       averageRating: avg,
       category: p.category || null,
       color: p.color || null,
+
+      // 👇 NOU
+      colorVariants: Array.isArray(p.colorVariants)
+        ? p.colorVariants
+        : [],
 
       price: unitPrice, // pentru pagina de detaliu produs
       availability: p.availability

@@ -1,10 +1,5 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+// src/pages/Vendor/Settings/SettingsPage.jsx
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../lib/api";
 import {
   User as UserIcon,
@@ -17,14 +12,11 @@ import {
 } from "lucide-react";
 import settingsStyles from "./Settings.module.css";
 
-// 🔹 importă tab-urile de onboarding (AJUSTEAZĂ path-urile după proiectul tău)
 import onboardingStyles from "../Onboarding/OnBoardingDetails/OnBoardingDetails.module.css";
 import ProfileTab from "../Onboarding/OnBoardingDetails/tabs/ProfileTabBoarding.jsx";
 import BillingTab from "../Onboarding/OnBoardingDetails/tabs/BillingTab.jsx";
 import PaymentTab from "../Onboarding/OnBoardingDetails/tabs/PaymentTab.jsx";
 
-// 🔹 importă și componenta de marketing pe care o folosești la useri
-// ajustează path-ul dacă e altfel în proiectul tău
 import MarketingPreferences from "../../User/MarketingPreferences/MarketingPreferences.jsx";
 
 const VANITY_BASE = "www.artfest.ro";
@@ -42,9 +34,7 @@ function Section({ icon, title, subtitle, children, right }) {
           {icon}
           <div>
             <div className={settingsStyles.title}>{title}</div>
-            {subtitle && (
-              <div className={settingsStyles.subtitle}>{subtitle}</div>
-            )}
+            {subtitle && <div className={settingsStyles.subtitle}>{subtitle}</div>}
           </div>
         </div>
         <div>{right}</div>
@@ -55,9 +45,8 @@ function Section({ icon, title, subtitle, children, right }) {
 }
 
 /* ===========================================================
-   EmbeddedOnboarding – același ca la tine
+   EmbeddedOnboarding
    =========================================================== */
-
 const slugify = (s = "") =>
   String(s)
     .toLowerCase()
@@ -67,22 +56,17 @@ const slugify = (s = "") =>
     .replace(/(^-|-$)/g, "");
 
 function EmbeddedOnboarding({ tab }) {
-  const activeTab = ["profil", "facturare", "plata"].includes(tab)
-    ? tab
-    : "profil";
+  const activeTab = ["profil", "facturare", "plata"].includes(tab) ? tab : "profil";
 
   const [services, setServices] = useState([]);
   const [err, setErr] = useState("");
   const [saveState, setSaveState] = useState({});
   const [saveError, setSaveError] = useState({});
   const [billingStatus, setBillingStatus] = useState("idle");
-
   const timers = useRef({});
 
   const fetchMyServices = useCallback(async () => {
-    const d = await api("/api/vendors/me/services?includeProfile=1", {
-      method: "GET",
-    });
+    const d = await api("/api/vendors/me/services?includeProfile=1", { method: "GET" });
 
     const items = (d.items || []).map((s) => ({
       ...s,
@@ -95,9 +79,7 @@ function EmbeddedOnboarding({ tab }) {
         phone: s.profile?.phone || "",
         email: s.profile?.email || "",
         address: s.profile?.address || "",
-        delivery: Array.isArray(s.profile?.delivery)
-          ? s.profile.delivery
-          : [],
+        delivery: Array.isArray(s.profile?.delivery) ? s.profile.delivery : [],
         tagline: s.profile?.tagline || "",
         about: s.profile?.about || "",
         city: s.profile?.city || "",
@@ -138,11 +120,9 @@ function EmbeddedOnboarding({ tab }) {
       const s = { ...next[idx] };
       const p = { ...(s.profile || {}) };
 
-      if (patch.displayName && !p.slug) {
-        p.slug = slugify(patch.displayName);
-      }
-
+      if (patch.displayName && !p.slug) p.slug = slugify(patch.displayName);
       Object.assign(p, patch);
+
       s.profile = p;
       next[idx] = s;
 
@@ -151,23 +131,17 @@ function EmbeddedOnboarding({ tab }) {
         setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
         schedule(serviceId, async () => {
           try {
-            await api(
-              `/api/vendors/vendor-services/${encodeURIComponent(
-                serviceId
-              )}/profile`,
-              {
-                method: "PUT",
-                body: { ...p, mirrorVendor: true },
-              }
-            );
+            await api(`/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`, {
+              method: "PUT",
+              body: { ...p, mirrorVendor: true },
+            });
             setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
             setSaveState((m) => ({ ...m, [serviceId]: "error" }));
             setSaveError((m) => ({
               ...m,
-              [serviceId]:
-                e?.message || "Eroare la salvarea profilului",
+              [serviceId]: e?.message || "Eroare la salvarea profilului",
             }));
           }
         });
@@ -181,6 +155,7 @@ function EmbeddedOnboarding({ tab }) {
     setServices((prev) => {
       const next = [...prev];
       const s = { ...next[idx] };
+
       next[idx] = {
         ...s,
         ...patch,
@@ -193,16 +168,13 @@ function EmbeddedOnboarding({ tab }) {
         schedule(serviceId, async () => {
           try {
             const current = next[idx];
-            await api(
-              `/api/vendors/me/services/${encodeURIComponent(serviceId)}`,
-              {
-                method: "PATCH",
-                body: {
-                  city: current?.city || "",
-                  attributes: current?.attributes || {},
-                },
-              }
-            );
+            await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
+              method: "PATCH",
+              body: {
+                city: current?.city || "",
+                attributes: current?.attributes || {},
+              },
+            });
             setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
@@ -231,6 +203,7 @@ function EmbeddedOnboarding({ tab }) {
     () => Object.values(saveState).some((s) => s === "saving"),
     [saveState]
   );
+
   const hasNameConflict = false;
 
   return (
@@ -267,56 +240,36 @@ function EmbeddedOnboarding({ tab }) {
 }
 
 /* ===========================================================
-   Pagina principală: SettingsPage (vendor)
+   SettingsPage (vendor)
    =========================================================== */
-
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
+  const [meEmail, setMeEmail] = useState("");
 
   const tabs = [
-    {
-      key: "profile",
-      label: "Profil magazin",
-      icon: <UserIcon size={16} />,
-    },
-    {
-      key: "notifications",
-      label: "Notificări",
-      icon: <Bell size={16} />,
-    },
-    {
-      key: "marketing",
-      label: "Marketing",
-      icon: <Megaphone size={16} />,
-    },
-    {
-      key: "security",
-      label: "Securitate",
-      icon: <Shield size={16} />,
-    },
-    {
-      key: "billing",
-      label: "Date facturare",
-      icon: <UserIcon size={16} />,
-    },
-    {
-      key: "subscription",
-      label: "Abonament",
-      icon: <UserIcon size={16} />,
-    },
-    {
-      key: "danger",
-      label: "Ștergere cont",
-      icon: <Trash2 size={16} />,
-    },
+    { key: "profile", label: "Profil magazin", icon: <UserIcon size={16} /> },
+    { key: "notifications", label: "Notificări", icon: <Bell size={16} /> },
+    { key: "marketing", label: "Marketing", icon: <Megaphone size={16} /> },
+    { key: "security", label: "Securitate", icon: <Shield size={16} /> },
+    { key: "billing", label: "Date facturare", icon: <UserIcon size={16} /> },
+    { key: "subscription", label: "Abonament", icon: <UserIcon size={16} /> },
+    { key: "danger", label: "Ștergere cont", icon: <Trash2 size={16} /> },
   ];
 
-  const [active, setActive] = useState("profile");
+  const [active, setActive] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "facturare") return "billing";
+    if (t && ["profile", "notifications", "marketing", "security", "billing", "subscription", "danger"].includes(t))
+      return t;
+    return "profile";
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      await api("/api/auth/me").catch(() => null);
+      const d = await api("/api/auth/me").catch(() => null);
+      const email = d?.user?.email || d?.email || "";
+      setMeEmail(email || "");
     } finally {
       setLoading(false);
     }
@@ -326,7 +279,7 @@ export default function SettingsPage() {
     load();
   }, [load]);
 
-  /* ================== NOTIFICĂRI (vendor) ================== */
+  /* ================== NOTIFICĂRI ================== */
   const [notifications, setNotifications] = useState({
     inAppMessageNew: true,
     inAppBookingUpdates: true,
@@ -338,39 +291,23 @@ export default function SettingsPage() {
   const [notifOk, setNotifOk] = useState(false);
 
   const canSaveNotifications =
-    !notifSaving &&
-    notifInitial &&
-    JSON.stringify(notifications) !== JSON.stringify(notifInitial);
+    !notifSaving && notifInitial && JSON.stringify(notifications) !== JSON.stringify(notifInitial);
 
   const loadNotifications = useCallback(async () => {
     try {
-      const d = await api("/api/account/me/notifications", {
-        method: "GET",
-      });
+      const d = await api("/api/account/me/notifications", { method: "GET" });
       const n = d.notifications || {};
       const next = {
-        inAppMessageNew:
-          typeof n.inAppMessageNew === "boolean"
-            ? n.inAppMessageNew
-            : true,
-        inAppBookingUpdates:
-          typeof n.inAppBookingUpdates === "boolean"
-            ? n.inAppBookingUpdates
-            : true,
-        inAppEventReminders:
-          typeof n.inAppEventReminders === "boolean"
-            ? n.inAppEventReminders
-            : true,
+        inAppMessageNew: typeof n.inAppMessageNew === "boolean" ? n.inAppMessageNew : true,
+        inAppBookingUpdates: typeof n.inAppBookingUpdates === "boolean" ? n.inAppBookingUpdates : true,
+        inAppEventReminders: typeof n.inAppEventReminders === "boolean" ? n.inAppEventReminders : true,
       };
       setNotifications(next);
       setNotifInitial(next);
       setNotifErr("");
       setNotifOk(false);
     } catch (e) {
-      setNotifErr(
-        e?.message ||
-          "Nu am putut încărca preferințele de notificare. Încearcă din nou."
-      );
+      setNotifErr(e?.message || "Nu am putut încărca preferințele de notificare. Încearcă din nou.");
     }
   }, []);
 
@@ -389,9 +326,7 @@ export default function SettingsPage() {
       setNotifOk(true);
     } catch (e) {
       setNotifErr(
-        e?.data?.message ||
-          e?.message ||
-          "Nu am putut salva notificările. Te rugăm să încerci din nou."
+        e?.data?.message || e?.message || "Nu am putut salva notificările. Te rugăm să încerci din nou."
       );
       setNotifOk(false);
     } finally {
@@ -399,14 +334,11 @@ export default function SettingsPage() {
     }
   }, [notifications]);
 
-  // încarcă notificările după ce știm că userul e autentificat
   useEffect(() => {
-    if (!loading) {
-      loadNotifications();
-    }
+    if (!loading) loadNotifications();
   }, [loading, loadNotifications]);
 
-  /* ================== SECURITATE ================== */
+  /* ================== SECURITATE: SCHIMBĂ PAROLA ================== */
   const [oldPass, setOldPass] = useState("");
   const [newPass, setNewPass] = useState("");
   const [newPass2, setNewPass2] = useState("");
@@ -450,12 +382,9 @@ export default function SettingsPage() {
     } catch (e) {
       const serverMsg =
         e?.data?.message ||
-        (e?.data?.error === "invalid_current_password" &&
-          "Parola curentă nu este corectă.") ||
-        (e?.data?.error === "same_as_current" &&
-          "Parola nouă nu poate fi identică cu parola curentă.") ||
-        (e?.data?.error === "password_reused" &&
-          "Nu poți reutiliza una dintre ultimele parole.") ||
+        (e?.data?.error === "invalid_current_password" && "Parola curentă nu este corectă.") ||
+        (e?.data?.error === "same_as_current" && "Parola nouă nu poate fi identică cu parola curentă.") ||
+        (e?.data?.error === "password_reused" && "Nu poți reutiliza una dintre ultimele parole.") ||
         e?.message ||
         "Nu am putut schimba parola.";
       setPassErr(serverMsg);
@@ -465,32 +394,111 @@ export default function SettingsPage() {
     }
   }, [oldPass, newPass, newPass2]);
 
-  /* ================== ȘTERGERE CONT ================== */
-  const [deleting, setDeleting] = useState(false);
-  const [deleteErr, setDeleteErr] = useState("");
+  /* ================== RESET PAROLĂ (trimite link pe email) ================== */
+  const [fpSending, setFpSending] = useState(false);
+  const [fpOk, setFpOk] = useState(false);
+  const [fpErr, setFpErr] = useState("");
 
-  const onDeleteAccount = useCallback(async () => {
-    setDeleteErr("");
-
-    const confirmed = window.confirm(
-      "Ești sigur(ă) că vrei să ștergi contul? Această acțiune este ireversibilă."
-    );
-    if (!confirmed) return;
-
-    setDeleting(true);
+  const requestPasswordReset = useCallback(async () => {
+    setFpErr("");
+    setFpOk(false);
+    setFpSending(true);
     try {
-      await api("/api/account/me", {
-        method: "DELETE",
+      await api("/api/vendor/settings/security/password-reset/request", {
+        method: "POST",
+        body: {},
+      });
+      setFpOk(true);
+    } catch (e) {
+      setFpErr(e?.data?.message || e?.message || "Nu am putut trimite linkul de resetare. Încearcă din nou.");
+      setFpOk(false);
+    } finally {
+      setFpSending(false);
+    }
+  }, []);
+
+  /* ================== SCHIMBARE EMAIL (vendor) ================== */
+  const [newEmail, setNewEmail] = useState("");
+  const [emailCurrentPass, setEmailCurrentPass] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailOk, setEmailOk] = useState(false);
+  const [emailErr, setEmailErr] = useState("");
+  const [pendingEmailInfo, setPendingEmailInfo] = useState("");
+
+  const canSaveEmail = newEmail.trim().length > 0 && emailCurrentPass.trim().length > 0 && !emailSaving;
+
+  const changeEmail = useCallback(async () => {
+    setEmailErr("");
+    setEmailOk(false);
+    setPendingEmailInfo("");
+
+    const emailTrimmed = newEmail.trim().toLowerCase();
+
+    if (!emailTrimmed.includes("@") || !emailTrimmed.includes(".")) {
+      setEmailErr("Te rugăm să introduci un email valid.");
+      return;
+    }
+
+    if (meEmail && emailTrimmed === meEmail.toLowerCase()) {
+      setEmailErr("Emailul nou este identic cu cel curent.");
+      return;
+    }
+
+    setEmailSaving(true);
+    try {
+      const d = await api("/api/vendor/settings/account/change-email", {
+        method: "POST",
+        body: {
+          currentPassword: emailCurrentPass,
+          newEmail: emailTrimmed,
+        },
       });
 
-      window.location.href = "/";
+      const pending = d?.pendingEmail || emailTrimmed;
+      setPendingEmailInfo(pending);
+      setNewEmail("");
+      setEmailCurrentPass("");
+      setEmailOk(true);
     } catch (e) {
       const msg =
         e?.data?.message ||
+        (e?.data?.error === "invalid_current_password" && "Parola curentă nu este corectă.") ||
+        (e?.data?.error === "email_taken" && "Există deja un cont cu acest email.") ||
+        (e?.data?.error === "same_email" && "Emailul nou este identic cu cel curent.") ||
         e?.message ||
-        "Nu am putut șterge contul. Te rugăm să încerci din nou.";
-      setDeleteErr(msg);
-      setDeleting(false);
+        "Nu am putut schimba emailul.";
+      setEmailErr(msg);
+      setEmailOk(false);
+    } finally {
+      setEmailSaving(false);
+    }
+  }, [newEmail, emailCurrentPass, meEmail]);
+
+  /* ================== DEZACTIVARE CONT VENDOR (SAFE) ================== */
+  const [deactivateSending, setDeactivateSending] = useState(false);
+  const [deactivateOk, setDeactivateOk] = useState(false);
+  const [deactivateErr, setDeactivateErr] = useState("");
+
+  const onRequestDeactivateVendor = useCallback(async () => {
+    setDeactivateErr("");
+    setDeactivateOk(false);
+
+    const confirmed = window.confirm(
+      "Vrei să dezactivezi contul de vendor? Magazinul și produsele vor fi ascunse. Confirmarea se face prin email."
+    );
+    if (!confirmed) return;
+
+    setDeactivateSending(true);
+    try {
+      await api("/api/vendor/settings/account/deactivate/request", {
+        method: "POST",
+        body: { reason: "" },
+      });
+      setDeactivateOk(true);
+    } catch (e) {
+      setDeactivateErr(e?.data?.message || e?.message || "Nu am putut trimite emailul de confirmare. Încearcă din nou.");
+    } finally {
+      setDeactivateSending(false);
     }
   }, []);
 
@@ -503,23 +511,19 @@ export default function SettingsPage() {
             className={settingsStyles.iconBtn}
             onClick={() => {
               load();
-              if (!loading) {
-                loadNotifications();
-              }
+              if (!loading) loadNotifications();
             }}
             title="Reîncarcă"
           >
             <RefreshCcw size={16} />
           </button>
         </div>
+
         <nav className={settingsStyles.tabs}>
           {tabs.map((t) => (
             <button
               key={t.key}
-              className={cls(
-                settingsStyles.tab,
-                active === t.key && settingsStyles.active
-              )}
+              className={cls(settingsStyles.tab, active === t.key && settingsStyles.active)}
               onClick={() => setActive(t.key)}
             >
               {t.icon} {t.label}
@@ -535,77 +539,45 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* PROFIL MAGAZIN */}
-        {!loading && active === "profile" && (
-          <EmbeddedOnboarding tab="profil" />
-        )}
+        {!loading && active === "profile" && <EmbeddedOnboarding tab="profil" />}
 
-        {/* NOTIFICĂRI (vendor) */}
         {!loading && active === "notifications" && (
           <Section
             icon={<Bell size={18} />}
             title="Notificări panou vendor"
             subtitle="Controlează notificările pe care le vezi în panoul tău Artfest. Emailurile esențiale (comenzi, plăți, securitate) vor fi trimise în continuare."
             right={
-              <button
-                className={settingsStyles.primary}
-                onClick={saveNotifications}
-                disabled={!canSaveNotifications}
-              >
+              <button className={settingsStyles.primary} onClick={saveNotifications} disabled={!canSaveNotifications}>
                 {notifSaving ? "Se salvează…" : "Salvează notificările"}
               </button>
             }
           >
             <div className={settingsStyles.grid1}>
-              <label className={settingsStyles.checkboxRow}>
+              <label className={settingsStyles.radio} style={{ width: "100%" }}>
                 <input
                   type="checkbox"
                   checked={notifications.inAppMessageNew}
-                  onChange={(e) =>
-                    setNotifications((n) => ({
-                      ...n,
-                      inAppMessageNew: e.target.checked,
-                    }))
-                  }
+                  onChange={(e) => setNotifications((n) => ({ ...n, inAppMessageNew: e.target.checked }))}
                 />
-                <span>
-                  Afișează notificări când primesc mesaje noi / lead-uri de la
-                  clienți.
-                </span>
+                <span>Afișează notificări când primesc mesaje noi / lead-uri de la clienți.</span>
               </label>
 
-              <label className={settingsStyles.checkboxRow}>
+              <label className={settingsStyles.radio} style={{ width: "100%" }}>
                 <input
                   type="checkbox"
                   checked={notifications.inAppBookingUpdates}
-                  onChange={(e) =>
-                    setNotifications((n) => ({
-                      ...n,
-                      inAppBookingUpdates: e.target.checked,
-                    }))
-                  }
+                  onChange={(e) => setNotifications((n) => ({ ...n, inAppBookingUpdates: e.target.checked }))}
                 />
-                <span>
-                  Afișează notificări pentru comenzi și rezervări (creare,
-                  confirmare, modificări, anulare).
-                </span>
+                <span>Afișează notificări pentru comenzi și rezervări (creare, confirmare, modificări, anulare).</span>
               </label>
 
-              <label className={settingsStyles.checkboxRow}>
+              <label className={settingsStyles.radio} style={{ width: "100%" }}>
                 <input
                   type="checkbox"
                   checked={notifications.inAppEventReminders}
-                  onChange={(e) =>
-                    setNotifications((n) => ({
-                      ...n,
-                      inAppEventReminders: e.target.checked,
-                    }))
-                  }
+                  onChange={(e) => setNotifications((n) => ({ ...n, inAppEventReminders: e.target.checked }))}
                 />
-                <span>
-                  Afișează remindere în aplicație pentru evenimente și livrări
-                  importante.
-                </span>
+                <span>Afișează remindere în aplicație pentru evenimente și livrări importante.</span>
               </label>
 
               {notifErr && (
@@ -613,145 +585,202 @@ export default function SettingsPage() {
                   {notifErr}
                 </div>
               )}
-              {notifOk && (
-                <div className={settingsStyles.success}>
-                  ✅ Preferințele de notificare au fost salvate.
-                </div>
-              )}
+              {notifOk && <div className={settingsStyles.success}>✅ Preferințele de notificare au fost salvate.</div>}
             </div>
           </Section>
         )}
 
-        {/* MARKETING – reutilizăm aceeași componentă ca la user */}
         {!loading && active === "marketing" && <MarketingPreferences />}
 
-        {/* DATE FACTURARE */}
-        {!loading && active === "billing" && (
-          <EmbeddedOnboarding tab="facturare" />
-        )}
+        {!loading && active === "billing" && <EmbeddedOnboarding tab="facturare" />}
 
-        {/* ABONAMENT */}
-        {!loading && active === "subscription" && (
-          <EmbeddedOnboarding tab="plata" />
-        )}
+        {!loading && active === "subscription" && <EmbeddedOnboarding tab="plata" />}
 
         {/* SECURITATE */}
         {!loading && active === "security" && (
-          <Section
-            icon={<Shield size={18} />}
-            title="Securitate"
-            subtitle="Schimbă parola contului tău"
-            right={
-              <button
-                className={settingsStyles.primary}
-                onClick={changePassword}
-                disabled={!canSavePass}
-              >
-                {savingPass ? "Se salvează…" : "Salvează parola"}
-              </button>
-            }
-          >
-            <div className={settingsStyles.grid1}>
-              <label className={settingsStyles.field}>
-                <span>Parola curentă</span>
-                <input
-                  className={settingsStyles.input}
-                  type="password"
-                  value={oldPass}
-                  onChange={(e) => setOldPass(e.target.value)}
-                  placeholder="Parola actuală"
-                />
-              </label>
-
-              <div className={settingsStyles.grid2}>
+          <>
+            <Section
+              icon={<Shield size={18} />}
+              title="Securitate – Parolă"
+              subtitle="Schimbă parola sau trimite un link de resetare pe email."
+              right={
+                <button className={settingsStyles.primary} onClick={changePassword} disabled={!canSavePass}>
+                  {savingPass ? "Se salvează…" : "Salvează parola"}
+                </button>
+              }
+            >
+              <div className={settingsStyles.grid1}>
                 <label className={settingsStyles.field}>
-                  <span>Parolă nouă</span>
+                  <span>Parola curentă</span>
                   <input
                     className={settingsStyles.input}
                     type="password"
-                    value={newPass}
-                    onChange={(e) => setNewPass(e.target.value)}
-                    placeholder={`Cel puțin ${MIN_LEN} caractere`}
+                    value={oldPass}
+                    onChange={(e) => setOldPass(e.target.value)}
+                    placeholder="Parola actuală"
                   />
                 </label>
-                <label className={settingsStyles.field}>
-                  <span>Confirmă parola nouă</span>
-                  <input
-                    className={settingsStyles.input}
-                    type="password"
-                    value={newPass2}
-                    onChange={(e) => setNewPass2(e.target.value)}
-                    placeholder="Repetă parola nouă"
-                  />
-                </label>
-              </div>
 
-              {newPass && newPass.length < MIN_LEN && (
-                <div className={settingsStyles.warn}>
-                  Parola trebuie să aibă cel puțin {MIN_LEN} caractere.
+                <div className={settingsStyles.grid2}>
+                  <label className={settingsStyles.field}>
+                    <span>Parolă nouă</span>
+                    <input
+                      className={settingsStyles.input}
+                      type="password"
+                      value={newPass}
+                      onChange={(e) => setNewPass(e.target.value)}
+                      placeholder={`Cel puțin ${MIN_LEN} caractere`}
+                    />
+                  </label>
+
+                  <label className={settingsStyles.field}>
+                    <span>Confirmă parola nouă</span>
+                    <input
+                      className={settingsStyles.input}
+                      type="password"
+                      value={newPass2}
+                      onChange={(e) => setNewPass2(e.target.value)}
+                      placeholder="Repetă parola nouă"
+                    />
+                  </label>
                 </div>
-              )}
 
-              {newPass2 && newPass && newPass !== newPass2 && (
-                <div className={settingsStyles.warn}>
-                  Parolele nu se potrivesc.
+                {newPass && newPass.length < MIN_LEN && (
+                  <div className={settingsStyles.warn}>Parola trebuie să aibă cel puțin {MIN_LEN} caractere.</div>
+                )}
+
+                {newPass2 && newPass && newPass !== newPass2 && (
+                  <div className={settingsStyles.warn}>Parolele nu se potrivesc.</div>
+                )}
+
+                {passErr && (
+                  <div className={settingsStyles.error} role="alert">
+                    {passErr}
+                  </div>
+                )}
+                {passOk && <div className={settingsStyles.success}>✅ Parola a fost schimbată cu succes.</div>}
+
+                {/* reset password row */}
+                <div className={settingsStyles.fpBox}>
+                  <div>
+                    <div className={settingsStyles.fpTitle}>Ai uitat parola?</div>
+                    <div className={settingsStyles.subtitle}>Trimitem un link de resetare pe emailul contului tău.</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={settingsStyles.fpBtn}
+                    onClick={requestPasswordReset}
+                    disabled={fpSending}
+                  >
+                    {fpSending ? "Se trimite…" : "Trimite link de resetare"}
+                  </button>
                 </div>
-              )}
 
-              {passErr && (
-                <div className={settingsStyles.error} role="alert">
-                  {passErr}
-                </div>
-              )}
+                {fpOk && (
+                  <div className={settingsStyles.success}>
+                    ✅ Ți-am trimis un email cu linkul de resetare. Verifică Inbox / Spam.
+                  </div>
+                )}
 
-              {passOk && (
-                <div className={settingsStyles.success}>
-                  ✅ Parola a fost schimbată cu succes.
-                </div>
-              )}
+                {fpErr && (
+                  <div className={settingsStyles.error} role="alert">
+                    {fpErr}
+                  </div>
+                )}
 
-              <div style={{ marginTop: 12 }}>
-                <a href={FORGOT_PASSWORD_URL} className={settingsStyles.link}>
-                  Am uitat parola veche
+                <a href={FORGOT_PASSWORD_URL} className={settingsStyles.fpLink}>
+                  Am uitat parola
                 </a>
               </div>
-            </div>
-          </Section>
+            </Section>
+
+            <Section
+              icon={<UserIcon size={18} />}
+              title="Email de conectare"
+              subtitle="Schimbă adresa de email folosită pentru login. Confirmarea se face prin email."
+              right={
+                <button className={settingsStyles.primary} onClick={changeEmail} disabled={!canSaveEmail}>
+                  {emailSaving ? "Se salvează…" : "Salvează emailul"}
+                </button>
+              }
+            >
+              <div className={settingsStyles.grid1}>
+                <label className={settingsStyles.field}>
+                  <span>Email curent</span>
+                  <input className={settingsStyles.input} type="email" value={meEmail || ""} disabled />
+                </label>
+
+                <label className={settingsStyles.field}>
+                  <span>Email nou</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="exemplu@domeniu.ro"
+                  />
+                </label>
+
+                <label className={settingsStyles.field}>
+                  <span>Parola curentă</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="password"
+                    value={emailCurrentPass}
+                    onChange={(e) => setEmailCurrentPass(e.target.value)}
+                    placeholder="Introdu parola pentru confirmare"
+                  />
+                </label>
+
+                {emailErr && (
+                  <div className={settingsStyles.error} role="alert">
+                    {emailErr}
+                  </div>
+                )}
+
+                {emailOk && (
+                  <div className={settingsStyles.success}>
+                    ✅ Ți-am trimis un email de confirmare la <strong>{pendingEmailInfo}</strong>. Accesează linkul din
+                    email pentru a finaliza schimbarea.
+                  </div>
+                )}
+              </div>
+            </Section>
+          </>
         )}
 
-        {/* ȘTERGERE CONT */}
+        {/* ZONĂ PERICULOASĂ */}
         {!loading && active === "danger" && (
-          <Section
-            icon={<Trash2 size={18} />}
-            title="Zonă periculoasă"
-            subtitle="Acțiuni ireversibile"
-          >
+          <Section icon={<Trash2 size={18} />} title="Zonă periculoasă" subtitle="Acțiuni ireversibile (safe)">
             <div className={settingsStyles.danger}>
               <div>
-                <div className={settingsStyles.title}>Ștergere cont</div>
+                <div className={settingsStyles.title}>Dezactivează cont vendor (safe)</div>
                 <div className={settingsStyles.subtitle}>
-                  Această acțiune nu poate fi anulată. Toate datele tale vor fi
-                  eliminate și nu vei mai putea accesa contul.
+                  Magazinul și produsele vor fi ascunse. Datele sensibile (facturi, comenzi, billing) rămân în sistem
+                  pentru conformitate/audit. Confirmarea se face prin email.
                 </div>
               </div>
 
               <button
                 type="button"
                 className={settingsStyles.dangerBtn}
-                onClick={onDeleteAccount}
-                disabled={deleting}
+                onClick={onRequestDeactivateVendor}
+                disabled={deactivateSending}
               >
-                {deleting ? "Se șterge…" : "Șterge contul"}
+                {deactivateSending ? "Se trimite…" : "Trimite email de confirmare"}
               </button>
             </div>
 
-            {deleteErr && (
-              <div
-                className={settingsStyles.error}
-                role="alert"
-                style={{ marginTop: 12 }}
-              >
-                {deleteErr}
+            {deactivateOk && (
+              <div className={settingsStyles.success} style={{ marginTop: 12 }}>
+                ✅ Ți-am trimis un email cu linkul de confirmare. Verifică Inbox / Spam.
+              </div>
+            )}
+
+            {deactivateErr && (
+              <div className={settingsStyles.error} role="alert" style={{ marginTop: 12 }}>
+                {deactivateErr}
               </div>
             )}
           </Section>

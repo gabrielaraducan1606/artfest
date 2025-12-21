@@ -321,7 +321,8 @@ router.post(
   }
 );
 
-/* ====== Stats pentru Desktop (vizitatori/leaduri etc) ====== */
+/* ====== Stats pentru Desktop (vizitatori/recenzii/urmăritori) ====== */
+/* ====== Stats pentru Desktop (vizitatori/recenzii/urmăritori) ====== */
 router.get(
   "/me/stats",
   authRequired,
@@ -331,15 +332,14 @@ router.get(
       const window = String(req.query.window || "7d");
       const userId = req.user.sub;
 
-      // luăm vendor-ul curent
-      const vendor =
+      const meVendor =
         req.meVendor ??
         (await prisma.vendor.findUnique({
           where: { userId },
           select: { id: true },
         }));
 
-      if (!vendor) {
+      if (!meVendor) {
         return res.json({
           visitors: 0,
           leads: 0,
@@ -351,45 +351,42 @@ router.get(
         });
       }
 
-      const vendorId = vendor.id;
+      const vendorId = meVendor.id;
 
-      // momentan lăsăm 0 la astea, doar ca să nu stricăm UI
-      const visitors = 0;
-      const leads = 0;
-      const messages = 0;
-
-      // ⚠️ exact aceeași condiție ca în /api/reviews/received
-      const productWhere = {
-        status: "APPROVED",
-        product: {
-          service: { vendorId },
-        },
-      };
-
-      const storeWhere = {
-        status: "APPROVED",
-        vendorId,
-      };
-
-      const [productReviewsTotal, storeReviewsTotal] = await Promise.all([
-        prisma.review.count({ where: productWhere }),
-        prisma.storeReview.count({ where: storeWhere }),
-      ]);
-
-      // dacă ai o tabelă cu urmăritori, modifici aici;
-      // deocamdată 0 ca să nu dea eroare
-      const followers = 0;
-
-      console.log("VENDOR STATS", {
-        vendorId,
-        productReviewsTotal,
-        storeReviewsTotal,
-      });
+      const [productReviewsTotal, storeReviewsTotal, followers] =
+        await Promise.all([
+          // recenzii de PRODUS pentru produsele serviciilor vendorului
+          prisma.review.count({
+            where: {
+              status: "APPROVED",
+              product: {
+                service: {
+                  vendorId,
+                },
+              },
+            },
+          }),
+          // recenzii de MAGAZIN (profil)
+          prisma.storeReview.count({
+            where: {
+              status: "APPROVED",
+              vendorId,
+            },
+          }),
+          // urmăritori: orice follow pe oricare din serviciile vendorului
+          prisma.serviceFollow.count({
+            where: {
+              service: {
+                vendorId,
+              },
+            },
+          }),
+        ]);
 
       return res.json({
-        visitors,
-        leads,
-        messages,
+        visitors: 0,          // încă nu le calculați
+        leads: 0,             // idem
+        messages: 0,          // idem
         productReviewsTotal,
         storeReviewsTotal,
         followers,

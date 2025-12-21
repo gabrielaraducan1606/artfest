@@ -147,7 +147,11 @@ model User {
   emailChangeExpiresAt DateTime?
 
   // Relații 1–1 / 1–n
-  vendor              Vendor?
+  vendor Vendor?
+
+  vendorDeactivateToken     String?
+  vendorDeactivateExpiresAt DateTime?
+
   passwordResetTokens PasswordResetToken[]
   Favorite            Favorite[]
   passwordHistories   PasswordHistory[]
@@ -192,6 +196,7 @@ model User {
   // 👇 nou – relația cu Order
   orders             Order[]
 
+  @@index([vendorDeactivateToken])
   @@index([emailChangeToken])
 }
 
@@ -369,7 +374,7 @@ model Vendor {
 
   billing VendorBilling?
 
-productDeclaration VendorProductDeclaration?
+  productDeclaration VendorProductDeclaration?
 
   services      VendorService[]
   subscriptions VendorSubscription[]
@@ -402,10 +407,10 @@ model VendorProductDeclaration {
   vendorId String @unique
 
   // versiunea textului de declarație pe care o folosești în UI / fișier
-  version String  @default("1.0.0")
+  version String @default("1.0.0")
 
   // opțional: snapshot al textului la momentul acceptării
-  text      String?
+  text       String?
   acceptedAt DateTime @default(now())
 
   // pentru audit (opțional)
@@ -633,6 +638,9 @@ model Product {
   category String? @db.VarChar(64)
   color    String? @db.VarChar(32)
 
+  // 👇 NOU: variante de culoare, ex: [{ color: "RED", image: "url1" }]
+  colorVariants Json?
+
   availability         ProductAvailability @default(READY)
   leadTimeDays         Int?
   readyQty             Int?                @default(0)
@@ -662,18 +670,15 @@ model Product {
   cartItems          CartItem[]
   ProductRatingStats ProductRatingStats[]
 
-  // 🔹 index-uri existente
   @@index([serviceId, isActive, createdAt])
   @@index([category])
   @@index([isHidden, isActive, availability, createdAt])
   @@index([priceCents])
-  // 🔹 index-uri noi pentru filtrele din /products
   @@index([color], name: "product_color_idx")
   @@index([materialMain], name: "product_material_idx")
   @@index([technique], name: "product_technique_idx")
   @@index([leadTimeDays], name: "product_leadTime_idx")
   @@index([acceptsCustom], name: "product_acceptsCustom_idx")
-  // 🔹 index compus exact pe pattern-ul de filtre cel mai folosit
   @@index([isActive, isHidden, category, availability, priceCents, createdAt], name: "product_filters_category_price_created")
 }
 
@@ -1043,7 +1048,7 @@ enum ShippingMethod {
 
 model Order {
   id              String        @id @default(cuid())
-  userId          String
+  userId String?
   status          OrderStatus   @default(PENDING)
   paymentMethod   PaymentMethod
   currency        String        @default("RON")
@@ -1068,7 +1073,7 @@ model Order {
   invoiceDate   DateTime?
 
   // 👇 nou – relația spre User
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ user User? @relation(fields: [userId], references: [id], onDelete: SetNull) // ✅
 
   @@index([userId, createdAt])
 }
@@ -1116,7 +1121,7 @@ model Shipment {
 model ShipmentItem {
   id         String  @id @default(cuid())
   shipmentId String
-  productId  String
+   productId  String?
   title      String
   qty        Int
   price      Decimal @db.Decimal(10, 2)

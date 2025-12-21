@@ -118,7 +118,6 @@ export default function CommentsSection({
 
   return (
     <section className={styles.section}>
-      <h2 className={styles.title}>Întrebări & Comentarii</h2>
 
       {comments?.length ? (
         <div className={styles.list}>

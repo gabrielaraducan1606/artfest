@@ -213,6 +213,21 @@
   color: var(--color-danger);
 }
 
+.unreadDot {
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  padding: 0 4px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+}
+
 /* ============ Butoane ============ */
 
 .secondaryBtn,
@@ -305,6 +320,7 @@
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .pagination {
@@ -337,7 +353,7 @@
   }
 }
 
-/* ============ Modal (curier + factură) ============ */
+/* ============ Modal (curier + factură + mobil) ============ */
 
 .modalBackdrop {
   position: fixed;
@@ -365,7 +381,7 @@
   flex-direction: column;
   gap: 12px;
 
-  overflow-y: auto; /* pentru modalul de curier */
+  overflow-y: auto; /* pentru modalul de curier / mobil */
 }
 
 .modalHead {
@@ -381,7 +397,7 @@
   font-weight: 700;
 }
 
-/* body scrollabil – folosit în InvoiceModal */
+/* body scrollabil – folosit în InvoiceModal și MobileOrderModal */
 .modalBody {
   flex: 1 1 auto;
   padding: 16px 18px 12px;
@@ -470,7 +486,7 @@
   margin-top: 8px;
 }
 
-/* ============ Grid detalii comandă ============ */
+/* ============ Grid detalii comandă (folosit și în MobileOrderModal) ============ */
 
 .grid2 {
   display: grid;
@@ -559,6 +575,23 @@
   .filters {
     gap: 8px;
   }
+  
+}
+/* doar pe desktop – rânduri cu înălțime fixă */
+@media (min-width: 900px) {
+
+  /* ultima coloană – nu lăsăm conținutul să curgă pe mai multe rânduri */
+  .actionsCell {
+    white-space: nowrap;
+    height: 123px;
+  }
+
+  /* butonul mare din tabel un pic mai compact, să intre înăuntru frumos */
+  .actionsCell .primaryBtn {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    line-height: 1.2;
+  }
 }
 
 /* sub 720px – mobile “normal” */
@@ -570,11 +603,20 @@
   .headerRow {
     flex-direction: column;
     align-items: flex-start;
+    gap: 8px;
   }
 
   .headerActions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .tableWrap {
+    border-radius: 10px;
+  }
+
+  .table {
+    min-width: 520px;
   }
 
   .table th:nth-child(2),
@@ -585,6 +627,7 @@
   .actionsCell {
     flex-direction: column;
     align-items: stretch;
+    gap: 6px;
   }
 
   .secondaryBtn,
@@ -596,6 +639,33 @@
 
   .grid3 {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .modalBackdrop {
+    padding: 12px;
+    align-items: stretch;
+  }
+
+  .modal {
+    max-width: 100%;
+    max-height: 100vh;
+    align-self: stretch;
+    border-radius: 18px 18px 0 0;
+    margin-top: auto; /* efect de slide-up */
+  }
+
+  .modalBody {
+    padding-inline: 14px;
+  }
+
+  .modalActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .modalActions .primaryBtn,
+  .modalActions .secondaryBtn {
+    width: 100%;
   }
 }
 
@@ -621,6 +691,15 @@
 
   .kv {
     grid-template-columns: 1fr;
+  }
+
+  .modal {
+    border-radius: 14px 14px 0 0;
+    padding: 12px 12px 14px;
+  }
+
+  .modalHead h3 {
+    font-size: 0.95rem;
   }
 }
 
@@ -811,11 +890,15 @@
     width: 100%;
   }
 }
+
 .invoiceHint {
   margin-top: 6px;
   font-size: 0.8rem;
   color: var(--color-muted);
 }
+
+/* ============ Altele ============ */
+
 .orderRow {
   cursor: pointer;
 }
@@ -824,14 +907,8 @@
   background: #f7f7f7;
 }
 
-.actionsCell {
-  display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-  align-items: center;
-}
-
 /* butoane mici, doar icon */
+
 .iconActionBtn {
   border: none;
   background: transparent;
@@ -851,6 +928,7 @@
 .iconActionBtn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.04);
 }
+
 .internalNoteBox {
   background: rgba(148, 163, 184, 0.08);
   border-radius: 6px;
@@ -864,4 +942,34 @@
   font-weight: 600;
   margin-bottom: 2px;
   color: var(--color-muted);
+}
+/* ============ Manual Order: Address UI ============ */
+
+.addressBlock {
+  display: grid;
+  gap: 10px;
+}
+
+.fullSpan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.textarea {
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  padding: 10px 10px;
+  font-size: 0.9rem;
+  background: #ffffff;
+  color: var(--color-text);
+  resize: vertical;
+  min-height: 74px;
+}
+
+.hint {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  line-height: 1.3;
 }

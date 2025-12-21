@@ -1,6 +1,8 @@
+// backend/src/routes/stores.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
+import { createVendorNotification } from "../services/notifications.js";
 
 const router = Router();
 
@@ -80,7 +82,7 @@ router.get("/:serviceId/follow", authRequired, async (req, res) => {
 
 /**
  * POST /api/stores/:serviceId/follow
- * -> user-ul urmărește magazinul
+ * -> user-ul urmărește magazinul + notificare către VENDOR
  */
 router.post("/:serviceId/follow", authRequired, async (req, res) => {
   const { serviceId } = req.params;
@@ -89,28 +91,66 @@ router.post("/:serviceId/follow", authRequired, async (req, res) => {
   try {
     const service = await prisma.vendorService.findUnique({
       where: { id: serviceId },
-      select: { id: true },
+      select: {
+        id: true,
+        vendorId: true,
+        title: true,
+        profile: {
+          select: {
+            displayName: true,
+            slug: true,
+          },
+        },
+      },
     });
+
     if (!service) {
       return res
         .status(404)
         .json({ ok: false, error: "store_not_found" });
     }
 
+    let isNewFollow = false;
+
     try {
       // încercăm să creăm follow; dacă există deja, prindem eroarea
       await prisma.serviceFollow.create({
         data: { userId, serviceId },
       });
+      isNewFollow = true;
     } catch (e) {
       // P2002 = unique constraint (deja urmărește) -> ignorăm
       if (e.code !== "P2002") {
         console.error("create ServiceFollow error", e);
         throw e;
       }
+      isNewFollow = false;
     }
 
     const count = await prisma.serviceFollow.count({ where: { serviceId } });
+
+    // ==============================
+    // 🔔 Notificare către VENDOR – doar la follow NOU
+    // ==============================
+    if (isNewFollow && service.vendorId) {
+      try {
+        const storeName =
+          service.profile?.displayName ||
+          service.title ||
+          "magazinul tău";
+
+        await createVendorNotification(service.vendorId, {
+          type: "follow",
+          title: "Magazinul tău are un nou urmăritor",
+          body: `Cineva a început să urmărească ${storeName}.`,
+          // ajustează link-ul dacă ai o pagină dedicată pentru urmăritori
+          link: "/vendor/visitors",
+        });
+      } catch (e) {
+        console.error("store follow notification failed", e);
+        // nu stricăm răspunsul către client dacă notificarea eșuează
+      }
+    }
 
     return res.json({
       ok: true,

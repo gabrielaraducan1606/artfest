@@ -265,7 +265,7 @@ export default function ReviewSection({
     <section className={styles.wrap} id="product-reviews">
       <header className={styles.header}>
         <div>
-          <h2 className={styles.title}>Recenzii produs</h2>
+          
           {avg?.count > 0 ? (
             <p className={styles.meta}>
               <strong>{avg.average.toFixed(1)} / 5</strong>{" "}

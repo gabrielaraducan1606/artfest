@@ -6,15 +6,14 @@ import {
   suspiciousLoginWarningEmailTemplate,
   vendorFollowUpReminderEmailTemplate,
 
-  // 👇 ADĂUGAT — template guest
   guestSupportConfirmationTemplate,
   guestSupportReplyTemplate,
 
-  // 👇 ADĂUGAT — template schimbare email
   emailChangeVerificationTemplate,
 
-  // 👇 ADĂUGAT — template factură emisă
   invoiceIssuedEmailTemplate,
+    vendorDeactivateConfirmTemplate,
+
 } from "./emailTemplates.js";
 
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
@@ -1127,6 +1126,36 @@ export async function sendShipmentPickupEmail({
   ].filter(Boolean);
 
   const text = textLines.join("\n");
+
+  return transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject,
+    html,
+    text,
+    attachments: [
+      {
+        filename: "logo-artfest-240.png",
+        path: "https://artfest.ro/assets/LogoArtfest.png",
+        cid: logoCid,
+        contentType: "image/png",
+      },
+    ],
+    headers: {
+      "Auto-Submitted": "auto-generated",
+      "X-Auto-Response-Suppress": "All",
+      Precedence: "bulk",
+    },
+  });
+}
+export async function sendVendorDeactivateConfirmEmail({ to, link }) {
+  if (!to || !link) return;
+
+  const transporter = makeTransport();
+  const { html, text, subject, logoCid } = withLogo(
+    vendorDeactivateConfirmTemplate,
+    { link }
+  );
 
   return transporter.sendMail({
     from: process.env.EMAIL_FROM,

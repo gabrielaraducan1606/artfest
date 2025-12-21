@@ -590,3 +590,34 @@
     padding: 14px 12px 14px;
   }
 }
+.btnWithBadge {
+  position: relative;
+}
+
+.iconWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* bulina tip notificare */
+.badgeBubble {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+
+  background: #ef4444;
+  color: #fff;
+
+  border: 2px solid var(--color-bg, #fff);
+}

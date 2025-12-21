@@ -14,6 +14,7 @@ import {
   FileText,
   X,
   MessageSquare,
+  RotateCcw,
 } from "lucide-react";
 import styles from "./OrdersPlaning.module.css";
 
@@ -188,16 +189,17 @@ function VendorOrdersPlanningContent() {
   const [err, setErr] = useState("");
   const [items, setItems] = useState([]);
 
-  // filtre avansate (comenzi)
+  // UI: contabilitate pliată
+  const [showAccounting, setShowAccounting] = useState(false);
+
+  // UI: modal filtre
+  const [showFiltersModal, setShowFiltersModal] = useState(false);
+
+  // filtre (comenzi)
   const [searchText, setSearchText] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("");
   const [productTypeFilter, setProductTypeFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
-
-  // notițe comenzi
-  const [editingNotesOrder, setEditingNotesOrder] = useState(null);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
 
   // day modal
   const [selectedDay, setSelectedDay] = useState(null);
@@ -278,7 +280,7 @@ function VendorOrdersPlanningContent() {
     [items]
   );
 
-  // aplicăm filtrele avansate pe COMENZI
+  // aplicăm filtrele pe COMENZI (fără notițe aici)
   const filteredItems = useMemo(() => {
     const search = searchText.trim().toLowerCase();
     return items.filter((o) => {
@@ -293,7 +295,6 @@ function VendorOrdersPlanningContent() {
         o.customerName,
         o.shortId,
         o.id,
-        o.vendorNotes,
         o.eventType,
         o.productType,
         o.location,
@@ -362,7 +363,7 @@ function VendorOrdersPlanningContent() {
   const intervalFulfilledCount = boardColumns.fulfilled.length;
   const intervalCancelledCount = boardColumns.cancelled.length;
 
-  // 🔢 REZUMAT CONTABIL PE INTERVAL (din filteredItems)
+  // REZUMAT CONTABIL PE INTERVAL
   const accountingStats = useMemo(() => {
     let grossTotal = 0; // toate comenzile (după filtre)
     let grossActive = 0; // toate în afară de anulate
@@ -442,41 +443,13 @@ function VendorOrdersPlanningContent() {
     setCurrentDate(new Date());
   }
 
-  // --- Notițe: open / close / save (COMENZI) ---
-  function openNotesModal(order) {
-    setEditingNotesOrder(order);
-    setNoteDraft(order.vendorNotes || "");
-  }
-
-  function closeNotesModal() {
-    setEditingNotesOrder(null);
-    setNoteDraft("");
-    setSavingNote(false);
-  }
-
-  async function saveNotes() {
-    if (!editingNotesOrder) return;
-    setSavingNote(true);
-    try {
-      const res = await api(
-        `/api/vendor/orders/${editingNotesOrder.id}/notes`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vendorNotes: noteDraft }),
-        }
-      );
-      const newNotes = res?.vendorNotes ?? noteDraft;
-      setItems((prev) =>
-        prev.map((o) =>
-          o.id === editingNotesOrder.id ? { ...o, vendorNotes: newNotes } : o
-        )
-      );
-      closeNotesModal();
-    } catch {
-      setErr("Nu am putut salva notițele. Încearcă din nou.");
-      setSavingNote(false);
-    }
+  // reset filtre
+  function handleResetFilters() {
+    setSearchText("");
+    setStatus("");
+    setEventTypeFilter("");
+    setProductTypeFilter("");
+    setLocationFilter("");
   }
 
   // day modal
@@ -589,82 +562,25 @@ function VendorOrdersPlanningContent() {
             </div>
           )}
 
-          {/* Filtre avansate */}
-          <div className={styles.extraFilters}>
-            <div className={styles.searchWrapper}>
-              <input
-                type="text"
-                className={styles.searchInput}
-                placeholder="Caută după client, ID, notițe, eveniment..."
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-              />
-            </div>
-
-            {derivedEventTypes.length > 0 && (
-              <select
-                className={styles.select}
-                value={eventTypeFilter}
-                onChange={(e) => setEventTypeFilter(e.target.value)}
-                aria-label="Filtru tip eveniment"
-              >
-                <option value="">Tip eveniment</option>
-                {derivedEventTypes.map((et) => (
-                  <option key={et} value={et}>
-                    {et}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {derivedProductTypes.length > 0 && (
-              <select
-                className={styles.select}
-                value={productTypeFilter}
-                onChange={(e) => setProductTypeFilter(e.target.value)}
-                aria-label="Filtru tip produs"
-              >
-                <option value="">Tip produs</option>
-                {derivedProductTypes.map((pt) => (
-                  <option key={pt} value={pt}>
-                    {pt}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {derivedLocations.length > 0 && (
-              <select
-                className={styles.select}
-                value={locationFilter}
-                onChange={(e) => setLocationFilter(e.target.value)}
-                aria-label="Filtru locație"
-              >
-                <option value="">Locație</option>
-                {derivedLocations.map((loc) => (
-                  <option key={loc} value={loc}>
-                    {loc}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* Filtru status (COMENZI) */}
-          <div className={styles.statusFilter}>
-            <Filter size={14} />
-            <select
-              className={styles.select}
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              aria-label="Filtru status comenzi"
+          {/* Butoane filtre */}
+          <div className={styles.filtersButtons}>
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={() => setShowFiltersModal(true)}
             >
-              {STATUS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              <Filter size={14} /> Filtre
+            </button>
+
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={handleResetFilters}
+              aria-label="Resetează filtrele"
+              title="Resetează filtrele"
+            >
+              <RotateCcw size={16} />
+            </button>
           </div>
         </div>
       </div>
@@ -692,40 +608,69 @@ function VendorOrdersPlanningContent() {
         </span>
       </div>
 
-      {/* 🔢 REZUMAT CONTABIL – „mini contabilitate” pe interval */}
-      <div className={styles.accountingSummaryBar}>
-        <div className={styles.accountingItem}>
-          <span className={styles.muted}>Total potențial (toate comenzile)</span>
-          <div className={styles.accountingValue}>
-            {formatMoney(accountingStats.grossTotal)}
+      {/* REZUMAT CONTABIL – pliat */}
+      <section className={styles.accountingSection}>
+        <button
+          type="button"
+          className={styles.accountingToggle}
+          onClick={() => setShowAccounting((v) => !v)}
+        >
+          <div className={styles.accountingToggleLeft}>
+            <FileText size={14} />
+            <span>Detalii financiare pe interval</span>
           </div>
-        </div>
-        <div className={styles.accountingItem}>
-          <span className={styles.muted}>Încasări estimate (Finalizate)</span>
-          <div className={styles.accountingValue}>
-            {formatMoney(accountingStats.grossFulfilled)}
+          <span className={styles.accountingToggleHint}>
+            {showAccounting
+              ? "Ascunde"
+              : `${formatMoney(
+                  accountingStats.grossFulfilled
+                )} încasări estimate`}
+          </span>
+        </button>
+
+        {showAccounting && (
+          <div className={styles.accountingSummaryBar}>
+            <div className={styles.accountingItem}>
+              <span className={styles.muted}>
+                Total potențial (toate comenzile)
+              </span>
+              <div className={styles.accountingValue}>
+                {formatMoney(accountingStats.grossTotal)}
+              </div>
+            </div>
+            <div className={styles.accountingItem}>
+              <span className={styles.muted}>
+                Încasări estimate (Finalizate)
+              </span>
+              <div className={styles.accountingValue}>
+                {formatMoney(accountingStats.grossFulfilled)}
+              </div>
+            </div>
+            <div className={styles.accountingItem}>
+              <span className={styles.muted}>Valoare pierdută (Anulate)</span>
+              <div className={styles.accountingValueLoss}>
+                −{formatMoney(accountingStats.grossCancelled)}
+              </div>
+            </div>
+            <div className={styles.accountingItem}>
+              <span className={styles.muted}>Structură plăți</span>
+              <div className={styles.accountingValue}>
+                <strong>{formatMoney(accountingStats.codTotal)}</strong>{" "}
+                ramburs ·{" "}
+                <strong>{formatMoney(accountingStats.cardTotal)}</strong> card
+              </div>
+            </div>
+            <div className={styles.accountingItem}>
+              <span className={styles.muted}>
+                Rată conversie (finalizate vs. anulate)
+              </span>
+              <div className={styles.accountingValue}>
+                {accountingStats.conversionRate.toFixed(1)}%
+              </div>
+            </div>
           </div>
-        </div>
-        <div className={styles.accountingItem}>
-          <span className={styles.muted}>Valoare pierdută (Anulate)</span>
-          <div className={styles.accountingValueLoss}>
-            −{formatMoney(accountingStats.grossCancelled)}
-          </div>
-        </div>
-        <div className={styles.accountingItem}>
-          <span className={styles.muted}>Structură plăți</span>
-          <div className={styles.accountingValue}>
-            <strong>{formatMoney(accountingStats.codTotal)}</strong> ramburs ·{" "}
-            <strong>{formatMoney(accountingStats.cardTotal)}</strong> card
-          </div>
-        </div>
-        <div className={styles.accountingItem}>
-          <span className={styles.muted}>Rată conversie (finalizate vs. anulate)</span>
-          <div className={styles.accountingValue}>
-            {accountingStats.conversionRate.toFixed(1)}%
-          </div>
-        </div>
-      </div>
+        )}
+      </section>
 
       {/* VIEW: CALENDAR */}
       {viewMode === "calendar" && (
@@ -822,9 +767,7 @@ function VendorOrdersPlanningContent() {
                               weekday: "short",
                             })}
                           </div>
-                          <div className={styles.dayNum}>
-                            {date.getDate()}
-                          </div>
+                          <div className={styles.dayNum}>{date.getDate()}</div>
                         </div>
                         {dayOrders.length > 0 && (
                           <span className={styles.dayBadge}>
@@ -834,7 +777,7 @@ function VendorOrdersPlanningContent() {
                       </div>
 
                       <div className={styles.calendarDayList}>
-                        {/* Comenzi */}
+                        {/* Comenzi – variantă simplificată */}
                         {dayOrders.slice(0, 3).map((o) => (
                           <div
                             key={o.id}
@@ -845,81 +788,42 @@ function VendorOrdersPlanningContent() {
                               to={`/vendor/orders/${o.id}`}
                               className={styles.orderCard}
                             >
-                              <div className={styles.orderTitle}>
-                                {o.customerName || "Client"}{" "}
+                              <div className={styles.orderTitleRow}>
+                                <span className={styles.orderTitleText}>
+                                  {o.customerName || "Client"}
+                                </span>
                                 <span className={styles.orderId}>
                                   #{(o.shortId || o.id || "").slice(-6)}
                                 </span>
                               </div>
-                              <div className={styles.orderMeta}>
-                                {formatMoney(o.total)} ·{" "}
-                                {STATUS_LABEL[o.status] ||
-                                  o.status ||
-                                  "—"}
+
+                              <div className={styles.orderMetaRow}>
+                                <span>{formatMoney(o.total)}</span>
+                                {o.pickupDate && (
+                                  <span className={styles.orderMetaTime}>
+                                    {new Date(
+                                      o.pickupDate
+                                    ).toLocaleTimeString("ro-RO", {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                )}
                               </div>
 
-                              {/* info extra: tip eveniment / produs / ora */}
-                              <div className={styles.orderExtraMeta}>
+                              <div className={styles.orderMetaTags}>
                                 {o.eventType && (
-                                  <span>{o.eventType}</span>
+                                  <span className={styles.tag}>
+                                    {o.eventType}
+                                  </span>
                                 )}
                                 {o.productType && (
-                                  <>
-                                    {" "}
-                                    · <span>{o.productType}</span>
-                                  </>
-                                )}
-                                {o.pickupDate && (
-                                  <>
-                                    {" "}
-                                    ·{" "}
-                                    <span>
-                                      {new Date(
-                                        o.pickupDate
-                                      ).toLocaleTimeString("ro-RO", {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                      })}
-                                    </span>
-                                  </>
+                                  <span className={styles.tagSecondary}>
+                                    {o.productType}
+                                  </span>
                                 )}
                               </div>
-
-                              {o.pickupDate && (
-                                <div className={styles.orderPickup}>
-                                  Ridicare:{" "}
-                                  {new Date(
-                                    o.pickupDate
-                                  ).toLocaleDateString("ro-RO", {
-                                    weekday: "short",
-                                    day: "2-digit",
-                                    month: "short",
-                                  })}
-                                </div>
-                              )}
-
-                              {o.vendorNotes && (
-                                <div
-                                  className={styles.orderNotesPreview}
-                                >
-                                  📝 {o.vendorNotes.slice(0, 60)}
-                                  {o.vendorNotes.length > 60 ? "…" : ""}
-                                </div>
-                              )}
                             </Link>
-
-                            <button
-                              type="button"
-                              className={styles.notesBtn}
-                              onClick={() => openNotesModal(o)}
-                              title={
-                                o.vendorNotes
-                                  ? "Editează notițele"
-                                  : "Adaugă notițe"
-                              }
-                            >
-                              <FileText size={14} />
-                            </button>
                           </div>
                         ))}
 
@@ -942,8 +846,7 @@ function VendorOrdersPlanningContent() {
 
               {loading && (
                 <div className={styles.loading}>
-                  <Loader2 className={styles.spin} size={18} /> Se
-                  încarcă…
+                  <Loader2 className={styles.spin} size={18} /> Se încarcă…
                 </div>
               )}
 
@@ -1006,8 +909,7 @@ function VendorOrdersPlanningContent() {
 
               {loading && (
                 <div className={styles.loading}>
-                  <Loader2 className={styles.spin} size={18} /> Se
-                  încarcă…
+                  <Loader2 className={styles.spin} size={18} /> Se încarcă…
                 </div>
               )}
 
@@ -1061,8 +963,7 @@ function VendorOrdersPlanningContent() {
               <span className={styles.statusDotNew} /> Nouă
             </span>
             <span>
-              <span className={styles.statusDotPreparing} /> În
-              pregătire
+              <span className={styles.statusDotPreparing} /> În pregătire
             </span>
             <span>
               <span className={styles.statusDotConfirmed} /> Confirmată
@@ -1105,8 +1006,7 @@ function VendorOrdersPlanningContent() {
 
                     <div className={styles.boardCards}>
                       {colItems.map((o) => {
-                        const threadId =
-                          o.messageThreadId || o.threadId;
+                        const threadId = o.messageThreadId || o.threadId;
                         const unread =
                           o.messageUnreadCount ?? o.unreadCount ?? 0;
 
@@ -1135,9 +1035,7 @@ function VendorOrdersPlanningContent() {
                                   {formatDate(o.createdAt)}
                                 </div>
                                 <div className={styles.boardCardExtraMeta}>
-                                  {o.eventType && (
-                                    <span>{o.eventType}</span>
-                                  )}
+                                  {o.eventType && <span>{o.eventType}</span>}
                                   {o.productType && (
                                     <>
                                       {" "}
@@ -1168,11 +1066,7 @@ function VendorOrdersPlanningContent() {
                                   >
                                     <MessageSquare size={14} />
                                     {unread > 0 && (
-                                      <span
-                                        className={
-                                          styles.unreadDot
-                                        }
-                                      >
+                                      <span className={styles.unreadDot}>
                                         {unread}
                                       </span>
                                     )}
@@ -1194,22 +1088,7 @@ function VendorOrdersPlanningContent() {
                               </div>
                             )}
 
-                            {o.vendorNotes && (
-                              <div className={styles.boardCardNotes}>
-                                📝 {o.vendorNotes.slice(0, 80)}
-                                {o.vendorNotes.length > 80 ? "…" : ""}
-                              </div>
-                            )}
-
                             <div className={styles.boardCardActions}>
-                              <button
-                                type="button"
-                                className={styles.smallBtnGhost}
-                                onClick={() => openNotesModal(o)}
-                              >
-                                <FileText size={14} /> Notițe
-                              </button>
-
                               {col === "new" && (
                                 <>
                                   <button
@@ -1286,9 +1165,7 @@ function VendorOrdersPlanningContent() {
                               )}
 
                               {col === "cancelled" && (
-                                <span
-                                  className={styles.boardCancelledLabel}
-                                >
+                                <span className={styles.boardCancelledLabel}>
                                   Anulată
                                 </span>
                               )}
@@ -1335,13 +1212,12 @@ function VendorOrdersPlanningContent() {
             )?.items || []
           }
           onClose={closeDayModal}
-          onOpenNotes={openNotesModal}
           navigate={navigate}
         />
       )}
 
-      {/* MODAL NOTIȚE (comenzi) */}
-      {editingNotesOrder && (
+      {/* MODAL FILTRE */}
+      {showFiltersModal && (
         <div
           className={styles.notesModalBackdrop}
           role="dialog"
@@ -1349,59 +1225,116 @@ function VendorOrdersPlanningContent() {
         >
           <div className={styles.notesModal}>
             <div className={styles.notesModalHead}>
-              <h3>
-                Notițe pentru comanda{" "}
-                <span className={styles.orderId}>
-                  #
-                  {(editingNotesOrder.shortId ||
-                    editingNotesOrder.id ||
-                    "").slice(-6)}
-                </span>
-              </h3>
+              <h3>Filtre comenzi</h3>
               <button
                 type="button"
                 className={styles.iconBtn}
-                onClick={closeNotesModal}
+                onClick={() => setShowFiltersModal(false)}
                 aria-label="Închide"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <p className={styles.muted}>
-              Scrie aici detalii importante despre personalizare, preferințele
-              clientului, culori, texte, livrare etc. Notițele sunt vizibile
-              doar pentru tine.
-            </p>
+            <div className={styles.filtersModalBody}>
+              <div className={styles.filtersFieldGroup}>
+                <label className={styles.filtersLabel}>Căutare</label>
+                <input
+                  type="text"
+                  className={styles.searchInput}
+                  placeholder="Client, ID comandă..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                />
+              </div>
 
-            <textarea
-              className={styles.notesTextarea}
-              value={noteDraft}
-              onChange={(e) => setNoteDraft(e.target.value)}
-              placeholder="Ex: Invitatii mov pastel, text în engleză, font script; adaugă inițialele mirilor pe plic."
-              rows={6}
-            />
+              <div className={styles.filtersFieldGroup}>
+                <label className={styles.filtersLabel}>Status comandă</label>
+                <select
+                  className={styles.filtersSelect}
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  {STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {derivedEventTypes.length > 0 && (
+                <div className={styles.filtersFieldGroup}>
+                  <label className={styles.filtersLabel}>Tip eveniment</label>
+                  <select
+                    className={styles.filtersSelect}
+                    value={eventTypeFilter}
+                    onChange={(e) => setEventTypeFilter(e.target.value)}
+                  >
+                    <option value="">Toate</option>
+                    {derivedEventTypes.map((et) => (
+                      <option key={et} value={et}>
+                        {et}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {derivedProductTypes.length > 0 && (
+                <div className={styles.filtersFieldGroup}>
+                  <label className={styles.filtersLabel}>Tip produs</label>
+                  <select
+                    className={styles.filtersSelect}
+                    value={productTypeFilter}
+                    onChange={(e) => setProductTypeFilter(e.target.value)}
+                  >
+                    <option value="">Toate</option>
+                    {derivedProductTypes.map((pt) => (
+                      <option key={pt} value={pt}>
+                        {pt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {derivedLocations.length > 0 && (
+                <div className={styles.filtersFieldGroup}>
+                  <label className={styles.filtersLabel}>Locație</label>
+                  <select
+                    className={styles.filtersSelect}
+                    value={locationFilter}
+                    onChange={(e) => setLocationFilter(e.target.value)}
+                  >
+                    <option value="">Toate</option>
+                    {derivedLocations.map((loc) => (
+                      <option key={loc} value={loc}>
+                        {loc}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
 
             <div className={styles.notesActions}>
               <button
                 type="button"
                 className={styles.secondaryBtn}
-                onClick={closeNotesModal}
-                disabled={savingNote}
+                onClick={() => {
+                  handleResetFilters();
+                  setShowFiltersModal(false);
+                }}
               >
-                Renunță
+                Resetare filtre
               </button>
               <button
                 type="button"
                 className={styles.primaryBtn}
-                onClick={saveNotes}
-                disabled={savingNote}
+                onClick={() => setShowFiltersModal(false)}
               >
-                {savingNote ? (
-                  <Loader2 className={styles.spin} size={16} />
-                ) : (
-                  "Salvează notițele"
-                )}
+                Aplică filtrele
               </button>
             </div>
           </div>
@@ -1413,13 +1346,7 @@ function VendorOrdersPlanningContent() {
 
 /* ===== DayDetailsModal: detalii pentru o zi (doar comenzi) ===== */
 
-function DayDetailsModal({
-  date,
-  orders,
-  onClose,
-  onOpenNotes,
-  navigate,
-}) {
+function DayDetailsModal({ date, orders, onClose, navigate }) {
   const dayLabel = date.toLocaleDateString("ro-RO", {
     weekday: "long",
     day: "2-digit",
@@ -1591,22 +1518,6 @@ function DayDetailsModal({
                           </Link>
                         )}
                       </div>
-                    </div>
-
-                    {o.vendorNotes && (
-                      <div className={styles.dayOrderNotes}>
-                        📝 {o.vendorNotes}
-                      </div>
-                    )}
-
-                    <div className={styles.dayOrderActions}>
-                      <button
-                        type="button"
-                        className={styles.smallBtnGhost}
-                        onClick={() => onOpenNotes(o)}
-                      >
-                        <FileText size={14} /> Notițe
-                      </button>
                     </div>
                   </li>
                 );

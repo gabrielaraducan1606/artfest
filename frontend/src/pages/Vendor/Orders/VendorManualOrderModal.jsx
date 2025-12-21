@@ -31,8 +31,7 @@ export default function VendorManualOrderModal({ onClose, onCreated }) {
   ]);
 
   const [shippingPrice, setShippingPrice] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState("COD"); // COD / CARD
-  const [notes, setNotes] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("COD"); 
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -78,51 +77,47 @@ export default function VendorManualOrderModal({ onClose, onCreated }) {
   }
 
   async function handleSubmit() {
-    setErr("");
+  setErr("");
 
-    // Validări simple în front
-    const hasValidItem = items.some(
-      (it) => it.title.trim() && Number(it.qty) > 0
-    );
-    if (!hasValidItem) {
-      setErr("Adaugă cel puțin un produs cu titlu și cantitate > 0.");
-      return;
-    }
-
-    if (!customer.name.trim()) {
-      setErr("Completează numele clientului.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await api("/api/vendor/orders/manual", {
-        method: "POST",
-        body: {
-          customer,
-          address,
-          items: items
-            .filter((it) => it.title.trim() && Number(it.qty) > 0)
-            .map((it) => ({
-              title: it.title.trim(),
-              qty: Number(it.qty) || 1,
-              price: Number(it.price) || 0,
-            })),
-          shippingPrice: Number(shippingPrice || 0),
-          paymentMethod,
-          vendorNotes: notes || "",
-        },
-      });
-
-      onCreated?.();
-    } catch (e) {
-      setErr(
-        e?.message ||
-          "Nu am putut crea comanda. Te rugăm să încerci din nou."
-      );
-      setSaving(false);
-    }
+  const hasValidItem = items.some((it) => it.title.trim() && Number(it.qty) > 0);
+  if (!hasValidItem) {
+    setErr("Adaugă cel puțin un produs cu titlu și cantitate > 0.");
+    return;
   }
+
+  if (!customer.name.trim()) {
+    setErr("Completează numele clientului.");
+    return;
+  }
+
+  setSaving(true);
+  try {
+    const res = await api("/api/vendor/orders/manual", {
+      method: "POST",
+      body: {
+        customer,
+        address,
+        items: items
+          .filter((it) => it.title.trim() && Number(it.qty) > 0)
+          .map((it) => ({
+            title: it.title.trim(),
+            qty: Number(it.qty) || 1,
+            price: Number(it.price) || 0,
+          })),
+        shippingPrice: Number(shippingPrice || 0),
+        paymentMethod,
+      },
+    });
+
+    // ✅ refresh listă (părinte) + închidere
+    onCreated?.(res);  // res conține { ok, orderId, shipmentId }
+    onClose?.();
+  } catch (e) {
+    setErr(e?.message || "Nu am putut crea comanda. Te rugăm să încerci din nou.");
+  } finally {
+    setSaving(false);
+  }
+}
 
   const totals = computeTotals();
 
@@ -192,51 +187,57 @@ export default function VendorManualOrderModal({ onClose, onCreated }) {
           </fieldset>
 
           {/* Adresă livrare */}
-          <fieldset className={styles.fieldset}>
-            <legend>Adresă livrare</legend>
-            <label>
-              Stradă și număr
-              <input
-                className={styles.input}
-                value={address.street}
-                onChange={(e) =>
-                  updateAddress("street", e.target.value)
-                }
-              />
-            </label>
-            <div className={styles.grid3}>
-              <label>
-                Oraș
-                <input
-                  className={styles.input}
-                  value={address.city}
-                  onChange={(e) =>
-                    updateAddress("city", e.target.value)
-                  }
-                />
-              </label>
-              <label>
-                Județ
-                <input
-                  className={styles.input}
-                  value={address.county}
-                  onChange={(e) =>
-                    updateAddress("county", e.target.value)
-                  }
-                />
-              </label>
-              <label>
-                Cod poștal
-                <input
-                  className={styles.input}
-                  value={address.postalCode}
-                  onChange={(e) =>
-                    updateAddress("postalCode", e.target.value)
-                  }
-                />
-              </label>
-            </div>
-          </fieldset>
+<fieldset className={styles.fieldset}>
+  <legend>Adresă livrare</legend>
+
+  <div className={styles.addressBlock}>
+    <label className={styles.fullSpan}>
+      Adresă completă (stradă, nr, bloc, scară, ap.) *
+      <textarea
+        className={styles.textarea}
+        value={address.street}
+        onChange={(e) => updateAddress("street", e.target.value)}
+        placeholder="Ex: Str. Lalelelor nr. 10, bl. A3, sc. 2, ap. 14"
+        rows={3}
+      />
+      <span className={styles.hint}>
+        Recomandat: scrie adresa exact cum vrei să apară pe eticheta de livrare.
+      </span>
+    </label>
+
+    <div className={styles.grid3}>
+      <label>
+        Oraș *
+        <input
+          className={styles.input}
+          value={address.city}
+          onChange={(e) => updateAddress("city", e.target.value)}
+          placeholder="Ex: București"
+        />
+      </label>
+
+      <label>
+        Județ / Sector *
+        <input
+          className={styles.input}
+          value={address.county}
+          onChange={(e) => updateAddress("county", e.target.value)}
+          placeholder="Ex: Sector 3 / Cluj"
+        />
+      </label>
+
+      <label>
+        Cod poștal
+        <input
+          className={styles.input}
+          value={address.postalCode}
+          onChange={(e) => updateAddress("postalCode", e.target.value)}
+          placeholder="Ex: 030123"
+        />
+      </label>
+    </div>
+  </div>
+</fieldset>
 
           {/* Produse */}
           <fieldset className={styles.fieldset}>
@@ -372,15 +373,7 @@ export default function VendorManualOrderModal({ onClose, onCreated }) {
                   </option>
                 </select>
               </label>
-              <label>
-                Notă internă (opțional)
-                <input
-                  className={styles.input}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Vizibilă doar pentru tine (Vendor)"
-                />
-              </label>
+              
             </div>
 
             <div

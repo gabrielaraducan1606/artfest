@@ -16,10 +16,8 @@ import {
   Store,
   LogOut,
   ShieldCheck,
-  MapPin,
   CreditCard,
   FileText,
-  Lock,
   ShieldHalf,
   CheckCircle2,
   ShoppingCart,
@@ -175,7 +173,7 @@ function displayName(me) {
 }
 function getInitials(me) {
   const s = displayName(me).split(" ").filter(Boolean);
-  return ((s[0]?.[0] || "U") + (s[1]?.[0] || "")).toUpperCase();
+  return ((s[0]?.[0] || "U") + (s[1]?.[0] || "").toUpperCase()).toUpperCase();
 }
 
 /* =============================== Componenta =============================== */
@@ -208,9 +206,14 @@ export default function DesktopV3() {
 
   const sub = useSubscriptionStatus();
 
-  // cont / account bits (unread counts)
+  // cont / account bits (counts)
   const [unreadNotif, setUnreadNotif] = useState(0);
   const [unreadMsgs, setUnreadMsgs] = useState(0);
+  const [cartCount, setCartCount] = useState(0);
+  const [favCount, setFavCount] = useState(0);
+
+  // ✅ suport unread
+  const [supportUnread, setSupportUnread] = useState(0);
 
   // dacă auth context-ul aduce deja vendor cu entitySelfDeclared, îl sincronizăm
   useEffect(() => {
@@ -223,15 +226,13 @@ export default function DesktopV3() {
     setLoading(true);
     setError("");
     try {
-      const [svc, ob, v, st, prodRev, storeRev] = await Promise.all([
+      const [svc, ob, v, st] = await Promise.all([
         api("/api/vendors/me/services?includeProfile=1").catch(() => ({
           items: [],
         })),
         api("/api/vendors/me/onboarding-status").catch(() => null),
         api("/api/vendors/me").catch(() => null),
         api("/api/vendors/me/stats?window=7d").catch(() => null),
-        api("/api/reviews/received?page=1&limit=1").catch(() => null),
-        api("/api/comments/received?page=1&limit=1").catch(() => null),
       ]);
 
       setServices(svc?.items || []);
@@ -242,14 +243,13 @@ export default function DesktopV3() {
       if (st) {
         setStats({
           visitors: st.visitors ?? 0,
-          followers: st.followers ?? 0, // când îl adaugi în backend
+          followers: st.followers ?? 0,
+        });
+        setReviewCounts({
+          product: st.productReviewsTotal ?? 0,
+          store: st.storeReviewsTotal ?? 0,
         });
       }
-
-      setReviewCounts({
-        product: prodRev?.total ?? 0,
-        store: storeRev?.total ?? 0,
-      });
     } catch (e) {
       setError(e?.message || "Eroare la încărcare");
     } finally {
@@ -257,30 +257,52 @@ export default function DesktopV3() {
     }
   }, []);
 
-  // notificări / mesaje necitite
+  // notificări / mesaje / cart / favorite / suport (refresh periodic + focus)
   useEffect(() => {
     if (!me) return;
+
     let alive = true;
-    (async () => {
+
+    const fetchCounts = async () => {
       try {
-        const notif = await api("/api/notifications/unread-count").catch(
-          () => ({ count: 0 })
-        );
-        const msgs =
+        const [notif, msgs, cart, fav, sup] = await Promise.all([
+          api("/api/notifications/unread-count").catch(() => ({ count: 0 })),
           me.role === "VENDOR"
-            ? await api("/api/inbox/unread-count").catch(() => ({
+            ? api("/api/inbox/unread-count").catch(() => ({ count: 0 }))
+            : Promise.resolve({ count: 0 }),
+          api("/api/cart/count").catch(() => ({ count: 0 })),
+          api("/api/favorites/count").catch(() => ({ count: 0 })),
+
+          // ✅ suport vendor unread (din ruta ta)
+          me.role === "VENDOR"
+            ? api("/api/vendor/support/unread-count").catch(() => ({
                 count: 0,
               }))
-            : { count: 0 };
+            : Promise.resolve({ count: 0 }),
+        ]);
+
         if (!alive) return;
+
         setUnreadNotif(notif?.count || 0);
         setUnreadMsgs(msgs?.count || 0);
+        setCartCount(cart?.count || 0);
+        setFavCount(fav?.count || 0);
+        setSupportUnread(sup?.count || 0);
       } catch {
         // ignore
       }
-    })();
+    };
+
+    fetchCounts();
+
+    const t = setInterval(fetchCounts, 15_000);
+    const onFocus = () => fetchCounts();
+    window.addEventListener("focus", onFocus);
+
     return () => {
       alive = false;
+      clearInterval(t);
+      window.removeEventListener("focus", onFocus);
     };
   }, [me]);
 
@@ -383,9 +405,7 @@ export default function DesktopV3() {
   const onDelete = useCallback(async (serviceId, isActive, status) => {
     try {
       if (isActive && status === "ACTIVE") {
-        alert(
-          "Serviciul este activ. Dezactivează-l înainte de a-l șterge."
-        );
+        alert("Serviciul este activ. Dezactivează-l înainte de a-l șterge.");
         return;
       }
       if (
@@ -448,20 +468,18 @@ export default function DesktopV3() {
   }, []);
 
   /* ---------------------------- Render gating ---------------------------- */
-  if (authLoading || loading)
-    return <div className={styles.page}>Se încarcă…</div>;
+  if (authLoading || loading) return <div className={styles.page}>Se încarcă…</div>;
   if (!me || me.role !== "VENDOR")
     return <div className={styles.page}>Acces doar pentru vendori.</div>;
 
   const entityConfirmed =
-    vendor?.entitySelfDeclared === true ||
-    me?.vendor?.entitySelfDeclared === true;
+    vendor?.entitySelfDeclared === true || me?.vendor?.entitySelfDeclared === true;
 
   const isVendor = me.role === "VENDOR";
   const isAdmin = me.role === "ADMIN";
   const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
 
-  // scurtături
+  // scurtături (cu badge și pe wishlist/cart + suport)
   const quick = [
     {
       to: "/notificari",
@@ -479,11 +497,19 @@ export default function DesktopV3() {
       to: "/wishlist",
       label: "Dorințe",
       icon: <Heart size={20} />,
+      badge: favCount,
     },
     {
       to: "/cos",
       label: "Coș",
       icon: <ShoppingCart size={20} />,
+      badge: cartCount,
+    },
+    {
+      to: "/vendor/support",
+      label: "Asistență",
+      icon: <LifeBuoy size={20} />,
+      badge: supportUnread, // ✅
     },
     {
       to: "/vendor/store",
@@ -494,11 +520,6 @@ export default function DesktopV3() {
       to: "/setari",
       label: "Setări",
       icon: <Settings size={20} />,
-    },
-    {
-      to: "/vendor/support",
-      label: "Asistență",
-      icon: <LifeBuoy size={20} />,
     },
     {
       to: "/vendor/invoices",
@@ -514,12 +535,7 @@ export default function DesktopV3() {
 
   return (
     <section className={styles.page}>
-      <Topbar
-        me={me}
-        completeness={completeness}
-        sub={sub}
-        nextStep={nextStep}
-      />
+      <Topbar me={me} completeness={completeness} sub={sub} nextStep={nextStep} />
 
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 
@@ -531,29 +547,24 @@ export default function DesktopV3() {
 
       {/* Banner confirmare entitate juridică */}
       {!entityConfirmed && (
-        <div
-          className={styles.card}
-          style={{ borderColor: "var(--color-warn)" }}
-        >
+        <div className={styles.card} style={{ borderColor: "var(--color-warn)" }}>
           <div className={styles.cardHead}>
             <h3>Confirmă că reprezinți o entitate juridică</h3>
           </div>
           <p className={styles.subtle}>
-            Pentru a activa serviciile și a apărea în căutări, trebuie să
-            confirmi că reprezinți o <b>entitate juridică</b> (PFA / SRL / II /
-            IF) și deții un <b>CUI/CIF</b> valid. Dacă acest cont nu este
-            destinat furnizării de servicii, ci doar utilizării platformei ca{" "}
-            <b>client</b>, poți solicita modificarea tipului de cont către
-            „user” prin <b>asistența tehnică</b>.
+            Pentru a activa serviciile și a apărea în căutări, trebuie să confirmi că
+            reprezinți o <b>entitate juridică</b> (PFA / SRL / II / IF) și deții un{" "}
+            <b>CUI/CIF</b> valid. Dacă acest cont nu este destinat furnizării de servicii,
+            ci doar utilizării platformei ca <b>client</b>, poți solicita modificarea tipului
+            de cont către „user” prin <b>asistența tehnică</b>.
             <br />
             <br />
-            Dacă ai nevoie de ajutor, contactează-ne în secțiunea{" "}
-            <b>„Asistență tehnică”</b> din platformă.
+            Dacă ai nevoie de ajutor, contactează-ne în secțiunea <b>„Asistență tehnică”</b>{" "}
+            din platformă.
           </p>
 
-          {entityConfirmError && (
-            <div className={styles.errorBar}>{entityConfirmError}</div>
-          )}
+          {entityConfirmError && <div className={styles.errorBar}>{entityConfirmError}</div>}
+
           <div className={styles.actionsRow}>
             <button
               type="button"
@@ -561,14 +572,9 @@ export default function DesktopV3() {
               onClick={onConfirmEntity}
               disabled={entityConfirmBusy}
             >
-              {entityConfirmBusy
-                ? "Se confirmă…"
-                : "Confirm că sunt entitate juridică"}
+              {entityConfirmBusy ? "Se confirmă…" : "Confirm că sunt entitate juridică"}
             </button>
-            <a
-              href="/vendor/support"
-              className={`${styles.btn} ${styles.btnGhost}`}
-            >
+            <a href="/vendor/support" className={`${styles.btn} ${styles.btnGhost}`}>
               Mergi la asistență
             </a>
           </div>
@@ -604,7 +610,12 @@ export default function DesktopV3() {
       {/* secțiuni account: setări, vendor, admin, logout */}
       <SettingsAndSecurityCard />
 
-      {isVendor && <VendorLinksCard unreadMsgs={unreadMsgs} />}
+      {isVendor && (
+        <VendorLinksCard
+          unreadMsgs={unreadMsgs}
+          supportUnread={supportUnread} // ✅
+        />
+      )}
 
       {isAdmin && <AdminCard />}
 
@@ -617,10 +628,7 @@ export default function DesktopV3() {
 
 function Topbar({ me, completeness, sub, nextStep }) {
   const subBadge = (() => {
-    if (sub.loading)
-      return (
-        <span className={styles.badgeWait}>Verific abonament…</span>
-      );
+    if (sub.loading) return <span className={styles.badgeWait}>Verific abonament…</span>;
     if (sub.ok) {
       const end = sub.endAt ? new Date(sub.endAt) : null;
       const daysLeft = end
@@ -630,18 +638,12 @@ function Topbar({ me, completeness, sub, nextStep }) {
         <span className={styles.badgeOk}>
           Plan: {sub.plan?.name || sub.plan?.code || "activ"}
           {end ? ` • până la ${end.toLocaleDateString("ro-RO")}` : ""}
-          {typeof daysLeft === "number"
-            ? ` • ${daysLeft} zile rămase`
-            : ""}
+          {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
         </span>
       );
     }
     return (
-      <a
-        className={`${styles.badgeWarn}`}
-        href="/abonament"
-        title="Activează abonamentul"
-      >
+      <a className={`${styles.badgeWarn}`} href="/abonament" title="Activează abonamentul">
         Fără abonament activ — Activează abonament
       </a>
     );
@@ -650,15 +652,12 @@ function Topbar({ me, completeness, sub, nextStep }) {
   return (
     <div className={styles.topbar}>
       <div>
-        <h1 className={styles.h1}>
-          Bun venit, {me.name || me.email}!
-        </h1>
+        <h1 className={styles.h1}>Bun venit, {me.name || me.email}!</h1>
         <div className={styles.meta}>
           <span className={styles.badge}>VENDOR</span>
           <span className={styles.dot} />
           <span className={styles.metaBlock}>
-            Completență profil:
-            <b> {completeness}%</b>
+            Completență profil:<b> {completeness}%</b>
           </span>
           <span className={styles.dot} />
           {subBadge}
@@ -666,20 +665,14 @@ function Topbar({ me, completeness, sub, nextStep }) {
 
         <div className={styles.profileCompletion}>
           <div className={styles.progressBar}>
-            <div
-              className={styles.progressFill}
-              style={{ width: `${completeness}%` }}
-            />
+            <div className={styles.progressFill} style={{ width: `${completeness}%` }} />
           </div>
           <span className={styles.progressLabel}>
             Următorul pas: <b>{nextStep.label}</b>
           </span>
         </div>
       </div>
-      <a
-        className={`${styles.btn} ${styles.btnPrimary}`}
-        href={nextStep.href}
-      >
+      <a className={`${styles.btn} ${styles.btnPrimary}`} href={nextStep.href}>
         {nextStep.label}
       </a>
     </div>
@@ -709,23 +702,10 @@ function IdentityCard({ me, roleLabel }) {
           {initials}
         </div>
         <div>
-          <div
-            style={{
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
+          <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
             {displayName(me)}
             {me?.verified && (
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  fontSize: 12,
-                }}
-              >
+              <span style={{ display: "inline-flex", alignItems: "center", fontSize: 12 }}>
                 <CheckCircle2 size={14} style={{ marginRight: 2 }} /> Verificat
               </span>
             )}
@@ -744,34 +724,20 @@ function QuickCard({ quick }) {
       <div className={styles.cardHead}>
         <h3>Scurtături</h3>
       </div>
+
       <div className={styles.actionsRow} style={{ flexWrap: "wrap" }}>
         {quick.map((q) => (
           <a
             key={q.to}
             href={q.to}
-            className={`${styles.btn} ${styles.btnGhost}`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 6,
-            }}
+            className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`}
+            style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}
           >
-            {q.icon}
+            <span className={styles.iconWrap}>
+              {q.icon}
+              <Badge count={q.badge} />
+            </span>
             <span>{q.label}</span>
-            {q.badge > 0 && (
-              <span
-                style={{
-                  marginLeft: "auto",
-                  fontSize: 11,
-                  padding: "0 6px",
-                  borderRadius: 999,
-                  border: "1px solid currentColor",
-                }}
-              >
-                {Math.min(q.badge, 99)}
-              </span>
-            )}
           </a>
         ))}
       </div>
@@ -782,26 +748,18 @@ function QuickCard({ quick }) {
 function SubscriptionAlert({ sub }) {
   if (sub.loading || sub.ok) return null;
   return (
-    <div
-      className={styles.card}
-      style={{ borderColor: "var(--color-warn)" }}
-    >
+    <div className={styles.card} style={{ borderColor: "var(--color-warn)" }}>
       <div className={styles.cardHead}>
         <h3>Abonament necesar</h3>
       </div>
       <p className={styles.subtle}>
-        Pentru a activa servicii și a apărea în căutări, ai nevoie de
-        un abonament activ.
+        Pentru a activa servicii și a apărea în căutări, ai nevoie de un abonament activ.
       </p>
       <div className={styles.actionsRow}>
         <a className={`${styles.btn} ${styles.btnPrimary}`} href="/abonament">
           Activează abonamentul
         </a>
-        <button
-          className={`${styles.btn} ${styles.btnGhost}`}
-          onClick={sub.refetch}
-          type="button"
-        >
+        <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
           Reîncarcă status
         </button>
       </div>
@@ -819,35 +777,19 @@ function OnboardingCard({ nextStep }) {
         </span>
       </div>
       <div className={styles.actionsRow}>
-        <a
-          className={`${styles.btn} ${styles.btnPrimary}`}
-          href="/onboarding"
-        >
+        <a className={`${styles.btn} ${styles.btnPrimary}`} href="/onboarding">
           Alege/Adaugă servicii
         </a>
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href="/onboarding/details"
-        >
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/onboarding/details">
           Completează detalii
         </a>
-       
       </div>
     </div>
   );
 }
 
-function ServicesCard({
-  services,
-  busy,
-  onActivate,
-  onDeactivate,
-  onDelete,
-  onPreview,
-}) {
-  const activeCount = services.filter(
-    (s) => s.isActive && s.status === "ACTIVE"
-  ).length;
+function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPreview }) {
+  const activeCount = services.filter((s) => s.isActive && s.status === "ACTIVE").length;
 
   return (
     <div className={styles.card}>
@@ -873,17 +815,12 @@ function ServicesCard({
             const actLabel = isAct ? "Dezactivează" : "Activează";
             const actTitle = isAct ? "Dezactivează" : "Activează";
 
-            const brandVal =
-              (s.profile?.displayName && s.profile.displayName.trim()) ||
-              "";
+            const brandVal = (s.profile?.displayName && s.profile.displayName.trim()) || "";
             const titleVal = (s.title && s.title.trim()) || "";
 
-            const hasBrand = !!brandVal;
-            const hasTitle = !!titleVal;
-
             const missingFields = [];
-            if (!hasTitle) missingFields.push("titlul");
-            if (!hasBrand) missingFields.push("numele de brand");
+            if (!titleVal) missingFields.push("titlul");
+            if (!brandVal) missingFields.push("numele de brand");
 
             const missingCore = missingFields.length > 0;
 
@@ -912,18 +849,16 @@ function ServicesCard({
                   </div>
                   {missingCore && !isAct && (
                     <div className={styles.serviceWarning}>
-                      Pentru a putea activa serviciul, completează{" "}
-                      {missingFields.join(", ")}.
+                      Pentru a putea activa serviciul, completează {missingFields.join(", ")}.
                     </div>
                   )}
                 </div>
+
                 <div className={styles.actionsRow}>
-                  <a
-                    className={`${styles.btn} ${styles.btnGhost}`}
-                    href="/onboarding/details"
-                  >
+                  <a className={`${styles.btn} ${styles.btnGhost}`} href="/onboarding/details">
                     Editează
                   </a>
+
                   <button
                     className={`${styles.btn} ${styles.btnGhost}`}
                     onClick={() => onPreview(s)}
@@ -942,9 +877,7 @@ function ServicesCard({
                       type="button"
                       title={actTitle}
                     >
-                      {busy[s.id] === "deactivate"
-                        ? "Se dezactivează…"
-                        : actLabel}
+                      {busy[s.id] === "deactivate" ? "Se dezactivează…" : actLabel}
                     </button>
                   ) : (
                     <button
@@ -954,9 +887,7 @@ function ServicesCard({
                       type="button"
                       title={actTitle}
                     >
-                      {busy[s.id] === "activate"
-                        ? "Se activează…"
-                        : actLabel}
+                      {busy[s.id] === "activate" ? "Se activează…" : actLabel}
                     </button>
                   )}
 
@@ -997,9 +928,7 @@ function Sidebar({ sub }) {
               {sub.endAt ? (
                 <>
                   Valabil până la:{" "}
-                  <b>
-                    {new Date(sub.endAt).toLocaleDateString("ro-RO")}
-                  </b>
+                  <b>{new Date(sub.endAt).toLocaleDateString("ro-RO")}</b>
                 </>
               ) : null}
             </p>
@@ -1009,19 +938,14 @@ function Sidebar({ sub }) {
             >
               Gestionează abonamentul
             </a>
-            <button
-              className={`${styles.btn} ${styles.btnGhost}`}
-              onClick={sub.refetch}
-              type="button"
-            >
+            <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
               Reîncarcă
             </button>
           </>
         ) : (
           <>
             <p className={styles.subtle}>
-              Nu ai un abonament activ. Activează-l pentru a-ți publica
-              serviciile.
+              Nu ai un abonament activ. Activează-l pentru a-ți publica serviciile.
             </p>
             <a
               className={`${styles.btn} ${styles.btnPrimary}`}
@@ -1029,11 +953,7 @@ function Sidebar({ sub }) {
             >
               Activează abonament
             </a>
-            <button
-              className={`${styles.btn} ${styles.btnGhost}`}
-              onClick={sub.refetch}
-              type="button"
-            >
+            <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
               Am plătit — verifică din nou
             </button>
           </>
@@ -1043,82 +963,101 @@ function Sidebar({ sub }) {
   );
 }
 
-/* ===== secțiuni Account adăugate dedesubt ===== */
-
 function SettingsAndSecurityCard() {
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
         <h3>Setări & securitate</h3>
       </div>
+
       <div className={styles.actionsCol}>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/setari">
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/cont/setari">
           <Settings size={18} style={{ marginRight: 6 }} /> Setări cont
         </a>
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href="/setari/securitate"
-        >
-          <Lock size={18} style={{ marginRight: 6 }} /> Securitate
-        </a>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/gdpr">
-          <ShieldHalf size={18} style={{ marginRight: 6 }} /> Datele mele (GDPR)
-        </a>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/adrese">
-          <MapPin size={18} style={{ marginRight: 6 }} /> Adrese de livrare
-        </a>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/plati">
-          <CreditCard size={18} style={{ marginRight: 6 }} /> Metode de plată
-        </a>
+
         <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/invoices">
           <FileText size={18} style={{ marginRight: 6 }} /> Facturi / documente
+        </a>
+
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/setari?tab=billing">
+          <CreditCard size={18} style={{ marginRight: 6 }} /> Date facturare
+        </a>
+
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/termenii-si-conditiile`}
+        >
+          <FileText size={18} style={{ marginRight: 6 }} /> Termeni și condiții
+        </a>
+
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/confidentialitate`}
+        >
+          <ShieldHalf size={18} style={{ marginRight: 6 }} /> Politica de confidențialitate
+        </a>
+
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/politica-retur`}
+        >
+          <FileText size={18} style={{ marginRight: 6 }} /> Politica de retur
+        </a>
+
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/anexa-expediere`}
+        >
+          <FileText size={18} style={{ marginRight: 6 }} /> Anexa expediere
+        </a>
+
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/acord-vanzatori`}
+        >
+          <ShieldHalf size={18} style={{ marginRight: 6 }} /> Acord vânzători
         </a>
       </div>
     </div>
   );
 }
 
-function VendorLinksCard({ unreadMsgs }) {
+function VendorLinksCard({ unreadMsgs, supportUnread }) {
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
         <h3>Vânzător</h3>
       </div>
       <div className={styles.actionsCol}>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/planner">
-          <LayoutDashboard size={18} style={{ marginRight: 6 }} /> Planificator
-          comenzi
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/orders">
+          <Package size={18} style={{ marginRight: 6 }} /> Comenzile mele
         </a>
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href="/vendor/visitors"
-        >
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/orders/planning">
+          <LayoutDashboard size={18} style={{ marginRight: 6 }} /> Planificator comenzi
+        </a>
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/visitors">
           <Users size={18} style={{ marginRight: 6 }} /> Vizitatori
         </a>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/mesaje">
-          <MessageSquare size={18} style={{ marginRight: 6 }} /> Mesaje
-          {unreadMsgs > 0 && (
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: 11,
-                padding: "0 6px",
-                borderRadius: 999,
-                border: "1px solid currentColor",
-              }}
-            >
-              {Math.min(unreadMsgs, 99)}
-            </span>
-          )}
+
+        <a className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} href="/mesaje">
+          <span className={styles.iconWrap}>
+            <MessageSquare size={18} style={{ marginRight: 6 }} />
+            <Badge count={unreadMsgs} />
+          </span>
+          Mesaje
         </a>
+
         <a className={`${styles.btn} ${styles.btnGhost}`} href="/magazine">
           <Store size={18} style={{ marginRight: 6 }} /> Magazine / Produse
         </a>
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href="/vendor/support"
-        >
-          <LifeBuoy size={18} style={{ marginRight: 6 }} /> Asistență tehnică
+
+        {/* ✅ suport cu badge */}
+        <a className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} href="/vendor/support">
+          <span className={styles.iconWrap}>
+            <LifeBuoy size={18} style={{ marginRight: 6 }} />
+            <Badge count={supportUnread} />
+          </span>
+          Asistență tehnică
         </a>
       </div>
     </div>
@@ -1192,4 +1131,10 @@ function EmptyState({ title, subtitle, ctaText, href }) {
       </a>
     </div>
   );
+}
+
+function Badge({ count }) {
+  if (!count || count <= 0) return null;
+  const v = Math.min(count, 99);
+  return <span className={styles.badgeBubble}>{v}</span>;
 }

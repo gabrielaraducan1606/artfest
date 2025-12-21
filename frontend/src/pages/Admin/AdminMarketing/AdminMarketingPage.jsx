@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../lib/api";
 import styles from "./AdminMarketingPage.module.css";
 
@@ -13,11 +13,11 @@ export default function AdminMarketingTab() {
     subscribersVendors: 0,
   });
 
+  // campanie manuală
   const [subject, setSubject] = useState("");
   const [preheader, setPreheader] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
   const [audience, setAudience] = useState("ALL"); // ALL | USERS | VENDORS
-
   const [testMode, setTestMode] = useState(false);
   const [testEmail, setTestEmail] = useState("");
 
@@ -36,6 +36,27 @@ export default function AdminMarketingTab() {
   const [prefsLoading, setPrefsLoading] = useState(false);
   const [prefsError, setPrefsError] = useState("");
   const [prefsQuery, setPrefsQuery] = useState(""); // search după email
+
+  // ============ DIGEST: Followed stores ============
+  const [digestDays, setDigestDays] = useState(7);
+  const [digestMaxPerStore, setDigestMaxPerStore] = useState(4);
+  const [digestMaxStores, setDigestMaxStores] = useState(6);
+
+  const [digestSubject, setDigestSubject] = useState(
+    "Noutăți de la magazinele urmărite"
+  );
+  const [digestPreheader, setDigestPreheader] = useState("");
+  const [digestTestMode, setDigestTestMode] = useState(true);
+  const [digestTestEmail, setDigestTestEmail] = useState("");
+
+  const [digestSending, setDigestSending] = useState(false);
+  const [digestMsg, setDigestMsg] = useState("");
+  const [digestErr, setDigestErr] = useState("");
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(prefsTotal / prefsPageSize)),
+    [prefsTotal, prefsPageSize]
+  );
 
   // citește statistici despre abonați (o singură dată)
   useEffect(() => {
@@ -102,6 +123,7 @@ export default function AdminMarketingTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // ========= campanie manuală =========
   async function handleSend(e) {
     e.preventDefault();
     setMessage("");
@@ -155,7 +177,53 @@ export default function AdminMarketingTab() {
     }
   }
 
-  const totalPages = Math.max(1, Math.ceil(prefsTotal / prefsPageSize));
+  // ========= digest followed stores =========
+  async function handleSendDigest(e) {
+    e.preventDefault();
+    setDigestMsg("");
+    setDigestErr("");
+
+    if (!digestSubject.trim()) {
+      setDigestErr("Completează subiectul digest-ului.");
+      return;
+    }
+    if (digestTestMode && !digestTestEmail.trim()) {
+      setDigestErr("Introdu o adresă de test pentru digest.");
+      return;
+    }
+
+    try {
+      setDigestSending(true);
+
+      const payload = {
+        subject: digestSubject.trim(),
+        preheader: digestPreheader.trim() || undefined,
+        days: Number(digestDays) || 7,
+        maxPerStore: Number(digestMaxPerStore) || 4,
+        maxStores: Number(digestMaxStores) || 6,
+        testEmail: digestTestMode ? digestTestEmail.trim() : undefined,
+      };
+
+      const res = await api("/api/admin/marketing/send-followed-stores-digest", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      if (res?.ok) {
+        setDigestMsg(
+          digestTestMode
+            ? "Digest-ul de test a fost trimis."
+            : `Digest-ul a fost trimis către ${res.sentCount ?? 0} destinatari (doar cei cu noutăți).`
+        );
+      } else {
+        setDigestErr(res?.error || "Nu am putut trimite digest-ul.");
+      }
+    } catch (e) {
+      setDigestErr(e?.message || "Eroare la trimiterea digest-ului.");
+    } finally {
+      setDigestSending(false);
+    }
+  }
 
   return (
     <div className={styles.page}>
@@ -206,6 +274,118 @@ export default function AdminMarketingTab() {
         {/* TAB: Campanii email */}
         {tab === "campaign" && (
           <>
+            {/* ======= CARD NOU: Digest followed stores ======= */}
+            <div className={styles.cardMuted} style={{ marginBottom: 16 }}>
+              <h4>Digest: Produse noi de la magazinele urmărite</h4>
+              <p className={styles.subtle}>
+                Trimite automat emailuri personalizate. Fiecare user primește doar
+                noutățile din ultimele X zile de la magazinele pe care le urmărește.
+                Dacă nu are noutăți, nu primește email.
+              </p>
+
+              {digestErr && <div className={styles.error}>{digestErr}</div>}
+              {digestMsg && <div className={styles.success}>{digestMsg}</div>}
+
+              <form onSubmit={handleSendDigest}>
+                <div className={styles.formRow}>
+                  <label className={styles.field}>
+                    <span>Subiect</span>
+                    <input
+                      type="text"
+                      value={digestSubject}
+                      onChange={(e) => setDigestSubject(e.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className={styles.formRow}>
+                  <label className={styles.field}>
+                    <span>Preheader (opțional)</span>
+                    <input
+                      type="text"
+                      value={digestPreheader}
+                      onChange={(e) => setDigestPreheader(e.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className={styles.formRow}>
+                  <label className={styles.field}>
+                    <span>Zile (ex: 7)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="60"
+                      value={digestDays}
+                      onChange={(e) => setDigestDays(e.target.value)}
+                    />
+                  </label>
+
+                  <label className={styles.field}>
+                    <span>Max produse / magazin</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={digestMaxPerStore}
+                      onChange={(e) => setDigestMaxPerStore(e.target.value)}
+                    />
+                  </label>
+
+                  <label className={styles.field}>
+                    <span>Max magazine</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={digestMaxStores}
+                      onChange={(e) => setDigestMaxStores(e.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className={styles.formRow}>
+                  <label className={styles.checkboxRow}>
+                    <input
+                      type="checkbox"
+                      checked={digestTestMode}
+                      onChange={(e) => setDigestTestMode(e.target.checked)}
+                    />
+                    <span>Trimite doar email de test</span>
+                  </label>
+
+                  {digestTestMode && (
+                    <label className={styles.field}>
+                      <span>Adresă test</span>
+                      <input
+                        type="email"
+                        placeholder="ex: tu@artfest.ro"
+                        value={digestTestEmail}
+                        onChange={(e) => setDigestTestEmail(e.target.value)}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <div className={styles.formActions}>
+                  <button
+                    type="submit"
+                    className={styles.sendBtn}
+                    disabled={digestSending}
+                  >
+                    {digestSending
+                      ? digestTestMode
+                        ? "Se trimite digest-ul de test…"
+                        : "Se trimite digest-ul…"
+                      : digestTestMode
+                      ? "Trimite digest de test"
+                      : "Trimite digest către abonați"}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* ======= Form vechi: campanie manuală ======= */}
             <form className={styles.marketingForm} onSubmit={handleSend}>
               <div className={styles.marketingFormHead}>
                 <h3>Campanie rapidă email</h3>
@@ -275,7 +455,6 @@ Dacă nu mai vrei să primești astfel de emailuri, poți <a href="{{unsubscribe
                 </label>
               </div>
 
-              {/* modul test */}
               <div className={styles.formRow}>
                 <label className={styles.checkboxRow}>
                   <input
@@ -316,7 +495,6 @@ Dacă nu mai vrei să primești astfel de emailuri, poți <a href="{{unsubscribe
               </div>
             </form>
 
-            {/* Card placeholder pentru istoricul campaniilor */}
             <div className={styles.cardMuted}>
               <h4>Istoric campanii (de implementat ulterior)</h4>
               <p className={styles.subtle}>
@@ -401,9 +579,11 @@ Dacă nu mai vrei să primești astfel de emailuri, poți <a href="{{unsubscribe
                               : "—"}
                           </td>
                           <td>
-                            {[row.emailEnabled ? "Email" : null,
-                            row.smsEnabled ? "SMS" : null,
-                            row.pushEnabled ? "Push" : null]
+                            {[
+                              row.emailEnabled ? "Email" : null,
+                              row.smsEnabled ? "SMS" : null,
+                              row.pushEnabled ? "Push" : null,
+                            ]
                               .filter(Boolean)
                               .join(", ") || "—"}
                           </td>
@@ -420,8 +600,7 @@ Dacă nu mai vrei să primești astfel de emailuri, poți <a href="{{unsubscribe
 
                 <div className={styles.prefsPagination}>
                   <span>
-                    Pagina {prefsPage} din {totalPages} (total{" "}
-                    {prefsTotal} rânduri)
+                    Pagina {prefsPage} din {totalPages} (total {prefsTotal} rânduri)
                   </span>
                   <div className={styles.prefsPaginationBtns}>
                     <button

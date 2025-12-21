@@ -85,6 +85,8 @@ import storeReviewsRouter from "./src/routes/reviewsStoreRoutes.js";
 import adminCitiesRouter from "./src/routes/adminCitiesRoutes.js";
 import userInvoicesRouter from "./src/routes/userInvoicesRoutes.js";
 import accountRoutes from "./src/routes/accountRoutes.js";
+import vendorSettingsRoutes from "./src/routes/vendorSettingRoutes.js";
+
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -214,7 +216,6 @@ app.use(legalRoutes); // include /api/legal + /legal/:type.html
 
 app.use("/api/inbox", vendorMessagesRoutes);
 app.use("/api/admin", vendorPoliciesRoutes);
-
 /* ---------------- HEALTH ---------------- */
 
 app.get("/healthz", (_req, res) => res.send("ok"));
@@ -270,6 +271,7 @@ app.use("/api/vendor", vendorOrdersRoutes);
 
 app.use("/public", publicContactRoutes);
 
+app.use("/api", vendorSettingsRoutes);
 /* ---------------- CHANGE PASSWORD + ACCOUNT ROUTES ---------------- */
 
 // 👇 aici folosim authRequired din ./src/api/auth.js

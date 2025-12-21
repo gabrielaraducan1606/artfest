@@ -563,3 +563,57 @@ export function invoiceIssuedEmailTemplate({
     subject: `Factura pentru comanda ta #${orderId}`,
   };
 }
+export function vendorDeactivateConfirmTemplate({
+  link,
+  brandName = "Artfest",
+  logoCid,
+  logoUrl,
+}) {
+  const logoSrc = logoCid
+    ? `cid:${logoCid}`
+    : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+
+  const html = `
+  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+    <div style="text-align:center;margin-bottom:20px;">
+      <img src="${logoSrc}" alt="${brandName} logo" width="120" height="120"
+           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    </div>
+
+    <h2 style="color:#111827;margin:0 0 8px;">Confirmă dezactivarea contului de vendor</h2>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+      Ai cerut dezactivarea contului de vendor pe <strong>${brandName}</strong>.
+      Această acțiune va ascunde magazinul și produsele, și va opri notificările/marketingul.
+    </p>
+    <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
+      Datele sensibile (facturi, comenzi, billing, mesaje) vor rămâne în sistem pentru obligații legale/audit.
+    </p>
+
+    <p style="text-align:center;margin:30px 0;">
+      <a href="${link}" style="background:#ef4444;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+        Confirmă dezactivarea
+      </a>
+    </p>
+
+    <p style="color:#6b7280;font-size:14px;margin:0 0 8px;">Dacă nu ai cerut asta, ignoră emailul.</p>
+    <p style="word-break:break-all;font-size:13px;margin:0;">
+      <a href="${link}" style="color:#ef4444;">${link}</a>
+    </p>
+
+    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+      Acest email a fost generat automat de ${brandName}. Te rugăm să nu răspunzi la acest mesaj.
+    </p>
+  </div>
+  `;
+
+  const text = `
+Confirmă dezactivarea contului de vendor pe ${brandName}:
+
+${link}
+
+Dacă nu ai cerut asta, ignoră emailul.
+  `.trim();
+
+  return { html, text, subject: `Confirmă dezactivarea contului de vendor - ${brandName}` };
+}

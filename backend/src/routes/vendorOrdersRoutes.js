@@ -10,7 +10,7 @@ import {
   notifyUserOnInvoiceIssued,
   notifyUserOnShipmentPickupScheduled,
 } from "../services/notifications.js"; // 🔔 nou
-import { sendShipmentPickupEmail } from "../lib/mailer.js";
+import { sendShipmentPickupEmail, sendOrderConfirmationEmail } from "../lib/mailer.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -1132,6 +1132,7 @@ router.post("/orders/:id/invoice", requireVendor, async (req, res) => {
 /* ----------------------------------------------------
    🆕 POST /api/vendor/orders/manual
    Vendorul creează o comandă manuală (order + shipment)
+   + trimite email de confirmare către client (best-effort)
 ----------------------------------------------------- */
 router.post("/orders/manual", requireVendor, async (req, res) => {
   try {
@@ -1175,6 +1176,8 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
         paymentMethod,
         shippingAddress,
         vendorNotes: vendorNotes || "",
+
+        // ⚠️ păstrează doar dacă Order.userId e nullable în Prisma
         userId: null,
       },
     });
@@ -1194,6 +1197,9 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
           })),
         },
       },
+      include: {
+        items: true,
+      },
     });
 
     // 🔔 Notificare pentru vendor despre comanda manuală
@@ -1209,6 +1215,28 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
       });
     } catch (err) {
       console.error("Nu am putut crea notificarea pentru comanda manuală:", err);
+    }
+
+    // ✉️ Email către client: confirmare comandă (best-effort)
+    try {
+      const to = shippingAddress.email || null;
+
+      if (to) {
+        await sendOrderConfirmationEmail({
+          to,
+          order,
+          items: (items || []).map((it) => ({
+            title: it.title,
+            qty: it.qty,
+            price: Number(it.price || 0),
+          })),
+          // opțional: dacă vrei să pui adrese retur:
+          // storeAddresses: { ... }
+        });
+      }
+    } catch (err) {
+      console.error("sendOrderConfirmationEmail (manual) failed:", err);
+      // nu crăpăm endpoint-ul dacă mailul nu se trimite
     }
 
     return res.status(201).json({

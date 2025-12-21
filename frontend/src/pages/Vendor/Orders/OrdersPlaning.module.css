@@ -29,7 +29,8 @@
   padding: 10px 0 8px;
   background: color-mix(in oklab, var(--surface) 92%, #000 8%);
   backdrop-filter: blur(8px);
-  border-bottom: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--color-border) 70%, transparent);
 }
 
 .headerLeft {
@@ -60,7 +61,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.06s ease;
+  transition: background 0.12s ease, box-shadow 0.12s ease,
+    transform 0.06s ease;
 }
 .iconBtn:hover {
   background: color-mix(in oklab, var(--color-primary) 4%, var(--surface));
@@ -73,6 +75,14 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* butoane filtre în header */
+.filtersButtons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -115,28 +125,6 @@
   border: 1px solid var(--color-border);
 }
 
-/* STATUS FILTER */
-.statusFilter {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  border-radius: 999px;
-}
-
-.select {
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: var(--color-text);
-  cursor: pointer;
-}
-.select:focus {
-  outline: none;
-}
-
 /* WEEK / PERIOD CONTROLS */
 .weekControls {
   display: flex;
@@ -163,7 +151,8 @@
   align-items: center;
   gap: 6px;
   font-size: 0.9rem;
-  transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.06s ease;
+  transition: background 0.12s ease, box-shadow 0.12s ease,
+    transform 0.06s ease;
 }
 .secondaryBtn:hover {
   background: color-mix(in oklab, var(--color-primary) 4%, var(--surface));
@@ -183,11 +172,13 @@
 /* CALENDAR */
 .calendar {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: calc(var(--radius) + 4px);
   overflow: hidden;
-  background: radial-gradient(circle at top left,
-      color-mix(in oklab, var(--color-primary) 4%, transparent),
-      transparent 55%);
+  background: radial-gradient(
+    circle at top left,
+    color-mix(in oklab, var(--color-primary) 4%, transparent),
+    transparent 55%
+  );
 }
 
 .calendarGrid {
@@ -204,11 +195,13 @@
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.06s ease;
+  transition: background 0.12s ease, box-shadow 0.12s ease,
+    transform 0.06s ease;
 }
 .calendarDay:hover {
   background: color-mix(in oklab, var(--color-primary) 5%, var(--surface));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 35%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, var(--color-primary) 35%, transparent);
 }
 
 .calendarDay:first-child {
@@ -228,8 +221,8 @@
 }
 
 .calendarDayLoad_over {
-  background: color-mix(in oklab, var(--color-error) 10%, var(--surface));
-  box-shadow: inset 0 0 0 1px var(--color-error);
+  background: color-mix(in oklab, var(--color-danger) 10%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--color-danger);
 }
 
 .calendarDayHeader {
@@ -269,7 +262,7 @@
   color: var(--color-muted);
 }
 
-/* ORDER CARD */
+/* ORDER CARD – generic (board & alte locuri) */
 .orderCardWrapper {
   position: relative;
 }
@@ -283,14 +276,76 @@
   text-decoration: none;
   color: var(--color-text);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.15s ease, transform 0.08s ease, border-color 0.12s ease;
+  transition: box-shadow 0.15s ease, transform 0.08s ease,
+    border-color 0.12s ease;
 }
 .orderCard:hover {
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
+  border-color: color-mix(
+    in oklab,
+    var(--color-primary) 40%,
+    var(--color-border)
+  );
 }
 
+/* structură card calendar */
+.orderTitleRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.orderTitleText {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.orderId {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.orderMetaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.orderMetaTime {
+  font-variant-numeric: tabular-nums;
+}
+
+.orderMetaTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* tag-uri mici pentru tip eveniment / tip produs */
+.tag,
+.tagSecondary {
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.tag {
+  background: color-mix(in oklab, var(--color-primary) 16%, transparent);
+  color: var(--color-primary);
+}
+
+.tagSecondary {
+  background: color-mix(in oklab, var(--color-border) 80%, transparent);
+  color: var(--color-muted-strong, #4b5563);
+}
+
+/* (folosite în board/day modal) */
 .orderTitle {
   font-weight: 600;
   display: flex;
@@ -298,17 +353,12 @@
   gap: 4px;
 }
 
-.orderId {
-  color: var(--color-muted);
-  font-size: 0.85rem;
-}
-
 .orderMeta {
   font-size: 0.82rem;
   color: var(--color-muted);
 }
 
-/* info extra: tip eveniment / produs / ora */
+/* info extra (în alte locuri) */
 .orderExtraMeta {
   font-size: 0.78rem;
   color: var(--color-muted);
@@ -329,7 +379,7 @@
   color: var(--color-primary);
   background: color-mix(in oklab, var(--color-primary) 12%, transparent);
   padding: 4px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
 }
 
 /* NOTES BUTTON ON CARD */
@@ -341,7 +391,7 @@
   border: 1px solid var(--color-border);
   color: var(--color-muted);
   padding: 4px;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
 }
@@ -373,7 +423,7 @@
   }
 }
 .error {
-  color: var(--color-error);
+  color: var(--color-danger);
 }
 
 /* BOARD */
@@ -402,12 +452,12 @@
 .boardColumn {
   background: var(--surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: calc(var(--radius) + 2px);
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-sm);
 }
 
 .boardColumnMuted {
@@ -448,6 +498,13 @@
   gap: 8px;
 }
 
+.boardCardHeaderRight {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
 .boardCardTitle {
   font-weight: 600;
 }
@@ -477,7 +534,7 @@
   font-size: 0.78rem;
   background: color-mix(in oklab, var(--color-primary) 10%, transparent);
   padding: 6px;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   margin-bottom: 6px;
 }
 
@@ -499,7 +556,7 @@
   border: 1px solid var(--color-primary);
   padding: 6px 10px;
   font-size: 0.78rem;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   cursor: pointer;
 }
 .smallBtnPrimary:hover {
@@ -512,7 +569,7 @@
   border: 1px solid var(--color-border);
   padding: 6px 10px;
   font-size: 0.78rem;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   cursor: pointer;
 }
 .smallBtnGhost:hover {
@@ -530,11 +587,26 @@
   color: var(--color-muted);
 }
 
+/* badge mic pentru mesaje necitite */
+.unreadDot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.7rem;
+  margin-left: 4px;
+  padding: 0 4px;
+}
+
 /* MODAL NOTIȚE / DAY */
 .notesModalBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
   display: flex;
   justify-content: center;
@@ -547,10 +619,10 @@
 .dayModal {
   background: var(--surface);
   padding: 20px;
-  border-radius: var(--radius-lg);
+  border-radius: calc(var(--radius) + 2px);
   width: 100%;
   max-width: 520px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   position: relative;
 }
 
@@ -575,7 +647,8 @@
 }
 .notesTextarea:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in oklab, var(--color-primary) 20%, transparent);
 }
 
 .notesActions {
@@ -628,17 +701,31 @@
   margin-bottom: 4px;
 }
 
+.dayOrderHeaderRight {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
 .dayOrderNotes {
   font-size: 0.85rem;
   background: color-mix(in oklab, var(--color-primary) 10%, transparent);
   padding: 6px;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   margin-bottom: 6px;
 }
 
 .dayOrderActions {
   display: flex;
   justify-content: flex-end;
+}
+
+/* titluri mici în day modal */
+.daySectionTitle {
+  margin: 12px 0 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 /* YEAR OVERVIEW */
@@ -659,12 +746,17 @@
   padding: 10px 12px;
   text-align: left;
   cursor: pointer;
-  transition: box-shadow 0.12s ease, transform 0.08s ease, border-color 0.12s ease;
+  transition: box-shadow 0.12s ease, transform 0.08s ease,
+    border-color 0.12s ease;
 }
 .yearMonthCard:hover {
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
+  border-color: color-mix(
+    in oklab,
+    var(--color-primary) 40%,
+    var(--color-border)
+  );
 }
 
 .yearMonthName {
@@ -735,20 +827,44 @@
   font-size: 0.9rem;
 }
 
-/* 🔽 sumar lead-uri în bara de sus */
-.intervalLeadsSummary {
-  border-left: 1px solid var(--color-border);
-  padding-left: 10px;
+/* REZUMAT CONTABIL – container pliat */
+.accountingSection {
+  margin-bottom: 16px;
 }
 
-/* 🔢 REZUMAT CONTABIL – bara nouă sub intervalSummaryBar */
+.accountingToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface) 90%, #000 10%);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.accountingToggleLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.accountingToggleHint {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+/* bara de contabilitate detaliată */
 .accountingSummaryBar {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   padding: 10px 12px;
-  margin-bottom: 16px;
-  border-radius: var(--radius-lg);
+  margin-top: 8px;
+  border-radius: calc(var(--radius) + 4px);
   border: 1px solid var(--color-border);
   background: color-mix(in oklab, var(--surface) 90%, #000 10%);
 }
@@ -776,18 +892,10 @@
 }
 
 .accountingValueLoss {
-  color: var(--color-error);
+  color: var(--color-danger);
 }
 
-/* filtre extra */
-.extraFilters {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.searchWrapper {
-  min-width: 220px;
-}
+/* input text reutilizabil (search / filtre) */
 .searchInput {
   width: 100%;
   padding: 6px 8px;
@@ -800,7 +908,8 @@
 .searchInput:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 2px
+    color-mix(in oklab, var(--color-primary) 18%, transparent);
 }
 
 /* legend board */
@@ -832,7 +941,7 @@
   background: var(--color-primary);
 }
 .statusDotConfirmed {
-  background: #16a34a;
+  background: var(--color-success);
 }
 .statusDotFulfilled {
   background: #0ea5e9;
@@ -861,135 +970,38 @@
   gap: 8px;
 }
 
-/* ===========================
-   🔽 LEAD-URI EVENIMENTE
-   =========================== */
+/* ========== MODAL FILTRE ========== */
+.filtersModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
 
-/* listă scurtă de lead-uri sub comenzi în celula de calendar */
-.calendarDayLeads {
-  margin-top: 6px;
-  display: grid;
+.filtersFieldGroup {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
-/* “pastilă” pentru un lead */
-.leadPill {
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
-  border: 1px dashed color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
-  padding: 4px 8px;
-  font-size: 0.78rem;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.leadPillTop {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-}
-
-.leadName {
-  font-weight: 600;
+.filtersLabel {
   font-size: 0.8rem;
-}
-
-/* badge status lead */
-.leadStatus {
-  font-size: 0.7rem;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.15);
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-
-/* culori per status lead (codurile din JS: nou, in_discutii, oferta_trimisa, rezervat, pierdut) */
-.leadStatus_nou {
-  background: color-mix(in oklab, var(--color-primary) 20%, transparent);
-  color: var(--color-primary);
-}
-
-.leadStatus_in_discutii {
-  background: rgba(59, 130, 246, 0.12);
-  color: #1d4ed8;
-}
-
-.leadStatus_oferta_trimisa {
-  background: rgba(234, 179, 8, 0.15);
-  color: #92400e;
-}
-
-.leadStatus_rezervat {
-  background: rgba(34, 197, 94, 0.18);
-  color: #15803d;
-}
-
-.leadStatus_pierdut {
-  background: rgba(148, 163, 184, 0.3);
-  color: #4b5563;
-}
-
-.leadPillMeta {
-  font-size: 0.72rem;
   color: var(--color-muted);
 }
 
-.leadPillMeta span {
-  white-space: nowrap;
-}
-
-/* hint pentru lead-uri în plus */
-.moreHintLeads {
-  margin-top: 2px;
-  font-size: 0.75rem;
-  color: var(--color-muted);
-}
-
-/* link către conversație */
-.leadLink {
-  font-size: 0.74rem;
-  color: var(--color-primary);
-  text-decoration: underline;
-}
-
-/* ===========================
-   🔽 LEAD-URI ÎN DAY MODAL
-   =========================== */
-
-.daySectionTitle {
-  margin: 12px 0 6px;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.dayLeadsList {
-  list-style: none;
-  margin: 0;
-  margin-top: 4px;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.dayLeadItem {
+/* select full-width în modal filtrare */
+.filtersSelect {
+  width: 100%;
+  padding: 6px 8px;
   border-radius: var(--radius);
-  border: 1px dashed color-mix(in oklab, var(--color-primary) 25%, var(--color-border));
-  padding: 8px 10px;
-  background: color-mix(in oklab, var(--color-primary) 4%, var(--surface));
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  font-size: 0.9rem;
 }
-
-.dayLeadHeader {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.leadPhone {
-  font-size: 0.78rem;
-  color: var(--color-muted);
-  margin-top: 2px;
+.filtersSelect:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px
+    color-mix(in oklab, var(--color-primary) 18%, transparent);
 }

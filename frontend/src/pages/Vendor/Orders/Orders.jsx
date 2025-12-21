@@ -21,7 +21,6 @@ import {
 import styles from "./Orders.module.css";
 import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/SubscriptionBanner/SubscriptionBanner.jsx";
 
-// ⬇️ ajustează acest import după structura ta reală
 import UserOrdersPage from "../../User/Orders/UserOrders";
 import VendorManualOrderModal from "./VendorManualOrderModal.jsx";
 
@@ -54,7 +53,6 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Anulată" },
 ];
 
-// 🔹 Lista de motive pentru anulare comenzi
 const CANCEL_REASONS = [
   { value: "client_no_answer", label: "Clientul nu răspunde la telefon" },
   { value: "client_request", label: "Clientul a solicitat anularea" },
@@ -64,7 +62,6 @@ const CANCEL_REASONS = [
   { value: "other", label: "Alt motiv" },
 ];
 
-// 🔹 helper opțional pt leadStatus – doar front-end (backend poate trimite leadStatus string simplu)
 function getLeadStatusLabel(st) {
   if (!st) return null;
   switch (st) {
@@ -88,13 +85,16 @@ export default function VendorOrdersPage() {
   const isVendor = me?.role === "VENDOR";
   const navigate = useNavigate();
 
-  // 🔹 tab activ: "vendor" = comenzi primite, "client" = comenzi plasate de mine
   const [activeTab, setActiveTab] = useState("vendor");
+
+  // 👇 nou: detectăm mobil + ce comandă e deschisă în modal
+  const [isMobile, setIsMobile] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
-  const [from, setFrom] = useState(""); // yyyy-mm-dd
-  const [to, setTo] = useState(""); // yyyy-mm-dd
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
@@ -103,24 +103,19 @@ export default function VendorOrdersPage() {
   const [err, setErr] = useState("");
   const [data, setData] = useState({ items: [], total: 0 });
 
-  const [courierOrder, setCourierOrder] = useState(null); // pt modal curier
+  const [courierOrder, setCourierOrder] = useState(null);
 
-  // 🔹 facturare vendor
   const [billingReady, setBillingReady] = useState(false);
   const [billingLoading, setBillingLoading] = useState(true);
   const [billingError, setBillingError] = useState("");
 
-  // 🔹 factură / previzualizare
   const [invoiceOrder, setInvoiceOrder] = useState(null);
   const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
 
-  // 🔹 anulare comandă
   const [cancelOrder, setCancelOrder] = useState(null);
 
-  // 🔹 pornire conversație client
   const [startingMessageOrderId, setStartingMessageOrderId] = useState(null);
 
-  // 🔹 modal filtre
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
@@ -132,21 +127,18 @@ export default function VendorOrdersPage() {
   function handleResetFilters() {
     setPage(1);
     setQ("");
-    setStatus("new"); // revenim la „Nouă” ca înainte
+    setStatus("");
     setFrom("");
     setTo("");
   }
 
-  // 🔹 Load comenzi vendor
   useEffect(() => {
     let alive = true;
     async function run() {
-      // nu încărcăm comenzi vendor dacă nu suntem pe tab-ul vendor
       if (!isVendor || activeTab !== "vendor") return;
       setLoading(true);
       setErr("");
       try {
-        // GET /api/vendor/orders?q=&status=&from=&to=&page=1&pageSize=20
         const qs = new URLSearchParams(
           Object.fromEntries(
             Object.entries(query).filter(([v]) => v !== "" && v != null)
@@ -171,7 +163,6 @@ export default function VendorOrdersPage() {
     };
   }, [query, isVendor, activeTab]);
 
-  // 🔹 Load billing vendor – minimul necesar ca să poți genera facturi
   useEffect(() => {
     if (!isVendor) return;
 
@@ -219,6 +210,18 @@ export default function VendorOrdersPage() {
     };
   }, [isVendor]);
 
+  // 👇 detectăm mobil (sub 720px)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 720px)");
+
+    const update = () => setIsMobile(mq.matches);
+    update();
+
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   if (!isVendor) {
     return (
       <main className={styles.page}>
@@ -253,15 +256,18 @@ export default function VendorOrdersPage() {
     setInvoiceOrder(null);
   }
 
-  function handleRowClick(orderId) {
-    navigate(`/vendor/orders/${orderId}`);
+  // 👇 acum primește obiectul comenzii
+  function handleRowClick(order) {
+    if (isMobile) {
+      setSelectedOrder(order); // pe mobil deschidem modal
+    } else {
+      navigate(`/vendor/orders/${order.id}`); // pe desktop mergem în pagina de detalii
+    }
   }
 
-  // opțional: dacă vrei să știi exact când se salvează factura pentru a actualiza rândul
   async function handleInvoiceSaved(orderId) {
     setInvoiceLoadingId(orderId);
     try {
-      // refresh soft doar pentru comanda respectivă
       const res = await api(
         `/api/vendor/orders?${new URLSearchParams({
           q: orderId,
@@ -278,22 +284,19 @@ export default function VendorOrdersPage() {
           ),
         }));
       }
-    } catch {
-      // ignorăm erorile aici
+    } catch (e) {
+      console.error(e);
     } finally {
       setInvoiceLoadingId(null);
     }
   }
 
-  // 🔹 Pornește / deschide conversația cu clientul
   async function handleContactClient(order) {
-    // dacă există deja thread, doar navigăm
     if (order.messageThreadId) {
       navigate(`/mesaje?threadId=${order.messageThreadId}`);
       return;
     }
 
-    // altfel, încercăm să creăm thread-ul plecând de la comandă
     try {
       setStartingMessageOrderId(order.id);
 
@@ -312,7 +315,6 @@ export default function VendorOrdersPage() {
         return;
       }
 
-      // navigăm direct în pagina de mesaje
       navigate(`/vendor/messages?threadId=${res.threadId}`);
     } catch (e) {
       console.error("Eroare la pornirea conversației", e);
@@ -322,12 +324,12 @@ export default function VendorOrdersPage() {
     }
   }
 
-  // mici badge-uri cu rezumat filtre active (ex: Status: Nouă, Dată: 2025-01-01–2025-01-31)
   const hasActiveFilters = !!(status || from || to);
   const activeFiltersLabel = [
-    status && `Status: ${
-      STATUS_OPTIONS.find((s) => s.value === status)?.label || status
-    }`,
+    status &&
+      `Status: ${
+        STATUS_OPTIONS.find((s) => s.value === status)?.label || status
+      }`,
     from && `De la: ${from}`,
     to && `Până la: ${to}`,
   ]
@@ -350,7 +352,6 @@ export default function VendorOrdersPage() {
             >
               <Plus size={16} /> Adaugă comandă
             </button>
-            {/* link către pagina de planificare comenzi (tab sus) */}
             <Link
               to="/vendor/orders/planning"
               className={styles.secondaryBtn}
@@ -431,7 +432,6 @@ export default function VendorOrdersPage() {
         )}
       </div>
 
-      {/* 🔹 Tabs: Comenzi primite vs Comenzi plasate de mine (pe aceeași pagină) */}
       <div className={styles.tabs}>
         <button
           type="button"
@@ -454,10 +454,9 @@ export default function VendorOrdersPage() {
         </button>
       </div>
 
-      {/* 🔹 Conținut tab 1: comenzi primite (vendor) */}
       {activeTab === "vendor" && (
         <>
-          {/* Bară compactă: căutare + buton Filtre */}
+          {/* Bara compactă: căutare + Filtre + Reset */}
           <div className={styles.filters}>
             <div className={styles.inputWrap}>
               <Search size={16} className={styles.inputIcon} />
@@ -474,14 +473,24 @@ export default function VendorOrdersPage() {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={() => setFiltersOpen(true)}
-                aria-label="Deschide filtre"
-              >
-                <Filter size={16} /> Filtre
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={() => setFiltersOpen(true)}
+                  aria-label="Deschide filtre"
+                >
+                  <Filter size={16} /> Filtre
+                </button>
+                <button
+                  type="button"
+                  className={styles.secondaryBtn}
+                  onClick={handleResetFilters}
+                  aria-label="Resetează filtrele"
+                >
+                  <RefreshCw size={16} /> Reset
+                </button>
+              </div>
               {hasActiveFilters && (
                 <span className={styles.muted} style={{ fontSize: 12 }}>
                   {activeFiltersLabel}
@@ -490,7 +499,6 @@ export default function VendorOrdersPage() {
             </div>
           </div>
 
-          {/* Listă / tabel */}
           <div className={styles.card}>
             <div
               className={styles.tableWrap}
@@ -540,7 +548,7 @@ export default function VendorOrdersPage() {
                         <tr
                           key={o.id}
                           className={styles.orderRow}
-                          onClick={() => handleRowClick(o.id)}
+                          onClick={() => handleRowClick(o)}
                         >
                           <td>
                             <code>{o.shortId || o.id}</code>
@@ -593,7 +601,6 @@ export default function VendorOrdersPage() {
                                     </span>
                                   )}
 
-                                  {/* 🔹 leadStatus mic sub client */}
                                   {leadLabel && (
                                     <span
                                       className={`${styles.badge} ${
@@ -628,7 +635,6 @@ export default function VendorOrdersPage() {
                             </div>
                           </td>
                           <td>
-                            {/* Status + metodă de plată */}
                             <div>
                               <span
                                 className={`${styles.badge} ${
@@ -687,7 +693,6 @@ export default function VendorOrdersPage() {
                           </td>
                           <td>{formatMoney(o.total)}</td>
                           <td className={styles.actionsCell}>
-                            {/* 🔹 Contactare client (creează / deschide thread) – doar icon */}
                             <button
                               type="button"
                               className={styles.iconActionBtn}
@@ -717,7 +722,6 @@ export default function VendorOrdersPage() {
                               )}
                             </button>
 
-                            {/* 🔹 Status: În pregătire */}
                             {o.status === "new" && (
                               <button
                                 className={styles.secondaryBtn}
@@ -755,7 +759,6 @@ export default function VendorOrdersPage() {
                               </button>
                             )}
 
-                            {/* 🔹 Confirmă & curier */}
                             {(o.status === "preparing" ||
                               o.status === "confirmed") && (
                               <button
@@ -770,7 +773,6 @@ export default function VendorOrdersPage() {
                               </button>
                             )}
 
-                            {/* 🔹 Marchează finalizată */}
                             {o.status === "confirmed" && (
                               <button
                                 className={styles.secondaryBtn}
@@ -808,7 +810,6 @@ export default function VendorOrdersPage() {
                               </button>
                             )}
 
-                            {/* 🔹 Factură – icon-only */}
                             {o.status !== "cancelled" && (
                               <button
                                 className={styles.iconActionBtn}
@@ -838,7 +839,6 @@ export default function VendorOrdersPage() {
                               </button>
                             )}
 
-                            {/* 🔹 Anulare comandă – icon-only */}
                             {["new", "preparing", "confirmed"].includes(
                               o.status
                             ) && (
@@ -862,7 +862,6 @@ export default function VendorOrdersPage() {
               </table>
             </div>
 
-            {/* Paginare */}
             {data.total > pageSize && (
               <div className={styles.pagination}>
                 <button
@@ -903,7 +902,6 @@ export default function VendorOrdersPage() {
               order={courierOrder}
               onClose={closeCourierModal}
               onDone={async () => {
-                // refresh soft: doar elementul curent
                 try {
                   const res = await api(
                     `/api/vendor/orders?${new URLSearchParams({
@@ -919,8 +917,8 @@ export default function VendorOrdersPage() {
                       x.id === courierOrder.id ? { ...x, ...fresh } : x
                     ),
                   }));
-                } catch {
-                  /* ignore */
+                } catch (e) {
+                  console.error(e);
                 }
               }}
             />
@@ -929,7 +927,6 @@ export default function VendorOrdersPage() {
             <VendorManualOrderModal
               onClose={() => setManualOrderOpen(false)}
               onCreated={() => {
-                // la creare, închidem modalul și reîncărcăm lista de comenzi
                 setManualOrderOpen(false);
                 setPage(1);
                 setReloadToken((t) => t + 1);
@@ -968,7 +965,6 @@ export default function VendorOrdersPage() {
             />
           )}
 
-          {/* 🔹 Modal FILTRE: status + interval de date + reset */}
           {filtersOpen && (
             <div
               className={styles.modalBackdrop}
@@ -1067,13 +1063,87 @@ export default function VendorOrdersPage() {
               </div>
             </div>
           )}
+
+          {/* 👇 modal special pentru mobil */}
+          {isMobile && selectedOrder && (
+            <MobileOrderModal
+              order={selectedOrder}
+              billingReady={billingReady}
+              billingLoading={billingLoading}
+              onClose={() => setSelectedOrder(null)}
+              onOpenDetails={() => {
+                navigate(`/vendor/orders/${selectedOrder.id}`);
+                setSelectedOrder(null);
+              }}
+              onContactClient={() => {
+                handleContactClient(selectedOrder);
+                setSelectedOrder(null);
+              }}
+              onOpenCourier={() => {
+                openCourierModal(selectedOrder);
+                setSelectedOrder(null);
+              }}
+              onMarkPreparing={async () => {
+                try {
+                  await api(
+                    `/api/vendor/orders/${selectedOrder.id}/status`,
+                    {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ status: "preparing" }),
+                    }
+                  );
+                  setData((prev) => ({
+                    ...prev,
+                    items: prev.items.map((x) =>
+                      x.id === selectedOrder.id
+                        ? { ...x, status: "preparing" }
+                        : x
+                    ),
+                  }));
+                  setSelectedOrder(null);
+                } catch {
+                  alert("Nu am putut marca 'În pregătire'.");
+                }
+              }}
+              onMarkFulfilled={async () => {
+                try {
+                  await api(
+                    `/api/vendor/orders/${selectedOrder.id}/status`,
+                    {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ status: "fulfilled" }),
+                    }
+                  );
+                  setData((prev) => ({
+                    ...prev,
+                    items: prev.items.map((x) =>
+                      x.id === selectedOrder.id
+                        ? { ...x, status: "fulfilled" }
+                        : x
+                    ),
+                  }));
+                  setSelectedOrder(null);
+                } catch {
+                  alert("Nu am putut marca comanda ca finalizată.");
+                }
+              }}
+              onOpenInvoice={() => {
+                openInvoiceModal(selectedOrder);
+                setSelectedOrder(null);
+              }}
+              onCancel={() => {
+                setCancelOrder(selectedOrder);
+                setSelectedOrder(null);
+              }}
+            />
+          )}
         </>
       )}
 
-      {/* 🔹 Conținut tab 2: comenzi plasate de vendor ca și client */}
       {activeTab === "client" && (
         <div style={{ marginTop: 16 }}>
-          {/* aici randăm componenta existentă de user-orders */}
           <UserOrdersPage />
         </div>
       )}
@@ -1348,7 +1418,7 @@ function CourierModal({ order, onClose, onDone }) {
   );
 }
 
-/* ===== Modal Factură: PF / PJ + trimite ===== */
+/* ===== Modal Factură ===== */
 
 function InvoiceModal({ order, onClose, onSaved }) {
   const [loading, setLoading] = useState(true);
@@ -1372,13 +1442,11 @@ function InvoiceModal({ order, onClose, onSaved }) {
         const isCompany = !!(addr.companyName || addr.companyCui);
         const defaultLegalType = isCompany ? "PJ" : "PF";
 
-        // 🔹 1) Dacă backend-ul trimite deja o factură
         if (res?.invoice) {
           const inv = res.invoice;
           const prevCustomer = inv.customer || {};
           const legalType = prevCustomer.legalType || defaultLegalType;
 
-          // aici forțăm name-ul corect dacă e firmă
           const resolvedName = isCompany
             ? addr.companyName ||
               prevCustomer.name ||
@@ -1405,7 +1473,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
             },
           });
         } else {
-          // 🔹 2) Draft minim construit pe loc
           const baseCustomerAddress =
             addr.address ||
             [addr.street, addr.city, addr.county, addr.postalCode]
@@ -1553,7 +1620,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
     setSaving(true);
     setErr("");
     try {
-      // trimitem pur și simplu invoice (care acum conține și legalType/CUI/RegCom)
       const res = await api(`/api/vendor/orders/${order.id}/invoice`, {
         method: "POST",
         headers: {
@@ -1584,7 +1650,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
   return (
     <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
       <div className={`${styles.modal} ${styles.invoiceModal}`}>
-        {/* HEADER */}
         <div className={styles.modalHead}>
           <h3>
             Factură pentru comanda <code>{order.shortId || order.id}</code>
@@ -1598,7 +1663,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
           </button>
         </div>
 
-        {/* BODY SCROLLABIL */}
         <div className={styles.modalBody}>
           {loading && (
             <div style={{ padding: 16 }}>
@@ -1609,7 +1673,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
 
           {!loading && invoice && (
             <>
-              {/* Header factură */}
               <fieldset className={styles.fieldset}>
                 <legend>Detalii factură</legend>
                 <div className={styles.grid3}>
@@ -1686,7 +1749,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
                     />
                   </label>
                 </div>
-                {/* 🔹 NOTĂ INFORMATIVĂ SERIE / NUMĂR */}
                 <p className={styles.invoiceHint}>
                   <strong>Notă:</strong> Dacă lași câmpul <strong>Număr</strong>{" "}
                   gol, platforma va genera automat următorul număr de factură,
@@ -1696,11 +1758,9 @@ function InvoiceModal({ order, onClose, onSaved }) {
                 </p>
               </fieldset>
 
-              {/* Client PF / PJ */}
               <fieldset className={styles.fieldset}>
                 <legend>Client</legend>
 
-                {/* Tip client */}
                 <div className={styles.grid3}>
                   <label>
                     Tip client
@@ -1717,7 +1777,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
                   </label>
                 </div>
 
-                {/* Nume / Denumire + Email + Telefon */}
                 <div className={styles.grid3}>
                   <label>
                     {legalType === "PJ"
@@ -1753,7 +1812,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
                   </label>
                 </div>
 
-                {/* CUI + Reg Com doar pentru PJ */}
                 {legalType === "PJ" && (
                   <div className={styles.grid3}>
                     <label>
@@ -1800,13 +1858,9 @@ function InvoiceModal({ order, onClose, onSaved }) {
                 </label>
               </fieldset>
 
-              {/* Linii factură */}
               <fieldset className={styles.fieldset}>
                 <legend>Produse / Servicii</legend>
-                <div
-                  className={styles.tableWrap}
-                  style={{ maxHeight: 260 }}
-                >
+                <div className={styles.tableWrap} style={{ maxHeight: 260 }}>
                   <table className={styles.table}>
                     <thead>
                       <tr>
@@ -1908,12 +1962,8 @@ function InvoiceModal({ order, onClose, onSaved }) {
                 </button>
               </fieldset>
 
-              {/* Totaluri */}
               {totals && (
-                <div
-                  className={styles.fieldset}
-                  style={{ border: "none" }}
-                >
+                <div className={styles.fieldset} style={{ border: "none" }}>
                   <div
                     style={{
                       display: "flex",
@@ -1933,7 +1983,7 @@ function InvoiceModal({ order, onClose, onSaved }) {
                       </div>
                       <div>
                         Total de plată:{" "}
-                          <strong>{formatMoney(totals.grandTotal)}</strong>
+                        <strong>{formatMoney(totals.grandTotal)}</strong>
                       </div>
                     </div>
                   </div>
@@ -1945,7 +1995,6 @@ function InvoiceModal({ order, onClose, onSaved }) {
           {err && <p className={styles.error}>{err}</p>}
         </div>
 
-        {/* FOOTER */}
         <div className={styles.modalActions}>
           <button
             className={styles.secondaryBtn}
@@ -2094,7 +2143,7 @@ function CancelOrderModal({ order, onClose, onCancelled }) {
             disabled={saving}
           >
             {saving ? (
-              <Loader2 size={16} className={styles.spin} />
+              <Loader2 className={styles.spin} size={16} />
             ) : (
               "Confirmă anularea"
             )}
@@ -2104,6 +2153,215 @@ function CancelOrderModal({ order, onClose, onCancelled }) {
           Acțiunea nu poate fi reversată din interfață. Pentru reactivare va fi
           nevoie de o nouă comandă.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ===== Modal mobil cu detalii comandă ===== */
+
+function MobileOrderModal({
+  order,
+  onClose,
+  onOpenDetails,
+  onContactClient,
+  onOpenCourier,
+  onMarkPreparing,
+  onMarkFulfilled,
+  onOpenInvoice,
+  onCancel,
+  billingReady,
+  billingLoading,
+}) {
+  if (!order) return null;
+
+  const leadLabel = getLeadStatusLabel(order.leadStatus);
+  const cancelReasonLabel =
+    order.cancelReason &&
+    (CANCEL_REASONS.find((r) => r.value === order.cancelReason)?.label ||
+      order.cancelReason);
+
+  return (
+    <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+      <div className={styles.modal}>
+        <div className={styles.modalHead}>
+          <h3>
+            Comanda <code>{order.shortId || order.id}</code>
+          </h3>
+          <button
+            className={styles.iconBtn}
+            onClick={onClose}
+            aria-label="Închide"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className={styles.modalBody}>
+          <div className={styles.kv}>
+            <span>ID</span>
+            <div>
+              <code>{order.id}</code>
+            </div>
+          </div>
+          <div className={styles.kv}>
+            <span>Data</span>
+            <div>{formatDate(order.createdAt)}</div>
+          </div>
+          <div className={styles.kv}>
+            <span>Client</span>
+            <div>
+              <strong>{order.customerName || "—"}</strong>
+              <div className={styles.clientNote}>
+                {order.eventName || order.address?.city || ""}
+              </div>
+            </div>
+          </div>
+          <div className={styles.kv}>
+            <span>Contact</span>
+            <div className={styles.clientContact}>
+              {order.customerPhone && (
+                <a href={`tel:${order.customerPhone}`}>{order.customerPhone}</a>
+              )}
+              {order.customerEmail && (
+                <a href={`mailto:${order.customerEmail}`}>
+                  {order.customerEmail}
+                </a>
+              )}
+            </div>
+          </div>
+          <div className={styles.kv}>
+            <span>Status</span>
+            <div>
+              <span
+                className={`${styles.badge} ${
+                  order.status === "new"
+                    ? styles.badgeNew
+                    : order.status === "preparing"
+                    ? styles.badgeWarning
+                    : order.status === "confirmed"
+                    ? styles.badgeConfirmed
+                    : order.status === "fulfilled"
+                    ? styles.badgeFulfilled
+                    : order.status === "cancelled"
+                    ? styles.badgeCancelled
+                    : ""
+                }`}
+              >
+                {STATUS_OPTIONS.find((s) => s.value === order.status)?.label ||
+                  order.status ||
+                  "—"}
+              </span>
+              {order.paymentMethod && (
+                <div className={styles.clientNote}>
+                  {order.paymentMethod === "COD"
+                    ? "Plată la livrare"
+                    : "Card online"}
+                </div>
+              )}
+              {order.invoiceNumber && (
+                <div className={styles.clientNote}>
+                  Factură: <strong>{order.invoiceNumber}</strong>
+                  {order.invoiceDate && (
+                    <>
+                      {" · "}
+                      {new Date(order.invoiceDate).toLocaleDateString("ro-RO")}
+                    </>
+                  )}
+                </div>
+              )}
+              {cancelReasonLabel && (
+                <div className={styles.clientNote}>
+                  Motiv anulare: <strong>{cancelReasonLabel}</strong>
+                  {order.cancelReasonNote && <> – {order.cancelReasonNote}</>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {(order.awb || order.pickupDate || leadLabel) && (
+            <div className={styles.kv}>
+              <span>Extra</span>
+              <div className={styles.inlineChips}>
+                {order.awb && (
+                  <span className={`${styles.badge} ${styles.badgeConfirmed}`}>
+                    AWB {order.awb}
+                  </span>
+                )}
+                {order.pickupDate && (
+                  <span className={styles.badge}>
+                    Ridicare{" "}
+                    {new Date(order.pickupDate).toLocaleDateString("ro-RO", {
+                      weekday: "short",
+                      day: "2-digit",
+                      month: "short",
+                    })}
+                  </span>
+                )}
+                {leadLabel && (
+                  <span
+                    className={`${styles.badge} ${
+                      styles.badgeLead || ""
+                    }`}
+                  >
+                    {leadLabel}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className={styles.kv}>
+            <span>Total</span>
+            <div>
+              <strong>{formatMoney(order.total)}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.modalActions}>
+          <button className={styles.primaryBtn} onClick={onOpenDetails}>
+            Vezi detalii complete
+          </button>
+
+          <button className={styles.secondaryBtn} onClick={onContactClient}>
+            <MessageSquare size={16} /> Mesaje client
+          </button>
+
+          {order.status === "new" && (
+            <button className={styles.secondaryBtn} onClick={onMarkPreparing}>
+              În pregătire
+            </button>
+          )}
+
+          {(order.status === "preparing" || order.status === "confirmed") && (
+            <button className={styles.primaryBtn} onClick={onOpenCourier}>
+              <PackageCheck size={16} /> Confirmă & curier
+            </button>
+          )}
+
+          {order.status === "confirmed" && (
+            <button className={styles.secondaryBtn} onClick={onMarkFulfilled}>
+              Marchează finalizată
+            </button>
+          )}
+
+          {order.status !== "cancelled" && (
+            <button
+              className={styles.secondaryBtn}
+              onClick={onOpenInvoice}
+              disabled={!billingReady || billingLoading}
+            >
+              <FileText size={16} /> Factură
+            </button>
+          )}
+
+          {["new", "preparing", "confirmed"].includes(order.status) && (
+            <button className={styles.secondaryBtn} onClick={onCancel}>
+              <XCircle size={16} /> Anulează comanda
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
