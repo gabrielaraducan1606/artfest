@@ -193,3 +193,94 @@
 @media (prefers-color-scheme: dark) {
   .card { box-shadow: none; }
 }
+/* =========================
+   Mobile compact (override)
+   ========================= */
+@media (max-width: 560px) {
+  .section {
+    padding: 0.85rem calc(0.85rem + env(safe-area-inset-left))
+             1rem calc(0.85rem + env(safe-area-inset-right));
+  }
+
+  .header {
+    gap: 0.3rem;
+    margin-bottom: 0.7rem;
+  }
+
+  .heading {
+    font-size: 1.1rem;       /* mai mic decât clamp */
+    letter-spacing: -0.01em;
+  }
+
+  .subheading {
+    font-size: 0.92rem;
+  }
+
+  .grid {
+    gap: 0.5rem;             /* mai strâns */
+  }
+
+  .card {
+    border-radius: 14px;
+  }
+
+  .cardInner {
+    gap: 0.32rem;
+    padding: 0.62rem 1.55rem 0.62rem 0.78rem; /* mai compact + spațiu chevron */
+    min-height: 88px;        /* mai mic decât 102px */
+  }
+
+  .pill {
+    width: 2px;
+    opacity: 0.55;
+  }
+
+  .title {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.12;
+  }
+
+  .description {
+    font-size: 0.86rem;
+    line-height: 1.28;
+  }
+
+  .chevron {
+    right: 0.65rem;
+    opacity: 0.5;
+  }
+  .chevron svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  /* focus mai compact */
+  .card:focus-visible {
+    outline-offset: 2px;
+    border-radius: 16px;
+  }
+}
+
+/* =========================
+   Extra-small (telefoane înguste)
+   ========================= */
+@media (max-width: 380px) {
+  .section {
+    padding: 0.75rem calc(0.75rem + env(safe-area-inset-left))
+             0.9rem calc(0.75rem + env(safe-area-inset-right));
+  }
+
+  .heading { font-size: 1.05rem; }
+  .subheading { font-size: 0.9rem; }
+
+  .cardInner {
+    padding: 0.56rem 1.4rem 0.56rem 0.72rem;
+    min-height: 82px;
+  }
+
+  .title { font-size: 0.92rem; }
+  .description { font-size: 0.84rem; }
+
+  .chevron svg { width: 12px; height: 12px; }
+}

@@ -1,0 +1,358 @@
+@import "../../styles/variables.css";
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 18px 14px 28px;
+}
+
+.hero {
+  background: linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--color-primary) 7%, transparent),
+      color-mix(in srgb, var(--color-primary) 7%, transparent)
+    ),
+    var(--color-bg-elev);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 10px);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+}
+
+.heroInner {
+  display: grid;
+  gap: 14px;
+}
+
+.kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 25%, var(--color-border));
+  color: var(--color-text);
+  font-weight: 750;
+  font-size: 0.82rem;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: clamp(1.6rem, 3vw, 2.3rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--color-text-muted);
+  max-width: 70ch;
+  font-size: 1.02rem;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.primaryBtn,
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+  font-weight: 800;
+  padding: 0.65rem 0.95rem;
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow: var(--shadow-sm);
+}
+
+.primaryBtn {
+  background: var(--color-primary);
+  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+.primaryBtn:hover {
+  background: var(--color-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.ghostBtn {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.ghostBtn:hover {
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+}
+
+.waitlistCard {
+  margin-top: 6px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: calc(var(--radius) + 10px);
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+}
+
+.waitlistTitle {
+  font-weight: 850;
+}
+
+.waitlistDesc {
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  margin-top: 2px;
+}
+
+.waitlistForm {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.input {
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 6px);
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  color: var(--color-text);
+  outline: none;
+  min-width: 0;
+}
+.input:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in oklab, #ffffff 80%, transparent),
+    0 0 0 6px color-mix(in oklab, var(--color-primary) 40%, transparent);
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+}
+
+.submit {
+  border: none;
+  cursor: pointer;
+  font-weight: 850;
+  padding: 0.6rem 0.85rem;
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+.submit:hover {
+  background: var(--color-hover);
+}
+
+.success {
+  font-weight: 800;
+  color: var(--color-text);
+  padding: 10px 12px;
+  border-radius: calc(var(--radius) + 8px);
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 25%, var(--color-border));
+}
+
+.section {
+  margin-top: 18px;
+  padding: 6px 2px 0;
+}
+
+.sectionHeader {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.h2 {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+}
+
+.p {
+  margin: 0;
+  color: var(--color-text-muted);
+  max-width: 75ch;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: calc(var(--radius) + 10px);
+  box-shadow: var(--shadow-xs);
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-primary) 25%, var(--color-border));
+}
+
+.badge {
+  font-size: 0.78rem;
+  font-weight: 850;
+  padding: 5px 9px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-bg) 60%, var(--surface));
+  color: var(--color-text);
+}
+
+.h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+
+.cardP {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.footerCta {
+  margin-top: 18px;
+  border-radius: calc(var(--radius) + 10px);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elev);
+  padding: 14px;
+}
+
+.footerInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .page {
+    padding: 14px 12px 22px;
+  }
+
+  .hero {
+    padding: 14px;
+  }
+
+  .subtitle {
+    font-size: 0.96rem;
+  }
+
+  .waitlistForm {
+    grid-template-columns: 1fr;
+  }
+
+  .primaryBtn,
+  .ghostBtn {
+    width: 100%;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* Mobile: totul mai compact */
+@media (max-width: 620px) {
+  .heroInner { gap: 10px; }
+
+  .kicker {
+    padding: 5px 9px;
+    gap: 6px;
+    font-size: 0.78rem;
+  }
+
+  .title {
+    font-size: 1.35rem;  /* mai mic decât clamp-ul */
+    line-height: 1.12;
+  }
+
+  .subtitle { font-size: 0.92rem; }
+
+  .primaryBtn,
+  .ghostBtn {
+    padding: 0.58rem 0.85rem;
+    font-size: 0.95rem;
+  }
+
+  .waitlistCard {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .waitlistDesc { font-size: 0.9rem; }
+
+  .input { padding: 0.55rem 0.7rem; }
+  .submit { padding: 0.55rem 0.8rem; }
+
+  .sectionHeader { gap: 4px; margin-bottom: 8px; }
+  .h2 { font-size: 1.12rem; }
+  .p  { font-size: 0.95rem; }
+
+  .grid { gap: 10px; }
+
+  .card {
+    padding: 12px;
+    gap: 7px;
+    border-radius: calc(var(--radius) + 8px);
+  }
+
+  .icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .badge {
+    font-size: 0.72rem;
+    padding: 4px 8px;
+  }
+
+  .h3 { font-size: 0.98rem; }
+  .cardP { font-size: 0.9rem; }
+
+  .footerCta { padding: 12px; }
+}
+
+/* Extra-small: telefoane foarte înguste */
+@media (max-width: 380px) {
+  .page { padding: 12px 10px 18px; }
+
+  .hero { padding: 12px; }
+  .title { font-size: 1.25rem; }
+  .subtitle { font-size: 0.9rem; }
+
+  .card { padding: 11px; }
+  .badge { padding: 4px 7px; }
+}

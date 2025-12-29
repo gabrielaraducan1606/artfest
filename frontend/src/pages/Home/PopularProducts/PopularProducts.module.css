@@ -251,3 +251,82 @@
     padding: .8rem 1.1rem;
   }
 }
+/* =========================
+   Mobile compact (override)
+   ========================= */
+@media (max-width: 760px) {
+  .section {
+    padding: 0.9rem 0.85rem;   /* mai puțin aer */
+  }
+
+  .header { margin-bottom: 0.55rem; }
+  .heading { font-size: 1.1rem; }
+
+  .grid { gap: 0.55rem; }
+
+  .card {
+    grid-template-columns: 92px 1fr; /* imagine mai mică */
+    gap: 8px;
+    padding: 0.55rem;
+    border-radius: 14px;
+  }
+
+  .thumb {
+    border-radius: 12px;
+    aspect-ratio: 1 / 1;       /* pătrat, compact */
+  }
+
+  .body {
+    gap: 0.28rem;
+    padding-left: 0;
+  }
+
+  .name {
+    font-size: 0.94rem;
+    line-height: 1.18;
+  }
+
+  .shop { font-size: 0.88rem; }
+  .time { font-size: 0.82rem; }
+
+  .subRow { gap: 0.4rem; min-height: 18px; }
+
+  .metaRow {
+    column-gap: 6px;
+    margin-top: 0;
+  }
+
+  .rating { gap: 3px; }
+  .rating svg { width: 13px; height: 13px; }
+  .ratingVal { font-size: 0.82rem; margin-left: 4px; }
+
+  .price { font-size: 0.96rem; }
+}
+
+/* Extra-small (telefoane înguste) */
+@media (max-width: 380px) {
+  .section { padding: 0.8rem 0.75rem; }
+
+  .card {
+    grid-template-columns: 84px 1fr;
+    gap: 7px;
+    padding: 0.5rem;
+  }
+
+  .name { font-size: 0.92rem; }
+  .shop { font-size: 0.86rem; }
+  .time { font-size: 0.8rem; }
+
+  .rating svg { width: 12px; height: 12px; }
+  .ratingVal { display: none; }  /* câștigi spațiu */
+  .price { font-size: 0.94rem; }
+}
+
+/* Butonul "Vezi mai mult" mai mic pe mobil */
+@media (max-width: 760px) {
+  .loadMore {
+    padding: 0.7rem 1rem;   /* mai mic decât .8rem */
+    font-size: 0.95rem;
+    border-radius: 14px;    /* nu chiar "pill" enorm */
+  }
+}

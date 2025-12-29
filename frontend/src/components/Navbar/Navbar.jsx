@@ -1,12 +1,6 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-  useRef,
-  useCallback,
-} from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Heart,
   ShoppingCart,
@@ -103,9 +97,7 @@ function MobileBar({ me, unreadNotif, cartCount }) {
         <UserIcon size={22} />
         <span>Cont</span>
         {me && unreadNotif > 0 && (
-          <span className={styles.badgeMini}>
-            {Math.min(unreadNotif, 99)}
-          </span>
+          <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
         )}
       </a>
 
@@ -124,9 +116,7 @@ function MobileBar({ me, unreadNotif, cartCount }) {
         <ShoppingCart size={22} />
         <span>Coș</span>
         {cartCount > 0 && (
-          <span className={styles.badgeMini}>
-            {Math.min(cartCount, 99)}
-          </span>
+          <span className={styles.badgeMini}>{Math.min(cartCount, 99)}</span>
         )}
       </a>
     </nav>
@@ -139,13 +129,15 @@ function MobileBar({ me, unreadNotif, cartCount }) {
 export default function Navbar() {
   const { me, loading: refresh } = useAuth();
 
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [burgerOpen, setBurgerOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState("login");
   const [partnerOpen, setPartnerOpen] = useState(false);
 
   const [q, setQ] = useState("");
-  const [scope] = useState("toate");
 
   const [wishCount, setWishCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
@@ -153,12 +145,18 @@ export default function Navbar() {
   const [unreadMsgs, setUnreadMsgs] = useState(0);
   const [unreadNotif, setUnreadNotif] = useState(0);
   const [onboarding, setOnboarding] = useState(null);
-  const [supportUnread, setSupportUnread] = useState(0); // 🔴 contor tichete suport
+  const [supportUnread, setSupportUnread] = useState(0);
 
   const [uploadingImg, setUploadingImg] = useState(false);
 
   const fileInputDesktopRef = useRef(null);
   const fileInputMobileRef = useRef(null);
+
+  // === Sugestii (ca în Hero) ===
+  const [suggestions, setSuggestions] = useState(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const searchDesktopRef = useRef(null);
+  const searchMobileRef = useRef(null);
 
   // Theme
   const [theme, setTheme] = useState(() => {
@@ -270,7 +268,7 @@ export default function Navbar() {
         if (!alive) return;
         setVServices(d?.items || []);
       } finally {
-        ""
+        "";
       }
     })();
     return () => {
@@ -317,16 +315,15 @@ export default function Navbar() {
       }
 
       if (me.role === "USER") {
-        const msgs = await api("/api/user-inbox/unread-count").catch(
-          () => ({ count: 0 })
-        );
+        const msgs = await api("/api/user-inbox/unread-count").catch(() => ({
+          count: 0,
+        }));
         if (!alive) return;
         setUnreadMsgs(msgs?.count || 0);
         setOnboarding(null);
         return;
       }
 
-      // orice alt rol (guest, admin)
       if (alive) {
         setUnreadMsgs(0);
         setOnboarding(null);
@@ -351,7 +348,7 @@ export default function Navbar() {
     } else if (me.role === "VENDOR") {
       url = "/api/vendor/support/unread-count";
     } else if (me.role === "USER") {
-      url = "/api/support/unread-count"; // adaptează dacă endpointul e altul
+      url = "/api/support/unread-count";
     } else {
       setSupportUnread(0);
       return;
@@ -372,10 +369,8 @@ export default function Navbar() {
       return;
     }
 
-    // încărcare imediată
     fetchSupportUnread();
 
-    // poll la 15s și la revenirea în tab
     const id = setInterval(() => {
       if (document.visibilityState === "visible") {
         fetchSupportUnread();
@@ -412,46 +407,123 @@ export default function Navbar() {
     };
   }, [burgerOpen]);
 
-  // === Citește query param auth=login|register pentru a deschide modalul ===
+  /* ✅ ROUTER-AWARE: citește query param la orice schimbare de URL */
   useEffect(() => {
-    const sp = new URLSearchParams(window.location.search);
-    const auth = sp.get("auth"); // "login" | "register"
+    const sp = new URLSearchParams(location.search);
+    const auth = sp.get("auth");
+    const as = sp.get("as");
+
+    if (auth === "register" && as === "partner") {
+      setPartnerOpen(true);
+      setAuthOpen(false);
+      return;
+    }
+
     if (auth === "login" || auth === "register") {
       setAuthTab(auth);
       setAuthOpen(true);
+      setPartnerOpen(false);
+      return;
     }
+  }, [location.search]);
 
-    const onPopState = () => {
-      const sp2 = new URLSearchParams(window.location.search);
-      const a = sp2.get("auth");
-      if (a === "login" || a === "register") {
-        setAuthTab(a);
-        setAuthOpen(true);
-      }
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+  const clearAuthParams = useCallback(() => {
+    const sp = new URLSearchParams(location.search);
+    sp.delete("auth");
+    sp.delete("as");
 
-  // curăță param-ul auth din URL când închizi modalul
+    const next = sp.toString();
+    navigate(
+      { pathname: location.pathname, search: next ? `?${next}` : "" },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate]);
+
   const closeAuth = () => {
     setAuthOpen(false);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("auth");
-      const next = url.pathname + (url.search ? url.search : "") + url.hash;
-      window.history.replaceState({}, "", next);
-    } catch {
-      ""
-    }
+    clearAuthParams();
   };
+
+  const closePartner = () => {
+    setPartnerOpen(false);
+    clearAuthParams();
+  };
+
+  // === Suggest fetch (ca în Hero) ===
+  useEffect(() => {
+    const term = (q || "").trim();
+    if (!term || term.length < 2) {
+      setSuggestions(null);
+      return;
+    }
+
+    const handle = setTimeout(async () => {
+      try {
+        setSuggestLoading(true);
+        const res = await fetch(
+          `/api/public/products/suggest?q=${encodeURIComponent(term)}`
+        );
+        const data = await res.json().catch(() => null);
+        setSuggestions(data || null);
+      } catch {
+        setSuggestions(null);
+      } finally {
+        setSuggestLoading(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(handle);
+  }, [q]);
+
+  // click-outside pt dropdown (desktop + mobile)
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      const inDesktop = searchDesktopRef.current?.contains(e.target);
+      const inMobile = searchMobileRef.current?.contains(e.target);
+      if (!inDesktop && !inMobile) setSuggestions(null);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, []);
+
+  const showSuggest =
+    q &&
+    q.trim().length >= 2 &&
+    (suggestLoading || suggestions) &&
+    (suggestions?.products?.length ||
+      suggestions?.categories?.length ||
+      suggestLoading);
+
+  const handleSuggestionCategoryClick = useCallback(
+    (catKey) => {
+      const term = (q || "").trim();
+      setSuggestions(null);
+      navigate(
+        `/produse?q=${encodeURIComponent(term)}&categorie=${encodeURIComponent(
+          catKey
+        )}&page=1`
+      );
+    },
+    [navigate, q]
+  );
+
+  const handleSuggestionProductClick = useCallback(
+    (id) => {
+      setSuggestions(null);
+      navigate(`/produs/${encodeURIComponent(id)}`)
+    },
+    [navigate]
+  );
 
   function submitSearch(e) {
     e.preventDefault();
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (scope && scope !== "toate") params.set("scope", scope);
-    window.location.href = `/cautare?${params.toString()}`;
+    const term = (q || "").trim();
+    setSuggestions(null);
+    navigate(term ? `/produse?q=${encodeURIComponent(term)}&page=1` : "/produse");
   }
 
   const initials = useMemo(() => {
@@ -466,22 +538,14 @@ export default function Navbar() {
       .toUpperCase();
   }, [me]);
 
-    const avatarUrl = me?.avatarUrl || null;
+  const avatarUrl = me?.avatarUrl || null;
 
   const isVendor = me?.role === "VENDOR";
 
   const supportHref = useMemo(() => {
-    if (!me) return "/support"; // guest
-
-    if (me.role === "ADMIN") {
-      return "/admin/support"; // admin
-    }
-
-    if (me.role === "VENDOR") {
-      return "/vendor/support"; // dashboard vendor
-    }
-
-    // restul = user normal
+    if (!me) return "/support";
+    if (me.role === "ADMIN") return "/admin/support";
+    if (me.role === "VENDOR") return "/vendor/support";
     return "/account/support";
   }, [me]);
 
@@ -540,9 +604,13 @@ export default function Navbar() {
         body: fd,
       });
 
-      const ids = Array.isArray(res?.items)
-        ? res.items.map((x) => x.id).filter(Boolean)
+      // compatibil cu ambele formate: {items:[{id}]} sau {ids:[...]}
+      const ids = Array.isArray(res?.ids)
+        ? res.ids.filter(Boolean)
+        : Array.isArray(res?.items)
+        ? res.items.map((x) => x?.id).filter(Boolean)
         : [];
+
       if (ids.length > 0) {
         try {
           sessionStorage.setItem(
@@ -550,22 +618,17 @@ export default function Navbar() {
             JSON.stringify(res)
           );
         } catch {
-          ""
+          "";
         }
-        window.location.href = `/produse?ids=${encodeURIComponent(
-          ids.join(",")
-        )}`;
+        navigate(`/produse?ids=${encodeURIComponent(ids.join(","))}&page=1`);
         return;
       }
 
-      const id = res?.searchId || res?.queryId;
-      if (id) {
-        window.location.href = `/cautare-imagine/${encodeURIComponent(id)}`;
-      } else {
-        window.location.href = "/produse?by=image";
-      }
+      // fallback ca în Hero
+      navigate("/produse?by=image&page=1");
     } catch {
       alert("Nu am putut procesa imaginea. Încearcă din nou.");
+      navigate("/produse?by=image&error=1&page=1");
     } finally {
       setUploadingImg(false);
     }
@@ -587,7 +650,6 @@ export default function Navbar() {
     }
   })();
 
-  const location = useLocation();
   const isAdmin = me?.role === "ADMIN";
   const isAdminRoute = location.pathname.startsWith("/admin");
 
@@ -596,20 +658,12 @@ export default function Navbar() {
     return (
       <header className={styles.header}>
         <div className={styles.container}>
-          {/* Stânga: logo + badge ADMIN */}
-          <div
-            style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}
-          >
-            <a
-              href="/"
-              aria-label="Artfest – Acasă"
-              title="Pagina principală"
-            >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <a href="/" aria-label="Artfest – Acasă" title="Pagina principală">
               <img src={logo} alt="Artfest" className={styles.logo} />
             </a>
           </div>
 
-          {/* Centru: link-uri admin */}
           <nav className={styles.nav} aria-label="Meniu admin">
             <a className={styles.navLink} href="/admin">
               Dashboard
@@ -620,10 +674,11 @@ export default function Navbar() {
             <a className={styles.navLink} href="/admin/maintenance">
               Mentenanta
             </a>
-            {/* aici poți adăuga și alte link-uri de admin pe viitor */}
+            <a className={styles.navLink} href="/admin/incidents">
+              Incidente
+            </a>
           </nav>
 
-          {/* Dreapta: temă + suport + avatar + logout */}
           <div className={styles.actionsRight}>
             <button
               className={styles.themeBtn}
@@ -650,23 +705,23 @@ export default function Navbar() {
             </a>
 
             <div className={styles.dropdown}>
-             <button
-  className={styles.avatarBtn}
-  title="Cont admin"
-  aria-label="Cont admin"
-  type="button"
->
-  {avatarUrl ? (
-    <img
-      src={avatarUrl}
-      alt={me?.name || me?.email || "Avatar"}
-      className={styles.avatarImg}
-    />
-  ) : (
-    <span className={styles.avatar}>{initials}</span>
-  )}
-  <ChevronDown className={styles.dropdownIcon} size={14} />
-</button>
+              <button
+                className={styles.avatarBtn}
+                title="Cont admin"
+                aria-label="Cont admin"
+                type="button"
+              >
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt={me?.name || me?.email || "Avatar"}
+                    className={styles.avatarImg}
+                  />
+                ) : (
+                  <span className={styles.avatar}>{initials}</span>
+                )}
+                <ChevronDown className={styles.dropdownIcon} size={14} />
+              </button>
 
               <div
                 className={styles.dropdownContent}
@@ -707,7 +762,7 @@ export default function Navbar() {
                           await api("/api/auth/logout", { method: "POST" });
                           await refresh().catch(() => {});
                         } catch {
-                          ""
+                          "";
                         }
                         window.location.href = "/autentificare";
                       }}
@@ -726,7 +781,6 @@ export default function Navbar() {
   }
 
   /* ================= NAVBAR NORMAL (user / vendor / guest) ================= */
-
   return (
     <header className={styles.header}>
       <div className={styles.container}>
@@ -776,13 +830,13 @@ export default function Navbar() {
                     <div>
                       <div className={styles.groupLabel}>Servicii digitale</div>
                       <div className={styles.colGrid}>
-                        <a href="/digitale/invitatie" role="menuitem">
+                        <a href="/servicii-digitale" role="menuitem">
                           Invitație tip site
                         </a>
-                        <a href="/digitale/asezare-mese" role="menuitem">
+                        <a href="/servicii-digitale" role="menuitem">
                           Așezarea la mese (SMS)
                         </a>
-                        <a href="/digitale/album-qr" role="menuitem">
+                        <a href="/servicii-digitale" role="menuitem">
                           Album QR
                         </a>
                       </div>
@@ -811,8 +865,8 @@ export default function Navbar() {
                             paddingTop: 6,
                           }}
                         >
-                          * Toate serviciile pentru evenimente vor fi
-                          disponibile în curând
+                          * Toate serviciile pentru evenimente vor fi disponibile
+                          în curând
                         </div>
                       </div>
                     </div>
@@ -865,13 +919,13 @@ export default function Navbar() {
                 </div>
               )}
 
-              {/* ===== Vizitatori / Comenzi ===== */}
               <a className={styles.navLink} href="/vendor/orders">
                 Comenzile mele
               </a>
               <a className={styles.navLink} href="/vendor/visitors">
                 Vizitatori
               </a>
+
               {nextStepCTA && (
                 <a
                   className={styles.accountBtn}
@@ -895,13 +949,13 @@ export default function Navbar() {
                   <ChevronDown className={styles.dropdownIcon} size={14} />
                 </a>
                 <div className={styles.dropdownContent} role="menu">
-                  <a href="/digitale/invitatie" role="menuitem">
+                  <a href="/servicii-digitale" role="menuitem">
                     Invitație tip site
                   </a>
-                  <a href="/digitale/asezare-mese" role="menuitem">
+                  <a href="/servicii-digitale" role="menuitem">
                     Așezarea la mese (SMS)
                   </a>
-                  <a href="/digitale/album-qr" role="menuitem">
+                  <a href="/servicii-digitale" role="menuitem">
                     Album QR
                   </a>
                 </div>
@@ -910,21 +964,24 @@ export default function Navbar() {
               <a className={styles.navLink} href="/produse">
                 Produse
               </a>
-
               <a className={styles.navLink} href="/magazine">
-  Magazine
-</a>
-
+                Magazine
+              </a>
             </>
           )}
 
           {/* Search – desktop (doar pentru non-vendor) */}
           {me?.role !== "VENDOR" && (
             <form
+              ref={searchDesktopRef}
               className={styles.search}
               onSubmit={submitSearch}
               role="search"
               aria-label="Căutare"
+              style={{ position: "relative" }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSuggestions(null);
+              }}
             >
               <SearchIcon size={30} className={styles.searchIcon} />
               <input
@@ -933,6 +990,7 @@ export default function Navbar() {
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Caută pe Artfest"
                 aria-label="Caută"
+                autoComplete="off"
               />
 
               <input
@@ -953,6 +1011,95 @@ export default function Navbar() {
               >
                 <Camera size={18} />
               </button>
+
+              {showSuggest && (
+                <div
+                  role="listbox"
+                  aria-label="Sugestii de căutare"
+                  className={styles.suggestDropdown}
+                >
+                  {suggestLoading && (
+                    <div className={styles.suggestLoading}>
+                      Se încarcă sugestiile…
+                    </div>
+                  )}
+
+                  {!suggestLoading && suggestions && (
+                    <>
+                      {(!suggestions.products || !suggestions.products.length) &&
+                        (!suggestions.categories ||
+                          !suggestions.categories.length) && (
+                          <div className={styles.suggestEmpty}>
+                            Nu avem sugestii exacte pentru <strong>{q}</strong>.
+                          </div>
+                        )}
+
+                      {suggestions.categories &&
+                        suggestions.categories.length > 0 && (
+                          <div className={styles.suggestSection}>
+                            <div className={styles.suggestSectionTitle}>
+                              Categorii sugerate
+                            </div>
+                            {suggestions.categories.map((c) => (
+                              <button
+                                key={c.key}
+                                type="button"
+                                role="option"
+                                className={styles.suggestCategoryBtn}
+                                onClick={() =>
+                                  handleSuggestionCategoryClick(c.key)
+                                }
+                              >
+                                {c.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                      {suggestions.products &&
+                        suggestions.products.length > 0 && (
+                          <div className={styles.suggestSection}>
+                            <div className={styles.suggestSectionTitle}>
+                              Produse sugerate
+                            </div>
+                            <div className={styles.suggestProductsList}>
+                              {suggestions.products.map((p) => (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  role="option"
+                                  className={styles.suggestProductBtn}
+                                  onClick={() =>
+                                    handleSuggestionProductClick(p.id)
+                                  }
+                                >
+                                  {p.images?.[0] && (
+                                    <img
+                                      src={p.images[0]}
+                                      alt={p.title}
+                                      className={styles.suggestProductThumb}
+                                    />
+                                  )}
+                                  <div className={styles.suggestProductMeta}>
+                                    <div className={styles.suggestProductTitle}>
+                                      {p.title}
+                                    </div>
+                                    <div className={styles.suggestProductPrice}>
+                                      {(Number(p.priceCents || 0) / 100).toFixed(
+                                        2
+                                      )}{" "}
+                                      {p.currency || "RON"}
+                                    </div>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                    </>
+                  )}
+                </div>
+              )}
             </form>
           )}
         </nav>
@@ -979,7 +1126,6 @@ export default function Navbar() {
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
 
-          {/* Icon Desktop vendor */}
           {isVendor && (
             <a
               className={styles.iconWrapper}
@@ -991,7 +1137,6 @@ export default function Navbar() {
             </a>
           )}
 
-          {/* Icon Desktop user (role USER) */}
           {me && !isVendor && (
             <a
               className={styles.iconWrapper}
@@ -1003,7 +1148,6 @@ export default function Navbar() {
             </a>
           )}
 
-          {/* Asistență (în funcție de tipul userului) */}
           <a
             className={styles.iconWrapper}
             href={supportHref}
@@ -1050,7 +1194,6 @@ export default function Navbar() {
             </a>
           )}
 
-          {/* Wishlist (desktop) */}
           {me && (
             <a
               className={styles.iconWrapper}
@@ -1067,7 +1210,6 @@ export default function Navbar() {
             </a>
           )}
 
-          {/* Coș */}
           <a
             className={styles.iconWrapper}
             href="/cos"
@@ -1076,13 +1218,10 @@ export default function Navbar() {
           >
             <ShoppingCart size={22} />
             {cartCount > 0 && (
-              <span className={styles.badge}>
-                {Math.min(cartCount, 99)}
-              </span>
+              <span className={styles.badge}>{Math.min(cartCount, 99)}</span>
             )}
           </a>
 
-          {/* Account */}
           {!me ? (
             <>
               <button
@@ -1097,6 +1236,7 @@ export default function Navbar() {
               >
                 <UserIcon size={18} />
               </button>
+
               <button
                 className={styles.sellBtn}
                 onClick={() => setPartnerOpen(true)}
@@ -1107,23 +1247,24 @@ export default function Navbar() {
             </>
           ) : (
             <div className={styles.dropdown}>
-               <button
-    className={styles.avatarBtn}
-    title="Contul meu"
-    aria-label="Contul meu"
-    type="button"
-  >
-    {avatarUrl ? (
-      <img
-        src={avatarUrl}
-        alt={me?.name || me?.email || "Avatar"}
-        className={styles.avatarImg}
-      />
-    ) : (
-      <span className={styles.avatar}>{initials}</span>
-    )}
-    <ChevronDown className={styles.dropdownIcon} size={14} />
-  </button>
+              <button
+                className={styles.avatarBtn}
+                title="Contul meu"
+                aria-label="Contul meu"
+                type="button"
+              >
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt={me?.name || me?.email || "Avatar"}
+                    className={styles.avatarImg}
+                  />
+                ) : (
+                  <span className={styles.avatar}>{initials}</span>
+                )}
+                <ChevronDown className={styles.dropdownIcon} size={14} />
+              </button>
+
               <div
                 className={styles.dropdownContent}
                 style={{ padding: 10, minWidth: 240 }}
@@ -1138,10 +1279,9 @@ export default function Navbar() {
                   }}
                 >
                   <li>
-                    <a href="/cont">
-                      {isVendor ? "Cont (mobil)" : "Contul meu"}
-                    </a>
+                    <a href="/cont">{isVendor ? "Cont (mobil)" : "Contul meu"}</a>
                   </li>
+
                   {isVendor ? (
                     <>
                       <li>
@@ -1184,7 +1324,7 @@ export default function Navbar() {
                           await api("/api/auth/logout", { method: "POST" });
                           await refresh().catch(() => {});
                         } catch {
-                          ""
+                          "";
                         }
                         window.location.href = "/autentificare";
                       }}
@@ -1238,11 +1378,15 @@ export default function Navbar() {
           </div>
 
           <form
+            ref={searchMobileRef}
             className={`${styles.search} ${styles.searchSm}`}
             onSubmit={submitSearch}
             role="search"
             aria-label="Căutare"
-            style={{ flex: 1 }}
+            style={{ flex: 1, position: "relative" }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSuggestions(null);
+            }}
           >
             <SearchIcon size={18} className={styles.searchIcon} />
             <input
@@ -1251,6 +1395,7 @@ export default function Navbar() {
               onChange={(e) => setQ(e.target.value)}
               placeholder="Caută pe Artfest"
               aria-label="Caută"
+              autoComplete="off"
             />
 
             <input
@@ -1271,6 +1416,95 @@ export default function Navbar() {
             >
               <Camera size={18} />
             </button>
+
+            {showSuggest && (
+              <div
+                role="listbox"
+                aria-label="Sugestii de căutare"
+                className={styles.suggestDropdown}
+              >
+                {suggestLoading && (
+                  <div className={styles.suggestLoading}>
+                    Se încarcă sugestiile…
+                  </div>
+                )}
+
+                {!suggestLoading && suggestions && (
+                  <>
+                    {(!suggestions.products || !suggestions.products.length) &&
+                      (!suggestions.categories ||
+                        !suggestions.categories.length) && (
+                        <div className={styles.suggestEmpty}>
+                          Nu avem sugestii exacte pentru <strong>{q}</strong>.
+                        </div>
+                      )}
+
+                    {suggestions.categories &&
+                      suggestions.categories.length > 0 && (
+                        <div className={styles.suggestSection}>
+                          <div className={styles.suggestSectionTitle}>
+                            Categorii sugerate
+                          </div>
+                          {suggestions.categories.map((c) => (
+                            <button
+                              key={c.key}
+                              type="button"
+                              role="option"
+                              className={styles.suggestCategoryBtn}
+                              onClick={() =>
+                                handleSuggestionCategoryClick(c.key)
+                              }
+                            >
+                              {c.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                    {suggestions.products &&
+                      suggestions.products.length > 0 && (
+                        <div className={styles.suggestSection}>
+                          <div className={styles.suggestSectionTitle}>
+                            Produse sugerate
+                          </div>
+                          <div className={styles.suggestProductsList}>
+                            {suggestions.products.map((p) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                role="option"
+                                className={styles.suggestProductBtn}
+                                onClick={() =>
+                                  handleSuggestionProductClick(p.id)
+                                }
+                              >
+                                {p.images?.[0] && (
+                                  <img
+                                    src={p.images[0]}
+                                    alt={p.title}
+                                    className={styles.suggestProductThumb}
+                                  />
+                                )}
+                                <div className={styles.suggestProductMeta}>
+                                  <div className={styles.suggestProductTitle}>
+                                    {p.title}
+                                  </div>
+                                  <div className={styles.suggestProductPrice}>
+                                    {(Number(p.priceCents || 0) / 100).toFixed(
+                                      2
+                                    )}{" "}
+                                    {p.currency || "RON"}
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                  </>
+                )}
+              </div>
+            )}
           </form>
 
           <div className={styles.mobileSearchRight}>
@@ -1340,7 +1574,7 @@ export default function Navbar() {
 
       <Modal
         open={partnerOpen}
-        onClose={() => setPartnerOpen(false)}
+        onClose={closePartner}
         title="Devino partener pe ArtFest"
       >
         <Register defaultAsVendor={true} inModal />

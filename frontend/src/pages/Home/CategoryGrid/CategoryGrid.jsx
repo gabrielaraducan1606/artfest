@@ -3,53 +3,64 @@ import { Link } from "react-router-dom";
 import styles from "./CategoryGrid.module.css";
 import { api } from "../../../lib/api";
 import {
-  FaEnvelopeOpenText, FaIdBadge, FaUtensils, FaRegAddressCard, FaMoneyCheckAlt,
-  FaGift, FaSeedling, FaLightbulb, FaImage, FaFeather, FaGem, FaHatCowboy,
-  FaMugHot, FaTree, FaBirthdayCake, FaFemale, FaUserTie, FaQrcode, FaSms
+  FaEnvelopeOpenText,
+  FaGift,
+  FaRegAddressCard,
+  FaBirthdayCake,
+  FaGem,
+  FaMugHot,
+  FaLightbulb,
+  FaImage,
 } from "react-icons/fa";
 
-// Catalogul (cod + etichetă + icon)
-const BASE = [
-  { code: "invitatii",                  label: "Invitații",               icon: FaEnvelopeOpenText },
-  { code: "papetarie-eveniment",        label: "Papetărie eveniment",     icon: FaIdBadge },
-  { code: "meniuri",                    label: "Meniuri",                 icon: FaUtensils },
-  { code: "place-cards",                label: "Place cards",             icon: FaRegAddressCard },
-  { code: "plicuri-bani",               label: "Plicuri bani",            icon: FaMoneyCheckAlt },
+/**
+ * Categorii "curated" (ALINIATE cu Product.category din backend/constants/categories.js)
+ * Cheia (code) trebuie să fie exact slug-ul salvat în DB.
+ */
+const FEATURED = [
+  // Invitații
+  { code: "papetarie_invitatii-nunta", label: "Invitații nuntă", icon: FaEnvelopeOpenText },
+  { code: "papetarie_invitatii-botez", label: "Invitații botez", icon: FaEnvelopeOpenText },
+  { code: "papetarie_invitatii-petrecere", label: "Invitații petrecere", icon: FaEnvelopeOpenText },
 
-  { code: "marturii",                   label: "Mărturii",                icon: FaGift },
-  { code: "aranjamente-florale",        label: "Aranjamente florale",     icon: FaSeedling },
-  { code: "lumini-decor",               label: "Lumini decor",            icon: FaLightbulb },
-  { code: "tablouri",                   label: "Tablouri",                icon: FaImage },
-  { code: "textile",                    label: "Textile",                 icon: FaFeather },
+  // Papetărie populară
+  { code: "papetarie_meniuri", label: "Meniuri", icon: FaRegAddressCard },
+  { code: "papetarie_place-cards", label: "Place cards", icon: FaRegAddressCard },
+  { code: "papetarie_plicuri-bani", label: "Plicuri de bani", icon: FaRegAddressCard },
 
-  { code: "cadouri",                    label: "Cadouri",                 icon: FaGift },
-  { code: "bijuterii",                  label: "Bijuterii",               icon: FaGem },
-  { code: "accesorii",                  label: "Accesorii",               icon: FaHatCowboy },
-  { code: "ceramica",                   label: "Ceramică",                icon: FaMugHot },
-  { code: "lemn",                       label: "Lemn",                    icon: FaTree },
+  // Mărturii
+  { code: "marturii_nunta", label: "Mărturii nuntă", icon: FaGift },
+  { code: "marturii_botez", label: "Mărturii botez", icon: FaGift },
 
-  { code: "tort",                       label: "Tort",                    icon: FaBirthdayCake },
-  { code: "rochii-domnisoare-de-onoare",label: "Rochii domnișoare de onoare", icon: FaFemale },
-  { code: "organizator",                label: "Organizator",             icon: FaUserTie },
+  // Cadouri
+  { code: "cadouri_pentru-miri", label: "Cadouri pentru miri", icon: FaGift },
+  { code: "cadouri_pentru-nasi", label: "Cadouri pentru nași", icon: FaGift },
+  { code: "cadouri_pentru-parinti", label: "Cadouri pentru părinți", icon: FaGift },
 
-  { code: "invitatie-digitala",         label: "Invitație digitală",      icon: FaEnvelopeOpenText },
-  { code: "album-qr",                   label: "Album QR",                icon: FaQrcode },
-  { code: "seating-sms",                label: "Seating & SMS",           icon: FaSms },
+  // Extra (opțional, dar de obicei merg bine)
+  { code: "bijuterii_seturi", label: "Seturi bijuterii", icon: FaGem },
+  { code: "home_ceramica-lut", label: "Ceramică / lut", icon: FaMugHot },
+  { code: "decor_lumini-decorative", label: "Lumini decorative", icon: FaLightbulb },
+  { code: "arta_tablouri", label: "Tablouri", icon: FaImage },
+  { code: "party_cake-toppers", label: "Cake toppers", icon: FaBirthdayCake },
 ];
 
 export default function CategoryGrid({ limit = 12 }) {
   const [stats, setStats] = useState(null);
 
-  // pentru glisare + butoane
+  // slider refs + state
   const trackRef = useRef(null);
   const [atStart, setAtStart] = useState(true);
   const [atEnd, setAtEnd] = useState(false);
+
+  // drag-to-scroll state
   const isDragging = useRef(false);
   const dragStarted = useRef(false);
   const startX = useRef(0);
   const startScrollLeft = useRef(0);
   const DRAG_THRESHOLD = 6;
 
+  // OPTIONAL: ia counts, dacă endpoint-ul există (îl ai deja în codul tău)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -60,18 +71,22 @@ export default function CategoryGrid({ limit = 12 }) {
         setStats(null);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const items = useMemo(() => {
-    if (!Array.isArray(stats)) return BASE.slice(0, limit);
-    const counts = new Map(stats.map(s => [String(s.category), Number(s?._count?.category || 0)]));
-    const withCounts = BASE.map(c => ({ ...c, count: counts.get(c.code) ?? 0 }));
-    withCounts.sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return a.label.localeCompare(b.label, "ro");
-    });
-    return withCounts.slice(0, limit);
+    const base = FEATURED.slice(0, limit);
+
+    if (!Array.isArray(stats)) return base;
+
+    const counts = new Map(
+      stats.map((s) => [String(s.category), Number(s?._count?.category || 0)])
+    );
+
+    // atașăm count dacă există, dar NU reordonăm după count (fiind listă curated)
+    return base.map((c) => ({ ...c, count: counts.get(c.code) ?? 0 }));
   }, [stats, limit]);
 
   // nav state
@@ -80,17 +95,21 @@ export default function CategoryGrid({ limit = 12 }) {
     if (!el) return;
     const start = el.scrollLeft <= 2;
     const end = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2;
-    setAtStart(start); setAtEnd(end);
+    setAtStart(start);
+    setAtEnd(end);
   };
 
   useEffect(() => {
     updateArrows();
     const el = trackRef.current;
     if (!el) return;
+
     const onScroll = () => updateArrows();
     const onResize = () => updateArrows();
+
     el.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onResize);
+
     return () => {
       el.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
@@ -98,35 +117,51 @@ export default function CategoryGrid({ limit = 12 }) {
   }, [items.length]);
 
   const scrollByAmount = (dir = 1) => {
-    const el = trackRef.current; if (!el) return;
+    const el = trackRef.current;
+    if (!el) return;
     const amount = Math.round(el.clientWidth * 0.9);
     el.scrollBy({ left: dir * amount, behavior: "smooth" });
   };
 
-  // drag-to-scroll
+  // drag-to-scroll handlers
   const onPointerDown = (e) => {
-    const el = trackRef.current; if (!el) return;
+    const el = trackRef.current;
+    if (!el) return;
     isDragging.current = true;
     dragStarted.current = false;
     startX.current = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
     startScrollLeft.current = el.scrollLeft;
     el.classList.add(styles.dragging);
   };
+
   const onPointerMove = (e) => {
-    const el = trackRef.current; if (!el || !isDragging.current) return;
+    const el = trackRef.current;
+    if (!el || !isDragging.current) return;
+
     const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
     const dx = x - startX.current;
-    if (!dragStarted.current && Math.abs(dx) >= DRAG_THRESHOLD) dragStarted.current = true;
-    if (dragStarted.current) el.scrollLeft = startScrollLeft.current - dx;
+
+    if (!dragStarted.current && Math.abs(dx) >= DRAG_THRESHOLD) {
+      dragStarted.current = true;
+    }
+    if (dragStarted.current) {
+      el.scrollLeft = startScrollLeft.current - dx;
+    }
   };
+
   const onPointerUp = () => {
-    const el = trackRef.current; if (!el) return;
+    const el = trackRef.current;
+    if (!el) return;
     isDragging.current = false;
     dragStarted.current = false;
     el.classList.remove(styles.dragging);
   };
+
   const onClickCaptureTrack = (e) => {
-    if (dragStarted.current) { e.stopPropagation(); e.preventDefault(); }
+    if (dragStarted.current) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
   };
 
   if (!items.length) return null;
@@ -134,8 +169,12 @@ export default function CategoryGrid({ limit = 12 }) {
   return (
     <section className={styles.section} aria-labelledby="cat-title">
       <div className={styles.header}>
-        <h2 id="cat-title" className={styles.heading}>Categorii populare</h2>
-        <Link to="/produse" className={styles.viewAll}>Vezi toate</Link>
+        <h2 id="cat-title" className={styles.heading}>
+          Categorii populare
+        </h2>
+        <Link to="/produse" className={styles.viewAll}>
+          Vezi toate
+        </Link>
       </div>
 
       <div className={styles.slider}>
@@ -145,7 +184,9 @@ export default function CategoryGrid({ limit = 12 }) {
           aria-label="Derulează înapoi"
           disabled={atStart}
           type="button"
-        >‹</button>
+        >
+          ‹
+        </button>
 
         <div
           className={`${styles.track}`}
@@ -160,6 +201,7 @@ export default function CategoryGrid({ limit = 12 }) {
           {items.map((c) => {
             const Icon = c.icon;
             const hasCount = typeof c.count === "number" && c.count > 0;
+
             return (
               <Link
                 key={c.code}
@@ -168,15 +210,19 @@ export default function CategoryGrid({ limit = 12 }) {
                 aria-label={`Vezi produse din categoria ${c.label}`}
               >
                 <div className={styles.iconWrap} aria-hidden="true">
-                  <span className={styles.pill}/>
-                  <span className={styles.icon}><Icon /></span>
+                  <span className={styles.pill} />
+                  <span className={styles.icon}>
+                    <Icon />
+                  </span>
                 </div>
 
                 <div className={styles.textCol}>
                   <div className={styles.name}>{c.label}</div>
+
                   {hasCount && (
                     <div className={styles.countRow}>{c.count} produse</div>
                   )}
+
                   <div className={styles.ctaRow}>Explorează →</div>
                 </div>
               </Link>
@@ -190,7 +236,9 @@ export default function CategoryGrid({ limit = 12 }) {
           aria-label="Derulează înainte"
           disabled={atEnd}
           type="button"
-        >›</button>
+        >
+          ›
+        </button>
       </div>
     </section>
   );

@@ -7,19 +7,19 @@ const services = [
     title: "Invitație Instant",
     description:
       "Creează o invitație digitală elegantă, interactivă și ușor de distribuit.",
-    link: "/servicii-digitale/invitatie-instant",
+    link: "/servicii-digitale",
   },
   {
     title: "Seating & SMS",
     description:
       "Organizează invitații pe mese și trimite notificări personalizate prin SMS.",
-    link: "/servicii-digitale/seating-sms",
+    link: "/servicii-digitale",
   },
   {
     title: "Album QR",
     description:
       "Colectează fotografii de la invitați printr-un album accesibil cu QR.",
-    link: "/servicii-digitale/album-qr",
+    link: "/servicii-digitale",
   },
 ];
 

@@ -27,7 +27,7 @@ export function verificationEmailTemplate({
   const logoSrc =
     logoCid
       ? `cid:${logoCid}`
-      : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -75,7 +75,7 @@ export function resetPasswordEmailTemplate({
   const logoSrc =
     logoCid
       ? `cid:${logoCid}`
-      : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -132,7 +132,7 @@ export function passwordStaleReminderEmailTemplate({
   const logoSrc =
     logoCid
       ? `cid:${logoCid}`
-      : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const safeAge = Number.isFinite(passwordAgeDays)
     ? passwordAgeDays
@@ -205,7 +205,7 @@ export function suspiciousLoginWarningEmailTemplate({
   const logoSrc =
     logoCid
       ? `cid:${logoCid}`
-      : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -281,7 +281,7 @@ export function vendorFollowUpReminderEmailTemplate({
   const logoSrc =
     logoCid
       ? `cid:${logoCid}`
-      : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const dateStr = followUpAt
     ? new Date(followUpAt).toLocaleString("ro-RO", {
@@ -352,7 +352,7 @@ export function guestSupportConfirmationTemplate({
   logoCid,
   logoUrl,
 }) {
-  const logoSrc = logoCid ? `cid:${logoCid}` : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+  const logoSrc = logoCid ? `cid:${logoCid}` : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const html = `
   <div style="font-family:Inter,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -397,7 +397,7 @@ export function guestSupportReplyTemplate({
   logoCid,
   logoUrl,
 }) {
-  const logoSrc = logoCid ? `cid:${logoCid}` : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+  const logoSrc = logoCid ? `cid:${logoCid}` : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const html = `
   <div style="font-family:Inter,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -445,7 +445,7 @@ export function emailChangeVerificationTemplate({
 }) {
   const logoSrc = logoCid
     ? `cid:${logoCid}`
-    : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -503,7 +503,7 @@ export function invoiceIssuedEmailTemplate({
 }) {
   const logoSrc = logoCid
     ? `cid:${logoCid}`
-    : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const safeInvNo = invoiceNumber || "factura ta";
 
@@ -571,7 +571,7 @@ export function vendorDeactivateConfirmTemplate({
 }) {
   const logoSrc = logoCid
     ? `cid:${logoCid}`
-    : (logoUrl || "https://artfest.ro/assets/LogoArtfest.png");
+    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">

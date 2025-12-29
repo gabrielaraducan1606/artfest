@@ -1,4 +1,4 @@
-// client/pages/Products/ProductsPage.jsx (sau similar)
+// client/pages/Products/ProductsPage.jsx
 
 import {
   useCallback,

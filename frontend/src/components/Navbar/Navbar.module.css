@@ -28,7 +28,7 @@
 }
 
 /* brand */
-.logo { height: 60px; width: auto; object-fit: contain; }
+.logo { height: 80px; width: auto; object-fit: contain; margin-top: 8px; }
 
 /* burger */
 .burger {
@@ -149,9 +149,7 @@
   border-radius: 40%;
   color: var(--color-bg);
 }
-/* ===== Buton cameră + input ascuns ===== */
-/* ===== Buton cameră + input ascuns ===== */
-/* ===== Buton cameră + input ascuns ===== */
+
 /* ===== Buton cameră: doar icon, outline look ===== */
 .cameraBtn {
   background: transparent;
@@ -164,43 +162,28 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-
-  /* ascunde orice text rezidual */
   font-size: 0;
   line-height: 0;
-  color: var(--color-text); /* culoarea stroke-ului */
+  color: var(--color-text);
 }
-
-.cameraBtn:hover {
-  /* fără background; doar schimbare subtilă de culoare */
-  color: var(--color-primary);
-}
-
-.cameraBtn:active {
-  transform: translateY(0.5px);
-}
-
+.cameraBtn:hover { color: var(--color-primary); }
+.cameraBtn:active { transform: translateY(0.5px); }
 .cameraBtn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent);
 }
-
-/* forțează iconul să fie conturat, nu plin */
 .cameraBtn svg {
   width: 20px;
   height: 20px;
-  fill: none !important;           /* <- important: fără fill */
-  stroke: currentColor !important; /* <- contur cu culoarea curentă */
-  stroke-width: 2;                 /* contur mai clar, ca Lucide default */
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2;
 }
-
-/* safety: ascunde orice text/pseudo-element rătăcit */
 .cameraBtn span,
 .cameraBtn::before,
 .cameraBtn::after { display: none !important; }
 
 .hiddenFile { display: none; }
-
 
 /* (opțional) utilitar pentru text doar pentru screen reader, dacă îl vei folosi vreodată */
 .srOnly {
@@ -210,7 +193,7 @@
   white-space: nowrap; border: 0;
 }
 
-/* ===== Sugestii (dacă folosești dropdown) ===== */
+/* ===== Sugestii (vechi) ===== */
 .suggestList {
   position: absolute;
   top: calc(100% + 4px);
@@ -374,7 +357,6 @@
 }
 .modalBody::-webkit-scrollbar-track { background: transparent; }
 
-/* forme rapide în dropdown (căutare zonă) */
 .field {
   padding: 10px;
   border-radius: var(--radius);
@@ -469,12 +451,13 @@
   margin: 0 auto;
   padding: 8px 12px;
 }
+
 /* ---- Mobile search: layout cu stânga/centru/dreapta ---- */
 .mobileSearchRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  justify-content: space-between; /* l & r încadrate, căutarea se întinde */
+  justify-content: space-between;
 }
 
 .mobileSearchLeft,
@@ -484,27 +467,22 @@
   gap: 8px;
 }
 
-/* pe mobil, lăsăm bara să ocupe restul spațiului */
 @media (max-width: 768px) {
   .mobileSearch .search { flex: 1; }
 }
 
-
 /* ===== Bottom Navigation (mobil, jos — portal în body) ===== */
-/* IMPORTANT: ascuns pe desktop */
 .mobileBar {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 1100; /* modal overlay are 1200 */
-  display: none; /* hidden pe desktop */
+  z-index: 1100;
+  display: none;
   background: var(--surface);
   border-top: 1px solid var(--color-border);
   padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   box-shadow: 0 -4px 18px rgba(0,0,0,.06);
-
-  /* adaptiv: 4 sau 5 item-uri fără să schimbi CSS */
   display: none;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 4px;
@@ -546,11 +524,10 @@
   padding: 0 4px;
 }
 
-/* ===== Mobile layout rules (păstrăm desktop identic) ===== */
+/* ===== Mobile layout rules ===== */
 @media (max-width: 768px) {
   .container { display: none; }
 
-  /* nav drawer — dacă vrei, poți activa; momentan ascuns complet pe mobil */
   .burger { display: block; }
   .nav {
     position: fixed;
@@ -568,45 +545,47 @@
     transition: transform .18s ease, opacity .18s ease;
   }
   .nav--open { transform: translateY(0); opacity: 1; pointer-events: auto; }
-  .nav .search { display: none; } /* în nav ascundem; folosim .mobileSearch */
+  .nav .search { display: none; }
   .mobileSearch { display: block; }
   .actionsRight { gap: 6px; }
   .sellBtn { display: none; }
 
-  /* bottom bar vizibil DOAR pe mobil */
   .mobileBar { display: grid; }
 
-  /* spațiu sub conținut ca să nu fie acoperit de bara de jos */
   :root { --mobile-bottom-bar-h: calc(56px + env(safe-area-inset-bottom)); }
   body { padding-bottom: var(--mobile-bottom-bar-h); }
 
-  /* dacă vrei să ascunzi complet nav & overlay pe mobil */
   .nav, .nav--open, .navBackdrop { display: none !important; }
 }
 
-
 /* ---- Compact & flexibil pentru mobil ---- */
-/* Facem .search să accepte variabile pentru lățime și să se micșoreze corect */
 .search {
-  /* în loc de width fix, folosim clamp cu variabile (au fallback) */
   width: clamp(var(--search-min, 14rem), var(--search-ideal, 45vw), var(--search-max, 20rem));
 }
 
-/* Variantă compactă (folosită doar pe mobil) */
 .searchSm {
-  --search-min: 9rem;     /* poți ajusta */
-  --search-ideal: 38vw;   /* poți ajusta */
-  --search-max: 16rem;    /* poți ajusta */
-
+  --search-min: 9rem;
+  --search-ideal: 38vw;
+  --search-max: 16rem;
   padding: 2px 4px;
 }
 
-/* Micșorăm elementele interne în varianta compactă */
+.searchSm .searchIcon {
+  padding: 8px;
+  width: 34px;
+  height: 34px;
+}
+
+.searchSm .searchIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
 .searchSm .input { font-size: 0.85rem; padding: 6px 6px; min-width: 0; }
 .searchSm .cameraBtn { width: 32px; height: 32px; padding: 4px; }
 .searchSm .searchIcon { padding: 6px; }
 
-/* Asigurăm contracția în flex-row (altfel poate „vărsa” conținutul) */
+/* Asigurăm contracția în flex-row */
 @media (max-width: 768px) {
   .mobileSearchRow {
     display: flex;
@@ -623,11 +602,10 @@
     flex: 0 0 auto;
   }
 
-  /* cheia pentru încadrere corectă */
   .mobileSearch .search {
     flex: 1 1 0;
-    min-width: 0;     /* permite micșorarea sub lățimea conținutului */
-    width: auto;      /* ignorăm width-ul de bază pe mobil */
+    min-width: 0;
+    width: auto;
     max-width: none;
   }
 
@@ -636,18 +614,18 @@
 
 @media (max-width: 620px) {
   .header {
-    /* mai multă transparență ca să se vadă fundalul din hero */
     background: color-mix(in oklab, var(--color-bg) 68%, transparent);
-    border-bottom-color: transparent; /* fără linie dură peste imagine */
+    border-bottom-color: transparent;
     backdrop-filter: saturate(120%) blur(10px);
   }
 }
+
 .avatarImg {
-  width: 28px;          /* la fel ca .avatar */
-  height: 28px;         /* la fel ca .avatar */
-  border-radius: 999px; /* cerc */
-  object-fit: cover;    /* să umple cercul frumos */
-  display: block;       /* elimină spațiul de inline-img */
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  object-fit: cover;
+  display: block;
 }
 .avatarImg {
   width: 28px;
@@ -655,5 +633,102 @@
   border-radius: 999px;
   object-fit: cover;
   display: block;
-  border: 2px solid var(--color-primary); /* opțional */
+  border: 2px solid var(--color-primary);
+}
+
+@media (max-width: 380px) {
+  .searchSm .searchIcon {
+    width: 27px;
+    height: 27px;
+    padding: 6px;
+  }
+
+  .searchSm .searchIcon svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* =======================================================================
+   ✅ Sugestii noi (Navbar) – aceleași ca în Hero
+   Adaugă blocul ăsta la finalul fișierului (NU strică nimic existent).
+   Dacă preferi, poți șterge vechile .suggestList/.suggestItem (nu e obligatoriu).
+======================================================================= */
+
+.suggestDropdown{
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.12);
+  padding: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.suggestLoading,
+.suggestEmpty{
+  padding: 10px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.suggestSection{ margin-top: 8px; }
+.suggestSectionTitle{
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 6px 4px;
+}
+
+.suggestCategoryBtn{
+  width: 100%;
+  text-align: left;
+  padding: 10px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text);
+}
+.suggestCategoryBtn:hover{
+  background: color-mix(in oklab, var(--color-border) 65%, transparent);
+}
+
+.suggestProductsList{ display: grid; gap: 6px; }
+
+.suggestProductBtn{
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 10px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text);
+}
+.suggestProductBtn:hover{
+  background: color-mix(in oklab, var(--color-border) 65%, transparent);
+}
+
+.suggestProductThumb{
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--color-border) 50%, transparent);
+}
+
+.suggestProductMeta{ display: grid; gap: 2px; }
+.suggestProductTitle{ font-size: 14px; font-weight: 600; }
+.suggestProductPrice{
+  font-size: 12px;
+  color: var(--color-text-muted);
 }

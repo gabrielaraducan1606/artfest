@@ -77,6 +77,9 @@ import UserSettingsPage from "./pages/User/UserSettings/UserSettingsPage.jsx";
 import UserNotificationsPage from "./pages/User/Notification/UserNotaificationPage.jsx";
 import { SEOProvider } from "./components/Seo/SeoProvider";
 import { useAuth } from "./pages/Auth/Context/context.js";
+import ServiciiDigitale from "./pages/ServiciiDigitale/ServiciiDigitale.jsx";
+import RouteIncidentsPage from "./pages/Admin/AdminIncidentsPage/AdminIncidentsPage.jsx";
+
 
 /* ================= Helpers pentru rute speciale ================= */
 
@@ -190,6 +193,9 @@ export default function App() {
           <Route path="/cookie-banner" element={<CookieBanner />} />
           <Route path="/preferinte-cookie" element={<CookiePreferences />} />
 
+{/* Servicii digitale */}
+<Route path="/servicii-digitale" element={<ServiciiDigitale />} />
+
           {/* User */}
           <Route path="/wishlist" element={<WishlistPage />} />
           <Route path="/cos" element={<CartPage />} />
@@ -250,7 +256,7 @@ export default function App() {
             }
           />
           <Route path="/admin/maintenance" element={<AdminMaintenance />} />
-
+ <Route path="/admin/incidents" element={<RouteIncidentsPage />} />
           {/* Onboarding Vendor (protejat) */}
           <Route
             path="/onboarding"

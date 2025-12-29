@@ -160,3 +160,60 @@
   .prev { left: 2px; }
   .next { right: 2px; }
 }
+
+/* Mobile: carduri mai mici */
+@media (max-width: 560px) {
+  .track {
+    gap: .5rem;
+    mask-image: linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+  }
+
+  .card {
+    flex: 0 0 165px;              /* <- mai îngust decât 200px */
+    padding: .5rem .55rem;
+    grid-template-columns: 40px 1fr;
+    gap: .55rem;
+    border-radius: 14px;
+  }
+
+  .iconWrap {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+
+  .icon { font-size: 1rem; }
+
+  .name {
+    font-size: .92rem;
+    line-height: 1.05;
+  }
+
+  .countRow { font-size: .78rem; }
+  .ctaRow   { font-size: .8rem; }
+
+  .navBtn {
+    height: 30px;
+    width: 30px;
+  }
+  .prev { left: 2px; }
+  .next { right: 2px; }
+}
+
+/* Extra-small (telefoane foarte înguste) */
+@media (max-width: 380px) {
+  .card {
+    flex: 0 0 150px;
+    padding: .45rem .5rem;
+    grid-template-columns: 38px 1fr;
+    gap: .5rem;
+  }
+
+  .iconWrap {
+    width: 38px;
+    height: 38px;
+  }
+
+  .name { font-size: .9rem; }
+}

@@ -157,6 +157,7 @@ model User {
   passwordHistories   PasswordHistory[]
   marketingPrefs      UserMarketingPrefs?
   vendorBlocks        UserVendorBlock[]
+  emailLogs           EmailLog[] // 👈 adaugă asta
 
   // FOLLOW MAGAZIN (VendorService)
   ServiceFollow ServiceFollow[]
@@ -1048,7 +1049,7 @@ enum ShippingMethod {
 
 model Order {
   id              String        @id @default(cuid())
-  userId String?
+  userId          String?
   status          OrderStatus   @default(PENDING)
   paymentMethod   PaymentMethod
   currency        String        @default("RON")
@@ -1073,7 +1074,7 @@ model Order {
   invoiceDate   DateTime?
 
   // 👇 nou – relația spre User
- user User? @relation(fields: [userId], references: [id], onDelete: SetNull) // ✅
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull) // ✅
 
   @@index([userId, createdAt])
 }
@@ -1121,7 +1122,7 @@ model Shipment {
 model ShipmentItem {
   id         String  @id @default(cuid())
   shipmentId String
-   productId  String?
+  productId  String?
   title      String
   qty        Int
   price      Decimal @db.Decimal(10, 2)
@@ -1508,4 +1509,155 @@ model CityDictionary {
   // eventual pentru audit
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model DigitalWaitlistSubscriber {
+  id        String  @id @default(cuid())
+  email     String  @unique
+  source    String? // ex: "servicii-digitale"
+  name      String? // opțional, dacă vrei mai târziu
+  ip        String? // opțional
+  userAgent String? // opțional
+
+  // util pt admin
+  status      String    @default("new") // new | contacted | unsubscribed
+  notes       String? // note interne
+  contactedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model Ad {
+  id        String @id @default(cuid())
+  placement String @db.VarChar(64) // ex: "hero_top"
+
+  title   String?
+  ctaText String?
+  ctaUrl  String?
+
+  // imagini separate (ca să nu te complici cu Json în prisma)
+  imageDesktop String?
+  imageMobile  String?
+
+  weight   Int     @default(1)
+  isActive Boolean @default(true)
+
+  startAt DateTime?
+  endAt   DateTime?
+
+  // tracking opțional (dacă vrei url-uri externe)
+  impressionUrl String?
+  clickUrl      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([placement, isActive])
+  @@index([startAt])
+  @@index([endAt])
+}
+
+model RouteIncident {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  reqId String?
+
+  method     String
+  path       String
+  statusCode Int
+  durationMs Int?
+  message    String?
+  stack      String?
+  code       String?
+  ip         String?
+  userId     String?
+  userAgent  String?
+
+  query Json?
+
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+
+  // ✅ arhivare (soft)
+  archivedAt DateTime?
+  archivedBy String?
+
+  // ✅ ștergere (soft) - doar manual
+  deletedAt DateTime?
+  deletedBy String?
+
+  // ✅ notițe multiple
+  notes RouteIncidentNote[]
+
+  @@index([createdAt])
+  @@index([statusCode, createdAt])
+  @@index([path])
+  @@index([acknowledgedAt, createdAt])
+  @@index([archivedAt, createdAt])
+  @@index([deletedAt, createdAt])
+  @@index([reqId])
+}
+
+model RouteIncidentNote {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  incidentId String
+  by         String?
+  note       String
+
+  incident RouteIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+}
+
+enum EmailLogStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+enum EmailSenderKey {
+  noreply
+  contact
+  admin
+}
+
+model EmailLog {
+  id String @id @default(cuid())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  toEmail String
+  toName  String?
+
+  senderKey EmailSenderKey
+  fromEmail String?
+  replyTo   String?
+
+  template String?
+  subject  String
+  status   EmailLogStatus @default(QUEUED)
+
+  provider  String?
+  messageId String?
+  error     String?
+
+  orderId  String?
+  ticketId String?
+
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  @@index([userId, createdAt])
+  @@index([toEmail, createdAt])
+  @@index([template, createdAt])
+  @@index([status, createdAt])
+  @@index([senderKey, createdAt])
 }

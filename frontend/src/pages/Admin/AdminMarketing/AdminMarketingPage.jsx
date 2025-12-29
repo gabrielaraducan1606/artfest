@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../lib/api";
 import styles from "./AdminMarketingPage.module.css";
+import AdminDigitalWaitlistTab from "./AdminDigitalWaitListTab";
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -25,7 +26,7 @@ export default function AdminMarketingTab() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // 🔹 Tab intern: "campaign" | "prefs"
+  // 🔹 Tab intern: "campaign" | "prefs" | "digitalWaitlist"
   const [tab, setTab] = useState("campaign");
 
   // 🔹 stare pentru tabelul cu preferințe
@@ -228,7 +229,7 @@ export default function AdminMarketingTab() {
   return (
     <div className={styles.page}>
       <div className={styles.marketingRoot}>
-        {/* Statistici abonați – rămân sus, comune pentru ambele tab-uri */}
+        {/* Statistici abonați – rămân sus, comune pentru toate tab-urile */}
         <div className={styles.marketingStats}>
           <div className={styles.marketingStatItem}>
             <span className={styles.marketingStatLabel}>Abonați total</span>
@@ -262,6 +263,7 @@ export default function AdminMarketingTab() {
           >
             Campanii email
           </button>
+
           <button
             type="button"
             className={cx(styles.tabBtn, tab === "prefs" && styles.tabBtnActive)}
@@ -269,12 +271,26 @@ export default function AdminMarketingTab() {
           >
             Preferințe utilizatori
           </button>
+
+          <button
+            type="button"
+            className={cx(
+              styles.tabBtn,
+              tab === "digitalWaitlist" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("digitalWaitlist")}
+          >
+            Waitlist servicii digitale
+          </button>
         </div>
+
+        {/* TAB: Waitlist servicii digitale */}
+        {tab === "digitalWaitlist" && <AdminDigitalWaitlistTab />}
 
         {/* TAB: Campanii email */}
         {tab === "campaign" && (
           <>
-            {/* ======= CARD NOU: Digest followed stores ======= */}
+            {/* ======= CARD: Digest followed stores ======= */}
             <div className={styles.cardMuted} style={{ marginBottom: 16 }}>
               <h4>Digest: Produse noi de la magazinele urmărite</h4>
               <p className={styles.subtle}>
@@ -385,7 +401,7 @@ export default function AdminMarketingTab() {
               </form>
             </div>
 
-            {/* ======= Form vechi: campanie manuală ======= */}
+            {/* ======= Form: campanie manuală ======= */}
             <form className={styles.marketingForm} onSubmit={handleSend}>
               <div className={styles.marketingFormHead}>
                 <h3>Campanie rapidă email</h3>
@@ -443,14 +459,6 @@ export default function AdminMarketingTab() {
                     rows={10}
                     value={bodyHtml}
                     onChange={(e) => setBodyHtml(e.target.value)}
-                    placeholder={`Exemplu:
-
-<h1>Salut {{name}},</h1>
-<p>Descoperă cele mai noi produse handmade de pe Artfest.</p>
-<p><a href="https://artfest.ro/produse">Vezi noutățile</a></p>
-<p style="font-size:12px;color:#777">
-Dacă nu mai vrei să primești astfel de emailuri, poți <a href="{{unsubscribeUrl}}">dezabona aici</a>.
-</p>`}
                   />
                 </label>
               </div>

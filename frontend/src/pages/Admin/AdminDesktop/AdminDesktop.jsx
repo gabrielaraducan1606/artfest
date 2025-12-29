@@ -9,6 +9,7 @@ import AdminVendorsTab from "./tabs/AdminVendorsTab.jsx";
 import AdminOrdersTab from "./tabs/AdminOrdersTab.jsx";
 import AdminProductsTab from "./tabs/AdminProductsTab.jsx";
 import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
+import AdminEmailLogsTab from "./tabs/AdminEmailLogsTab.jsx";
 
 /**
  * Definiție tab-uri: un singur source of truth
@@ -17,17 +18,15 @@ import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
  * users         = doar useri (clienți, role=USER)
  */
 const TABS = [
-  { id: "adminAllUsers", label: "Toate conturile" }, // USER + VENDOR + ADMIN
-  { id: "users", label: "Useri (clienți)" }, // doar role = USER
+  { id: "adminAllUsers", label: "Toate conturile" },
+  { id: "users", label: "Useri (clienți)" },
   { id: "vendors", label: "Vendori" },
   { id: "orders", label: "Comenzi" },
   { id: "products", label: "Produse" },
-  { id: "policies", label: "Politici / consimțăminte" }, // 👉 tab nou
+  { id: "policies", label: "Politici / consimțăminte" },
+  { id: "emails", label: "Emailuri" }, // 👈 nou
 ];
 
-/**
- * Helper ca să nu treci magic strings prin cod
- */
 const TAB_IDS = TABS.reduce((acc, t) => {
   acc[t.id] = t.id;
   return acc;
@@ -36,7 +35,6 @@ const TAB_IDS = TABS.reduce((acc, t) => {
 export default function AdminDesktop() {
   const { me, loading: authLoading } = useAuth();
 
-  // tab implicit: toate conturile
   const [activeTab, setActiveTab] = useState(TAB_IDS.adminAllUsers);
 
   const [loading, setLoading] = useState(false);
@@ -46,17 +44,18 @@ export default function AdminDesktop() {
   const [vendors, setVendors] = useState([]);
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
-  const [userConsents, setUserConsents] = useState([]);      // consimțăminte per user
-  const [vendorAgreements, setVendorAgreements] = useState([]); // acorduri per vendor 👈
+  const [userConsents, setUserConsents] = useState([]);
+  const [vendorAgreements, setVendorAgreements] = useState([]);
 
-  // simple cache ca să nu refaci request-ul de fiecare dată
+  // simple cache
   const [loadedTabs, setLoadedTabs] = useState({
-    adminAllUsers: false, // toate conturile
-    users: false, // doar clienți
+    adminAllUsers: false,
+    users: false,
     vendors: false,
     orders: false,
     products: false,
-    policies: false, // tab consimțăminte / acorduri
+    policies: false,
+    emails: false, // 👈 nou
   });
 
   const [stats, setStats] = useState({
@@ -64,7 +63,6 @@ export default function AdminDesktop() {
     vendors: 0,
     orders: 0,
     products: 0,
-    // nu punem KPI separat pentru policies, e mai mult un tab de audit
   });
 
   // filtru “forțat” pentru tabul de comenzi (setat din UsersTab)
@@ -112,12 +110,10 @@ export default function AdminDesktop() {
     setProducts(d.products || []);
   }, []);
 
-  // 👉 loader pentru tab-ul de consimțăminte user + acorduri vendor
   const loadPolicies = useCallback(async () => {
-    // facem în paralel cele 2 request-uri
     const [uc, va] = await Promise.all([
-      api("/api/admin/user-consents"),         // { consents: [...] }
-      api("/api/admin/vendor-acceptances").catch(() => ({ agreements: [] })), // { agreements: [...] }
+      api("/api/admin/user-consents"),
+      api("/api/admin/vendor-acceptances").catch(() => ({ agreements: [] })),
     ]);
 
     setUserConsents(uc.consents || []);
@@ -126,7 +122,6 @@ export default function AdminDesktop() {
 
   /**
    * Loader generic pe baza tab-ului activ.
-   * Are grijă să nu reîncarce inutil dacă deja avem date pentru acel tab.
    */
   const loadTabData = useCallback(
     async (tabId) => {
@@ -135,13 +130,17 @@ export default function AdminDesktop() {
       // dacă tabul e deja încărcat, nu mai facem request
       if (loadedTabs[tabId]) return;
 
+      // tabul de emailuri își face singur fetch (intern)
+      if (tabId === TAB_IDS.emails) {
+        setLoadedTabs((prev) => ({ ...prev, emails: true }));
+        return;
+      }
+
       setLoading(true);
       setError("");
 
       try {
         if (tabId === TAB_IDS.adminAllUsers || tabId === TAB_IDS.users) {
-          // ambele tab-uri folosesc aceleași date de bază (lista completă de useri),
-          // doar filtrarea diferă în AdminUsersTab prin prop-ul `variant`
           await loadUsers();
           setLoadedTabs((prev) => ({
             ...prev,
@@ -172,16 +171,20 @@ export default function AdminDesktop() {
         setLoading(false);
       }
     },
-    [loadedTabs, loadUsers, loadVendors, loadOrders, loadProducts, loadPolicies]
+    [
+      loadedTabs,
+      loadUsers,
+      loadVendors,
+      loadOrders,
+      loadProducts,
+      loadPolicies,
+    ]
   );
 
-  // callback folosit de UsersTab ca să sară în tabul de comenzi filtrat
   const handleGoToOrders = useCallback(
     ({ userId = null, vendorId = null } = {}) => {
       setOrdersFilter({ userId, vendorId });
-      // ne asigurăm că avem datele pentru tab-ul de comenzi
       loadTabData(TAB_IDS.orders);
-      // schimbăm tab-ul
       setActiveTab(TAB_IDS.orders);
     },
     [loadTabData]
@@ -189,14 +192,12 @@ export default function AdminDesktop() {
 
   // ==================== EFFECTS ====================
 
-  // 1) când aflăm că userul e admin, încărcăm stats o singură dată
   useEffect(() => {
     if (authLoading) return;
     if (!isAdmin) return;
     loadStats();
   }, [authLoading, isAdmin, loadStats]);
 
-  // 2) la schimbarea tab-ului încărcăm datele pentru acel tab (dacă nu sunt încă)
   useEffect(() => {
     if (authLoading) return;
     if (!isAdmin) return;
@@ -215,44 +216,32 @@ export default function AdminDesktop() {
   }
 
   if (!isAdmin) {
-    return (
-      <div className={styles.page}>
-        Acces doar pentru administratori.
-      </div>
-    );
+    return <div className={styles.page}>Acces doar pentru administratori.</div>;
   }
 
   // ==================== RENDER HELPERS ====================
 
   const renderTabContent = () => {
-    if (loading) return null; // loading se afișează în header
+    if (loading) return null;
 
-    if (error) {
-      return <div className={styles.error}>{error}</div>;
-    }
+    if (error) return <div className={styles.error}>{error}</div>;
 
     // state de "no data"
     if (activeTab === TAB_IDS.adminAllUsers && !users.length) {
       return <EmptyState text="Nu există conturi încă." />;
     }
-
     if (activeTab === TAB_IDS.users && !users.length) {
       return <EmptyState text="Nu există clienți încă." />;
     }
-
     if (activeTab === TAB_IDS.vendors && !vendors.length) {
       return <EmptyState text="Nu există vendori încă." />;
     }
-
     if (activeTab === TAB_IDS.orders && !orders.length) {
       return <EmptyState text="Nu există comenzi în acest moment." />;
     }
-
     if (activeTab === TAB_IDS.products && !products.length) {
       return <EmptyState text="Nu există produse listate încă." />;
     }
-
-    // pentru tab-ul de politici, verificăm ambele colecții
     if (
       activeTab === TAB_IDS.policies &&
       !userConsents.length &&
@@ -263,9 +252,7 @@ export default function AdminDesktop() {
       );
     }
 
-    // conținut efectiv al tab-urilor
     if (activeTab === TAB_IDS.adminAllUsers) {
-      // toate conturile: USER + VENDOR + ADMIN
       return (
         <AdminUsersTab
           users={users}
@@ -276,7 +263,6 @@ export default function AdminDesktop() {
     }
 
     if (activeTab === TAB_IDS.users) {
-      // doar useri (clienți)
       return (
         <AdminUsersTab
           users={users}
@@ -313,6 +299,10 @@ export default function AdminDesktop() {
       );
     }
 
+    if (activeTab === TAB_IDS.emails) {
+      return <AdminEmailLogsTab />;
+    }
+
     return null;
   };
 
@@ -320,7 +310,6 @@ export default function AdminDesktop() {
 
   return (
     <section className={styles.page}>
-      {/* HEADER */}
       <header className={styles.header}>
         <div>
           <h1 className={styles.h1}>Panou Admin</h1>
@@ -330,7 +319,6 @@ export default function AdminDesktop() {
         </div>
       </header>
 
-      {/* KPI cards */}
       <div className={styles.kpiRow}>
         <KPI label="Utilizatori" value={stats.users} />
         <KPI label="Vendori" value={stats.vendors} />
@@ -338,7 +326,6 @@ export default function AdminDesktop() {
         <KPI label="Produse" value={stats.products} />
       </div>
 
-      {/* Tabs */}
       <div className={styles.tabs}>
         {TABS.map((tab) => (
           <button
@@ -354,13 +341,10 @@ export default function AdminDesktop() {
         ))}
       </div>
 
-      {/* Content card */}
       <div className={styles.card}>
         <div className={styles.cardHead}>
           <h2 className={styles.cardTitle}>{activeTabLabel}</h2>
-          {loading && (
-            <span className={styles.subtle}>Se încarcă datele…</span>
-          )}
+          {loading && <span className={styles.subtle}>Se încarcă datele…</span>}
         </div>
 
         {renderTabContent()}

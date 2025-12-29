@@ -1,19 +1,17 @@
+// backend/src/lib/mailer.js
 import nodemailer from "nodemailer";
+import { prisma } from "../db.js";
 import {
   verificationEmailTemplate,
   resetPasswordEmailTemplate,
   passwordStaleReminderEmailTemplate,
   suspiciousLoginWarningEmailTemplate,
   vendorFollowUpReminderEmailTemplate,
-
   guestSupportConfirmationTemplate,
   guestSupportReplyTemplate,
-
   emailChangeVerificationTemplate,
-
   invoiceIssuedEmailTemplate,
-    vendorDeactivateConfirmTemplate,
-
+  vendorDeactivateConfirmTemplate,
 } from "./emailTemplates.js";
 
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
@@ -23,188 +21,149 @@ const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
 
 const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
 
-export function makeTransport() {
+/**
+ * Logo pentru email (R2 / CDN).
+ * Prioritate:
+ * 1) EMAIL_LOGO_URL (URL complet)
+ * 2) R2_PUBLIC_BASE_URL + EMAIL_LOGO_KEY
+ * 3) fallback vechi (artfest.ro)
+ */
+const EMAIL_LOGO_URL =
+  process.env.EMAIL_LOGO_URL ||
+  (process.env.R2_PUBLIC_BASE_URL && process.env.EMAIL_LOGO_KEY
+    ? `${process.env.R2_PUBLIC_BASE_URL.replace(/\/+$/, "")}/${String(
+        process.env.EMAIL_LOGO_KEY
+      ).replace(/^\/+/, "")}`
+    : "https://media.artfest.ro/branding/LogoArtfest.png");
+
+/**
+ * Configurare senders:
+ * - noreply: pentru signup/reset/security/orders etc.
+ * - contact: pentru suport (guest support)
+ * - admin: pentru facturi/billing si confirmari administrative
+ */
+const SENDERS = {
+  noreply: {
+    user: process.env.SMTP_USER_NOREPLY,
+    pass: process.env.SMTP_PASS_NOREPLY,
+    from:
+      process.env.EMAIL_FROM_NOREPLY ||
+      `Artfest <${process.env.SMTP_USER_NOREPLY || ""}>`,
+    replyTo: process.env.EMAIL_REPLY_TO_CONTACT || undefined,
+  },
+  contact: {
+    user: process.env.SMTP_USER_CONTACT,
+    pass: process.env.SMTP_PASS_CONTACT,
+    from:
+      process.env.EMAIL_FROM_CONTACT ||
+      `Artfest <${process.env.SMTP_USER_CONTACT || ""}>`,
+    replyTo:
+      process.env.EMAIL_REPLY_TO_CONTACT ||
+      process.env.SMTP_USER_CONTACT ||
+      undefined,
+  },
+  admin: {
+    user: process.env.SMTP_USER_ADMIN,
+    pass: process.env.SMTP_PASS_ADMIN,
+    from:
+      process.env.EMAIL_FROM_ADMIN ||
+      `Artfest <${process.env.SMTP_USER_ADMIN || ""}>`,
+    replyTo: process.env.EMAIL_REPLY_TO_CONTACT || undefined,
+  },
+};
+
+// cache transportere ca sa nu recreezi conexiunea mereu
+const transportCache = new Map();
+
+export function makeTransport(senderKey = "noreply") {
   const port = Number(process.env.SMTP_PORT || 587);
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+  const host = process.env.SMTP_HOST;
+
+  if (!host) throw new Error("Missing SMTP_HOST");
+  const sender = SENDERS[senderKey];
+  if (!sender) throw new Error(`Unknown senderKey: ${senderKey}`);
+
+  if (!sender.user)
+    throw new Error(`Missing SMTP_USER for sender "${senderKey}"`);
+  if (!sender.pass)
+    throw new Error(`Missing SMTP_PASS for sender "${senderKey}"`);
+
+  const cacheKey = `${senderKey}:${sender.user}:${host}:${port}`;
+  if (transportCache.has(cacheKey)) return transportCache.get(cacheKey);
+
+  const transporter = nodemailer.createTransport({
+    host,
     port,
     secure: port === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    auth: { user: sender.user, pass: sender.pass },
   });
+
+  transportCache.set(cacheKey, transporter);
+  return transporter;
 }
 
-function withLogo(templateFn, props = {}) {
-  const logoCid = "artfest-logo";
-  const { html, text, subject } = templateFn({
-    brandName: BRAND_NAME,
-    logoCid,
-    ...props,
-  });
-  return { html, text, subject, logoCid };
+function senderEnvelope(senderKey = "noreply") {
+  const sender = SENDERS[senderKey];
+  return {
+    from: sender?.from,
+    replyTo: sender?.replyTo,
+  };
 }
 
 /* ============================================================
-   === GUEST SUPPORT EMAILS — ADĂUGAT ===
+   === LOGO INLINE (CID) - ROBUST (fetch -> buffer + cache)
    ============================================================ */
 
-export async function sendGuestSupportConfirmationEmail({
-  to,
-  name,
-  subject,
-  message,
-}) {
-  const transporter = makeTransport();
+const LOGO_CID = "logo-artfest";
 
-  const { html, text, subject: emailSubject, logoCid } = withLogo(
-    guestSupportConfirmationTemplate,
-    { name, subject, message }
-  );
+// cache în memorie (o singură descărcare)
+let cachedLogo = null;
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject: emailSubject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-  });
+async function getLogoAttachment() {
+  if (cachedLogo) return cachedLogo;
+
+  const res = await fetch(EMAIL_LOGO_URL);
+  if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
+
+  const contentType = res.headers.get("content-type") || "image/png";
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  if (!buffer?.length) throw new Error("Logo buffer is empty");
+
+  cachedLogo = {
+    filename: "logo.png",
+    content: buffer.toString("base64"),
+    encoding: "base64",
+    cid: LOGO_CID,
+    contentType,
+    contentDisposition: "inline",
+  };
+
+  return cachedLogo;
 }
 
-export async function sendGuestSupportReplyEmail({
-  to,
-  name,
-  subject,
-  reply,
-}) {
-  const transporter = makeTransport();
-
-  const { html, text, subject: emailSubject, logoCid } = withLogo(
-    guestSupportReplyTemplate,
-    { name, subject, reply }
-  );
-
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject: emailSubject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
+async function withLogo(templateFn, props = {}) {
+  const { html, text, subject } = templateFn({
+    brandName: BRAND_NAME,
+    logoCid: LOGO_CID,
+    logoUrl: EMAIL_LOGO_URL,
+    ...props,
   });
+
+  const logoAttachment = await getLogoAttachment();
+  return { html, text, subject, logoAttachment };
 }
 
-/**
- * ✉️ Trimite email de verificare cont (signup)
- */
-export async function sendVerificationEmail({ to, link }) {
-  const transporter = makeTransport();
-  const { html, text, subject, logoCid } = withLogo(verificationEmailTemplate, {
-    link,
-  });
+const AUTO_HEADERS = {
+  "Auto-Submitted": "auto-generated",
+  "X-Auto-Response-Suppress": "All",
+  Precedence: "bulk",
+};
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
-    },
-  });
-}
+/* ============================================================
+   === HELPERS
+   ============================================================ */
 
-/**
- * ✉️ Trimite email de resetare parolă
- */
-export async function sendPasswordResetEmail({ to, link }) {
-  const transporter = makeTransport();
-  const { html, text, subject, logoCid } = withLogo(
-    resetPasswordEmailTemplate,
-    { link }
-  );
-
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
-    },
-  });
-}
-
-/**
- * ✉️ Trimite email de confirmare schimbare email
- */
-export async function sendEmailChangeVerificationEmail({ to, link }) {
-  const transporter = makeTransport();
-  const { html, text, subject, logoCid } = withLogo(
-    emailChangeVerificationTemplate,
-    { link }
-  );
-
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
-    },
-  });
-}
-
-/**
- * helper mic pentru formatat sume
- */
 function formatMoney(value, currency = "RON") {
   const v = Number(value || 0);
   return new Intl.NumberFormat("ro-RO", {
@@ -215,21 +174,300 @@ function formatMoney(value, currency = "RON") {
   }).format(v);
 }
 
-/**
- * Transformă HTML în text simplu (fallback text pentru emailuri marketing)
- */
 function stripHtml(html = "") {
-  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/**
- * ✉️ Emailuri de marketing (campanii, newsletter)
- */
-export async function sendMarketingEmail({ to, subject, html, preheader }) {
+/* ============================================================
+   === EMAIL LOGGING (Prisma EmailLog)
+   ============================================================ */
+
+function safeStr(v, max = 1000) {
+  const s = v == null ? "" : String(v);
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+async function createEmailLogQueued({
+  userId = null,
+  toEmail,
+  toName = null,
+  senderKey,
+  fromEmail = null,
+  replyTo = null,
+  template = null,
+  subject,
+  provider = "smtp",
+  orderId = null,
+  ticketId = null,
+}) {
+  // dacă tabelul nu există încă (înainte de migrate), să nu-ți crape aplicația
+  try {
+    return await prisma.emailLog.create({
+      data: {
+        userId,
+        toEmail,
+        toName,
+        senderKey,
+        fromEmail,
+        replyTo,
+        template,
+        subject,
+        provider,
+        status: "QUEUED",
+        orderId,
+        ticketId,
+      },
+      select: { id: true },
+    });
+  } catch (e) {
+    // optional: console.warn("email log create failed:", e?.message);
+    return null;
+  }
+}
+
+async function markEmailLogSent(id, meta = {}) {
+  try {
+    return await prisma.emailLog.update({
+      where: { id },
+      data: {
+        status: "SENT",
+        sentAt: new Date(),
+        messageId: meta.messageId ? safeStr(meta.messageId, 255) : null,
+        provider: meta.provider ? safeStr(meta.provider, 64) : null,
+        error: null,
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function markEmailLogFailed(id, err) {
+  try {
+    const msg = safeStr(err?.message || err || "unknown_error", 1000);
+    return await prisma.emailLog.update({
+      where: { id },
+      data: {
+        status: "FAILED",
+        error: msg,
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function sendMailLogged({
+  senderKey,
+  to,
+  subject,
+  template = null,
+  userId = null,
+  orderId = null,
+  ticketId = null,
+  toName = null,
+  headers = null,
+  mailOptions,
+}) {
+  const sender = SENDERS[senderKey] || {};
+  const fromEmail = sender.user || null;
+  const replyTo = sender.replyTo || null;
+
+  const log = await createEmailLogQueued({
+    userId,
+    toEmail: to,
+    toName,
+    senderKey,
+    fromEmail,
+    replyTo,
+    template,
+    subject,
+    provider: "smtp",
+    orderId,
+    ticketId,
+  });
+
+  try {
+    const transporter = makeTransport(senderKey);
+    const res = await transporter.sendMail({
+      ...mailOptions,
+      headers: headers || mailOptions.headers,
+    });
+
+    if (log?.id) {
+      await markEmailLogSent(log.id, {
+        provider: "smtp",
+        messageId: res?.messageId,
+      });
+    }
+
+    return res;
+  } catch (err) {
+    if (log?.id) await markEmailLogFailed(log.id, err);
+    throw err;
+  }
+}
+
+/* ============================================================
+   === GUEST SUPPORT EMAILS (sender: contact@)
+   ============================================================ */
+
+export async function sendGuestSupportConfirmationEmail({
+  to,
+  name,
+  subject,
+  message,
+  userId = null,
+  ticketId = null,
+}) {
+  const { html, text, subject: emailSubject, logoAttachment } =
+    await withLogo(guestSupportConfirmationTemplate, { name, subject, message });
+
+  return sendMailLogged({
+    senderKey: "contact",
+    to,
+    subject: emailSubject,
+    template: "guest_support_confirmation",
+    userId,
+    ticketId,
+    toName: name || null,
+    mailOptions: {
+      ...senderEnvelope("contact"),
+      to,
+      subject: emailSubject,
+      html,
+      text,
+      attachments: [logoAttachment],
+    },
+  });
+}
+
+export async function sendGuestSupportReplyEmail({
+  to,
+  name,
+  subject,
+  reply,
+  userId = null,
+  ticketId = null,
+}) {
+  const { html, text, subject: emailSubject, logoAttachment } = await withLogo(
+    guestSupportReplyTemplate,
+    { name, subject, reply }
+  );
+
+  return sendMailLogged({
+    senderKey: "contact",
+    to,
+    subject: emailSubject,
+    template: "guest_support_reply",
+    userId,
+    ticketId,
+    toName: name || null,
+    mailOptions: {
+      ...senderEnvelope("contact"),
+      to,
+      subject: emailSubject,
+      html,
+      text,
+      attachments: [logoAttachment],
+    },
+  });
+}
+
+/* ============================================================
+   === AUTH / SECURITY EMAILS (sender: no-reply@)
+   ============================================================ */
+
+export async function sendVerificationEmail({ to, link, userId = null }) {
+  const { html, text, subject, logoAttachment } = await withLogo(
+    verificationEmailTemplate,
+    { link }
+  );
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "verify_email",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendPasswordResetEmail({ to, link, userId = null }) {
+  const { html, text, subject, logoAttachment } = await withLogo(
+    resetPasswordEmailTemplate,
+    { link }
+  );
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "reset_password",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendEmailChangeVerificationEmail({
+  to,
+  link,
+  userId = null,
+}) {
+  const { html, text, subject, logoAttachment } = await withLogo(
+    emailChangeVerificationTemplate,
+    { link }
+  );
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "email_change_verify",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
+    },
+  });
+}
+
+/* ============================================================
+   === MARKETING (sender: no-reply@)
+   ============================================================ */
+
+export async function sendMarketingEmail({
+  to,
+  subject,
+  html,
+  preheader,
+  userId = null,
+}) {
   if (!to || !subject || !html) return;
 
-  const transporter = makeTransport();
-  const logoCid = "artfest-logo";
+  const logoAttachment = await getLogoAttachment();
 
   const finalHtml = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -242,7 +480,7 @@ export async function sendMarketingEmail({ to, subject, html, preheader }) {
     }
 
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${logoCid}" alt="${BRAND_NAME} logo" width="120" height="120"
+      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
            style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
     </div>
 
@@ -259,36 +497,36 @@ export async function sendMarketingEmail({ to, subject, html, preheader }) {
 
   const text = stripHtml(html);
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html: finalHtml,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "marketing",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html: finalHtml,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
-/**
- * ✉️ Email avertizare cont inactiv
- */
-export async function sendInactiveAccountWarningEmail({ to, deleteAt }) {
+/* ============================================================
+   === INACTIVE ACCOUNT (sender: no-reply@)
+   ============================================================ */
+
+export async function sendInactiveAccountWarningEmail({
+  to,
+  deleteAt,
+  userId = null,
+}) {
   if (!to || !deleteAt) return;
 
-  const transporter = makeTransport();
-  const logoCid = "artfest-logo";
+  const logoAttachment = await getLogoAttachment();
 
   const dateStr = deleteAt.toLocaleDateString("ro-RO", {
     year: "numeric",
@@ -301,7 +539,7 @@ export async function sendInactiveAccountWarningEmail({ to, deleteAt }) {
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${logoCid}" alt="${BRAND_NAME} logo" width="120" height="120"
+      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
            style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
     </div>
 
@@ -314,8 +552,7 @@ export async function sendInactiveAccountWarningEmail({ to, deleteAt }) {
       dacă nu te conectezi până la data de <strong>${dateStr}</strong>.
     </p>
     <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
-      Pentru a păstra contul activ, autentifică-te în platformă înainte de această dată. Conectarea
-      va reseta timerul de inactivitate.
+      Pentru a păstra contul activ, autentifică-te în platformă înainte de această dată.
     </p>
 
     ${
@@ -343,40 +580,38 @@ export async function sendInactiveAccountWarningEmail({ to, deleteAt }) {
     .filter(Boolean)
     .join("\n");
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "inactive_account_warning",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
-/**
- * ✉️ Email de confirmare comandă (commerce)
- */
+/* ============================================================
+   === ORDERS (sender: no-reply@)
+   ============================================================ */
+
 export async function sendOrderConfirmationEmail({
   to,
   order,
   items,
   storeAddresses,
+  userId = null,
 }) {
   if (!to || !order) return;
 
-  const transporter = makeTransport();
+  const logoAttachment = await getLogoAttachment();
 
   const currency = order.currency || "RON";
   const total = formatMoney(order.total, currency);
@@ -419,7 +654,6 @@ export async function sendOrderConfirmationEmail({
       </tr>
     `;
 
-  // 👇 nou: adrese retur magazine (dacă avem)
   const storeAddressesMap =
     storeAddresses || (order.meta && order.meta.storeAddresses) || null;
 
@@ -463,12 +697,10 @@ export async function sendOrderConfirmationEmail({
     }
   }
 
-  const logoCid = "artfest-logo";
-
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${logoCid}" alt="${BRAND_NAME} logo" width="120" height="120"
+      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
            style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
     </div>
 
@@ -479,9 +711,7 @@ export async function sendOrderConfirmationEmail({
     <p style="color:#374151;margin:0 0 16px;">
       <strong>Număr comandă:</strong> ${order.id}<br>
       <strong>Metodă de plată:</strong> ${
-        order.paymentMethod === "COD"
-          ? "Plată la livrare (ramburs)"
-          : "Card online"
+        order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"
       }
     </p>
 
@@ -552,18 +782,13 @@ export async function sendOrderConfirmationEmail({
     `Comanda ta pe ${BRAND_NAME} a fost înregistrată.`,
     `Număr comandă: ${order.id}`,
     `Metodă de plată: ${
-      order.paymentMethod === "COD"
-        ? "Plată la livrare (ramburs)"
-        : "Card online"
+      order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"
     }`,
     "",
     "Produse:",
     ...(items || []).map(
       (it) =>
-        `- ${it.title} x${it.qty} = ${formatMoney(
-          it.price * it.qty,
-          currency
-        )}`
+        `- ${it.title} x${it.qty} = ${formatMoney(it.price * it.qty, currency)}`
     ),
     "",
     `Subtotal: ${subtotal}`,
@@ -584,31 +809,30 @@ export async function sendOrderConfirmationEmail({
   ].filter(Boolean);
 
   const text = textLines.join("\n");
+  const subject = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
-    subject: `Confirmare comandă #${order.id} - ${BRAND_NAME}`,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    subject,
+    template: "order_confirmation",
+    userId,
+    orderId: order.id,
+    toName: customerName,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
 /**
- * ✉️ Email „comanda a fost anulată de vendor”
+ * ✉️ Email „comanda a fost anulată de vendor” (sender: no-reply@)
  */
 export async function sendOrderCancelledEmail({
   to,
@@ -618,11 +842,11 @@ export async function sendOrderCancelledEmail({
   cancelReason,
   cancelReasonNote,
   shippingAddress,
+  userId = null,
 }) {
   if (!to || !orderId) return;
 
-  const transporter = makeTransport();
-  const logoCid = "artfest-logo";
+  const logoAttachment = await getLogoAttachment();
 
   const prettyId = shortId || orderId;
   const storeName = vendorName || BRAND_NAME || "magazinul nostru";
@@ -673,7 +897,7 @@ export async function sendOrderCancelledEmail({
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${logoCid}" alt="${BRAND_NAME} logo" width="120" height="120"
+      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
            style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
     </div>
 
@@ -724,36 +948,37 @@ export async function sendOrderCancelledEmail({
 
   const text = textLines.join("\n");
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "order_cancelled_vendor",
+    userId,
+    orderId,
+    toName: customerName,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
 /**
- * ✉️ Email „comanda a fost anulată de CLIENT”
+ * ✉️ Email „comanda a fost anulată de CLIENT” (sender: no-reply@)
  */
-export async function sendOrderCancelledByUserEmail({ to, order }) {
+export async function sendOrderCancelledByUserEmail({
+  to,
+  order,
+  userId = null,
+}) {
   if (!to || !order) return;
 
-  const transporter = makeTransport();
-  const logoCid = "artfest-logo";
+  const logoAttachment = await getLogoAttachment();
 
   const prettyId = order.shortId || order.id;
   const address = order.shippingAddress || {};
@@ -776,7 +1001,7 @@ export async function sendOrderCancelledByUserEmail({ to, order }) {
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${logoCid}" alt="${BRAND_NAME} logo" width="120" height="120"
+      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
            style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
     </div>
 
@@ -793,11 +1018,6 @@ export async function sendOrderCancelledByUserEmail({ to, order }) {
       Subtotal: ${subtotal}<br>
       Transport: ${shippingTotal}<br>
       Total: ${total}
-    </p>
-
-    <p style="color:#6b7280;margin:0 0 16px;line-height:1.5;font-size:14px;">
-      Artizanii au fost anunțați despre anulare. Dacă ai anulat din greșeală sau dorești să refaci comanda,
-      poți comanda din nou din istoricul tău sau direct din paginile de produs.
     </p>
 
     ${
@@ -835,41 +1055,39 @@ export async function sendOrderCancelledByUserEmail({ to, order }) {
 
   const text = textLines.join("\n");
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "order_cancelled_user",
+    userId,
+    orderId: order.id,
+    toName: customerName,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
-/* =========================================================
- *  🔐 NOI: mailuri de securitate (parolă veche + login suspect)
- * =======================================================*/
+/* ============================================================
+   === SECURITY (sender: no-reply@)
+   ============================================================ */
 
 export async function sendPasswordStaleReminderEmail({
   to,
   passwordAgeDays,
   maxPasswordAgeDays,
+  userId = null,
 }) {
   if (!to) return;
 
-  const transporter = makeTransport();
-  const { html, text, subject, logoCid } = withLogo(
+  const { html, text, subject, logoAttachment } = await withLogo(
     passwordStaleReminderEmailTemplate,
     {
       passwordAgeDays,
@@ -878,81 +1096,69 @@ export async function sendPasswordStaleReminderEmail({
     }
   );
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "password_stale_reminder",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
-export async function sendSuspiciousLoginWarningEmail({ to }) {
+export async function sendSuspiciousLoginWarningEmail({ to, userId = null }) {
   if (!to) return;
 
-  const transporter = makeTransport();
-  const { html, text, subject, logoCid } = withLogo(
+  const { html, text, subject, logoAttachment } = await withLogo(
     suspiciousLoginWarningEmailTemplate,
-    {
-      link: APP_URL || undefined,
-    }
+    { link: APP_URL || undefined }
   );
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "suspicious_login_warning",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
-/* =========================================================
- *  🔔 NOU: mail follow-up vendor
- * =======================================================*/
+/* ============================================================
+   === VENDOR FOLLOW-UP (sender: no-reply@)
+   ============================================================ */
 
 export async function sendVendorFollowUpReminderEmail({
   to,
   contactName,
   followUpAt,
   threadLink,
+  userId = null,
 }) {
   if (!to) return;
-
-  const transporter = makeTransport();
 
   const fullLink =
     threadLink && APP_URL
       ? `${APP_URL.replace(/\/+$/, "")}${threadLink}`
       : undefined;
 
-  const { html, text, subject, logoCid } = withLogo(
+  const { html, text, subject, logoAttachment } = await withLogo(
     vendorFollowUpReminderEmailTemplate,
     {
       contactName,
@@ -961,31 +1167,28 @@ export async function sendVendorFollowUpReminderEmail({
     }
   );
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "vendor_followup_reminder",
+    userId,
+    toName: contactName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
 
-/* =========================================================
- *  ✉️ NOU: email „factura a fost emisă”
- * =======================================================*/
+/* ============================================================
+   === INVOICE (sender: admin@)
+   ============================================================ */
 
 export async function sendInvoiceIssuedEmail({
   to,
@@ -993,11 +1196,10 @@ export async function sendInvoiceIssuedEmail({
   invoiceNumber,
   totalGross,
   currency = "RON",
-  invoiceFrontendPath, // ex: /comanda/123 sau /cont/facturi?order=...
+  invoiceFrontendPath,
+  userId = null,
 }) {
   if (!to || !orderId) return;
-
-  const transporter = makeTransport();
 
   const totalLabel = formatMoney(totalGross || 0, currency);
 
@@ -1009,7 +1211,7 @@ export async function sendInvoiceIssuedEmail({
       ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
       : undefined;
 
-  const { html, text, subject, logoCid } = withLogo(
+  const { html, text, subject, logoAttachment } = await withLogo(
     invoiceIssuedEmailTemplate,
     {
       orderId,
@@ -1019,43 +1221,41 @@ export async function sendInvoiceIssuedEmail({
     }
   );
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "admin",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "invoice_issued",
+    userId,
+    orderId,
+    mailOptions: {
+      ...senderEnvelope("admin"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
-/* =========================================================
- *  ✉️ NOU: email „comanda a fost predată curierului”
- * =======================================================*/
+
+/* ============================================================
+   === SHIPMENT PICKUP (sender: no-reply@)
+   ============================================================ */
 
 export async function sendShipmentPickupEmail({
   to,
   orderId,
   awb,
   trackingUrl,
-  etaLabel,   // ex: "azi" / "mâine"
-  slotLabel,  // ex: "14-18"
+  etaLabel,
+  slotLabel,
+  userId = null,
 }) {
   if (!to) return;
 
-  const transporter = makeTransport();
-  const logoCid = "artfest-logo";
+  const logoAttachment = await getLogoAttachment();
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
   const orderLink = baseUrl
@@ -1067,7 +1267,7 @@ export async function sendShipmentPickupEmail({
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${logoCid}" alt="${BRAND_NAME} logo" width="120" height="120"
+      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
            style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
     </div>
 
@@ -1079,7 +1279,9 @@ export async function sendShipmentPickupEmail({
     <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
       <strong>Număr comandă:</strong> ${orderId}<br>
       <strong>AWB:</strong> ${awb || "-"}<br>
-      <strong>Livrare estimată:</strong> ${etaLabel || "-"} în intervalul ${slotLabel || "-"}
+      <strong>Livrare estimată:</strong> ${etaLabel || "-"} în intervalul ${
+        slotLabel || "-"
+      }
     </p>
 
     ${
@@ -1127,54 +1329,55 @@ export async function sendShipmentPickupEmail({
 
   const text = textLines.join("\n");
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "noreply",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "shipment_pickup",
+    userId,
+    orderId,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }
-export async function sendVendorDeactivateConfirmEmail({ to, link }) {
+
+/* ============================================================
+   === VENDOR DEACTIVATE CONFIRM (sender: admin@)
+   ============================================================ */
+
+export async function sendVendorDeactivateConfirmEmail({
+  to,
+  link,
+  userId = null,
+}) {
   if (!to || !link) return;
 
-  const transporter = makeTransport();
-  const { html, text, subject, logoCid } = withLogo(
+  const { html, text, subject, logoAttachment } = await withLogo(
     vendorDeactivateConfirmTemplate,
     { link }
   );
 
-  return transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+  return sendMailLogged({
+    senderKey: "admin",
     to,
     subject,
-    html,
-    text,
-    attachments: [
-      {
-        filename: "logo-artfest-240.png",
-        path: "https://artfest.ro/assets/LogoArtfest.png",
-        cid: logoCid,
-        contentType: "image/png",
-      },
-    ],
-    headers: {
-      "Auto-Submitted": "auto-generated",
-      "X-Auto-Response-Suppress": "All",
-      Precedence: "bulk",
+    template: "vendor_deactivate_confirm",
+    userId,
+    mailOptions: {
+      ...senderEnvelope("admin"),
+      to,
+      subject,
+      html,
+      text,
+      attachments: [logoAttachment],
+      headers: AUTO_HEADERS,
     },
   });
 }

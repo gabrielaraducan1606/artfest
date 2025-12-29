@@ -104,7 +104,112 @@ body {
     padding-top: calc(var(--appbar-h) - 14px); /* 40px */
   }
 }
+/* ================== Light Theme (default) ================== */
+:root {
+  /* Fonts */
+  --font-title: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-body:  'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
+  /* Shapes */
+  --radius: 10px;
+
+  /* Colors - Light */
+  --color-bg: #fafafa;
+  --color-text: #2d2d2d;
+  --color-border: #e5e5e5;
+  --color-primary: #8b5cf6;   /* Violet modern, elegant */
+  --color-hover: #7c3aed;     /* Ton mai profund pentru hover */
+
+  /* Suprafețe */
+  --surface: #ffffff;
+
+  /* Stări / nuanțe */
+  --color-muted: #6b7280;     /* text secundar */
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+
+  /* Umbre subtile */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 2px 6px rgba(0,0,0,.06);
+
+    /* Înălțimea navbar-ului global (Navbar.container are 64px) */
+  --appbar-h: 57px;
+
+  /* Înălțimea barei de tab-uri de pe profil (o aproximăm la ~44px) */
+  --tabs-h: 44px;
+}
+
+/* ================== Dark Theme ================== */
+html[data-theme="dark"] {
+  --color-bg: #121212;
+  --color-text: #e0e0e0;
+  --color-border: #2a2a2a;
+  --color-primary: #a78bfa;   /* Violet luminos pentru dark mode */
+  --color-hover: #8b5cf6;
+  --surface: #1c1c1c;
+
+  --color-muted: #a3a3a3;
+  --color-danger: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #fbbf24;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+  --shadow-md: 0 2px 6px rgba(0,0,0,.55);
+}
+
+/* ================== Preferința sistemului ================== */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]):not([data-theme="dark"]) {
+    --color-bg: #121212;
+    --color-text: #e0e0e0;
+    --color-border: #2a2a2a;
+    --color-primary: #a78bfa;
+    --color-hover: #8b5cf6;
+    --surface: #1c1c1c;
+
+    --color-muted: #a3a3a3;
+    --color-danger: #ef4444;
+    --color-success: #22c55e;
+    --color-warning: #fbbf24;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+    --shadow-md: 0 2px 6px rgba(0,0,0,.55);
+  }
+}
+
+/* ================== Bază globală ================== */
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  line-height: 1.5;
+}
+
+/* 🔥 offset global ca să nu mai intre paginile sub navbar-ul FIX */
+body {
+  padding-top: var(--appbar-h);  /* 64px, exact cât navbarul */
+}
+/* Mobile: reducem padding-top pentru a aduce conținutul mai aproape de navbar */
+@media (max-width: 640px) {
+  body {
+    padding-top: calc(var(--appbar-h) - 4px); /* 50px */
+  }
+}
+
+/* Foarte mici (<480px) */
+@media (max-width: 480px) {
+  body {
+    padding-top: calc(var(--appbar-h) - 10px); /* 44px */
+  }
+}
+
+/* Ultra mici (<360px) */
+@media (max-width: 360px) {
+  body {
+    padding-top: calc(var(--appbar-h) - 14px); /* 40px */
+  }
+}
 /*:root {
   --font-title: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;

@@ -91,7 +91,10 @@ export default function PopularProducts() {
       // Prima pagină: încearcă endpoint-ul de „recommended”
       if (nextPage === 1) {
         try {
-          const r = await api("/api/public/products/recommended");
+         const r = await api(`/api/public/products/recommended?limit=${PAGE_SIZE}&page=${nextPage}`);
+const pageItems = Array.isArray(r?.items) ? r.items : [];
+if (pageItems.length) list = pageItems;
+
           if (Array.isArray(r?.popular) && r.popular.length) list = r.popular;
           else if (Array.isArray(r?.recommended) && r.recommended.length) list = r.recommended;
           else if (Array.isArray(r?.latest) && r.latest.length) list = r.latest;
