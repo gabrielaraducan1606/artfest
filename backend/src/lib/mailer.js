@@ -14,11 +14,7 @@ import {
   vendorDeactivateConfirmTemplate,
 } from "./emailTemplates.js";
 
-const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
-  /\/+$/,
-  ""
-);
-
+const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
 
 /**
@@ -75,39 +71,60 @@ const SENDERS = {
 // cache transportere ca sa nu recreezi conexiunea mereu
 const transportCache = new Map();
 
+function mustEnv(name, value) {
+  if (!value || !String(value).trim()) throw new Error(`Missing ${name}`);
+}
+
 export function makeTransport(senderKey = "noreply") {
   const port = Number(process.env.SMTP_PORT || 587);
   const host = process.env.SMTP_HOST;
 
-  if (!host) throw new Error("Missing SMTP_HOST");
+  mustEnv("SMTP_HOST", host);
+
   const sender = SENDERS[senderKey];
   if (!sender) throw new Error(`Unknown senderKey: ${senderKey}`);
 
-  if (!sender.user)
-    throw new Error(`Missing SMTP_USER for sender "${senderKey}"`);
-  if (!sender.pass)
-    throw new Error(`Missing SMTP_PASS for sender "${senderKey}"`);
+  mustEnv(`SMTP_USER for sender "${senderKey}"`, sender.user);
+  mustEnv(`SMTP_PASS for sender "${senderKey}"`, sender.pass);
 
   const cacheKey = `${senderKey}:${sender.user}:${host}:${port}`;
   if (transportCache.has(cacheKey)) return transportCache.get(cacheKey);
 
   const transporter = nodemailer.createTransport({
-  host,
-  port,
-  secure: port === 465, // 587 => false (STARTTLS)
-  auth: { user: sender.user, pass: sender.pass },
+    host,
+    port,
+    secure: port === 465, // 587 => false (STARTTLS)
+    auth: { user: sender.user, pass: sender.pass },
 
-  // IMPORTANT: nu lăsa requestul să stea blocat
-  connectionTimeout: 10_000,
-  greetingTimeout: 10_000,
-  socketTimeout: 20_000,
+    // ✅ IMPORTANT: să nu "atârne" requesturile
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
 
-  // pentru 587
-  requireTLS: port === 587,
-  tls: {
-    rejectUnauthorized: true,
-  },
-});
+    // ✅ pentru 587
+    requireTLS: port === 587,
+
+    tls: {
+      rejectUnauthorized: true,
+    },
+  });
+
+  // ✅ ajută enorm la debug (o singură dată / cache)
+  transporter
+    .verify()
+    .then(() =>
+      console.log(`[MAIL] SMTP verify OK (${senderKey})`, { host, port, user: sender.user })
+    )
+    .catch((e) =>
+      console.error(`[MAIL] SMTP verify FAILED (${senderKey})`, {
+        host,
+        port,
+        user: sender.user,
+        message: e?.message,
+        code: e?.code,
+        response: e?.response,
+      })
+    );
 
   transportCache.set(cacheKey, transporter);
   return transporter;
@@ -130,15 +147,25 @@ const LOGO_CID = "logo-artfest";
 // cache în memorie (o singură descărcare)
 let cachedLogo = null;
 
+// fetch cu timeout ca să nu blocheze
+async function fetchWithTimeout(url, ms = 8000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function getLogoAttachment() {
   if (cachedLogo) return cachedLogo;
 
-  const res = await fetch(EMAIL_LOGO_URL);
+  const res = await fetchWithTimeout(EMAIL_LOGO_URL, 8000);
   if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
 
   const contentType = res.headers.get("content-type") || "image/png";
   const buffer = Buffer.from(await res.arrayBuffer());
-
   if (!buffer?.length) throw new Error("Logo buffer is empty");
 
   cachedLogo = {
@@ -161,8 +188,14 @@ async function withLogo(templateFn, props = {}) {
     ...props,
   });
 
-  const logoAttachment = await getLogoAttachment();
-  return { html, text, subject, logoAttachment };
+  // ✅ NU mai lăsăm logo-ul să blocheze emailul
+  try {
+    const logoAttachment = await getLogoAttachment();
+    return { html, text, subject, logoAttachment };
+  } catch (e) {
+    console.error("[MAIL] logo attachment failed (sending without logo):", e?.message || e);
+    return { html, text, subject, logoAttachment: null };
+  }
 }
 
 const AUTO_HEADERS = {
@@ -230,8 +263,7 @@ async function createEmailLogQueued({
       },
       select: { id: true },
     });
-  } catch (e) {
-    // optional: console.warn("email log create failed:", e?.message);
+  } catch {
     return null;
   }
 }
@@ -305,6 +337,16 @@ async function sendMailLogged({
       headers: headers || mailOptions.headers,
     });
 
+    // ✅ log clar în console (important pentru debugging)
+    console.log("[MAIL] sent", {
+      senderKey,
+      to,
+      messageId: res?.messageId,
+      accepted: res?.accepted,
+      rejected: res?.rejected,
+      response: res?.response,
+    });
+
     if (log?.id) {
       await markEmailLogSent(log.id, {
         provider: "smtp",
@@ -314,6 +356,14 @@ async function sendMailLogged({
 
     return res;
   } catch (err) {
+    console.error("[MAIL] failed", {
+      senderKey,
+      to,
+      message: err?.message,
+      code: err?.code,
+      response: err?.response,
+    });
+
     if (log?.id) await markEmailLogFailed(log.id, err);
     throw err;
   }
@@ -348,7 +398,7 @@ export async function sendGuestSupportConfirmationEmail({
       subject: emailSubject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
     },
   });
 }
@@ -380,7 +430,7 @@ export async function sendGuestSupportReplyEmail({
       subject: emailSubject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
     },
   });
 }
@@ -407,7 +457,7 @@ export async function sendVerificationEmail({ to, link, userId = null }) {
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -431,7 +481,7 @@ export async function sendPasswordResetEmail({ to, link, userId = null }) {
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -459,7 +509,7 @@ export async function sendEmailChangeVerificationEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -478,7 +528,10 @@ export async function sendMarketingEmail({
 }) {
   if (!to || !subject || !html) return;
 
-  const logoAttachment = await getLogoAttachment();
+  const logoAttachment = await getLogoAttachment().catch((e) => {
+    console.error("[MAIL] logo fetch failed (marketing)", e?.message || e);
+    return null;
+  });
 
   const finalHtml = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -520,7 +573,7 @@ export async function sendMarketingEmail({
       subject,
       html: finalHtml,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -537,7 +590,10 @@ export async function sendInactiveAccountWarningEmail({
 }) {
   if (!to || !deleteAt) return;
 
-  const logoAttachment = await getLogoAttachment();
+  const logoAttachment = await getLogoAttachment().catch((e) => {
+    console.error("[MAIL] logo fetch failed (inactive warning)", e?.message || e);
+    return null;
+  });
 
   const dateStr = deleteAt.toLocaleDateString("ro-RO", {
     year: "numeric",
@@ -603,7 +659,7 @@ export async function sendInactiveAccountWarningEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -622,7 +678,10 @@ export async function sendOrderConfirmationEmail({
 }) {
   if (!to || !order) return;
 
-  const logoAttachment = await getLogoAttachment();
+  const logoAttachment = await getLogoAttachment().catch((e) => {
+    console.error("[MAIL] logo fetch failed (order confirmation)", e?.message || e);
+    return null;
+  });
 
   const currency = order.currency || "RON";
   const total = formatMoney(order.total, currency);
@@ -836,7 +895,7 @@ export async function sendOrderConfirmationEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -857,7 +916,10 @@ export async function sendOrderCancelledEmail({
 }) {
   if (!to || !orderId) return;
 
-  const logoAttachment = await getLogoAttachment();
+  const logoAttachment = await getLogoAttachment().catch((e) => {
+    console.error("[MAIL] logo fetch failed (order cancelled vendor)", e?.message || e);
+    return null;
+  });
 
   const prettyId = shortId || orderId;
   const storeName = vendorName || BRAND_NAME || "magazinul nostru";
@@ -866,19 +928,16 @@ export async function sendOrderCancelledEmail({
 
   switch (cancelReason) {
     case "client_no_answer":
-      reasonText =
-        "nu am reușit să vă contactăm telefonic pentru confirmarea comenzii.";
+      reasonText = "nu am reușit să vă contactăm telefonic pentru confirmarea comenzii.";
       break;
     case "client_request":
       reasonText = "ați solicitat anularea comenzii.";
       break;
     case "stock_issue":
-      reasonText =
-        "produsele comandate nu mai sunt disponibile momentan (stoc epuizat).";
+      reasonText = "produsele comandate nu mai sunt disponibile momentan (stoc epuizat).";
       break;
     case "address_issue":
-      reasonText =
-        "adresa de livrare este incompletă sau curierul nu poate livra la această adresă.";
+      reasonText = "adresa de livrare este incompletă sau curierul nu poate livra la această adresă.";
       break;
     case "payment_issue":
       reasonText = "au fost probleme la procesarea plății.";
@@ -889,8 +948,7 @@ export async function sendOrderCancelledEmail({
         : "a intervenit o situație neprevăzută.";
       break;
     default:
-      reasonText =
-        "a intervenit o situație care nu ne permite să onorăm comanda.";
+      reasonText = "a intervenit o situație care nu ne permite să onorăm comanda.";
   }
 
   const address = shippingAddress || {};
@@ -973,7 +1031,7 @@ export async function sendOrderCancelledEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -982,14 +1040,13 @@ export async function sendOrderCancelledEmail({
 /**
  * ✉️ Email „comanda a fost anulată de CLIENT” (sender: no-reply@)
  */
-export async function sendOrderCancelledByUserEmail({
-  to,
-  order,
-  userId = null,
-}) {
+export async function sendOrderCancelledByUserEmail({ to, order, userId = null }) {
   if (!to || !order) return;
 
-  const logoAttachment = await getLogoAttachment();
+  const logoAttachment = await getLogoAttachment().catch((e) => {
+    console.error("[MAIL] logo fetch failed (order cancelled user)", e?.message || e);
+    return null;
+  });
 
   const prettyId = order.shortId || order.id;
   const address = order.shippingAddress || {};
@@ -1080,7 +1137,7 @@ export async function sendOrderCancelledByUserEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -1119,7 +1176,7 @@ export async function sendPasswordStaleReminderEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -1145,7 +1202,7 @@ export async function sendSuspiciousLoginWarningEmail({ to, userId = null }) {
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -1191,7 +1248,7 @@ export async function sendVendorFollowUpReminderEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -1245,7 +1302,7 @@ export async function sendInvoiceIssuedEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -1266,7 +1323,10 @@ export async function sendShipmentPickupEmail({
 }) {
   if (!to) return;
 
-  const logoAttachment = await getLogoAttachment();
+  const logoAttachment = await getLogoAttachment().catch((e) => {
+    console.error("[MAIL] logo fetch failed (shipment pickup)", e?.message || e);
+    return null;
+  });
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
   const orderLink = baseUrl
@@ -1353,7 +1413,7 @@ export async function sendShipmentPickupEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
@@ -1387,7 +1447,7 @@ export async function sendVendorDeactivateConfirmEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
+      attachments: logoAttachment ? [logoAttachment] : [],
       headers: AUTO_HEADERS,
     },
   });
