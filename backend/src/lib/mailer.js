@@ -92,11 +92,22 @@ export function makeTransport(senderKey = "noreply") {
   if (transportCache.has(cacheKey)) return transportCache.get(cacheKey);
 
   const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user: sender.user, pass: sender.pass },
-  });
+  host,
+  port,
+  secure: port === 465, // 587 => false (STARTTLS)
+  auth: { user: sender.user, pass: sender.pass },
+
+  // IMPORTANT: nu lăsa requestul să stea blocat
+  connectionTimeout: 10_000,
+  greetingTimeout: 10_000,
+  socketTimeout: 20_000,
+
+  // pentru 587
+  requireTLS: port === 587,
+  tls: {
+    rejectUnauthorized: true,
+  },
+});
 
   transportCache.set(cacheKey, transporter);
   return transporter;
