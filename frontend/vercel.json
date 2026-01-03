@@ -1,7 +1,16 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://api.artfest.ro/api/$1" },
-    { "source": "/legal/(.*)", "destination": "https://api.artfest.ro/legal/$1" },
-    { "source": "/(.*)", "destination": "/" }
+    {
+      "source": "/api/(.*)",
+      "destination": "https://artfest.onrender.com/api/$1"
+    },
+    {
+      "source": "/legal/(.*)",
+      "destination": "https://artfest.onrender.com/legal/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
   ]
 }
