@@ -671,6 +671,8 @@ model Product {
   cartItems          CartItem[]
   ProductRatingStats ProductRatingStats[]
 
+  imageEmbeddings ProductImageEmbedding[]
+
   @@index([serviceId, isActive, createdAt])
   @@index([category])
   @@index([isHidden, isActive, availability, createdAt])
@@ -1660,4 +1662,17 @@ model EmailLog {
   @@index([template, createdAt])
   @@index([status, createdAt])
   @@index([senderKey, createdAt])
+}
+model ProductImageEmbedding {
+  id         String   @id @default(uuid())
+  productId  String   @map("product_id")
+  imageIndex Int      @default(0) @map("image_index")
+  embedding  Unsupported("vector(512)")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_image_embeddings")
+  @@unique([productId, imageIndex])
+  @@index([productId])
 }

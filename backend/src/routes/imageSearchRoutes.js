@@ -1,51 +1,41 @@
-// server/routes/imageSearch.js
-
 import { Router } from "express";
-import multer from "multer";
-import { prisma } from "../db.js"; // folosește același prisma ca restul proiectului
+import { prisma } from "../db.js";
+import { uploadSearchImage } from "../middleware/imageSearchUpload.js";
 import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
 
 const router = Router();
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype?.startsWith("image/")) {
-      return cb(new Error("invalid_image_type"));
-    }
-    cb(null, true);
-  },
-});
-
-// POST /api/search/image
-router.post("/search/image", upload.single("image"), async (req, res) => {
+router.post("/search/image", uploadSearchImage, async (req, res) => {
   try {
     if (!req.file?.buffer) {
-      return res.status(400).json({
-        error: "no_image",
-        message: "Atașează o imagine.",
+      return res.status(400).json({ error: "no_image", message: "Atașează o imagine." });
+    }
+
+    const emb = await imageToEmbedding(req.file.buffer);
+
+    // dacă a ieșit fallback
+    let allZero = true;
+    for (let i = 0; i < emb.length; i++) {
+      if (emb[i] !== 0) { allZero = false; break; }
+    }
+    if (allZero) {
+      return res.status(500).json({
+        error: "embedding_failed",
+        message: "Nu am putut calcula embedding pentru imagine.",
       });
     }
 
-    // 1) calculează embedding
-    const emb = await imageToEmbedding(req.file.buffer);
-    const pgVec = toPgVectorLiteral(emb); // '[0.1,0.2,...]'
-
-    // 2) caută cele mai similare produse (pgvector operator <=>)
+    const pgVec = toPgVectorLiteral(emb);
     const k = 100;
-    const rows = await prisma.$queryRawUnsafe(
-      `
-      SELECT product_id, (embedding <=> CAST($1 AS vector)) AS score
-      FROM product_image_embeddings
-      ORDER BY embedding <=> CAST($1 AS vector)
-      LIMIT $2
-      `,
-      pgVec,
-      k
-    );
 
-    const ids = rows.map((r) => String(r.product_id));
+    const rows = await prisma.$queryRaw`
+      SELECT product_id, (embedding <=> CAST(${pgVec} AS vector)) AS score
+      FROM public.product_image_embeddings
+      ORDER BY embedding <=> CAST(${pgVec} AS vector)
+      LIMIT ${k}
+    `;
+
+    const ids = (rows || []).map((r) => String(r.product_id));
 
     return res.json({
       ids,
@@ -57,13 +47,6 @@ router.post("/search/image", upload.single("image"), async (req, res) => {
   } catch (err) {
     console.error("image search error:", err);
 
-    if (err?.message === "invalid_image_type") {
-      return res.status(400).json({
-        error: "invalid_image_type",
-        message: "Fișierul trebuie să fie o imagine.",
-      });
-    }
-
     if (err?.code === "LIMIT_FILE_SIZE") {
       return res.status(413).json({
         error: "payload_too_large",
@@ -71,7 +54,14 @@ router.post("/search/image", upload.single("image"), async (req, res) => {
       });
     }
 
-    return res.status(500).json({ error: "server_error" });
+    if (
+      typeof err?.message === "string" &&
+      err.message.toLowerCase().includes("tip de fișier neacceptat")
+    ) {
+      return res.status(400).json({ error: "invalid_image_type", message: err.message });
+    }
+
+    return res.status(500).json({ error: "server_error", message: "Eroare internă." });
   }
 });
 

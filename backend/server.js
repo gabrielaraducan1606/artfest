@@ -93,6 +93,8 @@ import publicAdsRoutes from "./src/routes/publicAdsRoutes.js";
 import adminEmailLogsRoutes from "./src/routes/adminEmailLogRoutes.js";
 import adminIncidentsRoutes from "./src/routes/adminIncidentsRoutes.js";
 import unsubscribeRouter from "./src/routes/unsubscribeRoutes.js";
+// server/app.js (sau index.js)
+import imageSearchRouter from "./src/routes/imageSearchRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -396,6 +398,8 @@ app.use("/api", storeReviewsRouter);
 app.use("/api/public", publicStoreRoutes);
 app.use("/api", geoRoutes);
 app.use("/api", userInvoicesRouter);
+
+app.use("/api", imageSearchRouter);
 
 app.use("/api", marketingRoutes);
 app.use("/api/public/support", PublicSupportRoutes);

@@ -46,21 +46,19 @@
   justify-content: center;
   cursor: pointer;
   font-size: 16px;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.1s ease;
+  transition: background .15s ease, border-color .15s ease, transform .1s ease;
   color: var(--color-text);
 }
 
 .iconCircle:hover {
-  background: color-mix(
-    in oklab,
-    var(--color-primary) 6%,
-    var(--surface)
-  );
-  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
   transform: translateY(-1px);
+}
+
+.iconCircle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
 }
 
 /* ========================= */
@@ -72,39 +70,37 @@
   position: relative;
 }
 
-/* “pilula” completă */
+/* “pilula” */
 .searchShell {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #fff;
+  background: color-mix(in oklab, var(--surface) 92%, var(--color-bg));
   border-radius: 999px;
   padding: 4px 6px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
-  border: 1px solid
-    color-mix(
-      in oklab,
-      var(--color-primary) 8%,
-      #e9e9f0
-    );
+  box-shadow: var(--shadow-md);
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
 }
 
-/* inputul din mijloc – fără border propriu */
+.searchShell:focus-within {
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+
 .searchInput {
   flex: 1 1 auto;
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
   padding: 0 8px;
   min-width: 0;
+  color: var(--color-text);
 }
 
-/* pentru că folosim .input și aici, anulăm borderul implicit */
-.searchInput.input {
-  border: none;
-  box-shadow: none;
+.searchInput::placeholder {
+  color: color-mix(in oklab, var(--color-text) 55%, transparent);
 }
 
-/* stânga: buton rotund cu icon de search */
+/* buton search (stânga) */
 .searchIconBtn {
   width: 38px;
   height: 38px;
@@ -118,22 +114,10 @@
   font-size: 16px;
   background: var(--color-primary);
   color: #fff;
+  transition: filter .15s ease, transform .08s ease;
 }
-
-.searchIconBtn:hover {
-  filter: brightness(1.05);
-}
-
-/* focus general pe shell (când focus e pe input) */
-.searchShell:focus-within {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px
-    color-mix(
-      in oklab,
-      var(--color-primary) 18%,
-      transparent
-    );
-}
+.searchIconBtn:hover { filter: brightness(1.05); }
+.searchIconBtn:active { transform: translateY(1px); }
 
 /* ========================= */
 /*      AUTOCOMPLETE         */
@@ -141,14 +125,15 @@
 
 .suggestBox {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
-  z-index: 20;
-  background: white;
+  z-index: 30;
+  background: var(--surface);
   border-radius: 12px;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-  padding: 6px;
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+  padding: 8px;
   max-height: 360px;
   overflow-y: auto;
 }
@@ -156,59 +141,66 @@
 .suggestList {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .suggestItem {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
   border: none;
   background: transparent;
   cursor: pointer;
   text-align: left;
+  transition: background .12s ease;
+  color: var(--color-text);
 }
 
 .suggestItem:hover {
-  background: #f5f5f7;
+  background: color-mix(in oklab, var(--color-border) 60%, transparent);
 }
 
 .suggestThumb {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 999px;
   object-fit: cover;
   flex-shrink: 0;
+  background: color-mix(in oklab, var(--color-border) 65%, transparent);
 }
 
 .suggestText {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .suggestTitle {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .suggestSubtitle {
   font-size: 12px;
-  color: var(--color-text-muted, #666);
+  color: color-mix(in oklab, var(--color-text) 62%, transparent);
 }
 
 .suggestLoading,
 .suggestEmpty {
-  padding: 6px 8px;
+  padding: 10px;
   font-size: 13px;
-  color: var(--color-text-muted, #777);
+  color: color-mix(in oklab, var(--color-text) 60%, transparent);
 }
 
 /* ========================= */
-/*      REZUMAT FILTRE       */
+/*      CHIP-URI FILTRE      */
 /* ========================= */
 
 .chipWrap {
@@ -224,18 +216,18 @@
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid var(--color-border, #ddd);
-  background: var(--surface, #f7f7f7);
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface) 85%, var(--color-bg));
   font-size: 12px;
-  gap: 4px;
+  gap: 6px;
   white-space: nowrap;
+  color: var(--color-text);
 }
 
-/* info nr. rezultate */
 .resultsInfo {
   margin-top: 6px;
   font-size: 13px;
-  color: var(--color-text-muted, #666);
+  color: color-mix(in oklab, var(--color-text) 62%, transparent);
 }
 
 /* ========================= */
@@ -250,17 +242,19 @@
   align-items: center;
   justify-content: center;
   z-index: 999;
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 .filtersModal {
-  background: var(--surface);
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
   border-radius: 16px;
   max-width: 640px;
   width: 100%;
-  margin: 16px;
   padding: 18px 18px 20px;
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
+  backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -276,15 +270,12 @@
 .filtersTitle {
   margin: 0;
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(
-    auto-fit,
-    minmax(180px, 1fr)
-  );
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px 12px;
   align-items: center;
   margin-top: 4px;
@@ -303,16 +294,10 @@
 
 .input:focus,
 .select:focus {
-  box-shadow: 0 0 0 3px
-    color-mix(
-      in oklab,
-      var(--color-primary) 20%,
-      transparent
-    );
-  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
 }
 
-/* acțiuni modal: Aplică / Resetează */
 .filterActions {
   grid-column: 1 / -1;
   display: flex;
@@ -326,12 +311,11 @@
   color: #fff;
   border: 1px solid var(--color-primary);
   padding: 10px 16px;
-  border-radius: var(--radius);
+  border-radius: 9999px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   font: inherit;
 }
-
 .btnApply:hover {
   background: var(--color-hover);
   border-color: var(--color-hover);
@@ -342,14 +326,11 @@
   color: var(--color-text);
   border: 1px solid var(--color-border);
   padding: 10px 16px;
-  border-radius: var(--radius);
+  border-radius: 9999px;
   cursor: pointer;
   font: inherit;
 }
-
-.btnReset:hover {
-  filter: brightness(0.97);
-}
+.btnReset:hover { filter: brightness(0.97); }
 
 /* ========================= */
 /*        CONȚINUT LISTĂ     */
@@ -358,16 +339,14 @@
 .loading {
   padding: 24px;
   text-align: center;
+  color: color-mix(in oklab, var(--color-text) 70%, transparent);
 }
 
 .grid {
   margin: 12px 0;
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(260px, 1fr)
-  );
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   list-style: none;
   padding: 0;
 }
@@ -376,9 +355,7 @@
 /*         CARD MAGAZIN      */
 /* ========================= */
 
-.card {
-  list-style: none;
-}
+.card { list-style: none; }
 
 .cardLink {
   width: 100%;
@@ -391,21 +368,14 @@
   align-items: flex-start;
   gap: 10px;
   text-align: left;
-  transition:
-    box-shadow 0.15s ease,
-    transform 0.12s ease,
-    border-color 0.15s ease;
+  color: var(--color-text);
+  transition: box-shadow .15s ease, transform .12s ease, border-color .15s ease;
 }
 
 .cardLink:hover {
-  box-shadow: 0 12px 30px
-    rgba(15, 23, 42, 0.12);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
   transform: translateY(-2px);
-  border-color: color-mix(
-    in oklab,
-    var(--color-primary) 35%,
-    var(--color-border)
-  );
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
 }
 
 .thumbWrap {
@@ -414,7 +384,7 @@
   border-radius: 16px;
   overflow: hidden;
   flex-shrink: 0;
-  background: #f4f4f6;
+  background: color-mix(in oklab, var(--color-border) 65%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -431,10 +401,11 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .title {
-  font-weight: 700;
+  font-weight: 800;
   font-size: 16px;
   line-height: 1.3;
   white-space: nowrap;
@@ -444,7 +415,7 @@
 
 .meta {
   font-size: 13px;
-  color: var(--color-text-muted, #666);
+  color: color-mix(in oklab, var(--color-text) 62%, transparent);
 }
 
 .badges {
@@ -460,61 +431,22 @@
   letter-spacing: 0.06em;
   padding: 3px 8px;
   border-radius: 999px;
-  border: 1px solid
-    color-mix(
-      in oklab,
-      var(--color-primary) 24%,
-      var(--color-border)
-    );
-  background: color-mix(
-    in oklab,
-    var(--color-primary) 6%,
-    var(--surface)
-  );
+  border: 1px solid color-mix(in oklab, var(--color-primary) 24%, var(--color-border));
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+  color: var(--color-text);
 }
 
 .about {
   margin: 4px 0 0;
   font-size: 13px;
-  color: var(--color-text-muted, #555);
+  color: color-mix(in oklab, var(--color-text) 65%, transparent);
   max-height: 3em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 /* ========================= */
-/*         PAGINATION        */
-/* ========================= */
-
-.pagination {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-  margin: 14px 0;
-}
-
-.pagination button {
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  color: var(--color-text);
-  padding: 8px 12px;
-  border-radius: 9999px;
-  cursor: pointer;
-  font: inherit;
-}
-
-.pagination button:hover {
-  filter: brightness(0.97);
-}
-
-.pagination button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ========================= */
-/*        EMPTY STATE        */
+/*        EMPTY / ERROR      */
 /* ========================= */
 
 .empty {
@@ -526,7 +458,7 @@
 }
 
 .emptyTitle {
-  font-weight: 700;
+  font-weight: 800;
   margin-bottom: 6px;
 }
 
@@ -539,225 +471,84 @@
   cursor: pointer;
   font: inherit;
 }
-
 .btnPrimary:hover {
   background: var(--color-hover);
   border-color: var(--color-hover);
 }
 
-/* ========================= */
-/*        ERROR STATE        */
-/* ========================= */
-
 .errorBox {
   margin: 16px 0;
   padding: 12px 14px;
   border-radius: var(--radius);
-  border: 1px solid rgba(220, 38, 38, 0.25);
-  background: rgba(254, 226, 226, 0.7);
-  color: #991b1b;
+  border: 1px solid color-mix(in oklab, var(--color-danger) 35%, transparent);
+  background: color-mix(in oklab, var(--color-danger) 16%, var(--surface));
+  color: color-mix(in oklab, var(--color-danger) 65%, var(--color-text));
   font-size: 14px;
 }
+
 /* ========================= */
 /*        RESPONSIVE         */
 /* ========================= */
 
-/* Tablet */
 @media (max-width: 768px) {
-  .page {
-    padding: 10px;
-  }
+  .page { padding: 10px; }
 
-  /* titlu + butoane */
-  .h1 {
-    font-size: 20px;
-  }
+  .h1 { font-size: 20px; }
 
-  .iconCircle {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
-  }
+  .iconCircle { width: 32px; height: 32px; font-size: 14px; }
 
-  /* Search bar */
-  .searchShell {
-    padding: 3px 6px;
-  }
-  .searchInput {
-    font-size: 14px;
-    padding: 0 6px;
-  }
-  .searchIconBtn {
-    width: 34px;
-    height: 34px;
-    font-size: 14px;
-  }
+  .searchShell { padding: 3px 6px; }
+  .searchInput { font-size: 14px; padding: 0 6px; }
+  .searchIconBtn { width: 34px; height: 34px; font-size: 14px; }
 
-  /* Sugestii */
-  .suggestItem {
-    padding: 5px 6px;
-  }
-  .suggestThumb {
-    width: 32px;
-    height: 32px;
-  }
-  .suggestTitle {
-    font-size: 12px;
-  }
-  .suggestSubtitle {
-    font-size: 11px;
-  }
+  .suggestItem { padding: 7px 8px; }
+  .suggestThumb { width: 34px; height: 34px; }
 
-  /* Carduri */
-  .cardLink {
-    padding: 8px;
-    gap: 8px;
-    border-radius: 14px;
-  }
-  .thumbWrap {
-    width: 64px;
-    height: 64px;
-  }
-  .title {
-    font-size: 15px;
-  }
-  .meta,
-  .about {
-    font-size: 12px;
-  }
-
-  .badge {
-    font-size: 10px;
-    padding: 2px 6px;
-  }
+  .cardLink { padding: 8px; gap: 8px; border-radius: 14px; }
+  .thumbWrap { width: 64px; height: 64px; }
+  .title { font-size: 15px; }
+  .meta, .about { font-size: 12px; }
+  .badge { font-size: 10px; padding: 2px 6px; }
 }
 
-/* Telefoane mici */
 @media (max-width: 480px) {
-  .page {
-    padding: 8px;
-  }
+  .page { padding: 8px; }
 
-  /* HEADER compact */
   .headTop {
     flex-direction: column;
     gap: 6px;
     align-items: flex-start;
   }
 
-  .h1 {
-    font-size: 18px;
-  }
+  .h1 { font-size: 18px; }
 
-  .iconCircle {
-    width: 30px;
-    height: 30px;
-    font-size: 13px;
-  }
+  .iconCircle { width: 30px; height: 30px; font-size: 13px; }
 
-  /* BARA DE CĂUTARE mai mică */
-  .searchShell {
-    padding: 2px 4px;
-    border-radius: 12px;
-  }
-  .searchInput {
-    font-size: 13px;
-    padding: 0 4px;
-  }
-  .searchIconBtn {
-    width: 30px;
-    height: 30px;
-    font-size: 13px;
-  }
+  .searchShell { padding: 2px 4px; border-radius: 12px; }
+  .searchInput { font-size: 13px; padding: 0 4px; }
+  .searchIconBtn { width: 30px; height: 30px; font-size: 13px; }
 
-  /* Sugestii compacte */
-  .suggestBox {
-    border-radius: 10px;
-    padding: 4px;
-    max-height: 280px;
-  }
-  .suggestItem {
-    padding: 4px 6px;
-    gap: 6px;
-  }
-  .suggestThumb {
-    width: 28px;
-    height: 28px;
-  }
-  .suggestTitle {
-    font-size: 12px;
-  }
-  .suggestSubtitle {
-    font-size: 10px;
-  }
+  .suggestBox { border-radius: 10px; padding: 6px; max-height: 280px; }
+  .suggestThumb { width: 30px; height: 30px; }
+  .suggestTitle { font-size: 12px; }
+  .suggestSubtitle { font-size: 10px; }
 
-  /* Carduri SUPER COMPACTE */
-  .cardLink {
-    padding: 6px;
-    min-height: 72px;
-    gap: 8px;
-  }
-  .thumbWrap {
-    width: 56px;
-    height: 56px;
-  }
-  .title {
-    font-size: 14px;
-  }
-  .meta,
-  .about {
-    font-size: 11px;
-  }
-  .badge {
-    font-size: 9px;
-    padding: 2px 5px;
-  }
-
-  /* Grid mai îngust */
   .grid {
     gap: 12px;
     grid-template-columns: 1fr 1fr;
   }
 
-  /* MODAL FILTRE în stil bottom-sheet */
-  .filtersOverlay {
-    align-items: flex-end;
-  }
-
+  /* modal bottom-sheet */
+  .filtersOverlay { align-items: flex-end; }
   .filtersModal {
     margin: 0;
     border-radius: 20px 20px 0 0;
     padding: 14px;
   }
+  .filters { grid-template-columns: 1fr; gap: 8px; }
 
-  .filters {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
+  .input, .select { padding: 8px 10px; font-size: 14px; }
 
-  .input,
-  .select {
-    padding: 8px 10px;
-    font-size: 14px;
-  }
-
-  .filterActions {
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .filterActions button {
-    width: 100%;
-    padding: 10px;
-    font-size: 14px;
-  }
-
-  /* Pagination */
-  .pagination {
-    gap: 8px;
-  }
-  .pagination button {
-    padding: 6px 10px;
-    font-size: 13px;
-  }
+  .filterActions { flex-direction: column; gap: 6px; }
+  .filterActions button { width: 100%; padding: 10px; font-size: 14px; }
 }

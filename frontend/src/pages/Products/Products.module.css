@@ -1,45 +1,45 @@
 @import "../../styles/variables.css";
 
-.page {
+/* =========================
+   Page layout
+========================= */
+.page{
   max-width: 1200px;
   margin: 0 auto;
   padding: 16px;
 }
 
-/* ========================= */
-/*        HEADER PAGINĂ      */
-/* ========================= */
-
-.head {
+.head{
   display: grid;
   gap: 10px;
   margin-bottom: 10px;
 }
 
-/* rândul cu titlu + sort + butoane icon */
-.headTop {
+.headTop{
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap; /* permite ruperea pe 2 rânduri */
+  flex-wrap: wrap;
 }
 
-.h1 {
+.h1{
   margin: 0;
   font-family: var(--font-title);
   font-size: 24px;
   font-weight: 800;
 }
 
-.headActions {
+.headActions{
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-/* butoane icon rotunde lângă titlu */
-.iconCircle {
+/* =========================
+   Icon buttons
+========================= */
+.iconCircle{
   width: 36px;
   height: 36px;
   border-radius: 9999px;
@@ -50,248 +50,243 @@
   justify-content: center;
   cursor: pointer;
   font-size: 16px;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.1s ease;
   color: var(--color-text);
+  transition: background .15s ease, border-color .15s ease, transform .1s ease;
 }
-
-.iconCircle:hover {
-  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
-  border-color: var(--color-primary);
+.iconCircle:hover{
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
   transform: translateY(-1px);
 }
+.iconCircle:active{ transform: translateY(0); }
+.iconCircle:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
+}
 
-/* ========================= */
-/*      BARA DE CĂUTARE      */
-/* ========================= */
-
-.searchRow {
+/* =========================
+   Search row / pill
+========================= */
+.searchRow{
   margin-top: 12px;
   width: 100%;
 }
 
-/* “pilula” completă */
-.searchShell {
+.searchShell{
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #fff;
+  background: color-mix(in oklab, var(--surface) 92%, var(--color-bg));
   border-radius: 999px;
   padding: 4px 6px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
-  border: 1px solid color-mix(in oklab, var(--color-primary) 8%, #e9e9f0);
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
+  box-shadow: var(--shadow-md);
   width: 100%;
-  max-width: 100%;
   box-sizing: border-box;
 }
 
-/* inputul din mijloc – fără border propriu */
-.searchInput {
-  flex: 1 1 auto;
-  border: none;
-  background: transparent;
-  padding: 0 8px;
-  min-width: 0;
+.searchShell:focus-within{
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
 }
 
-/* pentru că folosim .input și aici, anulăm borderul implicit */
-.searchInput.input {
-  border: none;
-  box-shadow: none;
-}
-
-/* stânga/dreapta: butoane rotunde cu icon */
 .searchIconBtn,
-.searchCameraBtn {
+.searchCameraBtn{
   width: 38px;
   height: 38px;
   border-radius: 999px;
-  border: none;
+  border: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
   font-size: 16px;
+  transition: filter .15s ease, transform .08s ease;
 }
 
-/* icon search – primary */
-.searchIconBtn {
+.searchIconBtn{
   background: var(--color-primary);
   color: #fff;
 }
-
-/* icon camera – primary mai deschis */
-.searchCameraBtn {
-  background: color-mix(in oklab, var(--color-primary) 92%, #ffffff);
+.searchCameraBtn{
+  background: color-mix(in oklab, var(--color-primary) 88%, #fff);
   color: #fff;
 }
 
 .searchIconBtn:hover,
-.searchCameraBtn:hover {
-  filter: brightness(1.05);
+.searchCameraBtn:hover{ filter: brightness(1.05); }
+.searchIconBtn:active,
+.searchCameraBtn:active{ transform: translateY(1px); }
+
+.input{
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  outline: none;
+  font: inherit;
 }
 
-/* focus general pe shell (când focus e pe input) */
-.searchShell:focus-within {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px
-    color-mix(in oklab, var(--color-primary) 18%, transparent);
+.searchInput{
+  flex: 1 1 auto;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 8px;
+  min-width: 0;
+  color: var(--color-text);
+}
+.searchInput::placeholder{
+  color: color-mix(in oklab, var(--color-text) 55%, transparent);
 }
 
-/* ========================= */
-/*   AUTOCOMPLETE SUGGEST    */
-/* ========================= */
-
-.suggestDropdown {
+/* =========================
+   Suggest dropdown
+========================= */
+.suggestDropdown{
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
-  margin-top: 4px;
-  z-index: 20;
-  background: #fff;
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 14px 36px rgba(0,0,0,.18);
   padding: 8px;
   max-height: 360px;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 .suggestLoading,
-.suggestEmpty {
-  padding: 8px;
+.suggestEmpty{
+  padding: 10px;
   font-size: 13px;
-  color: var(--color-text-muted, #666);
+  color: color-mix(in oklab, var(--color-text) 60%, transparent);
 }
 
-.suggestSection {
-  padding: 6px;
-}
-
-.suggestSectionTitle {
+.suggestSection{ padding: 6px; }
+.suggestSectionTitle{
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
-  color: var(--color-text-muted, #777);
+  letter-spacing: .06em;
+  margin-bottom: 6px;
+  color: color-mix(in oklab, var(--color-text) 55%, transparent);
 }
 
-.suggestCategoryBtn {
+.suggestCategoryBtn{
   width: 100%;
   text-align: left;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: none;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 0;
   background: transparent;
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.12s ease;
+  color: var(--color-text);
+  transition: background .12s ease;
+}
+.suggestCategoryBtn:hover{
+  background: color-mix(in oklab, var(--color-border) 60%, transparent);
 }
 
-.suggestCategoryBtn:hover {
-  background: var(--surface, #f7f7f7);
-}
-
-.suggestProductsList {
+.suggestProductsList{
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.suggestProductBtn {
+.suggestProductBtn{
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: none;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 0;
   background: transparent;
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s ease;
+  color: var(--color-text);
+  transition: background .12s ease;
+}
+.suggestProductBtn:hover{
+  background: color-mix(in oklab, var(--color-border) 60%, transparent);
 }
 
-.suggestProductBtn:hover {
-  background: var(--surface, #f7f7f7);
-}
-
-.suggestProductThumb {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+.suggestProductThumb{
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
   object-fit: cover;
   flex-shrink: 0;
+  background: color-mix(in oklab, var(--color-border) 60%, transparent);
 }
 
-.suggestProductMeta {
-  display: flex;
-  flex-direction: column;
+.suggestProductMeta{
+  display: grid;
   gap: 2px;
+  min-width: 0;
 }
 
-.suggestProductTitle {
+.suggestProductTitle{
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 220px;
 }
 
-.suggestProductPrice {
+.suggestProductPrice{
   font-size: 12px;
-  color: var(--color-text-muted, #666);
+  color: color-mix(in oklab, var(--color-text) 60%, transparent);
 }
 
-/* ========================= */
-/*        MODAL FILTRE       */
-/* ========================= */
-
-.filtersOverlay {
+/* =========================
+   Filters modal
+========================= */
+.filtersOverlay{
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0,0,0,.35);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 999;
   padding: 16px;
   box-sizing: border-box;
-  overflow-x: hidden; /* fără scrollbar orizontal */
+  overflow-x: hidden;
 }
 
-.filtersModal {
-  background: var(--surface);
+.filtersModal{
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
   border-radius: 18px;
   width: 100%;
-  max-width: 640px;      /* dialog îngust, centrat */
+  max-width: 640px;
   max-height: 90vh;
   padding: 18px 20px 20px;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  box-shadow: 0 18px 45px rgba(0,0,0,.25);
+  backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.filtersModalHead {
+.filtersModalHead{
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.filtersTitle {
+.filtersTitle{
   margin: 0;
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
-/* --- conținut filtre: UN SINGUR COLUM -- */
-.filters {
+.filters{
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -302,10 +297,8 @@
   padding-right: 4px;
 }
 
-/* inputuri/select-uri din modal */
-.input,
 .inputN,
-.select {
+.select{
   border: 1px solid var(--color-border);
   background: var(--surface);
   color: var(--color-text);
@@ -315,20 +308,16 @@
   font: inherit;
 }
 
-.inputN {
-  text-align: right;
-}
+.inputN{ text-align: right; }
 
 .input:focus,
 .inputN:focus,
-.select:focus {
-  box-shadow: 0 0 0 3px
-    color-mix(in oklab, var(--color-primary) 20%, transparent);
-  border-color: var(--color-primary);
+.select:focus{
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
 }
 
-/* Acțiuni filtre: Aplică / Resetează */
-.filterActions {
+.filterActions{
   display: flex;
   gap: 8px;
   align-items: center;
@@ -336,89 +325,68 @@
   padding-top: 4px;
 }
 
-.btnApply {
+.btnApply{
   background: var(--color-primary);
   color: #fff;
   border: 1px solid var(--color-primary);
   padding: 10px 16px;
-  border-radius: var(--radius);
+  border-radius: 9999px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   font: inherit;
 }
-
-.btnApply:hover {
+.btnApply:hover{
   background: var(--color-hover);
   border-color: var(--color-hover);
 }
 
-.btnReset {
+.btnReset{
   background: var(--surface);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   padding: 10px 16px;
-  border-radius: var(--radius);
+  border-radius: 9999px;
   cursor: pointer;
   font: inherit;
 }
+.btnReset:hover{ filter: brightness(.97); }
 
-.btnReset:hover {
-  filter: brightness(0.97);
+/* checkbox “Personalizabile” */
+.filters label{
+  font-size: 13px;
+  color: color-mix(in oklab, var(--color-text) 70%, transparent);
+}
+.filters label input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
 }
 
-/* ========================= */
-/*        CONȚINUT LISTĂ     */
-/* ========================= */
-
-.loading {
-  padding: 24px;
-  text-align: center;
-}
-
-/* GRID produse (doar layout; cardul își are propriul CSS) */
-.grid {
+/* =========================
+   Grid + states
+========================= */
+.grid{
   margin: 12px 0;
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
 
-/* ========================= */
-/*         PAGINATION        */
-/* ========================= */
-
-.pagination {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-  margin: 14px 0;
+.loading{
+  padding: 24px;
+  text-align: center;
+  color: color-mix(in oklab, var(--color-text) 70%, transparent);
 }
 
-.pagination button {
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  color: var(--color-text);
-  padding: 8px 12px;
-  border-radius: 9999px;
-  cursor: pointer;
-  font: inherit;
+.resultsInfo{
+  padding: 18px 0;
+  text-align: center;
+  color: color-mix(in oklab, var(--color-text) 65%, transparent);
 }
 
-.pagination button:hover {
-  filter: brightness(0.97);
-}
-
-.pagination button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ========================= */
-/*        EMPTY STATE        */
-/* ========================= */
-
-.empty {
+/* =========================
+   Empty state + primary btn
+========================= */
+.empty{
   text-align: center;
   border: 1px dashed var(--color-border);
   border-radius: var(--radius);
@@ -426,12 +394,12 @@
   background: var(--surface);
 }
 
-.emptyTitle {
-  font-weight: 700;
+.emptyTitle{
+  font-weight: 800;
   margin-bottom: 6px;
 }
 
-.btnPrimary {
+.btnPrimary{
   background: var(--color-primary);
   color: #fff;
   border: 2px solid var(--color-primary);
@@ -440,17 +408,15 @@
   cursor: pointer;
   font: inherit;
 }
-
-.btnPrimary:hover {
+.btnPrimary:hover{
   background: var(--color-hover);
   border-color: var(--color-hover);
 }
 
-/* ========================= */
-/*   CHIP-URI FILTRE ACTIVE  */
-/* ========================= */
-
-.chipsWrap {
+/* =========================
+   Chips + smart summary
+========================= */
+.chipsWrap{
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -458,37 +424,31 @@
   margin-top: 8px;
 }
 
-.chip {
+.chip{
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid var(--color-border, #ddd);
-  background: var(--surface, #f7f7f7);
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--surface) 85%, var(--color-bg));
   font-size: 12px;
   gap: 6px;
   white-space: nowrap;
   cursor: pointer;
+  color: var(--color-text);
+}
+.chip:hover{
+  background: color-mix(in oklab, var(--surface) 92%, var(--color-bg));
 }
 
-.chip:hover {
-  background: #fff;
-}
-
-.chipLabel {
+.chipLabel{
   display: inline-flex;
   gap: 4px;
 }
 
-.chipCloseIcon {
-  font-size: 10px;
-}
+.chipCloseIcon{ font-size: 10px; }
 
-/* ========================= */
-/*   REZUMAT SMART SEARCH    */
-/* ========================= */
-
-.smartSummaryWrap {
+.smartSummaryWrap{
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -497,29 +457,32 @@
   font-size: 13px;
 }
 
-.smartSummaryText {
+.smartSummaryText{
   font-size: 13px;
-  color: var(--color-text-muted, #666);
+  color: color-mix(in oklab, var(--color-text) 62%, transparent);
 }
 
-.smartCategorySuggest {
+.smartCategorySuggest{
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px dashed var(--color-border, #ddd);
-  background: #fff;
+  border: 1px dashed var(--color-border);
+  background: var(--surface);
   font-size: 12px;
   gap: 4px;
   white-space: nowrap;
   cursor: pointer;
+  color: var(--color-text);
+}
+.smartCategorySuggest:hover{
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
 }
 
-/* ========================= */
-/*  BANNER SEARCH BY IMAGE   */
-/* ========================= */
-
-.imageSearchNotice {
+/* =========================
+   Image search banner
+========================= */
+.imageSearchNotice{
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -531,274 +494,136 @@
   flex-wrap: wrap;
 }
 
-.imageSearchText {
+.imageSearchText{
   font-size: 13px;
-  color: var(--color-text-muted);
+  color: color-mix(in oklab, var(--color-text) 62%, transparent);
 }
 
-.imageSearchBtn {
-  padding: 4px 8px;
-}
-
-.imageSearchBtn.btnPrimary {
+.imageSearchBtn{
   padding: 4px 10px;
 }
 
-/* ========================= */
-/*         RESPONSIVE        */
-/* ========================= */
-
-@media (max-width: 1024px) {
-  .page {
-    padding: 12px;
-  }
-}
-
-@media (max-width: 768px) {
-  .h1 {
-    font-size: 20px;
-  }
-
-  /* butoane icon din header puțin mai mici */
-  .iconCircle {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
-  }
-
-  /* sort inline mai compact */
-  .selectInline {
-    padding: 4px 8px;
-    font-size: 12px;
-  }
-
-  /* search pill mai „slabă” */
-  .searchShell {
-    padding: 3px 5px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
-  }
-
-  .searchIconBtn,
-  .searchCameraBtn {
-    width: 34px;
-    height: 34px;
-    font-size: 14px;
-  }
-
-  .searchInput {
-    font-size: 14px;
-  }
-
-  /* cards mai aproape între ele */
-  .grid {
-    gap: 12px;
-  }
-  .page {
-    padding: 10px;
-  }
-
-  .headTop {
-    align-items: flex-start;
-  }
-
-  .head {
-    gap: 8px;
-  }
-
-  /* modal ca bottom sheet */
-  .filtersOverlay {
-    align-items: flex-end;
-  }
-
-  .filtersModal {
-    max-width: 100%;
-    margin: 0;
-    border-radius: 18px 18px 0 0;
-  }
-
-  .filterActions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .filterActions button {
-    width: 100%;
-  }
-}
-
-@media (max-width: 480px) {
-  .page {
-    padding: 8px;
-  }
-
-  .headTop {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-
-  .headActions {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  /* MODAL peste navbar */
-  .filtersOverlay {
-    align-items: flex-end;
-    z-index: 9999 !important;
-  }
-
-  .filtersModal {
-    z-index: 10000 !important;
-    margin: 0;
-    width: 100%;
-    border-radius: 18px 18px 0 0;
-    padding: 14px 14px 16px;
-  }
-  .h1 {
-    font-size: 18px;
-  }
-
-  /* header mai compact */
-  .headTop {
-    gap: 4px;
-  }
-
-  .iconCircle {
-    width: 30px;
-    height: 30px;
-    font-size: 13px;
-  }
-
-  .selectInline {
-    font-size: 11px;
-  }
-
-  /* search bar mai mic */
-  .searchShell {
-    padding: 2px 4px;
-  }
-
-  .searchIconBtn,
-  .searchCameraBtn {
-    width: 30px;
-    height: 30px;
-    font-size: 13px;
-  }
-
-  .searchInput {
-    font-size: 13px;
-  }
-
-  /* inputurile din modal: mai înguste ca padding și font */
-  .filters .input,
-  .filters .inputN,
-  .filters .select {
-    padding: 8px 10px;
-    font-size: 13px;
-  }
-
-  .filtersTitle {
-    font-size: 16px;
-  }
-
-  .btnApply,
-  .btnReset {
-    padding: 8px 12px;
-    font-size: 13px;
-  }
-
-  .chip {
-    font-size: 11px;
-    padding: 3px 8px;
-  }
-
-  .smartSummaryText {
-    font-size: 12px;
-  }
-}
-
-/* select mic inline pentru sort */
-.selectInline {
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border, #ddd);
-  font-size: 13px;
-  background: #fff;
-}
-
-/* ========================= */
-/*          SKELETON         */
-/* ========================= */
-
-.cardSkeleton {
+/* =========================
+   Skeleton
+========================= */
+.cardSkeleton{
   border-radius: 16px;
   padding: 8px;
-  background: #fff;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
 }
 
-.skelImage {
+.skelImage{
   width: 100%;
   padding-top: 75%;
   border-radius: 12px;
   background: linear-gradient(
     90deg,
-    #f3f4f6 0%,
-    #e5e7eb 50%,
-    #f3f4f6 100%
+    color-mix(in oklab, var(--surface) 86%, var(--color-border)) 0%,
+    color-mix(in oklab, var(--surface) 70%, var(--color-border)) 50%,
+    color-mix(in oklab, var(--surface) 86%, var(--color-border)) 100%
   );
   animation: skelShine 1.4s infinite;
   background-size: 200% 100%;
 }
 
-.skelLine {
+.skelLine{
   height: 12px;
   border-radius: 999px;
-  background: #e5e7eb;
+  background: color-mix(in oklab, var(--surface) 60%, var(--color-border));
 }
 
-.skelLineShort {
+.skelLineShort{
   height: 10px;
   width: 60%;
   border-radius: 999px;
-  background: #e5e7eb;
+  background: color-mix(in oklab, var(--surface) 60%, var(--color-border));
 }
 
-@keyframes skelShine {
-  0% {
-    background-position: -40% 0;
-  }
-  100% {
-    background-position: 140% 0;
-  }
+@keyframes skelShine{
+  0%{ background-position: -40% 0; }
+  100%{ background-position: 140% 0; }
 }
 
-/* checkbox „Personalizabile” mai curat */
-.filters label {
-  font-size: 13px;
-  color: var(--color-text-muted, #555);
+/* =========================
+   Responsive
+========================= */
+@media (max-width: 1024px){
+  .page{ padding: 12px; }
 }
 
-.filters label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-}
-/* Tablet & mobil – padding egal pe stânga și dreapta */
-@media (max-width: 768px) {
-  .page {
-    padding-left: 16px;
-    padding-right: 16px;  /* egal cu stânga */
+@media (max-width: 768px){
+  .h1{ font-size: 20px; }
+
+  .iconCircle{
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
   }
+
+  .searchShell{
+    padding: 3px 5px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .searchIconBtn,
+  .searchCameraBtn{
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+  }
+
+  .searchInput{ font-size: 14px; }
+  .grid{ gap: 12px; }
+
+  /* modal ca bottom sheet */
+  .filtersOverlay{ align-items: flex-end; }
+  .filtersModal{
+    max-width: 100%;
+    margin: 0;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .filterActions{
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filterActions button{ width: 100%; }
 }
 
-/* Telefoane mici – și mai compact, dar simetric */
-@media (max-width: 480px) {
-  .page {
-    padding-left: 14px;
-    padding-right: 14px; /* egal cu stânga */
+@media (max-width: 480px){
+  .page{ padding: 14px; }
+
+  .headTop{
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
   }
+
+  .searchShell{ padding: 2px 4px; }
+
+  .searchIconBtn,
+  .searchCameraBtn{
+    width: 30px;
+    height: 30px;
+    font-size: 13px;
+  }
+
+  .searchInput{ font-size: 13px; }
+
+  .filtersOverlay{ z-index: 9999 !important; }
+  .filtersModal{
+    z-index: 10000 !important;
+    padding: 14px 14px 16px;
+  }
+
+  .filtersTitle{ font-size: 16px; }
+  .btnApply,
+  .btnReset{ padding: 9px 12px; font-size: 13px; }
+  .chip{ font-size: 11px; padding: 3px 8px; }
+  .smartSummaryText{ font-size: 12px; }
 }
