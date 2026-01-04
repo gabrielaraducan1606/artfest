@@ -1,7 +1,7 @@
 // backend/src/lib/mailer.js
 import nodemailer from "nodemailer";
-import { Resend } from "resend";
 import { prisma } from "../db.js";
+
 import {
   verificationEmailTemplate,
   resetPasswordEmailTemplate,
@@ -15,10 +15,7 @@ import {
   vendorDeactivateConfirmTemplate,
 } from "./emailTemplates.js";
 
-const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
-  /\/+$/,
-  ""
-);
+const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
 
 /**
@@ -26,7 +23,7 @@ const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
  * Prioritate:
  * 1) EMAIL_LOGO_URL (URL complet)
  * 2) R2_PUBLIC_BASE_URL + EMAIL_LOGO_KEY
- * 3) fallback vechi
+ * 3) fallback (media.artfest.ro)
  */
 const EMAIL_LOGO_URL =
   process.env.EMAIL_LOGO_URL ||
@@ -38,10 +35,9 @@ const EMAIL_LOGO_URL =
 
 /**
  * Configurare senders:
- * (păstrăm structura existentă ca să nu rupem nimic)
- *
- * IMPORTANT pentru Resend:
- * - "from" trebuie să fie un sender permis (domeniu verificat) în Resend.
+ * - noreply: pentru signup/reset/security/orders etc.
+ * - contact: pentru suport (guest support)
+ * - admin: pentru facturi/billing si confirmari administrative
  */
 const SENDERS = {
   noreply: {
@@ -73,33 +69,18 @@ const SENDERS = {
   },
 };
 
-/* ============================================================
-   === PROVIDER SELECT: RESEND (preferred) / SMTP (fallback)
-   ============================================================ */
-
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-const USE_RESEND = Boolean(RESEND_API_KEY && RESEND_API_KEY.trim());
-
-const resend = USE_RESEND ? new Resend(RESEND_API_KEY) : null;
-
-// cache transportere SMTP ca sa nu recreezi conexiunea mereu
+// cache transportere ca sa nu recreezi conexiunea mereu
 const transportCache = new Map();
-
-function mustEnv(name, value) {
-  if (!value || !String(value).trim()) throw new Error(`Missing ${name}`);
-}
 
 export function makeTransport(senderKey = "noreply") {
   const port = Number(process.env.SMTP_PORT || 587);
   const host = process.env.SMTP_HOST;
-
-  mustEnv("SMTP_HOST", host);
+  if (!host) throw new Error("Missing SMTP_HOST");
 
   const sender = SENDERS[senderKey];
   if (!sender) throw new Error(`Unknown senderKey: ${senderKey}`);
-
-  mustEnv(`SMTP_USER for sender "${senderKey}"`, sender.user);
-  mustEnv(`SMTP_PASS for sender "${senderKey}"`, sender.pass);
+  if (!sender.user) throw new Error(`Missing SMTP_USER for sender "${senderKey}"`);
+  if (!sender.pass) throw new Error(`Missing SMTP_PASS for sender "${senderKey}"`);
 
   const cacheKey = `${senderKey}:${sender.user}:${host}:${port}`;
   if (transportCache.has(cacheKey)) return transportCache.get(cacheKey);
@@ -107,37 +88,9 @@ export function makeTransport(senderKey = "noreply") {
   const transporter = nodemailer.createTransport({
     host,
     port,
-    secure: port === 465, // 587 => false (STARTTLS)
+    secure: port === 465,
     auth: { user: sender.user, pass: sender.pass },
-
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 20_000,
-
-    requireTLS: port === 587,
-    tls: { rejectUnauthorized: true },
   });
-
-  // verify async (debug)
-  transporter
-    .verify()
-    .then(() =>
-      console.log(`[MAIL] SMTP verify OK (${senderKey})`, {
-        host,
-        port,
-        user: sender.user,
-      })
-    )
-    .catch((e) =>
-      console.error(`[MAIL] SMTP verify FAILED (${senderKey})`, {
-        host,
-        port,
-        user: sender.user,
-        message: e?.message,
-        code: e?.code,
-        response: e?.response,
-      })
-    );
 
   transportCache.set(cacheKey, transporter);
   return transporter;
@@ -152,27 +105,18 @@ function senderEnvelope(senderKey = "noreply") {
 }
 
 /* ============================================================
-   === LOGO INLINE (CID) - ROBUST (fetch -> buffer + cache)
-   ============================================================ */
-
+   LOGO INLINE (CID) - ROBUST (fetch -> buffer + cache)
+============================================================ */
 const LOGO_CID = "logo-artfest";
-let cachedLogo = null;
 
-// fetch cu timeout ca să nu blocheze
-async function fetchWithTimeout(url, ms = 8000) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), ms);
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
+// cache în memorie (o singură descărcare)
+let cachedLogo = null;
 
 async function getLogoAttachment() {
   if (cachedLogo) return cachedLogo;
 
-  const res = await fetchWithTimeout(EMAIL_LOGO_URL, 8000);
+  // Node 18+ are fetch global.
+  const res = await fetch(EMAIL_LOGO_URL);
   if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
 
   const contentType = res.headers.get("content-type") || "image/png";
@@ -183,8 +127,7 @@ async function getLogoAttachment() {
     filename: "logo.png",
     content: buffer.toString("base64"),
     encoding: "base64",
-    cid: LOGO_CID, // nodemailer
-    contentId: LOGO_CID, // resend
+    cid: LOGO_CID,
     contentType,
     contentDisposition: "inline",
   };
@@ -200,17 +143,8 @@ async function withLogo(templateFn, props = {}) {
     ...props,
   });
 
-  // NU lăsăm logo-ul să blocheze emailul
-  try {
-    const logoAttachment = await getLogoAttachment();
-    return { html, text, subject, logoAttachment };
-  } catch (e) {
-    console.error(
-      "[MAIL] logo attachment failed (sending without logo):",
-      e?.message || e
-    );
-    return { html, text, subject, logoAttachment: null };
-  }
+  const logoAttachment = await getLogoAttachment();
+  return { html, text, subject, logoAttachment };
 }
 
 const AUTO_HEADERS = {
@@ -220,9 +154,8 @@ const AUTO_HEADERS = {
 };
 
 /* ============================================================
-   === HELPERS
-   ============================================================ */
-
+   HELPERS
+============================================================ */
 function formatMoney(value, currency = "RON") {
   const v = Number(value || 0);
   return new Intl.NumberFormat("ro-RO", {
@@ -234,13 +167,15 @@ function formatMoney(value, currency = "RON") {
 }
 
 function stripHtml(html = "") {
-  return String(html).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return String(html)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /* ============================================================
-   === EMAIL LOGGING (Prisma EmailLog)
-   ============================================================ */
-
+   EMAIL LOGGING (Prisma EmailLog)
+============================================================ */
 function safeStr(v, max = 1000) {
   const s = v == null ? "" : String(v);
   return s.length > max ? s.slice(0, max) : s;
@@ -259,6 +194,7 @@ async function createEmailLogQueued({
   orderId = null,
   ticketId = null,
 }) {
+  // dacă tabelul nu există încă (înainte de migrate), să nu-ți crape aplicația
   try {
     return await prisma.emailLog.create({
       data: {
@@ -311,97 +247,6 @@ async function markEmailLogFailed(id, err) {
   }
 }
 
-/* ============================================================
-   === SEND (Resend or SMTP) + logging
-   ============================================================ */
-
-function normalizeFrom(fromStr) {
-  // Resend vrea "Name <email@domain>" sau "email@domain"
-  return String(fromStr || "").trim();
-}
-
-function normalizeTo(to) {
-  // Resend acceptă string sau array; păstrăm simplu.
-  return String(to || "").trim();
-}
-
-function toResendAttachments(nodemailerAttachments = []) {
-  // Nodemailer: { filename, content(base64), encoding, cid, contentType, contentDisposition }
-  // Resend: { filename, content(base64), contentType, contentId }
-  return (nodemailerAttachments || [])
-    .filter(Boolean)
-    .map((a) => ({
-      filename: a.filename || "attachment",
-      content: a.content, // base64
-      contentType: a.contentType,
-      contentId: a.contentId || a.cid, // pentru inline CID
-    }));
-}
-
-async function sendViaResend({ senderKey, mailOptions }) {
-  if (!resend) throw new Error("Resend not configured");
-
-  const sender = SENDERS[senderKey] || {};
-  const from = normalizeFrom(mailOptions?.from || sender?.from);
-  const to = normalizeTo(mailOptions?.to);
-  const subject = mailOptions?.subject || "";
-  const html = mailOptions?.html || "";
-  const text = mailOptions?.text || "";
-
-  const attachments = toResendAttachments(mailOptions?.attachments || []);
-
-  // headers: Resend suportă "headers" object
-  const headers = mailOptions?.headers || undefined;
-  const replyTo = mailOptions?.replyTo || sender?.replyTo || undefined;
-
-  const payload = {
-    from,
-    to,
-    subject,
-    html,
-    text,
-    reply_to: replyTo,
-    headers,
-    attachments: attachments.length ? attachments : undefined,
-  };
-
-  const res = await resend.emails.send(payload);
-
-  // Resend returnează { data: { id }, error }
-  if (res?.error) {
-    const err = new Error(res.error.message || "Resend error");
-    err.code = res.error.name || "RESEND_ERROR";
-    err.response = res.error;
-    throw err;
-  }
-
-  return {
-    provider: "resend",
-    messageId: res?.data?.id || null,
-    accepted: [to],
-    rejected: [],
-    response: "OK",
-    raw: res,
-  };
-}
-
-async function sendViaSmtp({ senderKey, mailOptions, headersOverride }) {
-  const transporter = makeTransport(senderKey);
-  const res = await transporter.sendMail({
-    ...mailOptions,
-    headers: headersOverride || mailOptions.headers,
-  });
-
-  return {
-    provider: "smtp",
-    messageId: res?.messageId || null,
-    accepted: res?.accepted || [],
-    rejected: res?.rejected || [],
-    response: res?.response,
-    raw: res,
-  };
-}
-
 async function sendMailLogged({
   senderKey,
   to,
@@ -427,74 +272,36 @@ async function sendMailLogged({
     replyTo,
     template,
     subject,
-    provider: USE_RESEND ? "resend" : "smtp",
+    provider: "smtp",
     orderId,
     ticketId,
   });
 
   try {
-    let result;
+    const transporter = makeTransport(senderKey);
 
-    if (USE_RESEND) {
-      // Resend
-      result = await sendViaResend({
-        senderKey,
-        mailOptions: {
-          ...mailOptions,
-          headers: headers || mailOptions.headers,
-        },
-      });
-
-      console.log("[MAIL] sent (resend)", {
-        senderKey,
-        to,
-        messageId: result?.messageId,
-      });
-    } else {
-      // SMTP fallback
-      result = await sendViaSmtp({
-        senderKey,
-        mailOptions,
-        headersOverride: headers,
-      });
-
-      console.log("[MAIL] sent (smtp)", {
-        senderKey,
-        to,
-        messageId: result?.messageId,
-        accepted: result?.accepted,
-        rejected: result?.rejected,
-        response: result?.response,
-      });
-    }
+    const res = await transporter.sendMail({
+      ...mailOptions,
+      headers: headers || mailOptions.headers,
+    });
 
     if (log?.id) {
       await markEmailLogSent(log.id, {
-        provider: result?.provider,
-        messageId: result?.messageId,
+        provider: "smtp",
+        messageId: res?.messageId,
       });
     }
 
-    return result;
+    return res;
   } catch (err) {
-    console.error("[MAIL] failed", {
-      provider: USE_RESEND ? "resend" : "smtp",
-      senderKey,
-      to,
-      message: err?.message,
-      code: err?.code,
-      response: err?.response,
-    });
-
     if (log?.id) await markEmailLogFailed(log.id, err);
     throw err;
   }
 }
 
 /* ============================================================
-   === GUEST SUPPORT EMAILS (sender: contact@)
-   ============================================================ */
-
+   GUEST SUPPORT EMAILS (sender: contact@)
+============================================================ */
 export async function sendGuestSupportConfirmationEmail({
   to,
   name,
@@ -522,7 +329,7 @@ export async function sendGuestSupportConfirmationEmail({
       subject: emailSubject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
     },
   });
 }
@@ -554,15 +361,14 @@ export async function sendGuestSupportReplyEmail({
       subject: emailSubject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
     },
   });
 }
 
 /* ============================================================
-   === AUTH / SECURITY EMAILS (sender: no-reply@)
-   ============================================================ */
-
+   AUTH / SECURITY EMAILS (sender: no-reply@)
+============================================================ */
 export async function sendVerificationEmail({ to, link, userId = null }) {
   const { html, text, subject, logoAttachment } = await withLogo(
     verificationEmailTemplate,
@@ -581,7 +387,7 @@ export async function sendVerificationEmail({ to, link, userId = null }) {
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -605,17 +411,13 @@ export async function sendPasswordResetEmail({ to, link, userId = null }) {
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
-export async function sendEmailChangeVerificationEmail({
-  to,
-  link,
-  userId = null,
-}) {
+export async function sendEmailChangeVerificationEmail({ to, link, userId = null }) {
   const { html, text, subject, logoAttachment } = await withLogo(
     emailChangeVerificationTemplate,
     { link }
@@ -633,16 +435,15 @@ export async function sendEmailChangeVerificationEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === MARKETING (sender: no-reply@)
-   ============================================================ */
-
+   MARKETING (sender: no-reply@)
+============================================================ */
 export async function sendMarketingEmail({
   to,
   subject,
@@ -652,36 +453,26 @@ export async function sendMarketingEmail({
 }) {
   if (!to || !subject || !html) return;
 
-  const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error("[MAIL] logo fetch failed (marketing)", e?.message || e);
-    return null;
-  });
+  const logoAttachment = await getLogoAttachment();
 
   const finalHtml = `
-  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-    ${
-      preheader
-        ? `<span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">
-        ${preheader}
-      </span>`
-        : ""
-    }
-
-    <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
-           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
-    </div>
-
-    <div style="background:#ffffff;border-radius:12px;padding:18px 16px;border:1px solid #e5e7eb;">
-      ${html}
-    </div>
-
-    <p style="font-size:11px;color:#9ca3af;text-align:center;margin:16px 0 0;">
-      Primești acest email pentru că ți-ai dat acordul să primești comunicări de marketing de la ${BRAND_NAME}.
-      Dacă nu mai vrei să primești astfel de mesaje, folosește linkul de dezabonare din email.
-    </p>
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  ${
+    preheader
+      ? `<span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">${preheader}</span>`
+      : ""
+  }
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
-  `;
+  <div style="background:#ffffff;border-radius:12px;padding:18px 16px;border:1px solid #e5e7eb;">
+    ${html}
+  </div>
+  <p style="font-size:11px;color:#9ca3af;text-align:center;margin:16px 0 0;">
+    Primești acest email pentru că ți-ai dat acordul să primești comunicări de marketing de la ${BRAND_NAME}.
+    Dacă nu mai vrei să primești astfel de mesaje, folosește linkul de dezabonare din email.
+  </p>
+</div>`.trim();
 
   const text = stripHtml(html);
 
@@ -697,16 +488,15 @@ export async function sendMarketingEmail({
       subject,
       html: finalHtml,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === INACTIVE ACCOUNT (sender: no-reply@)
-   ============================================================ */
-
+   INACTIVE ACCOUNT (sender: no-reply@)
+============================================================ */
 export async function sendInactiveAccountWarningEmail({
   to,
   deleteAt,
@@ -714,10 +504,7 @@ export async function sendInactiveAccountWarningEmail({
 }) {
   if (!to || !deleteAt) return;
 
-  const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error("[MAIL] logo fetch failed (inactive warning)", e?.message || e);
-    return null;
-  });
+  const logoAttachment = await getLogoAttachment();
 
   const dateStr = deleteAt.toLocaleDateString("ro-RO", {
     year: "numeric",
@@ -725,43 +512,37 @@ export async function sendInactiveAccountWarningEmail({
     day: "numeric",
   });
 
-  const subject = `Contul tău va fi șters pentru inactivitate`;
+  const subject = "Contul tău va fi șters pentru inactivitate";
 
   const html = `
-  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-    <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
-           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
-    </div>
-
-    <h2 style="color:#111827;margin:0 0 12px;">Contul tău este inactiv</h2>
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      Contul tău pe <strong>${BRAND_NAME}</strong> nu a mai fost folosit de mult timp.
-    </p>
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      Din motive de securitate și protecția datelor, contul va fi <strong>șters definitiv</strong>
-      dacă nu te conectezi până la data de <strong>${dateStr}</strong>.
-    </p>
-    <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
-      Pentru a păstra contul activ, autentifică-te în platformă înainte de această dată.
-    </p>
-
-    ${
-      APP_URL
-        ? `<p style="text-align:center;margin:24px 0 0;">
-        <a href="${APP_URL}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-          Mergi la ${BRAND_NAME}
-        </a>
-      </p>`
-        : ""
-    }
-
-    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
-      Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
-    </p>
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
-  `;
+  <h2 style="color:#111827;margin:0 0 12px;">Contul tău este inactiv</h2>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Contul tău pe <strong>${BRAND_NAME}</strong> nu a mai fost folosit de mult timp.
+  </p>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Din motive de securitate și protecția datelor, contul va fi <strong>șters definitiv</strong> dacă nu te conectezi până la data de <strong>${dateStr}</strong>.
+  </p>
+  <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
+    Pentru a păstra contul activ, autentifică-te în platformă înainte de această dată.
+  </p>
+  ${
+    APP_URL
+      ? `<p style="text-align:center;margin:24px 0 0;">
+           <a href="${APP_URL}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+             Mergi la ${BRAND_NAME}
+           </a>
+         </p>`
+      : ""
+  }
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
 
   const text = [
     `Contul tău pe ${BRAND_NAME} este inactiv.`,
@@ -783,16 +564,15 @@ export async function sendInactiveAccountWarningEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === ORDERS (sender: no-reply@)
-   ============================================================ */
-
+   ORDERS (sender: no-reply@)
+============================================================ */
 export async function sendOrderConfirmationEmail({
   to,
   order,
@@ -802,13 +582,7 @@ export async function sendOrderConfirmationEmail({
 }) {
   if (!to || !order) return;
 
-  const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error(
-      "[MAIL] logo fetch failed (order confirmation)",
-      e?.message || e
-    );
-    return null;
-  });
+  const logoAttachment = await getLogoAttachment();
 
   const currency = order.currency || "RON";
   const total = formatMoney(order.total, currency);
@@ -829,27 +603,17 @@ export async function sendOrderConfirmationEmail({
     (items || [])
       .map(
         (it) => `
-      <tr>
-        <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;">
-          ${it.title}
-        </td>
-        <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">
-          x${it.qty}
-        </td>
-        <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">
-          ${formatMoney(it.price * it.qty, currency)}
-        </td>
-      </tr>
-    `
+<tr>
+  <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;">${it.title}</td>
+  <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">x${it.qty}</td>
+  <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatMoney(
+    it.price * it.qty,
+    currency
+  )}</td>
+</tr>`
       )
       .join("") ||
-    `
-      <tr>
-        <td colspan="3" style="padding:8px;text-align:center;color:#6b7280;">
-          Detaliile produselor nu sunt disponibile.
-        </td>
-      </tr>
-    `;
+    `<tr><td colspan="3" style="padding:8px;text-align:center;color:#6b7280;">Detaliile produselor nu sunt disponibile.</td></tr>`;
 
   const storeAddressesMap =
     storeAddresses || (order.meta && order.meta.storeAddresses) || null;
@@ -861,25 +625,23 @@ export async function sendOrderConfirmationEmail({
     const entries = Object.values(storeAddressesMap);
     if (entries.length) {
       storeAddressesHtml = `
-      <h3 style="color:#111827;margin:20px 0 8px;font-size:16px;">Adrese retur magazine</h3>
-      <div style="color:#374151;margin:0 0 16px;line-height:1.5;">
-        ${entries
-          .map((a) => {
-            const line1 = a.street || "";
-            const line2 = [a.postalCode, a.city].filter(Boolean).join(" ");
-            const line3 = [a.county, a.country].filter(Boolean).join(", ");
-            return `
-              <p style="margin:0 0 8px;">
-                <strong>${a.name || "Magazin"}</strong><br>
-                ${line1}${line1 && (line2 || line3) ? "<br>" : ""}
-                ${line2 || ""}${line2 && line3 ? "<br>" : ""}
-                ${line3 || ""}
-              </p>
-            `;
-          })
-          .join("")}
-      </div>
-      `;
+<h3 style="color:#111827;margin:20px 0 8px;font-size:16px;">Adrese retur magazine</h3>
+<div style="color:#374151;margin:0 0 16px;line-height:1.5;">
+  ${entries
+    .map((a) => {
+      const line1 = a.street || "";
+      const line2 = [a.postalCode, a.city].filter(Boolean).join(" ");
+      const line3 = [a.county, a.country].filter(Boolean).join(", ");
+      return `
+<p style="margin:0 0 8px;">
+  <strong>${a.name || "Magazin"}</strong><br>
+  ${line1}${line1 && (line2 || line3) ? "<br>" : ""}
+  ${line2 || ""}${line2 && line3 ? "<br>" : ""}
+  ${line3 || ""}
+</p>`;
+    })
+    .join("")}
+</div>`.trim();
 
       storeAddressesTextLines = entries.flatMap((a) => {
         const lines = [];
@@ -895,85 +657,77 @@ export async function sendOrderConfirmationEmail({
   }
 
   const html = `
-  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-    <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
-           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
-    </div>
-
-    <h2 style="color:#111827;margin:0 0 8px;">Mulțumim pentru comandă, ${customerName}!</h2>
-    <p style="color:#374151;margin:0 0 12px;">
-      Comanda ta pe <strong>${BRAND_NAME}</strong> a fost înregistrată cu succes.
-    </p>
-    <p style="color:#374151;margin:0 0 16px;">
-      <strong>Număr comandă:</strong> ${order.id}<br>
-      <strong>Metodă de plată:</strong> ${
-        order.paymentMethod === "COD"
-          ? "Plată la livrare (ramburs)"
-          : "Card online"
-      }
-    </p>
-
-    <h3 style="color:#111827;margin:16px 0 8px;font-size:16px;">Produse comandate</h3>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#ffffff;border-radius:8px;overflow:hidden;">
-      <thead>
-        <tr style="background:#f3f4f6;">
-          <th align="left" style="padding:8px 8px;font-size:14px;color:#374151;">Produs</th>
-          <th align="center" style="padding:8px 8px;font-size:14px;color:#374151;">Cantitate</th>
-          <th align="right" style="padding:8px 8px;font-size:14px;color:#374151;">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${itemsRows}
-      </tbody>
-      <tfoot>
-        <tr>
-          <td colspan="2" style="padding:8px 8px;text-align:right;color:#4b5563;">Subtotal</td>
-          <td style="padding:8px 8px;text-align:right;"><strong>${subtotal}</strong></td>
-        </tr>
-        <tr>
-          <td colspan="2" style="padding:4px 8px;text-align:right;color:#4b5563;">Transport</td>
-          <td style="padding:4px 8px;text-align:right;"><strong>${shippingTotal}</strong></td>
-        </tr>
-        <tr>
-          <td colspan="2" style="padding:8px 8px;text-align:right;color:#111827;">Total</td>
-          <td style="padding:8px 8px;text-align:right;font-size:16px;"><strong>${total}</strong></td>
-        </tr>
-      </tfoot>
-    </table>
-
-    <h3 style="color:#111827;margin:20px 0 8px;font-size:16px;">Adresă livrare</h3>
-    <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
-      ${customerName}<br>
-      ${address.street || ""}<br>
-      ${address.postalCode || ""} ${address.city || ""}<br>
-      ${address.county || ""}<br>
-      Tel: ${address.phone || ""}
-    </p>
-
-    ${storeAddressesHtml}
-
-    ${
-      orderLink
-        ? `
-      <p style="text-align:center;margin:24px 0 12px;">
-        <a href="${orderLink}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-          Vezi comanda în contul tău
-        </a>
-      </p>
-      <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
-        Sau accesează linkul: <a href="${orderLink}" style="color:#4f46e5;">${orderLink}</a>
-      </p>
-    `
-        : ""
-    }
-
-    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
-      Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
-    </p>
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
-  `;
+
+  <h2 style="color:#111827;margin:0 0 8px;">Mulțumim pentru comandă, ${customerName}!</h2>
+  <p style="color:#374151;margin:0 0 12px;">Comanda ta pe <strong>${BRAND_NAME}</strong> a fost înregistrată cu succes.</p>
+  <p style="color:#374151;margin:0 0 16px;">
+    <strong>Număr comandă:</strong> ${order.id}<br>
+    <strong>Metodă de plată:</strong> ${
+      order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"
+    }
+  </p>
+
+  <h3 style="color:#111827;margin:16px 0 8px;font-size:16px;">Produse comandate</h3>
+  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#ffffff;border-radius:8px;overflow:hidden;">
+    <thead>
+      <tr style="background:#f3f4f6;">
+        <th align="left" style="padding:8px 8px;font-size:14px;color:#374151;">Produs</th>
+        <th align="center" style="padding:8px 8px;font-size:14px;color:#374151;">Cantitate</th>
+        <th align="right" style="padding:8px 8px;font-size:14px;color:#374151;">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemsRows}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2" style="padding:8px 8px;text-align:right;color:#4b5563;">Subtotal</td>
+        <td style="padding:8px 8px;text-align:right;"><strong>${subtotal}</strong></td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:4px 8px;text-align:right;color:#4b5563;">Transport</td>
+        <td style="padding:4px 8px;text-align:right;"><strong>${shippingTotal}</strong></td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:8px 8px;text-align:right;color:#111827;">Total</td>
+        <td style="padding:8px 8px;text-align:right;font-size:16px;"><strong>${total}</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <h3 style="color:#111827;margin:20px 0 8px;font-size:16px;">Adresă livrare</h3>
+  <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
+    ${customerName}<br>
+    ${address.street || ""}<br>
+    ${`${address.postalCode || ""} ${address.city || ""}`.trim()}<br>
+    ${address.county || ""}<br>
+    Tel: ${address.phone || ""}
+  </p>
+
+  ${storeAddressesHtml}
+
+  ${
+    orderLink
+      ? `<p style="text-align:center;margin:24px 0 12px;">
+           <a href="${orderLink}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+             Vezi comanda în contul tău
+           </a>
+         </p>
+         <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
+           Sau accesează linkul: <a href="${orderLink}" style="color:#4f46e5;">${orderLink}</a>
+         </p>`
+      : ""
+  }
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
 
   const textLines = [
     `Mulțumim pentru comandă, ${customerName}!`,
@@ -995,7 +749,7 @@ export async function sendOrderConfirmationEmail({
     `Total: ${total}`,
     "",
     "Adresă livrare:",
-    `${customerName}`,
+    customerName,
     address.street || "",
     `${address.postalCode || ""} ${address.city || ""}`.trim(),
     address.county || "",
@@ -1008,12 +762,12 @@ export async function sendOrderConfirmationEmail({
   ].filter(Boolean);
 
   const text = textLines.join("\n");
-  const subj = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
+  const subject = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
 
   return sendMailLogged({
     senderKey: "noreply",
     to,
-    subject: subj,
+    subject,
     template: "order_confirmation",
     userId,
     orderId: order.id,
@@ -1021,10 +775,10 @@ export async function sendOrderConfirmationEmail({
     mailOptions: {
       ...senderEnvelope("noreply"),
       to,
-      subject: subj,
+      subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1045,13 +799,7 @@ export async function sendOrderCancelledEmail({
 }) {
   if (!to || !orderId) return;
 
-  const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error(
-      "[MAIL] logo fetch failed (order cancelled vendor)",
-      e?.message || e
-    );
-    return null;
-  });
+  const logoAttachment = await getLogoAttachment();
 
   const prettyId = shortId || orderId;
   const storeName = vendorName || BRAND_NAME || "magazinul nostru";
@@ -1059,15 +807,13 @@ export async function sendOrderCancelledEmail({
   let reasonText = "";
   switch (cancelReason) {
     case "client_no_answer":
-      reasonText =
-        "nu am reușit să vă contactăm telefonic pentru confirmarea comenzii.";
+      reasonText = "nu am reușit să vă contactăm telefonic pentru confirmarea comenzii.";
       break;
     case "client_request":
       reasonText = "ați solicitat anularea comenzii.";
       break;
     case "stock_issue":
-      reasonText =
-        "produsele comandate nu mai sunt disponibile momentan (stoc epuizat).";
+      reasonText = "produsele comandate nu mai sunt disponibile momentan (stoc epuizat).";
       break;
     case "address_issue":
       reasonText =
@@ -1082,8 +828,7 @@ export async function sendOrderCancelledEmail({
         : "a intervenit o situație neprevăzută.";
       break;
     default:
-      reasonText =
-        "a intervenit o situație care nu ne permite să onorăm comanda.";
+      reasonText = "a intervenit o situație care nu ne permite să onorăm comanda.";
   }
 
   const address = shippingAddress || {};
@@ -1099,58 +844,54 @@ export async function sendOrderCancelledEmail({
   const subject = `Comanda ta #${prettyId} a fost anulată - ${BRAND_NAME}`;
 
   const html = `
-  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-    <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
-           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
-    </div>
-
-    <h2 style="color:#111827;margin:0 0 8px;">Comanda ta a fost anulată</h2>
-    <p style="color:#374151;margin:0 0 8px;">
-      Bună, <strong>${customerName}</strong>,
-    </p>
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      Comanda ta cu numărul <strong>#${prettyId}</strong> la <strong>${storeName}</strong> a fost anulată.
-    </p>
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      <strong>Motiv:</strong> ${reasonText}
-    </p>
-    <p style="color:#6b7280;margin:0 0 16px;line-height:1.5;font-size:14px;">
-      Dacă ai întrebări sau dorești să refaci comanda, ne poți contacta din contul tău sau prin intermediul acestui email.
-    </p>
-
-    ${
-      orderLink
-        ? `
-      <p style="text-align:center;margin:24px 0 12px;">
-        <a href="${orderLink}" style="background:#ef4444;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-          Vezi detaliile comenzii
-        </a>
-      </p>
-      <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
-        Sau accesează linkul: <a href="${orderLink}" style="color:#ef4444;">${orderLink}</a>
-      </p>
-    `
-        : ""
-    }
-
-    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
-      Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
-    </p>
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
-  `;
 
-  const textLines = [
+  <h2 style="color:#111827;margin:0 0 8px;">Comanda ta a fost anulată</h2>
+  <p style="color:#374151;margin:0 0 8px;">
+    Bună, <strong>${customerName}</strong>,
+  </p>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Comanda ta cu numărul <strong>#${prettyId}</strong> la <strong>${storeName}</strong> a fost anulată.
+  </p>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    <strong>Motiv:</strong> ${reasonText}
+  </p>
+  <p style="color:#6b7280;margin:0 0 16px;line-height:1.5;font-size:14px;">
+    Dacă ai întrebări sau dorești să refaci comanda, ne poți contacta din contul tău sau prin intermediul acestui email.
+  </p>
+
+  ${
+    orderLink
+      ? `<p style="text-align:center;margin:24px 0 12px;">
+           <a href="${orderLink}" style="background:#ef4444;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+             Vezi detaliile comenzii
+           </a>
+         </p>
+         <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
+           Sau accesează linkul: <a href="${orderLink}" style="color:#ef4444;">${orderLink}</a>
+         </p>`
+      : ""
+  }
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
+
+  const text = [
     `Bună, ${customerName},`,
     "",
     `Comanda ta #${prettyId} la ${storeName} a fost anulată.`,
     `Motiv: ${reasonText}`,
     "",
     orderLink ? `Poți vedea detaliile comenzii aici: ${orderLink}` : "",
-  ].filter(Boolean);
-
-  const text = textLines.join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -1166,7 +907,7 @@ export async function sendOrderCancelledEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1175,23 +916,14 @@ export async function sendOrderCancelledEmail({
 /**
  * ✉️ Email „comanda a fost anulată de CLIENT” (sender: no-reply@)
  */
-export async function sendOrderCancelledByUserEmail({
-  to,
-  order,
-  userId = null,
-}) {
+export async function sendOrderCancelledByUserEmail({ to, order, userId = null }) {
   if (!to || !order) return;
 
-  const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error(
-      "[MAIL] logo fetch failed (order cancelled user)",
-      e?.message || e
-    );
-    return null;
-  });
+  const logoAttachment = await getLogoAttachment();
 
   const prettyId = order.shortId || order.id;
   const address = order.shippingAddress || {};
+
   const customerName =
     address.name ||
     `${address.lastName || ""} ${address.firstName || ""}`.trim() ||
@@ -1209,50 +941,46 @@ export async function sendOrderCancelledByUserEmail({
   const subject = `Ai anulat comanda #${prettyId} - ${BRAND_NAME}`;
 
   const html = `
-  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-    <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
-           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
-    </div>
-
-    <h2 style="color:#111827;margin:0 0 8px;">Ai anulat o comandă</h2>
-    <p style="color:#374151;margin:0 0 8px;">
-      Bună, <strong>${customerName}</strong>,
-    </p>
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      Comanda ta cu numărul <strong>#${prettyId}</strong> pe <strong>${BRAND_NAME}</strong> a fost anulată din contul tău.
-    </p>
-
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      <strong>Rezumat:</strong><br>
-      Subtotal: ${subtotal}<br>
-      Transport: ${shippingTotal}<br>
-      Total: ${total}
-    </p>
-
-    ${
-      orderLink
-        ? `
-      <p style="text-align:center;margin:24px 0 12px;">
-        <a href="${orderLink}" style="background:#4b5563;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-          Vezi istoricul comenzilor
-        </a>
-      </p>
-      <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
-        Sau accesează linkul: <a href="${orderLink}" style="color:#4b5563;">${orderLink}</a>
-      </p>
-    `
-        : ""
-    }
-
-    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
-      Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
-    </p>
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
-  `;
 
-  const textLines = [
+  <h2 style="color:#111827;margin:0 0 8px;">Ai anulat o comandă</h2>
+  <p style="color:#374151;margin:0 0 8px;">
+    Bună, <strong>${customerName}</strong>,
+  </p>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Comanda ta cu numărul <strong>#${prettyId}</strong> pe <strong>${BRAND_NAME}</strong> a fost anulată din contul tău.
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    <strong>Rezumat:</strong><br>
+    Subtotal: ${subtotal}<br>
+    Transport: ${shippingTotal}<br>
+    Total: ${total}
+  </p>
+
+  ${
+    orderLink
+      ? `<p style="text-align:center;margin:24px 0 12px;">
+           <a href="${orderLink}" style="background:#4b5563;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+             Vezi istoricul comenzilor
+           </a>
+         </p>
+         <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
+           Sau accesează linkul: <a href="${orderLink}" style="color:#4b5563;">${orderLink}</a>
+         </p>`
+      : ""
+  }
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
+
+  const text = [
     `Bună, ${customerName},`,
     "",
     `Ai anulat comanda #${prettyId} pe ${BRAND_NAME}.`,
@@ -1261,9 +989,9 @@ export async function sendOrderCancelledByUserEmail({
     `Total: ${total}`,
     "",
     orderLink ? `Poți vedea istoricul comenzilor aici: ${orderLink}` : "",
-  ].filter(Boolean);
-
-  const text = textLines.join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -1279,16 +1007,15 @@ export async function sendOrderCancelledByUserEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === SECURITY (sender: no-reply@)
-   ============================================================ */
-
+   SECURITY (sender: no-reply@)
+============================================================ */
 export async function sendPasswordStaleReminderEmail({
   to,
   passwordAgeDays,
@@ -1318,7 +1045,7 @@ export async function sendPasswordStaleReminderEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1344,16 +1071,15 @@ export async function sendSuspiciousLoginWarningEmail({ to, userId = null }) {
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === VENDOR FOLLOW-UP (sender: no-reply@)
-   ============================================================ */
-
+   VENDOR FOLLOW-UP (sender: no-reply@)
+============================================================ */
 export async function sendVendorFollowUpReminderEmail({
   to,
   contactName,
@@ -1384,16 +1110,15 @@ export async function sendVendorFollowUpReminderEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === INVOICE (sender: admin@)
-   ============================================================ */
-
+   INVOICE (sender: admin@)
+============================================================ */
 export async function sendInvoiceIssuedEmail({
   to,
   orderId,
@@ -1433,16 +1158,15 @@ export async function sendInvoiceIssuedEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === SHIPMENT PICKUP (sender: no-reply@)
-   ============================================================ */
-
+   SHIPMENT PICKUP (sender: no-reply@)
+============================================================ */
 export async function sendShipmentPickupEmail({
   to,
   orderId,
@@ -1454,10 +1178,7 @@ export async function sendShipmentPickupEmail({
 }) {
   if (!to) return;
 
-  const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error("[MAIL] logo fetch failed (shipment pickup)", e?.message || e);
-    return null;
-  });
+  const logoAttachment = await getLogoAttachment();
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
   const orderLink = baseUrl
@@ -1467,69 +1188,61 @@ export async function sendShipmentPickupEmail({
   const subject = `Comanda ta a fost predată curierului - ${BRAND_NAME}`;
 
   const html = `
-  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-    <div style="text-align:center;margin-bottom:20px;">
-      <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120"
-           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
-    </div>
-
-    <h2 style="color:#111827;margin:0 0 8px;">Comanda ta este în drum spre tine 🚚</h2>
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      Comanda ta pe <strong>${BRAND_NAME}</strong> a fost predată curierului.
-    </p>
-
-    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-      <strong>Număr comandă:</strong> ${orderId}<br>
-      <strong>AWB:</strong> ${awb || "-"}<br>
-      <strong>Livrare estimată:</strong> ${etaLabel || "-"} în intervalul ${
-        slotLabel || "-"
-      }
-    </p>
-
-    ${
-      trackingUrl
-        ? `
-    <p style="text-align:center;margin:18px 0;">
-      <a href="${trackingUrl}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-        Urmărește coletul
-      </a>
-    </p>
-    <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
-      Sau accesează linkul: <a href="${trackingUrl}" style="color:#4f46e5;">${trackingUrl}</a>
-    </p>
-    `
-        : ""
-    }
-
-    ${
-      orderLink
-        ? `
-    <p style="color:#6b7280;font-size:13px;margin:16px 0 0;text-align:center;">
-      Poți vedea detaliile comenzii aici: <a href="${orderLink}" style="color:#4b5563;">${orderLink}</a>
-    </p>
-    `
-        : ""
-    }
-
-    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
-      Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
-    </p>
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
-  `;
 
-  const textLines = [
+  <h2 style="color:#111827;margin:0 0 8px;">Comanda ta este în drum spre tine 🚚</h2>
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    Comanda ta pe <strong>${BRAND_NAME}</strong> a fost predată curierului.
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+    <strong>Număr comandă:</strong> ${orderId}<br>
+    <strong>AWB:</strong> ${awb || "-"}<br>
+    <strong>Livrare estimată:</strong> ${etaLabel || "-"} în intervalul ${slotLabel || "-"}
+  </p>
+
+  ${
+    trackingUrl
+      ? `<p style="text-align:center;margin:18px 0;">
+           <a href="${trackingUrl}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+             Urmărește coletul
+           </a>
+         </p>
+         <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
+           Sau accesează linkul: <a href="${trackingUrl}" style="color:#4f46e5;">${trackingUrl}</a>
+         </p>`
+      : ""
+  }
+
+  ${
+    orderLink
+      ? `<p style="color:#6b7280;font-size:13px;margin:16px 0 0;text-align:center;">
+           Poți vedea detaliile comenzii aici: <a href="${orderLink}" style="color:#4b5563;">${orderLink}</a>
+         </p>`
+      : ""
+  }
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
+
+  const text = [
     `Comanda ta pe ${BRAND_NAME} a fost predată curierului.`,
     `Număr comandă: ${orderId}`,
     awb ? `AWB: ${awb}` : "",
     etaLabel || slotLabel
-      ? `Livrare estimată: ${etaLabel || ""} în intervalul ${slotLabel || ""}`.trim()
+      ? `Livrare estimată: ${etaLabel || ""} în intervalul ${(slotLabel || "").trim()}`.trim()
       : "",
     trackingUrl ? `Poți urmări coletul aici: ${trackingUrl}` : "",
     orderLink ? `Detalii comandă: ${orderLink}` : "",
-  ].filter(Boolean);
-
-  const text = textLines.join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -1544,21 +1257,16 @@ export async function sendShipmentPickupEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 /* ============================================================
-   === VENDOR DEACTIVATE CONFIRM (sender: admin@)
-   ============================================================ */
-
-export async function sendVendorDeactivateConfirmEmail({
-  to,
-  link,
-  userId = null,
-}) {
+   VENDOR DEACTIVATE CONFIRM (sender: admin@)
+============================================================ */
+export async function sendVendorDeactivateConfirmEmail({ to, link, userId = null }) {
   if (!to || !link) return;
 
   const { html, text, subject, logoAttachment } = await withLogo(
@@ -1578,7 +1286,7 @@ export async function sendVendorDeactivateConfirmEmail({
       subject,
       html,
       text,
-      attachments: logoAttachment ? [logoAttachment] : [],
+      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
