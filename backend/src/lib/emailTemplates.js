@@ -1,33 +1,22 @@
-/**
- * Template email de verificare a contului (signup).
- * Returnează:
- *  - html: corp email HTML
- *  - text: variantă text simplu
- *  - subject: subiectul emailului
- *
- * Parametri:
- *  - link: URL-ul de activare cont
- *  - brandName: numele brandului (default "Artfest")
- *  - logoCid / logoUrl: pentru logo inline sau URL direct
- */
+// backend/src/lib/emailTemplates.js
 
 /**
- * @param {object} opts
- * @param {string} opts.link
- * @param {string} [opts.brandName="Artfest"]
- * @param {string} [opts.logoCid]  // dacă e setat, folosim cid:<logoCid>
- * @param {string} [opts.logoUrl]  // fallback absolut HTTPS
+ * IMPORTANT:
+ * - Ca să nu apară logo ca attachment în unele clienți (Outlook etc.), folosim DOAR logoUrl (HTTPS).
+ * - Păstrăm logoCid în semnături ca să nu-ți rupă alte apeluri, dar îl ignorăm.
  */
-export function verificationEmailTemplate({
-  link,
-  brandName = "Artfest",
-  logoCid,
-  logoUrl,
-}) {
-  const logoSrc =
-    logoCid
-      ? `cid:${logoCid}`
-      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+
+const DEFAULT_LOGO = "https://media.artfest.ro/branding/LogoArtfest.png";
+
+function pickLogoUrl(logoUrl) {
+  return logoUrl || DEFAULT_LOGO;
+}
+
+/**
+ * Template email de verificare a contului (signup).
+ */
+export function verificationEmailTemplate({ link, brandName = "Artfest", logoUrl }) {
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -51,7 +40,7 @@ export function verificationEmailTemplate({
       Acest email a fost trimis automat de ${brandName}. Dacă nu ai cerut crearea unui cont, ignoră acest mesaj.
     </p>
   </div>
-  `;
+  `.trim();
 
   const text = `
 Bine ai venit pe ${brandName}!
@@ -66,16 +55,8 @@ Dacă nu ai cerut crearea unui cont, ignoră acest mesaj.
   return { html, text, subject: `Activează-ți contul pe ${brandName}` };
 }
 
-export function resetPasswordEmailTemplate({
-  link,
-  brandName = "Artfest",
-  logoCid,
-  logoUrl,
-}) {
-  const logoSrc =
-    logoCid
-      ? `cid:${logoCid}`
-      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+export function resetPasswordEmailTemplate({ link, brandName = "Artfest", logoUrl }) {
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -99,7 +80,7 @@ export function resetPasswordEmailTemplate({
       Dacă nu ai cerut resetarea parolei, ignoră acest mesaj.
     </p>
   </div>
-  `;
+  `.trim();
 
   const text = `
 Ai cerut resetarea parolei pentru contul tău ${brandName}.
@@ -114,10 +95,6 @@ Dacă nu ai cerut acest lucru, ignoră acest mesaj.
   return { html, text, subject: `Resetează-ți parola pe ${brandName}` };
 }
 
-/* ======================================================
- *   🔐 NOI template-uri: parolă veche + login suspect
- * ====================================================*/
-
 /**
  * Email template: recomandare schimbare parolă (parolă veche)
  */
@@ -126,25 +103,15 @@ export function passwordStaleReminderEmailTemplate({
   maxPasswordAgeDays,
   link,
   brandName = "Artfest",
-  logoCid,
   logoUrl,
 }) {
-  const logoSrc =
-    logoCid
-      ? `cid:${logoCid}`
-      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+  const logoSrc = pickLogoUrl(logoUrl);
 
-  const safeAge = Number.isFinite(passwordAgeDays)
-    ? passwordAgeDays
-    : null;
-  const safeMax = Number.isFinite(maxPasswordAgeDays)
-    ? maxPasswordAgeDays
-    : null;
+  const safeAge = Number.isFinite(passwordAgeDays) ? passwordAgeDays : null;
+  const safeMax = Number.isFinite(maxPasswordAgeDays) ? maxPasswordAgeDays : null;
 
-  const ageText =
-    safeAge != null ? `${safeAge} zile` : "o perioadă îndelungată";
-  const maxText =
-    safeMax != null ? `${safeMax} zile` : "o perioadă mai lungă";
+  const ageText = safeAge != null ? `${safeAge} zile` : "o perioadă îndelungată";
+  const maxText = safeMax != null ? `${safeMax} zile` : "o perioadă mai lungă";
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -176,7 +143,7 @@ export function passwordStaleReminderEmailTemplate({
       Acest email are scop informativ și a fost generat automat de ${brandName}.
     </p>
   </div>
-  `;
+  `.trim();
 
   const text = [
     `Parola contului tău pe ${brandName} nu a mai fost schimbată de aproximativ ${ageText}.`,
@@ -196,16 +163,8 @@ export function passwordStaleReminderEmailTemplate({
 /**
  * Email template: avertizare login suspect (multe încercări eșuate)
  */
-export function suspiciousLoginWarningEmailTemplate({
-  link,
-  brandName = "Artfest",
-  logoCid,
-  logoUrl,
-}) {
-  const logoSrc =
-    logoCid
-      ? `cid:${logoCid}`
-      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+export function suspiciousLoginWarningEmailTemplate({ link, brandName = "Artfest", logoUrl }) {
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -245,7 +204,7 @@ export function suspiciousLoginWarningEmailTemplate({
       Acest email a fost generat automat de ${brandName}. Dacă nu recunoști activitatea, schimbă parola cât mai curând.
     </p>
   </div>
-  `;
+  `.trim();
 
   const text = [
     `Am observat mai multe încercări eșuate de autentificare în contul tău ${brandName} într-un interval scurt de timp.`,
@@ -263,10 +222,6 @@ export function suspiciousLoginWarningEmailTemplate({
   };
 }
 
-/* ======================================================
- *   🔔 Template nou: follow-up vendor
- * ====================================================*/
-
 /**
  * Email template: reminder follow-up pentru vendor (lead)
  */
@@ -275,13 +230,9 @@ export function vendorFollowUpReminderEmailTemplate({
   followUpAt,
   link,
   brandName = "Artfest",
-  logoCid,
   logoUrl,
 }) {
-  const logoSrc =
-    logoCid
-      ? `cid:${logoCid}`
-      : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const dateStr = followUpAt
     ? new Date(followUpAt).toLocaleString("ro-RO", {
@@ -324,15 +275,15 @@ export function vendorFollowUpReminderEmailTemplate({
       Acest email a fost generat automat de ${brandName} pentru a te ajuta să ții evidența follow-up-urilor.
     </p>
   </div>
-  `;
+  `.trim();
 
-  const textLines = [
+  const text = [
     `Follow-up programat pentru ${safeName}.`,
     `Ți-ai propus să revii la acest client în data de ${dateStr}.`,
     link ? `Poți deschide conversația aici: ${link}` : "",
-  ].filter(Boolean);
-
-  const text = textLines.join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return {
     html,
@@ -340,24 +291,24 @@ export function vendorFollowUpReminderEmailTemplate({
     subject: `Follow-up pentru ${safeName} - ${brandName}`,
   };
 }
+
 /* ============================================================
-   === TEMPLATE-uri GUEST SUPPORT — ADĂUGAT ===
-   ============================================================ */
+   GUEST SUPPORT templates
+============================================================ */
 
 export function guestSupportConfirmationTemplate({
   name,
   subject,
   message,
   brandName = "Artfest",
-  logoCid,
   logoUrl,
 }) {
-  const logoSrc = logoCid ? `cid:${logoCid}` : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const html = `
   <div style="font-family:Inter,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="${logoSrc}" width="120" />
+      <img src="${logoSrc}" width="120" alt="${brandName} logo" />
     </div>
 
     <h2 style="color:#111827;margin-bottom:10px;">Am primit mesajul tău</h2>
@@ -371,7 +322,7 @@ export function guestSupportConfirmationTemplate({
 
     <p style="font-size:12px;color:#999;margin-top:20px;">Acest email este o confirmare automată.</p>
   </div>
-  `;
+  `.trim();
 
   const text = `
 Am primit mesajul tău, ${name || ""}.
@@ -394,15 +345,14 @@ export function guestSupportReplyTemplate({
   subject,
   reply,
   brandName = "Artfest",
-  logoCid,
   logoUrl,
 }) {
-  const logoSrc = logoCid ? `cid:${logoCid}` : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const html = `
   <div style="font-family:Inter,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     <div style="text-align:center;margin-bottom:20px;">
-      <img src="${logoSrc}" width="120" />
+      <img src="${logoSrc}" width="120" alt="${brandName} logo" />
     </div>
 
     <h2 style="color:#111827;margin-bottom:10px;">Răspuns la mesajul tău</h2>
@@ -419,7 +369,7 @@ export function guestSupportReplyTemplate({
       Dacă ai alte întrebări, răspunde la acest email.
     </p>
   </div>
-  `;
+  `.trim();
 
   const text = `
 Răspuns la mesajul tău:
@@ -436,16 +386,8 @@ Ne poți răspunde oricând.
   };
 }
 
-
-export function emailChangeVerificationTemplate({
-  link,
-  brandName = "Artfest",
-  logoCid,
-  logoUrl,
-}) {
-  const logoSrc = logoCid
-    ? `cid:${logoCid}`
-    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+export function emailChangeVerificationTemplate({ link, brandName = "Artfest", logoUrl }) {
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -474,7 +416,7 @@ export function emailChangeVerificationTemplate({
       Dacă nu ai cerut schimbarea adresei de email, poți ignora acest mesaj.
     </p>
   </div>
-  `;
+  `.trim();
 
   const text = `
 Ai cerut schimbarea adresei de email pentru contul tău ${brandName}.
@@ -498,13 +440,9 @@ export function invoiceIssuedEmailTemplate({
   totalLabel,
   link,
   brandName = "Artfest",
-  logoCid,
   logoUrl,
 }) {
-  const logoSrc = logoCid
-    ? `cid:${logoCid}`
-    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
-
+  const logoSrc = pickLogoUrl(logoUrl);
   const safeInvNo = invoiceNumber || "factura ta";
 
   const html = `
@@ -546,16 +484,16 @@ export function invoiceIssuedEmailTemplate({
       Acest email a fost generat automat de ${brandName}. Te rugăm să nu răspunzi la acest mesaj.
     </p>
   </div>
-  `;
+  `.trim();
 
-  const textLines = [
+  const text = [
     `A fost emisă o factură pentru comanda ta #${orderId}.`,
     `Număr factură: ${safeInvNo}`,
     totalLabel ? `Total factură: ${totalLabel}` : "",
     link ? `Poți vedea factura aici: ${link}` : "",
-  ].filter(Boolean);
-
-  const text = textLines.join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return {
     html,
@@ -563,15 +501,9 @@ export function invoiceIssuedEmailTemplate({
     subject: `Factura pentru comanda ta #${orderId}`,
   };
 }
-export function vendorDeactivateConfirmTemplate({
-  link,
-  brandName = "Artfest",
-  logoCid,
-  logoUrl,
-}) {
-  const logoSrc = logoCid
-    ? `cid:${logoCid}`
-    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+
+export function vendorDeactivateConfirmTemplate({ link, brandName = "Artfest", logoUrl }) {
+  const logoSrc = pickLogoUrl(logoUrl);
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -605,7 +537,7 @@ export function vendorDeactivateConfirmTemplate({
       Acest email a fost generat automat de ${brandName}. Te rugăm să nu răspunzi la acest mesaj.
     </p>
   </div>
-  `;
+  `.trim();
 
   const text = `
 Confirmă dezactivarea contului de vendor pe ${brandName}:
@@ -618,18 +550,14 @@ Dacă nu ai cerut asta, ignoră emailul.
   return { html, text, subject: `Confirmă dezactivarea contului de vendor - ${brandName}` };
 }
 
-// ✅ WAITLIST template (optional, dar util)
+// ✅ WAITLIST template (dacă îl folosești)
 export function digitalWaitlistConfirmationTemplate({
   brandName = "Artfest",
-  logoCid,
   logoUrl,
   source,
   unsubscribeLink,
 }) {
-  const logoSrc = logoCid
-    ? `cid:${logoCid}`
-    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
-
+  const logoSrc = pickLogoUrl(logoUrl);
   const safeSource = source ? String(source) : "servicii-digitale";
 
   const html = `
@@ -667,7 +595,9 @@ export function digitalWaitlistConfirmationTemplate({
     `Sursă: ${safeSource}`,
     `Îți trimitem un email imediat ce lansăm.`,
     unsubscribeLink ? `Dezabonare: ${unsubscribeLink}` : "",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return { html, text, subject: `Confirmare înscriere – ${brandName}` };
 }

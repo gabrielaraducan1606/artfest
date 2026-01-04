@@ -1,7 +1,6 @@
 // backend/src/lib/mailer.js
 import nodemailer from "nodemailer";
 import { prisma } from "../db.js";
-import fetch from "node-fetch";
 import { Resend } from "resend";
 
 import {
@@ -24,25 +23,20 @@ const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
  * Provider selection:
  * - MAIL_PROVIDER=smtp | resend | auto
  *   - auto: dacă există RESEND_API_KEY => resend, altfel smtp
- *
- * Cu variabilele tale:
- * - SMTP_* (Zoho) => merge pe smtp
- * - RESEND_API_KEY => merge pe resend
  */
 const MAIL_PROVIDER = (process.env.MAIL_PROVIDER || "auto").toLowerCase();
 
 function resolveProvider() {
   if (MAIL_PROVIDER === "smtp" || MAIL_PROVIDER === "resend") return MAIL_PROVIDER;
-  const hasResend = !!process.env.RESEND_API_KEY;
-  return hasResend ? "resend" : "smtp";
+  return process.env.RESEND_API_KEY ? "resend" : "smtp";
 }
 
 /**
- * Logo pentru email (R2 / CDN).
+ * Logo pentru email (URL, fără CID/attachments).
  * Prioritate:
- * 1) EMAIL_LOGO_URL (URL complet)
+ * 1) EMAIL_LOGO_URL
  * 2) R2_PUBLIC_BASE_URL + EMAIL_LOGO_KEY
- * 3) fallback (media.artfest.ro)
+ * 3) fallback
  */
 const EMAIL_LOGO_URL =
   process.env.EMAIL_LOGO_URL ||
@@ -53,45 +47,47 @@ const EMAIL_LOGO_URL =
     : "https://media.artfest.ro/branding/LogoArtfest.png");
 
 /**
- * Configurare senders:
- * - noreply: pentru signup/reset/security/orders etc.
- * - contact: pentru suport (guest support)
- * - admin: pentru facturi/billing si confirmari administrative
- *
- * (Compatibil cu variabilele tale: SMTP_USER_* / SMTP_PASS_* / EMAIL_FROM_*)
+ * Configurare senders (Zoho SMTP) - compatibil cu variabilele tale:
+ * SMTP_USER_NOREPLY / SMTP_PASS_NOREPLY etc.
  */
+function sanitizeEmailValue(v) {
+  // în .env ai avut un punct la final: contact@artfest.ro.
+  // îl curățăm ca să nu ajungă în reply-to/from
+  const s = (v || "").trim();
+  return s.endsWith(".") ? s.slice(0, -1) : s;
+}
+
 const SENDERS = {
   noreply: {
-    user: process.env.SMTP_USER_NOREPLY,
+    user: sanitizeEmailValue(process.env.SMTP_USER_NOREPLY),
     pass: process.env.SMTP_PASS_NOREPLY,
     from:
       process.env.EMAIL_FROM_NOREPLY ||
-      `Artfest <${process.env.SMTP_USER_NOREPLY || ""}>`,
-    // atenție: în .env să fie fără punct la final (contact@artfest.ro)
-    replyTo: process.env.EMAIL_REPLY_TO_CONTACT || undefined,
+      `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_NOREPLY) || ""}>`,
+    replyTo: sanitizeEmailValue(process.env.EMAIL_REPLY_TO_CONTACT) || undefined,
   },
   contact: {
-    user: process.env.SMTP_USER_CONTACT,
+    user: sanitizeEmailValue(process.env.SMTP_USER_CONTACT),
     pass: process.env.SMTP_PASS_CONTACT,
     from:
       process.env.EMAIL_FROM_CONTACT ||
-      `Artfest <${process.env.SMTP_USER_CONTACT || ""}>`,
+      `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_CONTACT) || ""}>`,
     replyTo:
-      process.env.EMAIL_REPLY_TO_CONTACT ||
-      process.env.SMTP_USER_CONTACT ||
+      sanitizeEmailValue(process.env.EMAIL_REPLY_TO_CONTACT) ||
+      sanitizeEmailValue(process.env.SMTP_USER_CONTACT) ||
       undefined,
   },
   admin: {
-    user: process.env.SMTP_USER_ADMIN,
+    user: sanitizeEmailValue(process.env.SMTP_USER_ADMIN),
     pass: process.env.SMTP_PASS_ADMIN,
     from:
       process.env.EMAIL_FROM_ADMIN ||
-      `Artfest <${process.env.SMTP_USER_ADMIN || ""}>`,
-    replyTo: process.env.EMAIL_REPLY_TO_CONTACT || undefined,
+      `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_ADMIN) || ""}>`,
+    replyTo: sanitizeEmailValue(process.env.EMAIL_REPLY_TO_CONTACT) || undefined,
   },
 };
 
-// cache transportere ca sa nu recreezi conexiunea mereu
+// cache transportere SMTP
 const transportCache = new Map();
 
 export function makeTransport(senderKey = "noreply") {
@@ -127,45 +123,15 @@ function senderEnvelope(senderKey = "noreply") {
 }
 
 /* ============================================================
-   LOGO INLINE (CID) - ROBUST (fetch -> buffer + cache)
+   TEMPLATE HELPERS (logo URL-only)
 ============================================================ */
-const LOGO_CID = "logo-artfest";
-
-// cache în memorie (o singură descărcare)
-let cachedLogo = null;
-
-async function getLogoAttachment() {
-  if (cachedLogo) return cachedLogo;
-
-  const res = await fetch(EMAIL_LOGO_URL);
-  if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
-
-  const contentType = res.headers.get("content-type") || "image/png";
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (!buffer?.length) throw new Error("Logo buffer is empty");
-
-  cachedLogo = {
-    filename: "logo.png",
-    content: buffer.toString("base64"),
-    encoding: "base64",
-    cid: LOGO_CID,
-    contentType,
-    contentDisposition: "inline",
-  };
-
-  return cachedLogo;
-}
-
 async function withLogo(templateFn, props = {}) {
-  const { html, text, subject } = templateFn({
+  // Nu mai trimitem logoCid, nu mai atașăm nimic.
+  return templateFn({
     brandName: BRAND_NAME,
-    logoCid: LOGO_CID,
     logoUrl: EMAIL_LOGO_URL,
     ...props,
   });
-
-  const logoAttachment = await getLogoAttachment();
-  return { html, text, subject, logoAttachment };
 }
 
 const AUTO_HEADERS = {
@@ -215,7 +181,6 @@ async function createEmailLogQueued({
   orderId = null,
   ticketId = null,
 }) {
-  // dacă tabelul nu există încă (înainte de migrate), să nu-ți crape aplicația
   try {
     return await prisma.emailLog.create({
       data: {
@@ -283,41 +248,6 @@ function normalizeToArray(to) {
   return [String(to)];
 }
 
-/**
- * Nodemailer attachments -> Resend attachments
- * - Resend folosește: filename, content, content_type, content_disposition, content_id
- * - Pentru CID inline: content_id trebuie să fie același ca în HTML: <img src="cid:logo-artfest">
- */
-function toResendAttachments(nmAttachments) {
-  const arr = Array.isArray(nmAttachments) ? nmAttachments : [];
-  return arr
-    .map((a) => {
-      if (!a) return null;
-      if (!a.content) return null;
-
-      const filename = a.filename || "attachment";
-      const encoding = a.encoding;
-      const content_type = a.contentType || a.content_type;
-      const content_disposition = a.contentDisposition || a.content_disposition;
-      const content_id = a.cid || a.content_id;
-
-      // content poate fi base64 string (cum avem noi) sau Buffer
-      const content =
-        encoding === "base64" && Buffer.isBuffer(a.content)
-          ? a.content.toString("base64")
-          : a.content;
-
-      return {
-        filename,
-        content,
-        ...(content_type ? { content_type } : {}),
-        ...(content_disposition ? { content_disposition } : {}),
-        ...(content_id ? { content_id } : {}),
-      };
-    })
-    .filter(Boolean);
-}
-
 async function sendViaResend({ mailOptions }) {
   const resend = getResendClient();
 
@@ -333,14 +263,10 @@ async function sendViaResend({ mailOptions }) {
     ...(mailOptions.html ? { html: mailOptions.html } : {}),
     ...(mailOptions.text ? { text: mailOptions.text } : {}),
     ...(mailOptions.headers ? { headers: mailOptions.headers } : {}),
-    ...(mailOptions.attachments
-      ? { attachments: toResendAttachments(mailOptions.attachments) }
-      : {}),
   };
 
   const out = await resend.emails.send(payload);
 
-  // SDK poate întoarce { data, error } sau poate arunca; normalizăm:
   if (out?.error) throw new Error(out.error?.message || "Resend error");
 
   return {
@@ -368,7 +294,7 @@ async function sendMailLogged({
   const provider = resolveProvider();
 
   const sender = SENDERS[senderKey] || {};
-  const fromEmail = sender.user || null; // pentru log (smtp user)
+  const fromEmail = sender.user || null; // pentru log
   const replyTo = sender.replyTo || null;
 
   const log = await createEmailLogQueued({
@@ -395,16 +321,13 @@ async function sendMailLogged({
       });
 
       if (log?.id) {
-        await markEmailLogSent(log.id, {
-          provider: "resend",
-          messageId: res?.messageId,
-        });
+        await markEmailLogSent(log.id, { provider: "resend", messageId: res?.messageId });
       }
 
       return res;
     }
 
-    // SMTP (Zoho)
+    // SMTP
     const transporter = makeTransport(senderKey);
 
     const res = await transporter.sendMail({
@@ -413,10 +336,7 @@ async function sendMailLogged({
     });
 
     if (log?.id) {
-      await markEmailLogSent(log.id, {
-        provider: "smtp",
-        messageId: res?.messageId,
-      });
+      await markEmailLogSent(log.id, { provider: "smtp", messageId: res?.messageId });
     }
 
     return res;
@@ -437,7 +357,7 @@ export async function sendGuestSupportConfirmationEmail({
   userId = null,
   ticketId = null,
 }) {
-  const { html, text, subject: emailSubject, logoAttachment } = await withLogo(
+  const { html, text, subject: emailSubject } = await withLogo(
     guestSupportConfirmationTemplate,
     { name, subject, message }
   );
@@ -456,7 +376,6 @@ export async function sendGuestSupportConfirmationEmail({
       subject: emailSubject,
       html,
       text,
-      attachments: [logoAttachment],
     },
   });
 }
@@ -469,10 +388,11 @@ export async function sendGuestSupportReplyEmail({
   userId = null,
   ticketId = null,
 }) {
-  const { html, text, subject: emailSubject, logoAttachment } = await withLogo(
-    guestSupportReplyTemplate,
-    { name, subject, reply }
-  );
+  const { html, text, subject: emailSubject } = await withLogo(guestSupportReplyTemplate, {
+    name,
+    subject,
+    reply,
+  });
 
   return sendMailLogged({
     senderKey: "contact",
@@ -488,7 +408,6 @@ export async function sendGuestSupportReplyEmail({
       subject: emailSubject,
       html,
       text,
-      attachments: [logoAttachment],
     },
   });
 }
@@ -497,10 +416,7 @@ export async function sendGuestSupportReplyEmail({
    AUTH / SECURITY EMAILS (sender: no-reply@)
 ============================================================ */
 export async function sendVerificationEmail({ to, link, userId = null }) {
-  const { html, text, subject, logoAttachment } = await withLogo(
-    verificationEmailTemplate,
-    { link }
-  );
+  const { html, text, subject } = await withLogo(verificationEmailTemplate, { link });
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -514,17 +430,13 @@ export async function sendVerificationEmail({ to, link, userId = null }) {
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 export async function sendPasswordResetEmail({ to, link, userId = null }) {
-  const { html, text, subject, logoAttachment } = await withLogo(
-    resetPasswordEmailTemplate,
-    { link }
-  );
+  const { html, text, subject } = await withLogo(resetPasswordEmailTemplate, { link });
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -538,17 +450,13 @@ export async function sendPasswordResetEmail({ to, link, userId = null }) {
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
 }
 
 export async function sendEmailChangeVerificationEmail({ to, link, userId = null }) {
-  const { html, text, subject, logoAttachment } = await withLogo(
-    emailChangeVerificationTemplate,
-    { link }
-  );
+  const { html, text, subject } = await withLogo(emailChangeVerificationTemplate, { link });
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -562,7 +470,6 @@ export async function sendEmailChangeVerificationEmail({ to, link, userId = null
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -571,16 +478,8 @@ export async function sendEmailChangeVerificationEmail({ to, link, userId = null
 /* ============================================================
    MARKETING (sender: no-reply@)
 ============================================================ */
-export async function sendMarketingEmail({
-  to,
-  subject,
-  html,
-  preheader,
-  userId = null,
-}) {
+export async function sendMarketingEmail({ to, subject, html, preheader, userId = null }) {
   if (!to || !subject || !html) return;
-
-  const logoAttachment = await getLogoAttachment();
 
   const finalHtml = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -590,7 +489,8 @@ export async function sendMarketingEmail({
       : ""
   }
   <div style="text-align:center;margin-bottom:20px;">
-    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
   <div style="background:#ffffff;border-radius:12px;padding:18px 16px;border:1px solid #e5e7eb;">
     ${html}
@@ -615,7 +515,6 @@ export async function sendMarketingEmail({
       subject,
       html: finalHtml,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -624,14 +523,8 @@ export async function sendMarketingEmail({
 /* ============================================================
    INACTIVE ACCOUNT (sender: no-reply@)
 ============================================================ */
-export async function sendInactiveAccountWarningEmail({
-  to,
-  deleteAt,
-  userId = null,
-}) {
+export async function sendInactiveAccountWarningEmail({ to, deleteAt, userId = null }) {
   if (!to || !deleteAt) return;
-
-  const logoAttachment = await getLogoAttachment();
 
   const dateStr = deleteAt.toLocaleDateString("ro-RO", {
     year: "numeric",
@@ -644,7 +537,8 @@ export async function sendInactiveAccountWarningEmail({
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
   <div style="text-align:center;margin-bottom:20px;">
-    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
   <h2 style="color:#111827;margin:0 0 12px;">Contul tău este inactiv</h2>
   <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
@@ -691,7 +585,6 @@ export async function sendInactiveAccountWarningEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -700,16 +593,8 @@ export async function sendInactiveAccountWarningEmail({
 /* ============================================================
    ORDERS (sender: no-reply@)
 ============================================================ */
-export async function sendOrderConfirmationEmail({
-  to,
-  order,
-  items,
-  storeAddresses,
-  userId = null,
-}) {
+export async function sendOrderConfirmationEmail({ to, order, items, storeAddresses, userId = null }) {
   if (!to || !order) return;
-
-  const logoAttachment = await getLogoAttachment();
 
   const currency = order.currency || "RON";
   const total = formatMoney(order.total, currency);
@@ -718,9 +603,7 @@ export async function sendOrderConfirmationEmail({
 
   const address = order.shippingAddress || {};
   const customerName =
-    address.name ||
-    `${address.lastName || ""} ${address.firstName || ""}`.trim() ||
-    "client";
+    address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
 
   const orderLink = APP_URL
     ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}`
@@ -742,8 +625,7 @@ export async function sendOrderConfirmationEmail({
       .join("") ||
     `<tr><td colspan="3" style="padding:8px;text-align:center;color:#6b7280;">Detaliile produselor nu sunt disponibile.</td></tr>`;
 
-  const storeAddressesMap =
-    storeAddresses || (order.meta && order.meta.storeAddresses) || null;
+  const storeAddressesMap = storeAddresses || (order.meta && order.meta.storeAddresses) || null;
 
   let storeAddressesHtml = "";
   let storeAddressesTextLines = [];
@@ -786,7 +668,8 @@ export async function sendOrderConfirmationEmail({
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
   <div style="text-align:center;margin-bottom:20px;">
-    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
 
   <h2 style="color:#111827;margin:0 0 8px;">Mulțumim pentru comandă, ${customerName}!</h2>
@@ -861,15 +744,10 @@ export async function sendOrderConfirmationEmail({
     "",
     `Comanda ta pe ${BRAND_NAME} a fost înregistrată.`,
     `Număr comandă: ${order.id}`,
-    `Metodă de plată: ${
-      order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"
-    }`,
+    `Metodă de plată: ${order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"}`,
     "",
     "Produse:",
-    ...(items || []).map(
-      (it) =>
-        `- ${it.title} x${it.qty} = ${formatMoney(it.price * it.qty, currency)}`
-    ),
+    ...(items || []).map((it) => `- ${it.title} x${it.qty} = ${formatMoney(it.price * it.qty, currency)}`),
     "",
     `Subtotal: ${subtotal}`,
     `Transport: ${shippingTotal}`,
@@ -889,12 +767,12 @@ export async function sendOrderConfirmationEmail({
   ].filter(Boolean);
 
   const text = textLines.join("\n");
-  const subject = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
+  const emailSubject = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
 
   return sendMailLogged({
     senderKey: "noreply",
     to,
-    subject,
+    subject: emailSubject,
     template: "order_confirmation",
     userId,
     orderId: order.id,
@@ -902,10 +780,9 @@ export async function sendOrderConfirmationEmail({
     mailOptions: {
       ...senderEnvelope("noreply"),
       to,
-      subject,
+      subject: emailSubject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -926,8 +803,6 @@ export async function sendOrderCancelledEmail({
 }) {
   if (!to || !orderId) return;
 
-  const logoAttachment = await getLogoAttachment();
-
   const prettyId = shortId || orderId;
   const storeName = vendorName || BRAND_NAME || "magazinul nostru";
 
@@ -943,16 +818,13 @@ export async function sendOrderCancelledEmail({
       reasonText = "produsele comandate nu mai sunt disponibile momentan (stoc epuizat).";
       break;
     case "address_issue":
-      reasonText =
-        "adresa de livrare este incompletă sau curierul nu poate livra la această adresă.";
+      reasonText = "adresa de livrare este incompletă sau curierul nu poate livra la această adresă.";
       break;
     case "payment_issue":
       reasonText = "au fost probleme la procesarea plății.";
       break;
     case "other":
-      reasonText = cancelReasonNote?.trim()
-        ? cancelReasonNote.trim()
-        : "a intervenit o situație neprevăzută.";
+      reasonText = cancelReasonNote?.trim() ? cancelReasonNote.trim() : "a intervenit o situație neprevăzută.";
       break;
     default:
       reasonText = "a intervenit o situație care nu ne permite să onorăm comanda.";
@@ -960,20 +832,17 @@ export async function sendOrderCancelledEmail({
 
   const address = shippingAddress || {};
   const customerName =
-    address.name ||
-    `${address.lastName || ""} ${address.firstName || ""}`.trim() ||
-    "client";
+    address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
 
-  const orderLink = APP_URL
-    ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(orderId)}`
-    : null;
+  const orderLink = APP_URL ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(orderId)}` : null;
 
   const subject = `Comanda ta #${prettyId} a fost anulată - ${BRAND_NAME}`;
 
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
   <div style="text-align:center;margin-bottom:20px;">
-    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
 
   <h2 style="color:#111827;margin:0 0 8px;">Comanda ta a fost anulată</h2>
@@ -1034,7 +903,6 @@ export async function sendOrderCancelledEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1046,31 +914,26 @@ export async function sendOrderCancelledEmail({
 export async function sendOrderCancelledByUserEmail({ to, order, userId = null }) {
   if (!to || !order) return;
 
-  const logoAttachment = await getLogoAttachment();
-
   const prettyId = order.shortId || order.id;
   const address = order.shippingAddress || {};
 
   const customerName =
-    address.name ||
-    `${address.lastName || ""} ${address.firstName || ""}`.trim() ||
-    "client";
+    address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
 
   const currency = order.currency || "RON";
   const subtotal = formatMoney(order.subtotal || 0, currency);
   const shippingTotal = formatMoney(order.shippingTotal || 0, currency);
   const total = formatMoney(order.total || 0, currency);
 
-  const orderLink = APP_URL
-    ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}`
-    : null;
+  const orderLink = APP_URL ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}` : null;
 
   const subject = `Ai anulat comanda #${prettyId} - ${BRAND_NAME}`;
 
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
   <div style="text-align:center;margin-bottom:20px;">
-    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
 
   <h2 style="color:#111827;margin:0 0 8px;">Ai anulat o comandă</h2>
@@ -1134,7 +997,6 @@ export async function sendOrderCancelledByUserEmail({ to, order, userId = null }
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1151,14 +1013,11 @@ export async function sendPasswordStaleReminderEmail({
 }) {
   if (!to) return;
 
-  const { html, text, subject, logoAttachment } = await withLogo(
-    passwordStaleReminderEmailTemplate,
-    {
-      passwordAgeDays,
-      maxPasswordAgeDays,
-      link: APP_URL || undefined,
-    }
-  );
+  const { html, text, subject } = await withLogo(passwordStaleReminderEmailTemplate, {
+    passwordAgeDays,
+    maxPasswordAgeDays,
+    link: APP_URL || undefined,
+  });
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -1172,7 +1031,6 @@ export async function sendPasswordStaleReminderEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1181,10 +1039,9 @@ export async function sendPasswordStaleReminderEmail({
 export async function sendSuspiciousLoginWarningEmail({ to, userId = null }) {
   if (!to) return;
 
-  const { html, text, subject, logoAttachment } = await withLogo(
-    suspiciousLoginWarningEmailTemplate,
-    { link: APP_URL || undefined }
-  );
+  const { html, text, subject } = await withLogo(suspiciousLoginWarningEmailTemplate, {
+    link: APP_URL || undefined,
+  });
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -1198,7 +1055,6 @@ export async function sendSuspiciousLoginWarningEmail({ to, userId = null }) {
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1216,13 +1072,13 @@ export async function sendVendorFollowUpReminderEmail({
 }) {
   if (!to) return;
 
-  const fullLink =
-    threadLink && APP_URL ? `${APP_URL.replace(/\/+$/, "")}${threadLink}` : undefined;
+  const fullLink = threadLink && APP_URL ? `${APP_URL.replace(/\/+$/, "")}${threadLink}` : undefined;
 
-  const { html, text, subject, logoAttachment } = await withLogo(
-    vendorFollowUpReminderEmailTemplate,
-    { contactName, followUpAt, link: fullLink }
-  );
+  const { html, text, subject } = await withLogo(vendorFollowUpReminderEmailTemplate, {
+    contactName,
+    followUpAt,
+    link: fullLink,
+  });
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -1237,7 +1093,6 @@ export async function sendVendorFollowUpReminderEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1267,10 +1122,12 @@ export async function sendInvoiceIssuedEmail({
       ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
       : undefined;
 
-  const { html, text, subject, logoAttachment } = await withLogo(
-    invoiceIssuedEmailTemplate,
-    { orderId, invoiceNumber, totalLabel, link }
-  );
+  const { html, text, subject } = await withLogo(invoiceIssuedEmailTemplate, {
+    orderId,
+    invoiceNumber,
+    totalLabel,
+    link,
+  });
 
   return sendMailLogged({
     senderKey: "admin",
@@ -1285,7 +1142,6 @@ export async function sendInvoiceIssuedEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1305,19 +1161,16 @@ export async function sendShipmentPickupEmail({
 }) {
   if (!to) return;
 
-  const logoAttachment = await getLogoAttachment();
-
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
-  const orderLink = baseUrl
-    ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
-    : null;
+  const orderLink = baseUrl ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}` : null;
 
   const subject = `Comanda ta a fost predată curierului - ${BRAND_NAME}`;
 
   const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
   <div style="text-align:center;margin-bottom:20px;">
-    <img src="cid:${LOGO_CID}" alt="${BRAND_NAME} logo" width="120" height="120" style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
   </div>
 
   <h2 style="color:#111827;margin:0 0 8px;">Comanda ta este în drum spre tine 🚚</h2>
@@ -1384,7 +1237,6 @@ export async function sendShipmentPickupEmail({
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
@@ -1396,10 +1248,7 @@ export async function sendShipmentPickupEmail({
 export async function sendVendorDeactivateConfirmEmail({ to, link, userId = null }) {
   if (!to || !link) return;
 
-  const { html, text, subject, logoAttachment } = await withLogo(
-    vendorDeactivateConfirmTemplate,
-    { link }
-  );
+  const { html, text, subject } = await withLogo(vendorDeactivateConfirmTemplate, { link });
 
   return sendMailLogged({
     senderKey: "admin",
@@ -1413,7 +1262,6 @@ export async function sendVendorDeactivateConfirmEmail({ to, link, userId = null
       subject,
       html,
       text,
-      attachments: [logoAttachment],
       headers: AUTO_HEADERS,
     },
   });
