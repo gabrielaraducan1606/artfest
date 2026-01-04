@@ -1,7 +1,11 @@
+// backend/src/routes/digitalWaitlistRoutes.js
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { prisma } from "../db.js";
 import crypto from "crypto";
+
+// ✅ Trimite email folosind infrastructura ta existentă
+import { sendMarketingEmail } from "../lib/mailer.js";
 
 const router = Router();
 
@@ -31,6 +35,7 @@ function clampStr(v, max = 120) {
  */
 function makeUnsubscribeToken(email) {
   const secret = process.env.WAITLIST_UNSUBSCRIBE_SECRET || process.env.JWT_SECRET;
+  if (!secret) throw new Error("Missing WAITLIST_UNSUBSCRIBE_SECRET/JWT_SECRET");
   const h = crypto.createHmac("sha256", secret);
   h.update(normalizeEmail(email));
   return h.digest("hex");
@@ -40,10 +45,71 @@ function verifyUnsubscribeToken(email, token) {
   if (!email || !token) return false;
   const expected = makeUnsubscribeToken(email);
   try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(token)));
+    return crypto.timingSafeEqual(
+      Buffer.from(expected, "utf8"),
+      Buffer.from(String(token), "utf8")
+    );
   } catch {
     return false;
   }
+}
+
+function getClientIp(req) {
+  return (
+    req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    null
+  );
+}
+
+/**
+ * Bază API publică pentru linkuri din email.
+ * Recomandat să fie backend domain (API), nu frontend.
+ * Env:
+ *   PUBLIC_API_BASE_URL=https://api.artfest.ro
+ */
+function getPublicApiBaseUrl() {
+  const v =
+    process.env.PUBLIC_API_BASE_URL ||
+    process.env.API_PUBLIC_URL ||
+    process.env.API_URL ||
+    "";
+  const cleaned = String(v).trim().replace(/\/+$/, "");
+  return cleaned || "https://api.artfest.ro";
+}
+
+function buildUnsubscribeLink(email) {
+  const apiBase = getPublicApiBaseUrl();
+  const token = makeUnsubscribeToken(email);
+
+  return `${apiBase}/api/public/digital-waitlist/unsubscribe-token?email=${encodeURIComponent(
+    email
+  )}&token=${encodeURIComponent(token)}`;
+}
+
+async function sendWaitlistConfirmationEmail({ to, source }) {
+  const unsubLink = buildUnsubscribeLink(to);
+
+  const safeSource = clampStr(source, 60) || "servicii-digitale";
+
+  const html = `
+    <h2>Ești înscris(ă) pe lista de așteptare ✅</h2>
+    <p>Mulțumim! Te-am înscris pentru <strong>${safeSource}</strong>.</p>
+    <p>Îți trimitem un email imediat ce lansăm.</p>
+    <hr/>
+    <p style="font-size:12px;color:#6b7280;margin:0;">
+      Dacă nu mai vrei emailuri despre această listă:
+      <a href="${unsubLink}">dezabonare</a>
+    </p>
+  `.trim();
+
+  await sendMarketingEmail({
+    to,
+    subject: "Confirmare înscriere – Servicii digitale",
+    preheader: "Confirmare înscriere pe lista de așteptare",
+    html,
+    userId: null,
+  });
 }
 
 // POST /api/public/digital-waitlist
@@ -68,11 +134,7 @@ router.post("/digital-waitlist", limiter, async (req, res) => {
       });
     }
 
-    const ip =
-      req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
-      req.socket?.remoteAddress ||
-      null;
-
+    const ip = getClientIp(req);
     const userAgent = req.headers["user-agent"]?.toString() || null;
 
     const row = await prisma.digitalWaitlistSubscriber.upsert({
@@ -94,6 +156,13 @@ router.post("/digital-waitlist", limiter, async (req, res) => {
       },
       select: { id: true, email: true, status: true, createdAt: true },
     });
+
+    // ✅ trimitem email (NU blocăm înscrierea dacă mailul pică)
+    try {
+      await sendWaitlistConfirmationEmail({ to: email, source });
+    } catch (e) {
+      console.error("waitlist email failed:", e?.message || e);
+    }
 
     return res.json({
       ok: true,
@@ -135,7 +204,6 @@ router.post("/digital-waitlist/unsubscribe", limiter, async (req, res) => {
 
 /**
  * ✅ SECURIZAT: GET /api/public/digital-waitlist/unsubscribe-token?email=...&token=...
- * Asta e link-ul pe care îl pui în email.
  */
 router.get("/digital-waitlist/unsubscribe-token", limiter, async (req, res) => {
   try {
@@ -143,7 +211,8 @@ router.get("/digital-waitlist/unsubscribe-token", limiter, async (req, res) => {
     const token = String(req.query?.token || "");
 
     if (!email || !isValidEmail(email)) return res.status(400).send("Email invalid.");
-    if (!verifyUnsubscribeToken(email, token)) return res.status(403).send("Link de dezabonare invalid.");
+    if (!verifyUnsubscribeToken(email, token))
+      return res.status(403).send("Link de dezabonare invalid.");
 
     await prisma.digitalWaitlistSubscriber
       .update({
@@ -160,4 +229,3 @@ router.get("/digital-waitlist/unsubscribe-token", limiter, async (req, res) => {
 });
 
 export default router;
-

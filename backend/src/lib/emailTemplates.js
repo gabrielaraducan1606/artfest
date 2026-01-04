@@ -617,3 +617,57 @@ Dacă nu ai cerut asta, ignoră emailul.
 
   return { html, text, subject: `Confirmă dezactivarea contului de vendor - ${brandName}` };
 }
+
+// ✅ WAITLIST template (optional, dar util)
+export function digitalWaitlistConfirmationTemplate({
+  brandName = "Artfest",
+  logoCid,
+  logoUrl,
+  source,
+  unsubscribeLink,
+}) {
+  const logoSrc = logoCid
+    ? `cid:${logoCid}`
+    : (logoUrl || "https://media.artfest.ro/branding/LogoArtfest.png");
+
+  const safeSource = source ? String(source) : "servicii-digitale";
+
+  const html = `
+  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+    <div style="text-align:center;margin-bottom:20px;">
+      <img src="${logoSrc}" alt="${brandName} logo" width="120" height="120"
+           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    </div>
+    <h2 style="color:#111827;margin:0 0 8px;">Ești înscris(ă) pe lista de așteptare ✅</h2>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+      Mulțumim! Te-am înscris pentru <strong>${safeSource}</strong>.
+    </p>
+    <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
+      Îți trimitem un email imediat ce lansăm.
+    </p>
+
+    ${
+      unsubscribeLink
+        ? `<p style="font-size:12px;color:#6b7280;margin:16px 0 0;">
+            Dacă nu mai vrei emailuri despre această listă:
+            <a href="${unsubscribeLink}" style="color:#4f46e5;">dezabonare</a>
+          </p>`
+        : ""
+    }
+
+    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+      Acest email a fost generat automat de ${brandName}.
+    </p>
+  </div>
+  `.trim();
+
+  const text = [
+    `Ești înscris(ă) pe lista de așteptare ${brandName}.`,
+    `Sursă: ${safeSource}`,
+    `Îți trimitem un email imediat ce lansăm.`,
+    unsubscribeLink ? `Dezabonare: ${unsubscribeLink}` : "",
+  ].filter(Boolean).join("\n");
+
+  return { html, text, subject: `Confirmare înscriere – ${brandName}` };
+}

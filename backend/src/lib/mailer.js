@@ -1,6 +1,7 @@
 // backend/src/lib/mailer.js
 import nodemailer from "nodemailer";
 import { prisma } from "../db.js";
+import fetch from "node-fetch";
 
 import {
   verificationEmailTemplate,
@@ -115,7 +116,6 @@ let cachedLogo = null;
 async function getLogoAttachment() {
   if (cachedLogo) return cachedLogo;
 
-  // Node 18+ are fetch global.
   const res = await fetch(EMAIL_LOGO_URL);
   if (!res.ok) throw new Error(`Logo fetch failed: ${res.status}`);
 
