@@ -2,6 +2,7 @@
 import nodemailer from "nodemailer";
 import { prisma } from "../db.js";
 import fetch from "node-fetch";
+import { Resend } from "resend";
 
 import {
   verificationEmailTemplate,
@@ -18,6 +19,23 @@ import {
 
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
+
+/**
+ * Provider selection:
+ * - MAIL_PROVIDER=smtp | resend | auto
+ *   - auto: dacă există RESEND_API_KEY => resend, altfel smtp
+ *
+ * Cu variabilele tale:
+ * - SMTP_* (Zoho) => merge pe smtp
+ * - RESEND_API_KEY => merge pe resend
+ */
+const MAIL_PROVIDER = (process.env.MAIL_PROVIDER || "auto").toLowerCase();
+
+function resolveProvider() {
+  if (MAIL_PROVIDER === "smtp" || MAIL_PROVIDER === "resend") return MAIL_PROVIDER;
+  const hasResend = !!process.env.RESEND_API_KEY;
+  return hasResend ? "resend" : "smtp";
+}
 
 /**
  * Logo pentru email (R2 / CDN).
@@ -39,6 +57,8 @@ const EMAIL_LOGO_URL =
  * - noreply: pentru signup/reset/security/orders etc.
  * - contact: pentru suport (guest support)
  * - admin: pentru facturi/billing si confirmari administrative
+ *
+ * (Compatibil cu variabilele tale: SMTP_USER_* / SMTP_PASS_* / EMAIL_FROM_*)
  */
 const SENDERS = {
   noreply: {
@@ -47,6 +67,7 @@ const SENDERS = {
     from:
       process.env.EMAIL_FROM_NOREPLY ||
       `Artfest <${process.env.SMTP_USER_NOREPLY || ""}>`,
+    // atenție: în .env să fie fără punct la final (contact@artfest.ro)
     replyTo: process.env.EMAIL_REPLY_TO_CONTACT || undefined,
   },
   contact: {
@@ -89,7 +110,7 @@ export function makeTransport(senderKey = "noreply") {
   const transporter = nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure: port === 465, // Zoho 587 => STARTTLS (secure:false)
     auth: { user: sender.user, pass: sender.pass },
   });
 
@@ -247,6 +268,91 @@ async function markEmailLogFailed(id, err) {
   }
 }
 
+/* ============================================================
+   RESEND
+============================================================ */
+function getResendClient() {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) throw new Error("Missing RESEND_API_KEY");
+  return new Resend(key);
+}
+
+function normalizeToArray(to) {
+  if (!to) return [];
+  if (Array.isArray(to)) return to.filter(Boolean);
+  return [String(to)];
+}
+
+/**
+ * Nodemailer attachments -> Resend attachments
+ * - Resend folosește: filename, content, content_type, content_disposition, content_id
+ * - Pentru CID inline: content_id trebuie să fie același ca în HTML: <img src="cid:logo-artfest">
+ */
+function toResendAttachments(nmAttachments) {
+  const arr = Array.isArray(nmAttachments) ? nmAttachments : [];
+  return arr
+    .map((a) => {
+      if (!a) return null;
+      if (!a.content) return null;
+
+      const filename = a.filename || "attachment";
+      const encoding = a.encoding;
+      const content_type = a.contentType || a.content_type;
+      const content_disposition = a.contentDisposition || a.content_disposition;
+      const content_id = a.cid || a.content_id;
+
+      // content poate fi base64 string (cum avem noi) sau Buffer
+      const content =
+        encoding === "base64" && Buffer.isBuffer(a.content)
+          ? a.content.toString("base64")
+          : a.content;
+
+      return {
+        filename,
+        content,
+        ...(content_type ? { content_type } : {}),
+        ...(content_disposition ? { content_disposition } : {}),
+        ...(content_id ? { content_id } : {}),
+      };
+    })
+    .filter(Boolean);
+}
+
+async function sendViaResend({ mailOptions }) {
+  const resend = getResendClient();
+
+  const to = normalizeToArray(mailOptions.to);
+  if (!to.length) throw new Error("Missing 'to'");
+  if (!mailOptions.from) throw new Error("Missing 'from'");
+
+  const payload = {
+    from: mailOptions.from,
+    to,
+    subject: mailOptions.subject,
+    ...(mailOptions.replyTo ? { reply_to: mailOptions.replyTo } : {}),
+    ...(mailOptions.html ? { html: mailOptions.html } : {}),
+    ...(mailOptions.text ? { text: mailOptions.text } : {}),
+    ...(mailOptions.headers ? { headers: mailOptions.headers } : {}),
+    ...(mailOptions.attachments
+      ? { attachments: toResendAttachments(mailOptions.attachments) }
+      : {}),
+  };
+
+  const out = await resend.emails.send(payload);
+
+  // SDK poate întoarce { data, error } sau poate arunca; normalizăm:
+  if (out?.error) throw new Error(out.error?.message || "Resend error");
+
+  return {
+    provider: "resend",
+    messageId: out?.data?.id || out?.id || null,
+    raw: out,
+  };
+}
+
+/* ============================================================
+   SEND (logged) - provider switch (smtp / resend)
+============================================================ */
 async function sendMailLogged({
   senderKey,
   to,
@@ -259,8 +365,10 @@ async function sendMailLogged({
   headers = null,
   mailOptions,
 }) {
+  const provider = resolveProvider();
+
   const sender = SENDERS[senderKey] || {};
-  const fromEmail = sender.user || null;
+  const fromEmail = sender.user || null; // pentru log (smtp user)
   const replyTo = sender.replyTo || null;
 
   const log = await createEmailLogQueued({
@@ -272,12 +380,31 @@ async function sendMailLogged({
     replyTo,
     template,
     subject,
-    provider: "smtp",
+    provider,
     orderId,
     ticketId,
   });
 
   try {
+    if (provider === "resend") {
+      const res = await sendViaResend({
+        mailOptions: {
+          ...mailOptions,
+          headers: headers || mailOptions.headers,
+        },
+      });
+
+      if (log?.id) {
+        await markEmailLogSent(log.id, {
+          provider: "resend",
+          messageId: res?.messageId,
+        });
+      }
+
+      return res;
+    }
+
+    // SMTP (Zoho)
     const transporter = makeTransport(senderKey);
 
     const res = await transporter.sendMail({
