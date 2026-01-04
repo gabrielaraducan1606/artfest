@@ -2,8 +2,9 @@
 import React, { useEffect, useRef, useState, useMemo, useId, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FaRegLightbulb, FaShoppingBag, FaCamera } from "react-icons/fa";
+import { SearchIcon } from "lucide-react";
 import styles from "./HeroSection.module.css";
-import { SearchIcon} from "lucide-react";
+
 import imageMain from "../../../assets/heroSectionImage.jpg";
 import { useTypeCycle } from "./hooks/useTypeCycle";
 
@@ -51,7 +52,6 @@ function normalizeAds(items = []) {
   });
 
   const base = active.length ? active : items;
-
   const shuffled = [...base].sort(() => Math.random() - 0.5);
 
   const expanded = [];
@@ -74,10 +74,6 @@ function withV(url, v) {
 function resolveAdImageUrls(ad) {
   const desktopRaw = ad?.image?.desktop || ad?.image || null;
   const mobileRaw = ad?.image?.mobile || ad?.image?.desktop || ad?.image || null;
-
-  // IMPORTANT: dacă backend-ul nu schimbă updatedAt când schimbi imaginea,
-  // atunci v rămâne aceeași și telefonul îți ține cache.
-  // Ideal: updatedAt real din DB / storage.
   const v = ad?.updatedAt || ad?.imageUpdatedAt || ad?.id || "1";
 
   return {
@@ -121,7 +117,7 @@ function useAdRotator({ placement = "hero_top", interval = 7000 }) {
         const res = await fetch(`/api/public/ads?placement=${encodeURIComponent(placement)}`, {
           signal: ac.signal,
           headers: { Accept: "application/json" },
-          cache: "no-store", // 👈 reduce caching pentru JSON (ajută mult pe mobil)
+          cache: "no-store",
         });
 
         if (!res.ok) throw new Error(`ads http ${res.status}`);
@@ -193,7 +189,7 @@ function useAdRotator({ placement = "hero_top", interval = 7000 }) {
   return { ads, idx, setIdx };
 }
 
-/* ========= Banda promo (DOAR DESKTOP în varianta asta) ========= */
+/* ========= Banda promo (DOAR DESKTOP) ========= */
 function PromoStrip() {
   const reduceMotion = usePrefersReducedMotion();
   const { ads, idx, setIdx } = useAdRotator({
@@ -203,7 +199,6 @@ function PromoStrip() {
 
   const stripRef = useRef(null);
 
-  // pause/resume când nu e vizibil
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return;
@@ -369,7 +364,9 @@ export default function HeroSection() {
   const navigate = useNavigate();
   const fileInputId = useId();
 
-  // IMPORTANT: la <980px considerăm “mobile/tablet”
+  // ✅ ruta publică din App.jsx este /magazin/:slug
+  const STORE_PAGE_PREFIX = "/magazin";
+
   const isMobile = useMediaQuery("(max-width: 980px)");
 
   const rotating = useTypeCycle(
@@ -409,6 +406,7 @@ export default function HeroSection() {
     [q, navigate, log]
   );
 
+  // ✅ Sugestii: produse + categorii + magazine (2 request-uri în paralel)
   useEffect(() => {
     const term = (q || "").trim();
     if (!term || term.length < 2) {
@@ -419,9 +417,36 @@ export default function HeroSection() {
     const handle = setTimeout(async () => {
       try {
         setSuggestLoading(true);
-        const res = await fetch(`/api/public/products/suggest?q=${encodeURIComponent(term)}`);
-        const data = await res.json().catch(() => null);
-        setSuggestions(data || null);
+
+        const [prodRes, storeRes] = await Promise.all([
+          fetch(`/api/public/products/suggest?q=${encodeURIComponent(term)}`),
+          fetch(`/api/public/stores/suggest?q=${encodeURIComponent(term)}`),
+        ]);
+
+        const prodData = prodRes.ok ? await prodRes.json().catch(() => null) : null;
+        const storeData = storeRes.ok ? await storeRes.json().catch(() => null) : null;
+
+        const storesRaw = Array.isArray(storeData?.stores) ? storeData.stores : [];
+        // ✅ guard: afișează doar magazine cu profileSlug (altfel nu ai cum să navighezi)
+        const stores = storesRaw.filter((s) => s?.profileSlug);
+
+        const merged = {
+          products: Array.isArray(prodData?.products) ? prodData.products : [],
+          categories: Array.isArray(prodData?.categories) ? prodData.categories : [],
+          stores,
+        };
+
+        const hasAny = merged.products.length || merged.categories.length || merged.stores.length;
+
+        setSuggestions(
+          hasAny
+            ? merged
+            : {
+                products: [],
+                categories: [],
+                stores: [],
+              }
+        );
       } catch (err) {
         console.error("suggest error", err);
         setSuggestions(null);
@@ -459,9 +484,19 @@ export default function HeroSection() {
   const handleSuggestionProductClick = useCallback(
     (id) => {
       setSuggestions(null);
-      navigate(`/produse/${encodeURIComponent(id)}`);
+      // ATENȚIE: în App.jsx ai ruta /produs/:id (nu /produse/:id)
+      navigate(`/produs/${encodeURIComponent(id)}`);
     },
     [navigate]
+  );
+
+  const handleSuggestionStoreClick = useCallback(
+    (profileSlug) => {
+      setSuggestions(null);
+      if (!profileSlug) return;
+      navigate(`${STORE_PAGE_PREFIX}/${encodeURIComponent(profileSlug)}`);
+    },
+    [navigate, STORE_PAGE_PREFIX]
   );
 
   const handleImagePicked = useCallback(
@@ -475,6 +510,8 @@ export default function HeroSection() {
         const fd = new FormData();
         fd.append("image", file);
 
+        // ⚠️ ai pe backend /api/public/products/search-by-image
+        // dar în UI foloseai /api/search/image — păstrează endpoint-ul tău real
         const res = await fetch("/api/search/image", { method: "POST", body: fd });
 
         if (!res.ok) {
@@ -536,7 +573,10 @@ export default function HeroSection() {
     q &&
     q.trim().length >= 2 &&
     (suggestLoading || suggestions) &&
-    (suggestions?.products?.length || suggestions?.categories?.length || suggestLoading);
+    (suggestions?.products?.length ||
+      suggestions?.categories?.length ||
+      suggestions?.stores?.length ||
+      suggestLoading);
 
   return (
     <>
@@ -558,7 +598,6 @@ export default function HeroSection() {
         }}
       />
 
-      {/* ✅ PromoStrip doar pe desktop -> scapă de “Vezi” + banda gri pe mobil */}
       {!isMobile && <PromoStrip />}
 
       <section className={styles.heroSection} role="banner" aria-label="Marketplace evenimente și handmade">
@@ -592,7 +631,7 @@ export default function HeroSection() {
               <input
                 className={styles.searchInput}
                 type="search"
-                placeholder="Caută: invitații, mărturii, cadouri…"
+                placeholder="Caută: invitații, mărturii, magazine…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 aria-label="Caută produse sau servicii"
@@ -626,14 +665,13 @@ export default function HeroSection() {
 
                   {!suggestLoading && suggestions && (
                     <>
-                      {(!suggestions.products || !suggestions.products.length) &&
-                        (!suggestions.categories || !suggestions.categories.length) && (
-                          <div className={styles.suggestEmpty}>
-                            Nu avem sugestii exacte pentru <strong>{q}</strong>.
-                          </div>
-                        )}
+                      {(!suggestions.products?.length && !suggestions.categories?.length && !suggestions.stores?.length) && (
+                        <div className={styles.suggestEmpty}>
+                          Nu avem sugestii exacte pentru <strong>{q}</strong>.
+                        </div>
+                      )}
 
-                      {suggestions.categories && suggestions.categories.length > 0 && (
+                      {suggestions.categories?.length > 0 && (
                         <div className={styles.suggestSection}>
                           <div className={styles.suggestSectionTitle}>Categorii sugerate</div>
                           {suggestions.categories.map((c) => (
@@ -650,7 +688,42 @@ export default function HeroSection() {
                         </div>
                       )}
 
-                      {suggestions.products && suggestions.products.length > 0 && (
+                      {suggestions.stores?.length > 0 && (
+                        <div className={styles.suggestSection}>
+                          <div className={styles.suggestSectionTitle}>Magazine sugerate</div>
+
+                          <div className={styles.suggestStoresList}>
+                            {suggestions.stores.map((s) => (
+                              <button
+                                key={s.profileSlug}
+                                type="button"
+                                role="option"
+                                className={styles.suggestStoreBtn}
+                                onClick={() => handleSuggestionStoreClick(s.profileSlug)}
+                              >
+                                {s.logoUrl ? (
+                                  <img
+                                    src={s.logoUrl}
+                                    alt={s.displayName || s.storeName || "Magazin"}
+                                    className={styles.suggestStoreThumb}
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
+                                ) : (
+                                  <div className={styles.suggestStoreThumbFallback} aria-hidden="true" />
+                                )}
+
+                                <div className={styles.suggestStoreMeta}>
+                                  <div className={styles.suggestStoreTitle}>{s.displayName || s.storeName || "Magazin"}</div>
+                                  <div className={styles.suggestStoreSub}>{s.city ? s.city : "—"}</div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {suggestions.products?.length > 0 && (
                         <div className={styles.suggestSection}>
                           <div className={styles.suggestSectionTitle}>Produse sugerate</div>
                           <div className={styles.suggestProductsList}>
@@ -662,9 +735,7 @@ export default function HeroSection() {
                                 className={styles.suggestProductBtn}
                                 onClick={() => handleSuggestionProductClick(p.id)}
                               >
-                                {p.images?.[0] && (
-                                  <img src={p.images[0]} alt={p.title} className={styles.suggestProductThumb} />
-                                )}
+                                {p.images?.[0] && <img src={p.images[0]} alt={p.title} className={styles.suggestProductThumb} />}
                                 <div className={styles.suggestProductMeta}>
                                   <div className={styles.suggestProductTitle}>{p.title}</div>
                                   <div className={styles.suggestProductPrice}>
@@ -716,7 +787,6 @@ export default function HeroSection() {
               <li>💬 Suport pentru artizani</li>
             </ul>
 
-            {/* ✅ PE MOBIL afișăm cardul “reclamă” ca pe desktop */}
             {isMobile && (
               <div className={styles.mobilePartnerWrap}>
                 <PartnerCard onCta={() => log("hero_partner_cta", { placement: "hero_mobile_card" })} />
@@ -724,7 +794,6 @@ export default function HeroSection() {
             )}
           </div>
 
-          {/* Desktop only visual */}
           <div className={styles.images}>
             <PartnerCard onCta={() => log("hero_partner_cta", { placement: "hero_right_card" })} />
           </div>

@@ -92,7 +92,7 @@ import adminDigitalWaitlistRoutes from "./src/routes/adminDigitalWaitListRoutes.
 import publicAdsRoutes from "./src/routes/publicAdsRoutes.js";
 import adminEmailLogsRoutes from "./src/routes/adminEmailLogRoutes.js";
 import adminIncidentsRoutes from "./src/routes/adminIncidentsRoutes.js";
-
+import unsubscribeRouter from "./src/routes/unsubscribeRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -402,6 +402,8 @@ app.use("/api/public/support", PublicSupportRoutes);
 app.use("/api/stores", storeFollowRoutes);
 app.use("/api/user-inbox", userMessagesRoutes);
 app.use("/api/account", accountSettingsRouter);
+
+app.use("/api", unsubscribeRouter);
 
 /* ---------------- ALTE RUTE ---------------- */
 app.use("/api", checkoutNetopiaRoutes);

@@ -412,6 +412,72 @@
   color: var(--color-text-muted);
 }
 
+/* ✅ MAGAZINE sugerate */
+.suggestStoresList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggestStoreBtn {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.suggestStoreBtn:hover {
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+
+.suggestStoreThumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  flex: 0 0 auto;
+}
+
+.suggestStoreThumbFallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  border: 1px solid var(--color-border);
+  flex: 0 0 auto;
+}
+
+.suggestStoreMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.suggestStoreTitle {
+  font-size: 14px;
+  color: var(--color-text);
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestStoreSub {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ===== Trending ===== */
 .trending {
   display: flex;
@@ -484,7 +550,6 @@
   list-style: none;
   color: var(--color-text-muted);
   flex-wrap: wrap;
-
 }
 .badges li {
   white-space: nowrap;
@@ -647,12 +712,10 @@
     grid-template-columns: 1fr;
   }
 
-  /* ✅ ascundem coloana de desktop */
   .images {
     display: none;
   }
 
-  /* ✅ cardul pe mobil rămâne (în content) */
   .mobilePartnerWrap {
     display: block;
   }
@@ -725,22 +788,27 @@
   }
 
   .suggestCategoryBtn,
-  .suggestProductBtn {
+  .suggestProductBtn,
+  .suggestStoreBtn {
     padding: 9px 9px;
     border-radius: 9px;
   }
 
-  .suggestProductThumb {
+  .suggestProductThumb,
+  .suggestStoreThumb,
+  .suggestStoreThumbFallback {
     width: 36px;
     height: 36px;
     border-radius: 9px;
   }
 
-  .suggestProductTitle {
+  .suggestProductTitle,
+  .suggestStoreTitle {
     font-size: 13px;
   }
 
-  .suggestProductPrice {
+  .suggestProductPrice,
+  .suggestStoreSub {
     font-size: 11px;
   }
 
@@ -773,7 +841,6 @@
     font-size: 0.63rem;
   }
 
-  /* card pe mobil: un pic mai compact */
   .partnerCard {
     min-height: auto;
   }
@@ -795,14 +862,15 @@
     font-size: 0.9rem;
   }
 }
+
 @media (max-width: 620px) {
   .trending {
     gap: 0.35rem;
   }
 
   .trend {
-    padding: 0.22rem 0.45rem; /* mai mic */
-    font-size: 0.6rem;       /* mai mic */
+    padding: 0.22rem 0.45rem;
+    font-size: 0.6rem;
     border-radius: 9999px;
     line-height: 1.1;
   }

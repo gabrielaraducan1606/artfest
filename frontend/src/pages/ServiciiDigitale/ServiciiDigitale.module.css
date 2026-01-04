@@ -1,5 +1,6 @@
 @import "../../styles/variables.css";
 
+/* ===================== Base ===================== */
 .page {
   max-width: 1200px;
   margin: 0 auto;
@@ -126,6 +127,7 @@
   color: var(--color-text);
   outline: none;
   min-width: 0;
+  font-size: 16px; /* anti-zoom iOS */
 }
 .input:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in oklab, #ffffff 80%, transparent),
@@ -136,7 +138,7 @@
 .submit {
   border: none;
   cursor: pointer;
-  font-weight: 850;
+  font-weight: 790;
   padding: 0.6rem 0.85rem;
   border-radius: calc(var(--radius) + 6px);
   background: var(--color-primary);
@@ -251,76 +253,75 @@
   flex-wrap: wrap;
 }
 
+/* ===================== Responsive ===================== */
 @media (max-width: 980px) {
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
+/* ✅ Mobile: totul mai compact (mai ales butoanele) */
 @media (max-width: 620px) {
-  .page {
-    padding: 14px 12px 22px;
-  }
+  .page { padding: 12px 10px 18px; }
 
-  .hero {
-    padding: 14px;
-  }
-
-  .subtitle {
-    font-size: 0.96rem;
-  }
-
-  .waitlistForm {
-    grid-template-columns: 1fr;
-  }
-
-  .primaryBtn,
-  .ghostBtn {
-    width: 100%;
-  }
-
-  .grid {
-    grid-template-columns: 1fr;
-  }
-}
-/* Mobile: totul mai compact */
-@media (max-width: 620px) {
+  .hero { padding: 12px; }
   .heroInner { gap: 10px; }
 
   .kicker {
-    padding: 5px 9px;
+    padding: 4px 8px;
     gap: 6px;
-    font-size: 0.78rem;
+    font-size: 0.76rem;
   }
 
   .title {
-    font-size: 1.35rem;  /* mai mic decât clamp-ul */
+    font-size: 1.28rem; /* override clamp -> mai mic pe mobil */
     line-height: 1.12;
   }
 
-  .subtitle { font-size: 0.92rem; }
+  .subtitle { font-size: 0.9rem; }
 
+  /* ✅ BUTOANE: compacte */
+  .actions { gap: 8px; }
+
+  /* Varianta 1: butoane "mici" (nu full width) */
   .primaryBtn,
   .ghostBtn {
-    padding: 0.58rem 0.85rem;
-    font-size: 0.95rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.92rem;
+    border-radius: calc(var(--radius) + 5px);
+    box-shadow: var(--shadow-xs);
   }
 
-  .waitlistCard {
-    padding: 12px;
-    gap: 10px;
+  /* Dacă vrei neapărat full width, comentează cele de mai sus și folosește:
+  .primaryBtn, .ghostBtn { width: 100%; }
+  */
+
+  .waitlistCard { padding: 12px; gap: 10px; }
+  .waitlistDesc { font-size: 0.88rem; }
+
+  .waitlistForm {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
-  .waitlistDesc { font-size: 0.9rem; }
+  .input { padding: 0.5rem 0.65rem; font-size: 16px; }
 
-  .input { padding: 0.55rem 0.7rem; }
-  .submit { padding: 0.55rem 0.8rem; }
+  .submit {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.92rem;
+    border-radius: calc(var(--radius) + 5px);
+  }
 
+  .success { padding: 9px 10px; font-size: 0.95rem; }
+
+  .section { margin-top: 14px; padding: 4px 0 0; }
   .sectionHeader { gap: 4px; margin-bottom: 8px; }
-  .h2 { font-size: 1.12rem; }
-  .p  { font-size: 0.95rem; }
 
-  .grid { gap: 10px; }
+  .h2 { font-size: 1.08rem; }
+  .p  { font-size: 0.94rem; }
+
+  .grid { grid-template-columns: 1fr; gap: 10px; }
 
   .card {
     padding: 12px;
@@ -328,16 +329,9 @@
     border-radius: calc(var(--radius) + 8px);
   }
 
-  .icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-  }
+  .icon { width: 34px; height: 34px; border-radius: 10px; }
 
-  .badge {
-    font-size: 0.72rem;
-    padding: 4px 8px;
-  }
+  .badge { font-size: 0.72rem; padding: 4px 8px; }
 
   .h3 { font-size: 0.98rem; }
   .cardP { font-size: 0.9rem; }
@@ -347,12 +341,64 @@
 
 /* Extra-small: telefoane foarte înguste */
 @media (max-width: 380px) {
-  .page { padding: 12px 10px 18px; }
+  .page { padding: 10px 9px 16px; }
 
-  .hero { padding: 12px; }
-  .title { font-size: 1.25rem; }
-  .subtitle { font-size: 0.9rem; }
+  .hero { padding: 11px; }
+
+  .title { font-size: 1.2rem; }
+  .subtitle { font-size: 0.88rem; }
+
+  .primaryBtn,
+  .ghostBtn,
+  .submit {
+    padding: 0.46rem 0.68rem;
+    font-size: 0.9rem;
+  }
+
+  .waitlistCard { padding: 11px; }
 
   .card { padding: 11px; }
-  .badge { padding: 4px 7px; }
+  .badge { padding: 4px 7px; font-size: 0.7rem; }
+
+  .icon { width: 32px; height: 32px; }
+}
+/* ===================== Pulse / Pump pentru butonul "Anunță-mă" ===================== */
+
+/* keyframes: o bătaie scurtă + glow discret */
+@keyframes pump {
+  0%, 100% {
+    transform: translateZ(0) scale(1);
+    box-shadow: 0 8px 18px color-mix(in oklab, var(--color-primary) 18%, transparent);
+  }
+  50% {
+    transform: translateZ(0) scale(1.06);
+    box-shadow:
+      0 10px 24px color-mix(in oklab, var(--color-primary) 26%, transparent),
+      0 0 0 6px color-mix(in oklab, var(--color-primary) 16%, transparent);
+  }
+}
+
+/* aplicăm animația pe buton */
+.submit {
+  position: relative;
+  will-change: transform, box-shadow;
+  animation: pump 1.35s ease-in-out infinite;
+}
+
+/* când utilizatorul interacționează, oprim pump și facem un feedback mai "snappy" */
+.submit:hover,
+.submit:focus-visible,
+.submit:active {
+  animation: none;
+  transform: translateY(-1px) scale(1.02);
+  box-shadow:
+    0 12px 28px color-mix(in oklab, var(--color-primary) 28%, transparent),
+    0 0 0 6px color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+
+/* accesibilitate: respectă "Reduce motion" */
+@media (prefers-reduced-motion: reduce) {
+  .submit {
+    animation: none;
+  }
 }

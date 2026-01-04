@@ -16,8 +16,15 @@ import {
   vendorDeactivateConfirmTemplate,
 } from "./emailTemplates.js";
 
+import { signUnsubToken } from "./unsubscribe.js";
+
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
+
+// IMPORTANT pentru one-click unsubscribe (List-Unsubscribe):
+// Trebuie să fie un URL public HTTPS către backend (unde ai /unsubscribe).
+const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || process.env.API_URL || "").replace(/\/+$/, "");
+const UNSUBSCRIBE_BASE_URL = (PUBLIC_API_URL || APP_URL || "").replace(/\/+$/, "");
 
 /**
  * Provider selection:
@@ -139,6 +146,32 @@ const AUTO_HEADERS = {
   "X-Auto-Response-Suppress": "All",
   Precedence: "bulk",
 };
+
+/* ============================================================
+   UNSUBSCRIBE (one-click)
+============================================================ */
+function buildUnsubscribeLink({ email, category = "marketing" }) {
+  if (!UNSUBSCRIBE_BASE_URL) return null;
+
+  const token = signUnsubToken({
+    email: String(email || "").trim().toLowerCase(),
+    category,
+    ts: Date.now(),
+  });
+
+  return `${UNSUBSCRIBE_BASE_URL}/unsubscribe?token=${encodeURIComponent(token)}`;
+}
+
+function buildListUnsubscribeHeaders({ email, category = "marketing" }) {
+  const url = buildUnsubscribeLink({ email, category });
+  if (!url) return {};
+
+  return {
+    "List-Unsubscribe": `<${url}>`,
+    // RFC 8058 one-click
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
 
 /* ============================================================
    HELPERS
@@ -357,10 +390,11 @@ export async function sendGuestSupportConfirmationEmail({
   userId = null,
   ticketId = null,
 }) {
-  const { html, text, subject: emailSubject } = await withLogo(
-    guestSupportConfirmationTemplate,
-    { name, subject, message }
-  );
+  const { html, text, subject: emailSubject } = await withLogo(guestSupportConfirmationTemplate, {
+    name,
+    subject,
+    message,
+  });
 
   return sendMailLogged({
     senderKey: "contact",
@@ -476,10 +510,13 @@ export async function sendEmailChangeVerificationEmail({ to, link, userId = null
 }
 
 /* ============================================================
-   MARKETING (sender: no-reply@)
+   MARKETING (sender: no-reply@)  + one-click unsubscribe headers
 ============================================================ */
 export async function sendMarketingEmail({ to, subject, html, preheader, userId = null }) {
   if (!to || !subject || !html) return;
+
+  const unsubUrl = buildUnsubscribeLink({ email: to, category: "marketing" });
+  const listUnsubHeaders = buildListUnsubscribeHeaders({ email: to, category: "marketing" });
 
   const finalHtml = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -495,13 +532,25 @@ export async function sendMarketingEmail({ to, subject, html, preheader, userId 
   <div style="background:#ffffff;border-radius:12px;padding:18px 16px;border:1px solid #e5e7eb;">
     ${html}
   </div>
-  <p style="font-size:11px;color:#9ca3af;text-align:center;margin:16px 0 0;">
+  <p style="font-size:11px;color:#9ca3af;text-align:center;margin:16px 0 0;line-height:1.5;">
     Primești acest email pentru că ți-ai dat acordul să primești comunicări de marketing de la ${BRAND_NAME}.
-    Dacă nu mai vrei să primești astfel de mesaje, folosește linkul de dezabonare din email.
+    ${
+      unsubUrl
+        ? `Dacă nu mai vrei să primești astfel de mesaje, te poți dezabona aici:
+           <a href="${unsubUrl}" style="color:#4f46e5;">Dezabonare</a>.`
+        : `Dacă nu mai vrei să primești astfel de mesaje, folosește linkul de dezabonare din email.`
+    }
   </p>
 </div>`.trim();
 
-  const text = stripHtml(html);
+  const text = [
+    stripHtml(html),
+    "",
+    `Primești acest email pentru că ți-ai dat acordul să primești comunicări de marketing de la ${BRAND_NAME}.`,
+    unsubUrl ? `Dezabonare: ${unsubUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -515,7 +564,10 @@ export async function sendMarketingEmail({ to, subject, html, preheader, userId 
       subject,
       html: finalHtml,
       text,
-      headers: AUTO_HEADERS,
+      headers: {
+        ...AUTO_HEADERS,
+        ...listUnsubHeaders,
+      },
     },
   });
 }
@@ -824,7 +876,9 @@ export async function sendOrderCancelledEmail({
       reasonText = "au fost probleme la procesarea plății.";
       break;
     case "other":
-      reasonText = cancelReasonNote?.trim() ? cancelReasonNote.trim() : "a intervenit o situație neprevăzută.";
+      reasonText = cancelReasonNote?.trim()
+        ? cancelReasonNote.trim()
+        : "a intervenit o situație neprevăzută.";
       break;
     default:
       reasonText = "a intervenit o situație care nu ne permite să onorăm comanda.";
