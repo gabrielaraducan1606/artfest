@@ -1,5 +1,6 @@
 // backend/src/lib/mailer.js
 import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { prisma } from "../db.js";
 import {
   verificationEmailTemplate,
@@ -14,7 +15,10 @@ import {
   vendorDeactivateConfirmTemplate,
 } from "./emailTemplates.js";
 
-const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
+const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
+  /\/+$/,
+  ""
+);
 const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
 
 /**
@@ -22,7 +26,7 @@ const BRAND_NAME = process.env.BRAND_NAME || "Artfest";
  * Prioritate:
  * 1) EMAIL_LOGO_URL (URL complet)
  * 2) R2_PUBLIC_BASE_URL + EMAIL_LOGO_KEY
- * 3) fallback vechi (artfest.ro)
+ * 3) fallback vechi
  */
 const EMAIL_LOGO_URL =
   process.env.EMAIL_LOGO_URL ||
@@ -34,9 +38,10 @@ const EMAIL_LOGO_URL =
 
 /**
  * Configurare senders:
- * - noreply: pentru signup/reset/security/orders etc.
- * - contact: pentru suport (guest support)
- * - admin: pentru facturi/billing si confirmari administrative
+ * (păstrăm structura existentă ca să nu rupem nimic)
+ *
+ * IMPORTANT pentru Resend:
+ * - "from" trebuie să fie un sender permis (domeniu verificat) în Resend.
  */
 const SENDERS = {
   noreply: {
@@ -68,7 +73,16 @@ const SENDERS = {
   },
 };
 
-// cache transportere ca sa nu recreezi conexiunea mereu
+/* ============================================================
+   === PROVIDER SELECT: RESEND (preferred) / SMTP (fallback)
+   ============================================================ */
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const USE_RESEND = Boolean(RESEND_API_KEY && RESEND_API_KEY.trim());
+
+const resend = USE_RESEND ? new Resend(RESEND_API_KEY) : null;
+
+// cache transportere SMTP ca sa nu recreezi conexiunea mereu
 const transportCache = new Map();
 
 function mustEnv(name, value) {
@@ -96,24 +110,23 @@ export function makeTransport(senderKey = "noreply") {
     secure: port === 465, // 587 => false (STARTTLS)
     auth: { user: sender.user, pass: sender.pass },
 
-    // ✅ IMPORTANT: să nu "atârne" requesturile
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
     socketTimeout: 20_000,
 
-    // ✅ pentru 587
     requireTLS: port === 587,
-
-    tls: {
-      rejectUnauthorized: true,
-    },
+    tls: { rejectUnauthorized: true },
   });
 
-  // ✅ ajută enorm la debug (o singură dată / cache)
+  // verify async (debug)
   transporter
     .verify()
     .then(() =>
-      console.log(`[MAIL] SMTP verify OK (${senderKey})`, { host, port, user: sender.user })
+      console.log(`[MAIL] SMTP verify OK (${senderKey})`, {
+        host,
+        port,
+        user: sender.user,
+      })
     )
     .catch((e) =>
       console.error(`[MAIL] SMTP verify FAILED (${senderKey})`, {
@@ -143,8 +156,6 @@ function senderEnvelope(senderKey = "noreply") {
    ============================================================ */
 
 const LOGO_CID = "logo-artfest";
-
-// cache în memorie (o singură descărcare)
 let cachedLogo = null;
 
 // fetch cu timeout ca să nu blocheze
@@ -172,7 +183,8 @@ async function getLogoAttachment() {
     filename: "logo.png",
     content: buffer.toString("base64"),
     encoding: "base64",
-    cid: LOGO_CID,
+    cid: LOGO_CID, // nodemailer
+    contentId: LOGO_CID, // resend
     contentType,
     contentDisposition: "inline",
   };
@@ -188,12 +200,15 @@ async function withLogo(templateFn, props = {}) {
     ...props,
   });
 
-  // ✅ NU mai lăsăm logo-ul să blocheze emailul
+  // NU lăsăm logo-ul să blocheze emailul
   try {
     const logoAttachment = await getLogoAttachment();
     return { html, text, subject, logoAttachment };
   } catch (e) {
-    console.error("[MAIL] logo attachment failed (sending without logo):", e?.message || e);
+    console.error(
+      "[MAIL] logo attachment failed (sending without logo):",
+      e?.message || e
+    );
     return { html, text, subject, logoAttachment: null };
   }
 }
@@ -244,7 +259,6 @@ async function createEmailLogQueued({
   orderId = null,
   ticketId = null,
 }) {
-  // dacă tabelul nu există încă (înainte de migrate), să nu-ți crape aplicația
   try {
     return await prisma.emailLog.create({
       data: {
@@ -290,14 +304,102 @@ async function markEmailLogFailed(id, err) {
     const msg = safeStr(err?.message || err || "unknown_error", 1000);
     return await prisma.emailLog.update({
       where: { id },
-      data: {
-        status: "FAILED",
-        error: msg,
-      },
+      data: { status: "FAILED", error: msg },
     });
   } catch {
     return null;
   }
+}
+
+/* ============================================================
+   === SEND (Resend or SMTP) + logging
+   ============================================================ */
+
+function normalizeFrom(fromStr) {
+  // Resend vrea "Name <email@domain>" sau "email@domain"
+  return String(fromStr || "").trim();
+}
+
+function normalizeTo(to) {
+  // Resend acceptă string sau array; păstrăm simplu.
+  return String(to || "").trim();
+}
+
+function toResendAttachments(nodemailerAttachments = []) {
+  // Nodemailer: { filename, content(base64), encoding, cid, contentType, contentDisposition }
+  // Resend: { filename, content(base64), contentType, contentId }
+  return (nodemailerAttachments || [])
+    .filter(Boolean)
+    .map((a) => ({
+      filename: a.filename || "attachment",
+      content: a.content, // base64
+      contentType: a.contentType,
+      contentId: a.contentId || a.cid, // pentru inline CID
+    }));
+}
+
+async function sendViaResend({ senderKey, mailOptions }) {
+  if (!resend) throw new Error("Resend not configured");
+
+  const sender = SENDERS[senderKey] || {};
+  const from = normalizeFrom(mailOptions?.from || sender?.from);
+  const to = normalizeTo(mailOptions?.to);
+  const subject = mailOptions?.subject || "";
+  const html = mailOptions?.html || "";
+  const text = mailOptions?.text || "";
+
+  const attachments = toResendAttachments(mailOptions?.attachments || []);
+
+  // headers: Resend suportă "headers" object
+  const headers = mailOptions?.headers || undefined;
+  const replyTo = mailOptions?.replyTo || sender?.replyTo || undefined;
+
+  const payload = {
+    from,
+    to,
+    subject,
+    html,
+    text,
+    reply_to: replyTo,
+    headers,
+    attachments: attachments.length ? attachments : undefined,
+  };
+
+  const res = await resend.emails.send(payload);
+
+  // Resend returnează { data: { id }, error }
+  if (res?.error) {
+    const err = new Error(res.error.message || "Resend error");
+    err.code = res.error.name || "RESEND_ERROR";
+    err.response = res.error;
+    throw err;
+  }
+
+  return {
+    provider: "resend",
+    messageId: res?.data?.id || null,
+    accepted: [to],
+    rejected: [],
+    response: "OK",
+    raw: res,
+  };
+}
+
+async function sendViaSmtp({ senderKey, mailOptions, headersOverride }) {
+  const transporter = makeTransport(senderKey);
+  const res = await transporter.sendMail({
+    ...mailOptions,
+    headers: headersOverride || mailOptions.headers,
+  });
+
+  return {
+    provider: "smtp",
+    messageId: res?.messageId || null,
+    accepted: res?.accepted || [],
+    rejected: res?.rejected || [],
+    response: res?.response,
+    raw: res,
+  };
 }
 
 async function sendMailLogged({
@@ -325,38 +427,58 @@ async function sendMailLogged({
     replyTo,
     template,
     subject,
-    provider: "smtp",
+    provider: USE_RESEND ? "resend" : "smtp",
     orderId,
     ticketId,
   });
 
   try {
-    const transporter = makeTransport(senderKey);
-    const res = await transporter.sendMail({
-      ...mailOptions,
-      headers: headers || mailOptions.headers,
-    });
+    let result;
 
-    // ✅ log clar în console (important pentru debugging)
-    console.log("[MAIL] sent", {
-      senderKey,
-      to,
-      messageId: res?.messageId,
-      accepted: res?.accepted,
-      rejected: res?.rejected,
-      response: res?.response,
-    });
+    if (USE_RESEND) {
+      // Resend
+      result = await sendViaResend({
+        senderKey,
+        mailOptions: {
+          ...mailOptions,
+          headers: headers || mailOptions.headers,
+        },
+      });
 
-    if (log?.id) {
-      await markEmailLogSent(log.id, {
-        provider: "smtp",
-        messageId: res?.messageId,
+      console.log("[MAIL] sent (resend)", {
+        senderKey,
+        to,
+        messageId: result?.messageId,
+      });
+    } else {
+      // SMTP fallback
+      result = await sendViaSmtp({
+        senderKey,
+        mailOptions,
+        headersOverride: headers,
+      });
+
+      console.log("[MAIL] sent (smtp)", {
+        senderKey,
+        to,
+        messageId: result?.messageId,
+        accepted: result?.accepted,
+        rejected: result?.rejected,
+        response: result?.response,
       });
     }
 
-    return res;
+    if (log?.id) {
+      await markEmailLogSent(log.id, {
+        provider: result?.provider,
+        messageId: result?.messageId,
+      });
+    }
+
+    return result;
   } catch (err) {
     console.error("[MAIL] failed", {
+      provider: USE_RESEND ? "resend" : "smtp",
       senderKey,
       to,
       message: err?.message,
@@ -381,8 +503,10 @@ export async function sendGuestSupportConfirmationEmail({
   userId = null,
   ticketId = null,
 }) {
-  const { html, text, subject: emailSubject, logoAttachment } =
-    await withLogo(guestSupportConfirmationTemplate, { name, subject, message });
+  const { html, text, subject: emailSubject, logoAttachment } = await withLogo(
+    guestSupportConfirmationTemplate,
+    { name, subject, message }
+  );
 
   return sendMailLogged({
     senderKey: "contact",
@@ -679,7 +803,10 @@ export async function sendOrderConfirmationEmail({
   if (!to || !order) return;
 
   const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error("[MAIL] logo fetch failed (order confirmation)", e?.message || e);
+    console.error(
+      "[MAIL] logo fetch failed (order confirmation)",
+      e?.message || e
+    );
     return null;
   });
 
@@ -781,7 +908,9 @@ export async function sendOrderConfirmationEmail({
     <p style="color:#374151;margin:0 0 16px;">
       <strong>Număr comandă:</strong> ${order.id}<br>
       <strong>Metodă de plată:</strong> ${
-        order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"
+        order.paymentMethod === "COD"
+          ? "Plată la livrare (ramburs)"
+          : "Card online"
       }
     </p>
 
@@ -879,12 +1008,12 @@ export async function sendOrderConfirmationEmail({
   ].filter(Boolean);
 
   const text = textLines.join("\n");
-  const subject = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
+  const subj = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
 
   return sendMailLogged({
     senderKey: "noreply",
     to,
-    subject,
+    subject: subj,
     template: "order_confirmation",
     userId,
     orderId: order.id,
@@ -892,7 +1021,7 @@ export async function sendOrderConfirmationEmail({
     mailOptions: {
       ...senderEnvelope("noreply"),
       to,
-      subject,
+      subject: subj,
       html,
       text,
       attachments: logoAttachment ? [logoAttachment] : [],
@@ -917,7 +1046,10 @@ export async function sendOrderCancelledEmail({
   if (!to || !orderId) return;
 
   const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error("[MAIL] logo fetch failed (order cancelled vendor)", e?.message || e);
+    console.error(
+      "[MAIL] logo fetch failed (order cancelled vendor)",
+      e?.message || e
+    );
     return null;
   });
 
@@ -925,19 +1057,21 @@ export async function sendOrderCancelledEmail({
   const storeName = vendorName || BRAND_NAME || "magazinul nostru";
 
   let reasonText = "";
-
   switch (cancelReason) {
     case "client_no_answer":
-      reasonText = "nu am reușit să vă contactăm telefonic pentru confirmarea comenzii.";
+      reasonText =
+        "nu am reușit să vă contactăm telefonic pentru confirmarea comenzii.";
       break;
     case "client_request":
       reasonText = "ați solicitat anularea comenzii.";
       break;
     case "stock_issue":
-      reasonText = "produsele comandate nu mai sunt disponibile momentan (stoc epuizat).";
+      reasonText =
+        "produsele comandate nu mai sunt disponibile momentan (stoc epuizat).";
       break;
     case "address_issue":
-      reasonText = "adresa de livrare este incompletă sau curierul nu poate livra la această adresă.";
+      reasonText =
+        "adresa de livrare este incompletă sau curierul nu poate livra la această adresă.";
       break;
     case "payment_issue":
       reasonText = "au fost probleme la procesarea plății.";
@@ -948,7 +1082,8 @@ export async function sendOrderCancelledEmail({
         : "a intervenit o situație neprevăzută.";
       break;
     default:
-      reasonText = "a intervenit o situație care nu ne permite să onorăm comanda.";
+      reasonText =
+        "a intervenit o situație care nu ne permite să onorăm comanda.";
   }
 
   const address = shippingAddress || {};
@@ -1040,11 +1175,18 @@ export async function sendOrderCancelledEmail({
 /**
  * ✉️ Email „comanda a fost anulată de CLIENT” (sender: no-reply@)
  */
-export async function sendOrderCancelledByUserEmail({ to, order, userId = null }) {
+export async function sendOrderCancelledByUserEmail({
+  to,
+  order,
+  userId = null,
+}) {
   if (!to || !order) return;
 
   const logoAttachment = await getLogoAttachment().catch((e) => {
-    console.error("[MAIL] logo fetch failed (order cancelled user)", e?.message || e);
+    console.error(
+      "[MAIL] logo fetch failed (order cancelled user)",
+      e?.message || e
+    );
     return null;
   });
 
@@ -1222,17 +1364,11 @@ export async function sendVendorFollowUpReminderEmail({
   if (!to) return;
 
   const fullLink =
-    threadLink && APP_URL
-      ? `${APP_URL.replace(/\/+$/, "")}${threadLink}`
-      : undefined;
+    threadLink && APP_URL ? `${APP_URL.replace(/\/+$/, "")}${threadLink}` : undefined;
 
   const { html, text, subject, logoAttachment } = await withLogo(
     vendorFollowUpReminderEmailTemplate,
-    {
-      contactName,
-      followUpAt,
-      link: fullLink,
-    }
+    { contactName, followUpAt, link: fullLink }
   );
 
   return sendMailLogged({
@@ -1281,12 +1417,7 @@ export async function sendInvoiceIssuedEmail({
 
   const { html, text, subject, logoAttachment } = await withLogo(
     invoiceIssuedEmailTemplate,
-    {
-      orderId,
-      invoiceNumber,
-      totalLabel,
-      link,
-    }
+    { orderId, invoiceNumber, totalLabel, link }
   );
 
   return sendMailLogged({

@@ -671,7 +671,6 @@
     border-radius: calc(var(--radius) + 6px);
     margin-top: 0;
   }
-
   .content {
     gap: 10px;
   }

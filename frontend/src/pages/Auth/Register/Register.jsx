@@ -590,7 +590,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
               onChange={(e) => setVendorEntityConfirm(e.target.checked)}
               aria-required="true"
             />
-            <span>
+            <span className={styles.spanConfirm}>
               Confirm că reprezint o <strong>entitate juridică</strong> (PFA /
               SRL / II / IF) și dețin un <strong>CUI/CIF</strong> valid.
             </span>

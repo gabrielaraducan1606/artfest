@@ -40,7 +40,7 @@
   display: grid;
   gap: 14px;
   max-width: 420px;
-  margin: 56px auto;
+  margin: 0 auto; /* ✅ evităm dublu spacing (wrap deja are margin) */
 }
 
 /* ===== Form ===== */
@@ -361,14 +361,78 @@
   font-size: 0.95rem;
 }
 
-/* ===== Responsive ===== */
+/* ===== Responsive (compact pe mobil) ===== */
 @media (max-width: 519px) {
-  .wrap { margin: 40px auto; padding: 0 14px; }
-  .card { margin: 32px auto; padding: 16px; max-width: 100%; }
-  .nameRow { grid-template-columns: 1fr; }
-  .vendorHeader { flex-direction: column; align-items: stretch; gap: 10px; }
-  .disclosureBtn { align-self: flex-start; }
+  .wrap { margin: 24px auto; padding: 0 12px; }
+  .header { margin-bottom: 10px; }
+
+  .title { font-size: 1.4rem; margin: 0 0 2px; }
+  .subtitle { font-size: 0.9rem; }
+
+  .card {
+    margin: 0 auto;
+    padding: 12px;
+    gap: 10px;
+    max-width: 100%;
+    border-radius: calc(var(--radius) - 2px);
+  }
+
+  .body { gap: 10px; }
+  .fieldGroup { gap: 4px; }
+
+  .field {
+    min-height: 40px;     /* mai compact, dar încă ok pe mobil */
+    padding: 10px 10px;
+    font-size: 14px;      /* păstrează anti-zoom iOS */
+  }
+
+  .nameRow { grid-template-columns: 1fr; gap: 8px; }
+
+  .togglePw {
+    padding: 10px;
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .hasToggle .field { padding-right: 52px; }
+
+  .progress { height: 5px; margin-top: 5px; }
+
+  .hint,
+  .capsHint {
+    font-size: 0.8rem;
+    margin-top: 4px;
+  }
+
+  .suggestionRow { gap: 8px; margin-top: 5px; }
+  .pill { padding: 5px 10px; font-size: 0.9rem; }
+
+  .vendorBox { padding: 10px; }
+  .vendorTitle { font-size: 13px; }
+  .vendorNote { margin-top: 8px; font-size: 11.5px; }
+
+  .entityConfirmRow {
+    padding: 8px;
+    gap: 8px;
+    font-size: 0.9rem;
+  }
+
+  .legalGroup { gap: 8px; }
+  .legalRow { gap: 8px; line-height: 1.35; }
+
+  .primaryBtn { padding: 9px 12px; }
+
+  .error,
+  .info,
+  .legalNotice {
+    font-size: 0.9rem;
+    padding: 7px 9px;
+  }
+  .spanConfirm{
+    font-size: 12px;
+  }
 }
+
+/* ===== Tablet+ ===== */
 @media (min-width: 520px) and (max-width: 767px) {
   .wrap { max-width: 500px; margin: 48px auto; }
   .card { max-width: 500px; padding: 18px; }
