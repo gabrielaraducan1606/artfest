@@ -6,16 +6,21 @@
       <title>Unlock</title> 
     </head> 
     <body> 
-      <script> 
-        const params = new URLSearchParams(location.search); 
-        const code = params.get("code"); // aici setezi parola ta secretă const SECRET = ".................."; 
-        if (code && code === SECRET) 
-        { localStorage.setItem("artfest-access", "ok"); 
-        alert("✅ Acces activat pe acest browser."); 
-        location.href = "/"; 
-        } else 
-        { alert("❌ Cod invalid."); 
-        history.back(); } 
-        </script> 
+     <script>
+  const params = new URLSearchParams(location.search);
+  const code = params.get("code");
+
+  const SECRET = "artfest2026"; // ← exemplu
+
+  if (code && code === SECRET) {
+    localStorage.setItem("artfest-access", "ok");
+    alert("✅ Acces activat pe acest browser.");
+    location.href = "/";
+  } else {
+    alert("❌ Cod invalid.");
+    history.back();
+  }
+</script>
+
         </body> 
         </html>
