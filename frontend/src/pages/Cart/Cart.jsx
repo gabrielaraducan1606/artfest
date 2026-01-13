@@ -61,17 +61,56 @@ const getMaxQty = (product = {}) => {
 const clampQty = (q, max = DEFAULT_MAX_QTY) =>
   Math.max(1, Math.min(Number.isFinite(q) ? q : 1, max));
 
+/* ===== UI cache (instant render) ===== */
+const CART_CACHE_KEY = "cart:ui-cache:v1";
+
+function readCartCache() {
+  try {
+    const raw = sessionStorage.getItem(CART_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.rows)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCartCache(data) {
+  try {
+    sessionStorage.setItem(CART_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    /* noop */
+  }
+}
+
 export default function Cart() {
   const nav = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [me, setMe] = useState(null);
-  const [rows, setRows] = useState([]); // [{ productId, qty, _localQty, product: {...} }]
+
+  // citește cache o singură dată
+  const cached = useMemo(() => readCartCache(), []);
+
+  // dacă avem cache, nu mai afișăm loader (UI instant)
+  const [loading, setLoading] = useState(() => !cached);
+
+  const [me, setMe] = useState(() => cached?.me ?? null);
+  const [rows, setRows] = useState(() => cached?.rows ?? []); // [{ productId, qty, _localQty, product: {...} }]
+
   const didMergeRef = useRef(false);
   const announceRef = useRef(null); // aria-live
   const [pending, setPending] = useState(() => new Set()); // ids în lucru (update/remove/fav)
   const [favIds, setFavIds] = useState(() => new Set()); // productId-urile favorite
 
   const myVendorId = me?.vendor?.id || null;
+
+  // scrie cache la orice schimbare relevantă
+  useEffect(() => {
+    writeCartCache({
+      me,
+      rows,
+      ts: Date.now(),
+    });
+  }, [me, rows]);
 
   const notifyCartChanged = useCallback(() => {
     try {
@@ -236,11 +275,14 @@ export default function Cart() {
     [announce, notifyCartChanged]
   );
 
-  /* ================= Load init (UN SINGUR efect) ================= */
+  /* ================= Load init (UN SINGUR efect) =================
+     - dacă avem deja rows (din cache), nu mai blocăm UI cu loader
+  */
   useEffect(() => {
     const ac = new AbortController();
+
     (async () => {
-      setLoading(true);
+
       try {
         const d = await api("/api/auth/me", {
           signal: ac.signal,
@@ -260,7 +302,7 @@ export default function Cart() {
     })();
 
     return () => ac.abort();
-  }, [loadGuest, loadServer, mergeIfNeeded]);
+  }, [loadGuest, loadServer, mergeIfNeeded, rows.length]);
 
   /* ================= Load favorites ================= */
   useEffect(() => {
@@ -485,16 +527,12 @@ export default function Cart() {
     nav("/checkout");
   }, [me, hasOwnItems, nav]);
 
-  const isRowPending = useCallback(
-    (id) => pending.has(id),
-    [pending]
-  );
+  const isRowPending = useCallback((id) => pending.has(id), [pending]);
 
   const toggleFavorite = useCallback(
     async (productId) => {
       if (!productId) return;
 
-      // dacă nu e logat -> login
       if (!me) {
         const redir = encodeURIComponent(`/produs/${productId}`);
         return nav(`/autentificare?redirect=${redir}`);
@@ -533,8 +571,38 @@ export default function Cart() {
   );
 
   /* ================= Render ================= */
+
+  // Skeleton (în loc de ecran gol)
   if (loading) {
-    return <div className={styles.container}>Se încarcă…</div>;
+    return (
+      <div className={styles.container}>
+        <div className={styles.headerRow}>
+          <h2 className={styles.pageTitle}>Coș</h2>
+        </div>
+
+        <div className={styles.layout}>
+          <div className={styles.list}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className={styles.card} aria-hidden="true">
+                <div className={styles.media}>
+                  <div className={styles.skelImg} />
+                </div>
+                <div className={styles.body}>
+                  <div className={styles.skelLine} />
+                  <div className={styles.skelLineShort} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <aside className={styles.summary} aria-hidden="true">
+            <div className={styles.skelLine} />
+            <div className={styles.skelLineShort} />
+            <div className={styles.skelLineShort} />
+          </aside>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -568,8 +636,7 @@ export default function Cart() {
               const vSlug = firstProduct.vendorSlug || null;
 
               const vendorSubtotal = items.reduce(
-                (s, r) =>
-                  s + Number(r.product?.price || 0) * Number(r.qty || 0),
+                (s, r) => s + Number(r.product?.price || 0) * Number(r.qty || 0),
                 0
               );
 
@@ -581,11 +648,7 @@ export default function Cart() {
                 >
                   <header className={styles.vendorHead}>
                     <div className={styles.vendorTitle}>
-                      {vSlug ? (
-                        <Link to={`/magazin/${vSlug}`}>{vName}</Link>
-                      ) : (
-                        <span>{vName}</span>
-                      )}
+                      {vSlug ? <Link to={`/magazin/${vSlug}`}>{vName}</Link> : <span>{vName}</span>}
                       <small className={styles.vendorSub}>
                         Subtotal: {money(vendorSubtotal, "RON")}
                       </small>
@@ -599,7 +662,7 @@ export default function Cart() {
                     </button>
                   </header>
 
-                  {items.map((r) => {
+                  {items.map((r, idx) => {
                     const p = r.product || {};
                     const img = p.images?.[0]
                       ? resolveFileUrl(p.images[0])
@@ -615,10 +678,11 @@ export default function Cart() {
                     const productIdForFav = p.id || r.productId;
                     const isFav =
                       !!productIdForFav && favIds.has(productIdForFav);
-                    const favKey = productIdForFav
-                      ? `fav-${productIdForFav}`
-                      : null;
+                    const favKey = productIdForFav ? `fav-${productIdForFav}` : null;
                     const favBusy = favKey ? isRowPending(favKey) : false;
+
+                    // primele imagini eager => mai puțin “flash”
+                    const eager = idx < 2;
 
                     return (
                       <article key={r.productId} className={styles.card}>
@@ -634,11 +698,10 @@ export default function Cart() {
                             className={styles.mediaImg}
                             src={img}
                             alt={p.title}
-                            onError={(e) =>
-                              onImgError(e, 200, 160, "Produs")
-                            }
+                            onError={(e) => onImgError(e, 200, 160, "Produs")}
                             decoding="async"
-                            loading="lazy"
+                            loading={eager ? "eager" : "lazy"}
+                            fetchpriority={eager ? "high" : "auto"}
                           />
                         </Link>
 
@@ -686,14 +749,8 @@ export default function Cart() {
                               pattern="[0-9]*"
                               min={1}
                               onChange={(e) => {
-                                const raw = e.target.value.replace(
-                                  /[^\d]/g,
-                                  ""
-                                );
-                                const v = clampQty(
-                                  parseInt(raw || "1", 10),
-                                  max
-                                );
+                                const raw = e.target.value.replace(/[^\d]/g, "");
+                                const v = clampQty(parseInt(raw || "1", 10), max);
                                 setLocalQty(r.productId, v);
                               }}
                               onBlur={() => {
@@ -725,23 +782,11 @@ export default function Cart() {
                               <button
                                 type="button"
                                 className={`${styles.iconBtnOutline} ${
-                                  isFav
-                                    ? styles.favActive
-                                    : styles.favInactive
+                                  isFav ? styles.favActive : styles.favInactive
                                 }`}
-                                onClick={() =>
-                                  toggleFavorite(productIdForFav)
-                                }
-                                aria-label={
-                                  isFav
-                                    ? "Scoate din favorite"
-                                    : "Adaugă la favorite"
-                                }
-                                title={
-                                  isFav
-                                    ? "Scoate din favorite"
-                                    : "Adaugă la favorite"
-                                }
+                                onClick={() => toggleFavorite(productIdForFav)}
+                                aria-label={isFav ? "Scoate din favorite" : "Adaugă la favorite"}
+                                title={isFav ? "Scoate din favorite" : "Adaugă la favorite"}
                                 disabled={favBusy}
                               >
                                 {isFav ? <FaHeart /> : <FaRegHeart />}
@@ -773,10 +818,7 @@ export default function Cart() {
             <div className={styles.summaryTitle}>
               Sumar
               {totalItems > 0 && (
-                <span className={styles.summaryCount}>
-                  {" "}
-                  · {totalItems} produse
-                </span>
+                <span className={styles.summaryCount}> · {totalItems} produse</span>
               )}
             </div>
 
@@ -786,21 +828,13 @@ export default function Cart() {
               const vSlug = firstProduct.vendorSlug || null;
 
               const vendorSubtotal = items.reduce(
-                (s, r) =>
-                  s + Number(r.product?.price || 0) * Number(r.qty || 0),
+                (s, r) => s + Number(r.product?.price || 0) * Number(r.qty || 0),
                 0
               );
 
               return (
-                <div
-                  className={styles.summaryRow}
-                  key={`sum-${vendorId}`}
-                >
-                  {vSlug ? (
-                    <Link to={`/magazin/${vSlug}`}>{vName}</Link>
-                  ) : (
-                    <span>{vName}</span>
-                  )}
+                <div className={styles.summaryRow} key={`sum-${vendorId}`}>
+                  {vSlug ? <Link to={`/magazin/${vSlug}`}>{vName}</Link> : <span>{vName}</span>}
                   <strong>{money(vendorSubtotal, "RON")}</strong>
                 </div>
               );
@@ -827,10 +861,7 @@ export default function Cart() {
               className={styles.checkoutBtn}
               onClick={goCheckout}
               type="button"
-              disabled={
-                hasOwnItems ||
-                rows.every((r) => r.product?.available === false)
-              }
+              disabled={hasOwnItems || rows.every((r) => r.product?.available === false)}
             >
               Continuă la checkout
             </button>
@@ -853,10 +884,7 @@ export default function Cart() {
             className={styles.mobileCheckout}
             onClick={goCheckout}
             type="button"
-            disabled={
-              hasOwnItems ||
-              rows.every((r) => r.product?.available === false)
-            }
+            disabled={hasOwnItems || rows.every((r) => r.product?.available === false)}
             aria-disabled={hasOwnItems}
             title={
               hasOwnItems

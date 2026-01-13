@@ -23,6 +23,28 @@ import {
   ShoppingCart,
 } from "lucide-react";
 
+/* ===================== UI cache (instant render) ===================== */
+const DASH_CACHE_KEY = "vendor:dashboard-cache:v1";
+
+function readDashCache() {
+  try {
+    const raw = sessionStorage.getItem(DASH_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function writeDashCache(data) {
+  try {
+    sessionStorage.setItem(DASH_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    /* noop */
+  }
+}
+
 /* ---------- helpers mutate în afara componentei (fără deps) ---------- */
 function extractMissing(e) {
   try {
@@ -180,56 +202,72 @@ function getInitials(me) {
 export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
 
-  const [services, setServices] = useState([]);
-  const [onboarding, setOnboarding] = useState(null);
+  // citește cache o singură dată
+  const cached = useMemo(() => readDashCache(), []);
 
-  // stats vendor (vizitatori + urmăritori)
-  const [stats, setStats] = useState({
-    visitors: 0,
-    followers: 0,
-  });
+  const [services, setServices] = useState(() => cached?.services ?? []);
+  const [onboarding, setOnboarding] = useState(() => cached?.onboarding ?? null);
 
-  // număr real de recenzii produs / magazin
-  const [reviewCounts, setReviewCounts] = useState({
-    product: 0,
-    store: 0,
-  });
+  const [stats, setStats] = useState(() => cached?.stats ?? { visitors: 0, followers: 0 });
+  const [reviewCounts, setReviewCounts] = useState(
+    () => cached?.reviewCounts ?? { product: 0, store: 0 }
+  );
 
-  const [loading, setLoading] = useState(true);
+  // în loc să blocăm cu loader, dacă avem cache -> loading false
+  const [loading, setLoading] = useState(() => !cached);
+
   const [busy, setBusy] = useState({});
   const [error, setError] = useState("");
 
-  // INFO VENDOR (entitate juridică)
-  const [vendor, setVendor] = useState(null);
+  const [vendor, setVendor] = useState(() => cached?.vendor ?? null);
   const [entityConfirmBusy, setEntityConfirmBusy] = useState(false);
   const [entityConfirmError, setEntityConfirmError] = useState("");
 
   const sub = useSubscriptionStatus();
 
-  // cont / account bits (counts)
-  const [unreadNotif, setUnreadNotif] = useState(0);
-  const [unreadMsgs, setUnreadMsgs] = useState(0);
-  const [cartCount, setCartCount] = useState(0);
-  const [favCount, setFavCount] = useState(0);
+  const [unreadNotif, setUnreadNotif] = useState(() => cached?.counts?.unreadNotif ?? 0);
+  const [unreadMsgs, setUnreadMsgs] = useState(() => cached?.counts?.unreadMsgs ?? 0);
+  const [cartCount, setCartCount] = useState(() => cached?.counts?.cartCount ?? 0);
+  const [favCount, setFavCount] = useState(() => cached?.counts?.favCount ?? 0);
+  const [supportUnread, setSupportUnread] = useState(() => cached?.counts?.supportUnread ?? 0);
 
-  // ✅ suport unread
-  const [supportUnread, setSupportUnread] = useState(0);
+  // persistă cache la schimbări
+  useEffect(() => {
+    writeDashCache({
+      services,
+      onboarding,
+      stats,
+      reviewCounts,
+      vendor,
+      counts: { unreadNotif, unreadMsgs, cartCount, favCount, supportUnread },
+      ts: Date.now(),
+    });
+  }, [
+    services,
+    onboarding,
+    stats,
+    reviewCounts,
+    vendor,
+    unreadNotif,
+    unreadMsgs,
+    cartCount,
+    favCount,
+    supportUnread,
+  ]);
 
   // dacă auth context-ul aduce deja vendor cu entitySelfDeclared, îl sincronizăm
   useEffect(() => {
-    if (me?.vendor) {
-      setVendor(me.vendor);
-    }
+    if (me?.vendor) setVendor(me.vendor);
   }, [me]);
 
-  const loadAllVendor = useCallback(async () => {
-    setLoading(true);
+  const loadAllVendor = useCallback(async ({ silent = false } = {}) => {
+    // silent = nu arăta “loading” dacă deja ai ceva pe ecran
+    if (!silent) setLoading(true);
     setError("");
+
     try {
       const [svc, ob, v, st] = await Promise.all([
-        api("/api/vendors/me/services?includeProfile=1").catch(() => ({
-          items: [],
-        })),
+        api("/api/vendors/me/services?includeProfile=1").catch(() => ({ items: [] })),
         api("/api/vendors/me/onboarding-status").catch(() => null),
         api("/api/vendors/me").catch(() => null),
         api("/api/vendors/me/stats?window=7d").catch(() => null),
@@ -257,7 +295,7 @@ export default function DesktopV3() {
     }
   }, []);
 
-  // notificări / mesaje / cart / favorite / suport (refresh periodic + focus)
+  // counts: refresh periodic + focus (dar pornește instant din cache)
   useEffect(() => {
     if (!me) return;
 
@@ -272,12 +310,8 @@ export default function DesktopV3() {
             : Promise.resolve({ count: 0 }),
           api("/api/cart/count").catch(() => ({ count: 0 })),
           api("/api/favorites/count").catch(() => ({ count: 0 })),
-
-          // ✅ suport vendor unread (din ruta ta)
           me.role === "VENDOR"
-            ? api("/api/vendor/support/unread-count").catch(() => ({
-                count: 0,
-              }))
+            ? api("/api/vendor/support/unread-count").catch(() => ({ count: 0 }))
             : Promise.resolve({ count: 0 }),
         ]);
 
@@ -293,6 +327,7 @@ export default function DesktopV3() {
       }
     };
 
+    // nu bloca UI-ul — doar refresh în fundal
     fetchCounts();
 
     const t = setInterval(fetchCounts, 15_000);
@@ -306,17 +341,25 @@ export default function DesktopV3() {
     };
   }, [me]);
 
+  // inițializare: dacă ai cache, fă load silent (refresh) fără loader
   useEffect(() => {
     if (authLoading) return;
+
     if (!me) {
       setLoading(false);
       return;
     }
+
     if (me.role === "VENDOR") {
-      loadAllVendor();
+      // dacă avem deja date (cache), nu mai arătăm “Se încarcă…”
+      const hasCachedContent =
+        (services && services.length) || onboarding || vendor || (cached && cached.ts);
+
+      loadAllVendor({ silent: !!hasCachedContent });
     } else {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, me, loadAllVendor]);
 
   const completeness = useMemo(() => {
@@ -438,7 +481,6 @@ export default function DesktopV3() {
     }
   }, []);
 
-  // confirmarea entității juridice
   const onConfirmEntity = useCallback(async () => {
     try {
       setEntityConfirmBusy(true);
@@ -468,18 +510,20 @@ export default function DesktopV3() {
   }, []);
 
   /* ---------------------------- Render gating ---------------------------- */
-  if (authLoading || loading) return <div className={styles.page}>Se încarcă…</div>;
+  // IMPORTANT: nu mai blocăm pagina doar fiindcă "loading" e true.
+  // O blocăm doar dacă nu avem me încă.
+  if (authLoading) return <div className={styles.page}>Se încarcă…</div>;
   if (!me || me.role !== "VENDOR")
     return <div className={styles.page}>Acces doar pentru vendori.</div>;
 
   const entityConfirmed =
-    vendor?.entitySelfDeclared === true || me?.vendor?.entitySelfDeclared === true;
+    vendor?.entitySelfDeclared === true ||
+    me?.vendor?.entitySelfDeclared === true;
 
   const isVendor = me.role === "VENDOR";
   const isAdmin = me.role === "ADMIN";
   const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
 
-  // scurtături (cu badge și pe wishlist/cart + suport)
   const quick = [
     {
       to: "/notificari",
@@ -509,7 +553,7 @@ export default function DesktopV3() {
       to: "/vendor/support",
       label: "Asistență",
       icon: <LifeBuoy size={20} />,
-      badge: supportUnread, // ✅
+      badge: supportUnread,
     },
     {
       to: "/vendor/store",
@@ -537,17 +581,16 @@ export default function DesktopV3() {
     <section className={styles.page}>
       <Topbar me={me} completeness={completeness} sub={sub} nextStep={nextStep} />
 
+      {/* mic indicator că se face refresh în fundal */}
+      {loading ? <div className={styles.subtle}>Se actualizează datele…</div> : null}
+
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 
-      {/* card de identitate / account */}
       <IdentityCard me={me} roleLabel={roleLabel} />
-
-      {/* scurtături stil Account */}
       <QuickCard quick={quick} />
 
-      {/* Banner confirmare entitate juridică */}
       {!entityConfirmed && (
-        <div className={styles.card} style={{ borderColor: "var(--color-warn)" }}>
+        <div className={`${styles.card} ${styles.cardCritical}`}>
           <div className={styles.cardHead}>
             <h3>Confirmă că reprezinți o entitate juridică</h3>
           </div>
@@ -607,14 +650,10 @@ export default function DesktopV3() {
         <Sidebar sub={sub} />
       </div>
 
-      {/* secțiuni account: setări, vendor, admin, logout */}
       <SettingsAndSecurityCard />
 
       {isVendor && (
-        <VendorLinksCard
-          unreadMsgs={unreadMsgs}
-          supportUnread={supportUnread} // ✅
-        />
+        <VendorLinksCard unreadMsgs={unreadMsgs} supportUnread={supportUnread} />
       )}
 
       {isAdmin && <AdminCard />}
@@ -681,35 +720,26 @@ function Topbar({ me, completeness, sub, nextStep }) {
 
 function IdentityCard({ me, roleLabel }) {
   const initials = getInitials(me);
+
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
         <h3>Contul meu</h3>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 600,
-            background: "var(--color-bg-soft, #eee)",
-          }}
-        >
-          {initials}
-        </div>
+
+      <div className={styles.identityRow}>
+        <div className={styles.avatarCircle}>{initials}</div>
+
         <div>
-          <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+          <div className={styles.identityNameRow}>
             {displayName(me)}
             {me?.verified && (
-              <span style={{ display: "inline-flex", alignItems: "center", fontSize: 12 }}>
-                <CheckCircle2 size={14} style={{ marginRight: 2 }} /> Verificat
+              <span className={styles.verifiedPill}>
+                <CheckCircle2 size={14} className={styles.verifiedIcon} /> Verificat
               </span>
             )}
           </div>
+
           <div className={styles.subtle}>{roleLabel}</div>
         </div>
       </div>
@@ -748,7 +778,7 @@ function QuickCard({ quick }) {
 function SubscriptionAlert({ sub }) {
   if (sub.loading || sub.ok) return null;
   return (
-    <div className={styles.card} style={{ borderColor: "var(--color-warn)" }}>
+    <div className={`${styles.card} ${styles.cardWarning}`}>
       <div className={styles.cardHead}>
         <h3>Abonament necesar</h3>
       </div>
@@ -1051,7 +1081,6 @@ function VendorLinksCard({ unreadMsgs, supportUnread }) {
           <Store size={18} style={{ marginRight: 6 }} /> Magazine / Produse
         </a>
 
-        {/* ✅ suport cu badge */}
         <a className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} href="/vendor/support">
           <span className={styles.iconWrap}>
             <LifeBuoy size={18} style={{ marginRight: 6 }} />
@@ -1092,21 +1121,14 @@ function LogoutCard() {
 
   return (
     <div className={styles.card}>
-      <button
-        className={`${styles.btn} ${styles.btnDanger}`}
-        type="button"
-        onClick={handleLogout}
-        style={{
-          width: "100%",
-          justifyContent: "center",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <LogOut size={18} />
-        Deconectare
-      </button>
+     <button
+  className={`${styles.btn} ${styles.btnDanger} ${styles.logoutBtn}`}
+  type="button"
+  onClick={handleLogout}
+>
+  <LogOut size={18} />
+  Deconectare
+</button>
     </div>
   );
 }

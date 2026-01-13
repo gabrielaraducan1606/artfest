@@ -1,3 +1,4 @@
+// src/pages/ProductDetails/ReviewSection/ReviewSection.jsx
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
@@ -10,6 +11,7 @@ import {
   FaCopy,
   FaEdit,
   FaTrash,
+  FaReply,
 } from "react-icons/fa";
 import styles from "./ReviewSection.module.css";
 import { api } from "../../../../lib/api.js";
@@ -55,12 +57,11 @@ export default function ReviewSection({
   setRevRating,
   revText,
   setRevText,
-  currentUserId, // ID-ul userului logat (trimis din părinte)
+  currentUserId,
 }) {
   const location = useLocation();
   const redirect = encodeURIComponent(location.pathname + location.search);
 
-  // local copy pentru a putea incrementa helpful etc.
   const [localReviews, setLocalReviews] = useState(
     (reviews || []).map((r) => ({
       ...r,
@@ -70,8 +71,8 @@ export default function ReviewSection({
   );
   const [files, setFiles] = useState([]);
 
-  // dialog raportare
-  const [reportingReview, setReportingReview] = useState(null); // review object
+  // raportare
+  const [reportingReview, setReportingReview] = useState(null);
   const [reportReasonKey, setReportReasonKey] = useState(
     DEFAULT_REPORT_REASONS[0]
   );
@@ -81,8 +82,12 @@ export default function ReviewSection({
   // meniu 3 puncte
   const [activeMenuId, setActiveMenuId] = useState(null);
 
+  // vendor reply editor state
+  const [replyingToId, setReplyingToId] = useState(null);
+  const [replyText, setReplyText] = useState("");
+  const [replySubmitting, setReplySubmitting] = useState(false);
+
   useEffect(() => {
-    // resetăm lista locală când vin review-urile noi
     setLocalReviews(
       (reviews || []).map((r) => ({
         ...r,
@@ -98,9 +103,7 @@ export default function ReviewSection({
     const hash = location.hash || "";
     if (hash.startsWith("#rev-")) {
       const el = document.querySelector(hash);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [location.hash, localReviews.length]);
 
@@ -118,24 +121,15 @@ export default function ReviewSection({
 
     try {
       if (alreadyLiked) {
-        // UNLIKE
-        await api(
-          `/api/reviews/${encodeURIComponent(review.id)}/helpful`,
-          {
-            method: "DELETE",
-          }
-        );
+        await api(`/api/reviews/${encodeURIComponent(review.id)}/helpful`, {
+          method: "DELETE",
+        });
       } else {
-        // LIKE
-        await api(
-          `/api/reviews/${encodeURIComponent(review.id)}/helpful`,
-          {
-            method: "POST",
-          }
-        );
+        await api(`/api/reviews/${encodeURIComponent(review.id)}/helpful`, {
+          method: "POST",
+        });
       }
 
-      // actualizăm local: +1 sau -1 (fără să scădem sub 0)
       setLocalReviews((prev) =>
         prev.map((r) =>
           r.id === review.id
@@ -156,7 +150,7 @@ export default function ReviewSection({
     }
   };
 
-  // ==== LOGICĂ MODAL RAPORTARE ====
+  // ===== Raportare =====
   const openReportDialog = (review) => {
     setReportingReview(review);
     setReportReasonKey(DEFAULT_REPORT_REASONS[0]);
@@ -178,25 +172,23 @@ export default function ReviewSection({
 
     try {
       setReportSubmitting(true);
-      await api(
-        `/api/reviews/${encodeURIComponent(reportingReview.id)}/report`,
-        {
-          method: "POST",
-          body: { reason: fullReason },
-        }
-      );
+      await api(`/api/reviews/${encodeURIComponent(reportingReview.id)}/report`, {
+        method: "POST",
+        body: { reason: fullReason },
+      });
       alert(
         "Îți mulțumim! Raportarea ta a fost înregistrată și va fi verificată de un administrator."
       );
       closeReportDialog();
     } catch (e) {
+      console.error(e);
       alert(e?.message || "Nu am putut trimite raportarea.");
     } finally {
       setReportSubmitting(false);
     }
   };
-  // ================================
 
+  // ===== Upload imagini review =====
   const handleFilesChange = (e) => {
     const list = Array.from(e.target.files || []).slice(0, 5);
     setFiles(list);
@@ -212,8 +204,7 @@ export default function ReviewSection({
     setFiles([]);
   };
 
-  // ====== acțiuni pentru meniul cu 3 puncte ======
-
+  // ===== User menu actions =====
   const handleCopyComment = async (review) => {
     if (!review.comment) return;
     try {
@@ -230,9 +221,7 @@ export default function ReviewSection({
     setRevText(review.comment || "");
 
     const formEl = document.querySelector("#product-reviews form");
-    if (formEl) {
-      formEl.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    if (formEl) formEl.scrollIntoView({ behavior: "smooth", block: "start" });
 
     setActiveMenuId(null);
   };
@@ -258,6 +247,75 @@ export default function ReviewSection({
     }
   };
 
+  // ===== Vendor reply actions (în burger) =====
+  const startReply = (review) => {
+  setReplyingToId(review.id);
+  setReplyText(review.reply?.text || "");
+};
+
+  const cancelReply = () => {
+    if (replySubmitting) return;
+    setReplyingToId(null);
+    setReplyText("");
+  };
+
+  const submitReply = async (review) => {
+    const text = (replyText || "").trim();
+    if (!text) {
+      alert("Scrie un răspuns (minim 1 caracter).");
+      return;
+    }
+
+    try {
+      setReplySubmitting(true);
+
+      const res = await api(
+        `/api/vendor/reviews/${encodeURIComponent(review.id)}/reply`,
+        { method: "POST", body: { text } }
+      );
+
+      const newReply = {
+        text: res?.reply?.text ?? text,
+        createdAt: res?.reply?.createdAt ?? new Date().toISOString(),
+      };
+
+      setLocalReviews((prev) =>
+        prev.map((r) => (r.id === review.id ? { ...r, reply: newReply } : r))
+      );
+
+      cancelReply();
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Nu am putut trimite răspunsul.");
+    } finally {
+      setReplySubmitting(false);
+    }
+  };
+
+  const deleteReply = async (review) => {
+    const ok = window.confirm(
+      "Sigur vrei să ștergi răspunsul? Acțiunea nu poate fi anulată."
+    );
+    if (!ok) return;
+
+    try {
+      await api(`/api/vendor/reviews/${encodeURIComponent(review.id)}/reply`, {
+        method: "DELETE",
+      });
+
+      setLocalReviews((prev) =>
+        prev.map((r) => (r.id === review.id ? { ...r, reply: null } : r))
+      );
+
+      if (replyingToId === review.id) cancelReply();
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Nu am putut șterge răspunsul.");
+    } finally {
+      setActiveMenuId(null);
+    }
+  };
+
   const canWriteReview = !isOwner && isLoggedIn;
   const hasReviews = Array.isArray(localReviews) && localReviews.length > 0;
 
@@ -265,7 +323,6 @@ export default function ReviewSection({
     <section className={styles.wrap} id="product-reviews">
       <header className={styles.header}>
         <div>
-          
           {avg?.count > 0 ? (
             <p className={styles.meta}>
               <strong>{avg.average.toFixed(1)} / 5</strong>{" "}
@@ -283,141 +340,218 @@ export default function ReviewSection({
       {/* LISTĂ RECENZII */}
       {hasReviews && (
         <ul className={styles.list}>
-          {localReviews.map((r) => (
-            <li
-              key={r.id}
-              id={`rev-${r.id}`} // important pentru linkul din admin
-              className={styles.item}
-            >
-              <div className={styles.itemTop}>
-                <div>
-                  <div className={styles.itemHead}>
-                    <Stars value={r.rating} />
-                    <span className={styles.ratingValue}>{r.rating}.0</span>
-                    {r.verified && (
-                      <span className={styles.badgeVerified}>
-                        Achiziție verificată
+          {localReviews.map((r) => {
+            const isVendorBurgerEnabled = isLoggedIn && isOwner; // vendor pe propriul produs
+            const canReply = isVendorBurgerEnabled; // dacă vrei: && !isMyReview(r) etc.
+
+            return (
+              <li key={r.id} id={`rev-${r.id}`} className={styles.item}>
+                <div className={styles.itemTop}>
+                  <div>
+                    <div className={styles.itemHead}>
+                      <Stars value={r.rating} />
+                      <span className={styles.ratingValue}>{r.rating}.0</span>
+                      {r.verified && (
+                        <span className={styles.badgeVerified}>
+                          Achiziție verificată
+                        </span>
+                      )}
+                    </div>
+
+                    <div className={styles.itemMeta}>
+                      <span className={styles.author}>
+                        {r.userName || "Client"}
                       </span>
-                    )}
+                      <span className={styles.date}>
+                        {formatDate(r.createdAt)}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className={styles.itemMeta}>
-                    <span className={styles.author}>
-                      {r.userName || "Client"}
-                    </span>
-                    <span className={styles.date}>
-                      {formatDate(r.createdAt)}
-                    </span>
-                  </div>
+                  {isLoggedIn && (
+                    <div className={styles.itemMenuWrap}>
+                      <button
+                        type="button"
+                        className={styles.menuToggleBtn}
+                        onClick={() =>
+                          setActiveMenuId(activeMenuId === r.id ? null : r.id)
+                        }
+                        aria-haspopup="true"
+                        aria-expanded={activeMenuId === r.id}
+                      >
+                        <FaEllipsisV />
+                      </button>
+
+                      {activeMenuId === r.id && (
+                        <div className={styles.itemMenu}>
+                          <button
+                            type="button"
+                            className={styles.itemMenuItem}
+                            onClick={() => handleCopyComment(r)}
+                          >
+                            <FaCopy /> <span>Copiază textul</span>
+                          </button>
+
+                          {/* User actions */}
+                          {isMyReview(r) && (
+                            <>
+                              <button
+                                type="button"
+                                className={styles.itemMenuItem}
+                                onClick={() => handleEditReview(r)}
+                              >
+                                <FaEdit /> <span>Editează</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.itemMenuItemDanger}
+                                onClick={() => handleDeleteReview(r)}
+                              >
+                                <FaTrash /> <span>Șterge</span>
+                              </button>
+                            </>
+                          )}
+
+                          {/* Vendor reply actions în burger */}
+                          {canReply && (
+                            <>
+                              <div className={styles.itemMenuDivider} />
+                              {!r.reply ? (
+                                <button
+                                  type="button"
+                                  className={styles.itemMenuItem}
+                                  onClick={() => {
+                                    startReply(r);
+                                    setActiveMenuId(null);
+                                  }}
+                                >
+                                  <FaReply /> <span>Răspunde</span>
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className={styles.itemMenuItem}
+                                    onClick={() => {
+                                      startReply(r);
+                                      setActiveMenuId(null);
+                                    }}
+                                  >
+                                    <FaEdit /> <span>Editează răspunsul</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.itemMenuItemDanger}
+                                    onClick={() => deleteReply(r)}
+                                  >
+                                    <FaTrash /> <span>Șterge răspunsul</span>
+                                  </button>
+                                </>
+                              )}
+                            </>
+                          )}
+
+                          {/* Report */}
+                          <button
+                            type="button"
+                            className={styles.itemMenuItem}
+                            onClick={() => {
+                              openReportDialog(r);
+                              setActiveMenuId(null);
+                            }}
+                          >
+                            <FaFlag /> <span>Raportează</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {isLoggedIn && (
-                  <div className={styles.itemMenuWrap}>
-                    <button
-                      type="button"
-                      className={styles.menuToggleBtn}
-                      onClick={() =>
-                        setActiveMenuId(activeMenuId === r.id ? null : r.id)
-                      }
-                      aria-haspopup="true"
-                      aria-expanded={activeMenuId === r.id}
-                    >
-                      <FaEllipsisV />
-                    </button>
+                {r.comment && <p className={styles.comment}>{r.comment}</p>}
 
-                    {activeMenuId === r.id && (
-                      <div className={styles.itemMenu}>
-                        <button
-                          type="button"
-                          className={styles.itemMenuItem}
-                          onClick={() => handleCopyComment(r)}
-                        >
-                          <FaCopy /> <span>Copiază textul</span>
-                        </button>
-
-                        {isMyReview(r) && (
-                          <>
-                            <button
-                              type="button"
-                              className={styles.itemMenuItem}
-                              onClick={() => handleEditReview(r)}
-                            >
-                              <FaEdit /> <span>Editează</span>
-                            </button>
-                            <button
-                              type="button"
-                              className={styles.itemMenuItemDanger}
-                              onClick={() => handleDeleteReview(r)}
-                            >
-                              <FaTrash /> <span>Șterge</span>
-                            </button>
-                          </>
-                        )}
-
-                        <button
-                          type="button"
-                          className={styles.itemMenuItem}
-                          onClick={() => {
-                            openReportDialog(r);
-                            setActiveMenuId(null);
-                          }}
-                        >
-                          <FaFlag /> <span>Raportează</span>
-                        </button>
-                      </div>
-                    )}
+                {r.images && r.images.length > 0 && (
+                  <div className={styles.imagesRow}>
+                    {r.images.map((img) => (
+                      <img
+                        key={img.id}
+                        src={img.url}
+                        alt="Imagine recenzie"
+                        className={styles.reviewImage}
+                      />
+                    ))}
                   </div>
                 )}
-              </div>
 
-              {r.comment && <p className={styles.comment}>{r.comment}</p>}
+                {/* reply existent */}
+                {r.reply && (
+                  <div className={styles.replyBox}>
+                    <div className={styles.replyLabel}>Răspuns de la vânzător</div>
+                    <div className={styles.replyText}>{r.reply.text}</div>
+                    <div className={styles.replyDate}>
+                      {formatDate(r.reply.createdAt)}
+                    </div>
+                  </div>
+                )}
 
-              {r.images && r.images.length > 0 && (
-                <div className={styles.imagesRow}>
-                  {r.images.map((img) => (
-                    <img
-                      key={img.id}
-                      src={img.url}
-                      alt="Imagine recenzie"
-                      className={styles.reviewImage}
+                {/* editor răspuns (NU în burger, doar când e activ) */}
+                {isOwner && isLoggedIn && replyingToId === r.id && (
+                  <div className={styles.vendorReplyEditor}>
+                    <textarea
+                      className={styles.textarea}
+                      rows={3}
+                      maxLength={1000}
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="Scrie un răspuns ca vânzător..."
+                      disabled={replySubmitting}
                     />
-                  ))}
-                </div>
-              )}
-
-              {r.reply && (
-                <div className={styles.replyBox}>
-                  <div className={styles.replyLabel}>
-                    Răspuns de la vânzător
+                    <div className={styles.reportActions}>
+                      <button
+                        type="button"
+                        className={styles.reportCancelBtn}
+                        onClick={cancelReply}
+                        disabled={replySubmitting}
+                      >
+                        Anulează
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.primaryBtn}
+                        onClick={() => submitReply(r)}
+                        disabled={replySubmitting}
+                      >
+                        {replySubmitting
+                          ? "Se trimite…"
+                          : r.reply
+                          ? "Salvează răspunsul"
+                          : "Trimite răspunsul"}
+                      </button>
+                    </div>
                   </div>
-                  <div className={styles.replyText}>{r.reply.text}</div>
-                  <div className={styles.replyDate}>
-                    {formatDate(r.reply.createdAt)}
-                  </div>
-                </div>
-              )}
+                )}
 
-              <div className={styles.actionsRow}>
-                <button
-                  type="button"
-                  className={`${styles.actionBtn} ${
-                    r.likedByMe ? styles.actionBtnActive : ""
-                  }`}
-                  onClick={() => handleHelpful(r)}
-                  title="Marchează recenzia ca utilă"
-                >
-                  {r.likedByMe ? <FaThumbsUp /> : <FaRegThumbsUp />}{" "}
-                  <span>
-                    Utilă{" "}
-                    {r.helpfulCount != null && r.helpfulCount > 0
-                      ? `(${r.helpfulCount})`
-                      : ""}
-                  </span>
-                </button>
-                {/* Butonul de Raportează e în meniul cu 3 puncte */}
-              </div>
-            </li>
-          ))}
+                <div className={styles.actionsRow}>
+                  <button
+                    type="button"
+                    className={`${styles.actionBtn} ${
+                      r.likedByMe ? styles.actionBtnActive : ""
+                    }`}
+                    onClick={() => handleHelpful(r)}
+                    title="Marchează recenzia ca utilă"
+                  >
+                    {r.likedByMe ? <FaThumbsUp /> : <FaRegThumbsUp />}{" "}
+                    <span>
+                      Utilă{" "}
+                      {r.helpfulCount != null && r.helpfulCount > 0
+                        ? `(${r.helpfulCount})`
+                        : ""}
+                    </span>
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -522,9 +656,8 @@ export default function ReviewSection({
               Raportează recenzia
             </h3>
             <p className={styles.reportTextMuted}>
-              Alege motivul raportării. Te rugăm să folosești opțiunea
-              doar pentru încălcări reale (limbaj vulgar, date personale,
-              spam etc.).
+              Alege motivul raportării. Te rugăm să folosești opțiunea doar
+              pentru încălcări reale (limbaj vulgar, date personale, spam etc.).
             </p>
 
             <div className={styles.reportOptions}>

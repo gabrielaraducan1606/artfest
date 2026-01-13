@@ -58,7 +58,11 @@ function IconByType({ type }) {
   if (type === "billing") return <CreditCard size={16} />;
   if (type === "system") return <AlertTriangle size={16} />;
   if (type === "email") return <Mail size={16} />;
-  if (type === "followup") return <Clock size={16} />; // ⏰ follow-up lead
+  if (type === "followup") return <Clock size={16} />;
+
+  // ✅ NOU: recenzii (store review / product review)
+  if (type === "review") return <MessageSquare size={16} />;
+
   return <Bell size={16} />;
 }
 
@@ -106,6 +110,17 @@ function demoItems() {
       archived: false,
       link: "/mesaje?threadId=dummy",
     },
+    // ✅ exemplu recenzie (doar demo)
+    {
+      id: "n5",
+      type: "review",
+      title: "Recenzie nouă (5/5)",
+      body: "Ai primit o recenzie nouă.",
+      createdAt: new Date(now - 90 * 60000).toISOString(),
+      readAt: null,
+      archived: false,
+      link: "/magazin/demo#review-123",
+    },
   ];
 }
 
@@ -126,8 +141,7 @@ function useNotifications({ scope, q, basePath }) {
     setError(null);
     try {
       const url = `${basePath}?scope=${encodeURIComponent(scope)}${
-        dq ? `&q=${encodeURIComponent(dq)}`
-        : ""
+        dq ? `&q=${encodeURIComponent(dq)}` : ""
       }`;
       const d = await api(url).catch(() => null);
       if (d?.items) setItems(d.items);
@@ -189,9 +203,7 @@ export default function NotificationsPage({
 
   const setArchived = useCallback(
     async (id, archived) => {
-      setItems((list) =>
-        list.map((n) => (n.id === id ? { ...n, archived } : n))
-      );
+      setItems((list) => list.map((n) => (n.id === id ? { ...n, archived } : n)));
 
       await api(`${basePath}/${id}/archive`, {
         method: "PATCH",
@@ -208,9 +220,7 @@ export default function NotificationsPage({
     async (n) => {
       if (!n.link) return;
       if (!n.readAt) {
-        await api(`${basePath}/${n.id}/read`, { method: "PATCH" }).catch(
-          () => {}
-        );
+        await api(`${basePath}/${n.id}/read`, { method: "PATCH" }).catch(() => {});
       }
       navigate(n.link);
     },
@@ -221,9 +231,7 @@ export default function NotificationsPage({
     async () => {
       setItems((list) =>
         list.map((n) =>
-          n.archived
-            ? n
-            : { ...n, readAt: n.readAt || new Date().toISOString() }
+          n.archived ? n : { ...n, readAt: n.readAt || new Date().toISOString() }
         )
       );
       await api(`${basePath}/read-all`, { method: "PATCH" }).catch(() => {});
@@ -233,8 +241,7 @@ export default function NotificationsPage({
   );
 
   const filtered = useMemo(() => {
-    if (scope === "unread")
-      return items.filter((n) => !n.readAt && !n.archived);
+    if (scope === "unread") return items.filter((n) => !n.readAt && !n.archived);
     if (scope === "archived") return items.filter((n) => n.archived);
     return items.filter((n) => !n.archived);
   }, [items, scope]);
@@ -248,18 +255,10 @@ export default function NotificationsPage({
           <Bell size={18} /> {title}
         </div>
         <div className={styles.actions}>
-          <button
-            className={styles.iconBtn}
-            onClick={reload}
-            title="Reîncarcă"
-          >
+          <button className={styles.iconBtn} onClick={reload} title="Reîncarcă">
             <RefreshCw size={16} />
           </button>
-          <button
-            className={styles.primary}
-            onClick={markAllRead}
-            disabled={!unreadCount}
-          >
+          <button className={styles.primary} onClick={markAllRead} disabled={!unreadCount}>
             <Check size={16} /> Marchează toate ca citite
           </button>
         </div>
@@ -278,11 +277,7 @@ export default function NotificationsPage({
             onClick={() => setScope("unread")}
           >
             Necitite{" "}
-            {unreadCount ? (
-              <span className={styles.badge}>
-                {Math.min(unreadCount, 99)}
-              </span>
-            ) : null}
+            {unreadCount ? <span className={styles.badge}>{Math.min(unreadCount, 99)}</span> : null}
           </button>
           <button
             className={cls(styles.tab, scope === "archived" && styles.active)}
@@ -311,23 +306,15 @@ export default function NotificationsPage({
             <Loader2 className={styles.spin} size={16} /> Se încarcă…
           </div>
         )}
-        {error && (
-          <div className={styles.error}>
-            Nu am putut încărca notificările.
-          </div>
-        )}
-        {!loading && !filtered.length && (
-          <div className={styles.info}>Nu există notificări.</div>
-        )}
+        {error && <div className={styles.error}>Nu am putut încărca notificările.</div>}
+        {!loading && !filtered.length && <div className={styles.info}>Nu există notificări.</div>}
 
         {filtered.map((n) => (
-          <article
-            key={n.id}
-            className={cls(styles.item, !n.readAt && styles.unread)}
-          >
+          <article key={n.id} className={cls(styles.item, !n.readAt && styles.unread)}>
             <div className={styles.icon}>
               <IconByType type={n.type} />
             </div>
+
             <div
               className={styles.body}
               onClick={() => openLink(n)}
@@ -337,15 +324,16 @@ export default function NotificationsPage({
                 <div className={styles.itemTitle}>{n.title}</div>
                 <div className={styles.time}>{fmtTime(n.createdAt)}</div>
               </div>
-              {n.body && (
-                <div className={styles.itemText}>{n.body}</div>
-              )}
+
+              {n.body && <div className={styles.itemText}>{n.body}</div>}
+
               {n.link && (
                 <div className={styles.link}>
                   <ExternalLink size={14} /> Deschide
                 </div>
               )}
             </div>
+
             <div className={styles.rowActions}>
               {!n.readAt && (
                 <button

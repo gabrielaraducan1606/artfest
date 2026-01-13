@@ -7,22 +7,22 @@
  *
  * Responsabilități:
  * - creare cont (signup) pentru utilizatori și vendori
- * - verificare adresă de email (link din email)
- * - retrimitere email de verificare
+ * - verificare adresă de email (OTP cod din email)
+ * - retrimitere cod de verificare
  * - login + logout + /me (date user curent)
  * - verificare existență email (pentru formularul de înregistrare)
  * - integrare flow „am uitat parola” și „resetare parolă”
  *
  * Utilizare din frontend (exemple):
- * - POST /api/auth/signup           — Register.jsx
- * - POST /api/auth/login            — Login.jsx
- * - POST /api/auth/verify-email     — pagina VerifyEmail
- * - POST /api/auth/resend-verification — buton „Trimite din nou”
- * - GET  /api/auth/me               — încărcare user curent (layout)
- * - GET  /api/auth/exists?email=    — verificare email deja folosit
- * - POST /api/auth/logout           — buton Logout
- * - POST /api/auth/forgot-password  — formular „Am uitat parola”
- * - POST /api/auth/reset-password   — formular „Resetează parola”
+ * - POST /api/auth/signup                 — Register.jsx
+ * - POST /api/auth/login                  — Login.jsx
+ * - POST /api/auth/verify-email           — pagina VerifyEmail (cu { email, code })
+ * - POST /api/auth/resend-verification    — buton „Trimite din nou”
+ * - GET  /api/auth/me                     — încărcare user curent (layout)
+ * - GET  /api/auth/exists?email=          — verificare email deja folosit
+ * - POST /api/auth/logout                 — buton Logout
+ * - POST /api/auth/forgot-password        — formular „Am uitat parola”
+ * - POST /api/auth/reset-password         — formular „Resetează parola”
  */
 
 import { Router } from "express";
@@ -34,7 +34,6 @@ import { sendVerificationEmail } from "../lib/mailer.js";
 import { signToken, authRequired, enforceTokenVersion } from "../api/auth.js";
 
 // Aceste module exportă handlere (funcții) pentru forgot/reset password, montate mai jos ca rute POST
-
 import forgotPassword from "./forgot-passwordRoutes.js";
 import resetPassword from "./resetPassword.js";
 
@@ -43,14 +42,10 @@ const APP_URL = process.env.APP_URL || "http://localhost:5173";
 
 // === Config rate limiting login (email + fereastră de timp) ===
 const LOGIN_WINDOW_MINUTES = Number(process.env.LOGIN_WINDOW_MINUTES || 10);
-const LOGIN_MAX_ATTEMPTS_PER_WINDOW = Number(
-  process.env.LOGIN_MAX_ATTEMPTS_PER_WINDOW || 8
-);
+const LOGIN_MAX_ATTEMPTS_PER_WINDOW = Number(process.env.LOGIN_MAX_ATTEMPTS_PER_WINDOW || 8);
 
-// === Helpers hash & random token (pentru verificare email etc.) ===
-const sha256 = (s) =>
-  crypto.createHash("sha256").update(s, "utf8").digest("hex");
-const randomToken = (bytes = 32) => crypto.randomBytes(bytes).toString("hex");
+// === Helpers hash ===
+const sha256 = (s) => crypto.createHash("sha256").update(s, "utf8").digest("hex");
 
 /* ----------------------------- Helpers generale ----------------------------- */
 
@@ -98,11 +93,7 @@ async function idemSave(key, responseJson) {
 async function logLoginAttempt(req, { userId, email, success }) {
   try {
     const ipHeader = (req.headers["x-forwarded-for"] || "").toString();
-    const ip =
-      ipHeader.split(",")[0].trim() ||
-      req.socket?.remoteAddress ||
-      null;
-
+    const ip = ipHeader.split(",")[0].trim() || req.socket?.remoteAddress || null;
     const userAgent = req.get("user-agent") || null;
 
     await prisma.loginAttempt.create({
@@ -118,6 +109,22 @@ async function logLoginAttempt(req, { userId, email, success }) {
     console.error("Failed to log login attempt", err);
     // nu blocăm login-ul dacă logarea eșuează
   }
+}
+
+/* ----------------------------- OTP (Email verification) ----------------------------- */
+
+const EMAIL_OTP_TTL_MIN = Number(process.env.EMAIL_OTP_TTL_MIN || 10);
+const EMAIL_OTP_MAX_ATTEMPTS = Number(process.env.EMAIL_OTP_MAX_ATTEMPTS || 6);
+const EMAIL_OTP_LOCK_MIN = Number(process.env.EMAIL_OTP_LOCK_MIN || 15);
+const EMAIL_OTP_PEPPER = process.env.EMAIL_OTP_PEPPER || "";
+
+function randomOtp6() {
+  const n = crypto.randomInt(0, 1000000);
+  return String(n).padStart(6, "0");
+}
+
+function hashOtp(email, code) {
+  return sha256(`${normalizeEmail(email)}:${String(code).trim()}:${EMAIL_OTP_PEPPER}`);
 }
 
 /* ----------------------------- Schemas (Zod) ----------------------------- */
@@ -157,12 +164,18 @@ const LoginSchema = z.object({
   remember: z.boolean().optional(),
 });
 
+// payload verify email (OTP)
+const VerifyEmailSchema = z.object({
+  email: z.string().email().transform(normalizeEmail),
+  code: z.string().regex(/^\d{6}$/),
+});
+
 /* =================================================================== */
 /** POST /api/auth/signup
  *
  * Creează un user nou (rol USER sau VENDOR) + consimțăminte + (opțional) Vendor,
- * generează token de verificare email și trimite email-ul de confirmare.
- * Răspunsul este "pending_verification" până când user-ul apasă pe linkul din email.
+ * generează OTP de verificare email și trimite email-ul cu cod.
+ * Răspunsul este "pending_verification" până când user-ul introduce codul.
  */
 router.post("/signup", async (req, res) => {
   try {
@@ -216,9 +229,7 @@ router.post("/signup", async (req, res) => {
         data: {
           email,
           passwordHash,
-          name:
-            name ??
-            ([firstName, lastName].filter(Boolean).join(" ").trim() || null),
+          name: name ?? ([firstName, lastName].filter(Boolean).join(" ").trim() || null),
           firstName: firstName || null,
           lastName: lastName || null,
 
@@ -244,11 +255,7 @@ router.post("/signup", async (req, res) => {
         const ua = req.get("user-agent") || "";
 
         const mapDoc = (t) =>
-          t === "tos"
-            ? "TOS"
-            : t === "privacy_ack"
-            ? "PRIVACY_ACK"
-            : "MARKETING_EMAIL_OPTIN";
+          t === "tos" ? "TOS" : t === "privacy_ack" ? "PRIVACY_ACK" : "MARKETING_EMAIL_OPTIN";
 
         for (const c of consents) {
           await tx.userConsent.create({
@@ -272,7 +279,6 @@ router.post("/signup", async (req, res) => {
             userId: user.id,
             isActive: false,
             displayName: "",
-
             entitySelfDeclared: !!entitySelfDeclared,
             entitySelfDeclaredAt: entitySelfDeclared ? new Date() : null,
           },
@@ -282,10 +288,14 @@ router.post("/signup", async (req, res) => {
       return user;
     });
 
-    // Generează token verificare + persistă intenția (USER vs VENDOR)
-    const token = randomToken(32);
-    const tokenHash = sha256(token);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // ✅ OTP: invalidăm codurile vechi nefolosite (verify_email)
+    await prisma.emailVerificationToken.deleteMany({
+      where: { userId: created.id, purpose: "verify_email", usedAt: null },
+    });
+
+    const otp = randomOtp6();
+    const tokenHash = hashOtp(email, otp);
+    const expiresAt = new Date(Date.now() + EMAIL_OTP_TTL_MIN * 60 * 1000);
 
     await prisma.emailVerificationToken.create({
       data: {
@@ -293,23 +303,18 @@ router.post("/signup", async (req, res) => {
         tokenHash,
         expiresAt,
         intent: asVendor ? "VENDOR" : "USER",
+        purpose: "verify_email",
       },
     });
 
-    // Linkul pentru email (folosit de pagina de verify-email din frontend)
-    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(
-      token
-    )}&email=${encodeURIComponent(email)}&intent=${
-      asVendor ? "vendor" : ""
-    }`;
-
     try {
-      await sendVerificationEmail({ to: email, link });
+      await sendVerificationEmail({ to: email, code: otp, ttlMin: EMAIL_OTP_TTL_MIN, userId: created.id });
     } catch (err) {
       console.error("sendVerificationEmail failed:", err);
     }
+
     if (process.env.NODE_ENV !== "production") {
-      console.log("[DEV verify link]", link);
+      console.log("[DEV verify code]", otp, "for", email);
     }
 
     const responseJson = {
@@ -329,54 +334,98 @@ router.post("/signup", async (req, res) => {
   }
 });
 
-/** POST /api/auth/verify-email { token }
+/** POST /api/auth/verify-email { email, code }
  *
- * Verifică token-ul din email, marchează user-ul ca având email verificat
+ * Verifică OTP-ul din email, marchează user-ul ca având email verificat
  * și setează cookie-ul cu tokenul JWT. Redirecționează (via "next") spre
  * desktop, admin sau onboarding vendor.
  */
 router.post("/verify-email", async (req, res) => {
   try {
-    const token = String(req.body?.token || "");
-    if (!token) return res.status(400).json({ message: "Token lipsă." });
-
-    const tokenHash = sha256(token);
-    const rec = await prisma.emailVerificationToken.findUnique({
-      where: { tokenHash },
-    });
-    if (!rec) return res.status(400).json({ message: "Link invalid." });
-    if (rec.usedAt) return res.status(400).json({ message: "Link deja folosit." });
-    if (rec.expiresAt.getTime() < Date.now())
-      return res.status(400).json({ message: "Link expirat." });
-
-    const userUpdateData = { emailVerifiedAt: new Date() };
-    if (rec.intent === "VENDOR") {
-      // păstrăm comportamentul existent:
-      // dacă intenția era VENDOR, ne asigurăm că role=VENDOR
-      userUpdateData.role = "VENDOR";
+    const parsed = VerifyEmailSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Email sau cod invalid." });
     }
+
+    const { email, code } = parsed.data;
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, role: true, tokenVersion: true, emailVerifiedAt: true, locked: true },
+    });
+
+    // răspuns generic (nu dezvăluim dacă email există)
+    if (!user) return res.status(400).json({ message: "Cod invalid sau expirat." });
+    if (user.locked) return res.status(403).json({ message: "Contul este blocat." });
+
+    // dacă e deja verificat -> facem login (set cookie) și returnăm next
+    if (user.emailVerifiedAt) {
+      const jwt = signToken({ sub: user.id, role: user.role, tv: user.tokenVersion });
+      const isSecure = !!(req.secure || req.headers["x-forwarded-proto"] === "https");
+      res.cookie("token", jwt, {
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: isSecure ? "None" : "Lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      const next = user.role === "ADMIN" ? "/admin" : "/desktop";
+      return res.json({ ok: true, next });
+    }
+
+    // luăm ultimul OTP nefolosit
+    const rec = await prisma.emailVerificationToken.findFirst({
+      where: { userId: user.id, purpose: "verify_email", usedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!rec) return res.status(400).json({ message: "Cod invalid sau expirat." });
+    if (rec.expiresAt.getTime() < Date.now()) return res.status(400).json({ message: "Cod expirat. Cere unul nou." });
+
+    if (rec.lockedUntil && rec.lockedUntil.getTime() > Date.now()) {
+      return res.status(429).json({ message: "Prea multe încercări. Încearcă mai târziu." });
+    }
+
+    const computed = hashOtp(email, code);
+
+    // greșit: attempts++ și lock dacă depășește pragul
+    if (computed !== rec.tokenHash) {
+      const nextAttempts = (rec.attempts || 0) + 1;
+      const updateData = { attempts: nextAttempts };
+
+      if (nextAttempts >= EMAIL_OTP_MAX_ATTEMPTS) {
+        updateData.lockedUntil = new Date(Date.now() + EMAIL_OTP_LOCK_MIN * 60 * 1000);
+      }
+
+      await prisma.emailVerificationToken.update({
+        where: { id: rec.id },
+        data: updateData,
+      });
+
+      return res.status(400).json({ message: "Cod invalid sau expirat." });
+    }
+
+    // ✅ corect: usedAt + user.emailVerifiedAt (+ role vendor dacă intent=VENDOR)
+    const userUpdateData = { emailVerifiedAt: new Date() };
+    if (rec.intent === "VENDOR") userUpdateData.role = "VENDOR";
 
     await prisma.$transaction([
       prisma.emailVerificationToken.update({
-        where: { tokenHash },
+        where: { id: rec.id },
         data: { usedAt: new Date() },
       }),
       prisma.user.update({
-        where: { id: rec.userId },
+        where: { id: user.id },
         data: userUpdateData,
       }),
     ]);
 
-    const user = await prisma.user.findUnique({ where: { id: rec.userId } });
-    if (user) {
-      const jwt = signToken({
-        sub: user.id,
-        role: user.role,
-        tv: user.tokenVersion,
-      });
-      const isSecure = !!(
-        req.secure || req.headers["x-forwarded-proto"] === "https"
-      );
+    const updatedUser = await prisma.user.findUnique({ where: { id: user.id } });
+
+    if (updatedUser) {
+      const jwt = signToken({ sub: updatedUser.id, role: updatedUser.role, tv: updatedUser.tokenVersion });
+      const isSecure = !!(req.secure || req.headers["x-forwarded-proto"] === "https");
       res.cookie("token", jwt, {
         httpOnly: true,
         secure: isSecure,
@@ -386,15 +435,9 @@ router.post("/verify-email", async (req, res) => {
       });
     }
 
-    // "next" este folosit de frontend pentru redirect după confirmare
     let next = "/desktop";
-    if (user?.role === "ADMIN") {
-      next = "/admin";
-    } else if (rec.intent === "VENDOR") {
-      next = "/onboarding";
-    } else {
-      next = "/desktop";
-    }
+    if (updatedUser?.role === "ADMIN") next = "/admin";
+    else if (rec.intent === "VENDOR") next = "/onboarding";
 
     return res.json({ ok: true, next });
   } catch (e) {
@@ -413,35 +456,45 @@ router.post("/resend-verification", async (req, res) => {
     const email = normalizeEmail(req.body?.email || "");
     if (!email) return res.json({ ok: true });
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, emailVerifiedAt: true },
+    });
+
     if (!user) return res.json({ ok: true });
     if (user.emailVerifiedAt) return res.json({ ok: true });
 
     const last = await prisma.emailVerificationToken.findFirst({
-      where: { userId: user.id },
-      orderBy: { expiresAt: "desc" },
+      where: { userId: user.id, purpose: "verify_email" },
+      orderBy: { createdAt: "desc" },
       select: { intent: true },
     });
     const intent = last?.intent || "USER";
 
     // invalidăm token-urile anterioare nefolosite
     await prisma.emailVerificationToken.deleteMany({
-      where: { userId: user.id, usedAt: null },
+      where: { userId: user.id, purpose: "verify_email", usedAt: null },
     });
 
-    const token = randomToken(32);
-    const tokenHash = sha256(token);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const otp = randomOtp6();
+    const tokenHash = hashOtp(email, otp);
+    const expiresAt = new Date(Date.now() + EMAIL_OTP_TTL_MIN * 60 * 1000);
+
     await prisma.emailVerificationToken.create({
-      data: { userId: user.id, tokenHash, expiresAt, intent },
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+        intent,
+        purpose: "verify_email",
+      },
     });
 
-    const link = `${APP_URL}/verify-email?token=${encodeURIComponent(
-      token
-    )}&email=${encodeURIComponent(email)}&intent=${
-      intent === "VENDOR" ? "vendor" : ""
-    }`;
-    await sendVerificationEmail({ to: email, link });
+    await sendVerificationEmail({ to: email, code: otp, ttlMin: EMAIL_OTP_TTL_MIN, userId: user.id });
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[DEV resend verify code]", otp, "for", email);
+    }
 
     return res.json({ ok: true });
   } catch (e) {
@@ -469,11 +522,7 @@ router.post("/login", async (req, res) => {
 
     let user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      await logLoginAttempt(req, {
-        userId: null,
-        email,
-        success: false,
-      });
+      await logLoginAttempt(req, { userId: null, email, success: false });
       return res.status(404).json({
         error: "user_not_found",
         message: "Nu există niciun cont cu acest e-mail.",
@@ -482,35 +531,22 @@ router.post("/login", async (req, res) => {
 
     // opțional: respectăm flag-ul locked
     if (user.locked) {
-      await logLoginAttempt(req, {
-        userId: user.id,
-        email,
-        success: false,
-      });
-      return res
-        .status(403)
-        .json({ error: "account_locked", message: "Contul este blocat." });
+      await logLoginAttempt(req, { userId: user.id, email, success: false });
+      return res.status(403).json({ error: "account_locked", message: "Contul este blocat." });
     }
 
     // ⚠️ forțăm verificarea email-ului înainte de login
     if (!user.emailVerifiedAt) {
-      await logLoginAttempt(req, {
-        userId: user.id,
-        email,
-        success: false,
-      });
+      await logLoginAttempt(req, { userId: user.id, email, success: false });
       return res.status(403).json({
         error: "email_not_verified",
-        message:
-          "Te rugăm să îți confirmi adresa de email înainte de a te conecta.",
+        message: "Te rugăm să îți confirmi adresa de email înainte de a te conecta.",
       });
     }
 
     // Rate limiting simplu per email (în fereastră de timp configurabilă)
     try {
-      const windowStart = new Date(
-        Date.now() - LOGIN_WINDOW_MINUTES * 60 * 1000
-      );
+      const windowStart = new Date(Date.now() - LOGIN_WINDOW_MINUTES * 60 * 1000);
       const recentFailures = await prisma.loginAttempt.count({
         where: {
           email,
@@ -520,15 +556,10 @@ router.post("/login", async (req, res) => {
       });
 
       if (recentFailures >= LOGIN_MAX_ATTEMPTS_PER_WINDOW) {
-        await logLoginAttempt(req, {
-          userId: user.id,
-          email,
-          success: false,
-        });
+        await logLoginAttempt(req, { userId: user.id, email, success: false });
         return res.status(429).json({
           error: "too_many_attempts",
-          message:
-            "Prea multe încercări de conectare. Te rugăm să încerci mai târziu.",
+          message: "Prea multe încercări de conectare. Te rugăm să încerci mai târziu.",
         });
       }
     } catch (err) {
@@ -547,14 +578,11 @@ router.post("/login", async (req, res) => {
           take: limit,
           select: { passwordHash: true },
         });
+
         for (const h of hist) {
           const matchesOld = await bcrypt.compare(password, h.passwordHash);
           if (matchesOld) {
-            await logLoginAttempt(req, {
-              userId: user.id,
-              email,
-              success: false,
-            });
+            await logLoginAttempt(req, { userId: user.id, email, success: false });
             return res.status(401).json({
               error: "old_password_used",
               message:
@@ -564,24 +592,15 @@ router.post("/login", async (req, res) => {
         }
       }
 
-      await logLoginAttempt(req, {
-        userId: user.id,
-        email,
-        success: false,
-      });
+      await logLoginAttempt(req, { userId: user.id, email, success: false });
       return res.status(401).json({
         error: "wrong_password",
-        message:
-          "Parola este incorectă. Încearcă din nou sau resetează-ți parola.",
+        message: "Parola este incorectă. Încearcă din nou sau resetează-ți parola.",
       });
     }
 
     // login reușit – logăm succesul
-    await logLoginAttempt(req, {
-      userId: user.id,
-      email,
-      success: true,
-    });
+    await logLoginAttempt(req, { userId: user.id, email, success: true });
 
     // ACTUALIZĂM ULTIMA CONECTARE (lastLoginAt)
     user = await prisma.user.update({
@@ -589,14 +608,13 @@ router.post("/login", async (req, res) => {
       data: { lastLoginAt: new Date() },
     });
 
-          const jwt = signToken({
+    const jwt = signToken({
       sub: user.id,
       role: user.role,
       tv: user.tokenVersion,
     });
-    const isSecure = !!(
-      req.secure || req.headers["x-forwarded-proto"] === "https"
-    );
+
+    const isSecure = !!(req.secure || req.headers["x-forwarded-proto"] === "https");
     const maxAge = (remember ? 30 : 7) * 24 * 60 * 60 * 1000;
 
     res.cookie("token", jwt, {
@@ -607,10 +625,7 @@ router.post("/login", async (req, res) => {
       maxAge,
     });
 
-    const displayName =
-      user.name ||
-      [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-      "";
+    const displayName = user.name || [user.firstName, user.lastName].filter(Boolean).join(" ") || "";
 
     res.json({
       ok: true,
@@ -624,7 +639,6 @@ router.post("/login", async (req, res) => {
         role: user.role,
       },
     });
-
   } catch (e) {
     console.error("LOGIN error:", e);
     return res.status(500).json({ error: "login_failed" });
@@ -645,8 +659,8 @@ router.get("/me", authRequired, enforceTokenVersion, async (req, res) => {
         email: true,
         firstName: true,
         lastName: true,
-        name: true,       // nume legacy, dacă există
-        avatarUrl: true,  // 👈 IMPORTANT pentru navbar
+        name: true, // nume legacy, dacă există
+        avatarUrl: true, // 👈 IMPORTANT pentru navbar
         role: true,
         vendor: {
           select: {
@@ -669,10 +683,7 @@ router.get("/me", authRequired, enforceTokenVersion, async (req, res) => {
     }
 
     // derivăm un name frumos din first+last dacă e nevoie
-    const displayName =
-      me.name ||
-      [me.firstName, me.lastName].filter(Boolean).join(" ") ||
-      "";
+    const displayName = me.name || [me.firstName, me.lastName].filter(Boolean).join(" ") || "";
 
     res.json({
       user: {
@@ -686,7 +697,6 @@ router.get("/me", authRequired, enforceTokenVersion, async (req, res) => {
   }
 });
 
-
 /** GET /api/auth/exists?email=
  *
  * Răspunde cu { exists: true/false } în funcție de existența unui user cu emailul dat.
@@ -696,10 +706,12 @@ router.get("/exists", async (req, res) => {
   try {
     const raw = (req.query.email || "").toString().trim().toLowerCase();
     if (!raw) return res.json({ exists: false });
+
     const u = await prisma.user.findUnique({
       where: { email: raw },
       select: { id: true },
     });
+
     res.json({ exists: !!u });
   } catch {
     res.json({ exists: false });

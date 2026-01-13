@@ -1,12 +1,7 @@
 // src/pages/ProductDetails/CommentSection/CommentSection.jsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import {
-  FaEllipsisV,
-  FaEdit,
-  FaTrash,
-  FaFlag,
-} from "react-icons/fa";
+import { FaEllipsisV, FaEdit, FaTrash, FaFlag } from "react-icons/fa";
 import { api } from "../../../../lib/api.js";
 import styles from "./CommentSection.module.css";
 
@@ -22,15 +17,15 @@ export default function CommentsSection({
   comments,
   isOwner,
   isLoggedIn,
-  onSubmit,              // handler trimis din ProductDetails (submitComment)
+  onSubmit, // submit (comentariu nou / edit) vine din ProductDetails
   submitting,
   commentText,
   setCommentText,
   currentUserId,
   editingCommentId,
-  onStartEditComment,    // (comment) => void
-  onCancelEditComment,   // () => void
-  onAfterChange,         // () => void  (reload comentarii din backend)
+  onStartEditComment,
+  onCancelEditComment,
+  onAfterChange,
 }) {
   const redirect = useMemo(
     () => encodeURIComponent(window.location.pathname + window.location.search),
@@ -47,8 +42,23 @@ export default function CommentsSection({
   const [reportNote, setReportNote] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
 
+  // vendor reply UI
+  const [replyingToId, setReplyingToId] = useState(null);
+  const [replyText, setReplyText] = useState("");
+  const [replySubmitting, setReplySubmitting] = useState(false);
+
   const isMyComment = (c) =>
     currentUserId && c.userId && c.userId === currentUserId;
+
+  const isEditing = !!editingCommentId;
+
+  // când începi editare, închide orice reply box deschis
+  useEffect(() => {
+    if (isEditing) {
+      setReplyingToId(null);
+      setReplyText("");
+    }
+  }, [isEditing]);
 
   const handleEdit = (comment) => {
     onStartEditComment?.(comment);
@@ -89,6 +99,7 @@ export default function CommentsSection({
 
   const handleSendReport = async () => {
     if (!reportingComment) return;
+
     const base = reportReasonKey || DEFAULT_REPORT_REASONS[0];
     const extra = reportNote.trim();
     const fullReason = extra ? `${base} – ${extra}` : base;
@@ -114,91 +125,282 @@ export default function CommentsSection({
     }
   };
 
-  const isEditing = !!editingCommentId;
+  // ===== thread structure =====
+  const topLevelComments = useMemo(
+    () => (comments || []).filter((c) => !c.parentId),
+    [comments]
+  );
+
+  const repliesByParentId = useMemo(() => {
+    const map = new Map();
+    (comments || []).forEach((c) => {
+      if (!c.parentId) return;
+      const arr = map.get(c.parentId) || [];
+      arr.push(c);
+      map.set(c.parentId, arr);
+    });
+    return map;
+  }, [comments]);
+
+  // vendor reply
+  const startVendorReply = (comment) => {
+    // nu porni reply dacă editezi ceva
+    if (isEditing) return;
+    setReplyingToId(comment.id);
+    setReplyText("");
+  };
+
+  const cancelVendorReply = () => {
+    if (replySubmitting) return;
+    setReplyingToId(null);
+    setReplyText("");
+  };
+
+  const submitVendorReply = async (parentComment) => {
+    const text = (replyText || "").trim();
+    if (!text) return;
+
+    try {
+      setReplySubmitting(true);
+
+      // IMPORTANT: backend trebuie să permită owner reply (parentId != null)
+      await api("/api/comments", {
+        method: "POST",
+        body: {
+          productId: parentComment.productId,
+          text,
+          parentId: parentComment.id,
+        },
+      });
+
+      cancelVendorReply();
+      onAfterChange?.();
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Nu am putut trimite răspunsul.");
+    } finally {
+      setReplySubmitting(false);
+    }
+  };
+
+  // UI helper: când ești owner, nu poți crea top-level, dar poți edita dacă isMyComment(c)
+  const canShowForm = isLoggedIn && (!isOwner || isEditing);
 
   return (
     <section className={styles.section}>
-
       {comments?.length ? (
         <div className={styles.list}>
-          {comments.map((c) => (
-            <div key={c.id} className={styles.item}>
-              <div className={styles.itemTop}>
-                <div className={styles.itemHead}>
-                  <strong>{c.userName}</strong>
-                  <span className={styles.date}>
-                    {new Date(c.createdAt).toLocaleString("ro-RO")}
-                  </span>
+          {topLevelComments.map((c) => {
+            const replies = repliesByParentId.get(c.id) || [];
+
+            return (
+              <div key={c.id} className={styles.item}>
+                <div className={styles.itemTop}>
+                  <div className={styles.itemHead}>
+                    <strong>
+                      {c.userName}
+                      {c.isVendorReply && (
+                        <span className={styles.vendorBadge}>Vânzător</span>
+                      )}
+                    </strong>
+                    <span className={styles.date}>
+                      {new Date(c.createdAt).toLocaleString("ro-RO")}
+                    </span>
+                  </div>
+
+                  {isLoggedIn && (
+                    <div className={styles.itemMenuWrap}>
+                      <button
+                        type="button"
+                        className={styles.menuToggleBtn}
+                        onClick={() =>
+                          setActiveMenuId(activeMenuId === c.id ? null : c.id)
+                        }
+                        aria-haspopup="true"
+                        aria-expanded={activeMenuId === c.id}
+                      >
+                        <FaEllipsisV />
+                      </button>
+
+                      {activeMenuId === c.id && (
+                        <div className={styles.itemMenu}>
+                          {isMyComment(c) && (
+                            <>
+                              <button
+                                type="button"
+                                className={styles.itemMenuItem}
+                                onClick={() => handleEdit(c)}
+                              >
+                                <FaEdit /> <span>Editează</span>
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.itemMenuItemDanger}
+                                onClick={() => handleDelete(c)}
+                              >
+                                <FaTrash /> <span>Șterge</span>
+                              </button>
+                            </>
+                          )}
+
+                          <button
+                            type="button"
+                            className={styles.itemMenuItem}
+                            onClick={() => {
+                              openReportDialog(c);
+                              setActiveMenuId(null);
+                            }}
+                          >
+                            <FaFlag /> <span>Raportează</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {isLoggedIn && (
-                  <div className={styles.itemMenuWrap}>
-                    <button
-                      type="button"
-                      className={styles.menuToggleBtn}
-                      onClick={() =>
-                        setActiveMenuId(
-                          activeMenuId === c.id ? null : c.id
-                        )
-                      }
-                      aria-haspopup="true"
-                      aria-expanded={activeMenuId === c.id}
-                    >
-                      <FaEllipsisV />
-                    </button>
+                <p className={styles.text}>{c.text}</p>
 
-                    {activeMenuId === c.id && (
-                      <div className={styles.itemMenu}>
-                        {isMyComment(c) && (
-                          <>
-                            <button
-                              type="button"
-                              className={styles.itemMenuItem}
-                              onClick={() => handleEdit(c)}
-                            >
-                              <FaEdit /> <span>Editează</span>
-                            </button>
-                            <button
-                              type="button"
-                              className={styles.itemMenuItemDanger}
-                              onClick={() => handleDelete(c)}
-                            >
-                              <FaTrash /> <span>Șterge</span>
-                            </button>
-                          </>
-                        )}
+                {/* Replies */}
+                {replies.length > 0 && (
+                  <div className={styles.replies}>
+                    {replies.map((r) => (
+                      <div key={r.id} className={styles.replyItem}>
+                        <div className={styles.itemTop}>
+                          <div className={styles.itemHead}>
+                            <strong>
+                              {r.userName}
+                              {r.isVendorReply && (
+                                <span className={styles.vendorBadge}>
+                                  Vânzător
+                                </span>
+                              )}
+                            </strong>
+                            <span className={styles.date}>
+                              {new Date(r.createdAt).toLocaleString("ro-RO")}
+                            </span>
+                          </div>
 
-                        <button
-                          type="button"
-                          className={styles.itemMenuItem}
-                          onClick={() => {
-                            openReportDialog(c);
-                            setActiveMenuId(null);
-                          }}
-                        >
-                          <FaFlag /> <span>Raportează</span>
-                        </button>
+                          {isLoggedIn && (
+                            <div className={styles.itemMenuWrap}>
+                              <button
+                                type="button"
+                                className={styles.menuToggleBtn}
+                                onClick={() =>
+                                  setActiveMenuId(
+                                    activeMenuId === r.id ? null : r.id
+                                  )
+                                }
+                                aria-haspopup="true"
+                                aria-expanded={activeMenuId === r.id}
+                              >
+                                <FaEllipsisV />
+                              </button>
+
+                              {activeMenuId === r.id && (
+                                <div className={styles.itemMenu}>
+                                  {/* ✅ Editează/Șterge/Raportează în burger și pentru răspuns */}
+                                  {isMyComment(r) && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className={styles.itemMenuItem}
+                                        onClick={() => handleEdit(r)}
+                                      >
+                                        <FaEdit /> <span>Editează</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={styles.itemMenuItemDanger}
+                                        onClick={() => handleDelete(r)}
+                                      >
+                                        <FaTrash /> <span>Șterge</span>
+                                      </button>
+                                    </>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    className={styles.itemMenuItem}
+                                    onClick={() => {
+                                      openReportDialog(r);
+                                      setActiveMenuId(null);
+                                    }}
+                                  >
+                                    <FaFlag /> <span>Raportează</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <p className={styles.text}>{r.text}</p>
                       </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Vendor reply form (doar owner, doar la comentarii user top-level) */}
+                {isOwner && isLoggedIn && !c.isVendorReply && (
+                  <div className={styles.replyBox}>
+                    {replyingToId === c.id ? (
+                      <>
+                        <textarea
+                          className={styles.textarea}
+                          rows={2}
+                          placeholder="Scrie un răspuns ca vânzător..."
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          maxLength={2000}
+                          disabled={replySubmitting}
+                        />
+                        <div className={styles.replyActions}>
+                          <button
+                            type="button"
+                            className={styles.cancelEditBtn}
+                            onClick={cancelVendorReply}
+                            disabled={replySubmitting}
+                          >
+                            Anulează
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.primaryBtn}
+                            onClick={() => submitVendorReply(c)}
+                            disabled={replySubmitting}
+                          >
+                            {replySubmitting ? "Se trimite…" : "Trimite răspunsul"}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.secondaryBtn}
+                        onClick={() => startVendorReply(c)}
+                        disabled={isEditing}
+                        title={
+                          isEditing
+                            ? "Finalizează editarea înainte să răspunzi."
+                            : "Răspunde"
+                        }
+                      >
+                        Răspunde
+                      </button>
                     )}
                   </div>
                 )}
               </div>
-
-              <p className={styles.text}>{c.text}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className={styles.empty}>Nu sunt comentarii încă.</div>
       )}
 
       {/* Formular / mesaje de stare */}
-      {isOwner ? (
-        <p className={styles.muted} role="note" style={{ marginTop: 8 }}>
-          Ești proprietarul acestui produs. Nu poți adăuga comentarii la
-          propriile produse.
-        </p>
-      ) : isLoggedIn ? (
+      {canShowForm ? (
         <form onSubmit={onSubmit} className={styles.form}>
           <div className={styles.formHeader}>
             <label className={styles.label} htmlFor="commentText">
@@ -209,6 +411,7 @@ export default function CommentsSection({
                 type="button"
                 className={styles.cancelEditBtn}
                 onClick={onCancelEditComment}
+                disabled={submitting}
               >
                 Anulează editarea
               </button>
@@ -217,8 +420,8 @@ export default function CommentsSection({
 
           {isEditing && (
             <p className={styles.editHint}>
-              Editezi un comentariu existent. Modificarea va actualiza
-              mesajul tău pentru toți vizitatorii.
+              Editezi un comentariu existent. Modificarea va actualiza mesajul tău
+              pentru toți vizitatorii.
             </p>
           )}
 
@@ -231,7 +434,9 @@ export default function CommentsSection({
             maxLength={2000}
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
+            disabled={submitting}
           />
+
           <button className={styles.primaryBtn} disabled={submitting}>
             {submitting
               ? "Se trimite…"
@@ -240,13 +445,15 @@ export default function CommentsSection({
               : "Trimite comentariul"}
           </button>
         </form>
+      ) : isOwner ? (
+        <p className={styles.muted} role="note" style={{ marginTop: 8 }}>
+          Ești proprietarul acestui produs. Nu poți adăuga un comentariu nou, dar
+          poți răspunde la comentariile clienților.
+        </p>
       ) : (
         <p className={styles.loginPrompt}>
           Vrei să comentezi?{" "}
-          <Link to={`/autentificare?redirect=${redirect}`}>
-            Autentifică-te
-          </Link>
-          .
+          <Link to={`/autentificare?redirect=${redirect}`}>Autentifică-te</Link>.
         </p>
       )}
 
@@ -259,16 +466,12 @@ export default function CommentsSection({
           aria-labelledby="report-comment-title"
         >
           <div className={styles.reportCard}>
-            <h3
-              id="report-comment-title"
-              className={styles.reportTitle}
-            >
+            <h3 id="report-comment-title" className={styles.reportTitle}>
               Raportează comentariul
             </h3>
             <p className={styles.reportTextMuted}>
-              Alege motivul raportării. Te rugăm să folosești opțiunea doar
-              pentru încălcări reale (limbaj vulgar, date personale, spam
-              etc.).
+              Alege motivul raportării. Te rugăm să folosești opțiunea doar pentru
+              încălcări reale (limbaj vulgar, date personale, spam etc.).
             </p>
 
             <div className={styles.reportOptions}>

@@ -4,13 +4,14 @@ import {
   Routes,
   Route,
   Navigate,
+  Outlet,
   useSearchParams,
   useParams,
 } from "react-router-dom";
 
 import ScrollToTop from "./components/ScrollToTop.jsx";
-import Navbar from "./components/Navbar/Navbar";
-import Footer from "./components/Footer/Footer";
+import AppLayout from "./components/Navbar/AppLayout.jsx";
+import Navbar from "./components/Navbar/Navbar.jsx"; // folosit în AdminLayout (opțional)
 
 import Home from "./pages/Home";
 
@@ -26,6 +27,7 @@ import Login from "./pages/Auth/Login/Login";
 import Register from "./pages/Auth/Register/Register";
 import ForgotPassword from "./pages/Auth/ForgotPassword";
 import ResetPassword from "./pages/Auth/ResetPassword";
+import VerifyEmail from "./pages/Auth/VerifyEmail/VerifyEmail";
 
 import Desktop from "./pages/Dasboard/Desktop";
 import OnboardingServices from "./pages/Vendor/Onboarding/OnBoardingServices/OnBoardingServices";
@@ -39,7 +41,6 @@ import WishlistPage from "./pages/Wishlist/Wishlist";
 import CartPage from "./pages/Cart/Cart";
 
 import VendorVisitorsPage from "./pages/Vendor/Visitors/Visitors";
-// mesaje vendor + user
 import VendorMessagesPage from "./pages/Vendor/Mesaje/Messages.jsx";
 import UserMessagesPage from "./pages/User/Messages/UserMessages.jsx";
 
@@ -62,104 +63,83 @@ import MobileCategories from "./pages/Categories/MobileCategories";
 
 import ShopPlanner from "./pages/Vendor/Planner/ShopPlanner";
 
-import VerifyEmail from "./pages/Auth/VerifyEmail/VerifyEmail";
-
 import VendorOrdersPage from "./pages/Vendor/Orders/Orders";
 import OrderDetailsPage from "./pages/Vendor/Orders/OrdersDetailsPage";
 
 import VendorInvoicesPage from "./pages/Vendor/Invoices/InvoicePage.jsx";
 import UserInvoicesPage from "./pages/User/Invoices/UserInvoicesPage";
 import UserDesktop from "./pages/User/UserDesktop/UserDesktop.jsx";
+
 import AdminDesktop from "./pages/Admin/AdminDesktop/AdminDesktop.jsx";
 import AdminMarketingPage from "./pages/Admin/AdminMarketing/AdminMarketingPage.jsx";
 import AdminMaintenance from "./pages/Admin/AdminMaintenance/AdminMaintenancePage.jsx";
-import UserSettingsPage from "./pages/User/UserSettings/UserSettingsPage.jsx";
-import UserNotificationsPage from "./pages/User/Notification/UserNotaificationPage.jsx";
-import { SEOProvider } from "./components/Seo/SeoProvider";
-import { useAuth } from "./pages/Auth/Context/context.js";
-import ServiciiDigitale from "./pages/ServiciiDigitale/ServiciiDigitale.jsx";
 import RouteIncidentsPage from "./pages/Admin/AdminIncidentsPage/AdminIncidentsPage.jsx";
 
+import UserSettingsPage from "./pages/User/UserSettings/UserSettingsPage.jsx";
+import UserNotificationsPage from "./pages/User/Notification/UserNotaificationPage.jsx";
 
-/* ================= Helpers pentru rute speciale ================= */
+import ServiciiDigitale from "./pages/ServiciiDigitale/ServiciiDigitale.jsx";
 
+import { SEOProvider } from "./components/Seo/SeoProvider";
+import { useAuth } from "./pages/Auth/Context/context.js";
+
+/* ================= Helpers ================= */
 function ResetOrForgot() {
   const [params] = useSearchParams();
   const token = params.get("token");
   return token ? <ResetPassword /> : <ForgotPassword />;
 }
 
-// redirect /@:slug -> /magazin/:slug
 function AtSlugRedirect() {
   const { slug } = useParams();
   return <Navigate to={`/magazin/${slug}`} replace />;
 }
 
-/* ================= Guards: User, Vendor & Admin ================= */
-
+/* ================= Guards ================= */
 function RequireUser({ children }) {
   const { me, loading } = useAuth();
-
-  if (loading) {
-    return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
-  }
-
-  if (!me) {
-    return <Navigate to="/autentificare" replace />;
-  }
-
-  if (me.role !== "USER") {
-    return <Navigate to="/" replace />;
-  }
-
+  if (loading) return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
+  if (!me) return <Navigate to="/autentificare" replace />;
+  if (me.role !== "USER") return <Navigate to="/" replace />;
   return children;
 }
 
 function RequireVendor({ children }) {
   const { me, loading } = useAuth();
-
-  if (loading) {
-    return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
-  }
-
-  if (!me) {
-    return <Navigate to="/autentificare" replace />;
-  }
-
-  if (me.role !== "VENDOR") {
-    return <Navigate to="/" replace />;
-  }
-
+  if (loading) return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
+  if (!me) return <Navigate to="/autentificare" replace />;
+  if (me.role !== "VENDOR") return <Navigate to="/" replace />;
   return children;
 }
 
 function RequireAdmin({ children }) {
   const { me, loading } = useAuth();
-
-  if (loading) {
-    return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
-  }
-
-  if (!me) {
-    return <Navigate to="/autentificare" replace />;
-  }
-
-  if (me.role !== "ADMIN") {
-    return <Navigate to="/" replace />;
-  }
-
+  if (loading) return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
+  if (!me) return <Navigate to="/autentificare" replace />;
+  if (me.role !== "ADMIN") return <Navigate to="/" replace />;
   return children;
 }
 
-/* ================= Constanta SEO ================= */
+/* ================= Admin layout =================
+   - îl poți lăsa fără Footer (de obicei așa e mai ok pentru admin)
+   - Navbar știe singur să arate “admin navbar” pe /admin/*
+*/
+function AdminLayout() {
+  return (
+    <>
+      <Navbar />
+      <Outlet />
+    </>
+  );
+}
 
+/* ================= SEO const ================= */
 const ORIGIN =
   typeof window !== "undefined" && window.location?.origin
     ? window.location.origin
     : "";
 
-/* ================= Componenta principală App ================= */
-
+/* ================= App ================= */
 export default function App() {
   return (
     <BrowserRouter>
@@ -177,241 +157,237 @@ export default function App() {
           twitterSite: "@artfest_ro",
         }}
       >
-        <Navbar />
-
         <Routes>
-          {/* Public */}
-          <Route path="/" element={<Home />} />
+          {/* ================= PUBLIC / USER / VENDOR (cu Navbar+Footer) ================= */}
+          <Route element={<AppLayout />}>
+            {/* Public */}
+            <Route path="/" element={<Home />} />
 
-          {/* Checkout */}
-          <Route path="/checkout" element={<Checkout />} />
-          <Route path="/multumim" element={<ThankYou />} />
+            {/* Checkout */}
+            <Route path="/checkout" element={<Checkout />} />
+            <Route path="/multumim" element={<ThankYou />} />
 
-          {/* Legal afișate în React */}
-          <Route path="/politica-cookie" element={<CookiesPolicy />} />
-          <Route path="/politica-de-retur" element={<ReturnPolicy />} />
-          <Route path="/cookie-banner" element={<CookieBanner />} />
-          <Route path="/preferinte-cookie" element={<CookiePreferences />} />
+            {/* Legal */}
+            <Route path="/politica-cookie" element={<CookiesPolicy />} />
+            <Route path="/politica-de-retur" element={<ReturnPolicy />} />
+            <Route path="/cookie-banner" element={<CookieBanner />} />
+            <Route path="/preferinte-cookie" element={<CookiePreferences />} />
 
-{/* Servicii digitale */}
-<Route path="/servicii-digitale" element={<ServiciiDigitale />} />
+            {/* Servicii digitale */}
+            <Route path="/servicii-digitale" element={<ServiciiDigitale />} />
 
-          {/* User */}
-          <Route path="/wishlist" element={<WishlistPage />} />
-          <Route path="/cos" element={<CartPage />} />
-          <Route path="/comenzile-mele" element={<OrdersPage />} />
-          <Route path="/comanda/:id" element={<MyOrderDetailsPage />} />
-          <Route path="/cont" element={<AccountPage />} />
-          <Route path="/cont/setari" element={<UserSettingsPage />} />
-          <Route path="/notificari" element={<UserNotificationsPage />} />
-          <Route
-            path="/cont/mesaje"
-            element={
-              <RequireUser>
-                <UserMessagesPage />
-              </RequireUser>
-            }
-          />
-          <Route path="/desktop-user" element={<UserDesktop />} />
+            {/* Auth */}
+            <Route path="/autentificare" element={<Login />} />
+            <Route path="/inregistrare" element={<Register />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/reset-parola" element={<ResetOrForgot />} />
 
-          {/* Auth */}
-          <Route path="/autentificare" element={<Login />} />
-          <Route path="/inregistrare" element={<Register />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
-          <Route path="/reset-parola" element={<ResetOrForgot />} />
+            {/* User (unele sunt publice la tine, păstrez exact ca ai scris) */}
+            <Route path="/wishlist" element={<WishlistPage />} />
+            <Route path="/cos" element={<CartPage />} />
+            <Route
+  path="/comenzile-mele"
+  element={
+    <RequireUser>
+      <OrdersPage />
+    </RequireUser>
+  }
+/>
 
-          {/* DASHBOARD VENDOR (protejat) */}
-          <Route
-            path="/desktop"
-            element={
-              <RequireVendor>
-                <Desktop />
-              </RequireVendor>
-            }
-          />
+<Route
+  path="/comanda/:id"
+  element={
+    <RequireUser>
+      <MyOrderDetailsPage />
+    </RequireUser>
+  }
+/>
 
-          {/* Admin */}
+            <Route path="/cont" element={<AccountPage />} />
+            <Route path="/cont/setari" element={<UserSettingsPage />} />
+            <Route path="/notificari" element={<UserNotificationsPage />} />
+
+            <Route
+              path="/cont/mesaje"
+              element={
+                <RequireUser>
+                  <UserMessagesPage />
+                </RequireUser>
+              }
+            />
+            <Route path="/desktop-user" element={<UserDesktop />} />
+
+            {/* Vendor */}
+            <Route
+              path="/desktop"
+              element={
+                <RequireVendor>
+                  <Desktop />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/onboarding"
+              element={
+                <RequireVendor>
+                  <OnboardingServices />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/onboarding/details"
+              element={
+                <RequireVendor>
+                  <OnboardingDetails />
+                </RequireVendor>
+              }
+            />
+
+            <Route path="/produs/:id" element={<DetaliiProdus />} />
+
+            <Route
+              path="/vendor/visitors"
+              element={
+                <RequireVendor>
+                  <VendorVisitorsPage />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/mesaje"
+              element={
+                <RequireVendor>
+                  <VendorMessagesPage />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/vendor/support"
+              element={
+                <RequireVendor>
+                  <VendorSupportPage />
+                </RequireVendor>
+              }
+            />
+
+            <Route
+              path="/setari"
+              element={
+                <RequireVendor>
+                  <SettingsPage />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/vendor/notifications"
+              element={
+                <RequireVendor>
+                  <NotificationsPage />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/planner"
+              element={
+                <RequireVendor>
+                  <ShopPlanner />
+                </RequireVendor>
+              }
+            />
+
+            {/* Facturi */}
+            <Route path="/facturi" element={<UserInvoicesPage />} />
+            <Route
+              path="/vendor/invoices"
+              element={
+                <RequireVendor>
+                  <VendorInvoicesPage />
+                </RequireVendor>
+              }
+            />
+
+            {/* Comenzi vendor */}
+            <Route
+              path="/vendor/orders"
+              element={
+                <RequireVendor>
+                  <VendorOrdersPage />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/vendor/orders/:id"
+              element={
+                <RequireVendor>
+                  <OrderDetailsPage />
+                </RequireVendor>
+              }
+            />
+            <Route
+              path="/vendor/orders/planning"
+              element={
+                <RequireVendor>
+                  <VendorOrdersPlanningPage />
+                </RequireVendor>
+              }
+            />
+
+            {/* Magazin public */}
+            <Route path="/magazin/:slug" element={<ProfilMagazin />} />
+            <Route path="/produse" element={<ProductsPage />} />
+            <Route path="/magazine" element={<StoresPage />} />
+
+            <Route
+              path="/vendor/store"
+              element={
+                <RequireVendor>
+                  <StoreRedirect />
+                </RequireVendor>
+              }
+            />
+
+            <Route path="/categorii" element={<MobileCategories />} />
+            <Route path="/@:slug" element={<AtSlugRedirect />} />
+
+            {/* Support */}
+            <Route
+              path="/account/support"
+              element={
+                <RequireUser>
+                  <UserSupportPage />
+                </RequireUser>
+              }
+            />
+            <Route
+              path="/account/support/tickets/:ticketId"
+              element={
+                <RequireUser>
+                  <UserSupportPage />
+                </RequireUser>
+              }
+            />
+            <Route path="/support" element={<GuestSupportPage />} />
+
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+
+          {/* ================= ADMIN (layout separat) ================= */}
           <Route
             path="/admin"
             element={
               <RequireAdmin>
-                <AdminDesktop />
+                <AdminLayout />
               </RequireAdmin>
             }
-          />
-          <Route
-            path="/admin/marketing"
-            element={
-              <RequireAdmin>
-                <AdminMarketingPage />
-              </RequireAdmin>
-            }
-          />
-          <Route
-            path="/admin/support"
-            element={
-              <RequireAdmin>
-                <AdminSupportPage />
-              </RequireAdmin>
-            }
-          />
-          <Route path="/admin/maintenance" element={<AdminMaintenance />} />
- <Route path="/admin/incidents" element={<RouteIncidentsPage />} />
-          {/* Onboarding Vendor (protejat) */}
-          <Route
-            path="/onboarding"
-            element={
-              <RequireVendor>
-                <OnboardingServices />
-              </RequireVendor>
-            }
-          />
-          <Route
-            path="/onboarding/details"
-            element={
-              <RequireVendor>
-                <OnboardingDetails />
-              </RequireVendor>
-            }
-          />
-
-          {/* Produs public */}
-          <Route path="/produs/:id" element={<DetaliiProdus />} />
-
-          {/* Vendor (protejate) */}
-          <Route
-            path="/vendor/visitors"
-            element={
-              <RequireVendor>
-                <VendorVisitorsPage />
-              </RequireVendor>
-            }
-          />
-          <Route
-            path="/mesaje"
-            element={
-              <RequireVendor>
-                <VendorMessagesPage />
-              </RequireVendor>
-            }
-          />
-          <Route
-            path="/vendor/support"
-            element={
-              <RequireVendor>
-                <VendorSupportPage />
-              </RequireVendor>
-            }
-          />
-
-          {/* Suport user + guest */}
-          <Route
-            path="/account/support"
-            element={
-              <RequireUser>
-                <UserSupportPage />
-              </RequireUser>
-            }
-          />
-          <Route
-            path="/account/support/tickets/:ticketId"
-            element={
-              <RequireUser>
-                <UserSupportPage />
-              </RequireUser>
-            }
-          />
-          <Route path="/support" element={<GuestSupportPage />} />
-
-          {/* Setări & Notificări Vendor */}
-          <Route
-            path="/setari"
-            element={
-              <RequireVendor>
-                <SettingsPage />
-              </RequireVendor>
-            }
-          />
-          <Route
-            path="/vendor/notifications"
-            element={
-              <RequireVendor>
-                <NotificationsPage />
-              </RequireVendor>
-            }
-          />
-
-          {/* Categorii & Planner */}
-          <Route path="/categorii" element={<MobileCategories />} />
-          <Route
-            path="/planner"
-            element={
-              <RequireVendor>
-                <ShopPlanner />
-              </RequireVendor>
-            }
-          />
-
-          {/* Facturi */}
-          <Route path="/facturi" element={<UserInvoicesPage />} />
-          <Route
-            path="/vendor/invoices"
-            element={
-              <RequireVendor>
-                <VendorInvoicesPage />
-              </RequireVendor>
-            }
-          />
-
-          {/* Comenzi vendor */}
-          <Route
-            path="/vendor/orders"
-            element={
-              <RequireVendor>
-                <VendorOrdersPage />
-              </RequireVendor>
-            }
-          />
-          <Route
-            path="/vendor/orders/:id"
-            element={
-              <RequireVendor>
-                <OrderDetailsPage />
-              </RequireVendor>
-            }
-          />
-          <Route
-            path="/vendor/orders/planning"
-            element={
-              <RequireVendor>
-                <VendorOrdersPlanningPage />
-              </RequireVendor>
-            }
-          />
-
-          {/* Magazin public */}
-          <Route path="/magazin/:slug" element={<ProfilMagazin />} />
-          <Route path="/produse" element={<ProductsPage />} />
-          <Route path="/magazine" element={<StoresPage />} />
-
-          {/* Shortcut proprietar → magazinul lui */}
-          <Route
-            path="/vendor/store"
-            element={
-              <RequireVendor>
-                <StoreRedirect />
-              </RequireVendor>
-            }
-          />
-
-          {/* Shortlink public /@:slug → /magazin/:slug */}
-          <Route path="/@:slug" element={<AtSlugRedirect />} />
-
-          {/* Fallback final */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          >
+            <Route index element={<AdminDesktop />} />
+            <Route path="marketing" element={<AdminMarketingPage />} />
+            <Route path="support" element={<AdminSupportPage />} />
+            <Route path="maintenance" element={<AdminMaintenance />} />
+            <Route path="incidents" element={<RouteIncidentsPage />} />
+          </Route>
         </Routes>
-
-        <Footer />
       </SEOProvider>
     </BrowserRouter>
   );

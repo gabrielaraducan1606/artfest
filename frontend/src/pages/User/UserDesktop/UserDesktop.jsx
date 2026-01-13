@@ -375,6 +375,12 @@ export default function UserDesktop() {
     // Mesaje + Suport pentru user final
     ...(isUser
       ? [
+         {
+        to: "/comenzile-mele",
+        label: "Comenzi",
+        icon: <Package size={20} />,
+        badge: 0, // sau scoți badge dacă nu vrei
+      },
           {
             to: "/cont/mesaje",
             label: "Mesaje",

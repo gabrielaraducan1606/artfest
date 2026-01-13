@@ -81,7 +81,7 @@ function humanizeActivateError(e) {
   return e?.message || "Nu am putut activa serviciul.";
 }
 
-/* ========================== TRACKING helpers ========================== */
+/* ========================== TRACKING helpers (FIXED) ========================== */
 function makeId() {
   try {
     return (
@@ -92,9 +92,10 @@ function makeId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2);
   }
 }
+
 function getSessionId() {
   try {
-    const k = "sid";
+    const k = "visitor_sid";
     const v = localStorage.getItem(k);
     if (v) return v;
     const n = makeId();
@@ -105,99 +106,64 @@ function getSessionId() {
   }
 }
 
-function useVendorTracking(vendorId, pageUrl) {
+// IMPORTANT: backend-ul acceptă doar aceste tipuri
+const VISITOR_TYPES = new Set(["PAGEVIEW", "CTA_CLICK", "MESSAGE"]);
+
+function useVendorTracking(vendorId) {
   const sid = useMemo(() => getSessionId(), []);
-  const [viewId, setViewId] = useState(() => makeId());
+  const [viewId] = useState(() => makeId());
 
   const send = (payload) => {
+    // ✅ validare minimă ca să nu mai primești 400
+    if (!payload?.vendorId || typeof payload.vendorId !== "string") return;
+    if (!VISITOR_TYPES.has(payload?.type)) return;
+
+    const safePayload = {
+      // trimitem PATH, nu URL complet (ajută la top-pages)
+      pageUrl:
+        payload.pageUrl ||
+        (typeof window !== "undefined"
+          ? window.location.pathname + window.location.search
+          : undefined),
+      referrer:
+        payload.referrer ??
+        (typeof document !== "undefined" ? document.referrer || "" : ""),
+      sessionId: payload.sessionId || sid,
+      // viewId îl păstrăm doar în FE (backend îl ignoră, dar nu strică)
+      viewId: payload.viewId || viewId,
+      ctaLabel: payload.ctaLabel,
+      vendorId: payload.vendorId,
+      type: payload.type,
+    };
+
     try {
-      const blob = new Blob([JSON.stringify(payload)], {
+      const blob = new Blob([JSON.stringify(safePayload)], {
         type: "application/json",
       });
-      if (
-        navigator.sendBeacon &&
-        navigator.sendBeacon("/api/visitors/track", blob)
-      )
+      if (navigator.sendBeacon && navigator.sendBeacon("/api/visitors/track", blob))
         return;
     } catch {
       /* noop */
     }
+
     fetch("/api/visitors/track", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(safePayload),
+      keepalive: true,
     }).catch(() => {});
   };
 
+  // ✅ doar PAGEVIEW (nu mai trimitem VIEW_START/PING/END -> dădeau 400)
   useEffect(() => {
     if (!vendorId) return;
-
-    const url =
-      pageUrl ||
-      (typeof window !== "undefined"
-        ? location.pathname + location.search
-        : undefined);
-    const ref =
-      typeof document !== "undefined" ? document.referrer || "" : "";
-
-    const newView = makeId();
-    setViewId(newView);
 
     send({
       vendorId,
       type: "PAGEVIEW",
-      pageUrl: url,
-      referrer: ref,
-      sessionId: sid,
     });
-    send({
-      vendorId,
-      type: "VIEW_START",
-      pageUrl: url,
-      referrer: ref,
-      sessionId: sid,
-      viewId: newView,
-    });
-
-    let hb;
-    const beat = () =>
-      send({
-        vendorId,
-        type: "VIEW_PING",
-        pageUrl: url,
-        sessionId: sid,
-        viewId: newView,
-      });
-    const startHB = () => {
-      hb = setInterval(() => {
-        if (document.visibilityState === "visible") beat();
-      }, 15000);
-    };
-    const stopHB = () => {
-      if (hb) clearInterval(hb);
-      hb = null;
-    };
-    startHB();
-
-    const onVis = () => {
-      if (document.visibilityState === "hidden") stopHB();
-      else if (!hb) startHB();
-    };
-    document.addEventListener("visibilitychange", onVis);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      stopHB();
-      send({
-        vendorId,
-        type: "VIEW_END",
-        pageUrl: url,
-        sessionId: sid,
-        viewId: newView,
-      });
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vendorId, pageUrl]);
+  }, [vendorId]);
 
   function trackCTA(label) {
     if (!vendorId) return;
@@ -205,26 +171,15 @@ function useVendorTracking(vendorId, pageUrl) {
       vendorId,
       type: "CTA_CLICK",
       ctaLabel: label,
-      pageUrl:
-        typeof window !== "undefined"
-          ? location.pathname + location.search
-          : undefined,
-      sessionId: sid,
-      viewId,
     });
   }
+
   function trackMESSAGE(label) {
     if (!vendorId) return;
     send({
       vendorId,
       type: "MESSAGE",
       ctaLabel: label,
-      pageUrl:
-        typeof window !== "undefined"
-          ? location.pathname + location.search
-          : undefined,
-      sessionId: sid,
-      viewId,
     });
   }
 

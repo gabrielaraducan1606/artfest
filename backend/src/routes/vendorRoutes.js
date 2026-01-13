@@ -33,24 +33,16 @@ const cleanOrNull = (v) => {
  */
 async function vendorAccessRequired(req, res, next) {
   try {
-    console.log("=== vendorAccessRequired ===");
-    console.log("req.user =", req.user);
-
-    if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") {
-      console.log("Role ok:", req.user.role, "-> next()");
-      return next();
-    }
+    if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") return next();
 
     const v = await prisma.vendor.findUnique({
       where: { userId: req.user.sub },
     });
     if (v) {
       req.meVendor = v;
-      console.log("Vendor found by userId -> next()");
       return next();
     }
 
-    console.log("No vendor + role not VENDOR/ADMIN -> 403");
     return res.status(403).json({ error: "forbidden" });
   } catch (e) {
     console.error("vendorAccessRequired error:", e);

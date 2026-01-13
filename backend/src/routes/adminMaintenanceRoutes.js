@@ -1025,6 +1025,98 @@ router.get("/store-review-reports", async (req, res) => {
     });
   }
 });
+/**
+ * GET /api/admin/maintenance/comment-reports
+ * -> listă raportări pentru comentarii (Product Comments)
+ */
+router.get("/comment-reports", async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.take) || 100, 200);
+    const days = Math.max(Number(req.query.days) || 30, 1);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const total = await prisma.commentReport.count();
+    const recentCount = await prisma.commentReport.count({
+      where: { createdAt: { gte: since } },
+    });
+
+    const items = await prisma.commentReport.findMany({
+      orderBy: { createdAt: "desc" },
+      take,
+      include: {
+        reporter: {
+          select: { id: true, email: true, name: true, role: true },
+        },
+        comment: {
+          select: {
+            id: true,
+            text: true,
+            createdAt: true,
+            userId: true,
+            product: { select: { id: true, title: true } },
+            user: { select: { id: true, email: true, name: true, role: true } },
+            // dacă ai Comment.status:
+            // status: true,
+          },
+        },
+      },
+    });
+
+    res.json({ ok: true, total, recentCount, items });
+  } catch (e) {
+    console.error("ADMIN maintenance /comment-reports error", e);
+    res.status(500).json({ error: "maintenance_comment_reports_failed" });
+  }
+});
+
+/**
+ * DELETE /api/admin/maintenance/comments/:commentId
+ * -> admin șterge definitiv comentariul + rapoartele
+ */
+router.delete("/comments/:commentId", async (req, res) => {
+  try {
+    const commentId = String(req.params.commentId || "").trim();
+    if (!commentId) return res.status(400).json({ error: "invalid_comment_id" });
+
+    const existing = await prisma.comment.findUnique({ where: { id: commentId } });
+    if (!existing) return res.status(404).json({ error: "comment_not_found" });
+
+    await prisma.$transaction([
+      prisma.commentReport.deleteMany({ where: { commentId } }),
+      prisma.comment.delete({ where: { id: commentId } }),
+    ]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("ADMIN maintenance DELETE /comments/:id error", e);
+    res.status(500).json({ error: "maintenance_comment_delete_failed" });
+  }
+});
+
+/**
+ * POST /api/admin/maintenance/comments/:commentId/hide
+ * -> ascunde comentariul (doar dacă ai status în Comment)
+ */
+router.post("/comments/:commentId/hide", async (req, res) => {
+  try {
+    const commentId = String(req.params.commentId || "").trim();
+    if (!commentId) return res.status(400).json({ error: "invalid_comment_id" });
+
+    // dacă nu ai status în schema, scoate complet endpointul ăsta
+    const existing = await prisma.comment.findUnique({ where: { id: commentId } });
+    if (!existing) return res.status(404).json({ error: "comment_not_found" });
+
+    const updated = await prisma.comment.update({
+      where: { id: commentId },
+      data: { status: "HIDDEN" },
+    });
+
+    res.json({ ok: true, comment: updated });
+  } catch (e) {
+    console.error("ADMIN maintenance /comments/:id/hide error", e);
+    res.status(500).json({ error: "maintenance_comment_hide_failed" });
+  }
+});
 
 /**
  * GET /api/admin/maintenance/product-reviews/:reviewId/edit-logs
@@ -1297,6 +1389,152 @@ router.delete("/store-reviews/:reviewId", async (req, res) => {
     res.status(500).json({
       error: "maintenance_store_review_delete_failed",
     });
+  }
+});
+
+router.get("/comments/:commentId/edit-logs", async (req, res) => {
+  try {
+    const commentId = String(req.params.commentId || "").trim();
+    if (!commentId) return res.status(400).json({ error: "invalid_comment_id" });
+
+    const items = await prisma.commentEditLog.findMany({
+      where: { commentId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        editor: { select: { id: true, email: true, name: true, role: true } },
+      },
+    });
+
+    res.json({ ok: true, items });
+  } catch (e) {
+    console.error("ADMIN maintenance /comments/:id/edit-logs error", e);
+    res.status(500).json({ error: "maintenance_comment_edit_logs_failed" });
+  }
+});
+/**
+ * GET /api/admin/maintenance/comment-edit-logs
+ * -> ultimele editări de comentarii (global feed)
+ * query: take=100 (max 200), days=30
+ */
+router.get("/comment-edit-logs", async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.take) || 100, 200);
+    const days = Math.max(Number(req.query.days) || 30, 1);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const total = await prisma.commentEditLog.count();
+    const recentCount = await prisma.commentEditLog.count({
+      where: { createdAt: { gte: since } },
+    });
+
+    const items = await prisma.commentEditLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take,
+      include: {
+        editor: { select: { id: true, email: true, name: true, role: true } },
+        comment: {
+          select: {
+            id: true,
+            text: true,
+            createdAt: true,
+            userId: true,
+            product: { select: { id: true, title: true } },
+            user: { select: { id: true, email: true, name: true, role: true } },
+          },
+        },
+      },
+    });
+
+    res.json({ ok: true, total, recentCount, items });
+  } catch (e) {
+    console.error("ADMIN maintenance /comment-edit-logs error", e);
+    res.status(500).json({ error: "maintenance_comment_edit_logs_failed" });
+  }
+});
+
+/**
+ * GET /api/admin/maintenance/product-review-edit-logs
+ * -> ultimele editări de recenzii produs (global feed)
+ * query: take=100 (max 200), days=30
+ */
+router.get("/product-review-edit-logs", async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.take) || 100, 200);
+    const days = Math.max(Number(req.query.days) || 30, 1);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const total = await prisma.productReviewEditLog.count();
+    const recentCount = await prisma.productReviewEditLog.count({
+      where: { createdAt: { gte: since } },
+    });
+
+    const items = await prisma.productReviewEditLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take,
+      include: {
+        editor: { select: { id: true, email: true, name: true, role: true } },
+        review: {
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            createdAt: true,
+            updatedAt: true,
+            status: true,
+            user: { select: { id: true, email: true, name: true, role: true } },
+            product: { select: { id: true, title: true } },
+          },
+        },
+      },
+    });
+
+    res.json({ ok: true, total, recentCount, items });
+  } catch (e) {
+    console.error("ADMIN maintenance /product-review-edit-logs error", e);
+    res.status(500).json({ error: "maintenance_product_review_edit_logs_failed" });
+  }
+});
+
+/**
+ * GET /api/admin/maintenance/store-review-edit-logs
+ * -> ultimele editări de recenzii profil magazin (global feed)
+ * query: take=100 (max 200), days=30
+ */
+router.get("/store-review-edit-logs", async (req, res) => {
+  try {
+    const take = Math.min(Number(req.query.take) || 100, 200);
+    const days = Math.max(Number(req.query.days) || 30, 1);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const total = await prisma.storeReviewEditLog.count();
+    const recentCount = await prisma.storeReviewEditLog.count({
+      where: { createdAt: { gte: since } },
+    });
+
+    const items = await prisma.storeReviewEditLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take,
+      include: {
+        editor: { select: { id: true, email: true, name: true, role: true } },
+        review: {
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            createdAt: true,
+            updatedAt: true,
+            status: true,
+            user: { select: { id: true, email: true, name: true, role: true } },
+            vendor: { select: { id: true, displayName: true, userId: true } },
+          },
+        },
+      },
+    });
+
+    res.json({ ok: true, total, recentCount, items });
+  } catch (e) {
+    console.error("ADMIN maintenance /store-review-edit-logs error", e);
+    res.status(500).json({ error: "maintenance_store_review_edit_logs_failed" });
   }
 });
 

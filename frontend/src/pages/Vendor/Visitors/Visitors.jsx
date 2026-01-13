@@ -119,8 +119,10 @@ function useVendorMeta() {
 /* ========= Data hooks ========= */
 function useVendorAnalytics(range) {
   const { from, to } = range;
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
   const [series, setSeries] = useState([]);
   const [kpi, setKpi] = useState({
     visitors: 0,
@@ -129,41 +131,44 @@ function useVendorAnalytics(range) {
     messages: 0,
     convRate: 0,
   });
+
   const [topPages, setTopPages] = useState([]);
   const [referrers, setReferrers] = useState([]);
-  const [searches, setSearches] = useState([]);
-  const [ctaPerf, setCtaPerf] = useState([]);
+
+  // TODO(analytics): deocamdată NU folosim aceste endpoint-uri în UI,
+  // pentru că tracking-ul de CTA + searches + time-on-page nu e implementat complet
+  // const [searches, setSearches] = useState([]);
+  // const [ctaPerf, setCtaPerf] = useState([]);
 
   useEffect(() => {
     let alive = true;
+
     (async () => {
       setLoading(true);
       setError(null);
+
       try {
-        const qs = `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(
-          to
-        )}`;
-        const [s, k, p, r, q, c] = await Promise.all([
+        const qs = `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+
+        // ✅ păstrăm doar datele care pot fi reale fără extra instrumentare
+        const [s, k, p, r] = await Promise.all([
           api(`/api/vendors/me/visitors/series${qs}`).catch(() => null),
           api(`/api/vendors/me/visitors/kpi${qs}`).catch(() => null),
           api(`/api/vendors/me/visitors/top-pages${qs}`).catch(() => null),
           api(`/api/vendors/me/visitors/referrers${qs}`).catch(() => null),
-          api(`/api/vendors/me/visitors/searches${qs}`).catch(() => null),
-          api(`/api/vendors/me/visitors/cta-performance${qs}`).catch(
-            () => null
-          ),
+
+          // TODO(analytics): activate later
+          // api(`/api/vendors/me/visitors/searches${qs}`).catch(() => null),
+          // api(`/api/vendors/me/visitors/cta-performance${qs}`).catch(() => null),
         ]);
+
         if (!alive) return;
 
         const isProd = import.meta.env.PROD;
 
         // serie principală
         const demoSeries = makeDemoSeries(from, to);
-        const sData = s?.items?.length
-          ? s.items
-          : isProd
-          ? [] // în prod: fără demo
-          : demoSeries;
+        const sData = s?.items?.length ? s.items : isProd ? [] : demoSeries;
 
         const totals = sData.reduce(
           (acc, d) => ({
@@ -180,6 +185,8 @@ function useVendorAnalytics(range) {
         setKpi(k?.data || { ...totals, convRate });
 
         // top pages
+        // NOTE: avgTime e neimplementat în backend (momentan 0)
+        // îl lăsăm în tabel, dar cu placeholder
         const demoPages = [
           { url: "/magazin/demo", title: "Profil magazin", views: 311, avgTime: 56 },
           { url: "/produs/1", title: "Pagină produs", views: 207, avgTime: 43 },
@@ -195,21 +202,20 @@ function useVendorAnalytics(range) {
         ];
         setReferrers(r?.items || (isProd ? [] : demoRefs));
 
-        // searches
-        const demoSearches = [
-          { query: "fotograf nuntă sector 3", hits: 32 },
-          { query: "fum greu bucurești", hits: 21 },
-          { query: "band live cluj", hits: 15 },
-        ];
-        setSearches(q?.items || (isProd ? [] : demoSearches));
+        // TODO(analytics): activate later
+        // const demoSearches = [
+        //   { query: "fotograf nuntă sector 3", hits: 32 },
+        //   { query: "fum greu bucurești", hits: 21 },
+        //   { query: "band live cluj", hits: 15 },
+        // ];
+        // setSearches(q?.items || (isProd ? [] : demoSearches));
 
-        // CTA performance
-        const demoCta = [
-          { cta: "Solicită ofertă", clicks: 128, conv: 31 },
-          { cta: "Trimite mesaj", clicks: 94, conv: 27 },
-          { cta: "Vezi telefon", clicks: 211, conv: 18 },
-        ];
-        setCtaPerf(c?.items || (isProd ? [] : demoCta));
+        // const demoCta = [
+        //   { cta: "Solicită ofertă", clicks: 128, conv: 31 },
+        //   { cta: "Trimite mesaj", clicks: 94, conv: 27 },
+        //   { cta: "Vezi telefon", clicks: 211, conv: 18 },
+        // ];
+        // setCtaPerf(c?.items || (isProd ? [] : demoCta));
       } catch (e) {
         if (!alive) return;
         setError(e?.message || "Eroare la încărcare");
@@ -217,38 +223,49 @@ function useVendorAnalytics(range) {
         if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
   }, [from, to]);
 
-  return { loading, error, series, kpi, topPages, referrers, searches, ctaPerf };
+  return {
+    loading,
+    error,
+    series,
+    kpi,
+    topPages,
+    referrers,
+    // TODO(analytics): return later
+    // searches,
+    // ctaPerf,
+  };
 }
 
 function useRealtime() {
   const [active, setActive] = useState(0);
+
   useEffect(() => {
     let alive = true;
     let id;
+
     const tick = async () => {
       try {
-        const d = await api("/api/vendors/me/visitors/realtime").catch(
-          () => null
-        );
+        const d = await api("/api/vendors/me/visitors/realtime").catch(() => null);
         if (!alive) return;
-        setActive(
-          d?.active ?? Math.max(0, Math.round(5 + Math.random() * 6 - 3))
-        );
+        setActive(d?.active ?? Math.max(0, Math.round(5 + Math.random() * 6 - 3)));
       } finally {
         id = setTimeout(tick, 15000);
       }
     };
+
     tick();
     return () => {
       alive = false;
       clearTimeout(id);
     };
   }, []);
+
   return active;
 }
 
@@ -256,10 +273,7 @@ function useRealtime() {
 function KPICard({ icon: IconProp, label, value, delta, spark }) {
   const Icon = IconProp || null;
   return (
-    <div
-      className={styles.card}
-      style={{ display: "flex", gap: 12, alignItems: "center" }}
-    >
+    <div className={styles.card} style={{ display: "flex", gap: 12, alignItems: "center" }}>
       <div className={styles.iconBox}>{Icon && <Icon size={22} />}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className={styles.muted} style={{ fontSize: 12 }}>
@@ -274,10 +288,7 @@ function KPICard({ icon: IconProp, label, value, delta, spark }) {
               color: delta >= 0 ? "#059669" : "#b91c1c",
             }}
           >
-            <TrendingUp
-              size={12}
-              style={{ verticalAlign: "-2px", marginRight: 4 }}
-            />
+            <TrendingUp size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />
             {delta >= 0 ? "+" : ""}
             {delta.toFixed(1)}% față de perioada anterioară
           </div>
@@ -286,16 +297,8 @@ function KPICard({ icon: IconProp, label, value, delta, spark }) {
       {spark && (
         <div style={{ width: 120, height: 44 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={spark}
-              margin={{ left: 0, right: 0, top: 6, bottom: 0 }}
-            >
-              <Area
-                type="monotone"
-                dataKey="v"
-                strokeOpacity={0.8}
-                fillOpacity={0.15}
-              />
+            <AreaChart data={spark} margin={{ left: 0, right: 0, top: 6, bottom: 0 }}>
+              <Area type="monotone" dataKey="v" strokeOpacity={0.8} fillOpacity={0.15} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -324,6 +327,7 @@ function DateRangePicker({ value, onChange }) {
     { label: "Ultimele 30 zile", days: 29 },
     { label: "Ultimele 90 zile", days: 89 },
   ];
+
   return (
     <div style={{ position: "relative" }}>
       <button className={styles.btnGhost} onClick={() => setOpen((v) => !v)}>
@@ -332,13 +336,7 @@ function DateRangePicker({ value, onChange }) {
       {open && (
         <div
           className={styles.card}
-          style={{
-            position: "absolute",
-            right: 0,
-            marginTop: 8,
-            zIndex: 20,
-            width: 320,
-          }}
+          style={{ position: "absolute", right: 0, marginTop: 8, zIndex: 20, width: 320 }}
         >
           <div style={{ display: "grid", gap: 8 }}>
             {presets.map((p) => (
@@ -356,23 +354,16 @@ function DateRangePicker({ value, onChange }) {
                 {p.label}
               </button>
             ))}
+
             <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
               <div className={styles.muted} style={{ fontSize: 12 }}>
                 Personalizat
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 6,
-                }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                 <input
                   type="date"
                   value={value.from}
-                  onChange={(e) =>
-                    onChange({ ...value, from: e.target.value })
-                  }
+                  onChange={(e) => onChange({ ...value, from: e.target.value })}
                   className={styles.dateInput}
                 />
                 <input
@@ -382,10 +373,7 @@ function DateRangePicker({ value, onChange }) {
                   className={styles.dateInput}
                 />
               </div>
-              <button
-                className={styles.btnPrimary}
-                onClick={() => setOpen(false)}
-              >
+              <button className={styles.btnPrimary} onClick={() => setOpen(false)}>
                 Aplică
               </button>
             </div>
@@ -424,14 +412,10 @@ export default function VendorVisitorsPage() {
     });
   }, [createdAt, today]);
 
-  const { loading, error, series, kpi, topPages, referrers, searches, ctaPerf } =
-    useVendorAnalytics(range);
+  const { loading, error, series, kpi, topPages, referrers } = useVendorAnalytics(range);
   const activeNow = useRealtime();
 
-  const spark = useMemo(
-    () => series.map((d) => ({ v: d.visitors })),
-    [series]
-  );
+  const spark = useMemo(() => series.map((d) => ({ v: d.visitors })), [series]);
 
   // (current - previous) / previous * 100
   const deltas = useMemo(() => {
@@ -470,6 +454,7 @@ export default function VendorVisitorsPage() {
         <h2 className={styles.title}>
           <Users size={22} /> Vizitatori
         </h2>
+
         <div>
           <span
             className={styles.muted}
@@ -478,7 +463,9 @@ export default function VendorVisitorsPage() {
           >
             <Clock size={16} /> {activeNow} activi acum
           </span>
+
           <DateRangePicker value={range} onChange={setRange} />
+
           <button
             className={styles.btnGhost}
             onClick={() => window.location.reload()}
@@ -486,6 +473,7 @@ export default function VendorVisitorsPage() {
           >
             <RefreshCw size={16} />
           </button>
+
           <button
             className={styles.btnGhost}
             onClick={exportCSV}
@@ -499,66 +487,37 @@ export default function VendorVisitorsPage() {
 
       {/* KPI */}
       <div className={styles.kpiRow}>
-        <KPICard
-          icon={Users}
-          label="Vizitatori"
-          value={kpi.visitors}
-          delta={deltas.v}
-          spark={spark}
-        />
-        <KPICard
-          icon={Eye}
-          label="Afișări pagină"
-          value={kpi.views}
-          delta={deltas.vw}
-        />
-        <KPICard
-          icon={MousePointerClick}
-          label="Click-uri CTA"
-          value={kpi.cta}
-          delta={deltas.c}
-        />
-        <KPICard
-          icon={MessageSquare}
-          label="Mesaje primite"
-          value={kpi.messages}
-          delta={deltas.m}
-        />
+        <KPICard icon={Users} label="Vizitatori" value={kpi.visitors} delta={deltas.v} spark={spark} />
+        <KPICard icon={Eye} label="Afișări pagină" value={kpi.views} delta={deltas.vw} />
+        <KPICard icon={MousePointerClick} label="Click-uri CTA" value={kpi.cta} delta={deltas.c} />
+        <KPICard icon={MessageSquare} label="Mesaje primite" value={kpi.messages} delta={deltas.m} />
+      </div>
+
+      {/* NOTE: starea “planned” pentru features neimplementate */}
+      <div
+        className={styles.card}
+        style={{ marginTop: 12, borderStyle: "dashed", opacity: 0.9 }}
+      >
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>În lucru (pentru mai târziu)</div>
+        <div className={styles.muted} style={{ fontSize: 13, lineHeight: 1.4 }}>
+          Căutări interne, performanță CTA pe label și timpul mediu pe pagină vor fi activate când
+          tracking-ul din partea publică va fi complet.
+        </div>
       </div>
 
       {/* Chart */}
       <Section title="Trafic zilnic & conversii" icon={TrendingUp}>
         <div className={styles.chartBox}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={series}
-              margin={{ left: 12, right: 12, top: 12, bottom: 0 }}
-            >
+            <LineChart data={series} margin={{ left: 12, right: 12, top: 12, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip
-                formatter={(v, name) => [fmtNumber(v), labelMap[name] || name]}
-              />
-              <Line
-                type="monotone"
-                dataKey="visitors"
-                strokeWidth={2}
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="views"
-                strokeWidth={2}
-                dot={false}
-              />
+              <Tooltip formatter={(v, name) => [fmtNumber(v), labelMap[name] || name]} />
+              <Line type="monotone" dataKey="visitors" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="views" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="cta" strokeWidth={2} dot={false} />
-              <Line
-                type="monotone"
-                dataKey="messages"
-                strokeWidth={2}
-                dot={false}
-              />
+              <Line type="monotone" dataKey="messages" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -573,18 +532,15 @@ export default function VendorVisitorsPage() {
               <a
                 key={p.url}
                 href={p.url}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                 target="_blank"
                 rel="noreferrer"
               >
                 {p.title || p.url} <ExternalLink size={14} />
               </a>,
               fmtNumber(p.views),
-              fmtNumber(p.avgTime),
+              // TODO(analytics): avgTime va funcționa după ce implementăm time-on-page tracking.
+              p.avgTime ? fmtNumber(p.avgTime) : "–",
             ])}
           />
         </Section>
@@ -592,11 +548,7 @@ export default function VendorVisitorsPage() {
         <Section title="Surse trafic" icon={Globe}>
           <Table
             head={["Sursă", "Sesiuni", "%"]}
-            rows={referrers.map((r) => [
-              r.source,
-              fmtNumber(r.sessions),
-              `${r.share}%`,
-            ])}
+            rows={referrers.map((r) => [r.source, fmtNumber(r.sessions), `${r.share}%`])}
           />
           <div style={{ width: "100%", height: 160, marginTop: 8 }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -615,32 +567,30 @@ export default function VendorVisitorsPage() {
       {/* Tables row 2 */}
       <div className={styles.grid2}>
         <Section title="Căutări interne" icon={SearchIcon}>
-          <Table
-            head={["Interogare", "Câte rezultate / vizite"]}
-            rows={searches.map((s) => [s.query, fmtNumber(s.hits)])}
-          />
+          {/* TODO(analytics): active later (endpoint + UI) */}
+          {/* <Table head={["Interogare", "Câte rezultate / vizite"]} rows={searches.map((s) => [s.query, fmtNumber(s.hits)])} /> */}
+          <div className={styles.card} style={{ marginTop: 0 }}>
+            <span className={styles.muted}>
+              Funcționalitate planificată (tracking căutări în magazin).
+            </span>
+          </div>
         </Section>
 
         <Section title="Performanță CTA" icon={MousePointerClick}>
-          <Table
-            head={["CTA", "Click-uri", "Conver. (mesaje)"]}
-            rows={ctaPerf.map((c) => [
-              c.cta,
-              fmtNumber(c.clicks),
-              fmtNumber(c.conv),
-            ])}
-          />
+          {/* TODO(analytics): active later (CTA label tracking + aggregation) */}
+          {/* <Table head={["CTA", "Click-uri", "Conver. (mesaje)"]} rows={ctaPerf.map((c) => [c.cta, fmtNumber(c.clicks), fmtNumber(c.conv)])} /> */}
+          <div className={styles.card} style={{ marginTop: 0 }}>
+            <span className={styles.muted}>
+              Funcționalitate planificată (tracking CTA pe label + conversii).
+            </span>
+          </div>
         </Section>
       </div>
 
       {error && (
         <div
           className={styles.card}
-          style={{
-            marginTop: 16,
-            borderColor: "#fca5a5",
-            background: "#fff1f2",
-          }}
+          style={{ marginTop: 16, borderColor: "#fca5a5", background: "#fff1f2" }}
         >
           A apărut o problemă la încărcarea datelor.
         </div>

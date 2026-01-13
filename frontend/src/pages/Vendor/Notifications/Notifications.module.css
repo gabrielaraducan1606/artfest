@@ -1,7 +1,23 @@
 @import "../../../styles/variables.css";
 
-/* ===== Layout general ===== */
+/* =========================================================
+   Tokens locale (fără să-ți cer să modifici global)
+========================================================= */
+.wrap {
+  --n-hover: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  --n-hover-2: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
+  --n-muted-soft: color-mix(in srgb, var(--color-text, #111) 7%, transparent);
+  --n-muted-soft-2: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
+  --n-border-strong: color-mix(in srgb, var(--color-border) 70%, var(--color-text, #111));
+  --n-primary-soft: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  --n-primary-outline: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  --n-danger-soft: color-mix(in srgb, var(--color-danger) 14%, transparent);
 
+  --n-shadow-1: var(--shadow-sm, 0 6px 16px rgba(0,0,0,0.08));
+  --n-shadow-2: var(--shadow-md, 0 12px 30px rgba(0,0,0,0.10));
+}
+
+/* ===== Layout general ===== */
 .wrap {
   max-width: 960px;
   margin: 0 auto;
@@ -9,10 +25,10 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  color: var(--color-text, inherit);
 }
 
 /* ===== Header ===== */
-
 .head {
   display: flex;
   align-items: center;
@@ -26,6 +42,7 @@
   gap: 8px;
   font-weight: 800;
   font-size: 18px;
+  color: var(--color-text, inherit);
 }
 
 .actions {
@@ -35,22 +52,23 @@
 }
 
 /* ===== Buttons ===== */
-
 .iconBtn {
   width: 34px;
   height: 34px;
   display: grid;
   place-items: center;
   border: 1px solid var(--color-border);
-  background: rgba(15, 23, 42, 0.02);
+  background: var(--n-muted-soft);
+  color: var(--color-text, inherit);
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease,
     box-shadow 0.15s ease;
 }
 .iconBtn:hover {
-  background: rgba(15, 23, 42, 0.06);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  background: var(--n-hover);
+  border-color: var(--n-border-strong);
+  box-shadow: var(--n-shadow-1);
 }
 .iconBtn:active {
   transform: scale(0.97);
@@ -69,17 +87,19 @@
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 10px 25px rgba(37, 99, 235, 0.35);
-  transition: background 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease,
+  box-shadow: 0 10px 25px color-mix(in srgb, var(--color-primary) 35%, transparent);
+  transition: filter 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease,
     opacity 0.15s ease;
 }
 .primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.5);
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--color-primary) 48%, transparent);
+  filter: brightness(0.98);
 }
 .primary:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--color-primary) 35%, transparent);
+  filter: none;
 }
 .primary:disabled {
   opacity: 0.55;
@@ -88,7 +108,6 @@
 }
 
 /* ===== Toolbar (tabs + search) ===== */
-
 .toolbar {
   display: flex;
   align-items: center;
@@ -98,7 +117,7 @@
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 8px 10px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--n-shadow-2);
 }
 
 .tabs {
@@ -111,10 +130,10 @@
   padding: 6px 10px;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--color-text);
+  color: var(--color-text, inherit);
   border-radius: 999px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
   display: inline-flex;
   align-items: center;
@@ -122,14 +141,14 @@
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .tab:hover {
-  background: rgba(148, 163, 184, 0.18);
-  border-color: rgba(148, 163, 184, 0.8);
+  background: var(--n-hover);
+  border-color: color-mix(in srgb, var(--color-border) 60%, var(--color-text, #111));
 }
 
 .active {
-  border-color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
   color: var(--color-primary);
-  background: rgba(59, 130, 246, 0.12);
+  background: var(--n-primary-soft);
 }
 
 .badge {
@@ -143,7 +162,6 @@
 }
 
 /* ===== Search ===== */
-
 .search {
   display: grid;
   grid-template-columns: 16px minmax(0, 160px) 34px;
@@ -152,22 +170,22 @@
   border: 1px solid var(--color-border);
   border-radius: 999px;
   padding: 6px 10px;
-  background: rgba(15, 23, 42, 0.01);
+  background: var(--n-muted-soft);
+  color: var(--color-muted);
 }
 
 .search input {
   border: 0;
   outline: none;
   background: transparent;
-  color: var(--color-text);
+  color: var(--color-text, inherit);
   font-size: 13px;
 }
 .search input::placeholder {
-  color: #9ca3af;
+  color: var(--color-muted);
 }
 
 /* ===== Listă notificări ===== */
-
 .list {
   background: var(--surface);
   border: 1px solid var(--color-border);
@@ -175,11 +193,10 @@
   padding: 8px;
   display: grid;
   gap: 6px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--n-shadow-2);
 }
 
 /* Item de listă */
-
 .item {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
@@ -188,63 +205,66 @@
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.01);
+  background: var(--n-muted-soft);
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease,
     box-shadow 0.15s ease;
 }
 .item:hover {
-  background: rgba(15, 23, 42, 0.03);
-  border-color: rgba(148, 163, 184, 0.9);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.14);
+  background: var(--n-hover);
+  border-color: var(--n-border-strong);
+  box-shadow: var(--n-shadow-1);
 }
 .item:active {
   transform: translateY(1px);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1);
+  box-shadow: none;
 }
 
 /* Necitite în evidență */
-
 .unread {
-  outline: 2px solid rgba(59, 130, 246, 0.35);
+  outline: 2px solid var(--n-primary-outline);
   background: linear-gradient(
     90deg,
-    rgba(59, 130, 246, 0.12),
-    rgba(59, 130, 246, 0.02) 70%
+    color-mix(in srgb, var(--color-primary) 14%, transparent),
+    color-mix(in srgb, var(--color-primary) 4%, transparent) 70%
   );
-  border-color: rgba(59, 130, 246, 0.7);
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
 }
 .unread .itemTitle {
   font-weight: 800;
 }
 .unread .itemText {
-  color: #111827;
+  color: var(--color-text, inherit);
 }
 
 /* Icon stânga */
-
 .icon {
   width: 34px;
   height: 34px;
   display: grid;
   place-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.7);
-  background: radial-gradient(circle at 30% 0, #e5e7eb, #f9fafb);
-  color: #111827;
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, var(--color-text, #111));
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  color: var(--color-text, inherit);
 }
+
 .unread .icon {
   border-color: transparent;
-  background: radial-gradient(circle at 30% 0, var(--color-primary), #2563eb);
+  background: radial-gradient(
+    circle at 30% 0,
+    color-mix(in srgb, var(--color-primary) 85%, #fff),
+    color-mix(in srgb, var(--color-primary) 65%, #000)
+  );
   color: #ffffff;
 }
 
 /* Corp notificare */
-
 .body {
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .row {
@@ -257,16 +277,21 @@
 .itemTitle {
   font-weight: 700;
   font-size: 14px;
+  color: var(--color-text, inherit);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .time {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--color-muted);
   flex-shrink: 0;
 }
 
 .itemText {
-  color: #374151;
+  color: var(--color-muted);
   margin-top: 2px;
   font-size: 13px;
 }
@@ -281,7 +306,6 @@
 }
 
 /* Acțiuni dreapta */
-
 .rowActions {
   display: inline-flex;
   align-items: center;
@@ -294,34 +318,33 @@
   display: grid;
   place-items: center;
   border: 1px solid var(--color-border);
-  background: rgba(15, 23, 42, 0.01);
+  background: var(--n-muted-soft);
+  color: var(--color-text, inherit);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
 }
 .ghostBtn:hover {
-  background: rgba(15, 23, 42, 0.06);
-  border-color: rgba(148, 163, 184, 0.9);
+  background: var(--n-hover);
+  border-color: var(--n-border-strong);
 }
 .ghostBtn:active {
   transform: scale(0.96);
 }
 
 /* Empty / error / loading */
-
 .info,
 .error {
-  color: #6b7280;
+  color: var(--color-muted);
   text-align: center;
   padding: 12px;
   font-size: 13px;
 }
 .error {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 /* Loader */
-
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -438,4 +461,134 @@
   .itemText {
     font-size: 12px;
   }
+}
+/* =============================
+   Dark contrast + surfaces
+   (override – pune la final)
+============================= */
+
+.wrap {
+  --n-surface-2: color-mix(in srgb, var(--surface) 88%, var(--color-bg));
+  --n-hover: color-mix(in srgb, var(--color-text, #fff) 8%, transparent);
+  --n-border-strong: color-mix(in srgb, var(--color-border) 70%, var(--color-text, #fff));
+}
+
+/* toolbar + search mai “solide” */
+.toolbar {
+  background: var(--surface);
+  border-color: var(--color-border);
+}
+
+.search {
+  background: var(--n-surface-2);
+  border-color: var(--color-border);
+}
+
+.search input::placeholder {
+  color: var(--color-muted);
+}
+
+/* lista + item: mereu dark-safe */
+.list {
+  background: var(--surface);
+  border-color: var(--color-border);
+}
+
+.item {
+  background: var(--n-surface-2);
+  border-color: var(--color-border);
+}
+
+.item:hover {
+  background: color-mix(in srgb, var(--n-surface-2) 70%, var(--n-hover));
+  border-color: var(--n-border-strong);
+}
+
+/* unread: tint primary, dar păstrăm contrast */
+.unread {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-primary) 18%, var(--n-surface-2)),
+    var(--n-surface-2) 70%
+  );
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  outline-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+/* TEXT: aici era “invizibil” */
+.itemTitle {
+  color: var(--color-text);
+}
+
+/* body text: nu folosi direct muted dacă muted e prea închis în tema ta */
+.itemText {
+  color: color-mix(in srgb, var(--color-text) 78%, transparent);
+}
+
+/* time: puțin mai vizibil decât muted */
+.time {
+  color: color-mix(in srgb, var(--color-text) 62%, transparent);
+}
+
+/* icon: să nu fie alb orbitor / gri fix */
+.icon {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  border-color: color-mix(in srgb, var(--color-border) 70%, var(--color-text));
+  color: var(--color-text);
+}
+
+.unread .icon {
+  background: color-mix(in srgb, var(--color-primary) 75%, transparent);
+  color: #fff;
+}
+
+/* buttons pe dark: fără rgba hardcodate */
+.iconBtn,
+.ghostBtn {
+  background: color-mix(in srgb, var(--color-text) 6%, transparent); fill: var(--color-text);
+}
+
+.iconBtn:hover,
+.ghostBtn:hover {
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+  border-color: var(--n-border-strong);
+}
+/* Lucide icons follow currentColor */
+.icon svg,
+.iconBtn svg,
+.ghostBtn svg,
+.tab svg,
+.title svg {
+  stroke: currentColor;
+  fill: none;
+  opacity: 1;
+}
+/* icon stânga din item */
+.icon {
+  color: var(--color-text);
+}
+
+/* butoane din dreapta / refresh / filtre */
+.iconBtn,
+.ghostBtn {
+  color: var(--color-text);
+}
+
+/* dacă vrei “muted”, fă-l controlat, nu prea slab */
+.iconBtn {
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+.iconBtn:hover,
+.ghostBtn:hover {
+  color: var(--color-text);
+}
+.unread .icon {
+  color: #fff;
+}
+.unread .icon svg {
+  stroke: #fff;
+}
+.iconBtn,
+.ghostBtn {
+  opacity: 1;
 }

@@ -1,7 +1,12 @@
 @import "../../../styles/variables.css";
 
-/* ================ LAYOUT GENERAL (aliniat cu Visitors) ================ */
+/* =========================================================
+   Settings.module.css (dark-safe, token-based)
+   - păstrează layout-ul actual (sidebar + content)
+   - fără culori hardcodate pe text/surfaces
+========================================================= */
 
+/* ===== Layout general ===== */
 .wrap {
   max-width: 1200px;
   margin: 0 auto;
@@ -9,10 +14,10 @@
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
   gap: 20px;
+  color: var(--color-text);
 }
 
-/* ================ SIDEBAR ================ */
-
+/* ===== Sidebar ===== */
 .sidebar {
   background: var(--surface);
   border: 1px solid var(--color-border);
@@ -22,6 +27,7 @@
   gap: 10px;
   height: fit-content;
   align-self: flex-start;
+  box-shadow: var(--shadow-sm);
 }
 
 .sideHead {
@@ -34,8 +40,10 @@
 .sideTitle {
   font-weight: 800;
   font-size: 15px;
+  color: var(--color-text);
 }
 
+/* icon button (refresh) */
 .iconBtn {
   width: 34px;
   height: 34px;
@@ -43,20 +51,21 @@
   place-items: center;
   border: 1px solid var(--color-border);
   background: transparent;
+  color: var(--color-text);
   border-radius: 10px;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.08s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.08s ease,
+    box-shadow 0.15s ease;
 }
 
 .iconBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
 }
 
 .iconBtn:active {
   transform: scale(0.97);
+  box-shadow: none;
 }
 
 .iconBtn:focus-visible {
@@ -64,6 +73,7 @@
   outline-offset: 2px;
 }
 
+/* ===== Tabs ===== */
 .tabs {
   display: grid;
   gap: 6px;
@@ -79,21 +89,20 @@
   padding: 8px 10px;
   border-radius: 12px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 650;
   font-size: 14px;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    transform 0.08s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    transform 0.08s ease, box-shadow 0.15s ease;
 }
 
 .tab:hover {
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
 }
 
 .tab:active {
   transform: translateY(1px);
+  box-shadow: none;
 }
 
 .tab:focus-visible {
@@ -104,18 +113,18 @@
 .active {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background: rgba(59, 130, 246, 0.06);
+  background: var(--color-bg);
 }
 
-/* ================ CONȚINUT (DREAPTA) ================ */
-
+/* ===== Content ===== */
 .content {
   display: grid;
   gap: 16px;
 }
 
+/* Loading row */
 .loading {
-  color: #6b7280;
+  color: var(--color-muted);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -125,21 +134,20 @@
 .spin {
   animation: spin 1s linear infinite;
 }
-
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-/* ================ CARD ================ */
-
+/* ===== Card ===== */
 .card {
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
 }
 
 .cardHead {
@@ -160,12 +168,14 @@
 .title {
   font-weight: 800;
   font-size: 15px;
+  color: var(--color-text);
 }
 
 .subtitle {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--color-muted);
   margin-top: 2px;
+  line-height: 1.35;
 }
 
 .cardBody {
@@ -174,8 +184,7 @@
   padding-top: 10px;
 }
 
-/* ================ BUTOANE PRINCIPALE ================ */
-
+/* ===== Primary button ===== */
 .primary {
   display: inline-flex;
   align-items: center;
@@ -187,24 +196,24 @@
   background: var(--color-primary);
   color: #fff;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.08s ease;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.08s ease, box-shadow 0.15s ease, filter 0.15s ease,
+    opacity 0.15s ease;
 }
 
-.primary:hover {
-  background: #1d4ed8;
-  border-color: #1d4ed8;
-  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.16);
+.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  filter: brightness(0.98);
 }
 
-.primary:active {
-  transform: translateY(1px);
-  box-shadow: none;
+.primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+  filter: none;
 }
 
 .primary:disabled {
@@ -214,16 +223,16 @@
 }
 
 .primary:focus-visible {
-  outline: 2px solid #1d4ed8;
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
-/* ================ FIELDS ================ */
-
+/* ===== Fields ===== */
 .field {
   display: grid;
   gap: 6px;
   font-size: 13px;
+  color: var(--color-text);
 }
 
 .input,
@@ -236,23 +245,25 @@
   padding: 8px 10px;
   outline: none;
   font-size: 14px;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.input::placeholder {
+  color: var(--color-muted);
 }
 
 .input:focus-visible {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
-  background: rgba(37, 99, 235, 0.02);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+  background: var(--color-bg);
 }
 
 .inputReadonly {
-  background: rgba(0, 0, 0, 0.03);
-  color: #6b7280;
+  background: var(--color-bg);
+  color: var(--color-muted);
 }
 
+/* input with icon wrapper */
 .inputIcon {
   display: grid;
   grid-template-columns: 14px 1fr;
@@ -261,16 +272,14 @@
   border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 8px 10px;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background 0.15s ease;
+  background: transparent;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .inputIcon:focus-within {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
-  background: rgba(37, 99, 235, 0.02);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+  background: var(--color-bg);
 }
 
 .grid1 {
@@ -291,158 +300,182 @@
   align-items: center;
 }
 
+/* ===== Alerts ===== */
 .warn {
-  color: #b45309;
+  color: var(--color-warning);
   font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.10);
 }
 
 .error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #7f1d1d;
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 13px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.10);
+  color: var(--color-danger);
 }
 
 .success {
-  background: #ecfdf3;
-  border: 1px solid #bbf7d0;
-  color: #166534;
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 13px;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.10);
+  color: var(--color-success);
 }
 
-/* ================ SWITCH ================ */
-
-.switchWrap {
-  display: grid;
-  grid-template-columns: 44px 1fr;
-  gap: 10px;
-  align-items: center;
-}
-
-.switchWrap input {
-  display: none;
-}
-
-.switchKnob {
-  width: 44px;
-  height: 24px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: #e5e7eb;
-  position: relative;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.switchKnob::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: #fff;
-  transition: transform 0.18s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-.switchWrap input:checked + .switchKnob {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-}
-
-.switchWrap input:checked + .switchKnob::after {
-  transform: translateX(20px);
-}
-
-.switchLabel {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-/* ================ RADIO ================ */
-
+/* ===== “Radio” rows (checkbox labels) ===== */
 .radio {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 14px;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  background: transparent;
 }
 
 .radio:hover {
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
 }
 
 .radio input {
+  margin-top: 2px;
   accent-color: var(--color-primary);
 }
 
-/* ================ ZONA PERICULOASĂ ================ */
+/* ===== Reset password box ===== */
+.fpBox {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
 
+.fpTitle {
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.fpBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease,
+    transform 0.08s ease;
+}
+
+.fpBtn:hover {
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.fpBtn:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.fpBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fpBtn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.fpLink {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.fpLink:hover {
+  text-decoration: underline;
+}
+
+/* ===== Danger zone ===== */
 .danger {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px 16px;
-  border: 1px solid #fecaca;
-  background: #fef2f2;
-  color: #7f1d1d;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.10);
+  color: var(--color-text);
   border-radius: 12px;
   padding: 12px 14px;
 }
 
+.danger .title {
+  color: var(--color-text);
+}
+
 .dangerBtn {
-  border: 1px solid #ef4444;
-  background: #ef4444;
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger);
   color: #fff;
   padding: 7px 14px;
   border-radius: 999px;
-  font-weight: 700;
+  font-weight: 800;
   font-size: 14px;
   cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.08s ease;
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.08s ease, opacity 0.15s ease;
+  box-shadow: var(--shadow-sm);
 }
 
-.dangerBtn:hover {
-  background: #b91c1c;
-  border-color: #b91c1c;
-  box-shadow: 0 10px 20px rgba(248, 113, 113, 0.22);
+.dangerBtn:hover:not(:disabled) {
+  box-shadow: var(--shadow-md);
+  filter: brightness(0.95);
+  transform: translateY(-1px);
 }
 
-.dangerBtn:active {
-  transform: translateY(1px);
-  box-shadow: none;
+.dangerBtn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+  filter: none;
 }
 
 .dangerBtn:disabled {
   opacity: 0.6;
   cursor: default;
+  box-shadow: none;
 }
 
 .dangerBtn:focus-visible {
-  outline: 2px solid #b91c1c;
+  outline: 2px solid var(--color-danger);
   outline-offset: 2px;
 }
 
-/* ================ RESPONSIVE ================ */
+/* =========================================================
+   Responsive
+========================================================= */
 
 /* sub 1024 – un pic mai compact */
 @media (max-width: 1024px) {
@@ -451,7 +484,7 @@
   }
 }
 
-/* TABLETE + TELEFOANE – sidebar deasupra, tabs pe mai multe rânduri (ca să se vadă toate) */
+/* TABLETE + TELEFOANE – sidebar sus, tabs wrap (să se vadă toate) */
 @media (max-width: 900px) {
   .wrap {
     grid-template-columns: 1fr;
@@ -464,12 +497,12 @@
 
   .tabs {
     display: flex;
-    flex-wrap: wrap;         /* 🔹 important: nu se mai pierd tab-urile */
+    flex-wrap: wrap;
     gap: 6px;
   }
 
   .tab {
-    flex: 1 1 calc(50% - 6px);  /* două tab-uri pe rând */
+    flex: 1 1 calc(50% - 6px);
     justify-content: center;
   }
 
@@ -498,7 +531,7 @@
   }
 
   .tab {
-    flex: 1 1 100%;    /* un tab pe rând, full width */
+    flex: 1 1 100%;
   }
 
   .grid3 {
@@ -518,6 +551,10 @@
     width: 100%;
     justify-content: center;
   }
+
+  .fpBtn {
+    width: 100%;
+  }
 }
 
 /* extra tiny */
@@ -526,70 +563,11 @@
     flex-direction: row;
   }
 }
-/* ================ RESET PAROLĂ (Vendor Security) ================ */
 
-.fpBox {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 16px;
-  border: 1px solid var(--color-border);
-  background: rgba(0, 0, 0, 0.02);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-
-.fpTitle {
-  font-weight: 800;
-  font-size: 14px;
-}
-
-.fpBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 7px 14px;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text);
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.08s ease;
-}
-
-.fpBtn:hover {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-.fpBtn:active {
-  transform: translateY(1px);
-}
-
-.fpBtn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.fpBtn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.fpLink {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--color-primary);
-  text-decoration: none;
-}
-
-.fpLink:hover {
-  text-decoration: underline;
+/* Lucide icons follow currentColor (siguranță) */
+.iconBtn svg,
+.tab svg {
+  stroke: currentColor !important;
+  fill: none !important;
+  opacity: 1 !important;
 }

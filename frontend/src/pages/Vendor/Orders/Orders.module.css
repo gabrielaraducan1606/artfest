@@ -1,5 +1,9 @@
-/* ============ Layout de bază ============ */
+/* =========================================================
+   Orders.module.css — compatibil Light/Dark cu variabilele tale
+   Folosește doar: --color-*, --surface, --radius, --shadow-*
+   ========================================================= */
 
+/* ============ Helpers (locale) ============ */
 .page {
   max-width: 1200px;
   margin: 0 auto;
@@ -9,8 +13,7 @@
   gap: 16px;
 }
 
-/* ============ Typography ============ */
-
+/* ===== Typography ===== */
 .h1 {
   margin: 0;
   font-size: clamp(1.3rem, 2.3vw, 1.7rem);
@@ -24,18 +27,16 @@
   font-size: 0.9rem;
 }
 
-/* ============ Carduri ============ */
-
+/* ===== Card ===== */
 .card {
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: calc(var(--radius) + 2px);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-md);
   padding: clamp(12px, 1.6vw, 18px);
 }
 
-/* ============ Header listă comenzi ============ */
-
+/* ===== Header ===== */
 .headerRow {
   display: flex;
   align-items: center;
@@ -50,8 +51,48 @@
   flex-wrap: wrap;
 }
 
-/* ============ Filtre ============ */
+/* ===== Tabs ===== */
+.tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-border) 18%, transparent);
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
 
+.tab {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease-out,
+    color 0.15s ease-out,
+    box-shadow 0.15s ease-out,
+    transform 0.1s ease-out;
+}
+
+.tab:hover {
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+  color: var(--color-text);
+}
+
+.tabActive {
+  background: var(--surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+/* ===== Filters ===== */
 .filters {
   display: flex;
   gap: 10px;
@@ -65,10 +106,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
+
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: 999px;
   padding: 6px 10px;
+
+  /* ajută în dark: separă subtil de fundal */
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-border) 40%, transparent) inset;
 }
 
 .input,
@@ -81,16 +126,23 @@
   min-width: 0;
 }
 
-.inputIcon {
-  opacity: 0.7;
+.input::placeholder {
+  color: color-mix(in oklab, var(--color-muted) 85%, transparent);
 }
 
-/* ============ Tabel comenzi ============ */
+.inputIcon {
+  opacity: 0.75;
+  color: var(--color-muted);
+}
 
+/* ============ Table ============ */
 .tableWrap {
   overflow: auto;
   border-radius: 10px;
   border: 1px solid var(--color-border);
+
+  /* în dark arată “îngropat” altfel */
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
 }
 
 .table {
@@ -104,6 +156,7 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
+  color: var(--color-text);
 }
 
 .table th {
@@ -111,7 +164,13 @@
   font-size: 0.8rem;
   color: var(--color-muted);
   font-weight: 700;
-  background: color-mix(in oklab, var(--color-muted) 8%, transparent);
+
+  /* fără “gri deschis” hardcodat; merge ok în dark */
+  background: color-mix(in oklab, var(--color-border) 22%, transparent);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .emptyCell {
@@ -121,8 +180,16 @@
   font-size: 0.9rem;
 }
 
-/* ============ Client info în tabel ============ */
+/* Hover rânduri — compatibil dark */
+.orderRow {
+  cursor: pointer;
+}
 
+.orderRow:hover {
+  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
+}
+
+/* ============ Client info ============ */
 .clientCol {
   display: flex;
   flex-direction: column;
@@ -153,24 +220,18 @@
   font-size: 0.85rem;
 }
 
-.clientContact a {
+.clientContact a,
+.kv a {
   color: var(--color-hover);
   text-decoration: none;
 }
 
-.clientContact a:hover {
+.clientContact a:hover,
+.kv a:hover {
   text-decoration: underline;
 }
 
-/* opțional: dacă vrei un stil separat pt metoda de plată */
-.paymentMethod {
-  margin-top: 2px;
-  font-size: 0.78rem;
-  color: var(--color-muted);
-}
-
-/* ============ Badge-uri & status ============ */
-
+/* ============ Badges ============ */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -181,36 +242,44 @@
   font-size: 0.75rem;
   border: 1px solid var(--color-border);
   white-space: nowrap;
+  background: color-mix(in oklab, var(--surface) 75%, transparent);
+  color: var(--color-text);
 }
 
 .badgeNew {
-  background: color-mix(in oklab, var(--color-primary) 15%, transparent);
-  border-color: color-mix(in oklab, var(--color-primary) 35%, transparent);
+  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
+  border-color: color-mix(in oklab, var(--color-primary) 28%, var(--color-border));
   color: var(--color-primary);
 }
 
 .badgeWarning {
-  background: color-mix(in oklab, #ffb84d 18%, transparent);
-  border-color: color-mix(in oklab, #ffb84d 35%, transparent);
-  color: #a05a00;
+  background: color-mix(in oklab, var(--color-warning) 14%, transparent);
+  border-color: color-mix(in oklab, var(--color-warning) 28%, var(--color-border));
+  color: var(--color-warning);
 }
 
 .badgeConfirmed {
-  background: color-mix(in oklab, var(--color-warning) 18%, transparent);
-  border-color: color-mix(in oklab, var(--color-warning) 35%, transparent);
+  background: color-mix(in oklab, var(--color-warning) 16%, transparent);
+  border-color: color-mix(in oklab, var(--color-warning) 32%, var(--color-border));
   color: var(--color-warning);
 }
 
 .badgeFulfilled {
-  background: color-mix(in oklab, var(--color-success) 18%, transparent);
-  border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+  background: color-mix(in oklab, var(--color-success) 14%, transparent);
+  border-color: color-mix(in oklab, var(--color-success) 28%, var(--color-border));
   color: var(--color-success);
 }
 
 .badgeCancelled {
-  background: color-mix(in oklab, var(--color-danger) 18%, transparent);
-  border-color: color-mix(in oklab, var(--color-danger) 35%, transparent);
+  background: color-mix(in oklab, var(--color-danger) 14%, transparent);
+  border-color: color-mix(in oklab, var(--color-danger) 28%, var(--color-border));
   color: var(--color-danger);
+}
+
+.badgeLead {
+  background: color-mix(in oklab, var(--color-hover) 12%, transparent);
+  border-color: color-mix(in oklab, var(--color-hover) 26%, var(--color-border));
+  color: var(--color-hover);
 }
 
 .unreadDot {
@@ -228,8 +297,7 @@
   margin-left: 4px;
 }
 
-/* ============ Butoane ============ */
-
+/* ============ Buttons ============ */
 .secondaryBtn,
 .primaryBtn,
 .linkBtn,
@@ -246,6 +314,7 @@
   background: transparent;
   cursor: pointer;
   text-decoration: none;
+
   transition:
     background 0.15s ease-out,
     border-color 0.15s ease-out,
@@ -254,15 +323,17 @@
     color 0.1s ease-out;
 }
 
+/* Secondary: nu mai e #ffffff (în dark arată prost) */
 .secondaryBtn {
   border-color: var(--color-border);
-  background: #ffffff;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
   color: var(--color-text);
+  box-shadow: var(--shadow-sm);
 }
 
 .secondaryBtn:hover:not(:disabled) {
-  background: #f1f5f9;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  background: color-mix(in oklab, var(--color-primary) 8%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-primary) 18%, var(--color-border));
   transform: translateY(-1px);
 }
 
@@ -270,7 +341,7 @@
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: #fff;
-  box-shadow: 0 8px 18px color-mix(in oklab, var(--color-primary) 24%, transparent);
+  box-shadow: 0 10px 22px color-mix(in oklab, var(--color-primary) 26%, transparent);
 }
 
 .primaryBtn:hover:not(:disabled) {
@@ -296,13 +367,12 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  font-size: 16px;
   border-color: transparent;
   background: transparent;
 }
 
 .iconBtn:hover {
-  background: #e5e7eb;
+  background: color-mix(in oklab, var(--color-border) 30%, transparent);
 }
 
 .primaryBtn:disabled,
@@ -313,8 +383,30 @@
   box-shadow: none;
 }
 
-/* ============ Celule acțiuni & paginare ============ */
+/* butoane icon în tabel */
+.iconActionBtn {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 4px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-text);
+}
 
+.iconActionBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.iconActionBtn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-border) 28%, transparent);
+  border-color: color-mix(in oklab, var(--color-border) 38%, transparent);
+}
+
+/* ============ Actions cell + pagination ============ */
 .actionsCell {
   display: flex;
   gap: 8px;
@@ -337,8 +429,7 @@
   font-size: 0.85rem;
 }
 
-/* ============ Skeleton & spin ============ */
-
+/* ============ Skeleton + spinner ============ */
 .skeletonRow td {
   color: var(--color-muted);
 }
@@ -353,17 +444,19 @@
   }
 }
 
-/* ============ Modal (curier + factură + mobil) ============ */
-
+/* ============ Modal ============ */
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+
+  /* overlay adaptiv, bun în dark */
+  background: color-mix(in oklab, #000 55%, transparent);
+
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 99999; /* peste navbar */
+  z-index: 99999;
 }
 
 .modal {
@@ -374,14 +467,14 @@
   background: var(--surface);
   border-radius: 16px;
   border: 1px solid var(--color-border);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 26px 70px color-mix(in oklab, #000 45%, transparent);
 
   padding: 16px 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 
-  overflow-y: auto; /* pentru modalul de curier / mobil */
+  overflow-y: auto;
 }
 
 .modalHead {
@@ -395,9 +488,9 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
+  color: var(--color-text);
 }
 
-/* body scrollabil – folosit în InvoiceModal și MobileOrderModal */
 .modalBody {
   flex: 1 1 auto;
   padding: 16px 18px 12px;
@@ -410,7 +503,7 @@
   width: 8px;
 }
 .modalBody::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--color-muted) 45%, transparent);
+  background: color-mix(in oklab, var(--color-muted) 40%, transparent);
   border-radius: 10px;
 }
 
@@ -421,6 +514,7 @@
   margin: 0;
   display: grid;
   gap: 6px;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
 }
 
 .fieldset legend {
@@ -441,6 +535,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  color: var(--color-text);
 }
 
 .grid3 {
@@ -454,13 +549,33 @@
   flex-direction: column;
   gap: 4px;
   font-size: 0.8rem;
+  color: var(--color-text);
 }
 
-.grid3 input {
+.grid3 input,
+.input,
+.select,
+.textarea {
   border-radius: 8px;
   border: 1px solid var(--color-border);
-  padding: 6px 8px;
-  font-size: 0.85rem;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--color-text);
+  outline: none;
+}
+
+.grid3 input:focus,
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 74px;
 }
 
 .check {
@@ -468,6 +583,7 @@
   display: flex;
   align-items: flex-start;
   gap: 6px;
+  color: var(--color-text);
 }
 
 .check input[type="checkbox"] {
@@ -486,18 +602,11 @@
   margin-top: 8px;
 }
 
-/* ============ Grid detalii comandă (folosit și în MobileOrderModal) ============ */
-
+/* ============ Detalii (Mobile modal) ============ */
 .grid2 {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 14px;
-}
-
-.grid2 h3 {
-  margin-top: 0;
-  margin-bottom: 8px;
-  font-size: 1rem;
 }
 
 .kv {
@@ -516,15 +625,6 @@
   gap: 4px;
 }
 
-.kv a {
-  color: var(--color-hover);
-  text-decoration: none;
-}
-
-.kv a:hover {
-  text-decoration: underline;
-}
-
 .totalBar {
   margin-top: 10px;
   display: flex;
@@ -541,14 +641,13 @@
 .pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.8rem;
-  background: #020617;
-  color: #e5e7eb;
+  background: color-mix(in oklab, #000 70%, var(--surface));
+  color: color-mix(in oklab, var(--color-text) 95%, #fff 5%);
   border-radius: 8px;
   padding: 10px;
   overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--color-border) 55%, transparent);
 }
-
-/* ============ Footer acțiuni detalii ============ */
 
 .footerActions {
   margin-top: 8px;
@@ -556,13 +655,125 @@
   justify-content: flex-start;
 }
 
-/* ============ Responsive ============ */
+/* ============ Invoice modal overrides ============ */
+.invoiceModal {
+  max-width: 760px;
+  max-height: 90vh;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
 
+.invoiceModal .modalHead {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.invoiceModal .modalBody {
+  padding: 18px 18px 12px;
+}
+
+.invoiceModal .modalActions {
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--surface);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+.invoiceModal .muted {
+  padding: 0 18px 14px 18px;
+  font-size: 0.8rem;
+}
+
+.invoiceModal .fieldset {
+  margin-bottom: 16px;
+}
+
+.invoiceModal .grid3 label {
+  font-size: 0.85rem;
+}
+
+/* tabel linii factură */
+.invoiceModal .tableWrap {
+  max-height: 260px;
+  border-radius: 10px;
+  overflow: auto;
+}
+
+.invoiceModal .table {
+  min-width: 640px;
+}
+
+.invoiceModal .table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.invoiceModal .table input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--color-text);
+}
+
+.invoiceHint {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+/* ============ Misc ============ */
 .hideSm {
   display: table-cell;
 }
 
-/* sub 900px – tablete / laptop mic */
+.internalNoteBox {
+  background: color-mix(in oklab, var(--color-border) 18%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-border) 35%, transparent);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  color: var(--color-text);
+}
+
+.internalNoteLabel {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--color-muted);
+}
+
+.addressBlock {
+  display: grid;
+  gap: 10px;
+}
+
+.fullSpan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.hint {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+/* ============ Responsive ============ */
 @media (max-width: 900px) {
   .grid2 {
     grid-template-columns: 1fr;
@@ -575,18 +786,18 @@
   .filters {
     gap: 8px;
   }
-  
-}
-/* doar pe desktop – rânduri cu înălțime fixă */
-@media (min-width: 900px) {
 
-  /* ultima coloană – nu lăsăm conținutul să curgă pe mai multe rânduri */
+  .invoiceModal {
+    max-width: 100%;
+  }
+}
+
+@media (min-width: 900px) {
   .actionsCell {
     white-space: nowrap;
     height: 123px;
   }
 
-  /* butonul mare din tabel un pic mai compact, să intre înăuntru frumos */
   .actionsCell .primaryBtn {
     padding: 6px 10px;
     font-size: 0.8rem;
@@ -594,7 +805,6 @@
   }
 }
 
-/* sub 720px – mobile “normal” */
 @media (max-width: 720px) {
   .hideSm {
     display: none;
@@ -609,10 +819,6 @@
   .headerActions {
     width: 100%;
     justify-content: flex-start;
-  }
-
-  .tableWrap {
-    border-radius: 10px;
   }
 
   .table {
@@ -641,6 +847,12 @@
     grid-template-columns: 1fr 1fr;
   }
 
+  .tabs {
+    width: auto;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
   .modalBackdrop {
     padding: 12px;
     align-items: stretch;
@@ -651,7 +863,7 @@
     max-height: 100vh;
     align-self: stretch;
     border-radius: 18px 18px 0 0;
-    margin-top: auto; /* efect de slide-up */
+    margin-top: auto;
   }
 
   .modalBody {
@@ -667,9 +879,16 @@
   .modalActions .secondaryBtn {
     width: 100%;
   }
+
+  .invoiceModalTotalsBox {
+    width: 100%;
+  }
+
+  .invoiceModal .modalActions button {
+    width: 100%;
+  }
 }
 
-/* sub 480px – mobile foarte mic */
 @media (max-width: 480px) {
   .page {
     padding-inline: 10px;
@@ -701,275 +920,4 @@
   .modalHead h3 {
     font-size: 0.95rem;
   }
-}
-
-/* ============ Tabs (Comenzi primite / plasate) ============ */
-
-.tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--color-border) 14%, transparent);
-  margin-top: 8px;
-  margin-bottom: 4px;
-}
-
-.tab {
-  border: none;
-  background: transparent;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-muted);
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background 0.15s ease-out,
-    color 0.15s ease-out,
-    box-shadow 0.15s ease-out,
-    transform 0.1s ease-out;
-}
-
-.tab:hover {
-  background: color-mix(in oklab, #ffffff 50%, transparent);
-  color: var(--color-text);
-}
-
-.tabActive {
-  background: #ffffff;
-  color: var(--color-text);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-  transform: translateY(-1px);
-}
-
-/* pe mobile să nu se înghesuie */
-@media (max-width: 720px) {
-  .tabs {
-    width: auto;
-    justify-content: flex-start;
-    overflow-x: auto;
-  }
-}
-
-/* ============ Modal Factură – overrides specifice ============ */
-
-.invoiceModal {
-  max-width: 760px;
-  max-height: 90vh;
-  padding: 0;        /* folosim padding în head/body/footer */
-  gap: 0;
-  overflow: hidden;  /* scroll doar în .modalBody */
-}
-
-/* header factură fix la scroll */
-.invoiceModal .modalHead {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--surface);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
-/* body factură – un pic mai aerisit decât curier */
-.invoiceModal .modalBody {
-  padding: 18px 18px 12px;
-}
-
-/* footer factură fix la scroll */
-.invoiceModal .modalActions {
-  padding: 12px 18px 14px;
-  border-top: 1px solid var(--color-border);
-  background: var(--surface);
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-}
-
-/* hint-ul de sub butoane în factura */
-.invoiceModal .muted {
-  padding: 0 18px 14px 18px;
-  font-size: 0.8rem;
-}
-
-/* form elements în factura – puțin mai mari */
-.invoiceModal .fieldset {
-  margin-bottom: 16px;
-}
-
-.invoiceModal .grid3 label {
-  font-size: 0.85rem;
-}
-
-.invoiceModal .input {
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  padding: 8px 10px;
-  font-size: 0.9rem;
-  background: #ffffff;
-  color: var(--color-text);
-}
-
-/* tabel linii factură – compact + sticky header */
-.invoiceModal .tableWrap {
-  max-height: 260px;
-  border-radius: 10px;
-  overflow: auto;
-}
-
-.invoiceModal .table {
-  min-width: 640px;
-}
-
-.invoiceModal .table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-/* inputuri din tabel */
-.invoiceModal .table input {
-  width: 100%;
-  box-sizing: border-box;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
-  padding: 4px 6px;
-  font-size: 0.8rem;
-  background: #ffffff;
-}
-
-/* totaluri factură */
-.invoiceModalTotals {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-
-.invoiceModalTotalsBox {
-  min-width: 220px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: color-mix(in oklab, var(--color-primary) 4%, #ffffff);
-  border: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
-  font-size: 0.85rem;
-}
-
-.invoiceModalTotalsBox div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.invoiceModalTotalsBox div:last-child {
-  margin-bottom: 0;
-}
-
-/* Responsive invoice modal */
-
-@media (max-width: 900px) {
-  .invoiceModal {
-    max-width: 100%;
-  }
-}
-
-@media (max-width: 720px) {
-  .invoiceModalTotalsBox {
-    width: 100%;
-  }
-
-  .invoiceModal .modalActions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .invoiceModal .modalActions button {
-    width: 100%;
-  }
-}
-
-.invoiceHint {
-  margin-top: 6px;
-  font-size: 0.8rem;
-  color: var(--color-muted);
-}
-
-/* ============ Altele ============ */
-
-.orderRow {
-  cursor: pointer;
-}
-
-.orderRow:hover {
-  background: #f7f7f7;
-}
-
-/* butoane mici, doar icon */
-
-.iconActionBtn {
-  border: none;
-  background: transparent;
-  padding: 4px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.iconActionBtn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.iconActionBtn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.internalNoteBox {
-  background: rgba(148, 163, 184, 0.08);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 13px;
-  white-space: pre-wrap;
-}
-
-.internalNoteLabel {
-  font-size: 11px;
-  font-weight: 600;
-  margin-bottom: 2px;
-  color: var(--color-muted);
-}
-/* ============ Manual Order: Address UI ============ */
-
-.addressBlock {
-  display: grid;
-  gap: 10px;
-}
-
-.fullSpan {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.8rem;
-}
-
-.textarea {
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  padding: 10px 10px;
-  font-size: 0.9rem;
-  background: #ffffff;
-  color: var(--color-text);
-  resize: vertical;
-  min-height: 74px;
-}
-
-.hint {
-  color: var(--color-muted);
-  font-size: 0.78rem;
-  line-height: 1.3;
 }

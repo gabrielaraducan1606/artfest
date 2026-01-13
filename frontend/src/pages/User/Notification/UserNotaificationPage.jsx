@@ -7,7 +7,7 @@ import {
   Search as SearchIcon,
 } from "lucide-react";
 import { api } from "../../../lib/api";
-import styles from "./UserNotificationPage.module.css"; // copie după css-ul vendor
+import styles from "./UserNotificationPage.module.css";
 
 const TABS = [
   { id: "all", label: "Toate" },
@@ -15,7 +15,6 @@ const TABS = [
   { id: "archived", label: "Arhivate" },
 ];
 
-// NEW: câte notificări afișăm per “pagină”
 const PAGE_SIZE = 20;
 
 function fmt(ts) {
@@ -37,10 +36,8 @@ export default function UserNotificationsPage() {
   const [error, setError] = useState("");
   const [markingAll, setMarkingAll] = useState(false);
 
-  // NEW: câte notificări sunt vizibile acum
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // 🔔 helper: anunță Navbar-ul că s-au schimbat notificările
   const notifyNavbar = useCallback(() => {
     try {
       window.dispatchEvent(new Event("notifications:changed"));
@@ -52,8 +49,6 @@ export default function UserNotificationsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-
-    // NEW: resetăm vizibilul când facem un load nou (schimbare tab / căutare)
     setVisibleCount(PAGE_SIZE);
 
     try {
@@ -74,22 +69,15 @@ export default function UserNotificationsPage() {
     load();
   }, [load]);
 
-  // NEW: infinite scroll – când ajungi aproape de bottom, creștem visibleCount
   useEffect(() => {
     if (!items.length) return;
 
     function onScroll() {
       const scrollPos = window.innerHeight + window.scrollY;
-      const threshold = document.body.offsetHeight - 300; // 300px înainte de bottom
+      const threshold = document.body.offsetHeight - 300;
 
-      if (
-        scrollPos >= threshold &&
-        !loading &&
-        visibleCount < items.length
-      ) {
-        setVisibleCount((prev) =>
-          Math.min(prev + PAGE_SIZE, items.length)
-        );
+      if (scrollPos >= threshold && !loading && visibleCount < items.length) {
+        setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, items.length));
       }
     }
 
@@ -97,9 +85,7 @@ export default function UserNotificationsPage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [items.length, loading, visibleCount]);
 
-  // NEW: slice din items doar ce vrem să afișăm
   const visibleItems = items.slice(0, visibleCount);
-
   const unreadCount = items.filter((n) => !n.readAt && !n.archived).length;
 
   const markRead = async (id) => {
@@ -107,9 +93,7 @@ export default function UserNotificationsPage() {
       await api(`/api/notifications/${id}/read`, { method: "PATCH" });
       setItems((prev) =>
         prev.map((n) =>
-          n.id === id
-            ? { ...n, readAt: n.readAt || new Date().toISOString() }
-            : n
+          n.id === id ? { ...n, readAt: n.readAt || new Date().toISOString() } : n
         )
       );
       notifyNavbar();
@@ -126,7 +110,6 @@ export default function UserNotificationsPage() {
         body: JSON.stringify({ archived: !archived }),
       });
 
-      // recarci lista ca să respecte filtrul (scope curent)
       await load();
       notifyNavbar();
     } catch (e) {
@@ -139,10 +122,7 @@ export default function UserNotificationsPage() {
     try {
       await api("/api/notifications/read-all", { method: "PATCH" });
       setItems((prev) =>
-        prev.map((n) => ({
-          ...n,
-          readAt: n.readAt || new Date().toISOString(),
-        }))
+        prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() }))
       );
       notifyNavbar();
     } catch (e) {
@@ -171,41 +151,31 @@ export default function UserNotificationsPage() {
             <Check size={14} />
             {markingAll ? "Se marchează…" : "Marchează tot ca citit"}
           </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={load}
-            title="Reîncarcă"
-          >
+
+          <button type="button" className={styles.iconBtn} onClick={load} title="Reîncarcă">
             <RefreshCcw size={16} className={loading ? styles.spin : ""} />
           </button>
         </div>
       </header>
 
-      {/* ===== Toolbar: tabs + search ===== */}
+      {/* ===== Toolbar ===== */}
       <section className={styles.toolbar}>
-        {/* Tabs */}
         <div className={styles.tabs}>
           {TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
-              className={`${styles.tab} ${
-                scope === tab.id ? styles.active : ""
-              }`}
+              className={`${styles.tab} ${scope === tab.id ? styles.active : ""}`}
               onClick={() => setScope(tab.id)}
             >
               {tab.label}
               {tab.id === "unread" && unreadCount > 0 && (
-                <span className={styles.badge}>
-                  {Math.min(unreadCount, 99)}
-                </span>
+                <span className={styles.badge}>{Math.min(unreadCount, 99)}</span>
               )}
             </button>
           ))}
         </div>
 
-        {/* Search */}
         <div className={styles.search}>
           <SearchIcon size={14} />
           <input
@@ -215,12 +185,7 @@ export default function UserNotificationsPage() {
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && load()}
           />
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={load}
-            title="Caută"
-          >
+          <button type="button" className={styles.iconBtn} onClick={load} title="Caută">
             <SearchIcon size={14} />
           </button>
         </div>
@@ -228,29 +193,19 @@ export default function UserNotificationsPage() {
 
       {/* ===== Info / error / loading ===== */}
       {error && <div className={styles.error}>{error}</div>}
-      {loading && !items.length && (
-        <div className={styles.info}>Se încarcă notificările…</div>
-      )}
+      {loading && !items.length && <div className={styles.info}>Se încarcă notificările…</div>}
       {!loading && !items.length && !error && (
-        <div className={styles.info}>
-          Nu ai notificări în această secțiune.
-        </div>
+        <div className={styles.info}>Nu ai notificări în această secțiune.</div>
       )}
 
-      {/* ===== Listă notificări ===== */}
+      {/* ===== Listă ===== */}
       {visibleItems.length > 0 && (
         <ul className={styles.list}>
           {visibleItems.map((n) => {
             const isUnread = !n.readAt;
 
             return (
-              <li
-                key={n.id}
-                className={`${styles.item} ${
-                  isUnread ? styles.unread : ""
-                }`}
-              >
-                {/* icon stânga */}
+              <li key={n.id} className={`${styles.item} ${isUnread ? styles.unread : ""}`}>
                 <div className={styles.icon}>
                   <Bell size={16} />
                 </div>
@@ -268,13 +223,44 @@ export default function UserNotificationsPage() {
                     <div className={styles.itemTitle}>{n.title}</div>
                     <div className={styles.time}>{fmt(n.createdAt)}</div>
                   </div>
-                  {n.body && (
-                    <div className={styles.itemText}>{n.body}</div>
-                  )}
-                  {n.link && <div className={styles.link}>Vezi detalii</div>}
+
+                  {n.body && <div className={styles.itemText}>{n.body}</div>}
+
+                  {/* MOBILE footer: Vezi detalii + butoane pe aceeași linie */}
+                  <div className={styles.footerRow}>
+                    {n.link ? <div className={styles.link}>Vezi detalii</div> : <span />}
+
+                    <div className={styles.actionsInline}>
+                      {isUnread && (
+                        <button
+                          type="button"
+                          className={styles.ghostBtn}
+                          title="Marchează citit"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            markRead(n.id);
+                          }}
+                        >
+                          <Check size={14} />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        className={styles.ghostBtn}
+                        title={n.archived ? "Dezarhivează" : "Arhivează"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleArchive(n.id, n.archived);
+                        }}
+                      >
+                        <Archive size={14} />
+                      </button>
+                    </div>
+                  </div>
                 </button>
 
-                {/* acțiuni dreapta */}
+                {/* DESKTOP actions (coloana din dreapta) */}
                 <div className={styles.rowActions}>
                   {isUnread && (
                     <button
@@ -301,11 +287,8 @@ export default function UserNotificationsPage() {
         </ul>
       )}
 
-      {/* NEW: fallback vizual – dacă mai sunt dar nu sunt încă randate */}
       {!loading && visibleCount < items.length && (
-        <div className={styles.info}>
-          Derulează în jos pentru a încărca mai multe notificări…
-        </div>
+        <div className={styles.info}>Derulează în jos pentru a încărca mai multe notificări…</div>
       )}
     </div>
   );

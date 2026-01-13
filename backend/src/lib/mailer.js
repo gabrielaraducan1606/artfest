@@ -48,9 +48,10 @@ function resolveProvider() {
 const EMAIL_LOGO_URL =
   process.env.EMAIL_LOGO_URL ||
   (process.env.R2_PUBLIC_BASE_URL && process.env.EMAIL_LOGO_KEY
-    ? `${process.env.R2_PUBLIC_BASE_URL.replace(/\/+$/, "")}/${String(
-        process.env.EMAIL_LOGO_KEY
-      ).replace(/^\/+/, "")}`
+    ? `${process.env.R2_PUBLIC_BASE_URL.replace(/\/+$/, "")}/${String(process.env.EMAIL_LOGO_KEY).replace(
+        /^\/+/,
+        ""
+      )}`
     : "https://media.artfest.ro/branding/LogoArtfest.png");
 
 /**
@@ -63,33 +64,51 @@ function sanitizeEmailValue(v) {
   const s = (v || "").trim();
   return s.endsWith(".") ? s.slice(0, -1) : s;
 }
+const CONTACT_EMAIL =
+  sanitizeEmailValue(process.env.EMAIL_REPLY_TO_CONTACT) ||
+  sanitizeEmailValue(process.env.SMTP_USER_CONTACT) ||
+  undefined;
+
+const SUPPORT_EMAIL =
+  sanitizeEmailValue(process.env.EMAIL_REPLY_TO_SUPPORT) ||
+  sanitizeEmailValue(process.env.SMTP_USER_SUPPORT) ||
+  undefined;
 
 const SENDERS = {
   noreply: {
     user: sanitizeEmailValue(process.env.SMTP_USER_NOREPLY),
     pass: process.env.SMTP_PASS_NOREPLY,
-    from:
-      process.env.EMAIL_FROM_NOREPLY ||
-      `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_NOREPLY) || ""}>`,
+    from: process.env.EMAIL_FROM_NOREPLY || `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_NOREPLY) || ""}>`,
     replyTo: sanitizeEmailValue(process.env.EMAIL_REPLY_TO_CONTACT) || undefined,
   },
+
   contact: {
     user: sanitizeEmailValue(process.env.SMTP_USER_CONTACT),
     pass: process.env.SMTP_PASS_CONTACT,
-    from:
-      process.env.EMAIL_FROM_CONTACT ||
-      `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_CONTACT) || ""}>`,
+    from: process.env.EMAIL_FROM_CONTACT || `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_CONTACT) || ""}>`,
     replyTo:
       sanitizeEmailValue(process.env.EMAIL_REPLY_TO_CONTACT) ||
       sanitizeEmailValue(process.env.SMTP_USER_CONTACT) ||
       undefined,
   },
+
+  // ✅ NOU: support@ (pentru Guest Support)
+  support: {
+    user: sanitizeEmailValue(process.env.SMTP_USER_SUPPORT),
+    pass: process.env.SMTP_PASS_SUPPORT,
+    from:
+      process.env.EMAIL_FROM_SUPPORT ||
+      `Artfest Support <${sanitizeEmailValue(process.env.SMTP_USER_SUPPORT) || ""}>`,
+    replyTo:
+      sanitizeEmailValue(process.env.EMAIL_REPLY_TO_SUPPORT) ||
+      sanitizeEmailValue(process.env.SMTP_USER_SUPPORT) ||
+      undefined,
+  },
+
   admin: {
     user: sanitizeEmailValue(process.env.SMTP_USER_ADMIN),
     pass: process.env.SMTP_PASS_ADMIN,
-    from:
-      process.env.EMAIL_FROM_ADMIN ||
-      `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_ADMIN) || ""}>`,
+    from: process.env.EMAIL_FROM_ADMIN || `Artfest <${sanitizeEmailValue(process.env.SMTP_USER_ADMIN) || ""}>`,
     replyTo: sanitizeEmailValue(process.env.EMAIL_REPLY_TO_CONTACT) || undefined,
   },
 };
@@ -121,11 +140,13 @@ export function makeTransport(senderKey = "noreply") {
   return transporter;
 }
 
-function senderEnvelope(senderKey = "noreply") {
+function senderEnvelope(senderKey = "noreply", opts = {}) {
   const sender = SENDERS[senderKey];
+  const replyTo = opts?.replyTo ? sanitizeEmailValue(opts.replyTo) : sender?.replyTo;
+
   return {
     from: sender?.from,
-    replyTo: sender?.replyTo,
+    ...(replyTo ? { replyTo } : {}),
   };
 }
 
@@ -328,7 +349,7 @@ async function sendMailLogged({
 
   const sender = SENDERS[senderKey] || {};
   const fromEmail = sender.user || null; // pentru log
-  const replyTo = sender.replyTo || null;
+  const replyTo = mailOptions?.replyTo || sender.replyTo || null;
 
   const log = await createEmailLogQueued({
     userId,
@@ -380,7 +401,7 @@ async function sendMailLogged({
 }
 
 /* ============================================================
-   GUEST SUPPORT EMAILS (sender: contact@)
+   GUEST SUPPORT EMAILS (sender: support@) ✅
 ============================================================ */
 export async function sendGuestSupportConfirmationEmail({
   to,
@@ -397,7 +418,7 @@ export async function sendGuestSupportConfirmationEmail({
   });
 
   return sendMailLogged({
-    senderKey: "contact",
+    senderKey: "noreply", // ✅ confirmarea pleacă de la noreply
     to,
     subject: emailSubject,
     template: "guest_support_confirmation",
@@ -405,11 +426,12 @@ export async function sendGuestSupportConfirmationEmail({
     ticketId,
     toName: name || null,
     mailOptions: {
-      ...senderEnvelope("contact"),
+      ...senderEnvelope("noreply", { replyTo: SUPPORT_EMAIL }), // ✅ reply către suport
       to,
       subject: emailSubject,
       html,
       text,
+      headers: AUTO_HEADERS,
     },
   });
 }
@@ -429,7 +451,7 @@ export async function sendGuestSupportReplyEmail({
   });
 
   return sendMailLogged({
-    senderKey: "contact",
+    senderKey: "support",
     to,
     subject: emailSubject,
     template: "guest_support_reply",
@@ -437,7 +459,7 @@ export async function sendGuestSupportReplyEmail({
     ticketId,
     toName: name || null,
     mailOptions: {
-      ...senderEnvelope("contact"),
+      ...senderEnvelope("support"),
       to,
       subject: emailSubject,
       html,
@@ -449,14 +471,14 @@ export async function sendGuestSupportReplyEmail({
 /* ============================================================
    AUTH / SECURITY EMAILS (sender: no-reply@)
 ============================================================ */
-export async function sendVerificationEmail({ to, link, userId = null }) {
-  const { html, text, subject } = await withLogo(verificationEmailTemplate, { link });
+export async function sendVerificationEmail({ to, code, ttlMin = 10, userId = null }) {
+  const { html, text, subject } = await withLogo(verificationEmailTemplate, { code, ttlMin });
 
   return sendMailLogged({
     senderKey: "noreply",
     to,
     subject,
-    template: "verify_email",
+    template: "verify_email_code",
     userId,
     mailOptions: {
       ...senderEnvelope("noreply"),
@@ -532,15 +554,6 @@ export async function sendMarketingEmail({ to, subject, html, preheader, userId 
   <div style="background:#ffffff;border-radius:12px;padding:18px 16px;border:1px solid #e5e7eb;">
     ${html}
   </div>
-  <p style="font-size:11px;color:#9ca3af;text-align:center;margin:16px 0 0;line-height:1.5;">
-    Primești acest email pentru că ți-ai dat acordul să primești comunicări de marketing de la ${BRAND_NAME}.
-    ${
-      unsubUrl
-        ? `Dacă nu mai vrei să primești astfel de mesaje, te poți dezabona aici:
-           <a href="${unsubUrl}" style="color:#4f46e5;">Dezabonare</a>.`
-        : `Dacă nu mai vrei să primești astfel de mesaje, folosește linkul de dezabonare din email.`
-    }
-  </p>
 </div>`.trim();
 
   const text = [
@@ -654,12 +667,9 @@ export async function sendOrderConfirmationEmail({ to, order, items, storeAddres
   const shippingTotal = formatMoney(order.shippingTotal, currency);
 
   const address = order.shippingAddress || {};
-  const customerName =
-    address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
+  const customerName = address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
 
-  const orderLink = APP_URL
-    ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}`
-    : null;
+  const orderLink = APP_URL ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}` : null;
 
   const itemsRows =
     (items || [])
@@ -728,9 +738,7 @@ export async function sendOrderConfirmationEmail({ to, order, items, storeAddres
   <p style="color:#374151;margin:0 0 12px;">Comanda ta pe <strong>${BRAND_NAME}</strong> a fost înregistrată cu succes.</p>
   <p style="color:#374151;margin:0 0 16px;">
     <strong>Număr comandă:</strong> ${order.id}<br>
-    <strong>Metodă de plată:</strong> ${
-      order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"
-    }
+    <strong>Metodă de plată:</strong> ${order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"}
   </p>
 
   <h3 style="color:#111827;margin:16px 0 8px;font-size:16px;">Produse comandate</h3>
@@ -876,17 +884,14 @@ export async function sendOrderCancelledEmail({
       reasonText = "au fost probleme la procesarea plății.";
       break;
     case "other":
-      reasonText = cancelReasonNote?.trim()
-        ? cancelReasonNote.trim()
-        : "a intervenit o situație neprevăzută.";
+      reasonText = cancelReasonNote?.trim() ? cancelReasonNote.trim() : "a intervenit o situație neprevăzută.";
       break;
     default:
       reasonText = "a intervenit o situație care nu ne permite să onorăm comanda.";
   }
 
   const address = shippingAddress || {};
-  const customerName =
-    address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
+  const customerName = address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
 
   const orderLink = APP_URL ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(orderId)}` : null;
 
@@ -971,8 +976,7 @@ export async function sendOrderCancelledByUserEmail({ to, order, userId = null }
   const prettyId = order.shortId || order.id;
   const address = order.shippingAddress || {};
 
-  const customerName =
-    address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
+  const customerName = address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
 
   const currency = order.currency || "RON";
   const subtotal = formatMoney(order.subtotal || 0, currency);
@@ -1059,12 +1063,7 @@ export async function sendOrderCancelledByUserEmail({ to, order, userId = null }
 /* ============================================================
    SECURITY (sender: no-reply@)
 ============================================================ */
-export async function sendPasswordStaleReminderEmail({
-  to,
-  passwordAgeDays,
-  maxPasswordAgeDays,
-  userId = null,
-}) {
+export async function sendPasswordStaleReminderEmail({ to, passwordAgeDays, maxPasswordAgeDays, userId = null }) {
   if (!to) return;
 
   const { html, text, subject } = await withLogo(passwordStaleReminderEmailTemplate, {
@@ -1117,13 +1116,7 @@ export async function sendSuspiciousLoginWarningEmail({ to, userId = null }) {
 /* ============================================================
    VENDOR FOLLOW-UP (sender: no-reply@)
 ============================================================ */
-export async function sendVendorFollowUpReminderEmail({
-  to,
-  contactName,
-  followUpAt,
-  threadLink,
-  userId = null,
-}) {
+export async function sendVendorFollowUpReminderEmail({ to, contactName, followUpAt, threadLink, userId = null }) {
   if (!to) return;
 
   const fullLink = threadLink && APP_URL ? `${APP_URL.replace(/\/+$/, "")}${threadLink}` : undefined;
@@ -1169,12 +1162,7 @@ export async function sendInvoiceIssuedEmail({
   const totalLabel = formatMoney(totalGross || 0, currency);
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
-  const link =
-    baseUrl && invoiceFrontendPath
-      ? `${baseUrl}${invoiceFrontendPath}`
-      : baseUrl
-      ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
-      : undefined;
+  const link = baseUrl && invoiceFrontendPath ? `${baseUrl}${invoiceFrontendPath}` : baseUrl ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}` : undefined;
 
   const { html, text, subject } = await withLogo(invoiceIssuedEmailTemplate, {
     orderId,
@@ -1204,15 +1192,7 @@ export async function sendInvoiceIssuedEmail({
 /* ============================================================
    SHIPMENT PICKUP (sender: no-reply@)
 ============================================================ */
-export async function sendShipmentPickupEmail({
-  to,
-  orderId,
-  awb,
-  trackingUrl,
-  etaLabel,
-  slotLabel,
-  userId = null,
-}) {
+export async function sendShipmentPickupEmail({ to, orderId, awb, trackingUrl, etaLabel, slotLabel, userId = null }) {
   if (!to) return;
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
@@ -1269,9 +1249,7 @@ export async function sendShipmentPickupEmail({
     `Comanda ta pe ${BRAND_NAME} a fost predată curierului.`,
     `Număr comandă: ${orderId}`,
     awb ? `AWB: ${awb}` : "",
-    etaLabel || slotLabel
-      ? `Livrare estimată: ${etaLabel || ""} în intervalul ${(slotLabel || "").trim()}`.trim()
-      : "",
+    etaLabel || slotLabel ? `Livrare estimată: ${etaLabel || ""} în intervalul ${(slotLabel || "").trim()}`.trim() : "",
     trackingUrl ? `Poți urmări coletul aici: ${trackingUrl}` : "",
     orderLink ? `Detalii comandă: ${orderLink}` : "",
   ]

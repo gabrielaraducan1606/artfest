@@ -6,7 +6,9 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const router = Router();
 
-/** POST /api/visitors/track — înregistrează PAGEVIEW/CTA_CLICK/MESSAGE (PUBLIC) */
+/**
+ * POST /api/visitors/track — înregistrează PAGEVIEW/CTA_CLICK/MESSAGE (PUBLIC)
+ */
 router.post("/track", async (req, res) => {
   const schema = z.object({
     vendorId: z.string().min(1),
@@ -21,41 +23,55 @@ router.post("/track", async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "bad_payload" });
 
-  const d = parsed.data;
-  await prisma.event.create({
-    data: {
-      vendorId: d.vendorId,
-      type: d.type,
-      pageUrl: d.pageUrl,
-      ctaLabel: d.ctaLabel,
-      referrer: d.referrer,
-      sessionId: d.sessionId,
-      userAgent: d.userAgent || req.headers["user-agent"]?.toString(),
-    },
-  });
+  try {
+    const d = parsed.data;
 
-  res.json({ ok: true });
+    await prisma.event.create({
+      data: {
+        vendorId: d.vendorId,
+        type: d.type,
+        pageUrl: d.pageUrl,
+        ctaLabel: d.ctaLabel,
+        referrer: d.referrer,
+        sessionId: d.sessionId,
+        userAgent: d.userAgent || req.headers["user-agent"]?.toString(),
+      },
+    });
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/visitors/track error", e);
+    return res.status(500).json({ error: "internal_error" });
+  }
 });
 
-/** POST /api/visitors/search — log public al căutărilor interne (PUBLIC) */
+/**
+ * POST /api/visitors/search — log public al căutărilor interne (PUBLIC)
+ */
 router.post("/search", async (req, res) => {
   const schema = z.object({
     vendorId: z.string().min(1),
     query: z.string().min(1),
     hits: z.number().int().min(1).optional(),
   });
+
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "bad_payload" });
 
-  await prisma.search.create({
-    data: {
-      vendorId: parsed.data.vendorId,
-      query: parsed.data.query,
-      hits: parsed.data.hits || 1,
-    },
-  });
+  try {
+    await prisma.search.create({
+      data: {
+        vendorId: parsed.data.vendorId,
+        query: parsed.data.query,
+        hits: parsed.data.hits || 1,
+      },
+    });
 
-  res.json({ ok: true });
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/visitors/search error", e);
+    return res.status(500).json({ error: "internal_error" });
+  }
 });
 
 export default router;

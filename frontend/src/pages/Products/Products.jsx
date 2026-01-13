@@ -1,25 +1,12 @@
 // client/pages/Products/ProductsPage.jsx
-
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useRef,
-} from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api.js";
 import styles from "./Products.module.css";
 import { guestCart } from "../../lib/guestCart";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
 
-import {
-  FaFilter,
-  FaUndoAlt,
-  FaTimes,
-  FaSearch,
-  FaCamera,
-} from "react-icons/fa";
+import { FaFilter, FaUndoAlt, FaTimes, FaSearch, FaCamera } from "react-icons/fa";
 import { useImageSearch } from "../../hooks/useImageSearch";
 
 const SORTS = [
@@ -30,9 +17,7 @@ const SORTS = [
 ];
 
 const humanizeSlug = (slug = "") =>
-  slug
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase());
+  slug.replace(/[_-]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 
 const humanizeCategory = (slug = "") => {
   if (!slug) return "";
@@ -46,6 +31,9 @@ export default function ProductsPage() {
 
   const searchRef = useRef(null);
 
+  // sentinel pt. infinite scroll
+  const sentinelRef = useRef(null);
+
   // 👇 hook de căutare după imagine (reutilizabil)
   const {
     searching: imageSearching,
@@ -54,37 +42,33 @@ export default function ProductsPage() {
     handleFileChange: handleImageFileChange,
   } = useImageSearch();
 
-  // query params (fără page pentru infinite scroll)
+  // query params
   const ids = params.get("ids") || "";
 
   const qParam = params.get("q") || "";
-  const categoryParam =
-    params.get("categorie") || params.get("category") || "";
+  const categoryParam = params.get("categorie") || params.get("category") || "";
   const cityParam = params.get("city") || "";
   const sortParam = params.get("sort") || "new";
   const minPriceParam = params.get("minPrice") || params.get("min") || "";
   const maxPriceParam = params.get("maxPrice") || params.get("max") || "";
 
   const colorParam = params.get("color") || "";
-  const materialParam =
-    params.get("materialMain") || params.get("material") || "";
+  const materialParam = params.get("materialMain") || params.get("material") || "";
   const techniqueParam = params.get("technique") || "";
-  const styleTagParam =
-    params.get("styleTag") || params.get("style") || "";
-  const occasionTagParam =
-    params.get("occasionTag") || params.get("occasion") || "";
+  const styleTagParam = params.get("styleTag") || params.get("style") || "";
+  const occasionTagParam = params.get("occasionTag") || params.get("occasion") || "";
   const availabilityParam = params.get("availability") || "";
   const acceptsCustomRaw = params.get("acceptsCustom");
-  const acceptsCustomParam =
-    acceptsCustomRaw === "1" || acceptsCustomRaw === "true";
+  const acceptsCustomParam = acceptsCustomRaw === "1" || acceptsCustomRaw === "true";
   const leadTimeMaxParam = params.get("leadTimeMax") || "";
 
   const [me, setMe] = useState(null);
   const [favorites, setFavorites] = useState(() => new Set());
 
   const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true); // prima pagină
+  const [total, setTotal] = useState(null);
+
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const limit = 24;
 
@@ -135,10 +119,10 @@ export default function ProductsPage() {
       leadTimeMax: leadTimeMaxParam,
     });
 
-    // când se schimbă query-ul sau filtrele: resetăm listă + paginare
     setItems([]);
     setPage(1);
     setHasMore(true);
+    setTotal(null);
   }, [
     qParam,
     categoryParam,
@@ -167,13 +151,8 @@ export default function ProductsPage() {
         } else {
           setMe(d?.user || null);
           if (d?.user) {
-            const fav = await api("/api/favorites/ids").catch(
-              () => ({ items: [] })
-            );
-            const idsSet = new Set(
-              Array.isArray(fav?.items) ? fav.items : []
-            );
-            setFavorites(idsSet);
+            const fav = await api("/api/favorites/ids").catch(() => ({ items: [] }));
+            setFavorites(new Set(Array.isArray(fav?.items) ? fav.items : []));
           }
         }
       } catch {
@@ -183,14 +162,19 @@ export default function ProductsPage() {
     })();
   }, []);
 
-  // load products – suportă prima pagină + append pentru infinite scroll
+  const openAuthModal = useCallback(() => {
+    const current = window.location.pathname + window.location.search;
+    const url = new URL(window.location.href);
+    url.searchParams.set("auth", "login");
+    url.searchParams.set("redirect", current);
+    navigate(url.pathname + url.search, { replace: false });
+  }, [navigate]);
+
+  // load products – prima pagină + append
   const load = useCallback(
     async (pageToLoad = 1, append = false) => {
-      if (pageToLoad === 1 && !append) {
-        setLoading(true);
-      } else {
-        setIsLoadingMore(true);
-      }
+      if (pageToLoad === 1 && !append) setLoading(true);
+      else setIsLoadingMore(true);
 
       try {
         const p = new URLSearchParams();
@@ -215,33 +199,24 @@ export default function ProductsPage() {
         if (leadTimeMaxParam) p.set("leadTimeMax", leadTimeMaxParam);
         if (acceptsCustomParam) p.set("acceptsCustom", "1");
 
-        const urlQuery = p.toString();
-        console.log("PRODUCTS API REQUEST:", `/api/public/products?${urlQuery}`);
+        const res = await api(`/api/public/products?${p.toString()}`);
 
-        const res = await api(`/api/public/products?${urlQuery}`);
-        console.log("PRODUCTS API RESPONSE:", res);
+        const newItems = Array.isArray(res?.items) ? res.items : [];
+        const serverHasMore = !!res?.hasMore;
 
-        const newItems = res?.items || [];
-        const totalFromApi = res?.total || 0;
+        setItems((prev) => (append ? [...prev, ...newItems] : newItems));
 
-        setItems((prev) =>
-          append ? [...prev, ...newItems] : newItems
-        );
-        setTotal(totalFromApi);
+        // total e trimis doar pe page=1 (server), îl păstrăm
+        if (res?.total !== null && res?.total !== undefined) {
+          setTotal(res.total);
+        }
+
         setSmartInfo(res?.smart || null);
         setAppliedFiltersInfo(res?.appliedFilters || null);
-
-        const totalPages = Math.max(
-          1,
-          Math.ceil(totalFromApi / limit)
-        );
-        setHasMore(pageToLoad < totalPages);
+        setHasMore(serverHasMore);
       } finally {
-        if (pageToLoad === 1 && !append) {
-          setLoading(false);
-        } else {
-          setIsLoadingMore(false);
-        }
+        if (pageToLoad === 1 && !append) setLoading(false);
+        else setIsLoadingMore(false);
       }
     },
     [
@@ -263,7 +238,7 @@ export default function ProductsPage() {
     ]
   );
 
-  // prima pagină (sau când se schimbă filtrele prin deps din load)
+  // prima pagină
   useEffect(() => {
     load(1, false);
   }, [load]);
@@ -271,7 +246,6 @@ export default function ProductsPage() {
   // autocomplete
   useEffect(() => {
     const q = (localFilters.q || "").trim();
-
     if (!q || q.length < 2) {
       setSuggestions(null);
       return;
@@ -280,12 +254,9 @@ export default function ProductsPage() {
     const handle = setTimeout(async () => {
       try {
         setSuggestLoading(true);
-        const data = await api(
-          `/api/public/products/suggest?q=${encodeURIComponent(q)}`
-        );
+        const data = await api(`/api/public/products/suggest?q=${encodeURIComponent(q)}`);
         setSuggestions(data || null);
-      } catch (e) {
-        console.error("suggest error", e);
+      } catch {
         setSuggestions(null);
       } finally {
         setSuggestLoading(false);
@@ -298,12 +269,7 @@ export default function ProductsPage() {
   // click outside -> închide sugestiile
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (
-        searchRef.current &&
-        !searchRef.current.contains(e.target)
-      ) {
-        setSuggestions(null);
-      }
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSuggestions(null);
     };
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -314,6 +280,124 @@ export default function ProductsPage() {
       document.removeEventListener("touchstart", handleClickOutside);
     };
   }, []);
+
+  // ✅ Infinite scroll cu IntersectionObserver (mai stabil decât scroll event)
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (!first?.isIntersecting) return;
+
+        if (!loading && !isLoadingMore && hasMore) {
+          setPage((prev) => prev + 1);
+        }
+      },
+      { root: null, rootMargin: "800px 0px", threshold: 0 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loading, isLoadingMore, hasMore]);
+
+  // când page crește (>1), încărcăm următoarea pagină și concatenăm
+  useEffect(() => {
+    if (page === 1) return;
+    load(page, true);
+  }, [page, load]);
+
+  const doAddToCart = useCallback(
+    async (productId) => {
+      if (me) {
+        const r = await api(`/api/cart/add`, { method: "POST", body: { productId, qty: 1 } });
+        if (r?.__unauth) guestCart.add(productId, 1);
+      } else {
+        guestCart.add(productId, 1);
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("cart:changed"));
+      } catch {
+        /* ignore */
+      }
+      alert("Produs adăugat în coș.");
+    },
+    [me]
+  );
+
+  // ✅ useCallback ca să nu recreezi funcția la fiecare render
+  const toggleFavorite = useCallback(
+    async (productId) => {
+      if (!me) {
+        alert(
+          "Pentru a salva produsele tale preferate și a putea discuta mai târziu cu artizanii despre personalizare, este nevoie să te autentifici. Te așteptăm cu drag, durează doar câteva secunde! 💛"
+        );
+        try {
+          sessionStorage.setItem("intent", JSON.stringify({ type: "favorite_toggle", productId }));
+        } catch {
+          /* ignore */
+        }
+        openAuthModal();
+        return;
+      }
+
+      setFavorites((prev) => {
+        const next = new Set(prev);
+        if (next.has(productId)) next.delete(productId);
+        else next.add(productId);
+        return next;
+      });
+
+      try {
+        const r = await api("/api/favorites/toggle", { method: "POST", body: { productId } });
+        if (r?.error === "cannot_favorite_own_product") {
+          // revert (server refused)
+          setFavorites((prev) => {
+            const next = new Set(prev);
+            // dacă server zice că nu ai voie, întoarcem la starea anterioară
+            if (next.has(productId)) next.delete(productId);
+            else next.add(productId);
+            return next;
+          });
+          alert("Nu poți adăuga la favorite un produs care îți aparține.");
+        }
+      } catch {
+        // revert dacă a picat requestul
+        setFavorites((prev) => {
+          const next = new Set(prev);
+          if (next.has(productId)) next.delete(productId);
+          else next.add(productId);
+          return next;
+        });
+      }
+    },
+    [me, openAuthModal]
+  );
+
+  // după login, executăm intent
+  useEffect(() => {
+    if (!me) return;
+    const raw = sessionStorage.getItem("intent");
+    if (!raw) return;
+
+    try {
+      const intent = JSON.parse(raw);
+      (async () => {
+        try {
+          if (intent?.type === "favorite_toggle" && intent?.productId) {
+            await api("/api/favorites/toggle", { method: "POST", body: { productId: intent.productId } });
+            const fav = await api("/api/favorites/ids").catch(() => ({ items: [] }));
+            setFavorites(new Set(Array.isArray(fav?.items) ? fav.items : []));
+          }
+        } finally {
+          sessionStorage.removeItem("intent");
+        }
+      })();
+    } catch {
+      sessionStorage.removeItem("intent");
+    }
+  }, [me]);
 
   // facete din items
   const facets = useMemo(() => {
@@ -328,10 +412,7 @@ export default function ProductsPage() {
     let priceMax = 0;
 
     for (const raw of items) {
-      const price =
-        typeof raw.price === "number"
-          ? raw.price
-          : (raw.priceCents || 0) / 100;
+      const price = typeof raw.price === "number" ? raw.price : (raw.priceCents || 0) / 100;
 
       if (Number.isFinite(price)) {
         if (price < priceMin) priceMin = price;
@@ -343,9 +424,8 @@ export default function ProductsPage() {
       if (raw?.materialMain) materials.add(raw.materialMain);
       if (raw?.technique) techniques.add(raw.technique);
 
-      if (Array.isArray(raw?.styleTags)) {
-        raw.styleTags.forEach((t) => t && styleTags.add(String(t)));
-      } else if (typeof raw?.styleTags === "string") {
+      if (Array.isArray(raw?.styleTags)) raw.styleTags.forEach((t) => t && styleTags.add(String(t)));
+      else if (typeof raw?.styleTags === "string") {
         raw.styleTags
           .split(/[,\s]+/)
           .map((t) => t.trim())
@@ -353,11 +433,8 @@ export default function ProductsPage() {
           .forEach((t) => styleTags.add(t));
       }
 
-      if (Array.isArray(raw?.occasionTags)) {
-        raw.occasionTags.forEach(
-          (t) => t && occasionTags.add(String(t))
-        );
-      } else if (typeof raw?.occasionTags === "string") {
+      if (Array.isArray(raw?.occasionTags)) raw.occasionTags.forEach((t) => t && occasionTags.add(String(t)));
+      else if (typeof raw?.occasionTags === "string") {
         raw.occasionTags
           .split(/[,\s]+/)
           .map((t) => t.trim())
@@ -373,12 +450,8 @@ export default function ProductsPage() {
       techniques: Array.from(techniques),
       styleTags: Array.from(styleTags),
       occasionTags: Array.from(occasionTags),
-      priceMin:
-        Number.isFinite(priceMin) && priceMin !== Infinity
-          ? priceMin
-          : "",
-      priceMax:
-        Number.isFinite(priceMax) && priceMax !== 0 ? priceMax : "",
+      priceMin: Number.isFinite(priceMin) && priceMin !== Infinity ? priceMin : "",
+      priceMax: Number.isFinite(priceMax) && priceMax !== 0 ? priceMax : "",
     };
   }, [items]);
 
@@ -391,117 +464,6 @@ export default function ProductsPage() {
     }
     return map;
   }, [items]);
-
-  const openAuthModal = useCallback(() => {
-    const current =
-      window.location.pathname + window.location.search;
-    const url = new URL(window.location.href);
-    url.searchParams.set("auth", "login");
-    url.searchParams.set("redirect", current);
-    navigate(url.pathname + url.search, { replace: false });
-  }, [navigate]);
-
-  const doAddToCart = useCallback(
-    async (productId) => {
-      if (me) {
-        const r = await api(`/api/cart/add`, {
-          method: "POST",
-          body: { productId, qty: 1 },
-        });
-        if (r?.__unauth) {
-          guestCart.add(productId, 1);
-        }
-      } else {
-        guestCart.add(productId, 1);
-      }
-      try {
-        window.dispatchEvent(new CustomEvent("cart:changed"));
-      } catch {
-        /* ignore */
-      }
-      alert("Produs adăugat în coș.");
-    },
-    [me]
-  );
-
-  const toggleFavorite = async (productId) => {
-    if (!me) {
-      alert(
-        "Pentru a salva produsele tale preferate și a putea discuta mai târziu cu artizanii despre personalizare, este nevoie să te autentifici. Te așteptăm cu drag, durează doar câteva secunde! 💛"
-      );
-      try {
-        sessionStorage.setItem(
-          "intent",
-          JSON.stringify({
-            type: "favorite_toggle",
-            productId,
-          })
-        );
-      } catch {
-        /* ignore */
-      }
-      openAuthModal();
-      return;
-    }
-
-    const next = new Set(favorites);
-    const isFav = next.has(productId);
-    isFav ? next.delete(productId) : next.add(productId);
-    setFavorites(next);
-
-    try {
-      const r = await api("/api/favorites/toggle", {
-        method: "POST",
-        body: { productId },
-      });
-      if (r?.error === "cannot_favorite_own_product") {
-        const rev = new Set(next);
-        isFav ? rev.add(productId) : rev.delete(productId);
-        setFavorites(rev);
-        alert(
-          "Nu poți adăuga la favorite un produs care îți aparține."
-        );
-      }
-    } catch {
-      const rev = new Set(next);
-      isFav ? rev.add(productId) : rev.delete(productId);
-      setFavorites(rev);
-    }
-  };
-
-  useEffect(() => {
-    if (!me) return;
-    const raw = sessionStorage.getItem("intent");
-    if (!raw) return;
-    try {
-      const intent = JSON.parse(raw);
-      (async () => {
-        try {
-          if (
-            intent?.type === "favorite_toggle" &&
-            intent?.productId
-          ) {
-            await api("/api/favorites/toggle", {
-              method: "POST",
-              body: { productId: intent.productId },
-            });
-            const fav = await api(
-              "/api/favorites/ids"
-            ).catch(() => ({ items: [] }));
-            setFavorites(
-              new Set(
-                Array.isArray(fav?.items) ? fav.items : []
-              )
-            );
-          }
-        } finally {
-          sessionStorage.removeItem("intent");
-        }
-      })();
-    } catch {
-      sessionStorage.removeItem("intent");
-    }
-  }, [me]);
 
   const applyFilters = () => {
     const f = localFilters;
@@ -526,7 +488,6 @@ export default function ProductsPage() {
 
     if (!ids && f.sort) p.set("sort", f.sort);
 
-    // lăsăm page=1 în URL pentru compat, dar nu mai citim din el
     p.set("page", "1");
 
     setFiltersOpen(false);
@@ -585,36 +546,12 @@ export default function ProductsPage() {
     navigate(`/produse?${p.toString()}`);
   };
 
-  // === Infinite scroll: când ajungem aproape de bottom, încărcăm pagina următoare ===
-  useEffect(() => {
-    if (!hasMore) return;
-
-    const handleScroll = () => {
-      const scrollPosition =
-        window.innerHeight + window.scrollY;
-      const threshold = document.body.offsetHeight - 400;
-
-      if (
-        scrollPosition >= threshold &&
-        !loading &&
-        !isLoadingMore &&
-        hasMore
-      ) {
-        setPage((prev) => prev + 1);
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll);
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-    };
-  }, [loading, isLoadingMore, hasMore]);
-
-  // când page crește (>1), încărcăm următoarea pagină și concatenăm
-  useEffect(() => {
-    if (page === 1) return;
-    load(page, true);
-  }, [page, load]);
+  const itemsNormalized = useMemo(() => {
+    return items.map((pRaw) => ({
+      ...pRaw,
+      price: typeof pRaw.price === "number" ? pRaw.price : (pRaw.priceCents || 0) / 100,
+    }));
+  }, [items]);
 
   return (
     <section className={styles.page}>
@@ -622,7 +559,6 @@ export default function ProductsPage() {
         <div className={styles.headTop}>
           <h1 className={styles.h1}>Produse</h1>
           <div className={styles.headActions}>
-
             <button
               type="button"
               className={styles.iconCircle}
@@ -654,17 +590,11 @@ export default function ProductsPage() {
           }}
           style={{ position: "relative" }}
           onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setSuggestions(null);
-            }
+            if (e.key === "Escape") setSuggestions(null);
           }}
         >
           <div className={styles.searchShell}>
-            <button
-              type="submit"
-              className={styles.searchIconBtn}
-              aria-label="Caută"
-            >
+            <button type="submit" className={styles.searchIconBtn} aria-label="Caută">
               <FaSearch />
             </button>
 
@@ -672,12 +602,7 @@ export default function ProductsPage() {
               className={`${styles.input} ${styles.searchInput}`}
               placeholder="Caută: invitații, mărturii, lumini decor…"
               value={localFilters.q}
-              onChange={(e) =>
-                setLocalFilters((f) => ({
-                  ...f,
-                  q: e.target.value,
-                }))
-              }
+              onChange={(e) => setLocalFilters((f) => ({ ...f, q: e.target.value }))}
               autoComplete="off"
             />
 
@@ -701,96 +626,66 @@ export default function ProductsPage() {
             onChange={handleImageFileChange}
           />
 
-          {localFilters.q &&
-            localFilters.q.length >= 2 &&
-            (suggestLoading || suggestions) && (
-              <div
-                role="listbox"
-                aria-label="Sugestii de căutare"
-                className={styles.suggestDropdown}
-              >
-                {suggestLoading && (
-                  <div className={styles.suggestLoading}>
-                    Se încarcă sugestiile…
-                  </div>
-                )}
+          {localFilters.q && localFilters.q.length >= 2 && (suggestLoading || suggestions) && (
+            <div role="listbox" aria-label="Sugestii de căutare" className={styles.suggestDropdown}>
+              {suggestLoading && <div className={styles.suggestLoading}>Se încarcă sugestiile…</div>}
 
-                {!suggestLoading && suggestions && (
-                  <>
-                    {(!suggestions.products ||
-                      !suggestions.products.length) &&
-                      (!suggestions.categories ||
-                        !suggestions.categories.length) && (
-                        <div className={styles.suggestEmpty}>
-                          Nu avem sugestii exacte pentru{" "}
-                          <strong>{localFilters.q}</strong>.
-                        </div>
-                      )}
+              {!suggestLoading && suggestions && (
+                <>
+                  {(!suggestions.products || !suggestions.products.length) &&
+                    (!suggestions.categories || !suggestions.categories.length) && (
+                      <div className={styles.suggestEmpty}>
+                        Nu avem sugestii exacte pentru <strong>{localFilters.q}</strong>.
+                      </div>
+                    )}
 
-                    {suggestions.categories &&
-                      suggestions.categories.length > 0 && (
-                        <div className={styles.suggestSection}>
-                          <div className={styles.suggestSectionTitle}>
-                            Categorii sugerate
-                          </div>
-                          {suggestions.categories.map((c) => (
-                            <button
-                              key={c.key}
-                              type="button"
-                              role="option"
-                              className={styles.suggestCategoryBtn}
-                              onClick={() =>
-                                handleSuggestionCategoryClick(c.key)
-                              }
-                            >
-                              {c.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                  {suggestions.categories && suggestions.categories.length > 0 && (
+                    <div className={styles.suggestSection}>
+                      <div className={styles.suggestSectionTitle}>Categorii sugerate</div>
+                      {suggestions.categories.map((c) => (
+                        <button
+                          key={c.key}
+                          type="button"
+                          role="option"
+                          className={styles.suggestCategoryBtn}
+                          onClick={() => handleSuggestionCategoryClick(c.key)}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-                    {suggestions.products &&
-                      suggestions.products.length > 0 && (
-                        <div className={styles.suggestSection}>
-                          <div className={styles.suggestSectionTitle}>
-                            Produse sugerate
-                          </div>
-                          <div className={styles.suggestProductsList}>
-                            {suggestions.products.map((p) => (
-                              <button
-                                key={p.id}
-                                type="button"
-                                role="option"
-                                className={styles.suggestProductBtn}
-                                onClick={() =>
-                                  handleSuggestionProductClick(p.id)
-                                }
-                              >
-                                {p.images?.[0] && (
-                                  <img
-                                    src={p.images[0]}
-                                    alt={p.title}
-                                    className={styles.suggestProductThumb}
-                                  />
-                                )}
-                                <div className={styles.suggestProductMeta}>
-                                  <div className={styles.suggestProductTitle}>
-                                    {p.title}
-                                  </div>
-                                  <div className={styles.suggestProductPrice}>
-                                    {(p.priceCents / 100).toFixed(2)}{" "}
-                                    {p.currency || "RON"}
-                                  </div>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                  </>
-                )}
-              </div>
-            )}
+                  {suggestions.products && suggestions.products.length > 0 && (
+                    <div className={styles.suggestSection}>
+                      <div className={styles.suggestSectionTitle}>Produse sugerate</div>
+                      <div className={styles.suggestProductsList}>
+                        {suggestions.products.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            role="option"
+                            className={styles.suggestProductBtn}
+                            onClick={() => handleSuggestionProductClick(p.id)}
+                          >
+                            {p.images?.[0] && (
+                              <img src={p.images[0]} alt={p.title} className={styles.suggestProductThumb} />
+                            )}
+                            <div className={styles.suggestProductMeta}>
+                              <div className={styles.suggestProductTitle}>{p.title}</div>
+                              <div className={styles.suggestProductPrice}>
+                                {(p.priceCents / 100).toFixed(2)} {p.currency || "RON"}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </form>
 
         <SmartSearchSummary
@@ -806,13 +701,9 @@ export default function ProductsPage() {
         {ids && (
           <div className={styles.imageSearchNotice}>
             <span className={styles.imageSearchText}>
-              Rezultate după imagine — ordinea este de similaritate. Poți rafina
-              cu filtrele.
+              Rezultate după imagine — ordinea este de similaritate. Poți rafina cu filtrele.
             </span>
-            <button
-              onClick={clearImageIds}
-              className={`${styles.btnPrimary} ${styles.imageSearchBtn}`}
-            >
+            <button onClick={clearImageIds} className={`${styles.btnPrimary} ${styles.imageSearchBtn}`}>
               Resetează imaginea
             </button>
           </div>
@@ -820,18 +711,10 @@ export default function ProductsPage() {
       </header>
 
       {filtersOpen && (
-        <div
-          className={styles.filtersOverlay}
-          onClick={() => setFiltersOpen(false)}
-        >
-          <div
-            className={styles.filtersModal}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className={styles.filtersOverlay} onClick={() => setFiltersOpen(false)}>
+          <div className={styles.filtersModal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.filtersModalHead}>
-              <h2 className={styles.filtersTitle}>
-                Filtre produse
-              </h2>
+              <h2 className={styles.filtersTitle}>Filtre produse</h2>
               <button
                 type="button"
                 className={styles.iconCircle}
@@ -848,23 +731,13 @@ export default function ProductsPage() {
                 className={styles.input}
                 placeholder="Caută produse…"
                 value={localFilters.q}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    q: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, q: e.target.value }))}
               />
 
               <select
                 className={styles.select}
                 value={localFilters.category}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    category: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, category: e.target.value }))}
                 aria-label="Categorie produs"
               >
                 <option value="">Toate categoriile</option>
@@ -878,12 +751,7 @@ export default function ProductsPage() {
               <select
                 className={styles.select}
                 value={localFilters.color}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    color: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, color: e.target.value }))}
                 aria-label="Culoare"
               >
                 <option value="">Toate culorile</option>
@@ -897,12 +765,7 @@ export default function ProductsPage() {
               <select
                 className={styles.select}
                 value={localFilters.material}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    material: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, material: e.target.value }))}
                 aria-label="Material principal"
               >
                 <option value="">Toate materialele</option>
@@ -916,12 +779,7 @@ export default function ProductsPage() {
               <select
                 className={styles.select}
                 value={localFilters.technique}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    technique: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, technique: e.target.value }))}
                 aria-label="Tehnică"
               >
                 <option value="">Toate tehnicile</option>
@@ -935,12 +793,7 @@ export default function ProductsPage() {
               <select
                 className={styles.select}
                 value={localFilters.styleTag}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    styleTag: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, styleTag: e.target.value }))}
                 aria-label="Stil"
               >
                 <option value="">Toate stilurile</option>
@@ -954,12 +807,7 @@ export default function ProductsPage() {
               <select
                 className={styles.select}
                 value={localFilters.occasionTag}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    occasionTag: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, occasionTag: e.target.value }))}
                 aria-label="Ocazie"
               >
                 <option value="">Toate ocaziile</option>
@@ -974,70 +822,32 @@ export default function ProductsPage() {
                 className={styles.input}
                 placeholder="Oraș"
                 value={localFilters.city}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    city: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, city: e.target.value }))}
               />
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <input
                   className={styles.inputN}
                   type="number"
                   min="0"
-                  placeholder={
-                    facets.priceMin
-                      ? `Min (ex: ${Math.floor(
-                          facets.priceMin
-                        )})`
-                      : "Min (RON)"
-                  }
+                  placeholder={facets.priceMin ? `Min (ex: ${Math.floor(facets.priceMin)})` : "Min (RON)"}
                   value={localFilters.minPrice}
-                  onChange={(e) =>
-                    setLocalFilters((f) => ({
-                      ...f,
-                      minPrice: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setLocalFilters((f) => ({ ...f, minPrice: e.target.value }))}
                 />
                 <input
                   className={styles.inputN}
                   type="number"
                   min="0"
-                  placeholder={
-                    facets.priceMax
-                      ? `Max (ex: ${Math.ceil(
-                          facets.priceMax
-                        )})`
-                      : "Max (RON)"
-                  }
+                  placeholder={facets.priceMax ? `Max (ex: ${Math.ceil(facets.priceMax)})` : "Max (RON)"}
                   value={localFilters.maxPrice}
-                  onChange={(e) =>
-                    setLocalFilters((f) => ({
-                      ...f,
-                      maxPrice: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setLocalFilters((f) => ({ ...f, maxPrice: e.target.value }))}
                 />
               </div>
 
               <select
                 className={styles.select}
                 value={localFilters.availability}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    availability: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, availability: e.target.value }))}
                 aria-label="Disponibilitate"
               >
                 <option value="">Toate disponibilitățile</option>
@@ -1047,44 +857,20 @@ export default function ProductsPage() {
                 <option value="SOLD_OUT">Epuizat</option>
               </select>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                }}
-              >
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <input
                   className={styles.inputN}
                   type="number"
                   min="1"
                   placeholder="Execuție max (zile)"
                   value={localFilters.leadTimeMax}
-                  onChange={(e) =>
-                    setLocalFilters((f) => ({
-                      ...f,
-                      leadTimeMax: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setLocalFilters((f) => ({ ...f, leadTimeMax: e.target.value }))}
                 />
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 14,
-                  }}
-                >
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}>
                   <input
                     type="checkbox"
                     checked={localFilters.acceptsCustom}
-                    onChange={(e) =>
-                      setLocalFilters((f) => ({
-                        ...f,
-                        acceptsCustom: e.target.checked,
-                      }))
-                    }
+                    onChange={(e) => setLocalFilters((f) => ({ ...f, acceptsCustom: e.target.checked }))}
                   />{" "}
                   Personalizabile
                 </label>
@@ -1093,18 +879,9 @@ export default function ProductsPage() {
               <select
                 className={styles.select}
                 value={localFilters.sort}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    sort: e.target.value,
-                  }))
-                }
+                onChange={(e) => setLocalFilters((f) => ({ ...f, sort: e.target.value }))}
                 disabled={!!ids}
-                title={
-                  ids
-                    ? "Sortarea este fixă (ordine de similaritate)"
-                    : "Sortează"
-                }
+                title={ids ? "Sortarea este fixă (ordine de similaritate)" : "Sortează"}
               >
                 {SORTS.map((s) => (
                   <option key={s.v} value={s.v}>
@@ -1114,18 +891,10 @@ export default function ProductsPage() {
               </select>
 
               <div className={styles.filterActions}>
-                <button
-                  type="button"
-                  className={styles.btnApply}
-                  onClick={applyFilters}
-                >
+                <button type="button" className={styles.btnApply} onClick={applyFilters}>
                   Aplică filtre
                 </button>
-                <button
-                  type="button"
-                  className={styles.btnReset}
-                  onClick={resetFilters}
-                >
+                <button type="button" className={styles.btnReset} onClick={resetFilters}>
                   Resetează
                 </button>
               </div>
@@ -1138,31 +907,14 @@ export default function ProductsPage() {
         <ProductsSkeleton />
       ) : (
         <>
-          {items.length === 0 ? (
+          {itemsNormalized.length === 0 ? (
             <EmptyState />
           ) : (
             <div className={styles.grid}>
-              {items.map((pRaw) => {
-                const p = {
-                  ...pRaw,
-                  price:
-                    typeof pRaw.price === "number"
-                      ? pRaw.price
-                      : (pRaw.priceCents || 0) / 100,
-                };
-
+              {itemsNormalized.map((p) => {
                 const ownerUserId = p?.service?.vendor?.userId;
-                const isOwner =
-                  !!me &&
-                  !!ownerUserId &&
-                  (me.id === ownerUserId ||
-                    me.sub === ownerUserId);
-                const viewMode = isOwner
-                  ? "vendor"
-                  : me
-                  ? "user"
-                  : "guest";
-
+                const isOwner = !!me && !!ownerUserId && (me.id === ownerUserId || me.sub === ownerUserId);
+                const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
                 const isFav = favorites.has(p.id);
 
                 return (
@@ -1180,16 +932,13 @@ export default function ProductsPage() {
             </div>
           )}
 
-          {isLoadingMore && (
-            <div className={styles.loading}>
-              Se încarcă mai multe produse…
-            </div>
-          )}
+          {/* sentinel pt. infinite scroll */}
+          <div ref={sentinelRef} style={{ height: 1 }} />
 
-          {!hasMore && total > 0 && (
-            <div className={styles.resultsInfo}>
-              Ai ajuns la finalul listei de produse.
-            </div>
+          {isLoadingMore && <div className={styles.loading}>Se încarcă mai multe produse…</div>}
+
+          {!hasMore && (total ?? 0) > 0 && (
+            <div className={styles.resultsInfo}>Ai ajuns la finalul listei de produse.</div>
           )}
         </>
       )}
@@ -1200,9 +949,7 @@ export default function ProductsPage() {
 function EmptyState() {
   return (
     <div className={styles.empty}>
-      <div className={styles.emptyTitle}>
-        Nu am găsit produse pentru filtrele alese.
-      </div>
+      <div className={styles.emptyTitle}>Nu am găsit produse pentru filtrele alese.</div>
       <a className={styles.btnPrimary} href="/produse">
         Resetează filtrele
       </a>
@@ -1254,12 +1001,7 @@ function ActiveFilterChips({ params, navigate }) {
       const value = p.get(key);
       if (!value) return null;
       return (
-        <button
-          key={key}
-          type="button"
-          className={styles.chip}
-          onClick={() => removeKey(key)}
-        >
+        <button key={key} type="button" className={styles.chip} onClick={() => removeKey(key)}>
           <span className={styles.chipLabel}>
             <strong>{label}:</strong> {value}
           </span>
@@ -1270,27 +1012,16 @@ function ActiveFilterChips({ params, navigate }) {
     .filter(Boolean);
 
   if (!chips.length) return null;
-
   return <div className={styles.chipsWrap}>{chips}</div>;
 }
 
-function SmartSearchSummary({
-  q,
-  smart,
-  applied,
-  categoryParam,
-  onApplySmartCategory,
-}) {
+function SmartSearchSummary({ q, smart, applied, categoryParam, onApplySmartCategory }) {
   if (!smart && !applied && !q) return null;
 
-  const categoryFromSmart =
-    smart?.inferredCategory && !categoryParam && !applied?.category;
+  const categoryFromSmart = smart?.inferredCategory && !categoryParam && !applied?.category;
 
-  const formatCategory = (cat) =>
-    cat ? humanizeCategory(cat) : "";
-
-  const formatSlug = (slug) =>
-    slug ? humanizeSlug(slug) : "";
+  const formatCategory = (cat) => (cat ? humanizeCategory(cat) : "");
+  const formatSlug = (slug) => (slug ? humanizeSlug(slug) : "");
 
   return (
     <div className={styles.smartSummaryWrap}>
@@ -1302,14 +1033,8 @@ function SmartSearchSummary({
 
       {applied?.category && (
         <span className={styles.chip}>
-          <strong>Categorie:</strong>{" "}
-          {formatCategory(applied.category)}
-          {categoryFromSmart && (
-            <span style={{ fontSize: 11, opacity: 0.7 }}>
-              {" "}
-              (dedusă din text)
-            </span>
-          )}
+          <strong>Categorie:</strong> {formatCategory(applied.category)}
+          {categoryFromSmart && <span style={{ fontSize: 11, opacity: 0.7 }}> (dedusă din text)</span>}
         </span>
       )}
 
@@ -1321,42 +1046,31 @@ function SmartSearchSummary({
 
       {applied?.occasionTag && (
         <span className={styles.chip}>
-          <strong>Ocazie:</strong>{" "}
-          {formatSlug(applied.occasionTag)}
+          <strong>Ocazie:</strong> {formatSlug(applied.occasionTag)}
         </span>
       )}
 
       {applied?.availability && (
         <span className={styles.chip}>
-          <strong>Disponibilitate:</strong>{" "}
-          {applied.availability}
+          <strong>Disponibilitate:</strong> {applied.availability}
         </span>
       )}
 
-      {applied?.acceptsCustom && (
-        <span className={styles.chip}>Personalizabile</span>
-      )}
+      {applied?.acceptsCustom && <span className={styles.chip}>Personalizabile</span>}
 
       {categoryFromSmart && (
         <button
           type="button"
           className={styles.smartCategorySuggest}
-          onClick={() =>
-            onApplySmartCategory?.(smart.inferredCategory)
-          }
+          onClick={() => onApplySmartCategory?.(smart.inferredCategory)}
         >
-          Sugestie categorie:{" "}
-          {formatCategory(smart.inferredCategory)}
+          Sugestie categorie: {formatCategory(smart.inferredCategory)}
         </button>
       )}
 
-      {smart?.mustTextTokens &&
-        smart.mustTextTokens.length > 0 && (
-          <span className={styles.smartSummaryText}>
-            Cuvinte cheie folosite:{" "}
-            {smart.mustTextTokens.join(", ")}
-          </span>
-        )}
+      {smart?.mustTextTokens && smart.mustTextTokens.length > 0 && (
+        <span className={styles.smartSummaryText}>Cuvinte cheie folosite: {smart.mustTextTokens.join(", ")}</span>
+      )}
     </div>
   );
 }

@@ -1,9 +1,12 @@
+-- AlterEnum
+ALTER TYPE "EmailSenderKey" ADD VALUE 'support';
+
 -- CreateTable
 CREATE TABLE "product_image_embeddings" (
     "id" TEXT NOT NULL,
     "productId" TEXT NOT NULL,
     "imageIndex" INTEGER NOT NULL DEFAULT 0,
-    "embedding" vector(512) NOT NULL,
+    "embedding" vector NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "product_image_embeddings_pkey" PRIMARY KEY ("id")

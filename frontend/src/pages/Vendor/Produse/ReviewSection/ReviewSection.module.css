@@ -687,3 +687,12 @@
     border-radius: 18px;
   }
 }
+.itemMenuDivider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 8px 0;
+}
+
+.vendorReplyEditor {
+  margin-top: 10px;
+}

@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-import { createVendorNotification } from "../services/notifications.js";
+import { notifyVendorOnStoreFollowCreated } from "../services/notifications.js";
 
 const router = Router();
 
@@ -21,9 +21,7 @@ router.get("/:serviceId/followers-count", async (req, res) => {
     });
 
     if (!service) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "store_not_found" });
+      return res.status(404).json({ ok: false, error: "store_not_found" });
     }
 
     const count = await prisma.serviceFollow.count({
@@ -54,9 +52,7 @@ router.get("/:serviceId/follow", authRequired, async (req, res) => {
     });
 
     if (!service) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "store_not_found" });
+      return res.status(404).json({ ok: false, error: "store_not_found" });
     }
 
     const [follow, count] = await Promise.all([
@@ -105,9 +101,7 @@ router.post("/:serviceId/follow", authRequired, async (req, res) => {
     });
 
     if (!service) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "store_not_found" });
+      return res.status(404).json({ ok: false, error: "store_not_found" });
     }
 
     let isNewFollow = false;
@@ -132,20 +126,10 @@ router.post("/:serviceId/follow", authRequired, async (req, res) => {
     // ==============================
     // 🔔 Notificare către VENDOR – doar la follow NOU
     // ==============================
-    if (isNewFollow && service.vendorId) {
+    if (isNewFollow) {
       try {
-        const storeName =
-          service.profile?.displayName ||
-          service.title ||
-          "magazinul tău";
-
-        await createVendorNotification(service.vendorId, {
-          type: "follow",
-          title: "Magazinul tău are un nou urmăritor",
-          body: `Cineva a început să urmărească ${storeName}.`,
-          // ajustează link-ul dacă ai o pagină dedicată pentru urmăritori
-          link: "/vendor/visitors",
-        });
+        // helper-ul ia singur vendorId + storeName din service
+        await notifyVendorOnStoreFollowCreated(serviceId, userId);
       } catch (e) {
         console.error("store follow notification failed", e);
         // nu stricăm răspunsul către client dacă notificarea eșuează
@@ -159,9 +143,7 @@ router.post("/:serviceId/follow", authRequired, async (req, res) => {
     });
   } catch (e) {
     console.error("POST store follow error", e);
-    return res
-      .status(500)
-      .json({ ok: false, error: "store_follow_failed" });
+    return res.status(500).json({ ok: false, error: "store_follow_failed" });
   }
 });
 
@@ -178,10 +160,9 @@ router.delete("/:serviceId/follow", authRequired, async (req, res) => {
       where: { id: serviceId },
       select: { id: true },
     });
+
     if (!service) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "store_not_found" });
+      return res.status(404).json({ ok: false, error: "store_not_found" });
     }
 
     await prisma.serviceFollow.deleteMany({

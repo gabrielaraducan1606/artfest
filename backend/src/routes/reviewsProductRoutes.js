@@ -1,9 +1,14 @@
+// backend/src/routes/productReviews.routes.js
 import { Router } from "express";
 import multer from "multer";
 import crypto from "crypto";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
+import {
+  notifyVendorOnProductReviewCreated,
+  notifyUserOnProductReviewReply, // notifică clientul când vendor răspunde la review produs
+} from "../services/notifications.js";
 
 const router = Router();
 
@@ -232,7 +237,7 @@ router.get("/public/product/:id/reviews", async (req, res) => {
         r.user.firstName || r.user.lastName
           ? [r.user.firstName, r.user.lastName].filter(Boolean).join(" ")
           : r.user.name || r.user.email.split("@")[0],
-      userId: r.userId, // util dacă vrei să recunoști recenzia userului curent pe front
+      userId: r.userId,
     })),
   });
 });
@@ -333,6 +338,11 @@ router.post(
             status: "APPROVED",
           },
         });
+
+        // 🔔 notifică vendorul DOAR la recenzie nouă
+        notifyVendorOnProductReviewCreated(saved.id).catch((e) => {
+          console.warn("[notifyVendorOnProductReviewCreated] failed:", e);
+        });
       } else {
         // există recenzie anterioară
         const isModeratedStatus =
@@ -350,6 +360,11 @@ router.post(
               createdAt: now,
               updatedAt: now,
             },
+          });
+
+          // 🔔 notifică vendorul (tratăm ca recenzie nouă)
+          notifyVendorOnProductReviewCreated(saved.id).catch((e) => {
+            console.warn("[notifyVendorOnProductReviewCreated] failed:", e);
           });
         } else {
           // ✏️ caz normal: recenzie APROBATĂ care este EDITATĂ
@@ -401,6 +416,8 @@ router.post(
               );
             }
           }
+
+          // ❗ nu notificăm vendorul la edit normal (anti-spam)
         }
       }
 
@@ -421,7 +438,6 @@ router.post(
             Key: key,
             Body: file.buffer,
             ContentType: file.mimetype || "image/jpeg",
-            // pentru R2 public bucket poți lăsa sau scoate ACL, nu contează
           });
 
           try {
@@ -476,7 +492,8 @@ router.post("/reviews/:id/helpful", authRequired, async (req, res) => {
   }
   res.json({ ok: true });
 });
-// DELETE /api/reviews/:id/helpful  – user-ul își retrage "utilă"
+
+// DELETE /api/reviews/:id/helpful
 router.delete("/reviews/:id/helpful", authRequired, async (req, res) => {
   const { id } = req.params;
 
@@ -542,7 +559,6 @@ router.delete("/reviews/:id", authRequired, async (req, res) => {
       prisma.review.delete({ where: { id: reviewId } }),
     ]);
 
-    // recalculează stats produs
     await recalcProductStats(existing.productId);
 
     return res.json({ ok: true });
@@ -566,7 +582,7 @@ router.post(
 
     const review = await prisma.review.findUnique({
       where: { id },
-      include: { product: { include: { service: true } } },
+      include: { product: { include: { service: true } }, reply: true },
     });
     if (!review) return res.status(404).json({ error: "not_found" });
     if (review.product.service.vendorId !== req.vendorId) {
@@ -577,6 +593,11 @@ router.post(
       where: { reviewId: id },
       update: { text },
       create: { reviewId: id, vendorId: req.vendorId, text },
+    });
+
+    // 🔔 notifică CLIENTUL că vendorul a răspuns la recenzia lui de produs
+    notifyUserOnProductReviewReply(review.id).catch((e) => {
+      console.warn("[notifyUserOnProductReviewReply] failed:", e);
     });
 
     res.json({ ok: true, reply });
@@ -659,8 +680,6 @@ router.delete(
 /* ================== LISTE PENTRU CONT UTILIZATOR ================== */
 /**
  * GET /api/reviews/my
- * Recenziile mele de produs (USER)
- * query: page, limit
  */
 router.get("/reviews/my", authRequired, async (req, res) => {
   try {
@@ -716,14 +735,11 @@ router.get("/reviews/my", authRequired, async (req, res) => {
 
 /**
  * GET /api/reviews/received
- * Recenzii primite pentru produsele unui VENDOR
- * query: page, limit
  */
 router.get("/reviews/received", authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
 
-    // aflăm vendorId pentru user
     const vendor = await prisma.vendor.findUnique({
       where: { userId },
       select: { id: true },
@@ -785,5 +801,33 @@ router.get("/reviews/received", authRequired, async (req, res) => {
     res.status(500).json({ error: "reviews_received_failed" });
   }
 });
+
+// PATCH /api/vendor/reviews/:id/reply
+router.patch(
+  "/vendor/reviews/:id/reply",
+  authRequired,
+  requireVendor(true),
+  async (req, res) => {
+    const { id } = req.params;
+    const text = sanitizeText(req.body?.text || "", 1000);
+    if (!text) return res.status(400).json({ error: "invalid_input" });
+
+    const review = await prisma.review.findUnique({
+      where: { id },
+      include: { product: { include: { service: true } } },
+    });
+    if (!review) return res.status(404).json({ error: "not_found" });
+    if (review.product.service.vendorId !== req.vendorId) {
+      return res.status(403).json({ error: "not_vendor_owner" });
+    }
+
+    const reply = await prisma.reviewReply.update({
+      where: { reviewId: id },
+      data: { text },
+    });
+
+    res.json({ ok: true, reply });
+  }
+);
 
 export default router;

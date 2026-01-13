@@ -22,6 +22,8 @@ function kindLabel(kind) {
       return "Recenzie produs";
     case "store":
       return "Recenzie profil magazin";
+    case "comment":
+      return "Comentariu produs";
     default:
       return kind || "—";
   }
@@ -69,7 +71,6 @@ function editedInfo(review) {
     return `Creată: ${formatDate(review.createdAt)}`;
   }
 
-  // dacă updated == created → o afișăm ca „Creată”
   if (updated.getTime() <= created.getTime()) {
     return `Creată: ${formatDate(review.createdAt)}`;
   }
@@ -81,25 +82,27 @@ export default function AdminReviewReportsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // lista combinată (produs + profil)
+  // listă combinată: product review + store review + comments
   const [items, setItems] = useState([]);
 
   // totaluri generale
   const [totalAll, setTotalAll] = useState(0);
   const [recentAll, setRecentAll] = useState(0);
 
-  // totaluri pe tip (produs / profil)
+  // totaluri pe tip
   const [totalByKind, setTotalByKind] = useState({
     product: 0,
     store: 0,
+    comment: 0,
   });
   const [recentByKind, setRecentByKind] = useState({
     product: 0,
     store: 0,
+    comment: 0,
   });
 
   // selecție pt panoul de detalii
-  const [selected, setSelected] = useState(null); // { kind, reviewId, reportId }
+  const [selected, setSelected] = useState(null); // { kind, entityId, reportId }
   const [editLogs, setEditLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState("");
@@ -117,20 +120,29 @@ export default function AdminReviewReportsTab() {
       setLogsError("");
       setActionError("");
 
-      const [resProd, resStore] = await Promise.all([
+      const [resProd, resStore, resComments] = await Promise.all([
         fetch("/api/admin/maintenance/review-reports?take=200&days=30"),
         fetch("/api/admin/maintenance/store-review-reports?take=200&days=30"),
+        fetch("/api/admin/maintenance/comment-reports?take=200&days=30"),
       ]);
 
       if (!resProd.ok) {
-        throw new Error("Nu am putut încărca raportările de recenzii de produs.");
+        throw new Error(
+          "Nu am putut încărca raportările de recenzii de produs."
+        );
       }
       if (!resStore.ok) {
-        throw new Error("Nu am putut încărca raportările de recenzii de profil.");
+        throw new Error(
+          "Nu am putut încărca raportările de recenzii de profil."
+        );
+      }
+      if (!resComments.ok) {
+        throw new Error("Nu am putut încărca raportările de comentarii.");
       }
 
       const dataProd = await resProd.json();
       const dataStore = await resStore.json();
+      const dataComments = await resComments.json();
 
       const prodItems = (dataProd.items || []).map((it) => ({
         ...it,
@@ -140,29 +152,37 @@ export default function AdminReviewReportsTab() {
         ...it,
         _kind: "store",
       }));
+      const commentItems = (dataComments.items || []).map((it) => ({
+        ...it,
+        _kind: "comment",
+      }));
 
-      const merged = [...prodItems, ...storeItems].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      const merged = [...prodItems, ...storeItems, ...commentItems].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
 
       setItems(merged);
 
       const totalProduct = dataProd.total || 0;
       const totalStore = dataStore.total || 0;
+      const totalComments = dataComments.total || 0;
+
       const recentProduct = dataProd.recentCount || 0;
       const recentStore = dataStore.recentCount || 0;
+      const recentComments = dataComments.recentCount || 0;
 
-      setTotalAll(totalProduct + totalStore);
-      setRecentAll(recentProduct + recentStore);
+      setTotalAll(totalProduct + totalStore + totalComments);
+      setRecentAll(recentProduct + recentStore + recentComments);
 
       setTotalByKind({
         product: totalProduct,
         store: totalStore,
+        comment: totalComments,
       });
       setRecentByKind({
         product: recentProduct,
         store: recentStore,
+        comment: recentComments,
       });
     } catch (e) {
       console.error(e);
@@ -176,49 +196,56 @@ export default function AdminReviewReportsTab() {
     load();
   }, []);
 
-  // când selectăm o recenzie, încărcăm istoricul de editări
+  // când selectăm o entitate, încărcăm logs doar pentru reviews (nu pentru comments)
   useEffect(() => {
-    async function loadLogs(sel) {
-      if (!sel) {
+  async function loadLogs(sel) {
+    if (!sel) {
+      setEditLogs([]);
+      setLogsError("");
+      return;
+    }
+
+    try {
+      setLogsLoading(true);
+      setLogsError("");
+
+      let url = "";
+
+      if (sel.kind === "product") {
+        url = `/api/admin/maintenance/product-reviews/${sel.entityId}/edit-logs`;
+      } else if (sel.kind === "store") {
+        url = `/api/admin/maintenance/store-reviews/${sel.entityId}/edit-logs`;
+      } else if (sel.kind === "comment") {
+        url = `/api/admin/maintenance/comments/${sel.entityId}/edit-logs`;
+      } else {
         setEditLogs([]);
-        setLogsError("");
         return;
       }
 
-      try {
-        setLogsLoading(true);
-        setLogsError("");
-
-        const base =
-          sel.kind === "product"
-            ? "/api/admin/maintenance/product-reviews"
-            : "/api/admin/maintenance/store-reviews";
-
-        const res = await fetch(`${base}/${sel.reviewId}/edit-logs`);
-        if (!res.ok) {
-          throw new Error("Nu am putut încărca istoricul de editări.");
-        }
-        const data = await res.json();
-        setEditLogs(data.items || []);
-      } catch (e) {
-        console.error(e);
-        setLogsError(e.message || "Eroare la încărcarea istoricului de editări.");
-        setEditLogs([]);
-      } finally {
-        setLogsLoading(false);
-      }
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Nu am putut încărca istoricul de editări.");
+      const data = await res.json();
+      setEditLogs(data.items || []);
+    } catch (e) {
+      console.error(e);
+      setLogsError(e.message || "Eroare la încărcarea istoricului de editări.");
+      setEditLogs([]);
+    } finally {
+      setLogsLoading(false);
     }
+  }
 
-    loadLogs(selected);
-  }, [selected]);
+  loadLogs(selected);
+}, [selected]);
 
   const hasItems = items && items.length > 0;
 
   function handleSelect(row) {
-    if (!row?.review?.id) return;
+    const kind = row?._kind;
+    const entityId = kind === "comment" ? row?.comment?.id : row?.review?.id;
+    if (!kind || !entityId) return;
 
-    if (selected && selected.reviewId === row.review.id) {
-      // toggle: dacă e deja selectată, o ascundem
+    if (selected && selected.kind === kind && selected.entityId === entityId) {
       setSelected(null);
       setEditLogs([]);
       setLogsError("");
@@ -227,8 +254,8 @@ export default function AdminReviewReportsTab() {
     }
 
     setSelected({
-      kind: row._kind, // "product" sau "store"
-      reviewId: row.review.id,
+      kind,
+      entityId,
       reportId: row.id,
     });
     setActionError("");
@@ -236,6 +263,8 @@ export default function AdminReviewReportsTab() {
 
   async function handleHideReview() {
     if (!selected) return;
+    if (selected.kind === "comment") return;
+
     try {
       setActionLoading(true);
       setActionError("");
@@ -245,7 +274,7 @@ export default function AdminReviewReportsTab() {
           ? "/api/admin/maintenance/product-reviews"
           : "/api/admin/maintenance/store-reviews";
 
-      const res = await fetch(`${base}/${selected.reviewId}/hide`, {
+      const res = await fetch(`${base}/${selected.entityId}/hide`, {
         method: "POST",
       });
 
@@ -258,7 +287,8 @@ export default function AdminReviewReportsTab() {
 
       setItems((prev) =>
         prev.map((r) => {
-          if (r.review?.id !== selected.reviewId) return r;
+          if (r._kind === "comment") return r;
+          if (r.review?.id !== selected.entityId) return r;
           return {
             ...r,
             review: {
@@ -279,6 +309,8 @@ export default function AdminReviewReportsTab() {
 
   async function handleDeleteReview() {
     if (!selected) return;
+    if (selected.kind === "comment") return;
+
     const ok = window.confirm(
       "Ești sigură că vrei să ștergi definitiv această recenzie? Acțiunea nu poate fi anulată."
     );
@@ -293,7 +325,7 @@ export default function AdminReviewReportsTab() {
           ? "/api/admin/maintenance/product-reviews"
           : "/api/admin/maintenance/store-reviews";
 
-      const res = await fetch(`${base}/${selected.reviewId}`, {
+      const res = await fetch(`${base}/${selected.entityId}`, {
         method: "DELETE",
       });
 
@@ -301,9 +333,7 @@ export default function AdminReviewReportsTab() {
         throw new Error("Nu am putut șterge recenzia.");
       }
 
-      setItems((prev) =>
-        prev.filter((r) => r.review?.id !== selected.reviewId)
-      );
+      setItems((prev) => prev.filter((r) => r.review?.id !== selected.entityId));
       setSelected(null);
       setEditLogs([]);
     } catch (e) {
@@ -314,8 +344,45 @@ export default function AdminReviewReportsTab() {
     }
   }
 
+  async function handleDeleteComment() {
+    if (!selected) return;
+    if (selected.kind !== "comment") return;
+
+    const ok = window.confirm(
+      "Ești sigură că vrei să ștergi definitiv acest comentariu? (Se șterg și raportările asociate)"
+    );
+    if (!ok) return;
+
+    try {
+      setActionLoading(true);
+      setActionError("");
+
+      const res = await fetch(
+        `/api/admin/maintenance/comments/${encodeURIComponent(selected.entityId)}`,
+        { method: "DELETE" }
+      );
+
+      if (!res.ok) {
+        throw new Error("Nu am putut șterge comentariul.");
+      }
+
+      // scoatem toate raportările care țintesc comentariul (poate fi raportat de mai mulți)
+      setItems((prev) => prev.filter((r) => r.comment?.id !== selected.entityId));
+      setSelected(null);
+      setEditLogs([]);
+    } catch (e) {
+      console.error(e);
+      setActionError(e.message || "Eroare la ștergerea comentariului.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   const selectedRow = selected
-    ? items.find((r) => r.review?.id === selected.reviewId)
+    ? items.find((r) => {
+        if (selected.kind === "comment") return r.comment?.id === selected.entityId;
+        return r.review?.id === selected.entityId;
+      })
     : null;
 
   return (
@@ -324,7 +391,7 @@ export default function AdminReviewReportsTab() {
         <div>
           <div className={styles.sectionTitleRow}>
             <h3 className={styles.sectionTitle}>
-              Raportări recenzii{" "}
+              Raportări (recenzii + comentarii){" "}
               {totalAll > 0 && (
                 <span className={styles.badgeLight}>
                   <FaFlag style={{ marginRight: 4 }} />
@@ -335,29 +402,29 @@ export default function AdminReviewReportsTab() {
           </div>
 
           <p className={styles.subtle}>
-            Aici vezi toate recenziile raportate de utilizatori sau
-            vendori (limbaj nepotrivit, date personale, spam etc.).
-            De aici poți decide dacă păstrezi recenzia, o ascunzi sau
-            o ștergi manual.
+            Aici vezi toate recenziile și comentariile raportate (limbaj nepotrivit, date
+            personale, spam etc.). Poți decide dacă păstrezi, ascunzi (doar la recenzii) sau
+            ștergi manual.
           </p>
 
           <p className={styles.subtle}>
-            Total raportări cunoscute:{" "}
-            <strong>{totalAll}</strong> · Din ultimele 30 zile:{" "}
+            Total raportări cunoscute: <strong>{totalAll}</strong> · Din ultimele 30 zile:{" "}
             <strong>{recentAll}</strong>
           </p>
 
           <p className={styles.subtle}>
-            <strong>Pe tip recenzie:</strong>{" "}
+            <strong>Pe tip:</strong>{" "}
             <span style={{ marginRight: 12 }}>
-              Produs:{" "}
-              <strong>{totalByKind.product}</strong> (recent:{" "}
+              Recenzii produs: <strong>{totalByKind.product}</strong> (recent:{" "}
               {recentByKind.product})
             </span>
-            <span>
-              Profil magazin:{" "}
-              <strong>{totalByKind.store}</strong> (recent:{" "}
+            <span style={{ marginRight: 12 }}>
+              Recenzii profil: <strong>{totalByKind.store}</strong> (recent:{" "}
               {recentByKind.store})
+            </span>
+            <span>
+              Comentarii: <strong>{totalByKind.comment}</strong> (recent:{" "}
+              {recentByKind.comment})
             </span>
           </p>
         </div>
@@ -375,19 +442,14 @@ export default function AdminReviewReportsTab() {
       </div>
 
       {loading && (
-        <p className={styles.subtle}>
-          Se încarcă lista de raportări de recenzii…
-        </p>
+        <p className={styles.subtle}>Se încarcă lista de raportări…</p>
       )}
 
-      {error && !loading && (
-        <p className={styles.errorText}>{error}</p>
-      )}
+      {error && !loading && <p className={styles.errorText}>{error}</p>}
 
       {!loading && !error && !hasItems && (
         <p className={styles.subtle}>
-          Momentan nu există recenzii raportate sau logica de
-          raportare nu a fost încă folosită.
+          Momentan nu există raportări sau logica de raportare nu a fost încă folosită.
         </p>
       )}
 
@@ -400,35 +462,111 @@ export default function AdminReviewReportsTab() {
                   <th>Data raportării</th>
                   <th>Tip</th>
                   <th>Motiv</th>
-                  <th>Recenzie</th>
+                  <th>Conținut</th>
                   <th>Rating</th>
-                  <th>Info recenzie</th>
+                  <th>Info</th>
                   <th>Țintă (produs / magazin)</th>
                   <th>Raportat de</th>
                   <th>Acțiuni</th>
                 </tr>
               </thead>
+
               <tbody>
                 {items.map((r) => {
                   const kind = r._kind;
+                  const reporter = r.reporter;
+
+                  // =========================
+                  // COMMENTS
+                  // =========================
+                  if (kind === "comment") {
+                    const c = r.comment;
+
+                    const link =
+                      c?.product?.id && c?.id
+                        ? `/produs/${c.product.id}#cmt-${c.id}`
+                        : c?.product?.id
+                        ? `/produs/${c.product.id}`
+                        : null;
+
+                    const targetLabel = c?.product?.title || "Produs";
+
+                    const isSelected =
+                      selected &&
+                      selected.kind === "comment" &&
+                      selected.entityId === c?.id;
+
+                    return (
+                      <tr
+                        key={r.id}
+                        className={isSelected ? styles.rowSelected : undefined}
+                      >
+                        <td>{formatDate(r.createdAt)}</td>
+                        <td>{kindLabel("comment")}</td>
+                        <td>{truncate(r.reason, 120)}</td>
+                        <td>{truncate(c?.text, 120)}</td>
+                        <td>{"—"}</td>
+                        <td>{"—"}</td>
+                        <td>{truncate(targetLabel, 80)}</td>
+                        <td>
+                          {reporter ? (
+                            <>
+                              {reporter.name || reporter.email || "—"}
+                              <br />
+                              <span className={styles.subtle}>
+                                {reporter.email || "—"}{" "}
+                                {reporter.role ? `(${roleLabel(reporter.role)})` : ""}
+                              </span>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 4,
+                            }}
+                          >
+                            {link && (
+                              <a
+                                href={link}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={styles.linkInline}
+                              >
+                                <FaExternalLinkAlt style={{ marginRight: 4, fontSize: 12 }} />
+                                Vezi comentariul
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              className={styles.btnLink}
+                              onClick={() => handleSelect(r)}
+                            >
+                              {isSelected ? "Ascunde detaliile" : "Detalii"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  // =========================
+                  // REVIEWS (product/store)
+                  // =========================
                   const review = r.review;
 
-                  const product =
-                    kind === "product" ? review?.product : null;
-                  const vendorFromProduct =
-                    product?.service?.vendor || null;
-
-                  const vendorFromStore =
-                    kind === "store" ? review?.vendor : null;
-
-                  const reporter = r.reporter;
+                  const product = kind === "product" ? review?.product : null;
+                  const vendorFromProduct = product?.service?.vendor || null;
+                  const vendorFromStore = kind === "store" ? review?.vendor : null;
 
                   const link =
                     kind === "product" && product?.id && review?.id
                       ? `/produs/${product.id}#rev-${review.id}`
-                      : kind === "store" &&
-                        vendorFromStore?.id &&
-                        review?.id
+                      : kind === "store" && vendorFromStore?.id && review?.id
                       ? `/magazin/${vendorFromStore.id}#rev-${review.id}`
                       : null;
 
@@ -446,8 +584,7 @@ export default function AdminReviewReportsTab() {
                       ? `Profil magazin: ${vendorFromStore.displayName}`
                       : "";
 
-                  const isSelected =
-                    selected && selected.reviewId === review?.id;
+                  const isSelected = selected && selected.kind === kind && selected.entityId === review?.id;
 
                   return (
                     <tr
@@ -462,14 +599,9 @@ export default function AdminReviewReportsTab() {
                       <td>
                         <div>
                           <div>
-                            Status:{" "}
-                            <strong>
-                              {statusLabel(review?.status)}
-                            </strong>
+                            Status: <strong>{statusLabel(review?.status)}</strong>
                           </div>
-                          <div className={styles.subtle}>
-                            {editedInfo(review)}
-                          </div>
+                          <div className={styles.subtle}>{editedInfo(review)}</div>
                         </div>
                       </td>
                       <td>
@@ -489,9 +621,7 @@ export default function AdminReviewReportsTab() {
                             <br />
                             <span className={styles.subtle}>
                               {reporter.email || "—"}{" "}
-                              {reporter.role
-                                ? `(${roleLabel(reporter.role)})`
-                                : ""}
+                              {reporter.role ? `(${roleLabel(reporter.role)})` : ""}
                             </span>
                           </>
                         ) : (
@@ -513,12 +643,7 @@ export default function AdminReviewReportsTab() {
                               rel="noreferrer"
                               className={styles.linkInline}
                             >
-                              <FaExternalLinkAlt
-                                style={{
-                                  marginRight: 4,
-                                  fontSize: 12,
-                                }}
-                              />
+                              <FaExternalLinkAlt style={{ marginRight: 4, fontSize: 12 }} />
                               Vezi recenzia
                             </a>
                           )}
@@ -527,9 +652,7 @@ export default function AdminReviewReportsTab() {
                             className={styles.btnLink}
                             onClick={() => handleSelect(r)}
                           >
-                            {isSelected
-                              ? "Ascunde detaliile"
-                              : "Detalii / istoric"}
+                            {isSelected ? "Ascunde detaliile" : "Detalii / istoric"}
                           </button>
                         </div>
                       </td>
@@ -540,13 +663,52 @@ export default function AdminReviewReportsTab() {
             </table>
           </div>
 
-          {selectedRow && (
+          {/* =========================
+              DETAILS PANEL
+             ========================= */}
+          {selectedRow && selected && selected.kind === "comment" && (
+            <div className={styles.card} style={{ marginTop: 16 }}>
+              <h4 style={{ marginBottom: 8 }}>Detalii comentariu raportat</h4>
+
+              {actionError && <p className={styles.errorText}>{actionError}</p>}
+
+              <p className={styles.subtle}>
+                <strong>Raportat la:</strong> {formatDate(selectedRow.createdAt)}
+              </p>
+
+              <p style={{ marginTop: 8 }}>
+                <strong>Comentariu:</strong> {selectedRow.comment?.text || "—"}
+              </p>
+
+              <p style={{ marginTop: 8 }}>
+                <strong>Motiv:</strong> {selectedRow.reason || "—"}
+              </p>
+
+              <p style={{ marginTop: 8 }}>
+                <strong>Produs:</strong> {selectedRow.comment?.product?.title || "—"}
+              </p>
+
+              <div style={{ marginTop: 12 }}>
+                <p className={styles.subtle}>
+                  <strong>Acțiuni admin</strong>
+                </p>
+                <button
+                  type="button"
+                  className={styles.btnDanger}
+                  onClick={handleDeleteComment}
+                  disabled={actionLoading}
+                >
+                  Șterge definitiv comentariul
+                </button>
+              </div>
+            </div>
+          )}
+
+          {selectedRow && selected && selected.kind !== "comment" && (
             <div className={styles.card} style={{ marginTop: 16 }}>
               <h4 style={{ marginBottom: 8 }}>Detalii recenzie raportată</h4>
 
-              {actionError && (
-                <p className={styles.errorText}>{actionError}</p>
-              )}
+              {actionError && <p className={styles.errorText}>{actionError}</p>}
 
               <div
                 style={{
@@ -557,30 +719,26 @@ export default function AdminReviewReportsTab() {
               >
                 <div>
                   <p className={styles.subtle}>
-                    <strong>Tip:</strong>{" "}
-                    {kindLabel(selectedRow._kind)} ·{" "}
-                    <strong>Status:</strong>{" "}
-                    {statusLabel(selectedRow.review?.status)}
+                    <strong>Tip:</strong> {kindLabel(selectedRow._kind)} ·{" "}
+                    <strong>Status:</strong> {statusLabel(selectedRow.review?.status)}
                   </p>
+
                   <p className={styles.subtle}>
-                    <strong>Creată:</strong>{" "}
-                    {formatDate(selectedRow.review?.createdAt)} ·{" "}
+                    <strong>Creată:</strong> {formatDate(selectedRow.review?.createdAt)} ·{" "}
                     <strong>Ultima modificare:</strong>{" "}
                     {formatDate(selectedRow.review?.updatedAt)}
                   </p>
 
                   <p style={{ marginTop: 8 }}>
-                    <strong>Rating:</strong>{" "}
-                    {selectedRow.review?.rating ?? "—"}
+                    <strong>Rating:</strong> {selectedRow.review?.rating ?? "—"}
                   </p>
+
                   <p>
-                    <strong>Comentariu:</strong>{" "}
-                    {selectedRow.review?.comment || "—"}
+                    <strong>Comentariu:</strong> {selectedRow.review?.comment || "—"}
                   </p>
 
                   <p style={{ marginTop: 8 }}>
-                    <strong>Raportată pentru:</strong>{" "}
-                    {selectedRow.reason}
+                    <strong>Raportată pentru:</strong> {selectedRow.reason}
                   </p>
 
                   <p style={{ marginTop: 8 }}>
@@ -599,10 +757,8 @@ export default function AdminReviewReportsTab() {
                   <p>
                     <strong>Magazin / produs vizat:</strong>{" "}
                     {selectedRow._kind === "product"
-                      ? selectedRow.review?.product?.title ||
-                        "Produs necunoscut"
-                      : selectedRow.review?.vendor?.displayName ||
-                        "Magazin"}
+                      ? selectedRow.review?.product?.title || "Produs necunoscut"
+                      : selectedRow.review?.vendor?.displayName || "Magazin"}
                   </p>
                 </div>
 
@@ -610,6 +766,7 @@ export default function AdminReviewReportsTab() {
                   <p className={styles.subtle}>
                     <strong>Acțiuni admin</strong>
                   </p>
+
                   <div
                     style={{
                       display: "flex",
@@ -640,86 +797,73 @@ export default function AdminReviewReportsTab() {
 
               <div style={{ marginTop: 16 }}>
                 <h5 style={{ marginBottom: 4 }}>Istoric editări</h5>
+
                 {logsLoading && (
-                  <p className={styles.subtle}>
-                    Se încarcă istoricul de editări…
-                  </p>
+                  <p className={styles.subtle}>Se încarcă istoricul de editări…</p>
                 )}
-                {logsError && (
-                  <p className={styles.errorText}>{logsError}</p>
-                )}
+
+                {logsError && <p className={styles.errorText}>{logsError}</p>}
+
                 {!logsLoading && !logsError && editLogs.length === 0 && (
                   <p className={styles.subtle}>
                     Nu există editări înregistrate pentru această recenzie.
                   </p>
                 )}
+
                 {!logsLoading && !logsError && editLogs.length > 0 && (
-                  <ul
-                    style={{
-                      listStyle: "none",
-                      paddingLeft: 0,
-                      margin: 0,
-                    }}
-                  >
+                  <ul style={{ listStyle: "none", paddingLeft: 0, margin: 0 }}>
                     {editLogs.map((log) => {
-  const isReplyEdit = log.reason === "VENDOR_REPLY_EDIT";
+                      const isReplyEdit = log.reason === "VENDOR_REPLY_EDIT";
 
-  return (
-    <li
-      key={log.id}
-      className={styles.subtle}
-      style={{
-        padding: "4px 0",
-        borderBottom: "1px solid rgba(0,0,0,0.05)",
-      }}
-    >
-      <div>
-        <strong>{formatDate(log.createdAt)}</strong>{" "}
-        · {log.reason || (isReplyEdit ? "VENDOR_REPLY_EDIT" : "EDIT")}
-      </div>
-      <div>
-        De:{" "}
-        {log.editor?.name ||
-          log.editor?.email ||
-          "necunoscut"}{" "}
-        {log.editor?.role && (
-          <span>
-            {" "}
-            ({roleLabel(log.editor.role)})
-          </span>
-        )}
-      </div>
+                      return (
+                        <li
+                          key={log.id}
+                          className={styles.subtle}
+                          style={{
+                            padding: "4px 0",
+                            borderBottom: "1px solid rgba(0,0,0,0.05)",
+                          }}
+                        >
+                          <div>
+                            <strong>{formatDate(log.createdAt)}</strong> ·{" "}
+                            {log.reason || (isReplyEdit ? "VENDOR_REPLY_EDIT" : "EDIT")}
+                          </div>
 
-      {isReplyEdit ? (
-        <>
-          <div>
-            <strong>Răspuns vechi:</strong>{" "}
-            {truncate(log.oldComment || "—", 200)}
-          </div>
-          <div>
-            <strong>Răspuns nou:</strong>{" "}
-            {truncate(log.newComment || "—", 200)}
-          </div>
-        </>
-      ) : (
-        <>
-          <div>
-            Rating: {log.oldRating} → {log.newRating}
-          </div>
-          <div>
-            Comentariu vechi:{" "}
-            {truncate(log.oldComment || "—", 200)}
-          </div>
-          <div>
-            Comentariu nou:{" "}
-            {truncate(log.newComment || "—", 200)}
-          </div>
-        </>
-      )}
-    </li>
-  );
-})}
+                          <div>
+                            De:{" "}
+                            {log.editor?.name || log.editor?.email || "necunoscut"}{" "}
+                            {log.editor?.role && (
+                              <span> ({roleLabel(log.editor.role)})</span>
+                            )}
+                          </div>
 
+                          {isReplyEdit ? (
+                            <>
+                              <div>
+                                <strong>Răspuns vechi:</strong>{" "}
+                                {truncate(log.oldComment || "—", 200)}
+                              </div>
+                              <div>
+                                <strong>Răspuns nou:</strong>{" "}
+                                {truncate(log.newComment || "—", 200)}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div>
+                                Rating: {log.oldRating} → {log.newRating}
+                              </div>
+                              <div>
+                                Comentariu vechi: {truncate(log.oldComment || "—", 200)}
+                              </div>
+                              <div>
+                                Comentariu nou: {truncate(log.newComment || "—", 200)}
+                              </div>
+                            </>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

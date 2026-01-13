@@ -1,7 +1,7 @@
 /* src/pages/Desktop/Desktop.module.css */
-@import '../../../styles/variables.css';
-/* ============ Layout de bază ============ */
+@import "../../../styles/variables.css";
 
+/* ============ Layout de bază ============ */
 .page {
   max-width: 1200px;
   margin: 0 auto;
@@ -12,16 +12,16 @@
 }
 
 /* ============ Typography ============ */
-
 .h1 {
   margin: 0;
   font-size: 26px;
   line-height: 1.2;
   letter-spacing: -0.02em;
+  color: var(--color-text);
 }
 
 .meta {
-  color: var(--muted);
+  color: var(--color-muted);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -37,49 +37,48 @@
 }
 
 /* ============ Badge-uri ============ */
-
 .badge {
   background: color-mix(in oklab, var(--color-primary) 12%, transparent);
   color: var(--color-primary);
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .badgeWait {
-  background: rgba(255, 215, 0, 0.08);
-  color: #b38600;
+  background: color-mix(in oklab, var(--color-warning) 10%, transparent);
+  color: var(--color-warning);
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .badgeOk {
-  background: rgba(0, 180, 120, 0.08);
-  color: #008a5c;
+  background: color-mix(in oklab, var(--color-success) 10%, transparent);
+  color: var(--color-success);
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .badgeWarn {
-  background: rgba(255, 99, 71, 0.08);
-  color: #cc2b1e;
+  background: color-mix(in oklab, var(--color-warning) 10%, transparent);
+  color: var(--color-warning);
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 800;
   text-decoration: none;
-  border: 1px solid rgba(255, 99, 71, 0.35);
+  border: 1px solid color-mix(in oklab, var(--color-warning) 35%, var(--color-border));
 }
 
 .badgeWarn:hover {
-  background: rgba(255, 99, 71, 0.14);
+  background: color-mix(in oklab, var(--color-warning) 16%, transparent);
 }
 
 .dot {
@@ -90,7 +89,6 @@
 }
 
 /* ============ Topbar ============ */
-
 .topbar {
   display: flex;
   align-items: flex-start;
@@ -110,7 +108,7 @@
   width: 100%;
   height: 6px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.04);
+  background: color-mix(in oklab, var(--color-border) 22%, transparent);
   overflow: hidden;
   position: relative;
 }
@@ -118,28 +116,30 @@
 .progressFill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--color-primary), #ff9f6b);
+  background: linear-gradient(
+    90deg,
+    var(--color-primary),
+    color-mix(in oklab, var(--color-primary) 25%, var(--color-warning))
+  );
   transition: width 0.25s ease-out;
 }
 
 .progressLabel {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--color-muted);
 }
 
 /* ============ Error bar ============ */
-
 .errorBar {
-  background: #ffeaea;
-  border: 1px solid #ffb3ba;
-  color: #a8001f;
+  background: color-mix(in oklab, var(--color-danger) 10%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border));
+  color: var(--color-danger);
   border-radius: var(--radius);
   padding: 10px 12px;
   font-size: 13px;
 }
 
 /* ============ KPI-uri ============ */
-
 .kpiRow {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -152,7 +152,7 @@
   border: 1px solid var(--color-border);
   border-radius: calc(var(--radius) + 4px);
   padding: 14px 12px;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -160,17 +160,17 @@
 
 .kpiVal {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.1;
+  color: var(--color-text);
 }
 
 .kpiLabel {
-  color: var(--muted);
+  color: var(--color-muted);
   font-size: 12px;
 }
 
 /* ============ Grid principal ============ */
-
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) 0.9fr;
@@ -189,13 +189,13 @@
 }
 
 /* ============ Carduri ============ */
-
 .card {
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: calc(var(--radius) + 2px);
   padding: 14px 14px 16px;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
 }
 
 .cardHead {
@@ -209,16 +209,30 @@
 .cardHead h3 {
   margin: 0;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--color-text);
 }
 
 .subtle {
-  color: var(--muted);
+  color: var(--color-muted);
   font-size: 13px;
 }
 
-/* ============ Acțiuni (butoane în rând/coloană) ============ */
+/* avatar (în loc de inline style) */
+.avatarCircle {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  background: color-mix(in oklab, var(--color-border) 22%, transparent);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
 
+/* ============ Acțiuni ============ */
 .actionsRow {
   display: flex;
   gap: 8px;
@@ -231,20 +245,23 @@
 }
 
 /* ============ Butoane ============ */
-
 .btn {
   border-radius: 999px;
   padding: 7px 14px;
   border: 1px solid var(--color-border);
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
   cursor: pointer;
-  background: #f8fafc;
+
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--color-text);
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+
   transition:
     background 0.15s ease-out,
     border-color 0.15s ease-out,
@@ -260,9 +277,10 @@
 }
 
 .btn:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-primary) 16%, var(--color-border));
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .btnPrimary {
@@ -272,35 +290,44 @@
 }
 
 .btnPrimary:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--color-primary) 88%, #ffffff 12%);
+  background: var(--color-hover);
+  border-color: var(--color-hover);
 }
 
 .btnGhost {
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .btnWarn {
-  background: #fff5e6;
-  border-color: #ffb84d;
-  color: #a05a00;
+  background: color-mix(in oklab, var(--color-warning) 12%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-warning) 40%, var(--color-border));
+  color: var(--color-warning);
 }
 
 .btnWarn:hover:not(:disabled) {
-  background: #ffe9c7;
+  background: color-mix(in oklab, var(--color-warning) 18%, var(--surface));
 }
 
 .btnDanger {
-  background: #ffeaea;
-  border-color: #ff9aa2;
-  color: #a8001f;
+  background: color-mix(in oklab, var(--color-danger) 12%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border));
+  color: var(--color-danger);
 }
 
 .btnDanger:hover:not(:disabled) {
-  background: #ffd5da;
+  background: color-mix(in oklab, var(--color-danger) 18%, var(--surface));
+}
+
+/* full-width logout button */
+.logoutBtn {
+  width: 100%;
+  justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* ============ Servicii ============ */
-
 .serviceList {
   list-style: none;
   margin: 0;
@@ -315,10 +342,10 @@
   padding: 12px;
   display: grid;
   gap: 10px;
-  background: linear-gradient(
-    135deg,
-    rgba(148, 163, 184, 0.02),
-    rgba(148, 163, 184, 0.06)
+  background: radial-gradient(
+    circle at top left,
+    color-mix(in oklab, var(--color-primary) 4%, transparent),
+    transparent 55%
   );
 }
 
@@ -328,29 +355,30 @@
 }
 
 .serviceTitle {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 14px;
+  color: var(--color-text);
 }
 
 .serviceMeta {
-  color: var(--muted);
+  color: var(--color-muted);
   font-size: 12px;
 }
 
 .serviceWarning {
   margin-top: 4px;
   font-size: 12px;
-  color: #a05a00;
-  background: #fff5e6;
-  border-radius: 6px;
-  padding: 4px 8px;
+  color: var(--color-warning);
+  background: color-mix(in oklab, var(--color-warning) 12%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--color-warning) 30%, var(--color-border));
+  border-radius: 8px;
+  padding: 6px 8px;
 }
 
 /* ============ Empty state ============ */
-
 .empty {
   background: color-mix(in oklab, var(--color-primary) 6%, transparent);
-  border: 1px dashed var(--color-primary);
+  border: 1px dashed color-mix(in oklab, var(--color-primary) 60%, var(--color-border));
   border-radius: calc(var(--radius) + 4px);
   padding: 16px;
   display: grid;
@@ -358,12 +386,12 @@
 }
 
 .emptyTitle {
-  font-weight: 700;
+  font-weight: 800;
   font-size: 14px;
+  color: var(--color-text);
 }
 
 /* ============ Timeline / Activitate recentă ============ */
-
 .timeline {
   margin: 0;
   padding-left: 0;
@@ -376,7 +404,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 6px 0;
-  border-bottom: 1px dashed rgba(148, 163, 184, 0.5);
+  border-bottom: 1px dashed color-mix(in oklab, var(--color-border) 55%, transparent);
 }
 
 .timelineItem:last-child {
@@ -391,46 +419,139 @@
 
 .timelineType {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 800;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--color-muted);
 }
 
 .timelineText {
   font-size: 13px;
-  color: #0f172a;
+  color: var(--color-text);
 }
 
 .timelineTime {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--color-muted);
   white-space: nowrap;
 }
 
-/* fallback pentru vechiul .timeline li */
+/* fallback */
 .timeline li {
   margin: 4px 0;
-  color: var(--muted);
+  color: var(--color-muted);
   font-size: 13px;
 }
 
 /* ============ Sidebar ============ */
-
 .colSide .card {
   position: sticky;
   top: 12px;
 }
 
-/* ============ Responsivitate ============ */
+/* ============ Bannere (critical / warning) ============ */
+.cardCritical {
+  border-color: color-mix(in oklab, var(--color-danger) 45%, var(--color-border));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in oklab, var(--color-danger) 14%, transparent), transparent 55%),
+    radial-gradient(circle at 100% 0, color-mix(in oklab, var(--color-danger) 10%, transparent), transparent 50%),
+    var(--surface);
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
 
-/* 1) Ecrane mari (peste 1280px) – doar un pic de breathing room */
+.cardCritical::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border-top: 3px solid var(--color-danger);
+  pointer-events: none;
+}
+
+.cardCritical .cardHead h3 {
+  color: var(--color-danger);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardCritical .cardHead h3::before {
+  content: "⚠";
+  font-size: 16px;
+}
+
+.cardWarning {
+  border-color: color-mix(in oklab, var(--color-warning) 45%, var(--color-border));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in oklab, var(--color-warning) 14%, transparent), transparent 55%),
+    radial-gradient(circle at 100% 0, color-mix(in oklab, var(--color-warning) 10%, transparent), transparent 50%),
+    var(--surface);
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.cardWarning::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border-top: 3px solid var(--color-warning);
+  pointer-events: none;
+}
+
+.cardWarning .cardHead h3 {
+  color: var(--color-warning);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardWarning .cardHead h3::before {
+  content: "ℹ";
+  font-size: 16px;
+}
+
+/* ============ Badge bubble ============ */
+.btnWithBadge {
+  position: relative;
+}
+
+.iconWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.badgeBubble {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+
+  background: var(--color-danger);
+  color: #fff;
+
+  border: 2px solid var(--surface);
+}
+
+/* ============ Responsivitate ============ */
 @media (min-width: 1280px) {
   .page {
     padding-top: 32px;
   }
 }
 
-/* 2) Tablete / laptop mic (~1000px) */
 @media (max-width: 1000px) {
   .grid {
     grid-template-columns: 1fr;
@@ -445,7 +566,6 @@
   }
 }
 
-/* 3) Mobile (max 700px) */
 @media (max-width: 700px) {
   .topbar {
     flex-direction: column;
@@ -479,7 +599,6 @@
   }
 }
 
-/* 4) Very small devices (max 480px) */
 @media (max-width: 480px) {
   .page {
     padding-inline: 12px;
@@ -493,131 +612,4 @@
     flex-direction: column;
     align-items: stretch;
   }
-}
-/* ============ Bannere de atenționare (critical / warning) ============ */
-
-/* Banner foarte important – ex: entitate juridică */
-.cardCritical {
-  border-color: color-mix(in oklab, var(--color-danger) 75%, #ffffff 25%);
-  background:
-    radial-gradient(circle at 0 0, rgba(220, 38, 38, 0.12), transparent 55%),
-    radial-gradient(circle at 100% 0, rgba(220, 38, 38, 0.08), transparent 50%),
-    #fff5f5;
-  box-shadow: 0 14px 30px rgba(220, 38, 38, 0.18);
-  position: relative;
-  overflow: hidden;
-}
-
-/* mică bandă roșie sus ca accent */
-.cardCritical::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border-top: 3px solid var(--color-danger);
-  pointer-events: none;
-}
-
-/* titlul bannerului critical + icon */
-.cardCritical .cardHead h3 {
-  color: var(--color-danger);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cardCritical .cardHead h3::before {
-  content: "⚠";
-  font-size: 16px;
-}
-
-/* text extra din banner */
-.cardCritical .subtle {
-  color: #7f1d1d;
-}
-
-/* buton din banner critical mai „apăsat” */
-.cardCritical .btnPrimary {
-  background: var(--color-danger);
-  border-color: var(--color-danger);
-}
-
-.cardCritical .btnPrimary:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--color-danger) 88%, #ffffff 12%);
-}
-
-/* Banner de warning – ex: abonament lipsă */
-.cardWarning {
-  border-color: color-mix(in oklab, var(--color-warning) 75%, #ffffff 25%);
-  background:
-    radial-gradient(circle at 0 0, rgba(245, 158, 11, 0.12), transparent 55%),
-    radial-gradient(circle at 100% 0, rgba(245, 158, 11, 0.08), transparent 50%),
-    #fffaf0;
-  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.22);
-  position: relative;
-  overflow: hidden;
-}
-
-.cardWarning::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border-top: 3px solid var(--color-warning);
-  pointer-events: none;
-}
-
-.cardWarning .cardHead h3 {
-  color: var(--color-warning);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cardWarning .cardHead h3::before {
-  content: "ℹ";
-  font-size: 16px;
-}
-
-.cardWarning .subtle {
-  color: #92400e;
-}
-
-/* pe mobile, bannerele au un pic mai mult spațiu */
-@media (max-width: 700px) {
-  .cardCritical,
-  .cardWarning {
-    padding: 14px 12px 14px;
-  }
-}
-.btnWithBadge {
-  position: relative;
-}
-
-.iconWrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-/* bulina tip notificare */
-.badgeBubble {
-  position: absolute;
-  top: -6px;
-  right: -10px;
-
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-
-  background: #ef4444;
-  color: #fff;
-
-  border: 2px solid var(--color-bg, #fff);
 }

@@ -1,3 +1,4 @@
+// backend/src/jobs/followUpNotificationJob.js
 import { prisma } from "../db.js";
 import { createVendorNotification } from "../services/notifications.js";
 import { sendVendorFollowUpReminderEmail } from "../lib/mailer.js";
@@ -5,17 +6,21 @@ import { sendVendorFollowUpReminderEmail } from "../lib/mailer.js";
 export async function runFollowUpNotificationJob() {
   const now = new Date();
 
-  // căutăm toate thread-urile la care follow-up-ul a ajuns
-  // și nu au notificare de tip "followup" deja
+  // Căutăm thread-urile unde followUpAt a ajuns + nu sunt arhivate
+  // și NU au deja notificare "followup" generată de job (dedupe corect).
   const threads = await prisma.messageThread.findMany({
     where: {
-      followUpAt: {
-        lte: now, // follow-up due (ora 08:00 a trecut deja)
-      },
+      followUpAt: { lte: now },
       archived: false,
+
+      // ✅ Dedupe doar pentru notificările generate de job (nu blochează "follow-up setat" etc.)
       notifications: {
         none: {
           type: "followup",
+          meta: {
+            path: ["generatedByJob"],
+            equals: true,
+          },
         },
       },
     },
@@ -28,17 +33,13 @@ export async function runFollowUpNotificationJob() {
       vendor: {
         select: {
           email: true,
-          user: {
-            select: { email: true },
-          },
+          user: { select: { email: true } },
         },
       },
     },
   });
 
-  if (!threads.length) {
-    return;
-  }
+  if (!threads.length) return;
 
   for (const thread of threads) {
     const followDate = thread.followUpAt;
@@ -53,25 +54,27 @@ export async function runFollowUpNotificationJob() {
         })
       : "";
 
-    // 1️⃣ Notificare în dashboard-ul vendorului
+    // ✅ Ruta corectă către vendor UI (din frontend-ul tău)
+    const threadLink = `/vendor/messages?threadId=${thread.id}`;
+
+    // 1) Notificare în dashboard vendor
     await createVendorNotification(thread.vendorId, {
-      type: "followup", // NotificationType.followup în Prisma
+      type: "followup",
       title: `Follow-up pentru ${thread.contactName || "client"}`,
       body: readableDate
         ? `Astăzi (${readableDate}) trebuie să revii la acest client.`
         : "Astăzi trebuie să revii la acest client.",
-      link: `/mesaje?threadId=${thread.id}`, // ajustează la ruta ta reală de mesaje
-      threadId: thread.id,
+      link: threadLink,
       meta: {
         generatedByJob: true,
         contactPhone: thread.contactPhone || null,
         followUpAt: followDate ? followDate.toISOString() : null,
       },
-      // poți lăsa createdAt default (now) sau, dacă vrei, să „pară” exact la ora followUpAt:
+      // dacă vrei să "pară" că a fost creată fix la followUpAt:
       // createdAt: followDate,
     });
 
-    // 2️⃣ Email DOAR către vendor
+    // 2) Email către vendor
     const vendorEmail =
       thread.vendor?.email || thread.vendor?.user?.email || null;
 
@@ -80,12 +83,12 @@ export async function runFollowUpNotificationJob() {
         to: vendorEmail,
         contactName: thread.contactName || "client",
         followUpAt: followDate ? followDate.toISOString() : null,
-        threadLink: `/mesaje?threadId=${thread.id}`,
+        threadLink,
       });
     }
   }
 
   console.log(
-    `[followUpNotificationJob] create ${threads.length} notificări followup + email-uri`
+    `[followUpNotificationJob] created ${threads.length} followup notifications + emails`
   );
 }

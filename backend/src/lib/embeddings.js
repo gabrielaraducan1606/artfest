@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { pipeline, RawImage } from "@huggingface/transformers";
+import { Blob } from "buffer"; // sigur în Node; în Node 18+ ar merge și fără
 
 let extractorPromise = null;
 
@@ -15,11 +16,13 @@ async function getExtractor() {
 
 export async function imageToEmbedding(buffer) {
   let jpeg;
+
   try {
-    jpeg = await sharp(buffer)
+    jpeg = await sharp(buffer, { failOnError: false })
       .rotate()
       .resize(224, 224, { fit: "cover" })
-      .toColourspace("rgb")
+      .removeAlpha()
+      .toColourspace("srgb")
       .jpeg({ quality: 90 })
       .toBuffer();
   } catch (err) {
@@ -36,7 +39,10 @@ export async function imageToEmbedding(buffer) {
   }
 
   try {
-    const img = await RawImage.read(jpeg);
+    // ✅ Buffer -> Blob (RawImage.read acceptă Blob)
+    const blob = new Blob([jpeg], { type: "image/jpeg" });
+    const img = await RawImage.read(blob);
+
     const out = await extractor(img, { pooling: "mean", normalize: true });
     const arr = out.data;
 

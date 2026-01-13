@@ -6,7 +6,7 @@ import styles from "../../SupportBase/Support.module.css";
 const GUEST_SUPPORT_ENDPOINT = "/api/guest/support";
 
 // 👉 emailul oficial al suportului
-const SUPPORT_EMAIL = "contact@artfest.ro";
+const SUPPORT_EMAIL = "support@artfest.ro";
 
 export default function GuestSupportPage() {
   const [form, setForm] = useState({

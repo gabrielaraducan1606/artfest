@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import styles from "../OnBoardingDetails.module.css";
+import styles from "./css/ProfileTabBoarding.module.css";
 import ChipsInput from "../../fields/ChipsInput.jsx";
 import { api } from "../../../../../lib/api";
 

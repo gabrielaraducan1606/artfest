@@ -62,14 +62,15 @@
     "pg": "^8.16.3",
     "pgvector": "^0.2.1",
     "prisma": "^6.15.0",
-    "puppeteer": "^24.16.2",
+    "puppeteer": "^24.34.0",
     "resend": "^6.6.0",
     "response-time": "^2.3.4",
     "sharp": "^0.34.4",
     "slugify": "^1.6.6",
     "socket.io": "^4.8.1",
     "stripe": "^19.3.0",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "xmlbuilder2": "^4.0.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

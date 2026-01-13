@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../../lib/api";
-import styles from "../OnBoardingDetails.module.css";
+import styles from "./css/PaymentTab.module.css";
 import { useCurrentSubscription } from "../hooks/useCurrentSubscriptionBanner.js";
 
 /* ============================ Constante ============================ */

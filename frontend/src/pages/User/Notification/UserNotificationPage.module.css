@@ -1,7 +1,13 @@
 @import "../../../styles/variables.css";
 
-/* ===== Layout general ===== */
+/* =========================================================
+   UserNotificationPage.module.css
+   - Desktop rămâne ca acum
+   - Mobile: butoanele sunt în linie cu "Vezi detalii"
+   - Dark-safe (doar token-uri)
+========================================================= */
 
+/* ===== Layout general ===== */
 .wrap {
   max-width: 960px;
   margin: 0 auto;
@@ -9,15 +15,15 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  color: var(--color-text);
 }
 
 /* ===== Header ===== */
-
 .head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .title {
@@ -26,32 +32,35 @@
   gap: 8px;
   font-weight: 800;
   font-size: 18px;
+  color: var(--color-text);
 }
 
 .actions {
   display: inline-flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
 }
 
 /* ===== Buttons ===== */
-
 .iconBtn {
   width: 34px;
   height: 34px;
   display: grid;
   place-items: center;
   border: 1px solid var(--color-border);
-  background: rgba(15, 23, 42, 0.02);
+  background: var(--surface);
+  color: var(--color-text);
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease,
     transform 0.05s ease, box-shadow 0.15s ease;
 }
+
 .iconBtn:hover {
-  background: rgba(15, 23, 42, 0.06);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
 }
+
 .iconBtn:active {
   transform: scale(0.97);
   box-shadow: none;
@@ -60,35 +69,38 @@
 .primary {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   border-radius: 999px;
-  padding: 7px 14px;
+  padding: 8px 14px;
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
   color: #fff;
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 10px 25px rgba(37, 99, 235, 0.35);
-  transition: background 0.15s ease, transform 0.05s ease,
-    box-shadow 0.15s ease, opacity 0.15s ease;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.05s ease, box-shadow 0.15s ease, opacity 0.15s ease,
+    filter 0.15s ease;
 }
+
 .primary:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.5);
+  filter: brightness(0.98);
 }
+
 .primary:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+  box-shadow: var(--shadow-sm);
+  filter: none;
 }
+
 .primary:disabled {
   opacity: 0.55;
   cursor: default;
   box-shadow: none;
 }
 
-/* ===== Toolbar (tabs + search) ===== */
-
+/* ===== Toolbar ===== */
 .toolbar {
   display: flex;
   align-items: center;
@@ -97,63 +109,62 @@
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  padding: 8px 10px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  padding: 10px 12px;
+  box-shadow: var(--shadow-sm);
 }
 
 .tabs {
   display: inline-flex;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .tab {
-  padding: 6px 10px;
+  padding: 7px 12px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text);
   border-radius: 999px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  transition: background 0.15s ease, border-color 0.15s ease,
-    color 0.15s ease;
+  gap: 8px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+
 .tab:hover {
-  background: rgba(148, 163, 184, 0.18);
-  border-color: rgba(148, 163, 184, 0.8);
+  background: var(--color-bg);
+  border-color: var(--color-border);
 }
 
 .active {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background: rgba(59, 130, 246, 0.12);
+  background: var(--color-bg);
 }
 
 .badge {
   background: var(--color-primary);
   color: #fff;
   border-radius: 999px;
-  padding: 1px 7px;
-  margin-left: 4px;
+  padding: 1px 8px;
   font-weight: 800;
   font-size: 11px;
 }
 
 /* ===== Search ===== */
-
 .search {
   display: grid;
-  grid-template-columns: 16px minmax(0, 160px) 34px;
-  gap: 8px;
+  grid-template-columns: 16px minmax(0, 220px) 34px;
+  gap: 10px;
   align-items: center;
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  padding: 6px 10px;
-  background: rgba(15, 23, 42, 0.01);
+  padding: 8px 10px;
+  background: var(--color-bg);
+  color: var(--color-muted);
 }
 
 .search input {
@@ -162,13 +173,14 @@
   background: transparent;
   color: var(--color-text);
   font-size: 13px;
+  min-width: 0;
 }
+
 .search input::placeholder {
-  color: #9ca3af;
+  color: var(--color-muted);
 }
 
-/* ===== Listă notificări ===== */
-
+/* ===== Listă ===== */
 .list {
   list-style: none;
   margin: 0;
@@ -177,78 +189,71 @@
   border: 1px solid var(--color-border);
   border-radius: 16px;
   display: grid;
-  gap: 6px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  gap: 8px;
+  box-shadow: var(--shadow-sm);
 }
 
-/* Item de listă (li) */
-
+/* ===== Item ===== */
 .item {
   list-style: none;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 12px;
   align-items: start;
   border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.01);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: var(--color-bg);
   transition: background 0.15s ease, border-color 0.15s ease,
     transform 0.05s ease, box-shadow 0.15s ease;
 }
+
 .item:hover {
-  background: rgba(15, 23, 42, 0.03);
-  border-color: rgba(148, 163, 184, 0.9);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.14);
+  background: var(--surface);
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-sm);
 }
+
 .item:active {
   transform: translateY(1px);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1);
+  box-shadow: none;
 }
 
-/* Necitite în evidență */
-
+/* ===== Unread ===== */
 .unread {
-  outline: 2px solid rgba(59, 130, 246, 0.35);
-  background: linear-gradient(
-    90deg,
-    rgba(59, 130, 246, 0.12),
-    rgba(59, 130, 246, 0.02) 70%
-  );
-  border-color: rgba(59, 130, 246, 0.7);
+  border-color: var(--color-primary);
+  outline: 2px solid rgba(59, 130, 246, 0.22);
+  background: var(--surface);
 }
+
 .unread .itemTitle {
   font-weight: 800;
 }
-.unread .itemText {
-  color: #111827;
-}
 
-/* Icon stânga */
-
+/* ===== Icon ===== */
 .icon {
   width: 34px;
   height: 34px;
   display: grid;
   place-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.7);
-  background: radial-gradient(circle at 30% 0, #e5e7eb, #f9fafb);
-  color: #111827;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
 }
+
 .unread .icon {
   border-color: transparent;
-  background: radial-gradient(circle at 30% 0, var(--color-primary), #2563eb);
+  background: var(--color-primary);
   color: #ffffff;
 }
 
-/* Corp notificare (button.body) */
-
+/* ===== Body (button) ===== */
 .body {
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   border: none;
   background: transparent;
   padding: 0;
@@ -256,32 +261,39 @@
   width: 100%;
   font: inherit;
   color: inherit;
+  min-width: 0;
 }
-
-/* rând titlu + timp */
 
 .row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .itemTitle {
   font-weight: 700;
   font-size: 14px;
+  color: var(--color-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .time {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--color-text);
+  opacity: 0.6;
   flex-shrink: 0;
 }
 
 .itemText {
-  color: #374151;
-  margin-top: 2px;
+  color: var(--color-text);
+  opacity: 0.85; /* mai vizibil pe dark */
+  margin-top: 0;
   font-size: 13px;
+  line-height: 1.35;
 }
 
 .link {
@@ -290,15 +302,14 @@
   gap: 6px;
   font-size: 12px;
   color: var(--color-primary);
-  margin-top: 6px;
+  margin-top: 2px;
 }
 
-/* Acțiuni dreapta */
-
+/* ===== Desktop actions (coloana din dreapta) ===== */
 .rowActions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .ghostBtn {
@@ -307,35 +318,40 @@
   display: grid;
   place-items: center;
   border: 1px solid var(--color-border);
-  background: rgba(15, 23, 42, 0.01);
+  background: var(--surface);
+  color: var(--color-text);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease,
-    transform 0.05s ease;
+    transform 0.05s ease, box-shadow 0.15s ease;
 }
+
 .ghostBtn:hover {
-  background: rgba(15, 23, 42, 0.06);
-  border-color: rgba(148, 163, 184, 0.9);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
 }
+
 .ghostBtn:active {
   transform: scale(0.96);
+  box-shadow: none;
 }
 
-/* Empty / error / loading */
-
+/* ===== Info / error ===== */
 .info,
 .error {
-  color: #6b7280;
+  color: var(--color-text);
+  opacity: 0.7;
   text-align: center;
   padding: 12px;
   font-size: 13px;
 }
+
 .error {
-  color: #b91c1c;
+  color: var(--color-danger);
+  opacity: 1;
 }
 
-/* Loader */
-
+/* ===== Loader ===== */
 .spin {
   animation: spin 1s linear infinite;
 }
@@ -345,9 +361,36 @@
   }
 }
 
-/* ===== Responsive ===== */
+/* ===== Lucide icons ===== */
+.icon svg,
+.iconBtn svg,
+.ghostBtn svg,
+.tab svg,
+.title svg {
+  stroke: currentColor !important;
+  fill: none !important;
+  opacity: 1 !important;
+}
 
-/* Tablete / ecrane medii */
+/* =========================================================
+   Footer row (mobil): Vezi detalii + acțiuni pe aceeași linie
+   (pe desktop e ascuns)
+========================================================= */
+.footerRow {
+  display: none; /* doar pe mobil */
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.actionsInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ===== Responsive: tablete ===== */
 @media (max-width: 900px) {
   .wrap {
     padding: 12px;
@@ -374,15 +417,19 @@
   }
 }
 
-/* Mobile */
+/* =========================================================
+   MOBIL: păstrăm look-ul tău, dar:
+   - ascundem acțiunile din dreapta
+   - arătăm footerRow în body (link + butoane în linie)
+   - facem textul vizibil + 2 linii
+========================================================= */
 @media (max-width: 640px) {
-  .wrap {
-    padding: 10px;
-    gap: 10px;
-  }
-
   .head {
-    gap: 6px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
   }
 
   .title {
@@ -390,59 +437,140 @@
   }
 
   .actions {
-    width: 100%;
+    width: auto;
     justify-content: flex-end;
   }
 
   .primary {
-    flex: 1;
-    justify-content: center;
+    flex: 0 0 auto;
+    padding: 8px 12px;
   }
 
   .toolbar {
-    padding: 8px;
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
   }
 
   .tabs {
     width: 100%;
-    justify-content: flex-start;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    background: var(--surface);
+    padding: 4px;
+    border-radius: 999px;
+  }
+
+  .tab {
+    flex: 1;
+    justify-content: center;
+    padding: 6px 8px;
+    font-size: 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .active {
+    background: var(--color-bg);
+    color: var(--color-primary);
+    border-color: var(--color-border);
+  }
+
+  .search {
+    width: 100%;
+    grid-template-columns: 16px minmax(0, 1fr) 34px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
   }
 
   .list {
-    padding: 6px;
+    padding: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    gap: 0;
   }
 
+  /* IMPORTANT: nu flex “ciudat”; îl facem 2-col grid stabil */
   .item {
-    grid-template-columns: 30px minmax(0, 1fr);
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px;
+
+    padding: 10px 12px;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg);
+    box-shadow: none;
+    transform: none;
   }
 
+  .item:last-child {
+    border-bottom: none;
+  }
+
+  .item:hover {
+    background: var(--surface);
+    box-shadow: none;
+  }
+
+  .icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    border: none;
+    background: var(--color-primary);
+    color: #fff;
+  }
+
+  .unread {
+    outline: 2px solid rgba(59, 130, 246, 0.22);
+    background: var(--surface);
+  }
+
+  /* ascundem coloana desktop actions */
   .rowActions {
-    margin-top: 4px;
-    justify-content: flex-end;
-    grid-column: 1 / -1;
+    display: none;
+  }
+
+  /* arătăm footerRow în body */
+  .footerRow {
+    display: flex;
+  }
+
+  /* text vizibil + 2 linii */
+  .itemText {
+    opacity: 0.9;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .ghostBtn {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
+    box-shadow: none;
   }
 }
 
 /* Telefoane foarte mici */
 @media (max-width: 400px) {
-  .tabs {
-    gap: 4px;
-  }
-
   .tab {
-    padding: 5px 8px;
     font-size: 12px;
+    padding: 6px 6px;
   }
 
   .primary {
-    padding: 6px 10px;
     font-size: 12px;
+    padding: 7px 10px;
   }
 
   .itemTitle {
@@ -451,165 +579,5 @@
 
   .itemText {
     font-size: 12px;
-  }
-}
-/* ===== WhatsApp-style DOAR pe mobil ===== */
-@media (max-width: 640px) {
-  /* layout general un pic mai compact */
-  .wrap {
-    padding: 10px;
-    gap: 8px;
-  }
-
-  .title {
-    font-size: 16px;
-  }
-
-  /* toolbar simplificat, ca în WhatsApp (tabs sus, search dedesubt) */
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    padding: 4px 0;
-  }
-
-  .tabs {
-    width: 100%;
-    justify-content: space-between;
-    background: rgba(148, 163, 184, 0.12);
-    padding: 3px;
-    border-radius: 999px;
-  }
-
-  .tab {
-    flex: 1;
-    justify-content: center;
-    padding: 4px 8px;
-    font-size: 12px;
-  }
-
-  .active {
-    background: #ffffff;
-    color: var(--color-primary);
-  }
-
-  .search {
-    width: 100%;
-    grid-template-columns: 16px minmax(0, 1fr) 30px;
-    padding: 4px 8px;
-    border-radius: 999px;
-    background: rgba(148, 163, 184, 0.12);
-  }
-
-  /* ===== LISTĂ tip WhatsApp ===== */
-
-  /* listă plină, fără card mare, rânduri separate */
-  .list {
-    padding: 0;
-    margin: 0;
-    border-radius: 0;
-    border: none;
-    box-shadow: none;
-    background: var(--surface);
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* fiecare notificare = un rând de chat */
-  .item {
-    display: flex;                   /* overrule grid */
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-
-    padding: 8px 10px;
-    background: #ffffff;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
-    box-shadow: none;
-  }
-
-  /* mic “gap” vizual între rânduri, ca o listă modernă */
-  .item + .item {
-    margin-top: 2px;
-  }
-
-  /* avatar / icon stânga – cerc ca în WhatsApp */
-  .icon {
-    flex-shrink: 0;
-    width: 38px;
-    height: 38px;
-    border-radius: 999px;
-    display: grid;
-    place-items: center;
-    background: radial-gradient(circle at 30% 0, var(--color-primary), #2563eb);
-    color: #ffffff;
-    border: none;
-  }
-
-  /* corpul notificării – exact ca textul de conversație */
-  .body {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-  }
-
-  .itemTitle {
-    font-size: 13px;
-    line-height: 1.25;
-  }
-
-  .time {
-    font-size: 10px;
-    color: #6b7280;
-  }
-
-  .itemText {
-    font-size: 12px;
-    margin-top: 0;
-    line-height: 1.25;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis; /* preview ca în WhatsApp */
-  }
-
-  .link {
-    font-size: 11px;
-    margin-top: 2px;
-  }
-
-  /* acțiunile la dreapta – iconițe mici rotunde */
-  .rowActions {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-left: 6px;
-  }
-
-  .ghostBtn {
-    width: 26px;
-    height: 26px;
-    border-radius: 999px;
-    background: #f9fafb;
-  }
-
-  /* Necitite – bold + highlight fin, ca "unread chat" */
-  .unread {
-    background: #eef2ff;
-  }
-
-  .unread .itemTitle {
-    font-weight: 800;
-  }
-
-  .unread .itemText {
-    color: #111827;
   }
 }

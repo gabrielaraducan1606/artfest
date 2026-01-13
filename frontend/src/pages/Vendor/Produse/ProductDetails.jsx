@@ -648,47 +648,48 @@ export default function ProductDetails() {
     setEditingCommentId(null);
     setCommentText("");
   };
+const submitComment = async (e) => {
+  e?.preventDefault?.();
 
-  const submitComment = async (e) => {
-    e?.preventDefault?.();
-    if (isOwner) return;
-    if (!me)
-      return navigate(
-        `/autentificare?redirect=${encodeURIComponent(
-          window.location.pathname + window.location.search
-        )}`
-      );
+  // ✅ Owner-ul NU poate crea comentariu top-level nou,
+  // dar poate edita propriile comentarii/răspunsuri (editingCommentId)
+  if (isOwner && !editingCommentId) return;
 
-    const text = commentText.trim();
-    if (!text) return;
+  if (!me)
+    return navigate(
+      `/autentificare?redirect=${encodeURIComponent(
+        window.location.pathname + window.location.search
+      )}`
+    );
 
-    try {
-      setSubmittingComment(true);
+  const text = commentText.trim();
+  if (!text) return;
 
-      if (editingCommentId) {
-        // editare comentariu existent
-        await api(`/api/comments/${encodeURIComponent(editingCommentId)}`, {
-          method: "PATCH",
-          body: { text },
-        });
-        setEditingCommentId(null);
-        setCommentText("");
-      } else {
-        // comentariu nou
-        await api("/api/comments", {
-          method: "POST",
-          body: { productId: product.id, text },
-        });
-        setCommentText("");
-      }
+  try {
+    setSubmittingComment(true);
 
-      await loadCommentsForProduct(product.id);
-    } catch (e2) {
-      alert(e2?.message || "Nu am putut trimite comentariul.");
-    } finally {
-      setSubmittingComment(false);
+    if (editingCommentId) {
+      await api(`/api/comments/${encodeURIComponent(editingCommentId)}`, {
+        method: "PATCH",
+        body: { text },
+      });
+      setEditingCommentId(null);
+      setCommentText("");
+    } else {
+      await api("/api/comments", {
+        method: "POST",
+        body: { productId: product.id, text },
+      });
+      setCommentText("");
     }
-  };
+
+    await loadCommentsForProduct(product.id);
+  } catch (e2) {
+    alert(e2?.message || "Nu am putut trimite comentariul.");
+  } finally {
+    setSubmittingComment(false);
+  }
+};
 
   useEffect(() => {
     if (product?.title) {

@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
+import {
+  notifyVendorOnStoreReviewCreated,
+  notifyUserOnStoreReviewReply,
+} from "../services/notifications.js";
 
 const router = Router();
 
@@ -18,9 +22,7 @@ router.post("/store-reviews", authRequired, async (req, res) => {
     const vendorId = String(req.body?.vendorId || "").trim();
     const rating = Number(req.body?.rating);
     const comment =
-      typeof req.body?.comment === "string"
-        ? req.body.comment.trim()
-        : null;
+      typeof req.body?.comment === "string" ? req.body.comment.trim() : null;
 
     if (!vendorId) {
       return res.status(400).json({ error: "invalid_vendor_id" });
@@ -37,16 +39,12 @@ router.post("/store-reviews", authRequired, async (req, res) => {
     });
 
     if (!vendor || !vendor.isActive) {
-      return res
-        .status(404)
-        .json({ error: "vendor_not_found_or_inactive" });
+      return res.status(404).json({ error: "vendor_not_found_or_inactive" });
     }
 
-    // verificăm dacă există deja recenzie (pentru log de editare / moderare)
+    // verificăm dacă există deja recenzie
     const existing = await prisma.storeReview.findUnique({
-      where: {
-        vendorId_userId: { vendorId, userId },
-      },
+      where: { vendorId_userId: { vendorId, userId } },
       select: {
         id: true,
         rating: true,
@@ -57,7 +55,6 @@ router.post("/store-reviews", authRequired, async (req, res) => {
     });
 
     const now = new Date();
-
     let review;
 
     if (!existing) {
@@ -72,14 +69,14 @@ router.post("/store-reviews", authRequired, async (req, res) => {
         },
         include: {
           user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              name: true,
-            },
+            select: { id: true, firstName: true, lastName: true, name: true },
           },
         },
+      });
+
+      // 🔔 notificare vendor (doar pe recenzie nouă)
+      notifyVendorOnStoreReviewCreated(review.id).catch((e) => {
+        console.warn("[notifyVendorOnStoreReviewCreated] failed:", e);
       });
 
       return res.json({ ok: true, review });
@@ -91,8 +88,6 @@ router.post("/store-reviews", authRequired, async (req, res) => {
 
     if (isModeratedStatus) {
       // 🧹 recenzie moderată anterior → o tratăm ca una NOUĂ
-      // - resetăm createdAt / updatedAt ca să nu pară „editată”
-      // - nu generăm log de editare (e mai degrabă "rescriere după moderare")
       review = await prisma.storeReview.update({
         where: { id: existing.id },
         data: {
@@ -104,14 +99,14 @@ router.post("/store-reviews", authRequired, async (req, res) => {
         },
         include: {
           user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              name: true,
-            },
+            select: { id: true, firstName: true, lastName: true, name: true },
           },
         },
+      });
+
+      // 🔔 notificare vendor (tratăm ca recenzie nouă)
+      notifyVendorOnStoreReviewCreated(review.id).catch((e) => {
+        console.warn("[notifyVendorOnStoreReviewCreated] failed:", e);
       });
 
       return res.json({ ok: true, review });
@@ -123,38 +118,29 @@ router.post("/store-reviews", authRequired, async (req, res) => {
       data: {
         rating,
         comment,
-        status: "APPROVED", // rămâne / revine aprobată
+        status: "APPROVED",
       },
       include: {
         user: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            name: true,
-          },
+          select: { id: true, firstName: true, lastName: true, name: true },
         },
       },
     });
 
-    // dacă s-a schimbat ceva → log de editare (USER / VENDOR / ADMIN)
+    // dacă s-a schimbat ceva → log de editare
     if (
       existing.rating !== rating ||
       (existing.comment || "") !== (comment || "")
     ) {
       try {
-        // aflăm rolul editorului (USER / VENDOR / ADMIN)
         const editorUser = await prisma.user.findUnique({
           where: { id: userId },
           select: { role: true },
         });
 
         let reason = "USER_EDIT";
-        if (editorUser?.role === "VENDOR") {
-          reason = "VENDOR_EDIT";
-        } else if (editorUser?.role === "ADMIN") {
-          reason = "ADMIN_EDIT";
-        }
+        if (editorUser?.role === "VENDOR") reason = "VENDOR_EDIT";
+        else if (editorUser?.role === "ADMIN") reason = "ADMIN_EDIT";
 
         await prisma.storeReviewEditLog.create({
           data: {
@@ -168,15 +154,11 @@ router.post("/store-reviews", authRequired, async (req, res) => {
           },
         });
       } catch (logErr) {
-        // nu blocăm request-ul dacă logul a eșuat, doar logăm în server
-        console.error(
-          "StoreReviewEditLog create failed for review",
-          review.id,
-          logErr
-        );
+        console.error("StoreReviewEditLog create failed for review", review.id, logErr);
       }
     }
 
+    // ❗ NU notificăm vendorul la edit normal (anti-spam)
     return res.json({ ok: true, review });
   } catch (e) {
     console.error("POST /api/store-reviews error", e);
@@ -192,10 +174,7 @@ router.get("/store-reviews", async (req, res) => {
   try {
     const vendorId = String(req.query.vendorId || "").trim();
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(
-      50,
-      Math.max(1, parseInt(req.query.limit || "10", 10))
-    );
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
     const skip = (page - 1) * limit;
 
     if (!vendorId) {
@@ -218,7 +197,7 @@ router.get("/store-reviews", async (req, res) => {
               firstName: true,
               lastName: true,
               name: true,
-              avatarUrl: true,
+              avatarUrl: true, // ✅ există pe User
             },
           },
           reply: true,
@@ -238,244 +217,197 @@ router.get("/store-reviews", async (req, res) => {
  * POST /api/store-reviews/:id/helpful
  * User marchează / demarchează recenzia ca "utilă"
  */
-router.post(
-  "/store-reviews/:id/helpful",
-  authRequired,
-  async (req, res) => {
-    try {
-      const reviewId = String(req.params.id || "").trim();
-      const userId = req.user.sub;
+router.post("/store-reviews/:id/helpful", authRequired, async (req, res) => {
+  try {
+    const reviewId = String(req.params.id || "").trim();
+    const userId = req.user.sub;
 
-      if (!reviewId) {
-        return res.status(400).json({ error: "invalid_review_id" });
-      }
-
-      const review = await prisma.storeReview.findUnique({
-        where: { id: reviewId },
-        select: { id: true },
-      });
-
-      if (!review) {
-        return res.status(404).json({ error: "review_not_found" });
-      }
-
-      const existing = await prisma.storeReviewHelpful.findUnique({
-        where: {
-          reviewId_userId: { reviewId, userId },
-        },
-      });
-
-      if (existing) {
-        await prisma.storeReviewHelpful.delete({
-          where: {
-            reviewId_userId: { reviewId, userId },
-          },
-        });
-        return res.json({ ok: true, helpful: false });
-      }
-
-      await prisma.storeReviewHelpful.create({
-        data: { reviewId, userId },
-      });
-
-      return res.json({ ok: true, helpful: true });
-    } catch (e) {
-      console.error("POST /api/store-reviews/:id/helpful error", e);
-      res.status(500).json({ error: "store_review_helpful_failed" });
+    if (!reviewId) {
+      return res.status(400).json({ error: "invalid_review_id" });
     }
+
+    const review = await prisma.storeReview.findUnique({
+      where: { id: reviewId },
+      select: { id: true },
+    });
+
+    if (!review) {
+      return res.status(404).json({ error: "review_not_found" });
+    }
+
+    const existing = await prisma.storeReviewHelpful.findUnique({
+      where: { reviewId_userId: { reviewId, userId } },
+    });
+
+    if (existing) {
+      await prisma.storeReviewHelpful.delete({
+        where: { reviewId_userId: { reviewId, userId } },
+      });
+      return res.json({ ok: true, helpful: false });
+    }
+
+    await prisma.storeReviewHelpful.create({
+      data: { reviewId, userId },
+    });
+
+    return res.json({ ok: true, helpful: true });
+  } catch (e) {
+    console.error("POST /api/store-reviews/:id/helpful error", e);
+    res.status(500).json({ error: "store_review_helpful_failed" });
   }
-);
+});
 
 /**
  * User raportează o recenzie de profil (store).
  */
-router.post(
-  "/store-reviews/:id/report",
-  authRequired,
-  async (req, res) => {
-    try {
-      const reviewId = String(req.params.id || "").trim();
-      const reason = String(req.body?.reason || "").trim();
-      if (!reviewId || !reason) {
-        return res.status(400).json({ error: "invalid_input" });
-      }
-
-      const review = await prisma.storeReview.findUnique({
-        where: { id: reviewId },
-      });
-      if (!review) {
-        return res.status(404).json({ error: "review_not_found" });
-      }
-
-      await prisma.storeReviewReport.create({
-        data: {
-          reviewId,
-          reporterId: req.user.sub,
-          reason,
-        },
-      });
-
-      return res.json({ ok: true });
-    } catch (e) {
-      console.error("POST /api/store-reviews/:id/report error", e);
-      res.status(500).json({ error: "store_review_report_failed" });
+router.post("/store-reviews/:id/report", authRequired, async (req, res) => {
+  try {
+    const reviewId = String(req.params.id || "").trim();
+    const reason = String(req.body?.reason || "").trim();
+    if (!reviewId || !reason) {
+      return res.status(400).json({ error: "invalid_input" });
     }
+
+    const review = await prisma.storeReview.findUnique({ where: { id: reviewId } });
+    if (!review) {
+      return res.status(404).json({ error: "review_not_found" });
+    }
+
+    await prisma.storeReviewReport.create({
+      data: {
+        reviewId,
+        reporterId: req.user.sub,
+        reason,
+      },
+    });
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/store-reviews/:id/report error", e);
+    res.status(500).json({ error: "store_review_report_failed" });
   }
-);
+});
 
 /**
  * DELETE /api/store-reviews/:id
  * User își șterge propria recenzie
  */
-router.delete(
-  "/store-reviews/:id",
-  authRequired,
-  async (req, res) => {
-    try {
-      const reviewId = String(req.params.id || "").trim();
-      const userId = req.user.sub;
+router.delete("/store-reviews/:id", authRequired, async (req, res) => {
+  try {
+    const reviewId = String(req.params.id || "").trim();
+    const userId = req.user.sub;
 
-      if (!reviewId) {
-        return res.status(400).json({ error: "invalid_review_id" });
-      }
-
-      const review = await prisma.storeReview.findUnique({
-        where: { id: reviewId },
-        select: { id: true, userId: true },
-      });
-
-      if (!review) {
-        return res.status(404).json({ error: "review_not_found" });
-      }
-
-      if (review.userId !== userId) {
-        return res.status(403).json({ error: "forbidden" });
-      }
-
-      await prisma.storeReview.delete({
-        where: { id: reviewId },
-      });
-
-      return res.json({ ok: true });
-    } catch (e) {
-      console.error("DELETE /api/store-reviews/:id error", e);
-      res.status(500).json({ error: "store_review_delete_failed" });
+    if (!reviewId) {
+      return res.status(400).json({ error: "invalid_review_id" });
     }
+
+    const review = await prisma.storeReview.findUnique({
+      where: { id: reviewId },
+      select: { id: true, userId: true },
+    });
+
+    if (!review) {
+      return res.status(404).json({ error: "review_not_found" });
+    }
+
+    if (review.userId !== userId) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    await prisma.storeReview.delete({ where: { id: reviewId } });
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/store-reviews/:id error", e);
+    res.status(500).json({ error: "store_review_delete_failed" });
   }
-);
+});
 
 /**
  * Vendor adaugă / editează răspunsul la o recenzie de profil
- * AICI logăm editările în StoreReviewEditLog cu reason = "VENDOR_REPLY_EDIT"
  */
-router.post(
-  "/vendor/store-reviews/:id/reply",
-  authRequired,
-  async (req, res) => {
-    try {
-      const reviewId = String(req.params.id || "").trim();
-      const text = String(req.body?.text || "").trim();
-      const userId = req.user.sub;
+router.post("/vendor/store-reviews/:id/reply", authRequired, async (req, res) => {
+  try {
+    const reviewId = String(req.params.id || "").trim();
+    const text = String(req.body?.text || "").trim();
+    const editorUserId = req.user.sub;
 
-      if (!reviewId || !text) {
-        return res.status(400).json({ error: "invalid_input" });
-      }
-
-      const review = await prisma.storeReview.findUnique({
-        where: { id: reviewId },
-        include: {
-          vendor: true,
-          reply: true, // luăm și reply-ul existent ca să putem loga editarea
-        },
-      });
-      if (!review) {
-        return res.status(404).json({ error: "review_not_found" });
-      }
-
-      // TODO (opțional): verifică dacă req.user.sub este userul vendorului (review.vendor.userId)
-
-      const existingReply = review.reply || null;
-
-      const reply = await prisma.storeReviewReply.upsert({
-        where: { reviewId },
-        update: { text },
-        create: {
-          reviewId,
-          vendorId: review.vendorId,
-          text,
-        },
-      });
-
-      // dacă exista reply și textul s-a schimbat → logăm editarea răspunsului
-      if (
-        existingReply &&
-        (existingReply.text || "") !== text
-      ) {
-        try {
-          await prisma.storeReviewEditLog.create({
-            data: {
-              reviewId: review.id,
-              editorId: userId,
-              oldRating: null,
-              newRating: null,
-              oldComment: existingReply.text,
-              newComment: text,
-              reason: "VENDOR_REPLY_EDIT",
-            },
-          });
-        } catch (logErr) {
-          console.error(
-            "StoreReviewEditLog create failed for vendor reply",
-            review.id,
-            logErr
-          );
-        }
-      }
-
-      return res.json({ ok: true, reply });
-    } catch (e) {
-      console.error(
-        "POST /vendor/store-reviews/:id/reply error",
-        e
-      );
-      res
-        .status(500)
-        .json({ error: "store_review_reply_save_failed" });
+    if (!reviewId || !text) {
+      return res.status(400).json({ error: "invalid_input" });
     }
+
+    const review = await prisma.storeReview.findUnique({
+      where: { id: reviewId },
+      include: { vendor: true, reply: true },
+    });
+
+    if (!review) {
+      return res.status(404).json({ error: "review_not_found" });
+    }
+
+    const existingReply = review.reply || null;
+
+    const reply = await prisma.storeReviewReply.upsert({
+      where: { reviewId },
+      update: { text },
+      create: {
+        reviewId,
+        vendorId: review.vendorId,
+        text,
+      },
+    });
+
+    // log edit reply (dacă exista reply și s-a schimbat)
+    if (existingReply && (existingReply.text || "") !== text) {
+      try {
+        await prisma.storeReviewEditLog.create({
+          data: {
+            reviewId: review.id,
+            editorId: editorUserId,
+            oldRating: null,
+            newRating: null,
+            oldComment: existingReply.text,
+            newComment: text,
+            reason: "VENDOR_REPLY_EDIT",
+          },
+        });
+      } catch (logErr) {
+        console.error("StoreReviewEditLog create failed for vendor reply", review.id, logErr);
+      }
+    }
+
+    // 🔔 notifică CLIENTUL că vendorul a răspuns la recenzie
+    notifyUserOnStoreReviewReply(review.id).catch((e) => {
+      console.warn("[notifyUserOnStoreReviewReply] failed:", e);
+    });
+
+    return res.json({ ok: true, reply });
+  } catch (e) {
+    console.error("POST /vendor/store-reviews/:id/reply error", e);
+    res.status(500).json({ error: "store_review_reply_save_failed" });
   }
-);
+});
 
 /**
  * Vendor șterge răspunsul la recenzie de profil
  */
-router.delete(
-  "/vendor/store-reviews/:id/reply",
-  authRequired,
-  async (req, res) => {
-    try {
-      const reviewId = String(req.params.id || "").trim();
-      if (!reviewId) {
-        return res.status(400).json({ error: "invalid_input" });
-      }
-
-      await prisma.storeReviewReply
-        .delete({
-          where: { reviewId },
-        })
-        .catch(() => null);
-
-      return res.json({ ok: true });
-    } catch (e) {
-      console.error(
-        "DELETE /vendor/store-reviews/:id/reply error",
-        e
-      );
-      res
-        .status(500)
-        .json({ error: "store_review_reply_delete_failed" });
+router.delete("/vendor/store-reviews/:id/reply", authRequired, async (req, res) => {
+  try {
+    const reviewId = String(req.params.id || "").trim();
+    if (!reviewId) {
+      return res.status(400).json({ error: "invalid_input" });
     }
+
+    await prisma.storeReviewReply
+      .delete({ where: { reviewId } })
+      .catch(() => null);
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /vendor/store-reviews/:id/reply error", e);
+    res.status(500).json({ error: "store_review_reply_delete_failed" });
   }
-);
+});
+
 /* ================== LISTE PENTRU CONT UTILIZATOR ================== */
 /**
  * GET /api/comments/my
@@ -499,11 +431,11 @@ router.get("/comments/my", authRequired, async (req, res) => {
         take: limit,
         include: {
           vendor: {
+            // ✅ în schema ta Vendor are logoUrl, nu avatarUrl/slug
             select: {
               id: true,
               displayName: true,
-              slug: true,
-              avatarUrl: true,
+              logoUrl: true,
             },
           },
         },
@@ -516,12 +448,8 @@ router.get("/comments/my", authRequired, async (req, res) => {
       rating: r.rating,
       text: r.comment || "",
       productTitle: r.vendor?.displayName || "Magazin",
-      productUrl: r.vendor
-        ? r.vendor.slug
-          ? `/magazin/${r.vendor.slug}`
-          : `/magazin/${r.vendor.id}`
-        : null,
-      image: r.vendor?.avatarUrl || null,
+      productUrl: r.vendor ? `/magazin/${r.vendor.id}` : null,
+      image: r.vendor?.logoUrl || null,
     }));
 
     res.json({ total, page, limit, items: mapped });
@@ -544,8 +472,7 @@ router.get("/comments/received", authRequired, async (req, res) => {
       select: {
         id: true,
         displayName: true,
-        slug: true,
-        avatarUrl: true,
+        logoUrl: true,
       },
     });
 
@@ -568,12 +495,7 @@ router.get("/comments/received", authRequired, async (req, res) => {
         take: limit,
         include: {
           user: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              name: true,
-            },
+            select: { id: true, firstName: true, lastName: true, name: true },
           },
         },
       }),
@@ -585,10 +507,8 @@ router.get("/comments/received", authRequired, async (req, res) => {
       rating: r.rating,
       text: r.comment || "",
       productTitle: vendor.displayName || "Magazinul meu",
-      productUrl: vendor.slug
-        ? `/magazin/${vendor.slug}`
-        : `/magazin/${vendor.id}`,
-      image: vendor.avatarUrl || null,
+      productUrl: `/magazin/${vendor.id}`,
+      image: vendor.logoUrl || null,
     }));
 
     res.json({ total, page, limit, items: mapped });

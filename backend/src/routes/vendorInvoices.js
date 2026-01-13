@@ -6,6 +6,8 @@ import { z } from "zod";
 import PDFDocument from "pdfkit"; // npm install pdfkit
 import { notifyUserOnInvoiceIssued } from "../services/notifications.js"; // 🔔 notificare in-app
 import { sendInvoiceIssuedEmail } from "../lib/mailer.js"; // ✉️ email factură emisă
+import { renderInvoiceHtml } from "../lib/invoiceHtmlTemplate.js";
+import { htmlToPdfBuffer } from "../lib/htmlToPdf.js";
 
 const router = Router();
 
@@ -559,9 +561,7 @@ router.post(
 router.get("/vendor/invoices/:id/pdf", authRequired, async (req, res) => {
   try {
     const vendor = await getCurrentVendorByUser(req.user.sub);
-    if (!vendor) {
-      return res.status(403).json({ error: "not_a_vendor" });
-    }
+    if (!vendor) return res.status(403).json({ error: "not_a_vendor" });
 
     const id = String(req.params.id);
 
@@ -569,19 +569,27 @@ router.get("/vendor/invoices/:id/pdf", authRequired, async (req, res) => {
       where: { id, vendorId: vendor.id },
       include: {
         lines: true,
-        vendor: {
-          include: { billing: true },
-        },
+        vendor: { include: { billing: true } },
         order: true,
       },
     });
 
-    if (!invoice) {
-      return res.status(404).json({ error: "invoice_not_found" });
-    }
+    if (!invoice) return res.status(404).json({ error: "invoice_not_found" });
 
     const billingProfile = invoice.vendor?.billing || null;
-    generateInvoicePdfResponse(res, invoice, billingProfile);
+
+    const html = renderInvoiceHtml({ invoice, billingProfile });
+    const pdfBuffer = await htmlToPdfBuffer(html);
+
+    const fileName = `Factura-${invoice.series || "FA"}-${invoice.number || invoice.id}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${fileName.replace(/"/g, "")}"`
+    );
+
+    res.send(pdfBuffer);
   } catch (err) {
     console.error("GET /vendor/invoices/:id/pdf FAILED:", err);
     res.status(500).json({

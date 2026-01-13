@@ -30,7 +30,7 @@ export default function StoresPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
-  // === query params din URL (fără page) ===
+  // === query params din URL ===
   const qParam = params.get("q") || "";
   const cityParam = params.get("city") || ""; // slug
   const sortParam = params.get("sort") || "new";
@@ -39,8 +39,8 @@ export default function StoresPage() {
 
   // === state listă ===
   const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true); // pentru prima pagină
+  const [total, setTotal] = useState(null); // ✅ null când nu e furnizat
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   // === infinite scroll ===
@@ -48,59 +48,50 @@ export default function StoresPage() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // === orașe pentru filtre (slug + label) ===
+  // sentinel pentru IntersectionObserver
+  const sentinelRef = useRef(null);
+  const ioRef = useRef(null);
+
+  // === orașe pentru filtre ===
   const [cityOptions, setCityOptions] = useState([]);
   const cityLabelMap = useMemo(() => {
     const map = new Map();
-    cityOptions.forEach((c) => {
-      map.set(c.slug, c.label);
-    });
+    cityOptions.forEach((c) => map.set(c.slug, c.label));
     return map;
   }, [cityOptions]);
 
-  // === filtre locale (nu lovim API-ul la fiecare tastă) ===
+  // === filtre locale ===
   const [localFilters, setLocalFilters] = useState({
     q: qParam,
-    city: cityParam, // slug
+    city: cityParam,
     sort: sortParam,
   });
 
-  // === modal filtre ===
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // === autocomplete sugestii ===
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
-
-  // ref pentru zona de căutare + dropdown sugestii
   const searchAreaRef = useRef(null);
 
-  // sincronizează filtrele locale când se schimbă URL-ul
+  // sync URL -> filtre locale + reset listă
   useEffect(() => {
-    setLocalFilters({
-      q: qParam,
-      city: cityParam, // slug
-      sort: sortParam,
-    });
-    // când se schimbă filtrele, resetăm listă + paginare
+    setLocalFilters({ q: qParam, city: cityParam, sort: sortParam });
     setItems([]);
     setPage(1);
     setHasMore(true);
+    setTotal(null);
   }, [qParam, cityParam, sortParam]);
 
-  // închide modal la Escape
+  // Escape modal
   useEffect(() => {
     if (!filtersOpen) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") {
-        setFiltersOpen(false);
-      }
-    };
+    const onKey = (e) => e.key === "Escape" && setFiltersOpen(false);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [filtersOpen]);
 
-  // === încărcare orașe (o singură dată) ===
+  // load cities once
   useEffect(() => {
     (async () => {
       try {
@@ -113,14 +104,11 @@ export default function StoresPage() {
     })();
   }, []);
 
-  // === funcție de load generică (folosită pentru prima pagină + load mai multe) ===
   const load = useCallback(
     async (pageToLoad = 1, append = false) => {
-      if (pageToLoad === 1 && !append) {
-        setLoading(true);
-      } else {
-        setIsLoadingMore(true);
-      }
+      if (pageToLoad === 1 && !append) setLoading(true);
+      else setIsLoadingMore(true);
+
       setError(null);
 
       try {
@@ -128,51 +116,43 @@ export default function StoresPage() {
         p.set("page", String(pageToLoad));
         p.set("limit", String(limit));
         if (qParam) p.set("q", qParam);
-        if (cityParam) p.set("city", cityParam); // slug
+        if (cityParam) p.set("city", cityParam);
         if (sortParam) p.set("sort", sortParam);
 
         const res = await api(`/api/public/stores?${p.toString()}`);
-        const newItems = res?.items || [];
-        const totalFromApi = res?.total || 0;
 
-        setItems((prev) =>
-          append ? [...prev, ...newItems] : newItems
-        );
-        setTotal(totalFromApi);
+        const newItems = Array.isArray(res?.items) ? res.items : [];
+        const apiHasMore = !!res?.hasMore;
 
-        const totalPages = Math.max(
-          1,
-          Math.ceil(totalFromApi / limit)
-        );
-        setHasMore(pageToLoad < totalPages);
+        setItems((prev) => (append ? [...prev, ...newItems] : newItems));
+        setHasMore(apiHasMore);
+
+        // total doar când vine (page=1)
+        setTotal(typeof res?.total === "number" ? res.total : null);
       } catch (e) {
         console.error(e);
         setError("A apărut o eroare la încărcarea magazinelor.");
         if (!append) {
           setItems([]);
-          setTotal(0);
+          setTotal(null);
         }
         setHasMore(false);
       } finally {
-        if (pageToLoad === 1 && !append) {
-          setLoading(false);
-        } else {
-          setIsLoadingMore(false);
-        }
+        if (pageToLoad === 1 && !append) setLoading(false);
+        else setIsLoadingMore(false);
       }
     },
     [qParam, cityParam, sortParam]
   );
 
-  // === încarcă prima pagină atunci când se schimbă filtrele (sau la mount) ===
+  // prima pagină când se schimbă filtrele
   useEffect(() => {
     load(1, false);
-  }, [load, qParam, cityParam, sortParam]);
+  }, [load]);
 
-  // === autocomplete: sugestii magazine pentru q ===
+  // autocomplete
   useEffect(() => {
     const q = (localFilters.q || "").trim();
-
     if (!q || q.length < 2) {
       setSuggestions(null);
       return;
@@ -181,11 +161,7 @@ export default function StoresPage() {
     const handle = setTimeout(async () => {
       try {
         setSuggestLoading(true);
-        const data = await api(
-          `/api/public/stores/suggest?q=${encodeURIComponent(
-            q
-          )}`
-        );
+        const data = await api(`/api/public/stores/suggest?q=${encodeURIComponent(q)}`);
         setSuggestions(data || null);
       } catch (e) {
         console.error("store suggest error", e);
@@ -198,46 +174,32 @@ export default function StoresPage() {
     return () => clearTimeout(handle);
   }, [localFilters.q]);
 
-  // === Închide sugestiile la click în afara barei de căutare ===
+  // click outside -> close suggestions
   useEffect(() => {
     if (!suggestions) return;
-
     const handleClickOutside = (e) => {
       if (!searchAreaRef.current) return;
       if (searchAreaRef.current.contains(e.target)) return;
       setSuggestions(null);
     };
-
     document.addEventListener("mousedown", handleClickOutside);
-    return () =>
-      document.removeEventListener(
-        "mousedown",
-        handleClickOutside
-      );
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [suggestions]);
 
-  // === Aplică filtre (scrie în URL, resetează implicit page la 1) ===
   const applyFilters = () => {
     const f = localFilters;
     const p = new URLSearchParams();
-
     if (f.q) p.set("q", f.q);
-    if (f.city) p.set("city", f.city); // slug
+    if (f.city) p.set("city", f.city);
     if (f.sort) p.set("sort", f.sort);
 
-    // nu mai avem page în URL; pagina 1 e implicit
     setFiltersOpen(false);
     setSuggestions(null);
     navigate(`/magazine?${p.toString()}`);
   };
 
-  // === Reset filtre ===
   const resetFilters = () => {
-    setLocalFilters({
-      q: "",
-      city: "",
-      sort: "new",
-    });
+    setLocalFilters({ q: "", city: "", sort: "new" });
     setFiltersOpen(false);
     setSuggestions(null);
     navigate("/magazine");
@@ -251,30 +213,38 @@ export default function StoresPage() {
     navigate(to);
   };
 
-  // === Infinite scroll: când ajungem aproape de bottom, încărcăm pagina următoare ===
+  // ✅ IntersectionObserver infinite scroll
   useEffect(() => {
-    if (!hasMore) return;
+    if (!sentinelRef.current) return;
 
-    const handleScroll = () => {
-      const scrollPosition =
-        window.innerHeight + window.scrollY;
-      const threshold = document.body.offsetHeight - 400;
+    // dacă nu mai avem, oprim
+    if (!hasMore || loading || isLoadingMore) return;
 
-      if (
-        scrollPosition >= threshold &&
-        !loading &&
-        !isLoadingMore &&
-        hasMore
-      ) {
+    // cleanup vechi observer
+    if (ioRef.current) {
+      ioRef.current.disconnect();
+      ioRef.current = null;
+    }
+
+    ioRef.current = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (!first?.isIntersecting) return;
+        // evităm multiple increments
         setPage((prev) => prev + 1);
-      }
+      },
+      { root: null, rootMargin: "800px", threshold: 0.01 }
+    );
+
+    ioRef.current.observe(sentinelRef.current);
+
+    return () => {
+      if (ioRef.current) ioRef.current.disconnect();
+      ioRef.current = null;
     };
+  }, [hasMore, loading, isLoadingMore, items.length]);
 
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [loading, isLoadingMore, hasMore]);
-
-  // când page crește (>1), încărcăm următoarea pagină și concatenăm
+  // când crește page (>1), încarcă următoarea pagină
   useEffect(() => {
     if (page === 1) return;
     load(page, true);
@@ -283,7 +253,6 @@ export default function StoresPage() {
   return (
     <section className={styles.page}>
       <header className={styles.head}>
-        {/* titlu + butoane icon (filtre / reset) */}
         <div className={styles.headTop}>
           <h1 className={styles.h1}>Magazine</h1>
           <div className={styles.headActions}>
@@ -308,7 +277,6 @@ export default function StoresPage() {
           </div>
         </div>
 
-        {/* bara de căutare principală (pilulă) – caută full-text magazine */}
         <form
           ref={searchAreaRef}
           className={styles.searchRow}
@@ -331,16 +299,15 @@ export default function StoresPage() {
               placeholder="Caută magazine după nume sau descriere…"
               value={localFilters.q}
               onChange={(e) =>
-                setLocalFilters((f) => ({
-                  ...f,
-                  q: e.target.value,
-                }))
+                setLocalFilters((f) => ({ ...f, q: e.target.value }))
               }
               autoComplete="off"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSuggestions(null);
+              }}
             />
           </div>
 
-          {/* 🔍 dropdown sugestii (autocomplete) */}
           {localFilters.q &&
             localFilters.q.length >= 2 &&
             (suggestLoading || suggestions) && (
@@ -356,21 +323,14 @@ export default function StoresPage() {
                   suggestions.stores.length > 0 && (
                     <div className={styles.suggestList}>
                       {suggestions.stores.map((s) => {
-                        const title =
-                          s.storeName ||
-                          s.displayName ||
-                          "Magazin";
-                        const subtitle = [s.city]
-                          .filter(Boolean)
-                          .join(" • ");
+                        const title = s.storeName || s.displayName || "Magazin";
+                        const subtitle = [s.city].filter(Boolean).join(" • ");
                         return (
                           <button
                             key={s.id}
                             type="button"
                             className={styles.suggestItem}
-                            onClick={() =>
-                              handleSuggestionClick(s)
-                            }
+                            onClick={() => handleSuggestionClick(s)}
                           >
                             {s.logoUrl && (
                               <img
@@ -380,15 +340,9 @@ export default function StoresPage() {
                               />
                             )}
                             <div className={styles.suggestText}>
-                              <div className={styles.suggestTitle}>
-                                {title}
-                              </div>
+                              <div className={styles.suggestTitle}>{title}</div>
                               {subtitle && (
-                                <div
-                                  className={
-                                    styles.suggestSubtitle
-                                  }
-                                >
+                                <div className={styles.suggestSubtitle}>
                                   {subtitle}
                                 </div>
                               )}
@@ -400,19 +354,15 @@ export default function StoresPage() {
                   )}
 
                 {!suggestLoading &&
-                  (!suggestions ||
-                    !suggestions.stores ||
-                    suggestions.stores.length === 0) && (
+                  (!suggestions?.stores || suggestions.stores.length === 0) && (
                     <div className={styles.suggestEmpty}>
-                      Nu avem sugestii pentru „
-                      {localFilters.q}”.
+                      Nu avem sugestii pentru „{localFilters.q}”.
                     </div>
                   )}
               </div>
             )}
         </form>
 
-        {/* mic rezumat filtre (chip-uri) */}
         <FilterSummary
           q={qParam}
           citySlug={cityParam}
@@ -421,16 +371,13 @@ export default function StoresPage() {
         />
       </header>
 
-      {/* info despre numărul de rezultate */}
-      {!loading && !error && total > 0 && (
+      {/* total doar dacă există */}
+      {!loading && !error && typeof total === "number" && total > 0 && (
         <div className={styles.resultsInfo}>
-          {total === 1
-            ? "1 magazin găsit."
-            : `${total} magazine găsite.`}
+          {total === 1 ? "1 magazin găsit." : `${total} magazine găsite.`}
         </div>
       )}
 
-      {/* === MODAL FILTRE (q + city + sort) === */}
       {filtersOpen && (
         <div
           className={styles.filtersOverlay}
@@ -444,10 +391,7 @@ export default function StoresPage() {
             aria-labelledby="stores-filters-title"
           >
             <div className={styles.filtersModalHead}>
-              <h2
-                className={styles.filtersTitle}
-                id="stores-filters-title"
-              >
+              <h2 className={styles.filtersTitle} id="stores-filters-title">
                 Filtre magazine
               </h2>
               <button
@@ -462,28 +406,20 @@ export default function StoresPage() {
             </div>
 
             <div className={styles.filters}>
-              {/* Căutare text */}
               <input
                 className={styles.input}
                 placeholder="Caută magazine…"
                 value={localFilters.q}
                 onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    q: e.target.value,
-                  }))
+                  setLocalFilters((f) => ({ ...f, q: e.target.value }))
                 }
               />
 
-              {/* Oraș (dropdown cu slug + label) */}
               <select
                 className={styles.select}
                 value={localFilters.city}
                 onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    city: e.target.value,
-                  }))
+                  setLocalFilters((f) => ({ ...f, city: e.target.value }))
                 }
               >
                 <option value="">Toate orașele</option>
@@ -494,15 +430,11 @@ export default function StoresPage() {
                 ))}
               </select>
 
-              {/* Sortare */}
               <select
                 className={styles.select}
                 value={localFilters.sort}
                 onChange={(e) =>
-                  setLocalFilters((f) => ({
-                    ...f,
-                    sort: e.target.value,
-                  }))
+                  setLocalFilters((f) => ({ ...f, sort: e.target.value }))
                 }
               >
                 {SORTS.map((s) => (
@@ -548,9 +480,7 @@ export default function StoresPage() {
                 s={s}
                 onClick={() => {
                   const to = s.profileSlug
-                    ? `/magazin/${encodeURIComponent(
-                        s.profileSlug
-                      )}`
+                    ? `/magazin/${encodeURIComponent(s.profileSlug)}`
                     : `/magazin/${s.id}`;
                   navigate(to);
                 }}
@@ -558,14 +488,16 @@ export default function StoresPage() {
             ))}
           </ul>
 
-          {/* Loader mic la final când încărcăm încă o pagină */}
           {isLoadingMore && (
             <div className={styles.loading}>
               Se încarcă mai multe magazine…
             </div>
           )}
 
-          {!hasMore && total > 0 && (
+          {/* sentinel pentru IO */}
+          <div ref={sentinelRef} style={{ height: 1 }} />
+
+          {!hasMore && (typeof total !== "number" ? items.length > 0 : total > 0) && (
             <div className={styles.resultsInfo}>
               Ai ajuns la finalul listei.
             </div>
@@ -578,16 +510,11 @@ export default function StoresPage() {
 
 function StoreCard({ s, onClick }) {
   const title = s.storeName || s.displayName || "Magazin";
-  const subtitle = [s.city, s.category]
-    .filter(Boolean)
-    .join(" • ");
+  const subtitle = [s.city, s.category].filter(Boolean).join(" • ");
+
   return (
     <li className={styles.card}>
-      <button
-        className={styles.cardLink}
-        onClick={onClick}
-        aria-label={title}
-      >
+      <button className={styles.cardLink} onClick={onClick} aria-label={title}>
         <div className={styles.thumbWrap}>
           <img
             src={s.logoUrl || "/placeholder-store.png"}
@@ -600,13 +527,10 @@ function StoreCard({ s, onClick }) {
           <div className={styles.title} title={title}>
             {title}
           </div>
-          {subtitle && (
-            <div className={styles.meta}>{subtitle}</div>
-          )}
+          {subtitle && <div className={styles.meta}>{subtitle}</div>}
           <div className={styles.badges}>
             <span className={styles.badge}>
-              {s.productsCount}{" "}
-              {s.productsCount === 1 ? "produs" : "produse"}
+              {s.productsCount} {s.productsCount === 1 ? "produs" : "produse"}
             </span>
           </div>
           {s.about && (
@@ -633,7 +557,6 @@ function EmptyState() {
   );
 }
 
-// Mic rezumat text al filtrelor active
 function FilterSummary({ q, citySlug, sort, cityLabelMap }) {
   if (!q && !citySlug && !sort) return null;
 
@@ -644,9 +567,7 @@ function FilterSummary({ q, citySlug, sort, cityLabelMap }) {
     name_desc: "Nume Z–A",
   };
 
-  const cityLabel = citySlug
-    ? cityLabelMap.get(citySlug) || citySlug
-    : "";
+  const cityLabel = citySlug ? cityLabelMap.get(citySlug) || citySlug : "";
 
   return (
     <div className={styles.chipWrap}>
@@ -662,8 +583,7 @@ function FilterSummary({ q, citySlug, sort, cityLabelMap }) {
       )}
       {sort && (
         <span className={styles.chip}>
-          <strong>Sortare:</strong>{" "}
-          {sortLabelMap[sort] || sort}
+          <strong>Sortare:</strong> {sortLabelMap[sort] || sort}
         </span>
       )}
     </div>

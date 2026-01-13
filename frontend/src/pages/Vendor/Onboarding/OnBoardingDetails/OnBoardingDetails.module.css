@@ -1426,3 +1426,28 @@ a.ghostBtn:focus-visible {
     );
   }
 }
+/* ✅ Fix contrast accordion în dark */
+:global(html[data-theme="dark"]) .accHeader {
+  color: var(--color-text);                  /* forțează textul pe buton */
+  background: color-mix(in srgb, var(--surface) 92%, #fff 8%);
+  border-bottom-color: var(--color-border);
+}
+
+:global(html[data-theme="dark"]) .accHeader:hover {
+  background: color-mix(in srgb, var(--surface) 86%, #fff 14%);
+}
+
+:global(html[data-theme="dark"]) .accHeader strong {
+  color: var(--color-text);
+}
+
+:global(html[data-theme="dark"]) .muted,
+:global(html[data-theme="dark"]) .chev {
+  color: var(--color-muted);
+}
+
+/* optional: fă “dot”-ul mai vizibil în dark */
+:global(html[data-theme="dark"]) .pill {
+  background: rgba(167, 139, 250, 0.22);
+  border-color: rgba(167, 139, 250, 0.38);
+}

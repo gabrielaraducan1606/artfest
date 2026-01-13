@@ -279,65 +279,6 @@ export default function SettingsPage() {
     load();
   }, [load]);
 
-  /* ================== NOTIFICĂRI ================== */
-  const [notifications, setNotifications] = useState({
-    inAppMessageNew: true,
-    inAppBookingUpdates: true,
-    inAppEventReminders: true,
-  });
-  const [notifInitial, setNotifInitial] = useState(null);
-  const [notifSaving, setNotifSaving] = useState(false);
-  const [notifErr, setNotifErr] = useState("");
-  const [notifOk, setNotifOk] = useState(false);
-
-  const canSaveNotifications =
-    !notifSaving && notifInitial && JSON.stringify(notifications) !== JSON.stringify(notifInitial);
-
-  const loadNotifications = useCallback(async () => {
-    try {
-      const d = await api("/api/account/me/notifications", { method: "GET" });
-      const n = d.notifications || {};
-      const next = {
-        inAppMessageNew: typeof n.inAppMessageNew === "boolean" ? n.inAppMessageNew : true,
-        inAppBookingUpdates: typeof n.inAppBookingUpdates === "boolean" ? n.inAppBookingUpdates : true,
-        inAppEventReminders: typeof n.inAppEventReminders === "boolean" ? n.inAppEventReminders : true,
-      };
-      setNotifications(next);
-      setNotifInitial(next);
-      setNotifErr("");
-      setNotifOk(false);
-    } catch (e) {
-      setNotifErr(e?.message || "Nu am putut încărca preferințele de notificare. Încearcă din nou.");
-    }
-  }, []);
-
-  const saveNotifications = useCallback(async () => {
-    setNotifErr("");
-    setNotifOk(false);
-    setNotifSaving(true);
-    try {
-      const d = await api("/api/account/me/notifications", {
-        method: "PATCH",
-        body: { notifications },
-      });
-      const next = d.notifications || notifications;
-      setNotifications(next);
-      setNotifInitial(next);
-      setNotifOk(true);
-    } catch (e) {
-      setNotifErr(
-        e?.data?.message || e?.message || "Nu am putut salva notificările. Te rugăm să încerci din nou."
-      );
-      setNotifOk(false);
-    } finally {
-      setNotifSaving(false);
-    }
-  }, [notifications]);
-
-  useEffect(() => {
-    if (!loading) loadNotifications();
-  }, [loading, loadNotifications]);
-
   /* ================== SECURITATE: SCHIMBĂ PAROLA ================== */
   const [oldPass, setOldPass] = useState("");
   const [newPass, setNewPass] = useState("");
@@ -511,7 +452,6 @@ export default function SettingsPage() {
             className={settingsStyles.iconBtn}
             onClick={() => {
               load();
-              if (!loading) loadNotifications();
             }}
             title="Reîncarcă"
           >
@@ -541,51 +481,59 @@ export default function SettingsPage() {
 
         {!loading && active === "profile" && <EmbeddedOnboarding tab="profil" />}
 
+        {/* ================== NOTIFICĂRI (informativ) ================== */}
         {!loading && active === "notifications" && (
           <Section
             icon={<Bell size={18} />}
             title="Notificări panou vendor"
-            subtitle="Controlează notificările pe care le vezi în panoul tău Artfest. Emailurile esențiale (comenzi, plăți, securitate) vor fi trimise în continuare."
-            right={
-              <button className={settingsStyles.primary} onClick={saveNotifications} disabled={!canSaveNotifications}>
-                {notifSaving ? "Se salvează…" : "Salvează notificările"}
-              </button>
-            }
+            subtitle="Notificările sunt informative: îți arătăm ce evenimente importante generează alerte în Artfest. Nu e nevoie să le configurezi. Emailurile esențiale (comenzi, plăți, securitate) vor fi trimise în continuare."
           >
             <div className={settingsStyles.grid1}>
-              <label className={settingsStyles.radio} style={{ width: "100%" }}>
-                <input
-                  type="checkbox"
-                  checked={notifications.inAppMessageNew}
-                  onChange={(e) => setNotifications((n) => ({ ...n, inAppMessageNew: e.target.checked }))}
-                />
-                <span>Afișează notificări când primesc mesaje noi / lead-uri de la clienți.</span>
-              </label>
+              <div className={settingsStyles.card} style={{ padding: 12 }}>
+                <div className={settingsStyles.title}>Primești notificări când:</div>
+                <ul style={{ margin: "10px 0 0 18px" }}>
+                  <li>Ai activitate pe comenzi / rezervări (creare, confirmare, modificări, anulare, livrare).</li>
+                  <li>Primești recenzii noi (magazin sau produse) și când există răspunsuri la recenzii.</li>
+                  <li>Primești comentarii noi la produse și răspunsuri la comentarii.</li>
+                  <li>Primești mesaje / lead-uri din conversațiile cu clienții.</li>
+                  <li>Primești urmăritori noi (când e activ event-ul în sistem).</li>
+                </ul>
 
-              <label className={settingsStyles.radio} style={{ width: "100%" }}>
-                <input
-                  type="checkbox"
-                  checked={notifications.inAppBookingUpdates}
-                  onChange={(e) => setNotifications((n) => ({ ...n, inAppBookingUpdates: e.target.checked }))}
-                />
-                <span>Afișează notificări pentru comenzi și rezervări (creare, confirmare, modificări, anulare).</span>
-              </label>
-
-              <label className={settingsStyles.radio} style={{ width: "100%" }}>
-                <input
-                  type="checkbox"
-                  checked={notifications.inAppEventReminders}
-                  onChange={(e) => setNotifications((n) => ({ ...n, inAppEventReminders: e.target.checked }))}
-                />
-                <span>Afișează remindere în aplicație pentru evenimente și livrări importante.</span>
-              </label>
-
-              {notifErr && (
-                <div className={settingsStyles.error} role="alert">
-                  {notifErr}
+                <div className={settingsStyles.subtitle} style={{ marginTop: 10 }}>
+                  Unele notificări sunt destinate clientului (ex: facturi, livrare, suport). Pentru vendor afișăm cele
+                  relevante activității magazinului.
                 </div>
-              )}
-              {notifOk && <div className={settingsStyles.success}>✅ Preferințele de notificare au fost salvate.</div>}
+              </div>
+
+              <div className={settingsStyles.card} style={{ padding: 12 }}>
+                <div className={settingsStyles.title}>Detalii (mapare după backend)</div>
+                <ul style={{ margin: "10px 0 0 18px" }}>
+                  <li>
+                    <strong>Recenzii magazin:</strong> recenzie nouă (vendor) + reply la recenzie (user) —{" "}
+                    <code>/magazin/:slug#review-:id</code>
+                  </li>
+                  <li>
+                    <strong>Recenzii produs:</strong> recenzie nouă (vendor) + reply la recenzie (user) —{" "}
+                    <code>/produs/:id#review-:id</code>
+                  </li>
+                  <li>
+                    <strong>Comentarii produs:</strong> comentariu nou (vendor) + reply la comentariu (user) —{" "}
+                    <code>/produs/:id#comment-:id</code>
+                  </li>
+                  <li>
+                    <strong>Mesaje:</strong> mesaj nou în conversație (user) — <code>/cont/mesaje?threadId=:id</code>
+                  </li>
+                  <li>
+                    <strong>Comenzi:</strong> status actualizat (user) — <code>/comanda/:id</code>
+                  </li>
+                  <li>
+                    <strong>Facturi / livrare:</strong> factură emisă, AWB/curier (user) — <code>/comanda/:id</code>
+                  </li>
+                  <li>
+                    <strong>Suport:</strong> reply/status ticket (user) — <code>/account/support/tickets/:id</code>
+                  </li>
+                </ul>
+              </div>
             </div>
           </Section>
         )}

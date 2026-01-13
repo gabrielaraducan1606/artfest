@@ -51,16 +51,21 @@ function HighPriorityHint({ online }) {
   return (
     <p className={styles.mutedSmall}>
       {online ? (
-        <>
-  {SUPPORT_META.highPrioritySla}
-        </>
+        <>{SUPPORT_META.highPrioritySla}</>
       ) : (
         <>
+          Suntem în afara programului ({SUPPORT_META.workHoursLabel}). Dacă e o urgență (plăți / acces cont / eveniment
+          foarte apropiat), folosește prioritate <b>Ridicată</b> și/sau sună la{" "}
+          <a href={`tel:${SUPPORT_META.emergencyPhone}`} className={styles.phoneLink}>
+            {SUPPORT_META.emergencyPhone}
+          </a>
+          .
         </>
       )}
     </p>
   );
 }
+
 
 /* ========= FAQ default (poți override cu prop) ========= */
 const DEFAULT_FAQ_ITEMS = [
@@ -594,9 +599,10 @@ export default function SupportPageBase({
     return () => window.removeEventListener("keydown", onKey);
   }, [isMobileView, hideNewTicket]);
 
- async function handleCreate(e) {
+async function handleCreate(e) {
   e.preventDefault();
   if (!form.subject.trim() || !form.message.trim()) return;
+
   setCreating(true);
 
   try {
@@ -619,23 +625,26 @@ export default function SupportPageBase({
       }));
     }
 
-    // 2) trimitem tichetul cu lista de atașamente
-    const { ...rest } = form;
-    const payload = { ...rest, attachments: uploaded };
+    // 2) creează tichet
+    const payload = {
+      subject: form.subject,
+      category: form.category,
+      priority: form.priority,
+      message: form.message,
+      attachments: uploaded,
+    };
 
     const d = await api(`${supportBase}/tickets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    }).catch(() => null);
+    });
 
-    if (d?.ticket?.id) {
-      await reload({ hard: true });
-      setSelectedId(d.ticket.id);
-    } else {
-      await reload({ hard: true });
-    }
+    // 3) refresh listă + selectează
+    await reload({ hard: true });
+    if (d?.ticket?.id) setSelectedId(d.ticket.id);
 
+    // 4) reset form
     setForm({
       subject: "",
       category: "general",
@@ -644,22 +653,16 @@ export default function SupportPageBase({
       attachments: [],
     });
 
-      if (isMobileView) {
-        setMobileTab("tickets");
-      }
+    if (isMobileView) setMobileTab("tickets");
 
-      setTimeout(
-        () =>
-          document
-            .getElementById("composer-input")
-            ?.focus(),
-        0
-      );
-      setShowNewSheet(false);
-    } finally {
-      setCreating(false);
-    }
+    setTimeout(() => document.getElementById("composer-input")?.focus(), 0);
+    setShowNewSheet(false);
+  } catch (e2) {
+    alert(e2?.message || "Nu am putut crea tichetul. Încearcă din nou.");
+  } finally {
+    setCreating(false);
   }
+}
 
   async function handleReply(content, files = []) {
     if (!content.trim() && !files.length) return;

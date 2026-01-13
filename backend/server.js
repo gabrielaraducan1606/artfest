@@ -34,7 +34,7 @@ import publicProductRoutes from "./src/routes/publicProductRoutes.js";
 import favoritesRoutes, { mountWishlistCountAlias } from "./src/routes/favoritesRoutes.js";
 
 import cartRoutes from "./src/routes/cartRoutes.js";
-import commentsRoutes from "./src/routes/commentsRoutes.js";
+import productCommentsRouter from "./src/routes/commentProductRoutes.js";
 import vendorVisitorsRoutes from "./src/routes/vendorVisitorsRoutes.js";
 import vendorVisitorsPublicRoutes from "./src/routes/vendorVisitorsPublicRoutes.js";
 import checkoutRoutes from "./src/routes/chekoutRoutes.js";
@@ -93,8 +93,6 @@ import publicAdsRoutes from "./src/routes/publicAdsRoutes.js";
 import adminEmailLogsRoutes from "./src/routes/adminEmailLogRoutes.js";
 import adminIncidentsRoutes from "./src/routes/adminIncidentsRoutes.js";
 import unsubscribeRouter from "./src/routes/unsubscribeRoutes.js";
-// server/app.js (sau index.js)
-import imageSearchRouter from "./src/routes/imageSearchRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -399,7 +397,6 @@ app.use("/api/public", publicStoreRoutes);
 app.use("/api", geoRoutes);
 app.use("/api", userInvoicesRouter);
 
-app.use("/api", imageSearchRouter);
 
 app.use("/api", marketingRoutes);
 app.use("/api/public/support", PublicSupportRoutes);
@@ -408,6 +405,11 @@ app.use("/api/user-inbox", userMessagesRoutes);
 app.use("/api/account", accountSettingsRouter);
 
 app.use("/api", unsubscribeRouter);
+
+app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
+app.use("/api/visitors", vendorVisitorsPublicRoutes);
+
+app.use("/api", productCommentsRouter);
 
 /* ---------------- ALTE RUTE ---------------- */
 app.use("/api", checkoutNetopiaRoutes);
@@ -440,10 +442,7 @@ app.use("/api/favorites", favoritesRoutes);
 mountWishlistCountAlias(app);
 app.use("/api", cartRoutes);
 app.use("/api", notificationsRoutes);
-app.use("/api", commentsRoutes);
 
-app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
-app.use("/api/visitors", vendorVisitorsPublicRoutes);
 
 app.use("/api", agreementsRoutes);
 

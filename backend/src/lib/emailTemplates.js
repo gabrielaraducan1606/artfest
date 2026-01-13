@@ -15,44 +15,53 @@ function pickLogoUrl(logoUrl) {
 /**
  * Template email de verificare a contului (signup).
  */
-export function verificationEmailTemplate({ link, brandName = "Artfest", logoUrl }) {
-  const logoSrc = pickLogoUrl(logoUrl);
+export function verificationEmailTemplate({ brandName, logoUrl, code, ttlMin = 10 }) {
+  const subject = `Codul tău de confirmare - ${brandName}`;
 
   const html = `
-  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-    <div style="text-align:center;margin-bottom:20px;">
-      <img src="${logoSrc}" alt="${brandName} logo" width="120" height="120"
-           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${logoUrl}" alt="${brandName} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <div style="background:#ffffff;border-radius:12px;padding:18px 16px;border:1px solid #e5e7eb;">
+    <h2 style="color:#111827;margin:0 0 12px;">Confirmă adresa de email</h2>
+    <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
+      Folosește codul de mai jos pentru a confirma contul tău pe <strong>${brandName}</strong>.
+    </p>
+
+    <div style="text-align:center;margin:18px 0;">
+      <div style="display:inline-block;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:12px;padding:14px 18px;">
+        <span style="font-size:28px;letter-spacing:6px;font-weight:800;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;color:#111827;">
+          ${String(code || "").trim()}
+        </span>
+      </div>
     </div>
-    <h2 style="color:#111827;margin:0 0 8px;">Bine ai venit pe ${brandName}!</h2>
-    <p style="color:#374151;margin:0 0 16px;">Pentru a-ți activa contul, apasă pe butonul de mai jos:</p>
-    <p style="text-align:center;margin:30px 0;">
-      <a href="${link}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-        Activează contul
-      </a>
+
+    <p style="color:#6b7280;margin:0;line-height:1.5;font-size:14px;">
+      Codul expiră în <strong>${Number(ttlMin) || 10} minute</strong>.
     </p>
-    <p style="color:#6b7280;font-size:14px;margin:0 0 8px;">Dacă butonul nu funcționează, poți copia acest link în browser:</p>
-    <p style="word-break:break-all;font-size:13px;margin:0;">
-      <a href="${link}" style="color:#4f46e5;">${link}</a>
-    </p>
-    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
-      Acest email a fost trimis automat de ${brandName}. Dacă nu ai cerut crearea unui cont, ignoră acest mesaj.
+
+    <p style="color:#6b7280;margin:12px 0 0;line-height:1.5;font-size:14px;">
+      Dacă nu ai cerut acest cod, poți ignora acest email.
     </p>
   </div>
-  `.trim();
 
-  const text = `
-Bine ai venit pe ${brandName}!
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${brandName}. Te rugăm să nu răspunzi la acest mesaj.
+  </p>
+</div>`.trim();
 
-Pentru a-ți activa contul, apasă pe linkul de mai jos:
+  const text = [
+    `Confirmă adresa de email pe ${brandName}.`,
+    `Cod: ${String(code || "").trim()}`,
+    `Expiră în ${Number(ttlMin) || 10} minute.`,
+    `Dacă nu ai cerut acest cod, ignoră emailul.`,
+  ].join("\n");
 
-${link}
-
-Dacă nu ai cerut crearea unui cont, ignoră acest mesaj.
-`.trim();
-
-  return { html, text, subject: `Activează-ți contul pe ${brandName}` };
+  return { subject, html, text };
 }
 
 export function resetPasswordEmailTemplate({ link, brandName = "Artfest", logoUrl }) {
@@ -320,7 +329,17 @@ export function guestSupportConfirmationTemplate({
 
     <p><strong>Mesaj trimis:</strong><br>${message}</p>
 
-    <p style="font-size:12px;color:#999;margin-top:20px;">Acest email este o confirmare automată.</p>
+    <p style="font-size:12px;color:#9ca3af;line-height:1.6;text-align:center;">
+  Acesta este un mesaj automat de confirmare. Vă rugăm să nu răspundeți direct la acest email.
+</p>
+
+<p style="font-size:12px;color:#9ca3af;line-height:1.6;text-align:center;">
+  Pentru orice solicitare sau informații suplimentare,
+  ne puteți contacta la
+  <a href="mailto:support@artfest.ro" style="color:#4f46e5;text-decoration:none;">
+    support@artfest.ro
+  </a>.
+</p>
   </div>
   `.trim();
 

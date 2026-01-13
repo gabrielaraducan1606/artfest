@@ -10,6 +10,91 @@ const router = Router();
 // helper
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
+/**
+ * Returnează cart items în formatul așteptat de frontend,
+ * făcând 2 query-uri rapide (cartItems + products IN ids).
+ */
+async function getCartForUser(userId) {
+  const t0 = Date.now();
+
+  const cartItems = await prisma.cartItem.findMany({
+    where: { userId },
+    select: { productId: true, qty: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const t1 = Date.now();
+
+  const ids = cartItems.map((x) => x.productId);
+  if (!ids.length) {
+    return {
+      items: [],
+      timing: { cartMs: t1 - t0, productsMs: 0, mapMs: 0 },
+    };
+  }
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      title: true,
+      images: true,
+      priceCents: true,
+      currency: true,
+      service: {
+        select: {
+          vendorId: true,
+          profile: { select: { displayName: true, slug: true } },
+          vendor: { select: { displayName: true } },
+        },
+      },
+    },
+  });
+
+  const t2 = Date.now();
+
+  const byId = new Map(products.map((p) => [p.id, p]));
+
+  const mapped = cartItems.map((ci) => {
+    const p = byId.get(ci.productId);
+
+    // Dacă produsul a fost șters / indisponibil
+    if (!p) {
+      return {
+        productId: ci.productId,
+        qty: ci.qty,
+        product: null,
+      };
+    }
+
+    const service = p.service;
+    return {
+      productId: ci.productId,
+      qty: ci.qty,
+      product: {
+        id: p.id,
+        title: p.title,
+        images: p.images,
+        price: (p.priceCents ?? 0) / 100,
+        currency: p.currency || "RON",
+        vendorId: service?.vendorId ?? null,
+        storeName:
+          service?.profile?.displayName ||
+          service?.vendor?.displayName ||
+          "Magazin",
+        storeSlug: service?.profile?.slug || null,
+      },
+    };
+  });
+
+  const t3 = Date.now();
+
+  return {
+    items: mapped,
+    timing: { cartMs: t1 - t0, productsMs: t2 - t1, mapMs: t3 - t2 },
+  };
+}
+
 /* ============================================================
    POST /api/cart/add
    body: { productId, qty? }
@@ -27,9 +112,7 @@ router.post("/cart/add", authRequired, async (req, res) => {
       service: {
         select: {
           vendorId: true,
-          vendor: {
-            select: { userId: true },
-          },
+          vendor: { select: { userId: true } },
         },
       },
     },
@@ -150,53 +233,39 @@ router.post("/cart/clear", authRequired, async (req, res) => {
 /* ============================================================
    POST /api/cart/merge
    body: { items: [{ productId, qty }] }
+   OPTIMIZAT: 1 singur INSERT ... ON CONFLICT (Postgres)
 ============================================================ */
 router.post("/cart/merge", authRequired, async (req, res) => {
   const arr = Array.isArray(req.body?.items) ? req.body.items : [];
   if (!arr.length) {
-    return res.json({ ok: true, merged: 0, skipped: 0 });
+    return res.json({ ok: true, merged: 0, skipped: 0, items: [] });
   }
 
   const userId = req.user.sub;
 
+  // dedupe ids
   const ids = Array.from(
-    new Set(
-      arr.map((x) => String(x.productId || "").trim()).filter(Boolean)
-    )
+    new Set(arr.map((x) => String(x.productId || "").trim()).filter(Boolean))
   );
 
+  // luăm minim pentru filtrare "own product"
   const prods = await prisma.product.findMany({
     where: { id: { in: ids } },
     select: {
       id: true,
-      priceCents: true,
-      currency: true,
-      images: true,
-      title: true,
-      service: {
-        select: {
-          vendorId: true,
-          vendor: { select: { userId: true, displayName: true } },
-          profile: {
-            select: {
-              displayName: true,
-              slug: true,
-            },
-          },
-        },
-      },
+      service: { select: { vendor: { select: { userId: true } } } },
     },
   });
 
   const prodById = new Map(prods.map((p) => [p.id, p]));
 
-  let merged = 0;
   let skipped = 0;
-
-  const upserts = [];
+  const rows = [];
 
   for (const x of arr) {
     const pid = String(x.productId || "").trim();
+    if (!pid) continue;
+
     const qty = clamp(parseInt(x.qty, 10) || 1, 1, 99);
     const p = prodById.get(pid);
 
@@ -211,74 +280,46 @@ router.post("/cart/merge", authRequired, async (req, res) => {
       continue;
     }
 
-    upserts.push(
-      prisma.cartItem.upsert({
-        where: { userId_productId: { userId, productId: pid } },
-        update: { qty: { increment: qty } },
-        create: { userId, productId: pid, qty },
-      })
-    );
+    rows.push({ userId, productId: pid, qty });
   }
 
-  if (upserts.length) {
-    await prisma.$transaction(upserts);
+  if (!rows.length) {
+    const { items } = await getCartForUser(userId);
+    return res.json({ ok: true, merged: 0, skipped, items });
   }
 
-  merged = upserts.length;
+  // 1 singur statement SQL: INSERT ... ON CONFLICT
+  // IMPORTANT: nu interpolăm valori direct în SQL, doar placeholders ($1, $2, ...)
+  const valuesSql = rows
+    .map(
+      (_, i) =>
+        `($${i * 3 + 1}::text, $${i * 3 + 2}::text, $${i * 3 + 3}::int)`
+    )
+    .join(",");
 
-  // trimitem înapoi items cu numele magazinului
-  const items = await prisma.cartItem.findMany({
-    where: { userId },
-    select: {
-      productId: true,
-      qty: true,
-      product: {
-        select: {
-          id: true,
-          title: true,
-          images: true,
-          priceCents: true,
-          currency: true,
-          service: {
-            select: {
-              vendorId: true,
-              vendor: { select: { displayName: true } },
-              profile: {
-                select: {
-                  displayName: true,
-                  slug: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
+  const params = rows.flatMap((r) => [r.userId, r.productId, r.qty]);
+
+  await prisma.$executeRawUnsafe(
+    `
+    INSERT INTO "CartItem" ("userId", "productId", "qty")
+    VALUES ${valuesSql}
+    ON CONFLICT ("userId", "productId")
+    DO UPDATE SET
+      "qty" = LEAST(99, "CartItem"."qty" + EXCLUDED."qty"),
+      "updatedAt" = NOW()
+    `,
+    ...params
+  );
+
+  // returnăm coșul complet în format FE
+  const { items } = await getCartForUser(userId);
+
+  res.json({
+    ok: true,
+    merged: rows.length,
+    skipped,
+    items,
   });
-
-  const map = items.map((i) => {
-    const p = i.product;
-    const service = p?.service;
-    return {
-      productId: i.productId,
-      qty: i.qty,
-      product: {
-        id: p.id,
-        title: p.title,
-        images: p.images,
-        price: p.priceCents / 100,
-        currency: p.currency || "RON",
-        vendorId: service?.vendorId,
-        storeName:
-          service?.profile?.displayName ||
-          service?.vendor?.displayName ||
-          "Magazin",
-        storeSlug: service?.profile?.slug || null,
-      },
-    };
-  });
-
-  res.json({ ok: true, merged, skipped, items: map });
 });
 
 /* ============================================================
@@ -295,67 +336,20 @@ router.get("/cart/count", authRequired, async (req, res) => {
 
 /* ============================================================
    GET /api/cart
+   OPTIMIZAT: 2 query-uri + map
 ============================================================ */
 router.get("/cart", authRequired, async (req, res) => {
-  const items = await prisma.cartItem.findMany({
-    where: { userId: req.user.sub },
-    select: {
-      productId: true,
-      qty: true,
-      product: {
-        select: {
-          id: true,
-          title: true,
-          images: true,
-          priceCents: true,
-          currency: true,
-          service: {
-            select: {
-              vendorId: true,
-              profile: {
-                select: {
-                  displayName: true,
-                  slug: true,
-                },
-              },
-              vendor: {
-                select: {
-                  displayName: true,
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const userId = req.user.sub;
 
-  const map = items.map((i) => {
-    const p = i.product;
-    const service = p?.service;
+  const { items, timing } = await getCartForUser(userId);
 
-    return {
-      productId: i.productId,
-      qty: i.qty,
-      product: {
-        id: p.id,
-        title: p.title,
-        images: p.images,
-        price: p.priceCents / 100,
-        currency: p.currency || "RON",
-        vendorId: service?.vendorId,
-        // 🔥 ADĂUGAT / FORMAT PENTRU FRONTEND:
-        storeName:
-          service?.profile?.displayName ||
-          service?.vendor?.displayName ||
-          "Magazin",
-        storeSlug: service?.profile?.slug || null,
-      },
-    };
-  });
+  // util pentru debugging/profiling (îl poți lăsa și în prod)
+  res.setHeader(
+    "Server-Timing",
+    `cart;dur=${timing.cartMs},products;dur=${timing.productsMs},map;dur=${timing.mapMs}`
+  );
 
-  res.json({ items: map });
+  res.json({ items });
 });
 
 export default router;
