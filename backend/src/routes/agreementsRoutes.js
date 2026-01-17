@@ -28,7 +28,6 @@ router.get(
       });
 
       // reținem doar ultima versiune pentru fiecare tip de document
-      // (prima intrare cu acel document în map, fiind ordonate descrescător)
       const latest = new Map();
       for (const p of all) {
         if (!latest.has(p.document)) {
@@ -39,10 +38,10 @@ router.get(
       // transformăm în array gata de trimis la frontend
       const docs = Array.from(latest.values()).map((d) => ({
         doc_key: d.document, // ex: "VENDOR_TERMS" | "SHIPPING_ADDENDUM" | "RETURNS_POLICY_ACK"
-        title: d.title,      // titlul documentului
-        url: d.url,          // URL public unde poate fi citit
-        version: d.version,  // versiunea (string)
-        is_required: d.isRequired, // dacă este sau nu obligatoriu
+        title: d.title,
+        url: d.url,
+        version: d.version,  // string
+        is_required: d.isRequired,
       }));
 
       res.json({ docs });
@@ -55,17 +54,11 @@ router.get(
 
 /**
  * POST /api/vendor/agreements/accept
- * Body așteptat:
- *  {
- *    items: [
- *      { doc_key: "VENDOR_TERMS", version: "1.0.0" },
- *      ...
- *    ]
- *  }
+ * Body:
+ *  { items: [ { doc_key: "VENDOR_TERMS", version: "1.0.0" }, ... ] }
  *
  * Scop:
- *  - salvează în VendorAcceptance faptul că vendorul a acceptat
- *    anumite versiuni de documente (Termeni, Anexă, etc.).
+ *  - salvează acceptările în VendorAcceptance pentru vendorul curent.
  */
 router.post(
   "/vendor/agreements/accept",
@@ -73,8 +66,6 @@ router.post(
   vendorAccessRequired,
   async (req, res) => {
     try {
-      // identificăm vendor-ul curent
-      // (vendorAccessRequired poate seta req.meVendor; dacă nu, căutăm în DB)
       const meVendor =
         req.meVendor ??
         (await prisma.vendor.findUnique({
@@ -86,7 +77,6 @@ router.post(
         return res.status(403).json({ error: "forbidden" });
       }
 
-      // extragem items din body (max 10 pentru siguranță)
       const items = Array.isArray(req.body?.items)
         ? req.body.items.slice(0, 10)
         : [];
@@ -104,12 +94,10 @@ router.post(
         },
       });
 
-      // facem un set "DOCUMENT::VERSIUNE" pentru versiunile valide
       const valid = new Set(
         policies.map((p) => `${p.document}::${p.version}`)
       );
 
-      // păstrăm doar item-urile care chiar există în VendorPolicy
       const toInsert = items
         .map((i) => ({
           document: i.doc_key,
@@ -122,7 +110,9 @@ router.post(
       }
 
       // 2) inserăm/actualizăm acceptările în VendorAcceptance
-      //    folosim upsert ca să nu dublăm aceeași pereche (vendor + doc + version)
+      // folosim upsert ca să nu dublăm aceeași pereche (vendor + doc + version)
+      const now = new Date();
+
       for (const it of toInsert) {
         await prisma.vendorAcceptance.upsert({
           where: {
@@ -136,14 +126,15 @@ router.post(
             vendorId: meVendor.id,
             document: it.document,
             version: it.version,
-            // atașăm checksum-ul din VendorPolicy, dacă există (audit)
+            acceptedAt: now,
             checksum:
               policies.find(
                 (p) => p.document === it.document && p.version === it.version
               )?.checksum || null,
           },
           update: {
-            // aici nu actualizăm nimic; dacă există deja, îl lăsăm cum e
+            // dacă vrei să actualizezi data la reacceptare:
+            // acceptedAt: now,
           },
         });
       }
@@ -156,19 +147,19 @@ router.post(
   }
 );
 
-// GET /api/vendor/agreements/status
-// Scop:
-//  - combină:
-//    (1) lista ultimelor versiuni active din VendorPolicy
-//    (2) acceptările din VendorAcceptance pentru vendor-ul curent
-//  - întoarce pentru fiecare document: versiune curentă + dacă a fost sau nu acceptată
+/**
+ * GET /api/vendor/agreements/status
+ * Scop:
+ *  - combină (1) ultimele versiuni active din VendorPolicy
+ *           (2) acceptările din VendorAcceptance
+ *  - întoarce status per document + allOK
+ */
 router.get(
   "/vendor/agreements/status",
   authRequired,
   vendorAccessRequired,
   async (req, res) => {
     try {
-      // vendor curent
       const meVendor =
         req.meVendor ??
         (await prisma.vendor.findUnique({
@@ -179,7 +170,6 @@ router.get(
         return res.status(403).json({ error: "forbidden" });
       }
 
-      // 1) ultimele versiuni active din VendorPolicy
       const active = await prisma.vendorPolicy.findMany({
         where: { isActive: true },
         orderBy: [
@@ -188,7 +178,6 @@ router.get(
         ],
       });
 
-      // map "document" -> cea mai recentă intrare
       const latest = new Map();
       for (const p of active) {
         if (!latest.has(p.document)) {
@@ -196,22 +185,19 @@ router.get(
         }
       }
 
-      // 2) istoric acceptări ale vendorului
       const accepts = await prisma.vendorAcceptance.findMany({
         where: { vendorId: meVendor.id },
         select: { document: true, version: true, acceptedAt: true },
         orderBy: { acceptedAt: "desc" },
       });
 
-      // set de perechi "DOCUMENT::VERSIUNE" pe care vendorul le-a acceptat
       const acceptedSet = new Set(
         accepts.map((a) => `${a.document}::${a.version}`)
       );
 
-      // 3) compunem status per document (ultima versiune activă + accepted? true/false)
       const docs = [];
       for (const [, p] of latest) {
-        const key = p.document; // ex: "VENDOR_TERMS", "SHIPPING_ADDENDUM", "RETURNS_POLICY"
+        const key = p.document;
         const isAccepted = acceptedSet.has(`${key}::${p.version}`);
 
         docs.push({
@@ -224,14 +210,12 @@ router.get(
         });
       }
 
-      // allOK = toate documentele marcate is_required === true sunt acceptate
-    // allOK = toate documentele required sunt acceptate,
-// DAR doar dacă există cel puțin un document required
-const requiredDocs = docs.filter((d) => d.is_required);
-
-const allOK =
-  requiredDocs.length > 0 &&
-  requiredDocs.every((d) => d.accepted === true);
+      // allOK = toate documentele required sunt acceptate,
+      // dar doar dacă există cel puțin un document required
+      const requiredDocs = docs.filter((d) => d.is_required);
+      const allOK =
+        requiredDocs.length > 0 &&
+        requiredDocs.every((d) => d.accepted === true);
 
       res.json({ docs, allOK });
     } catch (e) {
@@ -251,23 +235,30 @@ const allOK =
  * frontend:
  *   - vendor_terms
  *   - shipping_addendum
- *   - returns
+ *   - returns (legacy)
+ *   - returns_policy_ack (nou)
+ *   - products_addendum (opțional)
  *
  * Prisma enum VendorDoc:
  *   - VENDOR_TERMS
  *   - SHIPPING_ADDENDUM
  *   - RETURNS_POLICY_ACK
+ *   - PRODUCTS_ADDENDUM (dacă există)
  */
 const typeToVendorDoc = {
   vendor_terms: "VENDOR_TERMS",
   shipping_addendum: "SHIPPING_ADDENDUM",
   returns: "RETURNS_POLICY_ACK",
+  returns_policy_ack: "RETURNS_POLICY_ACK",
+
+  // ✅ dacă ai în Prisma enum-ul:
+  products_addendum: "PRODUCTS_ADDENDUM",
 };
 
 /**
  * POST /api/legal/vendor-accept
  *
- * Body așteptat (exact cum trimite ProfileTab):
+ * Body:
  * {
  *   accept: [
  *     { type: "vendor_terms" },
@@ -277,12 +268,11 @@ const typeToVendorDoc = {
  * }
  *
  * Scop:
- *  - pentru vendorul logat:
- *    - ia din VendorPolicy ultimele versiuni ACTIVE pentru documentele cerute
- *    - scrie în VendorAcceptance (upsert)
+ *  - ia din VendorPolicy ultimele versiuni ACTIVE pentru documentele cerute
+ *  - scrie în VendorAcceptance (upsert)
  *
  * ATENȚIE:
- *  - ruta asta există doar ca adaptor pentru checkbox-ul „Acordul Master”.
+ *  - ruta asta există doar ca adaptor pentru checkbox-uri legacy.
  *  - nu primește versiunea din frontend, o ia singură din VendorPolicy.
  */
 router.post(
@@ -310,7 +300,7 @@ router.post(
         new Set(
           accept
             .map((a) =>
-              typeToVendorDoc[String(a.type || "").toLowerCase()]
+              typeToVendorDoc[String(a?.type || "").trim().toLowerCase()]
             )
             .filter(Boolean)
         )
@@ -323,44 +313,74 @@ router.post(
         });
       }
 
-      // versiune “default” – ideal să o ții în config/env
-      const DEFAULT_VERSION = "v1.0";
+      // 1) Luăm cea mai recentă versiune activă per document din VendorPolicy
+      const policies = await prisma.vendorPolicy.findMany({
+        where: {
+          isActive: true,
+          document: { in: docsRequested },
+        },
+        orderBy: [
+          { document: "asc" },
+          { publishedAt: "desc" }, // latest first
+        ],
+      });
+
+      const latestByDoc = new Map();
+      for (const p of policies) {
+        if (!latestByDoc.has(p.document)) latestByDoc.set(p.document, p);
+      }
 
       const now = new Date();
+      const results = [];
 
-      for (const doc of docsRequested) {
+      for (const docKey of docsRequested) {
+        const p = latestByDoc.get(docKey);
+        if (!p) {
+          results.push({
+            doc_key: docKey,
+            ok: false,
+            code: "no_active_policy",
+          });
+          continue;
+        }
+
         await prisma.vendorAcceptance.upsert({
           where: {
             vendorId_document_version: {
               vendorId: meVendor.id,
-              document: doc,
-              version: DEFAULT_VERSION,
+              document: docKey,
+              version: String(p.version),
             },
           },
           create: {
             vendorId: meVendor.id,
-            document: doc,
-            version: DEFAULT_VERSION,
+            document: docKey,
+            version: String(p.version),
+            checksum: p.checksum || null,
             acceptedAt: now,
           },
           update: {
-            // dacă vrei să actualizezi data la fiecare reacceptare:
+            // dacă vrei să actualizezi data la reacceptare:
             // acceptedAt: now,
           },
         });
+
+        results.push({
+          doc_key: docKey,
+          ok: true,
+          version: String(p.version),
+        });
       }
 
-      return res.json({ ok: true });
+      return res.json({ ok: true, results });
     } catch (e) {
       console.error("POST /api/legal/vendor-accept error:", e);
       return res.status(500).json({ error: "server_error" });
     }
   }
 );
+
 // GET /api/vendor/product-declaration/status
-// Scop:
-//  - spune dacă vendorul logat a acceptat deja declarația de conformitate a produselor
-//  - returnează și versiunea, dacă există
 router.get(
   "/vendor/product-declaration/status",
   authRequired,
@@ -400,17 +420,8 @@ router.get(
     }
   }
 );
+
 // POST /api/vendor/product-declaration/accept
-//
-// Body (opțional):
-//  {
-//    version?: "1.0.0",      // dacă vrei să o trimiți din FE; altfel folosim default
-//    textSnapshot?: "...."   // dacă vrei să salvezi și textul exact
-//  }
-//
-// Scop:
-//  - marchează pe vendor faptul că a acceptat declarația de conformitate a produselor
-//  - dacă există deja o înregistrare, o lăsăm în pace (nu e nevoie să o rescriem)
 router.post(
   "/vendor/product-declaration/accept",
   authRequired,
@@ -433,14 +444,11 @@ router.post(
       const textSnapshot =
         typeof body.textSnapshot === "string" ? body.textSnapshot : null;
 
-      // dacă există deja o declarație pentru vendor, nu mai creăm alta
       const existing = await prisma.vendorProductDeclaration.findUnique({
         where: { vendorId: meVendor.id },
       });
 
       if (existing) {
-        // opțional: poți decide să faci update cu versiune nouă
-        // aici eu doar returnez statusul existent
         return res.json({
           ok: true,
           alreadyAccepted: true,
@@ -454,7 +462,6 @@ router.post(
           vendorId: meVendor.id,
           version,
           text: textSnapshot,
-          // ip + ua pentru audit (dacă le ai în req)
           ip: req.ip || null,
           ua: req.headers["user-agent"] || null,
         },

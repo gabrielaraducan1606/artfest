@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "VendorDoc" ADD VALUE 'PRODUCTS_ADDENDUM';

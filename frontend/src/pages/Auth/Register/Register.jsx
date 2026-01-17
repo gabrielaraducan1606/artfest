@@ -44,6 +44,23 @@ function appendTicket(urlLike, ticket) {
   }
 }
 
+/**
+ * Construiește un URL către documentele legale:
+ * - dacă primește deja URL absolut (http/https) -> îl folosește
+ * - altfel -> prefixează cu VITE_API_URL dacă există, sau lasă relativ
+ */
+function absLegalUrl(pathname) {
+  const p = pathname || "";
+  if (/^https?:\/\//i.test(p)) return p;
+
+  const rel = p.startsWith("/") ? p : `/${p}`;
+
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+  if (base) return `${base}${rel}`;
+
+  return rel;
+}
+
 // Sugestii anti-typo pentru email (gmail, yahoo etc.)
 function suggestEmailTypos(value) {
   const v = value.trim().toLowerCase();
@@ -52,11 +69,20 @@ function suggestEmailTypos(value) {
   if (!user || !domRaw) return { hint: "", suggestion: "" };
 
   const fixes = [
-    ["gmal.com", "gmail.com"], ["gmial.com", "gmail.com"], ["gnail.com", "gmail.com"],
-    ["gmail.con", "gmail.com"], ["gmail.co", "gmail.com"],
-    ["yaho.com", "yahoo.com"], ["yaaho.com", "yahoo.com"], ["yahoo.con", "yahoo.com"],
-    ["outllok.com", "outlook.com"], ["hotnail.com", "hotmail.com"],
-    [".con", ".com"], [".c0m", ".com"], [" .ro", ".ro"], [".ro ", ".ro"],
+    ["gmal.com", "gmail.com"],
+    ["gmial.com", "gmail.com"],
+    ["gnail.com", "gmail.com"],
+    ["gmail.con", "gmail.com"],
+    ["gmail.co", "gmail.com"],
+    ["yaho.com", "yahoo.com"],
+    ["yaaho.com", "yahoo.com"],
+    ["yahoo.con", "yahoo.com"],
+    ["outllok.com", "outlook.com"],
+    ["hotnail.com", "hotmail.com"],
+    [".con", ".com"],
+    [".c0m", ".com"],
+    [" .ro", ".ro"],
+    [".ro ", ".ro"],
   ];
   let dom = domRaw;
   for (const [bad, good] of fixes) {
@@ -66,16 +92,27 @@ function suggestEmailTypos(value) {
   }
 
   const common = [
-    "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
-    "icloud.com", "proton.me", "mail.com", "live.com",
-    "yahoo.ro", "gmail.ro"
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "icloud.com",
+    "proton.me",
+    "mail.com",
+    "live.com",
+    "yahoo.ro",
+    "gmail.ro",
   ];
   if (!dom.includes(".")) {
-    const guess = common.find((d) => d.startsWith(dom)) || (dom === "gmail" ? "gmail.com" : "");
+    const guess =
+      common.find((d) => d.startsWith(dom)) ||
+      (dom === "gmail" ? "gmail.com" : "");
     if (guess) dom = guess;
   }
   const suggestion = `${user}@${dom}`;
-  return suggestion !== v ? { hint: "Ai vrut să scrii:", suggestion } : { hint: "", suggestion: "" };
+  return suggestion !== v
+    ? { hint: "Ai vrut să scrii:", suggestion }
+    : { hint: "", suggestion: "" };
 }
 
 /* ===================== useLegalMeta (cache + backoff) ===================== */
@@ -102,7 +139,10 @@ function loadFromStorage(key) {
 }
 function saveToStorage(key, data) {
   try {
-    localStorage.setItem(LS_PREFIX + key, JSON.stringify({ ts: Date.now(), data }));
+    localStorage.setItem(
+      LS_PREFIX + key,
+      JSON.stringify({ ts: Date.now(), data })
+    );
   } catch {
     // ignorăm erorile de storage (ex: private mode)
   }
@@ -261,8 +301,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
 
   // Idempotency-Key pentru signup (aceeași pe toată durata formularului)
   const idemRef = useRef(
-    globalThis.crypto?.randomUUID?.() ||
-      Math.random().toString(36).slice(2)
+    globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)
   );
   const emailAbortRef = useRef(null);
   const liveRef = useRef(null);
@@ -404,22 +443,30 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     try {
       const consents = [];
       if (tosAccepted) {
-        consents.push({
-          type: "tos",
-          version: legal?.tos?.version || "1.0.0",
-          checksum: legal?.tos?.checksum ?? null,
-        });
-      }
-      if (privacyAcknowledged) {
-        consents.push({
-          type: "privacy_ack",
-          version: legal?.privacy?.version || "1.0.0",
-          checksum: legal?.privacy?.checksum ?? null,
-        });
-      }
-      if (marketingOptIn) {
-        consents.push({ type: "marketing_email_optin", version: "1.0.0" });
-      }
+  const v = legal?.tos?.version ?? "1.0.0";
+  const cs = legal?.tos?.checksum ?? null;
+
+  consents.push({
+    type: "tos",
+    version: String(v),
+    checksum: cs === null ? null : String(cs),
+  });
+}
+
+if (privacyAcknowledged) {
+  const v = legal?.privacy?.version ?? "1.0.0";
+  const cs = legal?.privacy?.checksum ?? null;
+
+  consents.push({
+    type: "privacy_ack",
+    version: String(v),
+    checksum: cs === null ? null : String(cs),
+  });
+}
+
+if (marketingOptIn) {
+  consents.push({ type: "marketing_email_optin", version: "1.0.0" });
+}
 
       const body = {
         email: email.trim().toLowerCase(),
@@ -443,10 +490,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       // ✉️ email verification flow — backend ne spune că trebuie confirmat emailul
       if (res?.status === "pending_verification") {
         try {
-          sessionStorage.setItem(
-            "onboarding.intent",
-            asVendor ? "vendor" : ""
-          );
+          sessionStorage.setItem("onboarding.intent", asVendor ? "vendor" : "");
         } catch {
           // ignorăm
         }
@@ -463,8 +507,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       if (asVendor) {
         try {
           const ticket =
-            crypto?.randomUUID?.() ||
-            Math.random().toString(36).slice(2);
+            crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
           const payload = { ts: Date.now(), intent: "vendor" };
           sessionStorage.setItem(
             OB_TICKET_PREFIX + ticket,
@@ -479,43 +522,69 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       }
 
       // utilizator obișnuit: redirect la next sau desktop
-      window.location.assign(
-        res?.next || (asVendor ? "/onboarding" : "/desktop")
-      );
-    } catch (e2) {
-      console.error("Register error:", e2);
-      const msg =
-        (e2?.status === 409 &&
-          (e2?.data?.error === "email_exists_unverified"
-            ? "Există deja un cont cu acest email, dar nu este confirmat."
-            : "Acest email este deja folosit.")) ||
-        e2?.data?.message ||
-        e2?.message ||
-        "Înregistrarea a eșuat.";
-      setErr(msg);
-      setUnverifiedEmail(
-        e2?.data?.error === "email_exists_unverified"
-          ? email.trim().toLowerCase()
-          : ""
-      );
-      try {
-        liveRef.current?.focus?.();
-        if (e2?.status === 409) {
-          document.getElementById("reg-email")?.focus();
-        } else {
-          pwRef.current?.focus();
-          pwRef.current?.select?.();
-        }
-      } catch {
-        // nu e critic dacă focus-ul eșuează
-      }
-    } finally {
+      window.location.assign(res?.next || (asVendor ? "/onboarding" : "/desktop"));
+   } catch (e2) {
+  console.error("Register error:", e2);
+
+  const fieldErrors = e2?.data?.details?.fieldErrors;
+  const formErrors = e2?.data?.details?.formErrors;
+
+  const nice =
+    fieldErrors
+      ? Object.entries(fieldErrors)
+          .map(([k, v]) => `${k}: ${(v || []).join(", ")}`)
+          .join(" • ")
+      : "";
+
+  const msg =
+    (e2?.status === 409 &&
+      (e2?.data?.error === "email_exists_unverified"
+        ? "Există deja un cont cu acest email, dar nu este confirmat."
+        : "Acest email este deja folosit.")) ||
+    e2?.data?.message ||
+    nice ||
+    (formErrors && formErrors.length ? formErrors.join(" • ") : "") ||
+    e2?.message ||
+    "Înregistrarea a eșuat.";
+
+  setErr(msg);
+
+  setUnverifiedEmail(
+    e2?.data?.error === "email_exists_unverified"
+      ? email.trim().toLowerCase()
+      : ""
+  );
+
+  try {
+    liveRef.current?.focus?.();
+    if (e2?.status === 409) {
+      document.getElementById("reg-email")?.focus();
+    } else {
+      pwRef.current?.focus();
+      pwRef.current?.select?.();
+    }
+  } catch {
+    // nu e critic dacă focus-ul eșuează
+  }
+}
+finally {
       setLoading(false);
     }
   }
 
   const pwType = showPw || peekPw ? "text" : "password";
   const showPwToggle = pwFocused || password.length > 0;
+
+  // ✅ folosim meta-ul din /api/legal dacă există, altfel fallback hardcoded
+  const tosUrl =
+    legal?.tos?.url && legal.tos.url !== "#"
+      ? legal.tos.url
+      : "/termenii-si-conditiile";
+
+  const privacyUrl =
+    legal?.privacy?.url && legal.privacy.url !== "#"
+      ? legal.privacy.url
+      : "/confidentialitate";
 
   /* --------------------------- Formularul ----------------------------- */
   const form = (
@@ -543,9 +612,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       <div
         role="group"
         aria-labelledby="vendor-box-title"
-        className={`${styles.vendorBox} ${
-          asVendor ? styles.vendorBoxActive : ""
-        }`}
+        className={`${styles.vendorBox} ${asVendor ? styles.vendorBoxActive : ""}`}
       >
         <label className={styles.vendorCheck}>
           <input
@@ -556,10 +623,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
               setAsVendor(checked);
               if (!checked) setVendorEntityConfirm(false);
               try {
-                sessionStorage.setItem(
-                  "onboarding.intent",
-                  checked ? "vendor" : ""
-                );
+                sessionStorage.setItem("onboarding.intent", checked ? "vendor" : "");
               } catch {
                 // ignorăm
               }
@@ -567,10 +631,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
           />
           <span id="vendor-box-title" className={styles.vendorTitle}>
             Sunt <strong>furnizor de servicii / partener Artfest</strong>
-            <span className={styles.vendorSubtitle}>
-              {" "}
-              (PFA / SRL / II / IF)
-            </span>
+            <span className={styles.vendorSubtitle}> (PFA / SRL / II / IF)</span>
           </span>
         </label>
 
@@ -646,15 +707,9 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         />
         {(emailHint || emailSuggestion || emailExists === true) && (
           <div className={styles.suggestionRow}>
-            {emailHint && (
-              <small className={styles.hint}>{emailHint}</small>
-            )}
+            {emailHint && <small className={styles.hint}>{emailHint}</small>}
             {emailSuggestion && (
-              <button
-                type="button"
-                className={styles.pill}
-                onClick={applyEmailSuggestion}
-              >
+              <button type="button" className={styles.pill} onClick={applyEmailSuggestion}>
                 Aplicați: <strong>{emailSuggestion}</strong>
               </button>
             )}
@@ -682,11 +737,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
 
       {/* ====== Password ====== */}
       <div>
-        <div
-          className={`${styles.inputGroup} ${
-            showPwToggle ? styles.hasToggle : ""
-          }`}
-        >
+        <div className={`${styles.inputGroup} ${showPwToggle ? styles.hasToggle : ""}`}>
           <input
             ref={pwRef}
             className={styles.field}
@@ -710,9 +761,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
             <button
               type="button"
               className={styles.togglePw}
-              aria-label={
-                showPw || peekPw ? "Ascunde parola" : "Afișează parola"
-              }
+              aria-label={showPw || peekPw ? "Ascunde parola" : "Afișează parola"}
               aria-pressed={showPw || peekPw}
               onClick={() => setShowPw((v) => !v)}
               onMouseDown={(e) => {
@@ -744,14 +793,11 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
           aria-valuemax={5}
           aria-valuenow={score}
         >
-          <div
-            className={styles.bar}
-            style={{ width: `${(score / 5) * 100}%` }}
-          />
+          <div className={styles.bar} style={{ width: `${(score / 5) * 100}%` }} />
         </div>
         <small id="pw-hint" className={styles.hint}>
-          Recomandat: minim 8 caractere și o combinație de litere mari/mici,
-          cifre și simboluri.
+          Recomandat: minim 8 caractere și o combinație de litere mari/mici, cifre
+          și simboluri.
         </small>
         {capsOn && pwFocused && (
           <div className={styles.capsHint}>
@@ -778,7 +824,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
             Prin crearea contului, confirm că am citit și accept{" "}
             <a
               className={styles.legalLink}
-              href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/termenii-si-conditiile`}
+              href={absLegalUrl(tosUrl)}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -787,7 +833,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
             și{" "}
             <a
               className={styles.legalLink}
-              href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/confidentialitate`}
+              href={absLegalUrl(privacyUrl)}
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -827,11 +873,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
 
       {/* UI pentru retrimitere email de confirmare (când email-ul există, dar e neconfirmat) */}
       {unverifiedEmail && (
-        <div
-          className={styles.info}
-          role="status"
-          style={{ marginTop: 8 }}
-        >
+        <div className={styles.info} role="status" style={{ marginTop: 8 }}>
           <div style={{ marginBottom: 8 }}>
             Nu găsești emailul de confirmare? Îl putem retrimite către{" "}
             <strong>{unverifiedEmail}</strong>.
@@ -843,9 +885,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
               onClick={handleResend}
               disabled={resendBusy}
             >
-              {resendBusy
-                ? "Se retrimite…"
-                : "Trimite din nou emailul de confirmare"}
+              {resendBusy ? "Se retrimite…" : "Trimite din nou emailul de confirmare"}
             </button>
           ) : (
             <div>Gata! Verifică inboxul (și Spam/Promo).</div>

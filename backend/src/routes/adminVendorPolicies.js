@@ -1,4 +1,3 @@
-// server/routes/adminVendorAcceptancesRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
@@ -9,15 +8,14 @@ const router = Router();
  * GET /api/admin/vendor-acceptances
  *
  * Returnează, per vendor:
- * - dacă are acceptate documentele speciale (din VendorAcceptance):
- *   - VENDOR_TERMS          (Acord Master vânzători)
- *   - SHIPPING_ADDENDUM     (Anexa de curierat Sameday)
- *   - RETURNS_POLICY_ACK    (Politica de retur pentru vânzători)
- * - dacă a acceptat declarația de conformitate a produselor:
- *   - VendorProductDeclaration (relația `productDeclaration`)
- * - Info de curierat din VendorService.attributes (doar informativ):
- *   - attributes.courierEnabled
- *   - attributes.courierAddendumAccepted + meta (version, acceptedAt)
+ * - acceptări documente (VendorAcceptance):
+ *   - VENDOR_TERMS
+ *   - SHIPPING_ADDENDUM
+ *   - RETURNS_POLICY_ACK
+ *   - PRODUCTS_ADDENDUM (✅ nou)
+ * - declarație produse:
+ *   - VendorProductDeclaration
+ * - Info de curierat din VendorService.attributes (informativ)
  *
  * ⚠️ Protejat: doar ADMIN.
  */
@@ -45,19 +43,17 @@ router.get(
           },
           VendorAcceptance: {
             select: {
-              document: true, // VENDOR_TERMS / SHIPPING_ADDENDUM / RETURNS_POLICY_ACK
+              document: true,
               version: true,
               acceptedAt: true,
             },
           },
-          // declarația de produse (1–1)
           productDeclaration: {
             select: {
               version: true,
               acceptedAt: true,
             },
           },
-          // servicii ale vendorului – info de curierat din profil (doar informativ)
           services: {
             select: {
               id: true,
@@ -76,14 +72,15 @@ router.get(
             .sort((a, b) => b.acceptedAt.getTime() - a.acceptedAt.getTime())[0] ||
           null;
 
-        // cele 3 acorduri legale principale
         const vendorTerms = getLast("VENDOR_TERMS");
         const shipping = getLast("SHIPPING_ADDENDUM");
         const returns = getLast("RETURNS_POLICY_ACK");
 
+        // ✅ NOU: Anexa Produse
+        const productsAddendum = getLast("PRODUCTS_ADDENDUM");
+
         const prodDecl = v.productDeclaration || null;
 
-        // Info de curierat din VendorService.attributes (legacy / informativ)
         const courierServices = (v.services || []).map((s) => {
           const attrs = s.attributes || {};
           return {
@@ -115,27 +112,27 @@ router.get(
           userEmail: v.user?.email || null,
           createdAt: v.createdAt,
 
-          // Acord Master vânzători (VendorAcceptance)
           vendorTermsAccepted: !!vendorTerms,
           vendorTermsVersion: vendorTerms?.version ?? null,
           vendorTermsAcceptedAt: vendorTerms?.acceptedAt ?? null,
 
-          // Anexa de curierat (VendorAcceptance)
           shippingAccepted: !!shipping,
           shippingVersion: shipping?.version ?? null,
           shippingAcceptedAt: shipping?.acceptedAt ?? null,
 
-          // Politica de retur (VendorAcceptance)
           returnsAccepted: !!returns,
           returnsVersion: returns?.version ?? null,
           returnsAcceptedAt: returns?.acceptedAt ?? null,
 
-          // Declarație produse (VendorProductDeclaration)
+          // ✅ NOU: Anexa Produse
+          productsAddendumAccepted: !!productsAddendum,
+          productsAddendumVersion: productsAddendum?.version ?? null,
+          productsAddendumAcceptedAt: productsAddendum?.acceptedAt ?? null,
+
           productDeclarationAccepted: !!prodDecl,
           productDeclarationVersion: prodDecl?.version ?? null,
           productDeclarationAcceptedAt: prodDecl?.acceptedAt ?? null,
 
-          // Curierat – doar informativ, din VendorService.attributes
           wantsCourier,
           courierAddendumToggleAccepted,
           courierServicesCount: courierServices.length,

@@ -1,0 +1,15 @@
+brand:
+  name: "Artfest"
+
+company:
+  legal_name: "[DENUMIRE FIRMA] SRL"
+  cui: "[CUI]"
+  address: "[ADRESA]"
+  support_email: "[EMAIL_SUPORT]"
+  gdpr_email: "[EMAIL_GDPR]"
+  returns_email: "[EMAIL_RETUR]"
+
+legal:
+  jurisdiction:
+    governing_law: "legea română"
+    courts: "instanțele competente din România"

@@ -838,7 +838,7 @@
 
   .badges {
     gap: 0.55rem;
-    font-size: 0.63rem;
+    font-size: 0.73rem;
   }
 
   .partnerCard {
@@ -884,5 +884,34 @@
   .trend {
     padding: 0.18rem 0.4rem;
     font-size: 0.6rem;
+  }
+}
+/* ✅ BUTOANE pe o singură linie pe mobil */
+@media (max-width: 620px) {
+  .buttons {
+    flex-wrap: nowrap;        /* nu mai permite să sară pe rândul următor */
+    gap: 0.45rem;
+    width: 100%;
+  }
+
+  .btn {
+    flex: 1 1 0;              /* ambele împart spațiul */
+    min-width: 0;             /* permite shrink (altfel poate forța wrap) */
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.52rem 0.6rem;  /* puțin mai mic ca să încapă */
+  }
+
+  .btn span {
+    white-space: nowrap;      /* text pe un singur rând */
+  }
+}
+
+/* Extra: pentru telefoane foarte înguste */
+@media (max-width: 380px) {
+  .btn {
+    padding: 0.48rem 0.55rem;
+    font-size: 0.88rem;
+    gap: 0.35rem;
   }
 }

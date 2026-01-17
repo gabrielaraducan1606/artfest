@@ -1,0 +1,50 @@
+version: 1
+
+documents:
+  tos:
+    title: "Termeni și Condiții"
+    scope: "USER"
+    required: true
+    current: 1
+    files:
+      1: { path: "legal/docs/tos/v1.md", vars: 1 }
+
+  privacy:
+    title: "Politica de confidențialitate"
+    scope: "USER"
+    required: true
+    current: 1
+    files:
+      1: { path: "legal/docs/privacy/v1.md", vars: 1 }
+
+  vendor_terms:
+    title: "Acordul Marketplace pentru Vânzători"
+    scope: "VENDOR"
+    required: true
+    current: 1
+    files:
+      1: { path: "legal/docs/vendor_terms/v1.md", vars: 1 }
+
+  shipping_addendum:
+    title: "Anexa de Expediere & Curierat"
+    scope: "VENDOR"
+    required: true
+    current: 1
+    files:
+      1: { path: "legal/docs/shipping_addendum/v1.md", vars: 1 }
+
+  returns_policy_ack:
+    title: "Politica de retur"
+    scope: "BOTH"
+    required: true
+    current: 1
+    files:
+      1: { path: "legal/docs/returns_policy_ack/v1.md", vars: 1 }
+
+  products_addendum:
+    title: "Anexa Produse"
+    scope: "VENDOR"
+    required: true
+    current: 1
+    files:
+      1: { path: "legal/docs/products_addendum/v1.md", vars: 1 }

@@ -4,12 +4,19 @@ import { useState } from "react";
 import Modal from "../ui/Modal";
 import styles from "../ProfilMagazin.module.css";
 
-export default function VendorGateModal({
-  open,
-  onClose,
-  gateDocs,
-  onAccept, // callback opțional, apelat după ce s-a salvat cu succes în DB
-}) {
+/**
+ * Construiește URL absolut către backend (dacă VITE_API_URL e setat),
+ * altfel păstrează link relativ (same-origin).
+ */
+function absUrl(pathname) {
+  const p = pathname || "";
+  if (/^https?:\/\//i.test(p)) return p;
+  const rel = p.startsWith("/") ? p : `/${p}`;
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+  return base ? `${base}${rel}` : rel;
+}
+
+export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
   const [gateChecks, setGateChecks] = useState({
     declaration: false,
     vendorTermsRead: false,
@@ -24,13 +31,35 @@ export default function VendorGateModal({
     if (canClose) onClose?.();
   };
 
-  // textul declarației – îl folosim și ca snapshot către backend
+  /**
+   * ✅ Declarație PRODUSE – variantă defensivă juridic
+   * - legalitate
+   * - IP
+   * - acuratețe
+   * - răspundere + despăgubire
+   * - drept de delistare / suspendare
+   */
   const declarationText =
-    "Declar că toate produsele pe care le listez pe platforma Artfest: " +
-    "respectă legislația în vigoare și nu sunt produse interzise sau periculoase; " +
-    "nu încalcă drepturi de autor, mărci sau alte drepturi de proprietate intelectuală; " +
-    "sunt descrise corect (titlu, descriere, imagini, preț, stoc, termene de livrare); " +
-    "sunt realizate, ambalate și livrate cu bună-credință, conform Acordului Marketplace pentru Vânzători.";
+    "Declar pe propria răspundere că toate produsele pe care le listez pe platforma Artfest: " +
+    "(1) respectă legislația aplicabilă și nu sunt produse interzise sau periculoase; " +
+    "(2) nu încalcă drepturi de autor, mărci sau alte drepturi de proprietate intelectuală și dețin toate drepturile/licențele necesare; " +
+    "(3) sunt descrise corect și complet (titlu, descriere, imagini, preț, stoc, termene de livrare); " +
+    "(4) sunt realizate, ambalate și livrate cu bună-credință, conform Acordului Marketplace pentru Vânzători și Anexei Produse. " +
+    "Înțeleg și accept că răspund integral pentru orice prejudiciu, sancțiune, reclamație sau cost rezultat din încălcarea celor declarate și că voi despăgubi Artfest pentru orice sume sau costuri suportate din această cauză. " +
+    "Sunt de acord că Artfest poate delista produse și/sau suspenda contul meu în caz de încălcări sau suspiciuni rezonabile, pentru protecția clienților și a platformei.";
+
+  /**
+   * ✅ LINK-URI CANONICE (conform backend/src/server/routes/legal.js):
+   *  - /acord-vanzatori  -> /legal/vendor_terms.html
+   *  - /anexa-produse    -> /legal/products_addendum.html
+   */
+  const vendorTermsUrl = absUrl("/acord-vanzatori");
+  const productsAddendumUrl = absUrl("/anexa-produse");
+
+  // versiuni – doar pentru afișare / audit
+  const vendorTermsVersion = gateDocs?.vendor_terms?.version || "";
+  const productsAddendumVersion = gateDocs?.products_addendum?.version || "";
+  const productDeclVersion = gateDocs?.product_declaration?.version || "1.0.0";
 
   const handleConfirm = async () => {
     if (!gateChecks.declaration || localLoading) return;
@@ -39,16 +68,16 @@ export default function VendorGateModal({
     setLocalLoading(true);
 
     try {
+      // 1) Salvează declarația (VendorProductDeclaration)
       const body = {
-        version: gateDocs?.product_declaration?.version || "1.0.0",
+        version: productDeclVersion,
         textSnapshot: declarationText,
       };
 
       const res = await fetch("/api/vendor/product-declaration/accept", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(body),
       });
 
@@ -57,17 +86,33 @@ export default function VendorGateModal({
         throw new Error(data?.error || "server_error");
       }
 
-      // dacă ai un callback în părinte (de ex. să refaci statusul/gate-ul)
+      // 2) ✅ Marchează acceptarea "Anexa Produse" în VendorAcceptance
+      // (prin adaptorul legacy care ia automat latest isActive din VendorPolicy)
+      const res2 = await fetch("/api/legal/vendor-accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          accept: [{ type: "products_addendum" }],
+        }),
+      });
+
+      // Nu blocăm flow-ul dacă adaptorul pică, dar logăm și arătăm un mesaj util
+      if (!res2.ok) {
+        const data2 = await res2.json().catch(() => ({}));
+        console.warn("products_addendum accept failed:", data2);
+        // dacă vrei STRICT, poți înlocui warn cu throw ca să nu continue
+      }
+
       if (typeof onAccept === "function") {
         await onAccept();
       }
 
-      // închidem modalul după succes
       onClose?.();
     } catch (e) {
       console.error("VendorGateModal accept error:", e);
       setLocalErr(
-        "A apărut o eroare la salvarea declarației. Te rugăm să încerci din nou."
+        "A apărut o eroare la salvare. Te rugăm să încerci din nou."
       );
     } finally {
       setLocalLoading(false);
@@ -95,27 +140,26 @@ export default function VendorGateModal({
         ) : (
           <>
             <p style={{ marginBottom: 12 }}>
-              Pentru a adăuga primul produs în magazinul tău, trebuie să confirmi că produsele
-              pe care le listezi respectă legislația în vigoare și regulile platformei Artfest.
+              Pentru a adăuga primul produs în magazinul tău, trebuie să confirmi
+              că produsele listate respectă legislația și regulile platformei
+              Artfest.
             </p>
 
             <p style={{ marginBottom: 16, fontSize: 14, opacity: 0.85 }}>
-              Declarația de mai jos se aplică tuturor produselor pe care le vei adăuga în viitor
-              și este complementară{" "}
-              <a
-                href={gateDocs?.vendor_terms?.url || "/legal/vendor/terms"}
-                target="_blank"
-                rel="noreferrer"
-              >
+              Declarația de mai jos este complementară{" "}
+              <a href={vendorTermsUrl} target="_blank" rel="noreferrer">
                 Acordului Marketplace pentru Vânzători
-                {gateDocs?.vendor_terms?.version
-                  ? ` (v${gateDocs?.vendor_terms?.version})`
-                  : ""}
+                {vendorTermsVersion ? ` (v${vendorTermsVersion})` : ""}
+              </a>{" "}
+              și{" "}
+              <a href={productsAddendumUrl} target="_blank" rel="noreferrer">
+                Anexei Produse
+                {productsAddendumVersion ? ` (v${productsAddendumVersion})` : ""}
               </a>
               .
             </p>
 
-            {/* Declarație de conformitate produse – OBLIGATORIE */}
+            {/* Declarație PRODUSE – OBLIGATORIE */}
             <label style={{ display: "block", margin: "10px 0" }}>
               <input
                 type="checkbox"
@@ -130,23 +174,23 @@ export default function VendorGateModal({
               />{" "}
               Declar că toate produsele pe care le listez pe platforma Artfest:
               <ul style={{ margin: "6px 0 0 24px", fontSize: 14 }}>
+                <li>respectă legislația în vigoare;</li>
                 <li>
-                  respectă legislația în vigoare și nu sunt produse interzise sau periculoase;
+                  nu încalcă drepturi de autor, mărci sau alte drepturi de
+                  proprietate intelectuală;
                 </li>
                 <li>
-                  nu încalcă drepturi de autor, mărci sau alte drepturi de proprietate intelectuală;
+                  sunt descrise corect (titlu, descriere, imagini, preț, stoc,
+                  termene de livrare);
                 </li>
                 <li>
-                  sunt descrise corect (titlu, descriere, imagini, preț, stoc, termene de livrare);
-                </li>
-                <li>
-                  sunt realizate, ambalate și livrate cu bună-credință, conform Acordului Marketplace
-                  pentru Vânzători.
+                  sunt realizate și livrate cu bună-credință, conform Acordului
+                  Marketplace și Anexei Produse.
                 </li>
               </ul>
             </label>
 
-            {/* Acordul Marketplace – doar reminder, opțional */}
+            {/* Reminder – opțional */}
             <label style={{ display: "block", margin: "14px 0 10px", fontSize: 14 }}>
               <input
                 type="checkbox"
@@ -159,18 +203,14 @@ export default function VendorGateModal({
                 }
               />{" "}
               Confirm că am citit{" "}
-              <a
-                href={gateDocs?.vendor_terms?.url || "/legal/vendor/terms"}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href={vendorTermsUrl} target="_blank" rel="noreferrer">
                 Acordul Marketplace pentru Vânzători
-                {gateDocs?.vendor_terms?.version
-                  ? ` (v${gateDocs?.vendor_terms?.version})`
-                  : ""}
               </a>{" "}
-              și că produsele mele vor respecta aceste condiții.
-              <span style={{ opacity: 0.7 }}> (opțional)</span>
+              și{" "}
+              <a href={productsAddendumUrl} target="_blank" rel="noreferrer">
+                Anexa Produse
+              </a>
+              . <span style={{ opacity: 0.7 }}>(opțional)</span>
             </label>
 
             {localErr && (
@@ -192,11 +232,6 @@ export default function VendorGateModal({
                 className={styles.primaryBtn}
                 onClick={handleConfirm}
                 disabled={localLoading || !gateChecks.declaration}
-                title={
-                  !gateChecks.declaration
-                    ? "Trebuie să confirmi declarația de conformitate pentru a continua"
-                    : "Continuă către adăugarea produsului"
-                }
               >
                 Confirm și continui
               </button>

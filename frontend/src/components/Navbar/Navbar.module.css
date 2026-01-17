@@ -808,3 +808,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+@media (max-width: 768px){
+  .modalBody .sellBtn { display: inline-flex; }
+}

@@ -12,8 +12,6 @@ function formatDate(dateString) {
 
 const PAGE_SIZE = 50;
 
-/* ========== User filters ========== */
-
 function createDefaultUserFilters() {
   return {
     q: "",
@@ -23,22 +21,34 @@ function createDefaultUserFilters() {
   };
 }
 
-/* ========== Vendor filters ========== */
-
 function createDefaultVendorFilters() {
   return {
     q: "",
     hasVendorTerms: "ALL", // ALL | YES | NO
     hasShipping: "ALL",
     hasReturns: "ALL",
+
+    // ✅ NOU: Anexa Produse
+    hasProductsAddendum: "ALL",
+
     hasProductDecl: "ALL",
   };
 }
+
+// ✅ Tab keys
+const TABS = {
+  USERS: "USERS",
+  VENDORS: "VENDORS",
+  NOTIFY: "NOTIFY",
+};
 
 export default function AdminPoliciesTab({
   userConsents = [],
   vendorAgreements = [],
 }) {
+  // ✅ NEW: active tab
+  const [activeTab, setActiveTab] = useState(TABS.USERS);
+
   // user filters + paginație
   const [userFilters, setUserFilters] = useState(createDefaultUserFilters);
   const [userPage, setUserPage] = useState(1);
@@ -98,7 +108,6 @@ export default function AdminPoliciesTab({
     }
 
     list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
     return list;
   }, [userConsents, userFilters]);
 
@@ -109,10 +118,7 @@ export default function AdminPoliciesTab({
   const userCurrentPage = Math.min(userPage, userTotalPages);
   const userStartIndex = (userCurrentPage - 1) * PAGE_SIZE;
   const userEndIndex = userStartIndex + PAGE_SIZE;
-  const userPaginatedRows = filteredUserRows.slice(
-    userStartIndex,
-    userEndIndex
-  );
+  const userPaginatedRows = filteredUserRows.slice(userStartIndex, userEndIndex);
 
   /* ========== VENDORS ========== */
 
@@ -166,6 +172,13 @@ export default function AdminPoliciesTab({
       list = list.filter((r) => !r.returnsAccepted);
     }
 
+    // ✅ NOU: Anexa Produse
+    if (vendorFilters.hasProductsAddendum === "YES") {
+      list = list.filter((r) => r.productsAddendumAccepted);
+    } else if (vendorFilters.hasProductsAddendum === "NO") {
+      list = list.filter((r) => !r.productsAddendumAccepted);
+    }
+
     if (vendorFilters.hasProductDecl === "YES") {
       list = list.filter((r) => r.productDeclarationAccepted);
     } else if (vendorFilters.hasProductDecl === "NO") {
@@ -173,7 +186,6 @@ export default function AdminPoliciesTab({
     }
 
     list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
     return list;
   }, [vendorAgreements, vendorFilters]);
 
@@ -191,228 +203,503 @@ export default function AdminPoliciesTab({
 
   return (
     <>
-      {/* ====== User consents ====== */}
-      <section style={{ marginBottom: 32 }}>
-        <h3 className={styles.sectionTitle}>Consimțăminte user</h3>
+      {/* ✅ NEW: Tabs header */}
+      <div
+        className={styles.filtersRow}
+        style={{ alignItems: "flex-end", marginBottom: 14 }}
+      >
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className={`${styles.paginationBtn} ${
+              activeTab === TABS.USERS ? styles.paginationBtnActive : ""
+            }`}
+            onClick={() => setActiveTab(TABS.USERS)}
+          >
+            Consimțăminte user
+          </button>
 
-        <div className={styles.filtersRow}>
-          <label>
-            <span>Caută</span>
-            <input
-              type="text"
-              placeholder="Email sau User ID"
-              value={userFilters.q}
-              onChange={(e) =>
-                handleUserFilterChange((f) => ({
-                  ...f,
-                  q: e.target.value,
-                }))
-              }
-            />
-          </label>
+          <button
+            type="button"
+            className={`${styles.paginationBtn} ${
+              activeTab === TABS.VENDORS ? styles.paginationBtnActive : ""
+            }`}
+            onClick={() => setActiveTab(TABS.VENDORS)}
+          >
+            Acorduri vendori
+          </button>
 
-          <label>
-            <span>Termeni &amp; condiții (TOS)</span>
-            <select
-              value={userFilters.hasTos}
-              onChange={(e) =>
-                handleUserFilterChange((f) => ({
-                  ...f,
-                  hasTos: e.target.value,
-                }))
-              }
-            >
-              <option value="ALL">Toți</option>
-              <option value="YES">Doar cu TOS acceptat</option>
-              <option value="NO">Fără TOS</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Politica de confidențialitate</span>
-            <select
-              value={userFilters.hasPrivacy}
-              onChange={(e) =>
-                handleUserFilterChange((f) => ({
-                  ...f,
-                  hasPrivacy: e.target.value,
-                }))
-              }
-            >
-              <option value="ALL">Toți</option>
-              <option value="YES">Doar cu Privacy acceptată</option>
-              <option value="NO">Fără Privacy</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Marketing</span>
-            <select
-              value={userFilters.hasMarketing}
-              onChange={(e) =>
-                handleUserFilterChange((f) => ({
-                  ...f,
-                  hasMarketing: e.target.value,
-                }))
-              }
-            >
-              <option value="ALL">Toți</option>
-              <option value="YES">Doar cu opt-in</option>
-              <option value="NO">Doar fără opt-in</option>
-            </select>
-          </label>
-
-          <div className={styles.filtersActions}>
-            <button
-              type="button"
-              className={styles.resetBtn}
-              onClick={resetUserFilters}
-            >
-              Reset
-            </button>
-            <span className={styles.filtersCount}>
-              {userTotalItems} rezultate
-            </span>
-          </div>
+          <button
+            type="button"
+            className={`${styles.paginationBtn} ${
+              activeTab === TABS.NOTIFY ? styles.paginationBtnActive : ""
+            }`}
+            onClick={() => setActiveTab(TABS.NOTIFY)}
+          >
+            Informare versiuni
+          </button>
         </div>
+      </div>
 
-        <UserConsentsTable
-          rows={userPaginatedRows}
-          totalItems={userTotalItems}
-        />
+      {/* ====== User consents ====== */}
+      {activeTab === TABS.USERS && (
+        <section style={{ marginBottom: 32 }}>
+          <h3 className={styles.sectionTitle}>Consimțăminte user</h3>
 
-        <Pagination
-          page={userCurrentPage}
-          totalPages={userTotalPages}
-          totalItems={userTotalItems}
-          onPageChange={setUserPage}
-        />
-      </section>
+          <div className={styles.filtersRow}>
+            <label>
+              <span>Caută</span>
+              <input
+                type="text"
+                placeholder="Email sau User ID"
+                value={userFilters.q}
+                onChange={(e) =>
+                  handleUserFilterChange((f) => ({
+                    ...f,
+                    q: e.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>Termeni &amp; condiții (TOS)</span>
+              <select
+                value={userFilters.hasTos}
+                onChange={(e) =>
+                  handleUserFilterChange((f) => ({
+                    ...f,
+                    hasTos: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu TOS acceptat</option>
+                <option value="NO">Fără TOS</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Politica de confidențialitate</span>
+              <select
+                value={userFilters.hasPrivacy}
+                onChange={(e) =>
+                  handleUserFilterChange((f) => ({
+                    ...f,
+                    hasPrivacy: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu Privacy acceptată</option>
+                <option value="NO">Fără Privacy</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Marketing</span>
+              <select
+                value={userFilters.hasMarketing}
+                onChange={(e) =>
+                  handleUserFilterChange((f) => ({
+                    ...f,
+                    hasMarketing: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu opt-in</option>
+                <option value="NO">Doar fără opt-in</option>
+              </select>
+            </label>
+
+            <div className={styles.filtersActions}>
+              <button
+                type="button"
+                className={styles.resetBtn}
+                onClick={resetUserFilters}
+              >
+                Reset
+              </button>
+              <span className={styles.filtersCount}>
+                {userTotalItems} rezultate
+              </span>
+            </div>
+          </div>
+
+          <UserConsentsTable
+            rows={userPaginatedRows}
+            totalItems={userTotalItems}
+          />
+
+          <Pagination
+            page={userCurrentPage}
+            totalPages={userTotalPages}
+            totalItems={userTotalItems}
+            onPageChange={setUserPage}
+          />
+        </section>
+      )}
 
       {/* ====== Vendor agreements ====== */}
-      <section>
-        <h3 className={styles.sectionTitle}>Acorduri vendori</h3>
+      {activeTab === TABS.VENDORS && (
+        <section>
+          <h3 className={styles.sectionTitle}>Acorduri vendori</h3>
 
-        <div className={styles.filtersRow}>
-          <label>
-            <span>Caută</span>
-            <input
-              type="text"
-              placeholder="Nume vendor, email, Vendor ID"
-              value={vendorFilters.q}
-              onChange={(e) =>
-                handleVendorFilterChange((f) => ({
-                  ...f,
-                  q: e.target.value,
-                }))
-              }
+          <div className={styles.filtersRow}>
+            <label>
+              <span>Caută</span>
+              <input
+                type="text"
+                placeholder="Nume vendor, email, Vendor ID"
+                value={vendorFilters.q}
+                onChange={(e) =>
+                  handleVendorFilterChange((f) => ({
+                    ...f,
+                    q: e.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>Acord Master vânzători</span>
+              <select
+                value={vendorFilters.hasVendorTerms}
+                onChange={(e) =>
+                  handleVendorFilterChange((f) => ({
+                    ...f,
+                    hasVendorTerms: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu acord</option>
+                <option value="NO">Fără acord</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Shipping addendum</span>
+              <select
+                value={vendorFilters.hasShipping}
+                onChange={(e) =>
+                  handleVendorFilterChange((f) => ({
+                    ...f,
+                    hasShipping: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu acceptare</option>
+                <option value="NO">Fără</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Politică retur</span>
+              <select
+                value={vendorFilters.hasReturns}
+                onChange={(e) =>
+                  handleVendorFilterChange((f) => ({
+                    ...f,
+                    hasReturns: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu acceptare</option>
+                <option value="NO">Fără</option>
+              </select>
+            </label>
+
+            {/* ✅ NOU: Anexa Produse */}
+            <label>
+              <span>Anexa Produse</span>
+              <select
+                value={vendorFilters.hasProductsAddendum}
+                onChange={(e) =>
+                  handleVendorFilterChange((f) => ({
+                    ...f,
+                    hasProductsAddendum: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu acceptare</option>
+                <option value="NO">Fără</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Declarație produse</span>
+              <select
+                value={vendorFilters.hasProductDecl}
+                onChange={(e) =>
+                  handleVendorFilterChange((f) => ({
+                    ...f,
+                    hasProductDecl: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Doar cu declarație</option>
+                <option value="NO">Fără declarație</option>
+              </select>
+            </label>
+
+            <div className={styles.filtersActions}>
+              <button
+                type="button"
+                className={styles.resetBtn}
+                onClick={resetVendorFilters}
+              >
+                Reset
+              </button>
+              <span className={styles.filtersCount}>
+                {vendorTotalItems} rezultate
+              </span>
+            </div>
+          </div>
+
+          <VendorAgreementsTable
+            rows={vendorPaginatedRows}
+            totalItems={vendorTotalItems}
+            onShowVendorDetails={setSelectedVendor}
+          />
+
+          <Pagination
+            page={vendorCurrentPage}
+            totalPages={vendorTotalPages}
+            totalItems={vendorTotalItems}
+            onPageChange={setVendorPage}
+          />
+
+          {selectedVendor && (
+            <VendorDetailsDrawer
+              vendor={selectedVendor}
+              onClose={() => setSelectedVendor(null)}
+            />
+          )}
+        </section>
+      )}
+
+      {/* ✅ NEW: Notify tab */}
+      {activeTab === TABS.NOTIFY && (
+        <section>
+          <h3 className={styles.sectionTitle}>Informare versiuni</h3>
+          <p className={styles.subtle} style={{ marginTop: -6 }}>
+            Creează o informare in-app (și opțional email) când schimbi versiuni
+            pentru documentele legale.
+          </p>
+          <PolicyNotificationsTab />
+        </section>
+      )}
+    </>
+  );
+}
+
+/* ===================== NEW COMPONENT ===================== */
+function PolicyNotificationsTab() {
+  const [scope, setScope] = useState("VENDORS"); // VENDORS | USERS
+
+  const DOCS_BY_SCOPE = {
+    VENDORS: {
+      VENDOR_TERMS: true,
+      SHIPPING_ADDENDUM: false,
+      RETURNS_POLICY_ACK: false,
+      PRODUCTS_ADDENDUM: false,
+      PRODUCT_DECLARATION: false, // opțional (dacă vrei să forțezi și declarația)
+    },
+    USERS: {
+      TOS: true,
+      PRIVACY: false,
+      MARKETING: false,
+    },
+  };
+
+  // bifezi documentele vizate (dinamic după scope)
+  const [documents, setDocuments] = useState(DOCS_BY_SCOPE.VENDORS);
+
+  // când schimbi scope, resetează lista de docs (ca să nu trimiți keys greșite)
+  const handleScopeChange = (nextScope) => {
+    setScope(nextScope);
+    setDocuments(DOCS_BY_SCOPE[nextScope] || {});
+  };
+
+  // dacă e true, în app poți bloca până la acceptare (gate)
+  const [requiresAction, setRequiresAction] = useState(true);
+
+  // email opțional
+  const [sendEmail, setSendEmail] = useState(false);
+
+  // content in-app
+  const [title, setTitle] = useState("Au fost actualizate documentele legale");
+  const [message, setMessage] = useState(
+    "Am actualizat versiunea unuia sau mai multor documente. Te rugăm să le consulți și să le accepți pentru a continua."
+  );
+
+  // content email
+  const [emailSubject, setEmailSubject] = useState("Actualizare documente legale");
+  const [emailBody, setEmailBody] = useState(
+    "Salut! Am actualizat documentele legale. Te rugăm să intri în cont și să le accepți pentru a continua."
+  );
+
+  const [loading, setLoading] = useState(false);
+  const [okMsg, setOkMsg] = useState("");
+  const [errMsg, setErrMsg] = useState("");
+
+  const selectedDocs = Object.entries(documents)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+
+  const toggleDoc = (k) => {
+    setDocuments((prev) => ({ ...prev, [k]: !prev[k] }));
+  };
+
+  const handleSubmit = async () => {
+    setOkMsg("");
+    setErrMsg("");
+
+    if (!title.trim() || !message.trim()) {
+      setErrMsg("Completează titlul și mesajul pentru notificare.");
+      return;
+    }
+    if (!selectedDocs.length) {
+      setErrMsg("Selectează cel puțin un document.");
+      return;
+    }
+    if (sendEmail && (!emailSubject.trim() || !emailBody.trim())) {
+      setErrMsg("Completează subiectul și corpul emailului.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/policy-notifications/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          scope,
+          documents: selectedDocs,
+          requiresAction,
+          inApp: { title, message },
+          email: sendEmail ? { subject: emailSubject, body: emailBody } : null,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "server_error");
+      }
+
+      const data = await res.json().catch(() => ({}));
+      setOkMsg(
+        `Trimis cu succes. Target: ${data?.targetCount ?? "?"} · Notificări create: ${
+          data?.createdCount ?? "?"
+        }${
+          data?.emailQueued != null
+            ? ` · Email trimise: ${data.emailQueued}${data.emailFailed ? ` · Eșuate: ${data.emailFailed}` : ""}`
+            : ""
+        }`
+      );
+    } catch (e) {
+      console.error("policy notify send error:", e);
+      setErrMsg("Eroare la trimitere. Verifică endpoint-ul din backend și încearcă din nou.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const docKeys = Object.keys(documents);
+
+  return (
+    <div className={styles.card} style={{ padding: 14 }}>
+      <div className={styles.filtersRow}>
+        <label>
+          <span>Audiență</span>
+          <select value={scope} onChange={(e) => handleScopeChange(e.target.value)}>
+            <option value="VENDORS">Vendori</option>
+            <option value="USERS">Useri</option>
+          </select>
+        </label>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={requiresAction}
+            onChange={(e) => setRequiresAction(e.target.checked)}
+          />
+          <span style={{ margin: 0 }}>Necesită acțiune (gate)</span>
+        </label>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} />
+          <span style={{ margin: 0 }}>Trimite și email</span>
+        </label>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>Documente vizate</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {docKeys.map((k) => (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={!!documents[k]} onChange={() => toggleDoc(k)} />
+              <span style={{ margin: 0 }}>{k}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.filtersRow} style={{ marginTop: 14 }}>
+        <label style={{ flex: 1, minWidth: 260 }}>
+          <span>Titlu (in-app)</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </label>
+
+        <label style={{ flex: 1, minWidth: 260 }}>
+          <span>Mesaj (in-app)</span>
+          <input value={message} onChange={(e) => setMessage(e.target.value)} />
+        </label>
+      </div>
+
+      {sendEmail && (
+        <div className={styles.filtersRow} style={{ marginTop: 14 }}>
+          <label style={{ flex: 1, minWidth: 260 }}>
+            <span>Subiect email</span>
+            <input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+          </label>
+
+          <label style={{ flex: 1, minWidth: 260 }}>
+            <span>Corp email</span>
+            <textarea
+              value={emailBody}
+              onChange={(e) => setEmailBody(e.target.value)}
+              rows={4}
+              style={{ width: "100%" }}
             />
           </label>
-
-          <label>
-            <span>Acord Master vânzători</span>
-            <select
-              value={vendorFilters.hasVendorTerms}
-              onChange={(e) =>
-                handleVendorFilterChange((f) => ({
-                  ...f,
-                  hasVendorTerms: e.target.value,
-                }))
-              }
-            >
-              <option value="ALL">Toți</option>
-              <option value="YES">Doar cu acord</option>
-              <option value="NO">Fără acord</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Shipping addendum</span>
-            <select
-              value={vendorFilters.hasShipping}
-              onChange={(e) =>
-                handleVendorFilterChange((f) => ({
-                  ...f,
-                  hasShipping: e.target.value,
-                }))
-              }
-            >
-              <option value="ALL">Toți</option>
-              <option value="YES">Doar cu acceptare</option>
-              <option value="NO">Fără</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Politică retur</span>
-            <select
-              value={vendorFilters.hasReturns}
-              onChange={(e) =>
-                handleVendorFilterChange((f) => ({
-                  ...f,
-                  hasReturns: e.target.value,
-                }))
-              }
-            >
-              <option value="ALL">Toți</option>
-              <option value="YES">Doar cu acceptare</option>
-              <option value="NO">Fără</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Declarație produse</span>
-            <select
-              value={vendorFilters.hasProductDecl}
-              onChange={(e) =>
-                handleVendorFilterChange((f) => ({
-                  ...f,
-                  hasProductDecl: e.target.value,
-                }))
-              }
-            >
-              <option value="ALL">Toți</option>
-              <option value="YES">Doar cu declarație</option>
-              <option value="NO">Fără declarație</option>
-            </select>
-          </label>
-
-          <div className={styles.filtersActions}>
-            <button
-              type="button"
-              className={styles.resetBtn}
-              onClick={resetVendorFilters}
-            >
-              Reset
-            </button>
-            <span className={styles.filtersCount}>
-              {vendorTotalItems} rezultate
-            </span>
-          </div>
         </div>
+      )}
 
-        <VendorAgreementsTable
-          rows={vendorPaginatedRows}
-          totalItems={vendorTotalItems}
-          onShowVendorDetails={setSelectedVendor}
-        />
+      {errMsg && (
+        <div className={styles.error} style={{ marginTop: 10 }}>
+          {errMsg}
+        </div>
+      )}
+      {okMsg && <div style={{ marginTop: 10, opacity: 0.9 }}>{okMsg}</div>}
 
-        <Pagination
-          page={vendorCurrentPage}
-          totalPages={vendorTotalPages}
-          totalItems={vendorTotalItems}
-          onPageChange={setVendorPage}
-        />
+      <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
+        <button type="button" className={styles.primaryBtn} onClick={handleSubmit} disabled={loading}>
+          {loading ? "Se trimite…" : "Trimite informarea"}
+        </button>
+      </div>
 
-        {/* Drawer detalii per vendor */}
-        {selectedVendor && (
-          <VendorDetailsDrawer
-            vendor={selectedVendor}
-            onClose={() => setSelectedVendor(null)}
-          />
-        )}
-      </section>
-    </>
+      <p className={styles.subtle} style={{ marginTop: 10 }}>
+        * Necesită backend: <code>POST /api/admin/policy-notifications/send</code>
+      </p>
+    </div>
   );
 }
 
@@ -452,9 +739,7 @@ function UserConsentsTable({ rows, totalItems }) {
               <td>{formatDate(r.createdAt)}</td>
               <td>
                 {r.tosAccepted
-                  ? `Da (v${r.tosVersion || "?"}, ${formatDate(
-                      r.tosGivenAt
-                    )})`
+                  ? `Da (v${r.tosVersion || "?"}, ${formatDate(r.tosGivenAt)})`
                   : "Nu"}
               </td>
               <td>
@@ -505,6 +790,7 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
             <th>Acord Master</th>
             <th>Shipping addendum</th>
             <th>Politică retur</th>
+            <th>Anexa Produse</th>
             <th>Declarație produse</th>
             <th>Detalii</th>
           </tr>
@@ -519,6 +805,7 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
               <td>{r.vendorEmail || "—"}</td>
               <td>{r.userEmail || "—"}</td>
               <td>{formatDate(r.createdAt)}</td>
+
               <td>
                 {r.vendorTermsAccepted
                   ? `Da (v${r.vendorTermsVersion || "?"}, ${formatDate(
@@ -526,6 +813,7 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
                     )})`
                   : "Nu"}
               </td>
+
               <td>
                 {r.shippingAccepted
                   ? `Da (v${r.shippingVersion || "?"}, ${formatDate(
@@ -533,6 +821,7 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
                     )})`
                   : "Nu"}
               </td>
+
               <td>
                 {r.returnsAccepted
                   ? `Da (v${r.returnsVersion || "?"}, ${formatDate(
@@ -540,6 +829,15 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
                     )})`
                   : "Nu"}
               </td>
+
+              <td>
+                {r.productsAddendumAccepted
+                  ? `Da (v${r.productsAddendumVersion || "?"}, ${formatDate(
+                      r.productsAddendumAcceptedAt
+                    )})`
+                  : "Nu"}
+              </td>
+
               <td>
                 {r.productDeclarationAccepted
                   ? `Da (v${r.productDeclarationVersion || "?"}, ${formatDate(
@@ -547,6 +845,7 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
                     )})`
                   : "Nu"}
               </td>
+
               <td>
                 <button
                   type="button"
@@ -583,9 +882,7 @@ function Pagination({ page, totalPages, totalItems, onPageChange }) {
   const pages = [];
   const start = Math.max(1, page - 2);
   const end = Math.min(totalPages, page + 2);
-  for (let p = start; p <= end; p++) {
-    pages.push(p);
-  }
+  for (let p = start; p <= end; p++) pages.push(p);
 
   return (
     <div className={styles.pagination}>
@@ -647,7 +944,6 @@ function VendorDetailsDrawer({ vendor, onClose }) {
     courierServicesCount,
     courierSample,
 
-    // acorduri legale (VendorAcceptance)
     vendorTermsAccepted,
     vendorTermsVersion,
     vendorTermsAcceptedAt,
@@ -659,6 +955,10 @@ function VendorDetailsDrawer({ vendor, onClose }) {
     returnsAccepted,
     returnsVersion,
     returnsAcceptedAt,
+
+    productsAddendumAccepted,
+    productsAddendumVersion,
+    productsAddendumAcceptedAt,
 
     productDeclarationAccepted,
     productDeclarationVersion,
@@ -692,7 +992,6 @@ function VendorDetailsDrawer({ vendor, onClose }) {
         </header>
 
         <div className={styles.drawerBody}>
-          {/* Identitate */}
           <section className={styles.drawerSection}>
             <h4>Identitate</h4>
             <div className={styles.drawerField}>
@@ -717,7 +1016,6 @@ function VendorDetailsDrawer({ vendor, onClose }) {
             </div>
           </section>
 
-          {/* Curierat integrat (profil servicii) */}
           <section className={styles.drawerSection}>
             <h4>Curierat integrat (profil servicii)</h4>
             <div className={styles.drawerField}>
@@ -741,13 +1039,13 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                 <span>
                   ID serviciu: <code>{courierSample.id}</code>
                   <br />
-                  courierEnabled: {courierSample.courierEnabled ? "Da" : "Nu"}
+                  courierEnabled:{" "}
+                  {courierSample.courierEnabled ? "Da" : "Nu"}
                   <br />
                   courierAddendumAccepted:{" "}
                   {courierSample.courierAddendumAccepted ? "Da" : "Nu"}
                   <br />
-                  Versiune anexă:{" "}
-                  {courierSample.courierAddendumVersion || "—"}
+                  Versiune anexă: {courierSample.courierAddendumVersion || "—"}
                   <br />
                   Acceptată la:{" "}
                   {courierSample.courierAddendumAcceptedAt
@@ -758,16 +1056,15 @@ function VendorDetailsDrawer({ vendor, onClose }) {
             )}
 
             <p className={styles.subtle}>
-              * Valorile de mai sus vin din{" "}
-              <code>VendorService.attributes</code> (checkbox-urile din
-              onboarding), nu din istoricul legal (
+              * Valorile de mai sus vin din <code>VendorService.attributes</code>{" "}
+              (checkbox-urile din onboarding), nu din istoricul legal (
               <code>VendorAcceptance</code>).
             </p>
           </section>
 
-          {/* Acorduri legale */}
           <section className={styles.drawerSection}>
             <h4>Acorduri legale (VendorAcceptance)</h4>
+
             <div className={styles.drawerField}>
               <span>Acord Master vânzători</span>
               <span>
@@ -778,6 +1075,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                   : "Nu"}
               </span>
             </div>
+
             <div className={styles.drawerField}>
               <span>Shipping addendum</span>
               <span>
@@ -788,6 +1086,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                   : "Nu"}
               </span>
             </div>
+
             <div className={styles.drawerField}>
               <span>Politică retur</span>
               <span>
@@ -798,6 +1097,18 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                   : "Nu"}
               </span>
             </div>
+
+            <div className={styles.drawerField}>
+              <span>Anexa Produse</span>
+              <span>
+                {productsAddendumAccepted
+                  ? `Da (v${productsAddendumVersion || "?"}, ${formatDate(
+                      productsAddendumAcceptedAt
+                    )})`
+                  : "Nu"}
+              </span>
+            </div>
+
             <div className={styles.drawerField}>
               <span>Declarație produse</span>
               <span>

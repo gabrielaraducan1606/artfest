@@ -1,11 +1,14 @@
 /* OnBoardingDetails.module.css */
-/* Folosește variabilele globale definite în :root / html[data-theme] */
 
 .tabPanel {
   width: 100%;
   max-width: 980px;
   margin: 0 auto;
   padding: 18px 14px 28px;
+
+  /* ✅ ajută la stacking peste alte zone (ex: footer cu z-index) */
+  position: relative;
+  z-index: 1;
 }
 
 .header {
@@ -37,35 +40,27 @@
   border: 1px solid var(--color-border);
   border-radius: calc(var(--radius) + 2px);
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+
+  /* IMPORTANT: nu mai tăiem overlay-urile */
+  overflow: visible;
+
+  position: relative;
+  z-index: 0;
 }
 
-.cardHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-
-  border-bottom: 1px solid var(--color-border);
-  background: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.02),
-    rgba(0, 0, 0, 0)
-  );
+/* ===== Section wrapper (fiecare accordion) ===== */
+.section {
+  position: relative;
+  overflow: visible;
+  z-index: 0;
 }
 
-.serviceName {
-  font-weight: 650;
-  font-size: 14px;
+/* când e deschis, ridicăm secțiunea peste următoarele siblings */
+.section[data-open="1"] {
+  z-index: 50;
 }
 
-.saveIndicator {
-  font-size: 12px;
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-
-/* ===== Accordion ===== */
+/* header-urile rămân deasupra conținutului lor, dar sub dropdown-ul secțiunii deschise */
 .accHeader {
   width: 100%;
   border: 0;
@@ -82,6 +77,10 @@
   user-select: none;
 
   border-bottom: 1px solid var(--color-border);
+
+  /* ✅ important: header devine element poziționat (altfel z-index nu se aplică predictibil) */
+  position: relative;
+  z-index: 1;
 }
 
 .accHeader:hover {
@@ -94,8 +93,35 @@
   border-radius: calc(var(--radius) + 2px);
 }
 
+/* ✅ panel-ul trebuie să stea peste următoarele accordions */
 .accPanel {
   padding: 12px;
+
+  position: relative;
+  z-index: 20;
+
+  overflow: visible;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  border-bottom: 1px solid var(--color-border);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0));
+}
+
+.serviceName {
+  font-weight: 650;
+  font-size: 14px;
+}
+
+.saveIndicator {
+  font-size: 12px;
+  color: var(--color-muted);
+  white-space: nowrap;
 }
 
 .chev {
@@ -141,18 +167,26 @@
   grid-template-columns: minmax(180px, 240px) 1fr;
   gap: 10px 12px;
   padding: 8px 0;
-}
 
-.label {
-  font-size: 13px;
-  font-weight: 600;
-  padding-top: 8px;
+  /* ✅ permite dropdowns */
+  position: relative;
+  overflow: visible;
+  z-index: 0;
 }
 
 .fieldCol {
   display: grid;
   gap: 6px;
   min-width: 0;
+
+  position: relative;
+  overflow: visible;
+  z-index: 0;
+}
+
+/* ✅ rând special: ridică dropdown-ul ChipsInput peste restul */
+.overlayRow {
+  z-index: 60;
 }
 
 /* ===== Inputs ===== */
@@ -167,8 +201,7 @@
   color: var(--color-text);
 
   box-shadow: 0 0 0 rgba(0, 0, 0, 0);
-  transition: border-color 140ms ease, box-shadow 140ms ease,
-    background-color 140ms ease;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 
 .input::placeholder {
@@ -191,7 +224,7 @@ textarea.input {
   min-height: 120px;
 }
 
-/* File input (minimal, păstrează nativul) */
+/* File input */
 input[type="file"] {
   font-size: 13px;
   color: var(--color-muted);
@@ -341,12 +374,14 @@ input[type="file"]::file-selector-button:hover {
   accent-color: var(--color-primary);
 }
 
-/* ===== Courier / agreement boxes ===== */
+/* ===== Courier box ===== */
 .courierBox {
   border: 1px dashed color-mix(in srgb, var(--color-border) 85%, transparent);
   background: color-mix(in srgb, var(--surface) 92%, rgba(139, 92, 246, 0.06));
   border-radius: calc(var(--radius) + 2px);
   padding: 10px 12px;
+  position: relative;
+  z-index: 1;
 }
 
 /* ===== Empty state ===== */

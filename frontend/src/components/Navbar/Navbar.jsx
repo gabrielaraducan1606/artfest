@@ -1382,6 +1382,117 @@ export default function Navbar() {
             >
               <Camera size={18} />
             </button>
+{showSuggest && (
+  <div
+    role="listbox"
+    aria-label="Sugestii de căutare"
+    className={styles.suggestDropdown}
+  >
+    {suggestLoading && (
+      <div className={styles.suggestLoading}>Se încarcă sugestiile…</div>
+    )}
+
+    {!suggestLoading && suggestions && (
+      <>
+        {!suggestions.products?.length &&
+          !suggestions.categories?.length &&
+          !suggestions.stores?.length && (
+            <div className={styles.suggestEmpty}>
+              Nu avem sugestii exacte pentru <strong>{q}</strong>.
+            </div>
+          )}
+
+        {suggestions.categories?.length > 0 && (
+          <div className={styles.suggestSection}>
+            <div className={styles.suggestSectionTitle}>Categorii sugerate</div>
+            {suggestions.categories.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                role="option"
+                className={styles.suggestCategoryBtn}
+                onClick={() => handleSuggestionCategoryClick(c.key)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {suggestions.stores?.length > 0 && (
+          <div className={styles.suggestSection}>
+            <div className={styles.suggestSectionTitle}>Magazine sugerate</div>
+
+            <div className={styles.suggestStoresList}>
+              {suggestions.stores.map((s) => (
+                <button
+                  key={s.id || s.profileSlug}
+                  type="button"
+                  role="option"
+                  className={styles.suggestStoreBtn}
+                  onClick={() => handleSuggestionStoreClick(s.profileSlug)}
+                >
+                  {s.logoUrl ? (
+                    <img
+                      src={s.logoUrl}
+                      alt={s.displayName || s.storeName || "Magazin"}
+                      className={styles.suggestStoreThumb}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div
+                      className={styles.suggestStoreThumbFallback}
+                      aria-hidden="true"
+                    />
+                  )}
+
+                  <div className={styles.suggestStoreMeta}>
+                    <div className={styles.suggestStoreTitle}>
+                      {s.displayName || s.storeName || "Magazin"}
+                    </div>
+                    <div className={styles.suggestStoreSub}>{s.city ? s.city : "—"}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {suggestions.products?.length > 0 && (
+          <div className={styles.suggestSection}>
+            <div className={styles.suggestSectionTitle}>Produse sugerate</div>
+            <div className={styles.suggestProductsList}>
+              {suggestions.products.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="option"
+                  className={styles.suggestProductBtn}
+                  onClick={() => handleSuggestionProductClick(p.id)}
+                >
+                  {p.images?.[0] && (
+                    <img
+                      src={p.images[0]}
+                      alt={p.title}
+                      className={styles.suggestProductThumb}
+                    />
+                  )}
+                  <div className={styles.suggestProductMeta}>
+                    <div className={styles.suggestProductTitle}>{p.title}</div>
+                    <div className={styles.suggestProductPrice}>
+                      {(Number(p.priceCents || 0) / 100).toFixed(2)} {p.currency || "RON"}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </>
+    )}
+  </div>
+)}
 
             {/* Dacă vrei complet și aici, copiază același dropdown ca la desktop.
                (ai deja CSS/structură) */}
