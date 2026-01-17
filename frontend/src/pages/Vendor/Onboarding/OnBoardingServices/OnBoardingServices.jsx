@@ -96,11 +96,12 @@ export default function OnboardingServices() {
     }
   }
 
-  const canContinue = useMemo(
-    // ✨ butonul e activ doar dacă ai selectat ceva (practic doar 'products')
-    () => selected.size > 0 && !isSubmitting,
-    [selected, isSubmitting]
-  );
+const canContinue = useMemo(
+  // ✅ activ dacă ai selectat ceva SAU ai deja servicii adăugate
+  // ❌ dezactivat doar dacă nu ai nici selectate, nici existente
+  () => (selected.size > 0 || existing.size > 0) && !isSubmitting && !loading,
+  [selected, existing, isSubmitting, loading]
+);
 
   return (
     <section className={styles.wrap}>

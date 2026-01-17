@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { api } from "../../../../../lib/api";
+import { api } from "../../../../../lib/api.js";
 import styles from "./css/BillingTab.module.css";
 
 const DRAFT_PREFIX = "onboarding.billing.draft:";
 const LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
 const VERIFY_COOLDOWN_SEC = 30;
+
+// ✅ pentru platformă: doar 21% (cota standard)
+const PLATFORM_VAT_RATE = "21";
 
 /* ---------- Componentă mică pentru nota informativă ---------- */
 function InfoNote({ children }) {
@@ -41,6 +44,10 @@ function validate(values) {
     vatStatus: (values.vatStatus || "").trim(),
     vatRate: (values.vatRate || "").trim(),
   };
+
+  // ✅ normalizare TVA: dacă e plătitor -> forțăm 21; altfel -> gol
+  if (v.vatStatus === "payer") v.vatRate = PLATFORM_VAT_RATE;
+  if (v.vatStatus !== "payer") v.vatRate = "";
 
   const errors = {};
   if (!v.legalType || !LEGAL_TYPES.includes(v.legalType))
@@ -80,8 +87,9 @@ function validate(values) {
     errors.vatStatus = "Te rugăm să alegi dacă ești plătitor de TVA.";
   }
 
-  if (v.vatStatus === "payer" && !v.vatRate) {
-    errors.vatRate = "Te rugăm să alegi cota de TVA aplicată.";
+  // ✅ dacă e plătitor, cota trebuie să fie 21 (și e setată automat)
+  if (v.vatStatus === "payer" && v.vatRate !== PLATFORM_VAT_RATE) {
+    errors.vatRate = `Cota TVA pentru platformă este ${PLATFORM_VAT_RATE}%.`;
   }
 
   if (!values.vatResponsibilityConfirmed) {
@@ -322,6 +330,20 @@ function BillingForm({ onSaved, onStatusChange }) {
     };
   }, [draftKey]);
 
+  // ✅ TVA platformă: când e plătitor -> setăm automat 21; altfel -> golim
+  useEffect(() => {
+    if (billing.vatStatus === "payer") {
+      if (billing.vatRate !== PLATFORM_VAT_RATE) {
+        setBilling((prev) => ({ ...prev, vatRate: PLATFORM_VAT_RATE }));
+      }
+    } else {
+      if (billing.vatRate) {
+        setBilling((prev) => ({ ...prev, vatRate: "" }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billing.vatStatus]);
+
   // ✅ autosave draft în localStorage doar după hydration + doar dacă userul a interacționat
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -354,21 +376,6 @@ function BillingForm({ onSaved, onStatusChange }) {
       const value = e.target.value;
       setBilling((prev) => {
         const next = { ...prev, [name]: value };
-        if (touched[name]) {
-          const result = validate(next);
-          setErrorsState(result);
-        }
-        return next;
-      });
-    };
-  }
-
-  function onCheckboxChange(name) {
-    return (e) => {
-      setHasInteracted(true);
-      const checked = e.target.checked;
-      setBilling((prev) => {
-        const next = { ...prev, [name]: checked };
         if (touched[name]) {
           const result = validate(next);
           setErrorsState(result);
@@ -501,7 +508,9 @@ function BillingForm({ onSaved, onStatusChange }) {
         String(billing.cui || "").trim().toUpperCase()
       );
       if (!cuiOk) {
-        setErr("Completează și salvează mai întâi un CUI valid (ex: RO12345678).");
+        setErr(
+          "Completează și salvează mai întâi un CUI valid (ex: RO12345678)."
+        );
         setAnnounce("CUI invalid pentru verificare.");
         return;
       }
@@ -528,7 +537,8 @@ function BillingForm({ onSaved, onStatusChange }) {
 
   function clearDraftOnly() {
     try {
-      if (typeof window !== "undefined") window.localStorage.removeItem(draftKey);
+      if (typeof window !== "undefined")
+        window.localStorage.removeItem(draftKey);
     } catch {
       // ignore
     }
@@ -594,7 +604,8 @@ function BillingForm({ onSaved, onStatusChange }) {
         <div className={styles.saveIndicator}>
           {status === "saving" && (
             <span className={`${styles.badge} ${styles.badgeWait}`}>
-              <span className={styles.spinner} aria-hidden="true" /> Se salvează…
+              <span className={styles.spinner} aria-hidden="true" /> Se
+              salvează…
             </span>
           )}
           {status === "saved" && (
@@ -613,10 +624,22 @@ function BillingForm({ onSaved, onStatusChange }) {
           <em>verificate automat</em> (ex. CUI) prin surse oficiale (ANAF).
         </p>
         <ul style={{ margin: "6px 0 0 18px" }}>
-          <li>CUI-ul poate fi verificat periodic; această verificare nu afectează statutul dvs. fiscal.</li>
-          <li>Dacă nu sunteți plătitor de TVA, este în regulă — vom emite facturile în consecință.</li>
-          <li>Persoana de contact și telefonul sunt necesare pentru comunicări legate de facturare.</li>
-          <li>Datele sunt folosite exclusiv pentru facturare și verificări anti-fraudă, în conformitate cu GDPR.</li>
+          <li>
+            CUI-ul poate fi verificat periodic; această verificare nu afectează
+            statutul dvs. fiscal.
+          </li>
+          <li>
+            Dacă nu sunteți plătitor de TVA, este în regulă — vom emite facturile
+            în consecință.
+          </li>
+          <li>
+            Persoana de contact și telefonul sunt necesare pentru comunicări
+            legate de facturare.
+          </li>
+          <li>
+            Datele sunt folosite exclusiv pentru facturare și verificări
+            anti-fraudă, în conformitate cu GDPR.
+          </li>
         </ul>
         <p style={{ margin: "6px 0 0 0", color: "#6B7280" }}>
           Dacă serviciile ANAF sunt temporar indisponibile, veți putea continua,
@@ -646,14 +669,19 @@ function BillingForm({ onSaved, onStatusChange }) {
               )}
               {billing.tvaVerifiedAt && (
                 <small className={styles.help}>
-                  actualizat: {new Date(billing.tvaVerifiedAt).toLocaleDateString()}
+                  actualizat:{" "}
+                  {new Date(billing.tvaVerifiedAt).toLocaleDateString()}
                 </small>
               )}
               {billing.anafName && (
-                <small className={styles.help}>Denumire (ANAF): {billing.anafName}</small>
+                <small className={styles.help}>
+                  Denumire (ANAF): {billing.anafName}
+                </small>
               )}
               {billing.anafAddress && (
-                <small className={styles.help}>Adresă (ANAF): {billing.anafAddress}</small>
+                <small className={styles.help}>
+                  Adresă (ANAF): {billing.anafAddress}
+                </small>
               )}
             </>
           )}
@@ -678,7 +706,8 @@ function BillingForm({ onSaved, onStatusChange }) {
           >
             {checking ? (
               <>
-                <span className={styles.spinner} aria-hidden="true" /> Se verifică…
+                <span className={styles.spinner} aria-hidden="true" /> Se
+                verifică…
               </>
             ) : verifyCooldown > 0 ? (
               `Reîncearcă în ${verifyCooldown}s`
@@ -704,7 +733,11 @@ function BillingForm({ onSaved, onStatusChange }) {
             onClick={() => setShowResetConfirm(true)}
             disabled={!canReset}
             aria-disabled={!canReset}
-            title={canReset ? "Golește toate câmpurile și șterge draftul local" : "Formularul este deja gol"}
+            title={
+              canReset
+                ? "Golește toate câmpurile și șterge draftul local"
+                : "Formularul este deja gol"
+            }
           >
             Resetează formularul
           </button>
@@ -725,10 +758,14 @@ function BillingForm({ onSaved, onStatusChange }) {
       <div className={styles.grid}>
         {/* legalType */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="legalType">Entitate juridică</label>
+          <label className={styles.label} htmlFor="legalType">
+            Entitate juridică
+          </label>
           <select
             id="legalType"
-            className={`${styles.input} ${errors.legalType ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.legalType ? styles.inputError : ""
+            }`}
             value={billing.legalType}
             onChange={onFieldChange("legalType")}
             onBlur={onFieldBlur("legalType")}
@@ -741,15 +778,23 @@ function BillingForm({ onSaved, onStatusChange }) {
             <option value="II">Întreprindere Individuală (II)</option>
             <option value="IF">Întreprindere Familială (IF)</option>
           </select>
-          {errors.legalType && <small id="err-legalType" className={styles.fieldError}>{errors.legalType}</small>}
+          {errors.legalType && (
+            <small id="err-legalType" className={styles.fieldError}>
+              {errors.legalType}
+            </small>
+          )}
         </div>
 
         {/* vendorName */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="vendorName">Nume vendor</label>
+          <label className={styles.label} htmlFor="vendorName">
+            Nume vendor
+          </label>
           <input
             id="vendorName"
-            className={`${styles.input} ${errors.vendorName ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.vendorName ? styles.inputError : ""
+            }`}
             value={billing.vendorName}
             onChange={onFieldChange("vendorName")}
             onBlur={onFieldBlur("vendorName")}
@@ -757,15 +802,23 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.vendorName}
             aria-describedby={errors.vendorName ? "err-vendorName" : undefined}
           />
-          {errors.vendorName && <small id="err-vendorName" className={styles.fieldError}>{errors.vendorName}</small>}
+          {errors.vendorName && (
+            <small id="err-vendorName" className={styles.fieldError}>
+              {errors.vendorName}
+            </small>
+          )}
         </div>
 
         {/* companyName */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="companyName">Denumire entitate</label>
+          <label className={styles.label} htmlFor="companyName">
+            Denumire entitate
+          </label>
           <input
             id="companyName"
-            className={`${styles.input} ${errors.companyName ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.companyName ? styles.inputError : ""
+            }`}
             value={billing.companyName}
             onChange={onFieldChange("companyName")}
             onBlur={onFieldBlur("companyName")}
@@ -773,12 +826,18 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.companyName}
             aria-describedby={errors.companyName ? "err-companyName" : undefined}
           />
-          {errors.companyName && <small id="err-companyName" className={styles.fieldError}>{errors.companyName}</small>}
+          {errors.companyName && (
+            <small id="err-companyName" className={styles.fieldError}>
+              {errors.companyName}
+            </small>
+          )}
         </div>
 
         {/* cui */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="cui">CUI</label>
+          <label className={styles.label} htmlFor="cui">
+            CUI
+          </label>
           <input
             id="cui"
             className={`${styles.input} ${errors.cui ? styles.inputError : ""}`}
@@ -797,15 +856,23 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.cui}
             aria-describedby={errors.cui ? "err-cui" : undefined}
           />
-          {errors.cui && <small id="err-cui" className={styles.fieldError}>{errors.cui}</small>}
+          {errors.cui && (
+            <small id="err-cui" className={styles.fieldError}>
+              {errors.cui}
+            </small>
+          )}
         </div>
 
         {/* regCom */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="regCom">Nr. Reg. Com.</label>
+          <label className={styles.label} htmlFor="regCom">
+            Nr. Reg. Com.
+          </label>
           <input
             id="regCom"
-            className={`${styles.input} ${errors.regCom ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.regCom ? styles.inputError : ""
+            }`}
             value={billing.regCom}
             onChange={onFieldChange("regCom")}
             onBlur={onFieldBlur("regCom")}
@@ -813,15 +880,23 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.regCom}
             aria-describedby={errors.regCom ? "err-regCom" : undefined}
           />
-          {errors.regCom && <small id="err-regCom" className={styles.fieldError}>{errors.regCom}</small>}
+          {errors.regCom && (
+            <small id="err-regCom" className={styles.fieldError}>
+              {errors.regCom}
+            </small>
+          )}
         </div>
 
         {/* Statut TVA */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="vatStatus">Statut TVA</label>
+          <label className={styles.label} htmlFor="vatStatus">
+            Statut TVA
+          </label>
           <select
             id="vatStatus"
-            className={`${styles.input} ${errors.vatStatus ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.vatStatus ? styles.inputError : ""
+            }`}
             value={billing.vatStatus}
             onChange={onFieldChange("vatStatus")}
             onBlur={onFieldBlur("vatStatus")}
@@ -841,43 +916,50 @@ function BillingForm({ onSaved, onStatusChange }) {
               : "nu am putut determina automat statutul TVA."}{" "}
             Te rugăm să confirmi statutul real.
           </small>
-          {errors.vatStatus && <small id="err-vatStatus" className={styles.fieldError}>{errors.vatStatus}</small>}
+          {errors.vatStatus && (
+            <small id="err-vatStatus" className={styles.fieldError}>
+              {errors.vatStatus}
+            </small>
+          )}
         </div>
 
-        {/* Cotă TVA */}
+        {/* Cotă TVA (doar afișare; valoarea reală e setată automat la 21) */}
         {billing.vatStatus === "payer" && (
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="vatRate">
               Cotă TVA aplicată serviciilor din platformă
             </label>
-            <select
+
+            <input
               id="vatRate"
-              className={`${styles.input} ${errors.vatRate ? styles.inputError : ""}`}
-              value={billing.vatRate}
-              onChange={onFieldChange("vatRate")}
-              onBlur={onFieldBlur("vatRate")}
-              aria-invalid={!!errors.vatRate}
-              aria-describedby={errors.vatRate ? "err-vatRate" : undefined}
-            >
-              <option value="">— alege —</option>
-              <option value="19">19% (cota standard)</option>
-              <option value="9">9%</option>
-              <option value="5">5%</option>
-              <option value="0">0% / scutit (situații speciale)</option>
-            </select>
+              className={styles.input}
+              value={`${PLATFORM_VAT_RATE}% (cota standard)`}
+              readOnly
+              aria-readonly="true"
+            />
+
             <small className={styles.help}>
-              Alege cota de TVA pe care o aplici facturilor. Dacă nu ești sigur, verifică cu contabilul.
+              Pentru platformă folosim doar cota standard de {PLATFORM_VAT_RATE}%.
             </small>
-            {errors.vatRate && <small id="err-vatRate" className={styles.fieldError}>{errors.vatRate}</small>}
+
+            {errors.vatRate && (
+              <small id="err-vatRate" className={styles.fieldError}>
+                {errors.vatRate}
+              </small>
+            )}
           </div>
         )}
 
         {/* address */}
         <div className={styles.fieldGroup} style={{ gridColumn: "1 / -1" }}>
-          <label className={styles.label} htmlFor="address">Adresă facturare</label>
+          <label className={styles.label} htmlFor="address">
+            Adresă facturare
+          </label>
           <input
             id="address"
-            className={`${styles.input} ${errors.address ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.address ? styles.inputError : ""
+            }`}
             value={billing.address}
             onChange={onFieldChange("address")}
             onBlur={onFieldBlur("address")}
@@ -885,15 +967,23 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.address}
             aria-describedby={errors.address ? "err-address" : undefined}
           />
-          {errors.address && <small id="err-address" className={styles.fieldError}>{errors.address}</small>}
+          {errors.address && (
+            <small id="err-address" className={styles.fieldError}>
+              {errors.address}
+            </small>
+          )}
         </div>
 
         {/* iban */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="iban">IBAN</label>
+          <label className={styles.label} htmlFor="iban">
+            IBAN
+          </label>
           <input
             id="iban"
-            className={`${styles.input} ${errors.iban ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.iban ? styles.inputError : ""
+            }`}
             value={billing.iban}
             onChange={onFieldChange("iban")}
             onBlur={onFieldBlur("iban")}
@@ -901,15 +991,23 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.iban}
             aria-describedby={errors.iban ? "err-iban" : undefined}
           />
-          {errors.iban && <small id="err-iban" className={styles.fieldError}>{errors.iban}</small>}
+          {errors.iban && (
+            <small id="err-iban" className={styles.fieldError}>
+              {errors.iban}
+            </small>
+          )}
         </div>
 
         {/* bank */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="bank">Banca</label>
+          <label className={styles.label} htmlFor="bank">
+            Banca
+          </label>
           <input
             id="bank"
-            className={`${styles.input} ${errors.bank ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.bank ? styles.inputError : ""
+            }`}
             value={billing.bank}
             onChange={onFieldChange("bank")}
             onBlur={onFieldBlur("bank")}
@@ -917,15 +1015,23 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.bank}
             aria-describedby={errors.bank ? "err-bank" : undefined}
           />
-          {errors.bank && <small id="err-bank" className={styles.fieldError}>{errors.bank}</small>}
+          {errors.bank && (
+            <small id="err-bank" className={styles.fieldError}>
+              {errors.bank}
+            </small>
+          )}
         </div>
 
         {/* email */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="email">Email facturare</label>
+          <label className={styles.label} htmlFor="email">
+            Email facturare
+          </label>
           <input
             id="email"
-            className={`${styles.input} ${errors.email ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.email ? styles.inputError : ""
+            }`}
             type="email"
             value={billing.email}
             onChange={onFieldChange("email")}
@@ -934,21 +1040,31 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? "err-email" : undefined}
           />
-          {errors.email && <small id="err-email" className={styles.fieldError}>{errors.email}</small>}
+          {errors.email && (
+            <small id="err-email" className={styles.fieldError}>
+              {errors.email}
+            </small>
+          )}
         </div>
 
         {/* contactPerson */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="contactPerson">Persoană de contact</label>
+          <label className={styles.label} htmlFor="contactPerson">
+            Persoană de contact
+          </label>
           <input
             id="contactPerson"
-            className={`${styles.input} ${errors.contactPerson ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.contactPerson ? styles.inputError : ""
+            }`}
             value={billing.contactPerson}
             onChange={onFieldChange("contactPerson")}
             onBlur={onFieldBlur("contactPerson")}
             placeholder="Nume Prenume"
             aria-invalid={!!errors.contactPerson}
-            aria-describedby={errors.contactPerson ? "err-contactPerson" : undefined}
+            aria-describedby={
+              errors.contactPerson ? "err-contactPerson" : undefined
+            }
           />
           {errors.contactPerson && (
             <small id="err-contactPerson" className={styles.fieldError}>
@@ -959,10 +1075,14 @@ function BillingForm({ onSaved, onStatusChange }) {
 
         {/* phone */}
         <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="phone">Telefon facturare</label>
+          <label className={styles.label} htmlFor="phone">
+            Telefon facturare
+          </label>
           <input
             id="phone"
-            className={`${styles.input} ${errors.phone ? styles.inputError : ""}`}
+            className={`${styles.input} ${
+              errors.phone ? styles.inputError : ""
+            }`}
             type="tel"
             value={billing.phone}
             onChange={onFieldChange("phone")}
@@ -971,26 +1091,51 @@ function BillingForm({ onSaved, onStatusChange }) {
             aria-invalid={!!errors.phone}
             aria-describedby={errors.phone ? "err-phone" : undefined}
           />
-          {errors.phone && <small id="err-phone" className={styles.fieldError}>{errors.phone}</small>}
+          {errors.phone && (
+            <small id="err-phone" className={styles.fieldError}>
+              {errors.phone}
+            </small>
+          )}
         </div>
 
         {/* Confirmare responsabilitate TVA */}
-        <div className={styles.fieldGroup} style={{ gridColumn: "1 / -1", marginTop: 4 }}>
-          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+        <div
+          className={styles.fieldGroup}
+          style={{ gridColumn: "1 / -1", marginTop: 4 }}
+        >
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              cursor: "pointer",
+            }}
+          >
             <input
               type="checkbox"
               checked={billing.vatResponsibilityConfirmed}
-              onChange={onCheckboxChange("vatResponsibilityConfirmed")}
+              onChange={(e) => {
+                setHasInteracted(true);
+                const checked = e.target.checked;
+                setBilling((prev) => ({ ...prev, vatResponsibilityConfirmed: checked }));
+                if (touched.vatResponsibilityConfirmed) {
+                  setErrorsState(validate({ ...billing, vatResponsibilityConfirmed: checked }));
+                }
+              }}
               onBlur={onFieldBlur("vatResponsibilityConfirmed")}
               style={{ marginTop: 4 }}
             />
             <span className={styles.help}>
-              Confirm că informațiile despre statutul TVA și cota de TVA sunt reale și actualizate,
-              și înțeleg că răspund legal pentru corectitudinea lor.
+              Confirm că informațiile despre statutul TVA și cota de TVA sunt
+              reale și actualizate, și înțeleg că răspund legal pentru
+              corectitudinea lor.
             </span>
           </label>
           {errors.vatResponsibilityConfirmed && (
-            <small className={styles.fieldError} id="err-vatResponsibilityConfirmed">
+            <small
+              className={styles.fieldError}
+              id="err-vatResponsibilityConfirmed"
+            >
               {errors.vatResponsibilityConfirmed}
             </small>
           )}
@@ -1015,7 +1160,8 @@ function BillingForm({ onSaved, onStatusChange }) {
           >
             {status === "saving" ? (
               <>
-                <span className={styles.spinner} aria-hidden="true" /> Se salvează…
+                <span className={styles.spinner} aria-hidden="true" /> Se
+                salvează…
               </>
             ) : (
               "Salvează"
@@ -1052,9 +1198,18 @@ function BillingForm({ onSaved, onStatusChange }) {
 }
 
 /* ---------- Wrapper tab ---------- */
-export default function BillingTab({ onSaved, onStatusChange, canContinue, onContinue }) {
+export default function BillingTab({
+  onSaved,
+  onStatusChange,
+  canContinue,
+  onContinue,
+}) {
   return (
-    <div role="tabpanel" className={styles.tabPanel} aria-labelledby="tab-facturare">
+    <div
+      role="tabpanel"
+      className={styles.tabPanel}
+      aria-labelledby="tab-facturare"
+    >
       <BillingForm onSaved={onSaved} onStatusChange={onStatusChange} />
       <div className={styles.wizardNav}>
         <button

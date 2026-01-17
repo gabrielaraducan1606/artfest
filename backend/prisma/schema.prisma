@@ -1459,60 +1459,17 @@ enum EmailSenderKey {
   admin
   support
 }
+model UserPolicy {
+  id          String     @id @default(cuid())
+  document    ConsentDoc
+  title       String
+  url         String
+  version     String
+  checksum    String?
+  isRequired  Boolean    @default(true)
+  isActive    Boolean    @default(true)
+  publishedAt DateTime   @default(now())
 
-model PolicyDocument {
-  id        String   @id @default(cuid())
-  scope     PolicyScope
-  key       PolicyKey
-  version   Int      // versiune curentă (incremental)
-  title     String?
-  url       String?
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
-
-  @@unique([scope, key])
-}
-
-enum PolicyScope {
-  USERS
-  VENDORS
-}
-
-enum PolicyKey {
-  // users
-  TOS
-  PRIVACY
-  MARKETING
-
-  // vendors
-  VENDOR_TERMS
-  SHIPPING_ADDENDUM
-  RETURNS_POLICY_ACK
-  PRODUCTS_ADDENDUM
-  PRODUCT_DECLARATION
-}
-model PolicyNotification {
-  id             String      @id @default(cuid())
-  scope          PolicyScope
-  userId         String?
-  vendorId       String?
-  title          String
-  message        String
-  documents      Json        // ex: ["VENDOR_TERMS","PRODUCTS_ADDENDUM"]
-  requiresAction Boolean     @default(false)
-  createdAt      DateTime    @default(now())
-  readAt         DateTime?
-  resolvedAt     DateTime?
-
-  @@index([scope, userId])
-  @@index([scope, vendorId])
-}
-model UserAcceptance {
-  id        String   @id @default(cuid())
-  userId    String
-  document  PolicyKey
-  version   Int
-  acceptedAt DateTime @default(now())
-
-  @@index([userId, document])
+  @@unique([document, version])
+  @@index([document, isActive])
 }

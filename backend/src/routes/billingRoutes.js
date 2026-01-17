@@ -8,11 +8,16 @@ import { z } from "zod";
 const router = Router();
 
 /* -----------------------------------------------------------
-   CONSTANTE (fără `as const` — JS friendly)
+   CONSTANTE (JS friendly)
 ----------------------------------------------------------- */
 const ALLOWED_LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
 const ALLOWED_VAT_STATUS = ["payer", "non_payer"];
-const ALLOWED_VAT_RATES = ["19", "9", "5", "0"];
+
+// ✅ platforma folosește doar cota standard
+const PLATFORM_VAT_RATE = "21";
+
+// ✅ aliniat cu UI (30s)
+const MIN_VERIFY_INTERVAL_MS = 30 * 1000;
 
 /* -----------------------------------------------------------
    HELPERE
@@ -20,16 +25,12 @@ const ALLOWED_VAT_RATES = ["19", "9", "5", "0"];
 const sendError = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ ok: false, error: code, message: code, ...extra });
 
-const normalizeCui = (raw = "") =>
-  raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-const normalizeIban = (raw = "") =>
-  raw.replace(/\s+/g, "").toUpperCase();
-
-const MIN_VERIFY_INTERVAL_MS = 15 * 1000;
+const normalizeCui = (raw = "") => raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+const normalizeIban = (raw = "") => raw.replace(/\s+/g, "").toUpperCase();
 
 /* -----------------------------------------------------------
    VALIDARE PAYLOAD (ZOD)
+   - nu mai acceptăm vatRate arbitrar; backend îl forțează la 21 când e payer
 ----------------------------------------------------------- */
 const BillingSchema = z
   .object({
@@ -46,18 +47,13 @@ const BillingSchema = z
     phone: z.string().trim().min(1),
 
     vatStatus: z.enum(ALLOWED_VAT_STATUS),
+
+    // ✅ optional doar pentru back-compat (ignorăm valoarea primită)
     vatRate: z.string().optional(),
+
     vatResponsibilityConfirmed: z.boolean(),
   })
   .superRefine((data, ctx) => {
-    if (data.vatStatus === "payer" && !data.vatRate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["vatRate"],
-        message: "Te rugăm să alegi cota de TVA.",
-      });
-    }
-
     if (!data.vatResponsibilityConfirmed) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -107,7 +103,6 @@ router.put(
   authRequired,
   vendorAccessRequired,
   async (req, res) => {
-
     const meVendor =
       req.meVendor ||
       (await prisma.vendor.findUnique({
@@ -129,16 +124,18 @@ router.put(
 
     const cuiNorm = normalizeCui(input.cui);
     const cuiDigits = cuiNorm.replace(/^RO/, "");
-    if (!/^\d{2,10}$/.test(cuiDigits))
+    if (!/^\d{2,10}$/.test(cuiDigits)) {
       return sendError(res, "invalid_cui", 400, {
         message: "Format CUI invalid.",
       });
+    }
 
     const ibanNorm = normalizeIban(input.iban);
-    if (!/^RO\d{2}[A-Z]{4}[A-Z0-9]{16}$/i.test(ibanNorm))
+    if (!/^RO\d{2}[A-Z]{4}[A-Z0-9]{16}$/i.test(ibanNorm)) {
       return sendError(res, "invalid_iban", 400, {
         message: "IBAN invalid.",
       });
+    }
 
     const now = new Date();
 
@@ -156,11 +153,14 @@ router.put(
       phone: input.phone,
 
       vatStatus: input.vatStatus,
-      vatRate: input.vatStatus === "payer" ? input.vatRate || null : null,
+
+      // ✅ BACKEND = source of truth:
+      // - payer => 21
+      // - non_payer => null
+      vatRate: input.vatStatus === "payer" ? PLATFORM_VAT_RATE : null,
+
       vatResponsibilityConfirmed: input.vatResponsibilityConfirmed,
-      vatLastResponsibilityConfirm: input.vatResponsibilityConfirmed
-        ? now
-        : null,
+      vatLastResponsibilityConfirm: input.vatResponsibilityConfirmed ? now : null,
     };
 
     const saved = await prisma.vendorBilling.upsert({
@@ -169,7 +169,7 @@ router.put(
       create: { vendorId: meVendor.id, ...payload },
     });
 
-    // verificare ANAF async – setează tvaActive (folosit în frontend la `priceInfo`)
+    // verificare ANAF async – setează tvaActive + info ANAF
     (async () => {
       try {
         const ver = await verifyCuiAtAnaf(saved.cui);
@@ -181,6 +181,9 @@ router.put(
             tvaSource: ver ? ver.source : "anaf",
             anafName: ver ? ver.name : null,
             anafAddress: ver ? ver.address : null,
+
+            // ❗ NU salvăm tvaCode dacă nu există coloana în DB
+            // tvaCode: ver?.tvaCode || saved.cui || null,
           },
         });
       } catch (e) {
@@ -200,57 +203,71 @@ router.post(
   authRequired,
   vendorAccessRequired,
   async (req, res) => {
-    const meVendor =
-      req.meVendor ||
-      (await prisma.vendor.findUnique({
-        where: { userId: req.user.sub },
-      }));
-    if (!meVendor) return sendError(res, "vendor_profile_missing", 404);
-
-    const billing = await prisma.vendorBilling.findUnique({
-      where: { vendorId: meVendor.id },
-    });
-    if (!billing) return sendError(res, "billing_not_found", 400);
-
-    if (
-      billing.tvaVerifiedAt &&
-      Date.now() - billing.tvaVerifiedAt.getTime() <
-        MIN_VERIFY_INTERVAL_MS
-    ) {
-      return sendError(res, "too_soon", 429);
-    }
-
-    const cui = (billing.cui || "").toUpperCase().trim();
-    if (!/^(RO)?\d{2,10}$/.test(cui)) {
-      return sendError(res, "invalid_cui_format", 400);
-    }
-
-    let result;
     try {
-      result = await verifyCuiAtAnaf(cui);
-    } catch (err) {
-      console.error("[ANAF verify immediate] error:", err);
-      result = {
-        tvaActive: null,
-        verifiedAt: new Date().toISOString(),
-        source: "anaf",
-        name: null,
-        address: null,
-      };
+      const meVendor =
+        req.meVendor ||
+        (await prisma.vendor.findUnique({
+          where: { userId: req.user.sub },
+        }));
+      if (!meVendor) return sendError(res, "vendor_profile_missing", 404);
+
+      const billing = await prisma.vendorBilling.findUnique({
+        where: { vendorId: meVendor.id },
+      });
+      if (!billing) return sendError(res, "billing_not_found", 400);
+
+      if (
+        billing.tvaVerifiedAt &&
+        Date.now() - billing.tvaVerifiedAt.getTime() < MIN_VERIFY_INTERVAL_MS
+      ) {
+        return sendError(res, "too_soon", 429, {
+          message: "Verificarea poate fi reluată mai târziu.",
+        });
+      }
+
+      const cui = (billing.cui || "").toUpperCase().trim();
+      if (!/^(RO)?\d{2,10}$/.test(cui)) {
+        return sendError(res, "invalid_cui_format", 400);
+      }
+
+      let result;
+      try {
+        result = await verifyCuiAtAnaf(cui);
+      } catch (err) {
+        console.error("[ANAF verify immediate] error:", err);
+        result = {
+          tvaActive: null,
+          verifiedAt: new Date().toISOString(),
+          source: "ANAF_TEMP_DOWN",
+          name: null,
+          address: null,
+          tvaCode: cui.startsWith("RO") ? cui : `RO${cui}`,
+        };
+      }
+
+      const updated = await prisma.vendorBilling.update({
+        where: { vendorId: meVendor.id },
+        data: {
+          tvaActive: result.tvaActive,
+          tvaVerifiedAt: new Date(),
+          tvaSource: result.source,
+          anafName: result.name,
+          anafAddress: result.address,
+
+          // ❗ NU salvăm tvaCode dacă nu există coloana în DB
+          // tvaCode: result.tvaCode || null,
+        },
+      });
+
+      return res.json({ ok: true, billing: updated });
+    } catch (e) {
+      console.error("[verify endpoint] FAILED:", e);
+      return res.status(500).json({
+        ok: false,
+        error: "internal_error",
+        message: e?.message || "Internal Server Error",
+      });
     }
-
-    const updated = await prisma.vendorBilling.update({
-      where: { vendorId: meVendor.id },
-      data: {
-        tvaActive: result.tvaActive,
-        tvaVerifiedAt: new Date(),
-        tvaSource: result.source,
-        anafName: result.name,
-        anafAddress: result.address,
-      },
-    });
-
-    res.json({ ok: true, billing: updated });
   }
 );
 

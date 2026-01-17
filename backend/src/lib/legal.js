@@ -130,7 +130,7 @@ export function loadLegalDoc(key, opts = {}) {
   const content = renderTemplate(parsed.content || "", vars);
 
   // HTML: punem H1 din title + restul markdown-ului
-  const html = marked.parse(`# ${title}\n\n${content}`.trim());
+ const html = marked.parse(String(content || "").trim());
 
   return {
     type: key,

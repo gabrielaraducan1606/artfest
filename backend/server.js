@@ -77,7 +77,7 @@ import adminEmailLogsRoutes from "./src/routes/adminEmailLogRoutes.js";
 import adminIncidentsRoutes from "./src/routes/adminIncidentsRoutes.js";
 import unsubscribeRouter from "./src/routes/unsubscribeRoutes.js";
 import publicCategories from "./src/routes/categoriesRoutes.js";
-
+import adminPolicyNotificationsRoutes from "./src/routes/adminPolicyNotificationsRoutes.js";
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
 
@@ -355,6 +355,8 @@ app.use("/api/admin", adminCitiesRouter);
 app.use("/api/admin/monitor", adminIncidentsRoutes);
 app.use("/api/public", digitalWaitlistRoutes);
 app.use("/api/admin", adminDigitalWaitlistRoutes);
+// în app.js / routes index
+app.use("/api/admin", adminPolicyNotificationsRoutes);
 
 /* ---------------- RUTE GUEST ---------------- */
 app.use("/api/upload", uploadRoutes);
