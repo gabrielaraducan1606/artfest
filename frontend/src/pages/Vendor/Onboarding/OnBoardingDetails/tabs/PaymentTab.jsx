@@ -4,26 +4,215 @@ import styles from "./css/PaymentTab.module.css";
 import { useCurrentSubscription } from "../hooks/useCurrentSubscriptionBanner.js";
 
 /* ============================ Constante ============================ */
-const YEAR_DISCOUNT = 0.2; // -20% la anual
+// 2 luni gratis la anual (ex: 49*12=588 -> 490)
+const YEAR_DISCOUNT = 2 / 12; // ~16.6667%
 
-// comisioane platformă (basis points = sutimi de procent)
+// fallback FEES (doar dacă backend-ul nu trimite meta.commissions)
 const FEES = {
-  starter:  { productsBps: 1000, servicesBps: 700 },  // 10.00%, 7.00%
-  basic:    { productsBps:  800, servicesBps: 500 },  // 8.00%, 5.00%
-  pro:      { productsBps:  600, servicesBps: 350 },  // 6.00%, 3.50%
-  business: { productsBps:  400, servicesBps: 250 },  // 4.00%, 2.50%
+  starter:  { productsBps: 1200, minFeeCentsPerOrder: 1000 }, // 12%, min 10 RON / comandă
+  basic:    { productsBps: 1000, minFeeCentsPerOrder: 800  }, // 10%, min 8 RON
+  pro:      { productsBps: 800,  minFeeCentsPerOrder: 600  }, // 8%,  min 6 RON
+  business: { productsBps: 600,  minFeeCentsPerOrder: 500  }, // 6%,  min 5 RON
 };
 
-// fallback local (în caz că backend-ul nu are încă seed)
+// fallback local (în caz că backend-ul nu are încă seed / meta)
+// — aliniat 1:1 cu planurile stabilite
 const DEFAULT_PLANS = [
-  { id:"local-starter",  code:"starter",  name:"Starter",  priceCents:0,     currency:"RON", interval:"month", isActive:true,
-    features:["25 produse","Link distribuire","Agenda de bază","1 membru, 1 locație"], popular:false },
-  { id:"local-basic",    code:"basic",    name:"Basic",    priceCents:4900,  currency:"RON", interval:"month", isActive:true,
-    features:["150 produse, variante & stoc","Discount codes, UTM","Agenda extinsă, avans","2 membri, 2 locații"], popular:false },
-  { id:"local-pro",      code:"pro",      name:"Pro",      priceCents:9900,  currency:"RON", interval:"month", isActive:true,
-    features:["Produse nelimitate, SEO","Boosturi în listări","Agenda Pro + SMS","3 membri, multi-locație"], popular:true },
-  { id:"local-business", code:"business", name:"Business", priceCents:19900, currency:"RON", interval:"month", isActive:true,
-    features:["Multi-brand/store","API & Webhooks","Seats extins","Suport prioritar"], popular:false },
+  {
+    id: "local-starter",
+    code: "starter",
+    name: "Starter",
+    priceCents: 0,
+    currency: "RON",
+    interval: "month",
+    isActive: true,
+    popular: false,
+    features: [
+      "Profil public de vânzător",
+      "Listare produse (max. 25)",
+      "Vânzare direct în platformă",
+      "Recenzii clienți",
+      "Chat cu clienții (mesaje simple)",
+      "Notificări comenzi",
+      "1 membru, 1 locație",
+      "Suport standard",
+    ],
+    meta: {
+      commissions: FEES.starter,
+      limits: { products: 25, members: 1, locations: 1 },
+      capabilities: {
+        shareLink: true,
+        chat: true,
+        chatNotes: false,
+        chatLeadStatus: false,
+        chatFollowUps: false,
+        analyticsVisitors: false,
+        discountCodes: false,
+        autoInvoicing: false,
+        invoicingAdvanced: false,
+        courierPickup: false,
+        courierScheduling: false,
+        courierTracking: false,
+        marketingEligible: false,
+        marketingPriority: false,
+        marketingDedicated: false,
+        serviceSalesEnabled: false,
+      },
+    },
+  },
+  {
+    id: "local-basic",
+    code: "basic",
+    name: "Basic",
+    priceCents: 4900,
+    currency: "RON",
+    interval: "month",
+    isActive: true,
+    popular: true, // planul cel mai ales
+    features: [
+      "TOT din Starter",
+      "Listare produse extinsă (max. 150)",
+      "Discount codes",
+      "Chat avansat: note interne",
+      "Status lead (nou / ofertat / confirmat / livrat)",
+      "Notificări avansate",
+      "Analytics vizitatori (zi / lună)",
+      "Facturare automată: factură PDF trimisă clientului",
+      "TVA corect (plătitor / neplătitor)",
+      "Curier automat: AWB + ridicare de la adresă (cost per livrare)",
+      "Eligibil pentru promovare în campaniile platformei (Meta & Google – selecție ne-garantată)",
+      "2 membri, 2 locații",
+      "Suport prioritar (email)",
+    ],
+    meta: {
+      commissions: FEES.basic,
+      limits: { products: 150, members: 2, locations: 2 },
+      capabilities: {
+        shareLink: true,
+        chat: true,
+        chatNotes: true,
+        chatLeadStatus: true,
+        chatFollowUps: false,
+        analyticsVisitors: true,
+        discountCodes: true,
+        autoInvoicing: true,
+        invoicingAdvanced: false,
+        courierPickup: true,
+        courierScheduling: false,
+        courierTracking: true,
+        marketingEligible: true,
+        marketingPriority: false,
+        marketingDedicated: false,
+        serviceSalesEnabled: false,
+      },
+    },
+  },
+  {
+    id: "local-pro",
+    code: "pro",
+    name: "Pro",
+    priceCents: 9900,
+    currency: "RON",
+    interval: "month",
+    isActive: true,
+    popular: false,
+    features: [
+      "TOT din Basic",
+      "Produse nelimitate",
+      "Boost în listări",
+      "SEO îmbunătățit pentru paginile produselor",
+      "Chat complet: note interne + status lead",
+      "Follow-up reminders",
+      "Istoric lead & comandă",
+      "Analytics avansat: perioade custom",
+      "Top produse vizitate",
+      "Facturare avansată: istoric facturi",
+      "Storno / corecții",
+      "Logo vendor pe factură",
+      "Curier avansat: alegere curier",
+      "Programare ridicare",
+      "Tracking automat trimis clientului",
+      "Istoric livrări",
+      "Promovare prioritară (Meta & Google) + rotație mai frecventă în ads",
+      "3 membri, multi-locație",
+      "Suport prioritar + SLA",
+    ],
+    meta: {
+      commissions: FEES.pro,
+      limits: { products: -1, members: 3, locations: -1 },
+      capabilities: {
+        shareLink: true,
+        chat: true,
+        chatNotes: true,
+        chatLeadStatus: true,
+        chatFollowUps: true,
+        analyticsVisitors: true,
+        discountCodes: true,
+        listingBoost: true,
+        seoBoost: true,
+        autoInvoicing: true,
+        invoicingAdvanced: true,
+        courierPickup: true,
+        courierScheduling: true,
+        courierTracking: true,
+        marketingEligible: true,
+        marketingPriority: true,
+        marketingDedicated: false,
+        serviceSalesEnabled: false,
+      },
+    },
+  },
+  {
+    id: "local-business",
+    code: "business",
+    name: "Business",
+    priceCents: 19900,
+    currency: "RON",
+    interval: "month",
+    isActive: true,
+    popular: false,
+    features: [
+      "TOT din Pro",
+      "Multi-brand / multi-store",
+      "Membri extinși (5–10)",
+      "Export date (CSV / API)",
+      "Facturare completă: serii multiple de facturi",
+      "Integrare contabilitate (viitor)",
+      "Facturare per brand",
+      "Curier premium: tarife negociate, ridicare prioritară",
+      "Retururi automate",
+      "Promovare dedicată: campanii gestionate de platformă",
+      "Buget inclus (limită lunară)",
+      "Landing dedicat + raport performanță",
+      "Account manager dedicat",
+      "Early access la funcții noi",
+      "Prioritate în campanii sezoniere (nunți)",
+    ],
+    meta: {
+      commissions: FEES.business,
+      limits: { products: -1, members: 10, locations: -1 },
+      capabilities: {
+        shareLink: true,
+        chat: true,
+        chatNotes: true,
+        chatLeadStatus: true,
+        chatFollowUps: true,
+        analyticsVisitors: true,
+        discountCodes: true,
+        listingBoost: true,
+        seoBoost: true,
+        autoInvoicing: true,
+        invoicingAdvanced: true,
+        courierPickup: true,
+        courierScheduling: true,
+        courierTracking: true,
+        marketingEligible: true,
+        marketingPriority: true,
+        marketingDedicated: true,
+        serviceSalesEnabled: false,
+      },
+    },
+  },
 ];
 
 /* ============================ Utils ============================ */
@@ -35,9 +224,19 @@ function formatPrice(cents, currency = "RON") {
     return `${(cents / 100).toFixed(2)} ${currency}`;
   }
 }
+
+function formatMoney(cents, currency = "RON") {
+  try {
+    return new Intl.NumberFormat("ro-RO", { style: "currency", currency }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${currency}`;
+  }
+}
+
 function bpsToPct(bps) {
   return (bps / 100).toFixed(bps % 100 ? 2 : 0) + "%";
 }
+
 function absolutizeUrl(url) {
   if (/^https?:\/\//i.test(url)) return url;
 
@@ -76,11 +275,22 @@ function usePlans() {
   }, []);
 
   const enriched = useMemo(() => {
-    return (plans || []).map(p => ({
-      ...p,
-      fees: FEES[p.code] || FEES.starter,
-      popular: p.popular ?? (p.code === "pro"),
-    }));
+    return (plans || []).map((p) => {
+      const fromMeta = p?.meta?.commissions || p?.commissions; // suportă ambele
+      const fallback = FEES[p.code] || FEES.starter;
+
+      return {
+        ...p,
+        // popular: true pe Basic; fallback doar dacă backend nu trimite
+        popular: p.popular ?? (p.code === "basic"),
+        fees: {
+          productsBps: fromMeta?.productsBps ?? fallback.productsBps,
+          minFeeCentsPerOrder: fromMeta?.minFeeCentsPerOrder ?? fallback.minFeeCentsPerOrder,
+        },
+        serviceSalesEnabled: !!p?.meta?.capabilities?.serviceSalesEnabled,
+        shareLinkEnabled: p?.meta?.capabilities?.shareLink !== false, // implicit true
+      };
+    });
   }, [plans]);
 
   return { plans: enriched, loading, err };
@@ -95,7 +305,7 @@ function SubscriptionPayment({ obSessionId }) {
   const KEY_PERIOD = `onboarding.period:${obSessionId || "default"}`;
   const ss = {
     get(k) { try { if (typeof window==="undefined") return null; return window.sessionStorage.getItem(k); } catch { return null; } },
-    set(k, v) { try { if (typeof window==="undefined") return; window.sessionStorage.setItem(k, v); } catch {""} },
+    set(k, v) { try { if (typeof window==="undefined") return; window.sessionStorage.setItem(k, v); } catch { /* ignore */ } },
   };
 
   const [period, setPeriod] = useState(() => (ss.get(KEY_PERIOD) === "year" ? "year" : "month"));
@@ -111,9 +321,9 @@ function SubscriptionPayment({ obSessionId }) {
 
   useEffect(() => {
     if (!plans.length) return;
-    const exists = plans.some(p => p.code === plan);
+    const exists = plans.some((p) => p.code === plan);
     if (!exists) {
-      const first = plans.find(p => p.isActive !== false) || plans[0];
+      const first = plans.find((p) => p.isActive !== false) || plans[0];
       setPlan(first.code);
       ss.set(KEY_PLAN, first.code);
     }
@@ -127,7 +337,6 @@ function SubscriptionPayment({ obSessionId }) {
     ss.set(KEY_PERIOD, next);
   }
 
-  // === corectare detecție Apple Pay / Google Pay ===
   function detectWalletHints() {
     let applePay = "0";
     let googlePay = "0";
@@ -135,21 +344,15 @@ function SubscriptionPayment({ obSessionId }) {
     try {
       const w = typeof window !== "undefined" ? window : undefined;
       const canApplePay =
-        !!(w &&
-           w.ApplePaySession &&
-           typeof w.ApplePaySession.canMakePayments === "function" &&
-           w.ApplePaySession.canMakePayments());
+        !!(w && w.ApplePaySession && typeof w.ApplePaySession.canMakePayments === "function" && w.ApplePaySession.canMakePayments());
       if (canApplePay) applePay = "1";
-    } catch {/* ignore */}
+    } catch { /* ignore */ }
 
     try {
       const w = typeof window !== "undefined" ? window : undefined;
-      const canGooglePay =
-        !!(w &&
-           w.PaymentRequest &&
-           /Android|Chrome/i.test(navigator.userAgent));
+      const canGooglePay = !!(w && w.PaymentRequest && /Android|Chrome/i.test(navigator.userAgent));
       if (canGooglePay) googlePay = "1";
-    } catch {/* ignore */}
+    } catch { /* ignore */ }
 
     return { applePay, googlePay };
   }
@@ -203,14 +406,12 @@ function SubscriptionPayment({ obSessionId }) {
       const msg = e?.data?.message || e?.message || "Nu s-a putut porni plata.";
       setErr(msg);
     } finally {
-      if (status === "processing") {
-        setStatus("idle");
-      }
+      setStatus("idle");
     }
   }
 
   const sameActivePlan = sub?.status === "active" && sub?.plan?.code === plan;
-  const daysLeft = sub?.endAt ? Math.ceil((new Date(sub.endAt) - new Date()) / (1000*60*60*24)) : null;
+  const daysLeft = sub?.endAt ? Math.ceil((new Date(sub.endAt) - new Date()) / (1000 * 60 * 60 * 24)) : null;
   const isRenewSoon = typeof daysLeft === "number" && daysLeft <= 7;
 
   function displayPrice(p) {
@@ -234,20 +435,12 @@ function SubscriptionPayment({ obSessionId }) {
     try {
       setStatus("canceling");
       setErr("");
-
-      const resp = await api("/api/vendors/me/subscription/cancel", {
-        method: "POST",
-      });
-
-      // actualizăm abonamentul în state
+      const resp = await api("/api/vendors/me/subscription/cancel", { method: "POST" });
       setSub(resp?.subscription ?? null);
     } catch (e) {
       console.error("subscription cancel failed:", e);
       setStatus("error");
-      const msg =
-        e?.data?.message ||
-        e?.message ||
-        "Nu am putut anula abonamentul. Încearcă din nou.";
+      const msg = e?.data?.message || e?.message || "Nu am putut anula abonamentul. Încearcă din nou.";
       setErr(msg);
     } finally {
       setStatus("idle");
@@ -256,17 +449,9 @@ function SubscriptionPayment({ obSessionId }) {
 
   return (
     <div className={styles.form}>
-      <header
-        className={styles.header}
-        style={{
-          display:"flex",
-          alignItems:"center",
-          gap:12,
-          justifyContent:"space-between",
-          flexWrap:"wrap",
-        }}
-      >
-        <h2 className={styles.cardTitle} style={{ margin:0 }}>Plată abonament</h2>
+      <header className={styles.header}>
+        <h2 className={styles.cardTitle}>Plată abonament</h2>
+
         {subLoading ? (
           <span className={styles.badgeWait}>Se încarcă abonamentul curent…</span>
         ) : sub?.status === "active" ? (
@@ -280,14 +465,14 @@ function SubscriptionPayment({ obSessionId }) {
         )}
       </header>
 
-      <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
+      <div className={styles.periodRow}>
         <div className={styles.help}>Perioadă de facturare:</div>
-        <div style={{ display:"inline-flex", border: "1px solid var(--color-border)", borderRadius: 8, overflow:"hidden" }}>
+        <div className={styles.periodToggle} role="tablist" aria-label="Perioadă de facturare">
           <button
             type="button"
             onClick={() => changePeriod("month")}
             className={styles.tab + " " + (period === "month" ? styles.tabActive : "")}
-            style={{ border: 0, borderRadius: 0 }}
+            aria-pressed={period === "month"}
           >
             Lunar
           </button>
@@ -295,7 +480,7 @@ function SubscriptionPayment({ obSessionId }) {
             type="button"
             onClick={() => changePeriod("year")}
             className={styles.tab + " " + (period === "year" ? styles.tabActive : "")}
-            style={{ border: 0, borderRadius: 0 }}
+            aria-pressed={period === "year"}
             title={`- ${Math.round(YEAR_DISCOUNT * 100)}% față de lunar`}
           >
             Anual (−{Math.round(YEAR_DISCOUNT * 100)}%)
@@ -308,68 +493,68 @@ function SubscriptionPayment({ obSessionId }) {
       {plansLoading ? (
         <div className={styles.card}>Se încarcă planurile…</div>
       ) : (
-        <div className={styles.grid} style={{ gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))" }}>
+        <div className={styles.grid}>
           {plans.map((p) => {
             const selected = plan === p.code;
-            const { productsBps, servicesBps } = p.fees || {};
+            const { productsBps, minFeeCentsPerOrder } = p.fees || {};
+
             return (
               <label
                 key={p.id || p.code}
-                className={styles.card}
-                style={{
-                  cursor: "pointer",
-                  borderColor: selected ? "var(--color-primary)" : "var(--color-border)",
-                  boxShadow: selected ? "0 0 0 2px rgba(247,140,61,0.15)" : "none",
-                  position: "relative",
-                }}
+                className={`${styles.card} ${selected ? styles.cardSelected : ""}`}
               >
-                {p.popular && (
-                  <span
-                    className={styles.badgeWait}
-                    style={{ position: "absolute", top: 10, right: 12, fontWeight: 600 }}
-                  >
-                    Popular
+                {p.popular && <span className={styles.badgeWait + " " + styles.cardBadge}>Popular</span>}
+
+                <div className={styles.cardTop}>
+                  <div className={styles.planName}>{p.name}</div>
+                  <div className={styles.planPrice}>{displayPrice(p)}</div>
+                </div>
+
+                <div className={styles.feesRow} title="Comisioane platformă">
+                  <span className={styles.help}>
+                    Produse: {bpsToPct(productsBps || 0)}
+                    {typeof minFeeCentsPerOrder === "number" && minFeeCentsPerOrder > 0
+                      ? ` (min. ${formatMoney(minFeeCentsPerOrder, p.currency || "RON")} / comandă)`
+                      : ""}
                   </span>
+
+                  <span className={`${styles.help} ${styles.muted}`}>
+                    Servicii: indisponibil momentan
+                  </span>
+                </div>
+
+                {/* Link distribuire highlight */}
+                {p.shareLinkEnabled && (
+                  <div className={styles.shareHint}>
+                    Include <strong>link de distribuire</strong> pentru promovare rapidă.
+                  </div>
                 )}
 
-                <div className={styles.fieldGroup} style={{ marginBottom: 6 }}>
-                  <strong style={{ fontSize: "1.05rem" }}>{p.name}</strong>
-                  <div style={{ fontSize: "0.95rem", marginTop: 4 }}>{displayPrice(p)}</div>
-                </div>
-
-                <div
-                  style={{ display:"flex", gap:8, flexWrap:"wrap", margin: "4px 0 8px" }}
-                  title="Comisioane platformă"
-                >
-                  <span className={styles.help}>Produse: {bpsToPct(productsBps || 0)}</span>
-                  <span className={styles.help}>Servicii: {bpsToPct(servicesBps || 0)}</span>
-                </div>
-
                 {Array.isArray(p.features) && p.features.length > 0 && (
-                  <ul style={{ margin: "6px 0 10px 18px" }}>
-                    {p.features.slice(0, 6).map((f, i) => (
-                      <li key={i} style={{ fontSize:"0.9rem" }}>{f}</li>
+                  <ul className={styles.featuresList}>
+                    {p.features.slice(0, 8).map((f, i) => (
+                      <li key={i}>{f}</li>
                     ))}
-                    {p.features.length > 6 && <li style={{ color:"#6b7280" }}>… și altele</li>}
+                    {p.features.length > 8 && <li className={styles.moreMuted}>… și altele</li>}
                   </ul>
                 )}
 
-                <div
-                  className={styles.fieldGroup}
-                  style={{ marginTop: "auto", display: "flex", alignItems: "center", gap: 8 }}
-                >
+                <div className={styles.pickRow}>
                   <input
                     type="radio"
                     name="plan"
                     value={p.code}
                     checked={selected}
-                    onChange={() => { setPlan(p.code); ss.set(KEY_PLAN, p.code); }}
+                    onChange={() => {
+                      setPlan(p.code);
+                      ss.set(KEY_PLAN, p.code);
+                    }}
                   />
                   <span>Alege {p.name}</span>
                 </div>
 
                 {sub?.status === "active" && sub.plan?.code === p.code && (
-                  <small className={styles.help} style={{ marginTop: 8 }}>Planul tău actual</small>
+                  <small className={styles.help}>Planul tău actual</small>
                 )}
               </label>
             );
@@ -379,23 +564,11 @@ function SubscriptionPayment({ obSessionId }) {
 
       {err && <div className={styles.error} role="alert" style={{ marginTop: 8 }}>{err}</div>}
 
-      <div
-        style={{
-          marginTop: 12,
-          display:"flex",
-          gap:8,
-          alignItems:"center",
-          flexWrap:"wrap",
-        }}
-      >
+      <div className={styles.actionsRow}>
         <button
           className={styles.primaryBtn}
           onClick={startCheckout}
-          disabled={
-            status === "processing" ||
-            status === "canceling" ||
-            (sameActivePlan && !isRenewSoon)
-          }
+          disabled={status === "processing" || status === "canceling" || (sameActivePlan && !isRenewSoon)}
           type="button"
           title={sameActivePlan && !isRenewSoon ? "Ești deja pe acest plan" : undefined}
         >
@@ -410,7 +583,7 @@ function SubscriptionPayment({ obSessionId }) {
           <button
             type="button"
             onClick={cancelSubscription}
-            className={styles.secondaryBtn || styles.primaryGhostBtn}
+            className={styles.secondaryBtn}
             disabled={status === "processing" || status === "canceling"}
             title="Abonamentul va fi oprit, iar magazinele tale vor deveni inactive."
           >

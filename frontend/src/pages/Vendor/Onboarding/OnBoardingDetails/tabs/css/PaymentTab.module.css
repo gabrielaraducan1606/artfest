@@ -1,5 +1,3 @@
-/* PaymentTab.module.css */
-
 .tabPanel {
   width: 100%;
   max-width: 980px;
@@ -35,6 +33,15 @@
   line-height: 1.35;
 }
 
+.muted {
+  opacity: 0.75;
+  text-decoration: line-through;
+}
+
+.moreMuted {
+  opacity: 0.75;
+}
+
 .error {
   margin-top: 6px;
   border: 1px solid color-mix(in srgb, var(--color-danger) 55%, var(--color-border));
@@ -44,32 +51,26 @@
   border-radius: var(--radius);
 }
 
-/* grid planuri */
-.grid {
-  display: grid;
-  gap: 12px;
+/* perioadă */
+.periodRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
-/* card plan */
-.card {
-  background: var(--surface);
+.periodToggle {
+  display: inline-flex;
   border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 2px);
-  box-shadow: var(--shadow-sm);
-  padding: 12px;
+  border-radius: 10px;
   overflow: hidden;
-}
-
-.fieldGroup {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
+  background: var(--surface);
 }
 
 /* toggle lunar/anual (tabs) */
 .tab {
   appearance: none;
-  background: var(--surface);
+  background: transparent;
   color: var(--color-text);
   padding: 8px 12px;
   font-weight: 750;
@@ -86,6 +87,99 @@
 .tabActive {
   background: color-mix(in srgb, var(--color-primary) 12%, var(--surface));
   color: var(--color-text);
+}
+
+/* grid planuri */
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+
+/* card plan */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: var(--shadow-sm);
+  padding: 12px;
+  overflow: hidden;
+  display: grid;
+  gap: 10px;
+  position: relative;
+}
+
+.cardSelected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(247, 140, 61, 0.15);
+}
+
+.cardBadge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+
+/* top card */
+.cardTop {
+  display: grid;
+  gap: 4px;
+  padding-right: 72px; /* loc pentru badge */
+}
+
+.planName {
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.planPrice {
+  font-size: 14px;
+  opacity: 0.92;
+}
+
+/* rând comisioane */
+.feesRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* hint link distribuire */
+.shareHint {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+/* listă features */
+.featuresList {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.featuresList li {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* selectare plan */
+.pickRow {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* radio input să arate bine */
+.card input[type="radio"] {
+  accent-color: var(--color-primary);
 }
 
 /* badge-uri */
@@ -207,7 +301,16 @@
   transform: none;
 }
 
-/* Dark mode: forțează text vizibil pe butoane/label (evită "text negru") */
+/* acțiuni jos */
+.actionsRow {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Dark mode safety */
 :global(html[data-theme="dark"]) .tab,
 :global(html[data-theme="dark"]) .secondaryBtn,
 :global(html[data-theme="dark"]) .card,
@@ -215,17 +318,47 @@
   color: var(--color-text);
 }
 
-/* radio input să arate bine */
-.card input[type="radio"] {
-  accent-color: var(--color-primary);
-}
-
-/* responsive */
-@media (max-width: 420px) {
+/* ====================== Mobile cleanup ====================== */
+@media (max-width: 520px) {
   .tabPanel {
     padding: 14px 12px 22px;
   }
-  .primaryBtn {
+
+  .cardTitle {
+    font-size: 16px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .card {
+    padding: 10px;
+    border-radius: calc(var(--radius) + 2px);
+    gap: 8px;
+  }
+
+  .cardTop {
+    padding-right: 0;
+  }
+
+  .cardBadge {
+    position: static;
+    justify-self: start;
+    margin-bottom: 2px;
+  }
+
+  .featuresList li {
+    font-size: 12.5px;
+  }
+
+  .primaryBtn,
+  .secondaryBtn {
     width: 100%;
+  }
+
+  .actionsRow {
+    gap: 10px;
   }
 }

@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../../lib/api.js";
 import styles from "./css/BillingTab.module.css";
 
 const DRAFT_PREFIX = "onboarding.billing.draft:";
 const LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
-const VERIFY_COOLDOWN_SEC = 30;
 
 // ✅ pentru platformă: doar 21% (cota standard)
 const PLATFORM_VAT_RATE = "21";
@@ -166,10 +165,10 @@ function pickBillingFromApi(b) {
     vatRate: b.vatRate ?? "",
     vatResponsibilityConfirmed: !!b.vatResponsibilityConfirmed,
 
+    // read-only (populate din backend, dacă există)
     tvaActive: b.tvaActive,
     tvaVerifiedAt: b.tvaVerifiedAt,
     tvaSource: b.tvaSource,
-    tvaCode: b.tvaCode,
     anafName: b.anafName,
     anafAddress: b.anafAddress,
   };
@@ -199,18 +198,10 @@ function ConfirmDialog({
         </h3>
         <p className={styles.modalText}>{message}</p>
         <div className={styles.modalActions}>
-          <button
-            type="button"
-            className={styles.ghostBtn}
-            onClick={onCancel}
-          >
+          <button type="button" className={styles.ghostBtn} onClick={onCancel}>
             {cancelText}
           </button>
-          <button
-            type="button"
-            className={styles.dangerBtn}
-            onClick={onConfirm}
-          >
+          <button type="button" className={styles.dangerBtn} onClick={onConfirm}>
             {confirmText}
           </button>
         </div>
@@ -244,7 +235,6 @@ function BillingForm({ onSaved, onStatusChange }) {
     tvaActive: undefined,
     tvaVerifiedAt: undefined,
     tvaSource: undefined,
-    tvaCode: undefined,
     anafName: undefined,
     anafAddress: undefined,
   });
@@ -252,10 +242,6 @@ function BillingForm({ onSaved, onStatusChange }) {
   const [initialBilling, setInitialBilling] = useState(null);
 
   const [status, setStatus] = useState("idle"); // idle|saving|saved|error
-  const [checking, setChecking] = useState(false);
-  const [verifyCooldown, setVerifyCooldown] = useState(0);
-  const verifyTimerRef = useRef(null);
-
   const [err, setErr] = useState("");
   const [loadedDraft, setLoadedDraft] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
@@ -268,7 +254,7 @@ function BillingForm({ onSaved, onStatusChange }) {
 
   const [announce, setAnnounce] = useState("");
 
-  // ✅ nou: controlăm “hidratarea” (backend + draft) + interacțiunea userului
+  // ✅ controlăm “hidratarea” (backend + draft) + interacțiunea userului
   const [hydrated, setHydrated] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
@@ -361,14 +347,6 @@ function BillingForm({ onSaved, onStatusChange }) {
 
     return () => clearTimeout(t);
   }, [billing, draftKey, hydrated, hasInteracted]);
-
-  // cooldown timer pentru verificare
-  useEffect(() => {
-    if (verifyCooldown <= 0 && verifyTimerRef.current) {
-      clearInterval(verifyTimerRef.current);
-      verifyTimerRef.current = null;
-    }
-  }, [verifyCooldown]);
 
   function onFieldChange(name) {
     return (e) => {
@@ -464,7 +442,6 @@ function BillingForm({ onSaved, onStatusChange }) {
         setBilling((prev) => mergeBillingKeepVat(prev, fromApi));
         setInitialBilling(fromApi);
       } else {
-        // fallback: menținem ce aveam
         setInitialBilling(pickBillingFromApi(billing));
       }
 
@@ -482,7 +459,6 @@ function BillingForm({ onSaved, onStatusChange }) {
         // ignore
       }
 
-      // ✅ userul nu mai e “în editare” după save
       setHasInteracted(false);
 
       setTimeout(() => setStatus("idle"), 1200);
@@ -491,47 +467,6 @@ function BillingForm({ onSaved, onStatusChange }) {
       setStatus("error");
       setErr(e?.message || "Eroare la salvare.");
       setAnnounce("Eroare la salvare.");
-    }
-  }
-
-  function startVerifyCooldown() {
-    setVerifyCooldown(VERIFY_COOLDOWN_SEC);
-    if (verifyTimerRef.current) clearInterval(verifyTimerRef.current);
-    verifyTimerRef.current = setInterval(() => {
-      setVerifyCooldown((s) => Math.max(0, s - 1));
-    }, 1000);
-  }
-
-  async function verifyNow() {
-    try {
-      const cuiOk = /^(RO)?\d{2,10}$/i.test(
-        String(billing.cui || "").trim().toUpperCase()
-      );
-      if (!cuiOk) {
-        setErr(
-          "Completează și salvează mai întâi un CUI valid (ex: RO12345678)."
-        );
-        setAnnounce("CUI invalid pentru verificare.");
-        return;
-      }
-      if (verifyCooldown > 0) return;
-
-      setChecking(true);
-      setAnnounce("Se verifică CUI la ANAF…");
-      await api("/api/vendors/me/billing/verify", { method: "POST" });
-
-      const d = await api("/api/vendors/me/billing", { method: "GET" });
-      const fromApi = pickBillingFromApi(d?.billing);
-      if (fromApi) {
-        setBilling((prev) => mergeBillingKeepVat(prev, fromApi));
-      }
-      setAnnounce("Verificarea ANAF s-a încheiat.");
-    } catch (e) {
-      setErr(e?.message || "Verificarea ANAF a eșuat.");
-      setAnnounce("Verificarea ANAF a eșuat.");
-    } finally {
-      setChecking(false);
-      startVerifyCooldown();
     }
   }
 
@@ -567,7 +502,6 @@ function BillingForm({ onSaved, onStatusChange }) {
       tvaActive: undefined,
       tvaVerifiedAt: undefined,
       tvaSource: undefined,
-      tvaCode: undefined,
       anafName: undefined,
       anafAddress: undefined,
     });
@@ -579,11 +513,6 @@ function BillingForm({ onSaved, onStatusChange }) {
     setAnnounce("Formularul a fost resetat.");
   }
 
-  const hasTvaInfo = typeof billing.tvaActive !== "undefined";
-  const canVerify =
-    !checking &&
-    verifyCooldown === 0 &&
-    /^(RO)?\d{2,10}$/i.test(String(billing.cui || "").trim().toUpperCase());
   const canReset = !isFormEmpty(billing);
 
   return (
@@ -620,17 +549,16 @@ function BillingForm({ onSaved, onStatusChange }) {
       <InfoNote>
         <p style={{ margin: 0 }}>
           <strong>De ce cerem aceste date?</strong> Pentru a preveni conturile
-          false și a emite documente fiscale corecte, anumite informații sunt{" "}
-          <em>verificate automat</em> (ex. CUI) prin surse oficiale (ANAF).
+          false și a emite documente fiscale corecte.
         </p>
         <ul style={{ margin: "6px 0 0 18px" }}>
           <li>
-            CUI-ul poate fi verificat periodic; această verificare nu afectează
-            statutul dvs. fiscal.
+            Statutul TVA este declarat de vendor; îți cerem confirmare pe propria
+            răspundere.
           </li>
           <li>
-            Dacă nu sunteți plătitor de TVA, este în regulă — vom emite facturile
-            în consecință.
+            Unele informații pot fi verificate ulterior prin surse oficiale
+            atunci când acestea sunt disponibile.
           </li>
           <li>
             Persoana de contact și telefonul sunt necesare pentru comunicări
@@ -642,80 +570,24 @@ function BillingForm({ onSaved, onStatusChange }) {
           </li>
         </ul>
         <p style={{ margin: "6px 0 0 0", color: "#6B7280" }}>
-          Dacă serviciile ANAF sunt temporar indisponibile, veți putea continua,
-          iar verificarea va fi refăcută ulterior.
+          Dacă sursele oficiale sunt temporar indisponibile, vei putea continua,
+          iar verificările vor fi reluate ulterior.
         </p>
       </InfoNote>
 
-      {/* Status TVA + verificare on-demand */}
+      {/* Toolbar (fără verificare ANAF în onboarding) */}
       <div className={styles.toolbar}>
         <div className={styles.toolbarLeft}>
-          {hasTvaInfo && (
-            <>
-              {billing.tvaActive === true && (
-                <span className={`${styles.badge} ${styles.badgeOk}`}>
-                  Verificat ANAF ✓
-                </span>
-              )}
-              {billing.tvaActive === false && (
-                <span className={`${styles.badge} ${styles.badgeWarn}`}>
-                  Neînregistrat TVA
-                </span>
-              )}
-              {billing.tvaActive == null && (
-                <span className={`${styles.badge} ${styles.badgeMuted}`}>
-                  ANAF indisponibil
-                </span>
-              )}
-              {billing.tvaVerifiedAt && (
-                <small className={styles.help}>
-                  actualizat:{" "}
-                  {new Date(billing.tvaVerifiedAt).toLocaleDateString()}
-                </small>
-              )}
-              {billing.anafName && (
-                <small className={styles.help}>
-                  Denumire (ANAF): {billing.anafName}
-                </small>
-              )}
-              {billing.anafAddress && (
-                <small className={styles.help}>
-                  Adresă (ANAF): {billing.anafAddress}
-                </small>
-              )}
-            </>
-          )}
+          <span className={`${styles.badge} ${styles.badgeMuted}`}>
+            Statut TVA declarat
+          </span>
+          <small className={styles.help}>
+            În onboarding nu blocăm procesul pe verificări externe. Statutul TVA
+            rămâne cel declarat de tine.
+          </small>
         </div>
 
         <div className={styles.toolbarRight}>
-          <button
-            type="button"
-            className={styles.secondaryBtn}
-            onClick={verifyNow}
-            disabled={!canVerify}
-            aria-disabled={!canVerify}
-            title={
-              checking
-                ? "Se verifică…"
-                : verifyCooldown > 0
-                ? `Poți reîncerca în ${verifyCooldown}s`
-                : !/^(RO)?\d{2,10}$/i.test(String(billing.cui || ""))
-                ? "Completează un CUI valid mai întâi"
-                : "Interoghează imediat ANAF"
-            }
-          >
-            {checking ? (
-              <>
-                <span className={styles.spinner} aria-hidden="true" /> Se
-                verifică…
-              </>
-            ) : verifyCooldown > 0 ? (
-              `Reîncearcă în ${verifyCooldown}s`
-            ) : (
-              "Verifică CUI acum"
-            )}
-          </button>
-
           {hasDraft && (
             <button
               type="button"
@@ -908,13 +780,8 @@ function BillingForm({ onSaved, onStatusChange }) {
             <option value="non_payer">Neplătitor de TVA</option>
           </select>
           <small className={styles.help}>
-            Conform informațiilor ANAF:{" "}
-            {billing.tvaActive === true
-              ? "ești înregistrat în scopuri de TVA."
-              : billing.tvaActive === false
-              ? "nu ești înregistrat ca plătitor de TVA."
-              : "nu am putut determina automat statutul TVA."}{" "}
-            Te rugăm să confirmi statutul real.
+            Te rugăm să confirmi statutul real al entității tale. Dacă ești
+            plătitor de TVA, platforma aplică doar cota standard.
           </small>
           {errors.vatStatus && (
             <small id="err-vatStatus" className={styles.fieldError}>
@@ -1117,9 +984,17 @@ function BillingForm({ onSaved, onStatusChange }) {
               onChange={(e) => {
                 setHasInteracted(true);
                 const checked = e.target.checked;
-                setBilling((prev) => ({ ...prev, vatResponsibilityConfirmed: checked }));
+                setBilling((prev) => ({
+                  ...prev,
+                  vatResponsibilityConfirmed: checked,
+                }));
                 if (touched.vatResponsibilityConfirmed) {
-                  setErrorsState(validate({ ...billing, vatResponsibilityConfirmed: checked }));
+                  setErrorsState(
+                    validate({
+                      ...billing,
+                      vatResponsibilityConfirmed: checked,
+                    })
+                  );
                 }
               }}
               onBlur={onFieldBlur("vatResponsibilityConfirmed")}

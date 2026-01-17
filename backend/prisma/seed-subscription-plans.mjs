@@ -15,64 +15,109 @@ const prisma = new PrismaClient();
  * Funcția principală care inserează/actualizează planurile de abonament
  */
 export async function seedSubscriptionPlans() {
-  // Lista planurilor disponibile în platformă
+  // Lista planurilor disponibile în platformă (aliniată cu descrierea finală)
   const plans = [
     {
-      code: "starter",      // identificator intern stabil
-      name: "Starter",      
-      priceCents: 0,        // preț în bani (0 = gratuit)
-      currency: "RON",
-      interval: "month",    // lunar
-      features: [
-        "25 produse",
-        "Link distribuire",
-        "Agenda de bază",
-        "1 membru, 1 locație",
-      ],
-      isActive: true,       // apare pe site
-      popular: false,       // nu este promovat ca plan principal
-    },
-    {
-      code: "basic",
-      name: "Basic",
-      priceCents: 4900,
+      code: "starter",
+      name: "Starter",
+      priceCents: 0, // 0 RON / lună
       currency: "RON",
       interval: "month",
       features: [
-        "150 produse, variante & stoc",
-        "Discount codes, UTM",
-        "Agenda extinsă, avans",
-        "2 membri, 2 locații",
+        "Profil public de vânzător",
+        "Listare produse (max. 25)",
+        "Vânzare direct în platformă",
+        "Recenzii clienți",
+        "Chat cu clienții (mesaje simple)",
+        "Notificări comenzi",
+        "1 membru",
+        "1 locație",
+        "Suport standard",
       ],
       isActive: true,
       popular: false,
     },
     {
-      code: "pro",
-      name: "Pro",
-      priceCents: 9900,
+      code: "basic",
+      name: "Basic",
+      priceCents: 4900, // 49 RON / lună
       currency: "RON",
       interval: "month",
       features: [
-        "Produse nelimitate, SEO",
-        "Boosturi în listări",
-        "Agenda Pro + SMS",
-        "3 membri, multi-locație",
+        "TOT din Starter",
+        "Listare produse extinsă (max. 150)",
+        "Discount codes",
+        "Chat avansat: note interne",
+        "Status lead (nou / ofertat / confirmat / livrat)",
+        "Notificări avansate",
+        "Analytics vizitatori (zi / lună)",
+        "Facturare automată: factură PDF trimisă clientului",
+        "TVA corect (plătitor / neplătitor)",
+        "Curier automat: AWB + ridicare de la adresă (cost per livrare)",
+        "Eligibil pentru promovare în campaniile platformei (Meta & Google – selecție ne-garantată)",
+        "2 membri",
+        "2 locații",
+        "Suport prioritar (email)",
       ],
       isActive: true,
-      popular: true,       // planul recomandat
+      popular: true, // planul cel mai ales
+    },
+    {
+      code: "pro",
+      name: "Pro",
+      priceCents: 9900, // 99 RON / lună
+      currency: "RON",
+      interval: "month",
+      features: [
+        "TOT din Basic",
+        "Produse nelimitate",
+        "Boost în listări",
+        "SEO îmbunătățit pentru paginile produselor",
+        "Chat complet: note interne + status lead",
+        "Follow-up reminders",
+        "Istoric lead & comandă",
+        "Analytics avansat: perioade custom",
+        "Top produse vizitate",
+        "Facturare avansată: istoric facturi",
+        "Storno / corecții",
+        "Logo vendor pe factură",
+        "Curier avansat: alegere curier",
+        "Programare ridicare",
+        "Tracking automat trimis clientului",
+        "Istoric livrări",
+        "Promovare prioritară în campaniile Meta & Google ale platformei",
+        "Rotație mai frecventă în ads",
+        "3 membri",
+        "Multi-locație",
+        "Suport prioritar + SLA",
+      ],
+      isActive: true,
+      popular: false,
     },
     {
       code: "business",
       name: "Business",
-      priceCents: 19900,
+      priceCents: 19900, // 199 RON / lună
       currency: "RON",
       interval: "month",
       features: [
-        "Multi-brand/store",
-        "API & Webhooks",
-        "Seats extins",
-        "Suport prioritar",
+        "TOT din Pro",
+        "Multi-brand / multi-store",
+        "Membri extinși (5–10)",
+        "Export date (CSV / API)",
+        "Facturare completă: serii multiple de facturi",
+        "Integrare contabilitate (viitor)",
+        "Facturare per brand",
+        "Curier premium: tarife negociate mai bune",
+        "Ridicare prioritară",
+        "Retururi automate",
+        "Promovare dedicată: campanii gestionate de platformă",
+        "Buget inclus (limită lunară)",
+        "Landing dedicat",
+        "Raport performanță",
+        "Account manager dedicat",
+        "Early access la funcții noi",
+        "Prioritate în campanii sezoniere (nunți)",
       ],
       isActive: true,
       popular: false,
@@ -85,7 +130,7 @@ export async function seedSubscriptionPlans() {
   for (const p of plans) {
     await prisma.subscriptionPlan.upsert({
       where: { code: p.code },
-      create: p, // dacă nu există planul, îl adăugăm
+      create: p,
       update: {
         name: p.name,
         priceCents: p.priceCents,
@@ -103,11 +148,12 @@ export async function seedSubscriptionPlans() {
 
 // Dacă scriptul este executat direct (node prisma/seed-subscription-plans.mjs)
 // atunci rulăm funcția automat.
-if (import.meta.url === `file://${process.argv[1]}`) {
-  seedSubscriptionPlans()
-    .catch((e) => {
-      console.error(e);
-      process.exit(1);
-    })
-    .finally(() => prisma.$disconnect());
-}
+// Rulează întotdeauna când fișierul e executat cu `node prisma/seed-subscription-plans.mjs`
+seedSubscriptionPlans()
+  .catch((e) => {
+    console.error("SEED FAILED:", e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

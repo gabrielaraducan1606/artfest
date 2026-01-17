@@ -374,17 +374,18 @@ model ServiceFollow {
 }
 
 model SubscriptionPlan {
-  id            String               @id @default(uuid())
-  code          String               @unique
-  name          String
-  priceCents    Int
-  currency      String               @default("RON")
-  interval      PlanInterval         @default(month)
-  features      String[]
-  isActive      Boolean              @default(true)
-  popular       Boolean              @default(false)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id         String   @id @default(uuid())
+  code       String   @unique
+  name       String
+  priceCents Int
+  currency   String   @default("RON")
+  interval   PlanInterval @default(month)
+  features   String[]
+  meta       Json?          // ✅ ADĂUGAT
+  isActive   Boolean @default(true)
+  popular    Boolean @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   subscriptions VendorSubscription[]
 
   @@index([isActive, priceCents])
