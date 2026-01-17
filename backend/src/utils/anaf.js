@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 
-const ANAF_URL = "https://webservicesp.anaf.ro/PlatitorTvaRest/api/v7/ws/tva";
+const ANAF_URL = "https://webservicesp.anaf.ro/api/PlatitorTvaRest/v9/tva"; // ✅ v9
 
 const iso = (d) => (d ? new Date(d) : null);
 const bool = (v) => v === true || v === "true" || v === 1;
@@ -11,18 +11,11 @@ export function normalizeCui(input = "") {
 }
 
 /**
- * Verifică CUI la ANAF (v7).
- * Răspunsul ANAF este de forma: { cod, message, found: [...], notFound: [...] }
+ * Verifică CUI la ANAF (v9).
+ * Răspuns ANAF v9: { cod:200, message:"SUCCESS", found:[...], notFound:[...] }
+ * Doc oficial: https://static.anaf.ro/.../doc_WS_V9.txt
  *
- * Returnează un obiect „îmbogățit” cu aliasuri standardizate:
- *  - tvaActive (bool|null)
- *  - verifiedAt (ISO)
- *  - source ("anaf" | "ANAF_TEMP_DOWN")
- *  - name, address
- *  - tvaCode (ex: "RO12345678")
- *  + anafName/anafAddress & raw
- *
- * Fail-open: dacă ANAF e jos/timeouts, întoarce shape compatibil cu câmpuri null.
+ * Fail-open: dacă ANAF e jos/timeouts, întoarce tvaActive=null.
  */
 export async function verifyCuiAtAnaf(
   cuiRaw,
@@ -54,26 +47,38 @@ export async function verifyCuiAtAnaf(
   if (!cui) return fallback;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), 12000);
 
   try {
     const r = await fetch(ANAF_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        // uneori ajută în practică (proxy / WAF / etc)
+        "User-Agent": "vendor-platform/1.0 (anaf-vat-check)",
+      },
       body: JSON.stringify([{ cui: Number(cui), data: dateISO }]),
       signal: controller.signal,
     });
 
-    if (!r.ok) throw new Error(`ANAF HTTP ${r.status}`);
+    if (!r.ok) {
+      // păstrăm textul pentru debug (nu îl expunem în UI)
+      const txt = await r.text().catch(() => "");
+      throw new Error(`ANAF HTTP ${r.status} ${txt?.slice(0, 120)}`);
+    }
 
     const data = await r.json();
 
-    // ✅ ANAF v7: { cod: 200, message: "SUCCESS", found: [...], notFound: [...] }
-    if (!data || data.cod !== 200) throw new Error(`ANAF COD ${data?.cod}`);
+    // ✅ ANAF v9: cod 200 = SUCCESS
+    const cod = Number(data?.cod);
+    if (!data || cod !== 200) {
+      throw new Error(`ANAF COD ${data?.cod} MSG ${data?.message || ""}`);
+    }
 
     const it = Array.isArray(data.found) ? data.found[0] : null;
 
-    // dacă nu e în found, îl tratăm ca „negăsit” => TVA false
+    // dacă nu e în found => nu e găsit => tvaActive false (poți schimba în null dacă preferi)
     if (!it) {
       return {
         ...fallback,
@@ -97,14 +102,14 @@ export async function verifyCuiAtAnaf(
       source: "anaf",
       verifiedAt: new Date().toISOString(),
 
-      // ✅ cheie corectă: scpTVA
+      // ✅ doc v9: scpTVA
       tvaActive: bool(tva?.scpTVA),
 
       name: anafName,
       address: anafAddress,
       tvaCode: `RO${cui}`,
 
-      // perioade TVA (dacă există)
+      // perioade TVA (doc v9: perioade_TVA)
       tvaRegStart: tva?.perioade_TVA?.data_inceput_ScpTVA
         ? iso(tva.perioade_TVA.data_inceput_ScpTVA)?.toISOString()
         : null,
@@ -112,7 +117,7 @@ export async function verifyCuiAtAnaf(
         ? iso(tva.perioade_TVA.data_sfarsit_ScpTVA)?.toISOString()
         : null,
 
-      // ✅ inactivi: statusInactivi
+      // ✅ doc v9: statusInactivi
       inactiv: bool(inact?.statusInactivi),
       inactivFrom: inact?.dataInactivare
         ? iso(inact.dataInactivare)?.toISOString()
@@ -120,10 +125,9 @@ export async function verifyCuiAtAnaf(
 
       insolvent: bool(insol?.insolventa) || bool(insol?.inceputInsolventa) || false,
 
-      // ✅ split TVA: statusSplitTVA
+      // ✅ doc v9: statusSplitTVA
       splitTva: bool(split?.statusSplitTVA),
 
-      // back-compat + debug
       anafName,
       anafAddress,
       raw: it || null,
@@ -131,7 +135,7 @@ export async function verifyCuiAtAnaf(
       cui: String(cui),
     };
   } catch (e) {
-    // log în dev ca să vezi dacă e DNS/TLS/timeout
+    // ✅ super util în dev / live logs
     console.error("[ANAF] verify failed:", e?.name, e?.message);
     return fallback;
   } finally {
