@@ -6,17 +6,220 @@
     <title>Artfest – În curând</title>
     <meta name="robots" content="index, follow" />
     <style>
-      body { margin:0; display:flex; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background:#f8f8f8;}
-      .card { text-align:center; max-width:500px; background:white; padding:2rem; border-radius:12px; box-shadow:0 5px 20px rgba(0,0,0,0.1);}
-      h1 { color:#8b5cf6; margin-bottom:0.5rem; }
-      p { opacity:0.8; }
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        background: #f8f8f8;
+        padding: 18px;
+      }
+      .card {
+        text-align: center;
+        width: 100%;
+        max-width: 560px;
+        background: white;
+        padding: 2rem;
+        border-radius: 14px;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #8b5cf6;
+        margin: 0 0 0.5rem;
+        font-size: 2rem;
+        letter-spacing: -0.02em;
+      }
+      p {
+        opacity: 0.85;
+        margin: 0.35rem 0;
+        line-height: 1.45;
+      }
+      .form {
+        margin-top: 1.25rem;
+        display: grid;
+        gap: 10px;
+      }
+      .row {
+        display: grid;
+        gap: 8px;
+      }
+      label {
+        text-align: left;
+        font-size: 0.9rem;
+        opacity: 0.85;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 12px 12px;
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        outline: none;
+        font-size: 1rem;
+      }
+      input:focus {
+        border-color: #8b5cf6;
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+      }
+      .btn {
+        padding: 12px 14px;
+        border: 0;
+        border-radius: 10px;
+        background: #8b5cf6;
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+        font-size: 1rem;
+      }
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .hint {
+        font-size: 0.85rem;
+        opacity: 0.7;
+        margin-top: 0.3rem;
+      }
+      .msg {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-size: 0.95rem;
+        text-align: left;
+        display: none;
+      }
+      .msg.ok {
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        color: #065f46;
+      }
+      .msg.err {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+      }
+      .footer {
+        margin-top: 14px;
+        font-size: 0.8rem;
+        opacity: 0.65;
+      }
+      .small {
+        font-size: 0.8rem;
+        opacity: 0.65;
+      }
+      .twoCols {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      @media (min-width: 520px) {
+        .twoCols {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
     </style>
   </head>
+
   <body>
     <div class="card">
       <h1>Artfest</h1>
-      <p>Platforma va fi disponibilă în curând 🚀</p>
-      <p>Lucrăm la ultimele detalii. Revino în scurt timp.</p>
+      <p>Marketplace pentru artizanii de evenimente — în curând 🚀</p>
+      <p>Lasă-ne emailul și îți trimitem acces când lansăm.</p>
+
+      <form id="waitlistForm" class="form">
+        <div class="twoCols">
+          <div class="row">
+            <label for="name">Nume (opțional)</label>
+            <input id="name" name="name" type="text" autocomplete="name" placeholder="ex: Andreea" />
+          </div>
+
+          <div class="row">
+            <label for="email">Email</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              placeholder="ex: tu@gmail.com"
+              required
+            />
+          </div>
+        </div>
+
+        <button id="submitBtn" class="btn" type="submit">Înscrie-mă pe lista de așteptare</button>
+        <div class="hint">Nu trimitem spam. Doar un email când e gata.</div>
+
+        <div id="okMsg" class="msg ok">✅ Te-am înscris! Revenim curând cu acces.</div>
+        <div id="errMsg" class="msg err">❌ Nu am putut salva emailul. Încearcă din nou.</div>
+      </form>
+
+      <div class="footer">
+        © <span id="year"></span> Artfest
+        <span class="small"> • Dacă ai întrebări: contact@artfest.ro</span>
+      </div>
     </div>
+
+    <script>
+      const form = document.getElementById("waitlistForm");
+      const submitBtn = document.getElementById("submitBtn");
+      const okMsg = document.getElementById("okMsg");
+      const errMsg = document.getElementById("errMsg");
+      document.getElementById("year").textContent = String(new Date().getFullYear());
+
+      function show(el) {
+        el.style.display = "block";
+      }
+      function hide(el) {
+        el.style.display = "none";
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        hide(okMsg);
+        hide(errMsg);
+
+        const email = (document.getElementById("email").value || "").trim();
+        const name = (document.getElementById("name").value || "").trim();
+
+        // dacă frontend și backend sunt pe același domeniu:
+        // const endpoint = "/api/marketplace-waitlist";
+        //
+        // dacă sunt pe domenii diferite, pune URL complet:
+        // const endpoint = "https://api.artfest.ro/api/marketplace-waitlist";
+        const endpoint = "/api/marketplace-waitlist";
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Se trimite…";
+
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email,
+              name: name || null,
+              source: "coming-soon",
+            }),
+          });
+
+          const data = await res.json().catch(() => null);
+
+          if (!res.ok || !data || !data.ok) {
+            show(errMsg);
+            return;
+          }
+
+          form.reset();
+          show(okMsg);
+        } catch (err) {
+          show(errMsg);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Înscrie-mă pe lista de așteptare";
+        }
+      });
+    </script>
   </body>
 </html>
