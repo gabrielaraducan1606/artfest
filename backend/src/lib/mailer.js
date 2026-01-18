@@ -1298,3 +1298,79 @@ export async function sendVendorDeactivateConfirmEmail({ to, link, userId = null
     },
   });
 }
+
+/* ============================================================
+   WAITLIST: Marketplace (sender: noreply) + List-Unsubscribe
+============================================================ */
+export async function sendMarketplaceWaitlistEmail({
+  to,
+  subject,
+  html,
+  preheader,
+  senderKey = "noreply",
+  userId = null,
+}) {
+  if (!to || !subject || !html) return;
+
+  // folosim mecanismul existent de one-click unsubscribe
+  // IMPORTANT: category distinct ca să nu se amestece cu marketing
+  const unsubUrl = buildUnsubscribeLink({ email: to, category: "marketplace_waitlist" });
+  const listUnsubHeaders = buildListUnsubscribeHeaders({ email: to, category: "marketplace_waitlist" });
+
+  const finalHtml = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  ${
+    preheader
+      ? `<span style="display:none !important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">${String(
+          preheader
+        )}</span>`
+      : ""
+  }
+
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <div style="background:#ffffff;border-radius:12px;padding:18px 16px;border:1px solid #e5e7eb;">
+    ${String(html)}
+  </div>
+
+  <p style="font-size:11px;color:#9ca3af;text-align:center;margin:16px 0 0;line-height:1.35;">
+    Primești acest email pentru că te-ai înscris pe lista de așteptare Marketplace ${BRAND_NAME}.<br/>
+    ${
+      unsubUrl
+        ? `Dacă nu mai vrei notificări, te poți <a href="${unsubUrl}" style="color:#6b7280;">dezabona aici</a>.`
+        : ""
+    }
+  </p>
+</div>`.trim();
+
+  const text = [
+    stripHtml(html),
+    "",
+    `Primești acest email pentru că te-ai înscris pe lista de așteptare Marketplace ${BRAND_NAME}.`,
+    unsubUrl ? `Dezabonare: ${unsubUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey,
+    to,
+    subject,
+    template: "marketplace_waitlist",
+    userId,
+    mailOptions: {
+      ...senderEnvelope(senderKey),
+      to,
+      subject,
+      html: finalHtml,
+      text,
+      headers: {
+        ...AUTO_HEADERS,
+        ...listUnsubHeaders,
+      },
+    },
+  });
+}
