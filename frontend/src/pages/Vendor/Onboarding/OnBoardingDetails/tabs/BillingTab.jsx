@@ -8,6 +8,29 @@ const LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
 // ✅ pentru platformă: doar 21% (cota standard)
 const PLATFORM_VAT_RATE = "21";
 
+/* ---------- Hook: detectăm mobil (pt. acordeon) ---------- */
+function useIsMobile(breakpointPx = 768) {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mq = window.matchMedia(`(max-width: ${breakpointPx}px)`);
+    const update = () => setIsMobile(!!mq.matches);
+
+    update();
+    if (mq.addEventListener) mq.addEventListener("change", update);
+    else mq.addListener(update);
+
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", update);
+      else mq.removeListener(update);
+    };
+  }, [breakpointPx]);
+
+  return isMobile;
+}
+
 /* ---------- Componentă mică pentru nota informativă ---------- */
 function InfoNote({ children }) {
   return (
@@ -20,6 +43,59 @@ function InfoNote({ children }) {
         ℹ️
       </span>
       <div>{children}</div>
+    </div>
+  );
+}
+
+/* ---------- InfoNote în acordeon pe mobil (UI mai curat) ---------- */
+function InfoNoteResponsive({ summary, children }) {
+  const isMobile = useIsMobile(768);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isMobile) setOpen(true);
+    else setOpen(false);
+  }, [isMobile]);
+
+  // Desktop: afișare normală (cu titlu + rest)
+  if (!isMobile) {
+    return (
+      <InfoNote>
+        <p style={{ margin: 0 }}>
+          <strong>De ce cerem aceste date?</strong> {summary}
+        </p>
+        {children}
+      </InfoNote>
+    );
+  }
+
+  // Mobile: UN SINGUR container, trigger + body (fără titlul duplicat)
+  return (
+    <div className={styles.infoNote}>
+      <button
+        type="button"
+        className={styles.infoAccordionTrigger}
+        aria-expanded={open}
+        aria-controls="billing-info-accordion"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={styles.infoAccordionLeft}>
+          <span aria-hidden="true" className={styles.infoNoteIcon}>
+            ℹ️
+          </span>
+          <strong>De ce cerem aceste date?</strong>
+        </span>
+        <span aria-hidden="true" className={styles.infoAccordionChevron}>
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+
+      {open && (
+        <div id="billing-info-accordion" className={styles.infoAccordionBody}>
+          <p style={{ margin: 0 }}>{summary}</p>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -546,34 +622,31 @@ function BillingForm({ onSaved, onStatusChange }) {
         </div>
       </header>
 
-      <InfoNote>
-        <p style={{ margin: 0 }}>
-          <strong>De ce cerem aceste date?</strong> Pentru a preveni conturile
-          false și a emite documente fiscale corecte.
-        </p>
-        <ul style={{ margin: "6px 0 0 18px" }}>
-          <li>
-            Statutul TVA este declarat de vendor; îți cerem confirmare pe propria
-            răspundere.
-          </li>
-          <li>
-            Unele informații pot fi verificate ulterior prin surse oficiale
-            atunci când acestea sunt disponibile.
-          </li>
-          <li>
-            Persoana de contact și telefonul sunt necesare pentru comunicări
-            legate de facturare.
-          </li>
-          <li>
-            Datele sunt folosite exclusiv pentru facturare și verificări
-            anti-fraudă, în conformitate cu GDPR.
-          </li>
-        </ul>
-        <p style={{ margin: "6px 0 0 0", color: "#6B7280" }}>
-          Dacă sursele oficiale sunt temporar indisponibile, vei putea continua,
-          iar verificările vor fi reluate ulterior.
-        </p>
-      </InfoNote>
+      {/* ✅ Pe mobil: “De ce cerem aceste date?” în acordeon */}
+      <InfoNoteResponsive summary="Pentru a preveni conturile false și a emite documente fiscale corecte.">
+  <ul style={{ margin: "6px 0 0 18px" }}>
+    <li>
+      Statutul TVA este declarat de vendor; îți cerem confirmare pe propria
+      răspundere.
+    </li>
+    <li>
+      Unele informații pot fi verificate ulterior prin surse oficiale atunci
+      când acestea sunt disponibile.
+    </li>
+    <li>
+      Persoana de contact și telefonul sunt necesare pentru comunicări legate
+      de facturare.
+    </li>
+    <li>
+      Datele sunt folosite exclusiv pentru facturare și verificări anti-fraudă,
+      în conformitate cu GDPR.
+    </li>
+  </ul>
+  <p style={{ margin: "6px 0 0 0", color: "#6B7280" }}>
+    Dacă sursele oficiale sunt temporar indisponibile, vei putea continua, iar
+    verificările vor fi reluate ulterior.
+  </p>
+</InfoNoteResponsive>
 
       {/* Toolbar (fără verificare ANAF în onboarding) */}
       <div className={styles.toolbar}>

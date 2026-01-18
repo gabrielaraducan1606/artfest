@@ -1,3 +1,4 @@
+/* ================== Layout ================== */
 .wrap {
   max-width: 980px;
   margin: 48px auto;
@@ -5,6 +6,7 @@
 }
 
 .header { text-align: center; margin-bottom: 18px; }
+
 .title {
   font-family: var(--font-title);
   font-weight: 700;
@@ -13,13 +15,14 @@
   margin: 0 0 6px;
   color: var(--color-text);
 }
+
 .subtitle {
   margin: 0;
   color: color-mix(in srgb, var(--color-text) 70%, transparent);
   font-size: 0.98rem;
 }
 
-/* Grid de carduri */
+/* ================== Grid ================== */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -27,58 +30,72 @@
   margin-top: 16px;
 }
 
-/* Card selectabil */
+/* ================== Card ================== */
 .card {
   position: relative;
   display: grid;
   align-content: start;
   gap: 6px;
+
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 14px 12px;
   min-height: 92px;
+
   cursor: pointer;
   transition: border-color .15s ease, box-shadow .15s ease, transform .03s ease, background .15s ease;
-  box-shadow:
-    0 10px 20px rgba(0,0,0,.02),
-    0 2px 6px rgba(0,0,0,.02);
+
+  box-shadow: var(--shadow-md);
 }
+
 .card:hover {
   border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
 }
+
 .card:active { transform: translateY(1px); }
 
 .cardHeader { display: flex; align-items: center; gap: 8px; }
-.cardTitle { font-weight: 600; color: var(--color-text); }
-.cardMeta { font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
 
-/* starea selectată */
+.cardTitle {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.cardMeta {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-muted) 85%, transparent);
+}
+
+/* ================== Selected ================== */
 .cardChecked {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
   background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
 }
 
-/* badge „deja adăugat” */
+/* ================== Badge "deja adăugat" ================== */
 .badge {
   position: absolute;
   top: 10px;
   right: 10px;
+
   font-size: 11px;
   line-height: 1;
   padding: 4px 8px;
   border-radius: 9999px;
+
   background: color-mix(in srgb, var(--color-primary) 18%, var(--surface));
   color: var(--color-primary);
   border: 1px solid color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
 }
 
-/* existent (disabled) */
+/* existent (disabled / already) */
 .cardExisting { opacity: .7; cursor: not-allowed; }
+.cardDisabled { opacity: 0.6; pointer-events: none; }
 
-/* Checkbox nativ ascuns vizual */
+/* ================== Checkbox hidden ================== */
 .checkbox {
   position: absolute;
   inset: 0;
@@ -86,64 +103,83 @@
   pointer-events: none;
 }
 
-/* bifa vizuală */
+/* ================== Checkmark ================== */
 .checkmark {
-  width: 18px; height: 18px;
+  width: 18px;
+  height: 18px;
   border-radius: 5px;
+
   border: 1.5px solid var(--color-border);
   background: var(--color-bg);
+
   display: inline-block;
   position: relative;
   transition: border-color .15s ease, background .15s ease;
 }
+
 .cardChecked .checkmark {
   background: var(--color-primary);
   border-color: var(--color-primary);
 }
+
 .cardChecked .checkmark::after {
   content: "";
   position: absolute;
-  left: 5px; top: 2px;
-  width: 5px; height: 9px;
-  border: 2px solid #fff;
-  border-top: 0; border-left: 0;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+
+  border: 2px solid var(--surface); /* în loc de #fff; arată bine și în dark */
+  border-top: 0;
+  border-left: 0;
   transform: rotate(45deg);
 }
 
-/* Footer */
+/* ================== Footer ================== */
 .footer {
-  display: flex; align-items: center; gap: 10px; margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
 }
+
 .primaryBtn {
   appearance: none;
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--surface); /* în loc de #fff */
+
   border-radius: calc(var(--radius) - 2px);
   padding: 10px 14px;
   font-weight: 600;
   cursor: pointer;
+
   transition: transform .03s ease, background .15s ease, border-color .15s ease, opacity .15s ease;
+  box-shadow: var(--shadow-sm);
 }
+
 .primaryBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
 .primaryBtn:active { transform: translateY(1px); }
 .primaryBtn[disabled] { opacity: .6; cursor: not-allowed; }
 
-/* Eroare */
+/* ================== Error ================== */
 .error {
-  border: 1px solid color-mix(in srgb, crimson 30%, var(--color-border));
-  background: color-mix(in srgb, crimson 8%, var(--surface));
-  color: crimson;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--surface));
+  color: var(--color-danger);
+
   border-radius: calc(var(--radius) - 2px);
   padding: 8px 10px;
   font-size: 0.95rem;
 }
 
-/* Skeleton */
+/* ================== Skeleton ================== */
 .skeleton { overflow: hidden; }
 .skeleton::after {
   content: "";
-  position: absolute; inset: 0;
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -153,20 +189,19 @@
   animation: shine 1.1s infinite;
 }
 
-.cardDisabled {
-  opacity: 0.6;
-  pointer-events: none; /* checkbox-ul e oricum disabled, dar blocăm și hover-urile */
-}
-
+/* ================== Muted badge ================== */
 .badgeMuted {
   display: inline-block;
   margin-top: 8px;
   padding: 2px 8px;
   border-radius: 9999px;
-  background: #eee;
-  color: #666;
+
+  background: color-mix(in srgb, var(--color-border) 60%, var(--surface));
+  color: var(--color-muted);
+
   font-size: 12px;
   font-weight: 500;
+  border: 1px solid var(--color-border);
 }
 
 @keyframes shine {
@@ -174,8 +209,37 @@
   to   { transform: translateX(100%); }
 }
 
-/* Responsive */
+/* ================== Responsive ================== */
 @media (max-width: 640px) {
   .wrap { margin: 36px auto; }
   .title { font-size: 1.45rem; }
+}
+@media (max-width: 640px) {
+  .footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+
+    /* deasupra navbarului de jos */
+    bottom: calc(var(--bottombar-h) + env(safe-area-inset-bottom, 0px));
+
+    z-index: 1000;
+
+    padding: 10px 16px;
+    margin-top: 0;
+
+    /* dacă ai și alte elemente lângă buton */
+    justify-content: space-between;
+  }
+
+  .primaryBtn {
+    width: 100%;
+  }
+
+  /* ca să nu fie acoperit conținutul de bara fixă */
+  .wrap {
+    padding-bottom: calc(
+      16px + 56px + var(--bottombar-h) + env(safe-area-inset-bottom, 0px)
+    );
+  }
 }

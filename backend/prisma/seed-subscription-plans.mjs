@@ -1,26 +1,13 @@
 // prisma/seed-subscription-plans.mjs
-
-/**
- * Script de seed pentru planurile de abonament din platformă.
- *
- * - Rulează o dată (sau ori de câte ori ai nevoie)
- * - Folosește upsert => dacă planul există, îl actualizează, dacă nu există, îl creează.
- * - Nu creează duplicate.
- */
-
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
-/**
- * Funcția principală care inserează/actualizează planurile de abonament
- */
 export async function seedSubscriptionPlans() {
-  // Lista planurilor disponibile în platformă (aliniată cu descrierea finală)
   const plans = [
     {
       code: "starter",
       name: "Starter",
-      priceCents: 0, // 0 RON / lună
+      priceCents: 0,
       currency: "RON",
       interval: "month",
       features: [
@@ -30,47 +17,51 @@ export async function seedSubscriptionPlans() {
         "Recenzii clienți",
         "Chat cu clienții (mesaje simple)",
         "Notificări comenzi",
-        "1 membru",
-        "1 locație",
         "Suport standard",
+        "Curier automat: AWB + ridicare de la adresă (cost per livrare)",
+        "Facturare automată: până la 2 comenzi procesate / zi",
       ],
       isActive: true,
       popular: false,
+      // redundant la Starter, dar ok pt consistență
+      trialDays: 30,
     },
+
     {
       code: "basic",
       name: "Basic",
-      priceCents: 4900, // 49 RON / lună
+      // ✅ aici pui 9900 dacă vrei 99 lei
+      priceCents: 9999,
       currency: "RON",
       interval: "month",
       features: [
         "TOT din Starter",
-        "Listare produse extinsă (max. 150)",
-        "Discount codes",
+        "Listare produse extinsă (max. 40)",
         "Chat avansat: note interne",
         "Status lead (nou / ofertat / confirmat / livrat)",
         "Notificări avansate",
         "Analytics vizitatori (zi / lună)",
-        "Facturare automată: factură PDF trimisă clientului",
-        "TVA corect (plătitor / neplătitor)",
+        "Facturare automată: până la 4 comenzi procesate / zi",
         "Curier automat: AWB + ridicare de la adresă (cost per livrare)",
         "Eligibil pentru promovare în campaniile platformei (Meta & Google – selecție ne-garantată)",
-        "2 membri",
-        "2 locații",
         "Suport prioritar (email)",
       ],
       isActive: true,
-      popular: true, // planul cel mai ales
+      popular: true,
+      trialDays: 30,
     },
+
     {
       code: "pro",
       name: "Pro",
-      priceCents: 9900, // 99 RON / lună
+      // ✅ aici pui 15000 dacă vrei 150 lei
+      priceCents: 14999,
       currency: "RON",
       interval: "month",
       features: [
         "TOT din Basic",
         "Produse nelimitate",
+        "Coduri de discount",
         "Boost în listări",
         "SEO îmbunătățit pentru paginile produselor",
         "Chat complet: note interne + status lead",
@@ -87,17 +78,18 @@ export async function seedSubscriptionPlans() {
         "Istoric livrări",
         "Promovare prioritară în campaniile Meta & Google ale platformei",
         "Rotație mai frecventă în ads",
-        "3 membri",
-        "Multi-locație",
-        "Suport prioritar + SLA",
+        "Suport prioritar",
       ],
       isActive: true,
       popular: false,
+      trialDays: 30,
     },
+
+    // 👇 Business se vede, dar e indisponibil momentan
     {
       code: "business",
       name: "Business",
-      priceCents: 19900, // 199 RON / lună
+      priceCents: 19900,
       currency: "RON",
       interval: "month",
       features: [
@@ -119,14 +111,12 @@ export async function seedSubscriptionPlans() {
         "Early access la funcții noi",
         "Prioritate în campanii sezoniere (nunți)",
       ],
-      isActive: true,
+      isActive: false, // ✅ important
       popular: false,
+      trialDays: 30,
     },
   ];
 
-  // Pentru fiecare plan facem UPSERT:
-  // - dacă există un plan cu același code → îl actualizăm
-  // - dacă nu există → îl creăm
   for (const p of plans) {
     await prisma.subscriptionPlan.upsert({
       where: { code: p.code },
@@ -139,16 +129,14 @@ export async function seedSubscriptionPlans() {
         features: p.features,
         isActive: p.isActive,
         popular: p.popular ?? false,
+        trialDays: p.trialDays ?? null,
       },
     });
   }
 
-  console.log("✅ Seeded subscription plans.");
+  console.log("✅ Seeded subscription plans (Starter/Basic/Pro active, Business disabled).");
 }
 
-// Dacă scriptul este executat direct (node prisma/seed-subscription-plans.mjs)
-// atunci rulăm funcția automat.
-// Rulează întotdeauna când fișierul e executat cu `node prisma/seed-subscription-plans.mjs`
 seedSubscriptionPlans()
   .catch((e) => {
     console.error("SEED FAILED:", e);

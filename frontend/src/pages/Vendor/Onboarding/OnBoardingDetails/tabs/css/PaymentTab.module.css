@@ -25,6 +25,7 @@
   line-height: 1.2;
   margin: 0;
   letter-spacing: -0.01em;
+  color: var(--color-text);
 }
 
 .help {
@@ -38,9 +39,7 @@
   text-decoration: line-through;
 }
 
-.moreMuted {
-  opacity: 0.75;
-}
+.moreMuted { opacity: 0.75; }
 
 .error {
   margin-top: 6px;
@@ -81,7 +80,7 @@
 }
 
 .tab:hover {
-  background: rgba(0, 0, 0, 0.03);
+  background: color-mix(in srgb, var(--surface) 88%, var(--color-bg));
 }
 
 .tabActive {
@@ -109,9 +108,10 @@
   position: relative;
 }
 
+/* selected */
 .cardSelected {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(247, 140, 61, 0.15);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .cardBadge {
@@ -130,11 +130,13 @@
 .planName {
   font-weight: 800;
   font-size: 16px;
+  color: var(--color-text);
 }
 
 .planPrice {
   font-size: 14px;
   opacity: 0.92;
+  color: color-mix(in srgb, var(--color-text) 85%, transparent);
 }
 
 /* rând comisioane */
@@ -175,6 +177,7 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
+  color: var(--color-text);
 }
 
 /* radio input să arate bine */
@@ -182,7 +185,7 @@
   accent-color: var(--color-primary);
 }
 
-/* badge-uri */
+/* badge-uri (base) */
 .badgeOk,
 .badgeWait,
 .badgeBad,
@@ -197,8 +200,9 @@
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.01em;
+
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--surface) 92%, rgba(0,0,0,0.02));
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
   color: var(--color-text);
 }
 
@@ -210,8 +214,8 @@
 
 .badgeWait {
   color: var(--color-primary);
-  background: rgba(139, 92, 246, 0.10);
-  border-color: rgba(139, 92, 246, 0.22);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
 }
 
 .badgeBad {
@@ -228,6 +232,8 @@
 
 .badgeMuted {
   color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-muted) 10%, var(--surface));
+  border-color: var(--color-border);
 }
 
 /* butoane */
@@ -236,7 +242,7 @@
   align-items: center;
   justify-content: center;
 
-  border: 1px solid transparent;
+  border: 1px solid var(--color-primary);
   border-radius: calc(var(--radius) + 2px);
   padding: 10px 14px;
 
@@ -245,21 +251,20 @@
   cursor: pointer;
 
   background: var(--color-primary);
-  color: white;
+  color: var(--surface);
   box-shadow: var(--shadow-md);
   text-decoration: none;
 
-  transition: transform 120ms ease, background-color 120ms ease, opacity 120ms ease;
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 
 .primaryBtn:hover {
   background: var(--color-hover);
+  border-color: var(--color-hover);
   transform: translateY(-1px);
 }
 
-.primaryBtn:active {
-  transform: translateY(0);
-}
+.primaryBtn:active { transform: translateY(0); }
 
 .primaryBtn:disabled,
 .primaryBtn[aria-disabled="true"] {
@@ -286,11 +291,12 @@
   color: var(--color-text);
   box-shadow: var(--shadow-sm);
 
-  transition: border-color 120ms ease, transform 120ms ease, opacity 120ms ease;
+  transition: border-color 120ms ease, transform 120ms ease, opacity 120ms ease, background-color 120ms ease;
 }
 
 .secondaryBtn:hover {
   border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
   transform: translateY(-1px);
 }
 
@@ -310,28 +316,12 @@
   flex-wrap: wrap;
 }
 
-/* Dark mode safety */
-:global(html[data-theme="dark"]) .tab,
-:global(html[data-theme="dark"]) .secondaryBtn,
-:global(html[data-theme="dark"]) .card,
-:global(html[data-theme="dark"]) .header {
-  color: var(--color-text);
-}
-
 /* ====================== Mobile cleanup ====================== */
 @media (max-width: 520px) {
-  .tabPanel {
-    padding: 14px 12px 22px;
-  }
+  .tabPanel { padding: 14px 12px 22px; }
+  .cardTitle { font-size: 16px; }
 
-  .cardTitle {
-    font-size: 16px;
-  }
-
-  .grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
+  .grid { grid-template-columns: 1fr; gap: 10px; }
 
   .card {
     padding: 10px;
@@ -339,9 +329,131 @@
     gap: 8px;
   }
 
+  .cardTop { padding-right: 0; }
+  .cardBadge {
+    position: static;
+    justify-self: start;
+    margin-bottom: 2px;
+  }
+
+  .featuresList li { font-size: 12.5px; }
+
+  .primaryBtn,
+  .secondaryBtn { width: 100%; }
+
+  .actionsRow { gap: 10px; }
+}
+
+.cardDisabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+}
+
+/* expand / collapse features */
+.moreBtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-top: 6px;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.moreBtn:hover { text-decoration: underline; }
+
+.moreBtn:disabled,
+.moreBtn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+/* mic chevron */
+.moreChevron {
+  display: inline-block;
+  transition: transform 140ms ease;
+  line-height: 1;
+}
+
+.moreChevronUp { transform: rotate(180deg); }
+
+/* opțional: spațiu consistent când se extinde */
+.featuresWrap {
+  display: grid;
+  gap: 6px;
+}
+
+/* ====================== Mobile polish (clean UI) ====================== */
+@media (max-width: 820px) {
+  .tabPanel {
+    max-width: 100%;
+    padding: 12px 10px 18px;
+  }
+
+  .form { gap: 10px; }
+
+  .header {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .cardTitle {
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  .badgeOk,
+  .badgeWait,
+  .badgeBad,
+  .badgeWarn,
+  .badgeMuted {
+    height: auto;
+    padding: 6px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    line-height: 1.25;
+    white-space: normal;
+    text-align: left;
+  }
+
+  .periodRow {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .periodToggle { width: 100%; }
+
+  .tab {
+    flex: 1 1 0;
+    padding: 10px 10px;
+    font-size: 13px;
+  }
+
+  .grid { grid-template-columns: 1fr; gap: 10px; }
+
+  .card {
+    padding: 10px;
+    gap: 8px;
+    border-radius: calc(var(--radius) + 2px);
+  }
+
   .cardTop {
     padding-right: 0;
+    gap: 3px;
   }
+
+  .planName { font-size: 15px; }
+  .planPrice { font-size: 13px; }
 
   .cardBadge {
     position: static;
@@ -349,16 +461,97 @@
     margin-bottom: 2px;
   }
 
+  .feesRow { gap: 6px; }
+
+  .help {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+
+  .shareHint {
+    font-size: 11.5px;
+    line-height: 1.35;
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+
+  .featuresList {
+    padding-left: 16px;
+    gap: 5px;
+  }
+
   .featuresList li {
     font-size: 12.5px;
+    line-height: 1.35;
+  }
+
+  .moreBtn {
+    width: 100%;
+    justify-content: center;
+    margin-top: 6px;
+    padding: 10px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--surface) 96%, var(--color-bg));
+    text-decoration: none;
+  }
+
+  .moreBtn:hover { text-decoration: none; }
+
+  .pickRow {
+    gap: 10px;
+    font-size: 13px;
+  }
+
+  .pickRow input[type="radio"] { transform: scale(1.05); }
+
+  .actionsRow {
+    margin-top: 10px;
+    gap: 10px;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .primaryBtn,
   .secondaryBtn {
     width: 100%;
+    justify-content: center;
   }
 
-  .actionsRow {
-    gap: 10px;
+  .cardDisabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .muted {
+    opacity: 0.75;
+    text-decoration-thickness: 2px;
+  }
+}
+
+@media (max-width: 420px) {
+  .tabPanel { padding: 10px 8px 16px; }
+
+  .cardTitle { font-size: 15px; }
+
+  .tab {
+    padding: 10px 8px;
+    font-size: 12.5px;
+  }
+
+  .planName { font-size: 14.5px; }
+  .planPrice { font-size: 12.8px; }
+
+  .shareHint { padding: 7px 9px; }
+
+  .moreBtn { padding: 9px 10px; font-size: 12px; }
+
+  .badgeOk,
+  .badgeWait,
+  .badgeBad,
+  .badgeWarn,
+  .badgeMuted {
+    font-size: 11.5px;
+    padding: 6px 9px;
   }
 }

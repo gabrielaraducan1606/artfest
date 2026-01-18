@@ -1,23 +1,11 @@
 @import "../../../../styles/variables.css";
 
-/* ========= Local tokens (scoped) ========= */
-.wrap {
-  --success: var(--color-success, #16a34a);
-  --warning: var(--color-warning, #f59e0b);
-  --danger:  var(--color-danger,  #ef4444);
-
-  --ring: color-mix(in oklab, var(--color-primary), white 30%);
-  --shadow-xs: 0 1px 1px rgb(0 0 0 / 0.05);
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
-  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
-  --surface-elevated: color-mix(in oklab, var(--surface, #fff), black 3%);
-}
-
-/* --------- Layout general --------- */
+/* ================== Layout general ================== */
 .wrap {
   max-width: 1000px;
   margin: 0 auto;
   padding: 24px;
+  color: var(--color-text);
 }
 
 .header { margin-bottom: 16px; }
@@ -27,10 +15,11 @@
   font-weight: 700;
   font-size: clamp(1.25rem, 1.2rem + 0.5vw, 1.6rem);
   margin: 0;
+  color: var(--color-text);
 }
 
 .subtitle {
-  color: #666;
+  color: color-mix(in srgb, var(--color-text) 65%, transparent);
   font-size: 0.92rem;
 }
 
@@ -40,18 +29,19 @@
   gap: 16px;
 }
 
+/* ================== Empty state ================== */
 .empty {
-  background: var(--surface-elevated);
+  background: color-mix(in srgb, var(--surface) 96%, var(--color-bg));
   border: 1px solid var(--color-border);
   padding: 24px;
   border-radius: var(--radius);
   text-align: center;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-sm);
 }
 
 .link {
   color: var(--color-primary);
-  font-weight: 500;
+  font-weight: 600;
   text-decoration: none;
   cursor: pointer;
   background: transparent;
@@ -64,19 +54,21 @@
 .link:hover { text-decoration: underline; }
 .link:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
   border-radius: 6px;
 }
 
-/* ============ Card ============ */
+/* ================== Card ================== */
 .card {
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: calc(var(--radius) + 2px);
   padding: 16px;
+
   display: flex;
   flex-direction: column;
   gap: 16px;
+
   box-shadow: var(--shadow-sm);
   transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
 }
@@ -92,7 +84,7 @@
 
 .typeCode {
   background: var(--color-primary);
-  color: white;
+  color: var(--surface);
   border-radius: 6px;
   padding: 2px 8px;
   font-size: 0.75rem;
@@ -104,62 +96,86 @@
   font-weight: 600;
   font-size: 1.06rem;
   margin-left: 4px;
+  color: var(--color-text);
 }
 
-.subtle { color: #8b8f97; font-size: 0.86rem; }
+.subtle {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+}
 
 .saveIndicator {
   font-size: 0.82rem;
-  color: #888;
+  color: color-mix(in srgb, var(--color-muted) 90%, transparent);
   display: inline-flex;
   gap: 8px;
   align-items: center;
 }
 
-/* Badges */
+/* ================== Badges ================== */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 2px 8px;
   border-radius: 999px;
+
   border: 1px solid transparent;
   font-size: 0.78rem;
   line-height: 1.6;
-  background: color-mix(in oklab, var(--surface), black 2%);
-}
-.badgeOk   { color: var(--success); border-color: color-mix(in oklab, var(--success), transparent 70%); }
-.badgeBad  { color: var(--danger);  border-color: color-mix(in oklab, var(--danger),  transparent 70%); }
-.badgeWait { color: var(--warning); border-color: color-mix(in oklab, var(--warning), transparent 70%); }
 
-/* noi – folosite în BillingTab */
-.badgeWarn {  color: #b45309; border-color: color-mix(in oklab, #b45309, transparent 70%); }
-.badgeMuted{
-  color: #6b7280;
-  background: color-mix(in oklab, var(--surface), black 1.5%);
-  border-color: color-mix(in oklab, #6b7280, transparent 80%);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
 }
 
-/* ============ InfoNote (nota informativă) ============ */
+.badgeOk {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+}
+
+.badgeBad {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+}
+
+.badgeWait {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+}
+
+.badgeWarn {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+}
+
+.badgeMuted {
+  color: var(--color-muted);
+  border-color: color-mix(in srgb, var(--color-muted) 25%, var(--color-border));
+}
+
+/* ================== InfoNote ================== */
 .infoNote {
-  border: 1px solid #E5E7EB;
-  background: #F9FAFB;
-  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--surface) 96%, var(--color-bg));
+  border-radius: var(--radius);
   padding: 10px 12px;
-  margin: 8px 0 12px 0;
+  margin: 8px 0 12px;
+
   display: grid;
   grid-template-columns: 24px 1fr;
   column-gap: 10px;
   align-items: start;
+
   font-size: 0.88rem;
-  color: #374151;
+  color: var(--color-text);
 }
+
 .infoNoteIcon {
   line-height: 24px;
   font-size: 18px;
+  color: var(--color-primary);
 }
 
-/* ============ Form fields ============ */
+/* ================== Form fields ================== */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -171,7 +187,9 @@
   grid-template-columns: 180px 1fr;
   gap: 10px;
   align-items: start;
+  margin-bottom: 16px;
 }
+
 .fieldCol {
   display: flex;
   flex-direction: column;
@@ -183,6 +201,7 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+
 @media (max-width: 720px) {
   .fieldRow { grid-template-columns: 1fr; }
   .grid2 { grid-template-columns: 1fr; }
@@ -195,88 +214,77 @@
 }
 
 .label {
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.86rem;
-  color: color-mix(in oklab, var(--color-text), #6b7280 20%);
+  color: color-mix(in srgb, var(--color-text) 70%, var(--color-muted));
+  margin-bottom: 4px;
 }
 
-.input, .textarea, select {
+.input, .textarea, select, .field {
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: calc(var(--radius));
   padding: 10px 12px;
+
   font-family: var(--font-body);
   font-size: 0.92rem;
+
   background: var(--surface);
   color: var(--color-text);
-  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
-  box-shadow: var(--shadow-xs) inset;
-}
-/* ===== Short description input + counter ===== */
 
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+  box-shadow: inset 0 1px 1px color-mix(in srgb, #000 6%, transparent);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: color-mix(in srgb, var(--color-muted) 70%, transparent);
+}
+
+.textarea { resize: vertical; min-height: 84px; }
+
+/* Focus */
+.input:focus-visible,
+.textarea:focus-visible,
+select:focus-visible,
+.field:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+/* Valid/invalid helper */
+.ok  { border-color: color-mix(in srgb, var(--color-success) 55%, var(--color-border)) !important; }
+.bad { border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border)) !important; }
+
+/* ===== Short description counter ===== */
 .inputWrap {
   position: relative;
   display: flex;
   align-items: center;
 }
-
-/* lăsăm loc în dreapta pentru contor */
 .inputWrap .input {
   width: 100%;
-  padding-right: 72px; /* ~spațiu pentru 000/120 */
+  padding-right: 72px;
 }
 
-/* bula cu 34/120 */
 .counter {
   position: absolute;
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
+
   font-size: 0.78rem;
-  color: #6b7280;
+  color: var(--color-muted);
   padding: 2px 8px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--surface, #fff), black 3%);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
-  pointer-events: none; /* să nu încurce focus-ul pe input */
-}
 
-/* opțional: când ajungi aproape de limită (dacă vei vrea mai târziu să pui o clasă suplimentară)
-.counterWarn {
-  color: #b45309;
-}
-
-.counterDanger {
-  color: var(--danger);
-}
-*/
-
-.input::placeholder,
-.textarea::placeholder { color: #9aa1aa; }
-
-.field {
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
   border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-family: var(--font-body);
-  font-size: 0.92rem;
-  background: var(--surface);
-  color: var(--color-text);
-  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
 }
 
-/* Focus (accessible) */
-.input:focus-visible, .textarea:focus-visible, select:focus-visible, .field:focus-visible {
-  outline: none;
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 70%);
-}
-
-/* Valid/invalid helper */
-.ok  { border-color: color-mix(in oklab, var(--success), transparent 40%) !important; }
-.bad { border-color: color-mix(in oklab, var(--danger),  transparent 40%) !important; }
-
-.textarea { resize: vertical; min-height: 84px; }
-
+/* Rows */
 .brandRow {
   display: flex;
   align-items: center;
@@ -285,75 +293,85 @@
 
 .fileRow {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 .fileRow input[type="url"] { flex: 1 1 260px; }
 
-/* Previews */
+/* ================== Previews ================== */
 .previewThumb {
-  margin-top: 8px;
-  max-height: 60px;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-}
-.previewBanner {
-  margin-top: 8px;
-  max-height: 140px;
-  border-radius: var(--radius);
-  width: 100%;
+  margin-top: 10px !important;
+  width: 72px;
+  height: 72px;
   object-fit: cover;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Chips/tags */
-.tagsWrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.tagCheck {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--color-border);
   border-radius: 999px;
-  font-size: 0.86rem;
-  background: color-mix(in oklab, var(--surface), black 2%);
+
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--surface) 96%, var(--color-bg));
+  box-shadow: var(--shadow-sm);
+
+  transition: transform .15s ease, box-shadow .15s ease;
+  display: block;
+}
+.previewThumb:hover {
+  transform: scale(1.03);
+  box-shadow: var(--shadow-md);
 }
 
-/* Checkbox row */
-.checkRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  line-height: 1.35;
-  font-size: 0.92rem;
+.previewBanner {
+  margin-top: 10px !important;
+  width: 100%;
+  max-height: 160px;
+  border-radius: calc(var(--radius) + 4px);
+
+  border: 1px solid var(--color-border);
+  object-fit: cover;
+
+  background: color-mix(in srgb, var(--surface) 96%, var(--color-bg));
+  box-shadow: var(--shadow-sm);
+
+  transition: transform .15s ease, box-shadow .15s ease;
+  display: block;
+}
+.previewBanner:hover {
+  transform: scale(1.01);
+  box-shadow: var(--shadow-md);
 }
 
-/* Errors */
+.previewThumb:not([src]),
+.previewBanner:not([src]) {
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--color-border) 45%, transparent),
+    color-mix(in srgb, var(--color-border) 45%, transparent) 5px,
+    color-mix(in srgb, var(--color-border) 65%, transparent) 5px,
+    color-mix(in srgb, var(--color-border) 65%, transparent) 10px
+  );
+}
+
+/* ================== Errors ================== */
 .error {
-  color: var(--danger);
+  color: var(--color-danger);
   font-size: 0.9rem;
-  background: color-mix(in oklab, var(--danger), white 88%);
-  border: 1px solid color-mix(in oklab, var(--danger), transparent 70%);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: calc(var(--radius) - 2px);
 }
 
 .inputError {
-  border-color: color-mix(in oklab, var(--color-danger, #ef4444), transparent 40%) !important;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger, #ef4444), transparent 85%);
+  border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 16%, transparent);
 }
 
 .fieldError {
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
   font-size: 0.8rem;
 }
 
-/* ============ Tab Navigation ============ */
+/* ================== Tabs ================== */
 .tabsBar {
   display: flex;
   gap: 4px;
@@ -363,6 +381,7 @@
   padding-bottom: 2px;
   scrollbar-width: thin;
 }
+
 .tabsBar::-webkit-scrollbar { height: 6px; }
 
 .tab {
@@ -370,27 +389,33 @@
   background: transparent;
   border: 0;
   padding: 10px 12px;
-  border-radius: 8px 8px 0 0;
+  border-radius: 10px 10px 0 0;
+
   cursor: pointer;
-  font-weight: 600;
-  color: #6b7280;
+  font-weight: 700;
+
+  color: var(--color-muted);
   position: relative;
-  transition: color .15s ease, background-color .15s ease;
+  transition: color .15s ease, background-color .15s ease, box-shadow .15s ease;
 }
+
 .tab:hover { color: var(--color-text); }
 
-.tabActive,
-.tab[aria-selected="true"] {
+.tab[aria-selected="true"],
+.tabActive {
   color: var(--color-text);
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-bottom-color: transparent;
 }
+
 .tab[aria-selected="true"]::after,
 .tabActive::after {
   content: "";
   position: absolute;
-  left: 10px; right: 10px; bottom: -1px;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
   height: 2px;
   background: var(--color-primary);
   border-radius: 2px;
@@ -398,7 +423,7 @@
 
 .tab:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .tabPanel {
@@ -409,304 +434,7 @@
   padding: 16px;
 }
 
-/* ============ Buttons ============ */
-.primaryBtn {
-  background: var(--color-primary);
-  color: #fff;
-  border: 0;
-  justify-content: center;
-  border-radius: 10px;
-  padding: 10px 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease;
-  box-shadow: 0 1px 0 color-mix(in oklab, black, transparent 90%);
-}
-.primaryBtn:hover { background: var(--color-hover); }
-.primaryBtn:active { transform: translateY(1px); }
-.primaryBtn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-}
-.primaryBtn:disabled {
-  opacity: .6;
-  cursor: default;
-  box-shadow: none;
-}
-
-/* ============ Wizard Footer ============ */
-.wizardNav {
-  margin-top: 16px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.help {
-  color: #6b7280;
-  font-size: 0.82rem;
-}
-
-/* ============ A11y helper ============ */
-.srOnly {
-  position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0, 0, 0, 0);
-  white-space: nowrap; border: 0;
-}
-
-/* ============ Acordeon minimalist ============ */
-.accHeader{
-  width:100%;
-  display:flex; align-items:center; justify-content:space-between;
-  gap:8px;
-  padding:10px 12px;
-  background: var(--surface);
-  border:1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 2px);
-  cursor:pointer;
-  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
-}
-.accHeader:hover { background: color-mix(in oklab, var(--surface), black 3%); }
-.accHeader:focus-visible{
-  outline:none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-}
-
-.accPanel{
-  padding:12px;
-  margin:8px 0 2px 0;
-  border-left:2px solid var(--color-border);
-  border-radius: 0 0 var(--radius) var(--radius);
-  background: var(--surface-elevated);
-}
-
-.pill{ font-size: 10px; color: var(--color-primary); }
-.muted{ color:#6b7280; font-weight:400; }
-.chev{ opacity:.6; }
-
-.stack{ display:flex; flex-direction:column; gap:6px; }
-
-
-/* ========== Image previews upgraded ========== */
-.previewThumb {
-  margin-top: 8px;
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: #f9fafb;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
-  transition: transform .15s ease, box-shadow .15s ease;
-}
-
-
-.previewThumb:hover {
-  transform: scale(1.03);
-  box-shadow: 0 3px 10px rgb(0 0 0 / 15%);
-}
-
-.previewBanner {
-  margin-top: 8px;
-  width: 100%;
-  max-height: 160px;
-  border-radius: 14px;
-  border: 1px solid var(--color-border);
-  object-fit: cover;
-  background: #f5f5f5;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
-  transition: transform .15s ease, box-shadow .15s ease;
-}
-
-.previewBanner:hover {
-  transform: scale(1.01);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
-}
-
-/* Placeholder fallback */
-.previewThumb:not([src]), .previewBanner:not([src]) {
-  background: repeating-linear-gradient(
-    45deg,
-    #f3f4f6,
-    #f3f4f6 5px,
-    #e5e7eb 5px,
-    #e5e7eb 10px
-  );
-}
-
-/* ===== Improve spacing between form rows ===== */
-.fieldRow {
-  margin-bottom: 16px;
-}
-
-/* Reduce label crowding */
-.fieldRow .label {
-  margin-bottom: 4px;
-}
-
-/* More space between file input and preview */
-.fileRow {
-  gap: 12px;
-  margin-bottom: 6px;
-}
-
-/* Better image spacing around previews */
-.previewThumb,
-.previewBanner {
-  margin-top: 10px !important;  /* override previous */
-}
-
-/* Keep consistent width so layout doesn't jump */
-.previewThumb {
-  display: block;
-}
-
-.previewBanner {
-  display: block;
-}
-
-/* Slight top padding for section blocks to avoid crowding */
-.accPanel {
-  padding-top: 18px;
-}
-
-/* ===== Toolbar generică pentru butoane de acțiune ===== */
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 0;
-}
-.toolbarLeft, .toolbarRight { display: inline-flex; align-items: center; gap: 8px; }
-
-/* ===== Butoane noi ===== */
-.secondaryBtn {
-  background: color-mix(in oklab, var(--surface), black 2%);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
-}
-.secondaryBtn:hover { background: color-mix(in oklab, var(--surface), black 4%); }
-.secondaryBtn:active { transform: translateY(1px); }
-.secondaryBtn:disabled { opacity: .6; cursor: not-allowed; }
-
-.dangerBtn {
-  background: color-mix(in oklab, var(--danger), white 88%);
-  color: #991b1b;
-  border: 1px solid color-mix(in oklab, var(--danger), transparent 70%);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
-}
-.dangerBtn:hover { background: color-mix(in oklab, var(--danger), white 82%); }
-.dangerBtn:active { transform: translateY(1px); }
-.dangerBtn:disabled { opacity: .6; cursor: not-allowed; }
-
-.ghostBtn {
-  background: transparent;
-  color: var(--color-text);
-  border: 1px dashed var(--color-border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
-}
-.ghostBtn:hover { background: color-mix(in oklab, var(--surface), black 3%); }
-.ghostBtn:active { transform: translateY(1px); }
-
-/* ===== Spinner mic inline ===== */
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid color-mix(in oklab, var(--color-text), transparent 80%);
-  border-top-color: var(--color-primary);
-  border-radius: 50%;
-  display: inline-block;
-  animation: spin .8s linear infinite;
-  vertical-align: -2px;
-  margin-right: 6px;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ===== Modal simplu confirm ===== */
-.modalBackdrop {
-  position: fixed; inset: 0; background: rgb(0 0 0 / .35);
-  display: grid; place-items: center; z-index: 60;
-}
-.modalCard {
-  background: var(--surface, #fff);
-  color: var(--color-text);
-  width: min(520px, calc(100vw - 24px));
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 4px);
-  box-shadow: var(--shadow-md);
-  padding: 16px;
-}
-.modalTitle { margin: 0 0 6px 0; font-size: 1.05rem; font-weight: 700; }
-.modalText { margin: 0 0 12px 0; color: #6b7280; }
-.modalActions { display: flex; gap: 8px; justify-content: flex-end; }
-
-/* dark mode fine-tuning */
-@media (prefers-color-scheme: dark) {
-  .secondaryBtn { background: color-mix(in oklab, var(--surface), white 3%); }
-  .ghostBtn { border-color: color-mix(in oklab, var(--color-border), white 10%); }
-  .modalBackdrop { background: rgb(0 0 0 / .45); }
-}
-
-/* ============ Motion & Dark mode ============ */
-@media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
-}
-
-@media (prefers-color-scheme: dark) {
-  .empty { background: color-mix(in oklab, var(--surface), white 2%); }
-  .infoNote { background: color-mix(in oklab, #111827, white 6%); border-color: #2b2f36; color: #d1d5db; }
-  .error {
-    background: color-mix(in oklab, var(--danger), black 82%);
-    border-color: color-mix(in oklab, var(--danger), transparent 70%);
-  }
-}
-
-/* Telefoane foarte înguste */
-@media (max-width: 480px) {
-  .wrap { padding: 16px; }
-  .tabPanel { padding: 12px; }
-  .grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
-  .label { font-size: 0.84rem; }
-  .primaryBtn { width: 100%; }             /* acțiune principală 1-col pe mobil */
-  .wizardNav { flex-direction: column; align-items: stretch; }
-}
-
-/* Tablete între 480–720px: puțin mai aerisit */
-@media (min-width: 480px) and (max-width: 720px) {
-  .grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-}
-
-/* Ecrane late: mai mult spațiu și coloane mai late */
-@media (min-width: 1280px) {
-  .wrap { max-width: 1200px; }
-  .grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-}
-
-/* Safe-area pe iPhone cu notch (opțional) */
-@supports (padding: max(0px)) {
-  .wrap { padding-left: max(24px, env(safe-area-inset-left));
-          padding-right: max(24px, env(safe-area-inset-right)); }
-}
-
-/* Face <a> să arate ca un buton */
+/* ================== Buttons ================== */
 .primaryBtn,
 .secondaryBtn,
 .dangerBtn,
@@ -715,376 +443,153 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  text-decoration: none;   /* scoate sublinierea pe <a> */
+  text-decoration: none;
   line-height: 1;
 }
 
-a.primaryBtn:link,
-a.primaryBtn:visited { color: #fff; } /* asigură contrastul */
-
-a.primaryBtn:hover,
-a.secondaryBtn:hover,
-a.dangerBtn:hover,
-a.ghostBtn:hover { text-decoration: none; }
-
-a.primaryBtn:focus-visible,
-a.secondaryBtn:focus-visible,
-a.dangerBtn:focus-visible,
-a.ghostBtn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-  border-radius: 10px;
+/* Primary */
+.primaryBtn {
+  background: var(--color-primary);
+  color: var(--surface);
+  border: 1px solid var(--color-primary);
+  justify-content: center;
+  border-radius: calc(var(--radius));
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, transform .04s ease, opacity .15s ease;
+  box-shadow: var(--shadow-sm);
 }
+.primaryBtn:hover { background: var(--color-hover); border-color: var(--color-hover); }
+.primaryBtn:active { transform: translateY(1px); }
+.primaryBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+.primaryBtn:disabled { opacity: .6; cursor: not-allowed; box-shadow: none; }
 
-/* „disabled” pentru <a> */
+/* Secondary */
+.secondaryBtn {
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius));
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease, opacity .15s ease;
+}
+.secondaryBtn:hover { background: color-mix(in srgb, var(--surface) 86%, var(--color-bg)); }
+.secondaryBtn:active { transform: translateY(1px); }
+.secondaryBtn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Danger */
+.dangerBtn {
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--surface));
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border));
+  border-radius: calc(var(--radius));
+  padding: 8px 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease, opacity .15s ease;
+}
+.dangerBtn:hover { background: color-mix(in srgb, var(--color-danger) 14%, var(--surface)); }
+.dangerBtn:active { transform: translateY(1px); }
+.dangerBtn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Ghost */
+.ghostBtn {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px dashed var(--color-border);
+  border-radius: calc(var(--radius));
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
+}
+.ghostBtn:hover { background: color-mix(in srgb, var(--surface) 92%, var(--color-bg)); }
+.ghostBtn:active { transform: translateY(1px); }
+
+/* "disabled" pentru <a> */
 .btnDisabled {
   opacity: .6;
   pointer-events: none;
   cursor: default;
   box-shadow: none;
 }
-@import "../../../../styles/variables.css";
 
-/* ========= Local tokens (scoped) ========= */
-.wrap {
-  --success: var(--color-success, #16a34a);
-  --warning: var(--color-warning, #f59e0b);
-  --danger:  var(--color-danger,  #ef4444);
-
-  --ring: color-mix(in oklab, var(--color-primary), white 30%);
-  --shadow-xs: 0 1px 1px rgb(0 0 0 / 0.05);
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
-  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
-  --surface-elevated: color-mix(in oklab, var(--surface, #fff), black 3%);
-}
-
-/* --------- Layout general --------- */
-.wrap {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 24px;
-}
-
-.header { margin-bottom: 16px; }
-
-.title {
-  font-family: var(--font-title);
-  font-weight: 700;
-  font-size: clamp(1.25rem, 1.2rem + 0.5vw, 1.6rem);
-  margin: 0;
-}
-
-.subtitle {
-  color: #666;
-  font-size: 0.92rem;
-}
-
-.form {
+/* ================== Wizard footer ================== */
+.wizardNav {
+  margin-top: 16px;
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.empty {
-  background: var(--surface-elevated);
-  border: 1px solid var(--color-border);
-  padding: 24px;
-  border-radius: var(--radius);
-  text-align: center;
-  box-shadow: var(--shadow-xs);
-}
-
-.link {
-  color: var(--color-primary);
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  display: inline-flex;
+  gap: 12px;
   align-items: center;
-  gap: 6px;
-}
-.link:hover { text-decoration: underline; }
-.link:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-  border-radius: 6px;
+  flex-wrap: wrap;
 }
 
-/* ============ Card ============ */
-.card {
+.help {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+/* ================== A11y helper ================== */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ================== Accordion minimalist ================== */
+.accHeader{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  padding: 10px 12px;
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: calc(var(--radius) + 2px);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
-}
-.card:hover { box-shadow: var(--shadow-md); }
 
-.cardHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-
-.typeCode {
-  background: var(--color-primary);
-  color: white;
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 0.75rem;
-  letter-spacing: .02em;
-}
-
-.cardTitle,
-.serviceName {
-  font-weight: 600;
-  font-size: 1.06rem;
-  margin-left: 4px;
-}
-
-.subtle { color: #8b8f97; font-size: 0.86rem; }
-
-.saveIndicator {
-  font-size: 0.82rem;
-  color: #888;
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* Badges */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: 0.78rem;
-  line-height: 1.6;
-  background: color-mix(in oklab, var(--surface), black 2%);
-}
-.badgeOk   { color: var(--success); border-color: color-mix(in oklab, var(--success), transparent 70%); }
-.badgeBad  { color: var(--danger);  border-color: color-mix(in oklab, var(--danger),  transparent 70%); }
-.badgeWait { color: var(--warning); border-color: color-mix(in oklab, var(--warning), transparent 70%); }
-
-/* noi – folosite în BillingTab */
-.badgeWarn {  color: #b45309; border-color: color-mix(in oklab, #b45309, transparent 70%); }
-.badgeMuted{
-  color: #6b7280;
-  background: color-mix(in oklab, var(--surface), black 1.5%);
-  border-color: color-mix(in oklab, #6b7280, transparent 80%);
-}
-
-/* ============ InfoNote (nota informativă) ============ */
-.infoNote {
-  border: 1px solid #E5E7EB;
-  background: #F9FAFB;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin: 8px 0 12px 0;
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  column-gap: 10px;
-  align-items: start;
-  font-size: 0.88rem;
-  color: #374151;
-}
-.infoNoteIcon {
-  line-height: 24px;
-  font-size: 18px;
-}
-
-/* ============ Form fields ============ */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.fieldRow {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 10px;
-  align-items: start;
-  margin-bottom: 16px;
-}
-.fieldCol {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.grid2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-@media (max-width: 720px) {
-  .fieldRow { grid-template-columns: 1fr; }
-  .grid2 { grid-template-columns: 1fr; }
-}
-
-.fieldGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.label {
-  font-weight: 500;
-  font-size: 0.86rem;
-  color: color-mix(in oklab, var(--color-text), #6b7280 20%);
-  margin-bottom: 4px;
-}
-
-.input, .textarea, select {
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-family: var(--font-body);
-  font-size: 0.92rem;
-  background: var(--surface);
-  color: var(--color-text);
-  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
-  box-shadow: var(--shadow-xs) inset;
-}
-
-/* ===== Short description input + counter ===== */
-.inputWrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-/* lăsăm loc în dreapta pentru contor */
-.inputWrap .input {
-  width: 100%;
-  padding-right: 72px; /* ~spațiu pentru 000/120 */
-}
-
-/* bula cu 34/120 */
-.counter {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.78rem;
-  color: #6b7280;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--surface, #fff), black 3%);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
-  pointer-events: none;
-}
-
-.input::placeholder,
-.textarea::placeholder { color: #9aa1aa; }
-
-.field {
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-family: var(--font-body);
-  font-size: 0.92rem;
-  background: var(--surface);
-  color: var(--color-text);
-  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
-}
-
-/* Focus (accessible) */
-.input:focus-visible, .textarea:focus-visible, select:focus-visible, .field:focus-visible {
+.accHeader:hover { background: color-mix(in srgb, var(--surface) 92%, var(--color-bg)); }
+.accHeader:focus-visible{
   outline: none;
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 70%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
-/* Valid/invalid helper */
-.ok  { border-color: color-mix(in oklab, var(--success), transparent 40%) !important; }
-.bad { border-color: color-mix(in oklab, var(--danger),  transparent 40%) !important; }
-
-.textarea { resize: vertical; min-height: 84px; }
-
-.brandRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.fileRow {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-.fileRow input[type="url"] { flex: 1 1 260px; }
-
-/* Previews */
-.previewThumb {
-  margin-top: 10px !important;
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: #f9fafb;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
-  transition: transform .15s ease, box-shadow .15s ease;
-  display: block;
-}
-.previewThumb:hover {
-  transform: scale(1.03);
-  box-shadow: 0 3px 10px rgb(0 0 0 / 15%);
-}
-
-.previewBanner {
-  margin-top: 10px !important;
-  width: 100%;
-  max-height: 160px;
-  border-radius: 14px;
-  border: 1px solid var(--color-border);
-  object-fit: cover;
-  background: #f5f5f5;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
-  transition: transform .15s ease, box-shadow .15s ease;
-  display: block;
-}
-.previewBanner:hover {
-  transform: scale(1.01);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
-}
-
-/* Placeholder fallback */
-.previewThumb:not([src]), .previewBanner:not([src]) {
-  background: repeating-linear-gradient(
-    45deg,
-    #f3f4f6,
-    #f3f4f6 5px,
-    #e5e7eb 5px,
-    #e5e7eb 10px
-  );
-}
-
-/* Slight top padding for section blocks to avoid crowding */
-.accPanel {
-  padding: 18px 12px 12px 12px;
-  margin: 8px 0 2px 0;
+.accPanel{
+  padding: 18px 12px 12px;
+  margin: 8px 0 2px;
   border-left: 2px solid var(--color-border);
   border-radius: 0 0 var(--radius) var(--radius);
-  background: var(--surface-elevated);
+  background: color-mix(in srgb, var(--surface) 96%, var(--color-bg));
 }
 
-/* ===== Toolbar generică pentru butoane de acțiune ===== */
+.pill { font-size: 10px; color: var(--color-primary); }
+.muted { color: var(--color-muted); font-weight: 500; }
+.chev { opacity: .7; }
+
+.stack { display: flex; flex-direction: column; gap: 6px; }
+
+/* Scroll offset pentru ancore în card-uri */
+.accSection { scroll-margin-top: 120px; }
+@media (max-width: 720px) {
+  .accSection { scroll-margin-top: 88px; }
+}
+
+/* ================== Toolbar ================== */
 .toolbar {
   display: flex;
   justify-content: space-between;
@@ -1095,77 +600,11 @@ a.ghostBtn:focus-visible {
 }
 .toolbarLeft, .toolbarRight { display: inline-flex; align-items: center; gap: 8px; }
 
-/* ===== Butoane noi ===== */
-.primaryBtn {
-  background: var(--color-primary);
-  color: #fff;
-  border: 0;
-  justify-content: center;
-  border-radius: 10px;
-  padding: 10px 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease;
-  box-shadow: 0 1px 0 color-mix(in oklab, black, transparent 90%);
-}
-.primaryBtn:hover { background: var(--color-hover); }
-.primaryBtn:active { transform: translateY(1px); }
-.primaryBtn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-}
-.primaryBtn:disabled {
-  opacity: .6;
-  cursor: default;
-  box-shadow: none;
-}
-
-.secondaryBtn {
-  background: color-mix(in oklab, var(--surface), black 2%);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
-}
-.secondaryBtn:hover { background: color-mix(in oklab, var(--surface), black 4%); }
-.secondaryBtn:active { transform: translateY(1px); }
-.secondaryBtn:disabled { opacity: .6; cursor: not-allowed; }
-
-.dangerBtn {
-  background: color-mix(in oklab, var(--danger), white 88%);
-  color: #991b1b;
-  border: 1px solid color-mix(in oklab, var(--danger), transparent 70%);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
-}
-.dangerBtn:hover { background: color-mix(in oklab, var(--danger), white 82%); }
-.dangerBtn:active { transform: translateY(1px); }
-.dangerBtn:disabled { opacity: .6; cursor: not-allowed; }
-
-.ghostBtn {
-  background: transparent;
-  color: var(--color-text);
-  border: 1px dashed var(--color-border);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s ease, box-shadow .15s ease, transform .04s ease, border-color .15s ease;
-}
-.ghostBtn:hover { background: color-mix(in oklab, var(--surface), black 3%); }
-.ghostBtn:active { transform: translateY(1px); }
-
-/* ===== Spinner mic inline ===== */
+/* ================== Spinner ================== */
 .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid color-mix(in oklab, var(--color-text), transparent 80%);
+  border: 2px solid color-mix(in srgb, var(--color-text) 20%, transparent);
   border-top-color: var(--color-primary);
   border-radius: 50%;
   display: inline-block;
@@ -1175,13 +614,18 @@ a.ghostBtn:focus-visible {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ===== Modal simplu confirm ===== */
+/* ================== Modal ================== */
 .modalBackdrop {
-  position: fixed; inset: 0; background: rgb(0 0 0 / .35);
-  display: grid; place-items: center; z-index: 60;
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, #000 35%, transparent);
+  display: grid;
+  place-items: center;
+  z-index: 60;
 }
+
 .modalCard {
-  background: var(--surface, #fff);
+  background: var(--surface);
   color: var(--color-text);
   width: min(520px, calc(100vw - 24px));
   border: 1px solid var(--color-border);
@@ -1189,163 +633,36 @@ a.ghostBtn:focus-visible {
   box-shadow: var(--shadow-md);
   padding: 16px;
 }
-.modalTitle { margin: 0 0 6px 0; font-size: 1.05rem; font-weight: 700; }
-.modalText { margin: 0 0 12px 0; color: #6b7280; }
+
+.modalTitle { margin: 0 0 6px; font-size: 1.05rem; font-weight: 800; }
+.modalText { margin: 0 0 12px; color: var(--color-muted); }
 .modalActions { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* ============ Tab Navigation ============ */
-.tabsBar {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: 16px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: thin;
-}
-.tabsBar::-webkit-scrollbar { height: 6px; }
-
-.tab {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  padding: 10px 12px;
-  border-radius: 8px 8px 0 0;
-  cursor: pointer;
-  font-weight: 600;
-  color: #6b7280;
-  position: relative;
-  transition: color .15s ease, background-color .15s ease;
-}
-.tab:hover { color: var(--color-text); }
-
-.tabActive,
-.tab[aria-selected="true"] {
-  color: var(--color-text);
-  background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-bottom-color: transparent;
-}
-.tab[aria-selected="true"]::after,
-.tabActive::after {
-  content: "";
-  position: absolute;
-  left: 10px; right: 10px; bottom: -1px;
-  height: 2px;
-  background: var(--color-primary);
-  border-radius: 2px;
-}
-
-.tab:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-}
-
-.tabPanel {
-  background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-top: 0;
-  border-radius: 0 var(--radius) var(--radius) var(--radius);
-  padding: 16px;
-}
-
-/* ============ Wizard Footer ============ */
-.wizardNav {
-  margin-top: 16px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.help {
-  color: #6b7280;
-  font-size: 0.82rem;
-}
-
-/* ============ A11y helper ============ */
-.srOnly {
-  position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0, 0, 0, 0);
-  white-space: nowrap; border: 0;
-}
-
-/* ============ Acordeon minimalist ============ */
-.accHeader{
-  width:100%;
-  display:flex; align-items:center; justify-content:space-between;
-  gap:8px;
-  padding:10px 12px;
-  background: var(--surface);
-  border:1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 2px);
-  cursor:pointer;
-  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
-}
-.accHeader:hover { background: color-mix(in oklab, var(--surface), black 3%); }
-.accHeader:focus-visible{
-  outline:none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-}
-
-.pill{ font-size: 10px; color: var(--color-primary); }
-.muted{ color:#6b7280; font-weight:400; }
-.chev{ opacity:.6; }
-
-.stack{ display:flex; flex-direction:column; gap:6px; }
-
-/* card-urile acordeoanelor: rezervă spațiu sub header pentru scroll */
-.accSection {
-  scroll-margin-top: 120px;
-}
-@media (max-width: 720px) {
-  .accSection {
-    scroll-margin-top: 88px;
-  }
-}
-
-/* dark mode fine-tuning */
-@media (prefers-color-scheme: dark) {
-  .empty { background: color-mix(in oklab, var(--surface), white 2%); }
-  .infoNote { background: color-mix(in oklab, #111827, white 6%); border-color: #2b2f36; color: #d1d5db; }
-  .error {
-    background: color-mix(in oklab, var(--danger), black 82%);
-    border-color: color-mix(in oklab, var(--danger), transparent 70%);
-  }
-  .secondaryBtn { background: color-mix(in oklab, var(--surface), white 3%); }
-  .ghostBtn { border-color: color-mix(in oklab, var(--color-border), white 10%); }
-  .modalBackdrop { background: rgb(0 0 0 / .45); }
-}
-
-/* ============ Motion & Dark mode ============ */
+/* ================== Reduced motion ================== */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
 
-/* Telefoane foarte înguste */
+/* ================== Responsive ================== */
 @media (max-width: 480px) {
   .wrap { padding: 16px; }
   .tabPanel { padding: 12px; }
   .grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
   .label { font-size: 0.84rem; }
-  .primaryBtn { width: 100%; }
+  .primaryBtn { width: 100%; justify-content: center; }
   .wizardNav { flex-direction: column; align-items: stretch; }
 }
 
-/* Tablete între 480–720px: puțin mai aerisit */
 @media (min-width: 480px) and (max-width: 720px) {
   .grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 }
 
-/* Ecrane late: mai mult spațiu și coloane mai late */
 @media (min-width: 1280px) {
   .wrap { max-width: 1200px; }
   .grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 }
 
-/* Safe-area pe iPhone cu notch (opțional) */
+/* Safe-area pe iPhone */
 @supports (padding: max(0px)) {
   .wrap {
     padding-left: max(24px, env(safe-area-inset-left));
@@ -1353,101 +670,10 @@ a.ghostBtn:focus-visible {
   }
 }
 
-/* Face <a> să arate ca un buton */
-.primaryBtn,
-.secondaryBtn,
-.dangerBtn,
-.ghostBtn {
-  width: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  line-height: 1;
-}
-
+/* Link-as-button colors */
 a.primaryBtn:link,
-a.primaryBtn:visited { color: #fff; }
-
+a.primaryBtn:visited { color: var(--surface); }
 a.primaryBtn:hover,
 a.secondaryBtn:hover,
 a.dangerBtn:hover,
 a.ghostBtn:hover { text-decoration: none; }
-
-a.primaryBtn:focus-visible,
-a.secondaryBtn:focus-visible,
-a.dangerBtn:focus-visible,
-a.ghostBtn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring), transparent 65%);
-  border-radius: 10px;
-}
-
-/* „disabled” pentru <a> */
-.btnDisabled {
-  opacity: .6;
-  pointer-events: none;
-  cursor: default;
-  box-shadow: none;
-}
-/* ===== Bloc acord curierat Sameday ===== */
-.courierBox {
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-top: 4px;
-  margin-bottom: 6px;
-
-  border: 1px dashed color-mix(
-    in oklab,
-    var(--color-border),
-    var(--color-primary) 18%
-  );
-  background: color-mix(
-    in oklab,
-    var(--surface-elevated, #f9fafb),
-    var(--color-primary) 6%
-  );
-
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
-}
-
-/* când e în dark mode, să nu lucească prea tare */
-@media (prefers-color-scheme: dark) {
-  .courierBox {
-    border-color: color-mix(
-      in oklab,
-      var(--color-primary),
-      black 35%
-    );
-    background: color-mix(
-      in oklab,
-      #020617,
-      var(--color-primary) 12%
-    );
-  }
-}
-/* ✅ Fix contrast accordion în dark */
-:global(html[data-theme="dark"]) .accHeader {
-  color: var(--color-text);                  /* forțează textul pe buton */
-  background: color-mix(in srgb, var(--surface) 92%, #fff 8%);
-  border-bottom-color: var(--color-border);
-}
-
-:global(html[data-theme="dark"]) .accHeader:hover {
-  background: color-mix(in srgb, var(--surface) 86%, #fff 14%);
-}
-
-:global(html[data-theme="dark"]) .accHeader strong {
-  color: var(--color-text);
-}
-
-:global(html[data-theme="dark"]) .muted,
-:global(html[data-theme="dark"]) .chev {
-  color: var(--color-muted);
-}
-
-/* optional: fă “dot”-ul mai vizibil în dark */
-:global(html[data-theme="dark"]) .pill {
-  background: rgba(167, 139, 250, 0.22);
-  border-color: rgba(167, 139, 250, 0.38);
-}

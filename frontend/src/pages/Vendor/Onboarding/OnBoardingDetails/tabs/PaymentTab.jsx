@@ -4,15 +4,18 @@ import styles from "./css/PaymentTab.module.css";
 import { useCurrentSubscription } from "../hooks/useCurrentSubscriptionBanner.js";
 
 /* ============================ Constante ============================ */
+// ✅ 1 lună gratuită la activare (trial)
+const TRIAL_DAYS = 30;
+
 // 2 luni gratis la anual (ex: 49*12=588 -> 490)
 const YEAR_DISCOUNT = 2 / 12; // ~16.6667%
 
 // fallback FEES (doar dacă backend-ul nu trimite meta.commissions)
 const FEES = {
-  starter:  { productsBps: 1200, minFeeCentsPerOrder: 1000 }, // 12%, min 10 RON / comandă
-  basic:    { productsBps: 1000, minFeeCentsPerOrder: 800  }, // 10%, min 8 RON
-  pro:      { productsBps: 800,  minFeeCentsPerOrder: 600  }, // 8%,  min 6 RON
-  business: { productsBps: 600,  minFeeCentsPerOrder: 500  }, // 6%,  min 5 RON
+  starter: { productsBps: 1200, minFeeCentsPerOrder: 1000 }, // 12%, min 10 RON / comandă
+  basic: { productsBps: 1000, minFeeCentsPerOrder: 800 }, // 10%, min 8 RON
+  pro: { productsBps: 800, minFeeCentsPerOrder: 600 }, // 8%,  min 6 RON
+  business: { productsBps: 600, minFeeCentsPerOrder: 500 }, // 6%,  min 5 RON
 };
 
 // fallback local (în caz că backend-ul nu are încă seed / meta)
@@ -27,6 +30,7 @@ const DEFAULT_PLANS = [
     interval: "month",
     isActive: true,
     popular: false,
+    trialDays: TRIAL_DAYS,
     features: [
       "Profil public de vânzător",
       "Listare produse (max. 25)",
@@ -68,7 +72,8 @@ const DEFAULT_PLANS = [
     currency: "RON",
     interval: "month",
     isActive: true,
-    popular: true, // planul cel mai ales
+    popular: true,
+    trialDays: TRIAL_DAYS,
     features: [
       "TOT din Starter",
       "Listare produse extinsă (max. 150)",
@@ -116,6 +121,7 @@ const DEFAULT_PLANS = [
     interval: "month",
     isActive: true,
     popular: false,
+    trialDays: TRIAL_DAYS,
     features: [
       "TOT din Basic",
       "Produse nelimitate",
@@ -169,8 +175,9 @@ const DEFAULT_PLANS = [
     priceCents: 19900,
     currency: "RON",
     interval: "month",
-    isActive: true,
+    isActive: false, // ✅ IMPORTANT: se vede, dar e indisponibil
     popular: false,
+    trialDays: TRIAL_DAYS,
     features: [
       "TOT din Pro",
       "Multi-brand / multi-store",
@@ -260,7 +267,10 @@ function usePlans() {
         setLoading(true);
         setErr("");
         const d = await api("/api/billing/plans", { method: "GET" });
+
+        // Important: păstrăm și planurile inactive ca să le putem afișa
         const items = Array.isArray(d?.items) && d.items.length ? d.items : DEFAULT_PLANS;
+
         if (!alive) return;
         setPlans(items);
       } catch (e) {
@@ -271,24 +281,35 @@ function usePlans() {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const enriched = useMemo(() => {
     return (plans || []).map((p) => {
-      const fromMeta = p?.meta?.commissions || p?.commissions; // suportă ambele
+      const fromMeta = p?.meta?.commissions || p?.commissions;
       const fallback = FEES[p.code] || FEES.starter;
+
+      const trialDays =
+        typeof p?.trialDays === "number"
+          ? p.trialDays
+          : typeof p?.meta?.trialDays === "number"
+            ? p.meta.trialDays
+            : TRIAL_DAYS;
 
       return {
         ...p,
-        // popular: true pe Basic; fallback doar dacă backend nu trimite
-        popular: p.popular ?? (p.code === "basic"),
+        trialDays,
+        popular: p.popular ?? p.code === "basic",
         fees: {
           productsBps: fromMeta?.productsBps ?? fallback.productsBps,
           minFeeCentsPerOrder: fromMeta?.minFeeCentsPerOrder ?? fallback.minFeeCentsPerOrder,
         },
         serviceSalesEnabled: !!p?.meta?.capabilities?.serviceSalesEnabled,
-        shareLinkEnabled: p?.meta?.capabilities?.shareLink !== false, // implicit true
+        shareLinkEnabled: p?.meta?.capabilities?.shareLink !== false,
+        // normalizare: dacă e undefined, considerăm activ
+        isActive: p.isActive !== false,
       };
     });
   }, [plans]);
@@ -304,12 +325,29 @@ function SubscriptionPayment({ obSessionId }) {
   const KEY_PLAN = `onboarding.plan:${obSessionId || "default"}`;
   const KEY_PERIOD = `onboarding.period:${obSessionId || "default"}`;
   const ss = {
-    get(k) { try { if (typeof window==="undefined") return null; return window.sessionStorage.getItem(k); } catch { return null; } },
-    set(k, v) { try { if (typeof window==="undefined") return; window.sessionStorage.setItem(k, v); } catch { /* ignore */ } },
+    get(k) {
+      try {
+        if (typeof window === "undefined") return null;
+        return window.sessionStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set(k, v) {
+      try {
+        if (typeof window === "undefined") return;
+        window.sessionStorage.setItem(k, v);
+      } catch {
+        /* ignore */
+      }
+    },
   };
 
   const [period, setPeriod] = useState(() => (ss.get(KEY_PERIOD) === "year" ? "year" : "month"));
   const [plan, setPlan] = useState(() => ss.get(KEY_PLAN) || "basic");
+
+  // ✅ nou: expand/collapse per plan
+  const [expanded, setExpanded] = useState({}); // { [code]: boolean }
 
   useEffect(() => {
     if (sub?.plan?.code) {
@@ -319,17 +357,21 @@ function SubscriptionPayment({ obSessionId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sub?.plan?.code]);
 
+  // ✅ dacă planul selectat nu există sau e inactiv, sărim pe primul activ
   useEffect(() => {
     if (!plans.length) return;
-    const exists = plans.some((p) => p.code === plan);
-    if (!exists) {
-      const first = plans.find((p) => p.isActive !== false) || plans[0];
-      setPlan(first.code);
-      ss.set(KEY_PLAN, first.code);
+
+    const current = plans.find((p) => p.code === plan);
+    if (!current || current.isActive === false) {
+      const firstActive = plans.find((p) => p.isActive !== false) || plans[0];
+      setPlan(firstActive.code);
+      ss.set(KEY_PLAN, firstActive.code);
     }
   }, [plans, plan]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [status, setStatus] = useState("idle"); // idle | processing | canceling | error
+  const selectedPlan = useMemo(() => plans.find((p) => p.code === plan) || null, [plans, plan]);
+
+  const [status, setStatus] = useState("idle");
   const [err, setErr] = useState("");
 
   function changePeriod(next) {
@@ -346,19 +388,26 @@ function SubscriptionPayment({ obSessionId }) {
       const canApplePay =
         !!(w && w.ApplePaySession && typeof w.ApplePaySession.canMakePayments === "function" && w.ApplePaySession.canMakePayments());
       if (canApplePay) applePay = "1";
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     try {
       const w = typeof window !== "undefined" ? window : undefined;
       const canGooglePay = !!(w && w.PaymentRequest && /Android|Chrome/i.test(navigator.userAgent));
       if (canGooglePay) googlePay = "1";
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     return { applePay, googlePay };
   }
 
   async function startCheckout() {
     try {
+      // ✅ safety: nu pornim checkout pe plan indisponibil
+      if (!selectedPlan || selectedPlan.isActive === false) return;
+
       setStatus("processing");
       setErr("");
 
@@ -424,6 +473,13 @@ function SubscriptionPayment({ obSessionId }) {
     return `${formatPrice(base, p.currency)} / lună`;
   }
 
+  function shouldShowTrialBadge(p) {
+    const trialDays = typeof p?.trialDays === "number" ? p.trialDays : 0;
+    const base = p?.priceCents || 0;
+    // trial doar pt plătite + active
+    return p.isActive !== false && base > 0 && trialDays >= 28;
+  }
+
   async function cancelSubscription() {
     if (!sub || sub.status !== "active") return;
 
@@ -446,6 +502,15 @@ function SubscriptionPayment({ obSessionId }) {
       setStatus("idle");
     }
   }
+
+  const disableCheckout =
+    status === "processing" ||
+    status === "canceling" ||
+    (sameActivePlan && !isRenewSoon) ||
+    !selectedPlan ||
+    selectedPlan.isActive === false;
+
+  const FEATURE_COLLAPSE_AT = 8;
 
   return (
     <div className={styles.form}>
@@ -488,7 +553,17 @@ function SubscriptionPayment({ obSessionId }) {
         </div>
       </div>
 
-      {plansErr && <div className={styles.error} role="alert">{plansErr}</div>}
+      {selectedPlan && shouldShowTrialBadge(selectedPlan) && (
+        <div className={styles.shareHint} style={{ marginBottom: 10 }}>
+          <strong>1 lună gratuită</strong> la activare — începi să plătești după perioada de probă.
+        </div>
+      )}
+
+      {plansErr && (
+        <div className={styles.error} role="alert">
+          {plansErr}
+        </div>
+      )}
 
       {plansLoading ? (
         <div className={styles.card}>Se încarcă planurile…</div>
@@ -496,86 +571,173 @@ function SubscriptionPayment({ obSessionId }) {
         <div className={styles.grid}>
           {plans.map((p) => {
             const selected = plan === p.code;
+            const disabled = p.isActive === false;
             const { productsBps, minFeeCentsPerOrder } = p.fees || {};
+            const feats = Array.isArray(p.features) ? p.features : [];
+            const isExpanded = !!expanded[p.code];
+            const showToggle = feats.length > FEATURE_COLLAPSE_AT;
+            const visibleFeats = showToggle && !isExpanded ? feats.slice(0, FEATURE_COLLAPSE_AT) : feats;
 
-            return (
-              <label
-                key={p.id || p.code}
-                className={`${styles.card} ${selected ? styles.cardSelected : ""}`}
-              >
-                {p.popular && <span className={styles.badgeWait + " " + styles.cardBadge}>Popular</span>}
+            const radioId = `plan-${p.code}`;
 
-                <div className={styles.cardTop}>
-                  <div className={styles.planName}>{p.name}</div>
-                  <div className={styles.planPrice}>{displayPrice(p)}</div>
-                </div>
+const onSelectPlan = () => {
+  if (disabled) return;
+  setPlan(p.code);
+  ss.set(KEY_PLAN, p.code);
+};
 
-                <div className={styles.feesRow} title="Comisioane platformă">
-                  <span className={styles.help}>
-                    Produse: {bpsToPct(productsBps || 0)}
-                    {typeof minFeeCentsPerOrder === "number" && minFeeCentsPerOrder > 0
-                      ? ` (min. ${formatMoney(minFeeCentsPerOrder, p.currency || "RON")} / comandă)`
-                      : ""}
-                  </span>
+return (
+  <div
+    key={p.id || p.code}
+    className={[
+      styles.card,
+      selected ? styles.cardSelected : "",
+      disabled ? styles.cardDisabled : "",
+    ].join(" ")}
+    title={disabled ? "Indisponibil momentan" : undefined}
+    role="radio"
+    aria-checked={selected}
+    aria-disabled={disabled}
+    tabIndex={disabled ? -1 : 0}
+    onClick={onSelectPlan}
+    onKeyDown={(e) => {
+      if (disabled) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onSelectPlan();
+      }
+    }}
+  >
+    {p.popular && !disabled && (
+      <span className={styles.badgeWait + " " + styles.cardBadge}>Popular</span>
+    )}
 
-                  <span className={`${styles.help} ${styles.muted}`}>
-                    Servicii: indisponibil momentan
-                  </span>
-                </div>
+    {disabled && (
+      <span className={styles.badgeMuted + " " + styles.cardBadge}>
+        Indisponibil momentan
+      </span>
+    )}
 
-                {/* Link distribuire highlight */}
-                {p.shareLinkEnabled && (
-                  <div className={styles.shareHint}>
-                    Include <strong>link de distribuire</strong> pentru promovare rapidă.
-                  </div>
-                )}
+    <div className={styles.cardTop}>
+      <div className={styles.planName}>{p.name}</div>
+      <div className={styles.planPrice}>{displayPrice(p)}</div>
+    </div>
 
-                {Array.isArray(p.features) && p.features.length > 0 && (
-                  <ul className={styles.featuresList}>
-                    {p.features.slice(0, 8).map((f, i) => (
-                      <li key={i}>{f}</li>
-                    ))}
-                    {p.features.length > 8 && <li className={styles.moreMuted}>… și altele</li>}
-                  </ul>
-                )}
+    {shouldShowTrialBadge(p) && (
+      <div className={styles.shareHint} style={{ marginTop: 8 }}>
+        <strong>1 lună gratuită</strong> la activare
+      </div>
+    )}
 
-                <div className={styles.pickRow}>
-                  <input
-                    type="radio"
-                    name="plan"
-                    value={p.code}
-                    checked={selected}
-                    onChange={() => {
-                      setPlan(p.code);
-                      ss.set(KEY_PLAN, p.code);
-                    }}
-                  />
-                  <span>Alege {p.name}</span>
-                </div>
+    <div className={styles.feesRow} title="Comisioane platformă">
+      <span className={styles.help}>
+        Produse: {bpsToPct(productsBps || 0)}
+        {typeof minFeeCentsPerOrder === "number" && minFeeCentsPerOrder > 0
+          ? ` (min. ${formatMoney(minFeeCentsPerOrder, p.currency || "RON")} / comandă)`
+          : ""}
+      </span>
 
-                {sub?.status === "active" && sub.plan?.code === p.code && (
-                  <small className={styles.help}>Planul tău actual</small>
-                )}
-              </label>
-            );
+      <span className={`${styles.help} ${styles.muted}`}>
+        Servicii: indisponibil momentan
+      </span>
+    </div>
+
+    {p.shareLinkEnabled && (
+      <div className={styles.shareHint}>
+        Include <strong>link de distribuire</strong> pentru promovare rapidă.
+      </div>
+    )}
+
+    {feats.length > 0 && (
+      <>
+        <ul className={styles.featuresList}>
+          {visibleFeats.map((f, i) => (
+            <li key={i}>{f}</li>
+          ))}
+        </ul>
+
+        {showToggle && (
+          <button
+            type="button"
+            className={styles.moreBtn}
+            onClick={(e) => {
+              // ✅ oprește selectarea planului
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded((prev) => ({ ...prev, [p.code]: !prev[p.code] }));
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? "Arată mai puține beneficii" : "Vezi toate beneficiile"}
+          >
+            {isExpanded ? "Arată mai puțin" : `Vezi toate (${feats.length})`}
+            <span
+              aria-hidden="true"
+              className={[
+                styles.moreChevron,
+                isExpanded ? styles.moreChevronUp : "",
+              ].join(" ")}
+            >
+              ▾
+            </span>
+          </button>
+        )}
+      </>
+    )}
+
+    <div className={styles.pickRow}>
+      <input
+        id={radioId}
+        type="radio"
+        name="plan"
+        value={p.code}
+        checked={selected}
+        disabled={disabled}
+        onChange={onSelectPlan}
+        onClick={(e) => e.stopPropagation()}
+      />
+      <label htmlFor={radioId} onClick={(e) => e.stopPropagation()}>
+        {disabled ? "În curând" : `Alege ${p.name}`}
+      </label>
+    </div>
+
+    {sub?.status === "active" && sub.plan?.code === p.code && (
+      <small className={styles.help}>Planul tău actual</small>
+    )}
+  </div>
+);
+
           })}
         </div>
       )}
 
-      {err && <div className={styles.error} role="alert" style={{ marginTop: 8 }}>{err}</div>}
+      {err && (
+        <div className={styles.error} role="alert" style={{ marginTop: 8 }}>
+          {err}
+        </div>
+      )}
 
       <div className={styles.actionsRow}>
         <button
           className={styles.primaryBtn}
           onClick={startCheckout}
-          disabled={status === "processing" || status === "canceling" || (sameActivePlan && !isRenewSoon)}
+          disabled={disableCheckout}
           type="button"
-          title={sameActivePlan && !isRenewSoon ? "Ești deja pe acest plan" : undefined}
+          title={
+            selectedPlan?.isActive === false
+              ? "Plan indisponibil momentan"
+              : sameActivePlan && !isRenewSoon
+                ? "Ești deja pe acest plan"
+                : undefined
+          }
         >
           {status === "processing"
             ? "Se redirecționează…"
             : sameActivePlan
-              ? (isRenewSoon ? "Reînnoiește / Prelungește" : "Plan activ")
+              ? isRenewSoon
+                ? "Reînnoiește / Prelungește"
+                : "Plan activ"
               : "Plătește / Activează"}
         </button>
 
@@ -593,6 +755,12 @@ function SubscriptionPayment({ obSessionId }) {
 
         <small className={styles.help}>
           Prețurile afișate nu includ comisionul procesatorului de plăți. Comisioanele platformei se aplică per plan.
+          {selectedPlan && shouldShowTrialBadge(selectedPlan) && (
+            <>
+              {" "}
+              • <strong>1 lună gratuită</strong> se aplică la prima activare.
+            </>
+          )}
         </small>
       </div>
     </div>

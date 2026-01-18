@@ -45,7 +45,7 @@ function writeDashCache(data) {
   }
 }
 
-/* ---------- helpers mutate în afara componentei (fără deps) ---------- */
+/* ---------- helpers mute în afara componentei (fără deps) ---------- */
 function extractMissing(e) {
   try {
     return (
@@ -75,10 +75,6 @@ function extractCode(e) {
 function humanizeActivateError(e) {
   const code = extractCode(e);
   const missing = extractMissing(e);
-
-  if (code === "vendor_entity_not_confirmed") {
-    return "Pentru a activa serviciile, trebuie să confirmi că reprezinți o entitate juridică (PFA / SRL / II / IF). Poți face asta din bannerul de deasupra listei de servicii.";
-  }
 
   if (code === "missing_required_fields_billing") {
     if (Array.isArray(missing) && missing.length) {
@@ -115,9 +111,7 @@ function useSubscriptionStatus({ auto = true } = {}) {
   const fetchOnce = useCallback(async () => {
     try {
       setState((s) => ({ ...s, loading: true, error: "" }));
-      const d = await api("/api/vendors/me/subscription/status", {
-        method: "GET",
-      });
+      const d = await api("/api/vendors/me/subscription/status", { method: "GET" });
       if (d?.ok) {
         setState({
           ok: true,
@@ -165,6 +159,7 @@ function useSubscriptionStatus({ auto = true } = {}) {
     const onVisible = () => {
       if (document.visibilityState === "visible") fetchOnce();
     };
+
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
 
@@ -174,19 +169,12 @@ function useSubscriptionStatus({ auto = true } = {}) {
     };
   }, [auto, fetchOnce]);
 
-  useEffect(
-    () => () => timerRef.current && clearTimeout(timerRef.current),
-    []
-  );
+  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
 
-  return {
-    ...state,
-    refetch: fetchOnce,
-    startShortPolling,
-  };
+  return { ...state, refetch: fetchOnce, startShortPolling };
 }
 
-/* ------- mici utilitare pentru identitate (din Account) ------- */
+/* ------- mici utilitare pentru identitate ------- */
 function displayName(me) {
   if (!me) return "Utilizator";
   if (me.name) return me.name;
@@ -213,15 +201,13 @@ export default function DesktopV3() {
     () => cached?.reviewCounts ?? { product: 0, store: 0 }
   );
 
-  // în loc să blocăm cu loader, dacă avem cache -> loading false
+  // dacă avem cache -> pornește fără loader blocking
   const [loading, setLoading] = useState(() => !cached);
 
   const [busy, setBusy] = useState({});
   const [error, setError] = useState("");
 
   const [vendor, setVendor] = useState(() => cached?.vendor ?? null);
-  const [entityConfirmBusy, setEntityConfirmBusy] = useState(false);
-  const [entityConfirmError, setEntityConfirmError] = useState("");
 
   const sub = useSubscriptionStatus();
 
@@ -231,17 +217,24 @@ export default function DesktopV3() {
   const [favCount, setFavCount] = useState(() => cached?.counts?.favCount ?? 0);
   const [supportUnread, setSupportUnread] = useState(() => cached?.counts?.supportUnread ?? 0);
 
-  // persistă cache la schimbări
+  /* ===================== 1) Cache write DEBOUNCED (evită jank) ===================== */
+  const cacheTimerRef = useRef(null);
   useEffect(() => {
-    writeDashCache({
-      services,
-      onboarding,
-      stats,
-      reviewCounts,
-      vendor,
-      counts: { unreadNotif, unreadMsgs, cartCount, favCount, supportUnread },
-      ts: Date.now(),
-    });
+    if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
+
+    cacheTimerRef.current = setTimeout(() => {
+      writeDashCache({
+        services,
+        onboarding,
+        stats,
+        reviewCounts,
+        vendor,
+        counts: { unreadNotif, unreadMsgs, cartCount, favCount, supportUnread },
+        ts: Date.now(),
+      });
+    }, 800);
+
+    return () => cacheTimerRef.current && clearTimeout(cacheTimerRef.current);
   }, [
     services,
     onboarding,
@@ -255,39 +248,41 @@ export default function DesktopV3() {
     supportUnread,
   ]);
 
-  // dacă auth context-ul aduce deja vendor cu entitySelfDeclared, îl sincronizăm
+  // dacă auth context-ul aduce deja vendor, îl sincronizăm
   useEffect(() => {
     if (me?.vendor) setVendor(me.vendor);
   }, [me]);
 
+  /* ===================== 2) Split fetch: critice vs non-critice ===================== */
   const loadAllVendor = useCallback(async ({ silent = false } = {}) => {
-    // silent = nu arăta “loading” dacă deja ai ceva pe ecran
     if (!silent) setLoading(true);
     setError("");
 
     try {
-      const [svc, ob, v, st] = await Promise.all([
+      // Critice: services + onboarding (afisează “main content”)
+      const [svc, ob] = await Promise.all([
         api("/api/vendors/me/services?includeProfile=1").catch(() => ({ items: [] })),
         api("/api/vendors/me/onboarding-status").catch(() => null),
-        api("/api/vendors/me").catch(() => null),
-        api("/api/vendors/me/stats?window=7d").catch(() => null),
       ]);
 
       setServices(svc?.items || []);
       setOnboarding(ob || null);
 
-      if (v?.vendor) setVendor(v.vendor);
+      // Non-critice: vendor + stats (în fundal)
+      api("/api/vendors/me")
+        .then((v) => v?.vendor && setVendor(v.vendor))
+        .catch(() => {});
 
-      if (st) {
-        setStats({
-          visitors: st.visitors ?? 0,
-          followers: st.followers ?? 0,
-        });
-        setReviewCounts({
-          product: st.productReviewsTotal ?? 0,
-          store: st.storeReviewsTotal ?? 0,
-        });
-      }
+      api("/api/vendors/me/stats?window=7d")
+        .then((st) => {
+          if (!st) return;
+          setStats({ visitors: st.visitors ?? 0, followers: st.followers ?? 0 });
+          setReviewCounts({
+            product: st.productReviewsTotal ?? 0,
+            store: st.storeReviewsTotal ?? 0,
+          });
+        })
+        .catch(() => {});
     } catch (e) {
       setError(e?.message || "Eroare la încărcare");
     } finally {
@@ -295,11 +290,12 @@ export default function DesktopV3() {
     }
   }, []);
 
-  // counts: refresh periodic + focus (dar pornește instant din cache)
+  /* ===================== 3) Counts polling adaptiv + focus/visibility ===================== */
   useEffect(() => {
     if (!me) return;
 
     let alive = true;
+    let intervalId = null;
 
     const fetchCounts = async () => {
       try {
@@ -327,21 +323,35 @@ export default function DesktopV3() {
       }
     };
 
-    // nu bloca UI-ul — doar refresh în fundal
-    fetchCounts();
+    const startInterval = () => {
+      if (intervalId) clearInterval(intervalId);
+      const ms = document.visibilityState === "visible" ? 15_000 : 60_000;
+      intervalId = setInterval(fetchCounts, ms);
+    };
 
-    const t = setInterval(fetchCounts, 15_000);
+    // refresh imediat (dar fără loader)
+    fetchCounts();
+    startInterval();
+
     const onFocus = () => fetchCounts();
+    const onVisible = () => {
+      // când revii în tab, trage instant și reconfigurează intervalul
+      if (document.visibilityState === "visible") fetchCounts();
+      startInterval();
+    };
+
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       alive = false;
-      clearInterval(t);
+      if (intervalId) clearInterval(intervalId);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [me]);
 
-  // inițializare: dacă ai cache, fă load silent (refresh) fără loader
+  /* ===================== init load ===================== */
   useEffect(() => {
     if (authLoading) return;
 
@@ -351,7 +361,6 @@ export default function DesktopV3() {
     }
 
     if (me.role === "VENDOR") {
-      // dacă avem deja date (cache), nu mai arătăm “Se încarcă…”
       const hasCachedContent =
         (services && services.length) || onboarding || vendor || (cached && cached.ts);
 
@@ -364,38 +373,28 @@ export default function DesktopV3() {
 
   const completeness = useMemo(() => {
     if (!services.length) return 0;
-    const filled = services.filter(
-      (s) => s?.profile && (s.profile.displayName || s.title)
-    ).length;
+    const filled = services.filter((s) => s?.profile && (s.profile.displayName || s.title))
+      .length;
     return Math.round((filled / services.length) * 100);
   }, [services]);
 
   const nextStep = useMemo(() => {
-    if (!onboarding?.exists)
-      return { label: "Creează profil vendor", href: "/onboarding" };
+    if (!onboarding?.exists) return { label: "Creează profil vendor", href: "/onboarding" };
     const map = {
       selectServices: { label: "Alege/Adaugă servicii", href: "/onboarding" },
-      fillDetails: {
-        label: "Completează detalii servicii",
-        href: "/onboarding/details",
-      },
+      fillDetails: { label: "Completează detalii servicii", href: "/onboarding/details" },
       profile: { label: "Publică profilul", href: "/onboarding/details" },
       done: { label: "Gata ✨", href: "/vendor/visitors" },
     };
-    return map[onboarding?.nextStep] || {
-      label: "Continuă",
-      href: "/onboarding",
-    };
+    return map[onboarding?.nextStep] || { label: "Continuă", href: "/onboarding" };
   }, [onboarding]);
 
   /* ---------------------------- Actions ---------------------------- */
   const guardSubscriptionOrRedirect = useCallback(async () => {
-    if (sub.loading) {
-      await sub.refetch();
-    }
+    if (sub.loading) await sub.refetch();
     if (!sub.ok) {
       sub.startShortPolling?.();
-      window.location.href = "/abonament";
+      window.location.href = "/onboarding/details?tab=plata&solo=1";
       return false;
     }
     return true;
@@ -408,9 +407,8 @@ export default function DesktopV3() {
         if (!ok) return;
 
         setBusy((prev) => ({ ...prev, [serviceId]: "activate" }));
-        await api(`/api/vendors/me/services/${serviceId}/activate`, {
-          method: "POST",
-        });
+        await api(`/api/vendors/me/services/${serviceId}/activate`, { method: "POST" });
+
         const d = await api("/api/vendors/me/services?includeProfile=1");
         setServices(d.items || []);
       } catch (e) {
@@ -429,9 +427,8 @@ export default function DesktopV3() {
   const onDeactivate = useCallback(async (serviceId) => {
     try {
       setBusy((prev) => ({ ...prev, [serviceId]: "deactivate" }));
-      await api(`/api/vendors/me/services/${serviceId}/deactivate`, {
-        method: "POST",
-      });
+      await api(`/api/vendors/me/services/${serviceId}/deactivate`, { method: "POST" });
+
       const d = await api("/api/vendors/me/services?includeProfile=1");
       setServices(d.items || []);
     } catch (e) {
@@ -451,14 +448,12 @@ export default function DesktopV3() {
         alert("Serviciul este activ. Dezactivează-l înainte de a-l șterge.");
         return;
       }
-      if (
-        !confirm(
-          "Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată."
-        )
-      )
+      if (!confirm("Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată."))
         return;
+
       setBusy((prev) => ({ ...prev, [serviceId]: "delete" }));
       await api(`/api/vendors/me/services/${serviceId}`, { method: "DELETE" });
+
       const d = await api("/api/vendors/me/services?includeProfile=1");
       setServices(d.items || []);
     } catch (e) {
@@ -474,108 +469,34 @@ export default function DesktopV3() {
 
   const onPreview = useCallback((service) => {
     const slug = service?.profile?.slug;
-    if (slug) {
-      window.open(`/magazin/${slug}`, "_blank", "noopener,noreferrer");
-    } else {
-      window.location.href = "/onboarding/details";
-    }
-  }, []);
-
-  const onConfirmEntity = useCallback(async () => {
-    try {
-      setEntityConfirmBusy(true);
-      setEntityConfirmError("");
-      const d = await api("/api/vendors/me/entity-confirm", {
-        method: "POST",
-      });
-
-      if (d?.vendor) {
-        setVendor((prev) => ({
-          ...(prev || {}),
-          ...d.vendor,
-        }));
-      } else {
-        setVendor((prev) => ({
-          ...(prev || {}),
-          entitySelfDeclared: true,
-        }));
-      }
-    } catch (e) {
-      setEntityConfirmError(
-        e?.message || "Nu am putut confirma entitatea juridică."
-      );
-    } finally {
-      setEntityConfirmBusy(false);
-    }
+    if (slug) window.open(`/magazin/${slug}`, "_blank", "noopener,noreferrer");
+    else window.location.href = "/onboarding/details";
   }, []);
 
   /* ---------------------------- Render gating ---------------------------- */
-  // IMPORTANT: nu mai blocăm pagina doar fiindcă "loading" e true.
-  // O blocăm doar dacă nu avem me încă.
-  if (authLoading) return <div className={styles.page}>Se încarcă…</div>;
-  if (!me || me.role !== "VENDOR")
-    return <div className={styles.page}>Acces doar pentru vendori.</div>;
-
-  const entityConfirmed =
-    vendor?.entitySelfDeclared === true ||
-    me?.vendor?.entitySelfDeclared === true;
-
+ 
   const isVendor = me.role === "VENDOR";
   const isAdmin = me.role === "ADMIN";
   const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
 
-  const quick = [
-    {
-      to: "/notificari",
-      label: "Notificări",
-      icon: <Bell size={20} />,
-      badge: unreadNotif,
-    },
-    {
-      to: "/mesaje",
-      label: "Mesaje",
-      icon: <MessageSquare size={20} />,
-      badge: unreadMsgs,
-    },
-    {
-      to: "/wishlist",
-      label: "Dorințe",
-      icon: <Heart size={20} />,
-      badge: favCount,
-    },
-    {
-      to: "/cos",
-      label: "Coș",
-      icon: <ShoppingCart size={20} />,
-      badge: cartCount,
-    },
-    {
-      to: "/vendor/support",
-      label: "Asistență",
-      icon: <LifeBuoy size={20} />,
-      badge: supportUnread,
-    },
-    {
-      to: "/vendor/store",
-      label: "Magazinul meu",
-      icon: <Store size={20} />,
-    },
-    {
-      to: "/setari",
-      label: "Setări",
-      icon: <Settings size={20} />,
-    },
-    {
-      to: "/vendor/invoices",
-      label: "Facturi",
-      icon: <FileText size={20} />,
-    },
-    {
-      to: "/vendor/orders",
-      label: "Comenzi",
-      icon: <Package size={20} />,
-    },
-  ];
+  /* ✅ quick memo (nu recreăm array-ul mereu) */
+  const quick = useMemo(
+    () => [
+      { to: "/notificari", label: "Notificări", icon: <Bell size={20} />, badge: unreadNotif },
+      { to: "/mesaje", label: "Mesaje", icon: <MessageSquare size={20} />, badge: unreadMsgs },
+      { to: "/wishlist", label: "Dorințe", icon: <Heart size={20} />, badge: favCount },
+      { to: "/cos", label: "Coș", icon: <ShoppingCart size={20} />, badge: cartCount },
+      { to: "/vendor/support", label: "Asistență", icon: <LifeBuoy size={20} />, badge: supportUnread },
+      { to: "/vendor/store", label: "Magazinul meu", icon: <Store size={20} /> },
+      { to: "/setari", label: "Setări", icon: <Settings size={20} /> },
+      { to: "/vendor/invoices", label: "Facturi", icon: <FileText size={20} /> },
+      { to: "/vendor/orders", label: "Comenzi", icon: <Package size={20} /> },
+    ],
+    [unreadNotif, unreadMsgs, favCount, cartCount, supportUnread]
+  );
+  
+ if (authLoading) return <div className={styles.page}>Se încarcă…</div>;
+  if (!me || me.role !== "VENDOR") return <div className={styles.page}>Acces doar pentru vendori.</div>;
 
   return (
     <section className={styles.page}>
@@ -588,41 +509,6 @@ export default function DesktopV3() {
 
       <IdentityCard me={me} roleLabel={roleLabel} />
       <QuickCard quick={quick} />
-
-      {!entityConfirmed && (
-        <div className={`${styles.card} ${styles.cardCritical}`}>
-          <div className={styles.cardHead}>
-            <h3>Confirmă că reprezinți o entitate juridică</h3>
-          </div>
-          <p className={styles.subtle}>
-            Pentru a activa serviciile și a apărea în căutări, trebuie să confirmi că
-            reprezinți o <b>entitate juridică</b> (PFA / SRL / II / IF) și deții un{" "}
-            <b>CUI/CIF</b> valid. Dacă acest cont nu este destinat furnizării de servicii,
-            ci doar utilizării platformei ca <b>client</b>, poți solicita modificarea tipului
-            de cont către „user” prin <b>asistența tehnică</b>.
-            <br />
-            <br />
-            Dacă ai nevoie de ajutor, contactează-ne în secțiunea <b>„Asistență tehnică”</b>{" "}
-            din platformă.
-          </p>
-
-          {entityConfirmError && <div className={styles.errorBar}>{entityConfirmError}</div>}
-
-          <div className={styles.actionsRow}>
-            <button
-              type="button"
-              className={`${styles.btn} ${styles.btnPrimary}`}
-              onClick={onConfirmEntity}
-              disabled={entityConfirmBusy}
-            >
-              {entityConfirmBusy ? "Se confirmă…" : "Confirm că sunt entitate juridică"}
-            </button>
-            <a href="/vendor/support" className={`${styles.btn} ${styles.btnGhost}`}>
-              Mergi la asistență
-            </a>
-          </div>
-        </div>
-      )}
 
       <SubscriptionAlert sub={sub} />
 
@@ -652,9 +538,7 @@ export default function DesktopV3() {
 
       <SettingsAndSecurityCard />
 
-      {isVendor && (
-        <VendorLinksCard unreadMsgs={unreadMsgs} supportUnread={supportUnread} />
-      )}
+      {isVendor && <VendorLinksCard unreadMsgs={unreadMsgs} supportUnread={supportUnread} />}
 
       {isAdmin && <AdminCard />}
 
@@ -666,13 +550,15 @@ export default function DesktopV3() {
 /* ============================= Sub-componente ============================= */
 
 function Topbar({ me, completeness, sub, nextStep }) {
+  const now = useMemo(() => Date.now(), []); // stabil per mount (fără jitter)
+
   const subBadge = (() => {
     if (sub.loading) return <span className={styles.badgeWait}>Verific abonament…</span>;
+
     if (sub.ok) {
       const end = sub.endAt ? new Date(sub.endAt) : null;
-      const daysLeft = end
-        ? Math.ceil((end - new Date()) / (1000 * 60 * 60 * 24))
-        : null;
+      const daysLeft = end ? Math.ceil((end.getTime() - now) / (1000 * 60 * 60 * 24)) : null;
+
       return (
         <span className={styles.badgeOk}>
           Plan: {sub.plan?.name || sub.plan?.code || "activ"}
@@ -681,8 +567,13 @@ function Topbar({ me, completeness, sub, nextStep }) {
         </span>
       );
     }
+
     return (
-      <a className={`${styles.badgeWarn}`} href="/abonament" title="Activează abonamentul">
+      <a
+        className={styles.badgeWarn}
+        href="/onboarding/details?tab=plata&solo=1"
+        title="Activează abonamentul"
+      >
         Fără abonament activ — Activează abonament
       </a>
     );
@@ -711,6 +602,7 @@ function Topbar({ me, completeness, sub, nextStep }) {
           </span>
         </div>
       </div>
+
       <a className={`${styles.btn} ${styles.btnPrimary}`} href={nextStep.href}>
         {nextStep.label}
       </a>
@@ -786,7 +678,7 @@ function SubscriptionAlert({ sub }) {
         Pentru a activa servicii și a apărea în căutări, ai nevoie de un abonament activ.
       </p>
       <div className={styles.actionsRow}>
-        <a className={`${styles.btn} ${styles.btnPrimary}`} href="/abonament">
+        <a className={`${styles.btn} ${styles.btnPrimary}`} href="/onboarding/details?tab=plata&solo=1">
           Activează abonamentul
         </a>
         <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
@@ -861,6 +753,7 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
                     {s.type?.name || s.typeName}
                     {s.title ? ` — ${s.title}` : ""}
                   </div>
+
                   <div className={styles.serviceMeta}>
                     <span>
                       Status: <b>{s.status}</b>
@@ -877,6 +770,7 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
                       </>
                     ) : null}
                   </div>
+
                   {missingCore && !isAct && (
                     <div className={styles.serviceWarning}>
                       Pentru a putea activa serviciul, completează {missingFields.join(", ")}.
@@ -957,15 +851,12 @@ function Sidebar({ sub }) {
               <br />
               {sub.endAt ? (
                 <>
-                  Valabil până la:{" "}
-                  <b>{new Date(sub.endAt).toLocaleDateString("ro-RO")}</b>
+                  Valabil până la: <b>{new Date(sub.endAt).toLocaleDateString("ro-RO")}</b>
                 </>
               ) : null}
             </p>
-            <a
-              className={`${styles.btn} ${styles.btnGhost}`}
-              href="/onboarding/details?tab=plata&solo=1"
-            >
+
+            <a className={`${styles.btn} ${styles.btnGhost}`} href="/onboarding/details?tab=plata&solo=1">
               Gestionează abonamentul
             </a>
             <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
@@ -977,10 +868,7 @@ function Sidebar({ sub }) {
             <p className={styles.subtle}>
               Nu ai un abonament activ. Activează-l pentru a-ți publica serviciile.
             </p>
-            <a
-              className={`${styles.btn} ${styles.btnPrimary}`}
-              href="/onboarding/details?tab=plata&solo=1"
-            >
+            <a className={`${styles.btn} ${styles.btnPrimary}`} href="/onboarding/details?tab=plata&solo=1">
               Activează abonament
             </a>
             <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
@@ -1001,7 +889,7 @@ function SettingsAndSecurityCard() {
       </div>
 
       <div className={styles.actionsCol}>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/cont/setari">
+        <a className={`${styles.btn} ${styles.btnGhost}`} href="/setari">
           <Settings size={18} style={{ marginRight: 6 }} /> Setări cont
         </a>
 
@@ -1045,7 +933,14 @@ function SettingsAndSecurityCard() {
           className={`${styles.btn} ${styles.btnGhost}`}
           href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/acord-vanzatori`}
         >
-          <ShieldHalf size={18} style={{ marginRight: 6 }} /> Acord vânzători
+          <FileText size={18} style={{ marginRight: 6 }} /> Acord vânzători
+        </a>
+
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/anexa-produse`}
+        >
+          <FileText size={18} style={{ marginRight: 6 }} /> Anexa produse
         </a>
       </div>
     </div>
@@ -1121,14 +1016,14 @@ function LogoutCard() {
 
   return (
     <div className={styles.card}>
-     <button
-  className={`${styles.btn} ${styles.btnDanger} ${styles.logoutBtn}`}
-  type="button"
-  onClick={handleLogout}
->
-  <LogOut size={18} />
-  Deconectare
-</button>
+      <button
+        className={`${styles.btn} ${styles.btnDanger} ${styles.logoutBtn}`}
+        type="button"
+        onClick={handleLogout}
+      >
+        <LogOut size={18} />
+        Deconectare
+      </button>
     </div>
   );
 }
@@ -1155,6 +1050,7 @@ function EmptyState({ title, subtitle, ctaText, href }) {
   );
 }
 
+// mic și foarte des folosit -> păstrează-l simplu (opțional: memo)
 function Badge({ count }) {
   if (!count || count <= 0) return null;
   const v = Math.min(count, 99);

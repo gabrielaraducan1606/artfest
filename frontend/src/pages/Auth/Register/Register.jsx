@@ -469,17 +469,27 @@ if (marketingOptIn) {
 }
 
       const body = {
-        email: email.trim().toLowerCase(),
-        password,
-        firstName: firstName.trim() || undefined,
-        lastName: lastName.trim() || undefined,
-        name: fullName || undefined,
-        asVendor,
-        entitySelfDeclared: asVendor ? !!vendorEntityConfirm : false, // 🔥 trimitem și către backend
-        consents,
-        // Politică anti-link extern (backend poate onora acest flag)
-        noExternalLinks: true,
-      };
+  email: email.trim().toLowerCase(),
+  password,
+  firstName: firstName.trim() || undefined,
+  lastName: lastName.trim() || undefined,
+  name: fullName || undefined,
+  asVendor,
+  entitySelfDeclared: asVendor ? !!vendorEntityConfirm : false,
+
+  // ✅ NEW: context (nu timp/IP)
+  entityMeta:
+    asVendor && vendorEntityConfirm
+      ? {
+          pageUrl: window.location.href,
+          referrer: document.referrer || null,
+        }
+      : undefined,
+
+  consents,
+  noExternalLinks: true,
+};
+
 
       const res = await api("/api/auth/signup", {
         method: "POST",

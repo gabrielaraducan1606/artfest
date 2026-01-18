@@ -2,7 +2,7 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import compression from "compression";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit"; // ✅ FIX IPv6
 import helmet from "helmet";
 import dotenv from "dotenv";
 import crypto from "crypto";
@@ -78,6 +78,9 @@ import adminIncidentsRoutes from "./src/routes/adminIncidentsRoutes.js";
 import unsubscribeRouter from "./src/routes/unsubscribeRoutes.js";
 import publicCategories from "./src/routes/categoriesRoutes.js";
 import adminPolicyNotificationsRoutes from "./src/routes/adminPolicyNotificationsRoutes.js";
+import marketplaceWaitlistRouter from "./src/routes/waitlistMarketplaceRoutes.js";
+import adminMarketplaceWaitlistRouter from "./src/routes/adminMarketplaceWaitlistRoutes.js";
+
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
 
@@ -159,16 +162,57 @@ app.use(cookieParser());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-/* ---------------- RATE LIMIT (IMPORTANT: înainte de rutele /api) ---------------- */
-app.use(
-  "/api",
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 600,
-    standardHeaders: true,
-    legacyHeaders: false,
-  })
-);
+/* ---------------- RATE LIMIT (IMPORTANT: înainte de rutele /api) ----------------
+   ✅ FIX: folosim ipKeyGenerator (safe pt IPv6)
+   ✅ FIX: limitere separate pentru auth endpoints
+----------------------------------------------------------------------------- */
+
+// global /api (mai permisiv - ca să nu-ți omoare dev-ul)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_API_MAX || 3000),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+});
+
+// /api/auth/me (lejer)
+const authMeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_AUTH_ME_MAX || 120),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+});
+
+// /api/auth/exists (moderat)
+const authExistsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_AUTH_EXISTS_MAX || 60),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+});
+
+// /api/auth/login (strict) – IP + email
+const authLoginLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: Number(process.env.RATE_AUTH_LOGIN_MAX || 20),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = (req.body?.email || "").toString().trim().toLowerCase();
+    return `${ipKeyGenerator(req)}|${email || "noemail"}`;
+  },
+});
+
+// 1) aplicăm global pe /api
+app.use("/api", apiLimiter);
+
+// 2) aplicăm limitere specifice pe endpoint-uri auth (înainte de router)
+app.use("/api/auth/me", authMeLimiter);
+app.use("/api/auth/exists", authExistsLimiter);
+app.use("/api/auth/login", authLoginLimiter);
 
 /* =========================================================
    HELPERS: incident logging + masking
@@ -355,6 +399,9 @@ app.use("/api/admin", adminCitiesRouter);
 app.use("/api/admin/monitor", adminIncidentsRoutes);
 app.use("/api/public", digitalWaitlistRoutes);
 app.use("/api/admin", adminDigitalWaitlistRoutes);
+app.use("/api", marketplaceWaitlistRouter);
+app.use("/api/admin", adminMarketplaceWaitlistRouter);
+
 // în app.js / routes index
 app.use("/api/admin", adminPolicyNotificationsRoutes);
 

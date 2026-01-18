@@ -327,10 +327,7 @@ export default function AdminPoliciesTab({
             </div>
           </div>
 
-          <UserConsentsTable
-            rows={userPaginatedRows}
-            totalItems={userTotalItems}
-          />
+          <UserConsentsTable rows={userPaginatedRows} totalItems={userTotalItems} />
 
           <Pagination
             page={userCurrentPage}
@@ -498,7 +495,32 @@ export default function AdminPoliciesTab({
     </>
   );
 }
+const DOC_LABELS = {
+    // users
+    TOS: "Termeni și condiții",
+    PRIVACY: "Politica de confidențialitate",
+    MARKETING: "Preferințe marketing",
 
+    // vendors
+    VENDOR_TERMS: "Acord master vânzători",
+    SHIPPING_ADDENDUM: "Anexă livrare (shipping)",
+    RETURNS_POLICY_ACK: "Politică retur",
+    PRODUCTS_ADDENDUM: "Anexa Produse",
+    PRODUCT_DECLARATION: "Declarație produse",
+  };
+
+  const DOC_URLS = {
+    // placeholders (poți ajusta după rutele tale reale)
+    TOS: "/legal/tos",
+    PRIVACY: "/legal/privacy",
+    MARKETING: "/legal/marketing",
+
+    VENDOR_TERMS: "/vendor/legal/vendor-terms",
+    SHIPPING_ADDENDUM: "/vendor/legal/shipping-addendum",
+    RETURNS_POLICY_ACK: "/vendor/legal/returns-policy",
+    PRODUCTS_ADDENDUM: "/vendor/legal/products-addendum",
+    PRODUCT_DECLARATION: "/vendor/legal/product-declaration",
+  };
 /* ===================== NEW COMPONENT ===================== */
 function PolicyNotificationsTab() {
   const [scope, setScope] = useState("VENDORS"); // VENDORS | USERS
@@ -509,7 +531,7 @@ function PolicyNotificationsTab() {
       SHIPPING_ADDENDUM: false,
       RETURNS_POLICY_ACK: false,
       PRODUCTS_ADDENDUM: false,
-      PRODUCT_DECLARATION: false, // opțional (dacă vrei să forțezi și declarația)
+      PRODUCT_DECLARATION: false,
     },
     USERS: {
       TOS: true,
@@ -521,25 +543,22 @@ function PolicyNotificationsTab() {
   // bifezi documentele vizate (dinamic după scope)
   const [documents, setDocuments] = useState(DOCS_BY_SCOPE.VENDORS);
 
-  // când schimbi scope, resetează lista de docs (ca să nu trimiți keys greșite)
+  // ✅ NEW: preview modal state
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   const handleScopeChange = (nextScope) => {
     setScope(nextScope);
     setDocuments(DOCS_BY_SCOPE[nextScope] || {});
   };
 
-  // dacă e true, în app poți bloca până la acceptare (gate)
   const [requiresAction, setRequiresAction] = useState(true);
-
-  // email opțional
   const [sendEmail, setSendEmail] = useState(false);
 
-  // content in-app
   const [title, setTitle] = useState("Au fost actualizate documentele legale");
   const [message, setMessage] = useState(
     "Am actualizat versiunea unuia sau mai multor documente. Te rugăm să le consulți și să le accepți pentru a continua."
   );
 
-  // content email
   const [emailSubject, setEmailSubject] = useState("Actualizare documente legale");
   const [emailBody, setEmailBody] = useState(
     "Salut! Am actualizat documentele legale. Te rugăm să intri în cont și să le accepți pentru a continua."
@@ -556,6 +575,25 @@ function PolicyNotificationsTab() {
   const toggleDoc = (k) => {
     setDocuments((prev) => ({ ...prev, [k]: !prev[k] }));
   };
+
+  const previewPayload = useMemo(() => {
+    const docs = selectedDocs.map((k) => ({
+      key: k,
+      title: DOC_LABELS[k] || k,
+      version: "X.Y.Z", // placeholder; real vine din backend
+      url: DOC_URLS[k] || null,
+      required: true,
+      alreadyAccepted: false, // preview
+    }));
+
+    return {
+      scope,
+      requiresAction,
+      title,
+      message,
+      documents: docs,
+    };
+  }, [scope, requiresAction, title, message, selectedDocs]);
 
   const handleSubmit = async () => {
     setOkMsg("");
@@ -600,13 +638,17 @@ function PolicyNotificationsTab() {
           data?.createdCount ?? "?"
         }${
           data?.emailQueued != null
-            ? ` · Email trimise: ${data.emailQueued}${data.emailFailed ? ` · Eșuate: ${data.emailFailed}` : ""}`
+            ? ` · Email trimise: ${data.emailQueued}${
+                data.emailFailed ? ` · Eșuate: ${data.emailFailed}` : ""
+              }`
             : ""
         }`
       );
     } catch (e) {
       console.error("policy notify send error:", e);
-      setErrMsg("Eroare la trimitere. Verifică endpoint-ul din backend și încearcă din nou.");
+      setErrMsg(
+        "Eroare la trimitere. Verifică endpoint-ul din backend și încearcă din nou."
+      );
     } finally {
       setLoading(false);
     }
@@ -635,7 +677,11 @@ function PolicyNotificationsTab() {
         </label>
 
         <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={sendEmail}
+            onChange={(e) => setSendEmail(e.target.checked)}
+          />
           <span style={{ margin: 0 }}>Trimite și email</span>
         </label>
       </div>
@@ -690,17 +736,207 @@ function PolicyNotificationsTab() {
       )}
       {okMsg && <div style={{ marginTop: 10, opacity: 0.9 }}>{okMsg}</div>}
 
-      <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
+      <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button type="button" className={styles.primaryBtn} onClick={handleSubmit} disabled={loading}>
           {loading ? "Se trimite…" : "Trimite informarea"}
+        </button>
+
+        <button
+          type="button"
+          className={styles.paginationBtn}
+          onClick={() => setPreviewOpen(true)}
+          disabled={!title.trim() || !message.trim()}
+        >
+          Preview gate
         </button>
       </div>
 
       <p className={styles.subtle} style={{ marginTop: 10 }}>
         * Necesită backend: <code>POST /api/admin/policy-notifications/send</code>
       </p>
+
+      <PolicyGatePreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        preview={previewPayload}
+      />
     </div>
   );
+}
+
+/* ===================== PREVIEW MODAL ===================== */
+function PolicyGatePreviewModal({ open, onClose, preview }) {
+  if (!open) return null;
+  if (typeof document === "undefined") return null;
+
+  const {
+    scope,
+    requiresAction,
+    title,
+    message,
+    documents = [],
+  } = preview || {};
+
+  const blocked =
+    !!requiresAction && documents.some((d) => d.required && !d.alreadyAccepted);
+
+  const node = (
+    <div className={styles.drawerOverlay} onClick={onClose} style={{ zIndex: 9999 }}>
+      <aside
+        className={styles.drawer}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Preview gate"
+        style={{ maxWidth: 760, width: "min(760px, 100%)" }}
+      >
+        <header className={styles.drawerHeader}>
+          <div>
+            <h3 className={styles.drawerTitle}>Preview gate (modal)</h3>
+            <p className={styles.drawerSub}>
+              Scope: <code>{scope}</code> · {blocked ? "Blochează acțiunile" : "Nu blochează"}
+            </p>
+          </div>
+          <button type="button" className={styles.drawerClose} onClick={onClose} aria-label="Închide">
+            ×
+          </button>
+        </header>
+
+        <div className={styles.drawerBody}>
+          <div className={styles.card} style={{ padding: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>
+                  {title || "—"}
+                </div>
+                <div className={styles.subtle} style={{ marginTop: 6 }}>
+                  {message || "—"}
+                </div>
+              </div>
+
+              {blocked && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    padding: "6px 10px",
+                    borderRadius: 999,
+                    border: "1px solid var(--color-border)",
+                    background: "color-mix(in srgb, var(--color-warning) 18%, transparent)",
+                    whiteSpace: "nowrap",
+                    height: "fit-content",
+                  }}
+                >
+                  Necesită acceptare
+                </span>
+              )}
+            </div>
+
+            <div style={{ marginTop: 12, fontWeight: 700 }}>Documente vizate</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+              {documents.length ? (
+                documents.map((d) => (
+                  <div
+                    key={d.key}
+                    style={{
+                      border: "1px solid var(--color-border)",
+                      borderRadius: 12,
+                      padding: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{ fontWeight: 800 }}>{d.title || d.key}</span>
+                        <span className={styles.subtle}>v{d.version || "?"}</span>
+                        {d.required ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              border: "1px solid var(--color-border)",
+                            }}
+                          >
+                            Obligatoriu
+                          </span>
+                        ) : null}
+                        {d.alreadyAccepted ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              border: "1px solid color-mix(in srgb, var(--color-success) 30%, transparent)",
+                              background: "color-mix(in srgb, var(--color-success) 12%, transparent)",
+                            }}
+                          >
+                            Acceptat
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {d.url ? (
+                        <div className={styles.subtle} style={{ marginTop: 6 }}>
+                          Link: <code>{d.url}</code>
+                        </div>
+                      ) : (
+                        <div className={styles.subtle} style={{ marginTop: 6 }}>
+                          Link lipsă
+                        </div>
+                      )}
+                    </div>
+
+                    {!d.alreadyAccepted && d.required ? (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          padding: "4px 10px",
+                          borderRadius: 999,
+                          border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
+                          background: "color-mix(in srgb, var(--color-danger) 10%, transparent)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        În așteptare
+                      </span>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <p className={styles.subtle} style={{ margin: 0 }}>
+                  Selectează cel puțin un document ca să vezi preview.
+                </p>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+              <button type="button" className={styles.primaryBtn} disabled={!blocked}>
+                Acceptă și continuă
+              </button>
+              <button type="button" className={styles.resetBtn}>
+                Reîncarcă
+              </button>
+            </div>
+
+            {blocked ? (
+              <p className={styles.subtle} style={{ marginTop: 10 }}>
+                * În preview, butoanele sunt “mock”. În gate-ul real, acceptarea va face POST și va debloca.
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <footer className={styles.drawerFooter}>
+          <button type="button" className={styles.drawerBtnSecondary} onClick={onClose}>
+            Închide preview
+          </button>
+        </footer>
+      </aside>
+    </div>
+  );
+
+  return createPortal(node, document.body);
 }
 
 /* ========== User table ========== */
@@ -744,16 +980,12 @@ function UserConsentsTable({ rows, totalItems }) {
               </td>
               <td>
                 {r.privacyAccepted
-                  ? `Da (v${r.privacyVersion || "?"}, ${formatDate(
-                      r.privacyGivenAt
-                    )})`
+                  ? `Da (v${r.privacyVersion || "?"}, ${formatDate(r.privacyGivenAt)})`
                   : "Nu"}
               </td>
               <td>
                 {r.marketingOptIn
-                  ? `Da (v${r.marketingVersion || "?"}, ${formatDate(
-                      r.marketingGivenAt
-                    )})`
+                  ? `Da (v${r.marketingVersion || "?"}, ${formatDate(r.marketingGivenAt)})`
                   : "Nu"}
               </td>
             </tr>
@@ -808,41 +1040,31 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
 
               <td>
                 {r.vendorTermsAccepted
-                  ? `Da (v${r.vendorTermsVersion || "?"}, ${formatDate(
-                      r.vendorTermsAcceptedAt
-                    )})`
+                  ? `Da (v${r.vendorTermsVersion || "?"}, ${formatDate(r.vendorTermsAcceptedAt)})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.shippingAccepted
-                  ? `Da (v${r.shippingVersion || "?"}, ${formatDate(
-                      r.shippingAcceptedAt
-                    )})`
+                  ? `Da (v${r.shippingVersion || "?"}, ${formatDate(r.shippingAcceptedAt)})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.returnsAccepted
-                  ? `Da (v${r.returnsVersion || "?"}, ${formatDate(
-                      r.returnsAcceptedAt
-                    )})`
+                  ? `Da (v${r.returnsVersion || "?"}, ${formatDate(r.returnsAcceptedAt)})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.productsAddendumAccepted
-                  ? `Da (v${r.productsAddendumVersion || "?"}, ${formatDate(
-                      r.productsAddendumAcceptedAt
-                    )})`
+                  ? `Da (v${r.productsAddendumVersion || "?"}, ${formatDate(r.productsAddendumAcceptedAt)})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.productDeclarationAccepted
-                  ? `Da (v${r.productDeclarationVersion || "?"}, ${formatDate(
-                      r.productDeclarationAcceptedAt
-                    )})`
+                  ? `Da (v${r.productDeclarationVersion || "?"}, ${formatDate(r.productDeclarationAcceptedAt)})`
                   : "Nu"}
               </td>
 
@@ -938,7 +1160,6 @@ function VendorDetailsDrawer({ vendor, onClose }) {
     vendorId,
     createdAt,
 
-    // curierat (informativ, din VendorService.attributes)
     wantsCourier,
     courierAddendumToggleAccepted,
     courierServicesCount,
@@ -1039,8 +1260,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                 <span>
                   ID serviciu: <code>{courierSample.id}</code>
                   <br />
-                  courierEnabled:{" "}
-                  {courierSample.courierEnabled ? "Da" : "Nu"}
+                  courierEnabled: {courierSample.courierEnabled ? "Da" : "Nu"}
                   <br />
                   courierAddendumAccepted:{" "}
                   {courierSample.courierAddendumAccepted ? "Da" : "Nu"}
@@ -1069,9 +1289,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Acord Master vânzători</span>
               <span>
                 {vendorTermsAccepted
-                  ? `Da (v${vendorTermsVersion || "?"}, ${formatDate(
-                      vendorTermsAcceptedAt
-                    )})`
+                  ? `Da (v${vendorTermsVersion || "?"}, ${formatDate(vendorTermsAcceptedAt)})`
                   : "Nu"}
               </span>
             </div>
@@ -1080,9 +1298,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Shipping addendum</span>
               <span>
                 {shippingAccepted
-                  ? `Da (v${shippingVersion || "?"}, ${formatDate(
-                      shippingAcceptedAt
-                    )})`
+                  ? `Da (v${shippingVersion || "?"}, ${formatDate(shippingAcceptedAt)})`
                   : "Nu"}
               </span>
             </div>
@@ -1091,9 +1307,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Politică retur</span>
               <span>
                 {returnsAccepted
-                  ? `Da (v${returnsVersion || "?"}, ${formatDate(
-                      returnsAcceptedAt
-                    )})`
+                  ? `Da (v${returnsVersion || "?"}, ${formatDate(returnsAcceptedAt)})`
                   : "Nu"}
               </span>
             </div>
@@ -1102,9 +1316,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Anexa Produse</span>
               <span>
                 {productsAddendumAccepted
-                  ? `Da (v${productsAddendumVersion || "?"}, ${formatDate(
-                      productsAddendumAcceptedAt
-                    )})`
+                  ? `Da (v${productsAddendumVersion || "?"}, ${formatDate(productsAddendumAcceptedAt)})`
                   : "Nu"}
               </span>
             </div>
@@ -1113,9 +1325,7 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Declarație produse</span>
               <span>
                 {productDeclarationAccepted
-                  ? `Da (v${productDeclarationVersion || "?"}, ${formatDate(
-                      productDeclarationAcceptedAt
-                    )})`
+                  ? `Da (v${productDeclarationVersion || "?"}, ${formatDate(productDeclarationAcceptedAt)})`
                   : "Nu"}
               </span>
             </div>

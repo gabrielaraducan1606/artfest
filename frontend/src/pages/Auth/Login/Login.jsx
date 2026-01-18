@@ -26,11 +26,6 @@ import { useAuth } from "../Context/context.js";
 import styles from "./Login.module.css";
 
 /* ========= util: sugestii anti-typo email (în afara componentei) ========= */
-/**
- * Privește string-ul de email introdus și încearcă să detecteze typo-uri frecvente
- * (gmal.com, gmial.com etc.). Dacă găsește o variantă mai probabilă, întoarce
- * un hint + sugestie (ex: "Ai vrut să scrii: nume@gmail.com").
- */
 function suggestEmailTypos(value) {
   const v = value.trim().toLowerCase();
   if (!v.includes("@")) return { hint: "", suggestion: "" };
@@ -39,11 +34,20 @@ function suggestEmailTypos(value) {
   if (!user || !domRaw) return { hint: "", suggestion: "" };
 
   const fixes = [
-    ["gmal.com", "gmail.com"], ["gmial.com", "gmail.com"], ["gnail.com", "gmail.com"],
-    ["gmail.con", "gmail.com"], ["gmail.co", "gmail.com"],
-    ["yaho.com", "yahoo.com"], ["yaaho.com", "yahoo.com"], ["yahoo.con", "yahoo.com"],
-    ["outllok.com", "outlook.com"], ["hotnail.com", "hotmail.com"],
-    [".con", ".com"], [".c0m", ".com"], [" .ro", ".ro"], [".ro ", ".ro"],
+    ["gmal.com", "gmail.com"],
+    ["gmial.com", "gmail.com"],
+    ["gnail.com", "gmail.com"],
+    ["gmail.con", "gmail.com"],
+    ["gmail.co", "gmail.com"],
+    ["yaho.com", "yahoo.com"],
+    ["yaaho.com", "yahoo.com"],
+    ["yahoo.con", "yahoo.com"],
+    ["outllok.com", "outlook.com"],
+    ["hotnail.com", "hotmail.com"],
+    [".con", ".com"],
+    [".c0m", ".com"],
+    [" .ro", ".ro"],
+    [".ro ", ".ro"],
   ];
 
   let dom = domRaw;
@@ -52,10 +56,18 @@ function suggestEmailTypos(value) {
   }
 
   const common = [
-    "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
-    "icloud.com", "proton.me", "mail.com", "live.com",
-    "yahoo.ro", "gmail.ro",
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "icloud.com",
+    "proton.me",
+    "mail.com",
+    "live.com",
+    "yahoo.ro",
+    "gmail.ro",
   ];
+
   if (!dom.includes(".")) {
     const guess =
       common.find((d) => d.startsWith(dom)) || (dom === "gmail" ? "gmail.com" : "");
@@ -69,18 +81,16 @@ function suggestEmailTypos(value) {
 
 /* ============================ Componenta ============================ */
 export default function Login({
-  inModal = false,        // dacă true, componenta este afișată într-un modal (fără tab bar)
-  onLoggedIn,            // callback opțional, apelat după login reușit
-  redirectTo = "/desktop", // fallback pentru redirect după login (dacă rolul nu decide altceva)
-  onSwitchToRegister,    // callback opțional pentru a comuta pe view-ul de "Register" în modal
+  inModal = false,
+  onLoggedIn,
+  redirectTo = "/desktop",
+  onSwitchToRegister,
 }) {
   const { refresh } = useAuth();
 
   /* ------------------ Tab state (Login / Register) ------------------ */
   const [tab, setTab] = useState("login");
 
-  // La montare, dacă NU suntem într-un modal, citim parametru "auth" din URL
-  // ex: /auth?auth=register => deschidem direct tab-ul de "Înregistrare"
   useEffect(() => {
     if (inModal) return;
     try {
@@ -88,11 +98,11 @@ export default function Login({
       const t = sp.get("auth");
       setTab(t === "register" ? "register" : "login");
     } catch {
-      // ignorăm erorile de URL
+      // ignore
     }
   }, [inModal]);
 
-  // ID-uri unice pentru accesibilitate (label-for, aria-*)
+  // ID-uri unice
   const baseId = useId();
   const emailId = useId();
   const passwordId = useId();
@@ -101,8 +111,6 @@ export default function Login({
   const capsHintId = `${baseId}-caps-hint`;
 
   /* ----------------------------- State UI ---------------------------- */
-
-  // Email-ul este pre-populat din localStorage dacă a mai fost folosit și remember era bifat
   const [email, setEmail] = useState(() => {
     try {
       return localStorage.getItem("lastEmail") || "";
@@ -115,23 +123,19 @@ export default function Login({
   const [emailExistsHint, setEmailExistsHint] = useState("");
   const [emailSuggestion, setEmailSuggestion] = useState("");
 
-  // Parola + vizibilitate + hint CapsLock
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [peekPw, setPeekPw] = useState(false);
   const [pwFocused, setPwFocused] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
 
-  // "Ține-mă minte" => influențează durata cookie-ului + salvarea emailului în localStorage
   const [remember, setRemember] = useState(true);
 
-  // Erori, loading, offline și cooldown (429)
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [cooldownSec, setCooldownSec] = useState(0);
 
-  // Refs pentru focus & aria-live & abort controllers
   const emailRef = useRef(null);
   const pwRef = useRef(null);
   const liveRef = useRef(null);
@@ -147,7 +151,7 @@ export default function Login({
     try {
       emailRef.current?.focus();
     } catch {
-      // nu e critic
+      // ignore
     }
   }, [inModal]);
 
@@ -177,13 +181,11 @@ export default function Login({
   /* -------------------- aria-live: ultimele erori -------------------- */
   useEffect(() => {
     if (!liveRef.current) return;
-    // actualizăm conținutul pentru cititoarele de ecran
     liveRef.current.textContent = err || "";
   }, [err]);
 
   /* ----------------- Debounce /exists + hint "nu există" ------------ */
   useEffect(() => {
-    // nu are sens să verificăm când suntem offline
     if (offline) {
       setEmailExistsHint("");
       return;
@@ -194,11 +196,10 @@ export default function Login({
       return;
     }
 
-    // anulăm DOAR request-ul anterior de exists
     try {
       existsAbortRef.current?.abort?.();
     } catch {
-      // ignorăm
+      // ignore
     }
 
     const ctrl = new AbortController();
@@ -212,13 +213,10 @@ export default function Login({
           signal: ctrl.signal,
         });
         const exists = !!r?.exists;
-        if (exists === false) {
-          setEmailExistsHint("Verifică adresa: nu pare să existe un cont.");
-        } else {
-          setEmailExistsHint("");
-        }
+        if (exists === false) setEmailExistsHint("Verifică adresa: nu pare să existe un cont.");
+        else setEmailExistsHint("");
       } catch {
-        // ignorăm — fallback-ul e mapBackendError la submit
+        // ignore
       }
     }, 450);
 
@@ -231,9 +229,7 @@ export default function Login({
   /* ------------------------- Cooldown pentru 429 --------------------- */
   useEffect(() => {
     if (!cooldownSec) return;
-    const id = setInterval(() => {
-      setCooldownSec((s) => Math.max(0, s - 1));
-    }, 1000);
+    const id = setInterval(() => setCooldownSec((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, [cooldownSec]);
 
@@ -241,9 +237,7 @@ export default function Login({
   function mapBackendError(e, existsFlag) {
     const code = e?.data?.error || e?.error || e?.message || "";
 
-    if (code === "user_not_found") {
-      return "Nu există niciun cont cu acest e-mail. Creează un cont nou.";
-    }
+    if (code === "user_not_found") return "Nu există niciun cont cu acest e-mail. Creează un cont nou.";
 
     if (code === "old_password_used") {
       return "Această parolă a fost folosită anterior și a fost înlocuită. Te rugăm să folosești parola nouă sau să îți resetezi parola.";
@@ -255,34 +249,24 @@ export default function Login({
         : "Parola este incorectă. Încearcă din nou sau resetează-ți parola.";
     }
 
-    if (code === "invalid_payload") {
-      return "Te rugăm să completezi e-mailul și parola.";
-    }
+    if (code === "invalid_payload") return "Te rugăm să completezi e-mailul și parola.";
 
-    if (code === "email_not_verified") {
-      return "Te rugăm să îți confirmi adresa de email. Ți-am trimis un link de activare.";
-    }
+    if (code === "email_not_verified") return "Te rugăm să îți confirmi adresa de email. Ți-am trimis un link de activare.";
 
-    if (code === "account_locked") {
-      return "Contul tău este blocat. Te rugăm să contactezi echipa de suport.";
-    }
+    if (code === "account_locked") return "Contul tău este blocat. Te rugăm să contactezi echipa de suport.";
 
     if (code === "too_many_attempts") {
       return "Prea multe încercări de conectare. Te rugăm să încerci din nou peste câteva minute.";
     }
 
-    // fallback general
-    return (
-      e?.data?.message ||
-      e?.message ||
-      "Autentificarea a eșuat. Încearcă din nou."
-    );
+    return e?.data?.message || e?.message || "Autentificarea a eșuat. Încearcă din nou.";
   }
 
   /* -------------------------- Submit login --------------------------- */
   async function onSubmit(e) {
     e.preventDefault();
     if (loading) return;
+
     if (offline) {
       setErr("Ești offline. Verifică conexiunea la internet.");
       return;
@@ -301,7 +285,7 @@ export default function Login({
     try {
       loginAbortRef.current?.abort?.();
     } catch {
-      // ignorăm
+      // ignore
     }
     const ctrl = new AbortController();
     loginAbortRef.current = ctrl;
@@ -313,14 +297,6 @@ export default function Login({
         signal: ctrl.signal,
       });
 
-      // fallback pentru situații speciale (__unauth)
-      if (resp && resp.__unauth) {
-        const fake = new Error("wrong_password");
-        fake.status = 401;
-        fake.data = { error: "wrong_password" };
-        throw fake;
-      }
-
       const { user } = resp || {};
 
       // Persistăm sau ștergem ultimul email în funcție de "remember"
@@ -328,49 +304,37 @@ export default function Login({
         if (remember) localStorage.setItem("lastEmail", cleanEmail);
         else localStorage.removeItem("lastEmail");
       } catch {
-        // storage poate fi blocat – nu oprim flow-ul
+        // ignore
       }
 
-      // Reîmprospătăm contextul de auth (user curent)
-      const me = await refresh().catch(() => null);
-      const finalUser = me && me.role ? me : user;
+      // Reîmprospătăm contextul de auth
+      try {
+        await refresh();
+      } catch {
+        // ignore: dacă /me pică temporar, loginul tot a mers
+      }
 
-      // Callback pentru părinte (ex: închiderea modalului)
-      onLoggedIn?.(finalUser);
+      // callback părinte (modal)
+      onLoggedIn?.(user);
 
-      // Eveniment global pentru alte părți ale aplicației
+      // Eveniment global
       try {
         window.dispatchEvent(new CustomEvent("auth:login"));
       } catch {
-        // non-critical
+        // ignore
       }
 
-      // Decidem pagina de redirect în funcție de rol
-         const role = finalUser?.role;
+      // Redirect pe rol
+      const role = user?.role;
+      let next;
 
-let next;
+      if (role === "ADMIN") next = "/admin";
+      else if (role === "VENDOR") next = "/desktop";
+      else next = "/desktop-user";
 
-// ADMIN → ruta lui specială
-if (role === "ADMIN") {
-  next = "/admin"; // sau "/admin-desktop", cum ai tu în router
-}
-// VENDOR → dashboard vendor
-else if (role === "VENDOR") {
-  next = "/desktop";
-}
-// USER (sau orice alt rol) → dashboard user
-else {
-  next = "/desktop-user";
-}
+      if (!next) next = redirectTo || "/desktop-user";
 
-// fallback, dacă dintr-un motiv bizar next e încă falsy
-if (!next) {
-  next = redirectTo || "/desktop-user";
-}
-
-window.location.assign(next);
-
-
+      window.location.assign(next);
     } catch (e2) {
       if (e2?.name === "AbortError") return;
 
@@ -388,34 +352,32 @@ window.location.assign(next);
         return;
       }
 
-      // Too many attempts: blocăm temporar formularul
+      // Too many attempts
       if (e2?.status === 429 || e2?.data?.error === "too_many_attempts") {
         setErr("Prea multe încercări. Mai încearcă în câteva secunde.");
         setCooldownSec((s) => (s && s > 0 ? s : 20));
       } else if (!navigator.onLine) {
         setErr("Ești offline. Reîncearcă atunci când revii online.");
       } else {
-        // Determinăm dacă emailul există, pentru un mesaj mai precis
+        // Exists pentru mesaj mai precis
         const exists = await (async () => {
           try {
-            const r = await api(
-              `/api/auth/exists?email=${encodeURIComponent(cleanEmail)}`
-            );
+            const r = await api(`/api/auth/exists?email=${encodeURIComponent(cleanEmail)}`);
             return !!r?.exists;
           } catch {
             return null;
           }
         })();
+
         const msg = mapBackendError(e2, exists);
         setErr(msg);
 
-        // Focus pe aria-live + câmp parolă pentru UX mai bun
         try {
           liveRef.current?.focus?.();
           pwRef.current?.focus();
           pwRef.current?.select?.();
         } catch {
-          // fallback – nu e grav dacă nu reușește
+          // ignore
         }
       }
     } finally {
@@ -425,34 +387,31 @@ window.location.assign(next);
 
   /* ----------------- Handler pentru tastă la parolă ----------------- */
   function handlePwKey(ev) {
-    // CapsLock hint
     try {
       setCapsOn(!!ev.getModifierState?.("CapsLock"));
     } catch {
-      // ignorăm
+      // ignore
     }
 
-    // Alt/Option/Cmd+V -> toggle vizibilitate
     if ((ev.altKey || ev.metaKey) && (ev.key === "v" || ev.key === "V")) {
       ev.preventDefault();
       setShowPw((v) => !v);
     }
-    // Ctrl/Cmd+Enter -> submit
+
     if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
       try {
         (ev.target?.form || document.querySelector("form"))?.requestSubmit?.();
       } catch {
-        // ignorăm
+        // ignore
       }
     }
-    // Esc -> curăță eroarea
+
     if (ev.key === "Escape") setErr("");
   }
 
   const showToggle = pwFocused || password.length > 0;
   const pwType = showPw || peekPw ? "text" : "password";
 
-  /* --------------- Aplică sugestia de email (anti-typo) ------------- */
   function applyEmailSuggestion() {
     if (emailSuggestion) {
       const clean = normalizeEmail(emailSuggestion);
@@ -462,7 +421,6 @@ window.location.assign(next);
     setEmailExistsHint("");
   }
 
-  // Enter în câmpul de email -> focus pe parolă (flow rapid)
   function onEmailKeyDown(e) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -475,7 +433,6 @@ window.location.assign(next);
       className={`${styles.wrap} ${inModal ? styles.wrapModal : ""}`}
       aria-labelledby={inModal ? undefined : "login-title"}
     >
-      {/* Header afișat doar în varianta de pagină, nu și în modal */}
       {!inModal && (
         <header className={styles.header}>
           <h1 id="login-title" className={styles.title}>
@@ -485,13 +442,8 @@ window.location.assign(next);
         </header>
       )}
 
-      {/* Tab bar Login / Register (doar în varianta pagină, nu și în modal) */}
       {!inModal && (
-        <div
-          className={styles.tabBar}
-          role="tablist"
-          aria-label="Autentificare sau Înregistrare"
-        >
+        <div className={styles.tabBar} role="tablist" aria-label="Autentificare sau Înregistrare">
           <button
             type="button"
             role="tab"
@@ -499,9 +451,7 @@ window.location.assign(next);
             aria-controls={loginPanelId}
             id={`${baseId}-tab-login`}
             tabIndex={tab === "login" ? 0 : -1}
-            className={`${styles.tabBtn} ${
-              tab === "login" ? styles.tabBtnActive : ""
-            }`}
+            className={`${styles.tabBtn} ${tab === "login" ? styles.tabBtnActive : ""}`}
             onClick={() => setTab("login")}
             onKeyDown={(e) => {
               if (e.key === "ArrowRight") setTab("register");
@@ -516,9 +466,7 @@ window.location.assign(next);
             aria-controls={registerPanelId}
             id={`${baseId}-tab-register`}
             tabIndex={tab === "register" ? 0 : -1}
-            className={`${styles.tabBtn} ${
-              tab === "register" ? styles.tabBtnActive : ""
-            }`}
+            className={`${styles.tabBtn} ${tab === "register" ? styles.tabBtnActive : ""}`}
             onClick={() => setTab("register")}
             onKeyDown={(e) => {
               if (e.key === "ArrowLeft") setTab("login");
@@ -529,7 +477,6 @@ window.location.assign(next);
         </div>
       )}
 
-      {/* Panou de LOGIN: afișat în modal sau când tab-ul curent este "login" */}
       {(inModal || tab === "login") && (
         <form
           className={styles.card}
@@ -539,14 +486,7 @@ window.location.assign(next);
           role={!inModal ? "tabpanel" : undefined}
           aria-labelledby={!inModal ? `${baseId}-tab-login` : undefined}
         >
-          {/* aria-live politeness + focusable pentru cititoare ecran */}
-          <div
-            ref={liveRef}
-            tabIndex={-1}
-            aria-live="polite"
-            aria-atomic="true"
-            className={styles.srOnly}
-          />
+          <div ref={liveRef} tabIndex={-1} aria-live="polite" aria-atomic="true" className={styles.srOnly} />
 
           {offline && (
             <div className={styles.offline} role="status">
@@ -554,7 +494,6 @@ window.location.assign(next);
             </div>
           )}
 
-          {/* Câmp email */}
           <div className={styles.fieldGroup}>
             <label htmlFor={emailId} className={styles.label}>
               Email
@@ -579,18 +518,10 @@ window.location.assign(next);
             />
             {(emailTypoHint || emailExistsHint || emailSuggestion) && (
               <div className={styles.suggestionRow}>
-                {emailTypoHint && (
-                  <small className={styles.hint}>{emailTypoHint}</small>
-                )}
-                {emailExistsHint && (
-                  <small className={styles.hint}>{emailExistsHint}</small>
-                )}
+                {emailTypoHint && <small className={styles.hint}>{emailTypoHint}</small>}
+                {emailExistsHint && <small className={styles.hint}>{emailExistsHint}</small>}
                 {emailSuggestion && (
-                  <button
-                    type="button"
-                    className={styles.pill}
-                    onClick={applyEmailSuggestion}
-                  >
+                  <button type="button" className={styles.pill} onClick={applyEmailSuggestion}>
                     Aplicați: <strong>{emailSuggestion}</strong>
                   </button>
                 )}
@@ -598,17 +529,12 @@ window.location.assign(next);
             )}
           </div>
 
-          {/* Câmp parolă + toggle vizibilitate + CapsLock hint */}
           <div className={styles.fieldGroup}>
             <label htmlFor={passwordId} className={styles.label}>
               Parolă
             </label>
 
-            <div
-              className={`${styles.inputGroup} ${
-                showToggle ? styles.hasToggle : ""
-              }`}
-            >
+            <div className={`${styles.inputGroup} ${showToggle ? styles.hasToggle : ""}`}>
               <input
                 id={passwordId}
                 name="password"
@@ -636,9 +562,7 @@ window.location.assign(next);
                 <button
                   type="button"
                   className={styles.togglePw}
-                  aria-label={
-                    showPw || peekPw ? "Ascunde parola" : "Afișează parola"
-                  }
+                  aria-label={showPw || peekPw ? "Ascunde parola" : "Afișează parola"}
                   aria-pressed={showPw || peekPw}
                   onClick={() => setShowPw((v) => !v)}
                   onMouseDown={(e) => {
@@ -652,7 +576,7 @@ window.location.assign(next);
                     try {
                       pwRef.current?.focus({ preventScroll: true });
                     } catch {
-                      // ignorăm
+                      // ignore
                     }
                   }}
                   onTouchEnd={() => setPeekPw(false)}
@@ -671,7 +595,6 @@ window.location.assign(next);
             )}
           </div>
 
-          {/* Remember me */}
           <label className={styles.checkRow}>
             <input
               type="checkbox"
@@ -679,37 +602,25 @@ window.location.assign(next);
               onChange={(e) => setRemember(e.target.checked)}
               aria-label="Ține-mă minte"
             />
-            <span className={styles.checkLabel}>
-              Ține-mă minte pe acest dispozitiv
-            </span>
+            <span className={styles.checkLabel}>Ține-mă minte pe acest dispozitiv</span>
           </label>
 
-          {/* Mesaj de eroare + link-uri contextuale (resetare / creează cont) */}
           {err && (
             <div className={styles.error} role="alert">
               {err}{" "}
-              {(err.toLowerCase().includes("parola") ||
-                err.toLowerCase().includes("eșuat")) && (
+              {(err.toLowerCase().includes("parola") || err.toLowerCase().includes("eșuat")) && (
                 <a className={styles.linkBtn} href="/reset-parola">
                   Resetează parola
                 </a>
               )}
               {err.toLowerCase().includes("creează un cont") &&
                 (inModal && onSwitchToRegister ? (
-                  <button
-                    type="button"
-                    className={styles.linkBtn}
-                    onClick={onSwitchToRegister}
-                  >
+                  <button type="button" className={styles.linkBtn} onClick={onSwitchToRegister}>
                     Creează cont
                   </button>
                 ) : (
                   !inModal && (
-                    <button
-                      type="button"
-                      className={styles.linkBtn}
-                      onClick={() => setTab("register")}
-                    >
+                    <button type="button" className={styles.linkBtn} onClick={() => setTab("register")}>
                       Creează cont
                     </button>
                   )
@@ -717,43 +628,27 @@ window.location.assign(next);
             </div>
           )}
 
-          {/* Buton submit: blocat când loading / lipsesc date / cooldown / offline */}
           <button
             type="submit"
             className={styles.primaryBtn}
-            disabled={
-              loading || !email || !password || cooldownSec > 0 || offline
-            }
+            disabled={loading || !email || !password || cooldownSec > 0 || offline}
             aria-busy={loading ? "true" : "false"}
             title={cooldownSec > 0 ? `Așteaptă ${cooldownSec}s` : undefined}
           >
-            {loading
-              ? "Se conectează…"
-              : cooldownSec > 0
-              ? `Așteaptă ${cooldownSec}s`
-              : "Intră"}
+            {loading ? "Se conectează…" : cooldownSec > 0 ? `Așteaptă ${cooldownSec}s` : "Intră"}
           </button>
 
-          {/* Footer cu link "Ai uitat parola?" + "Creează cont" */}
           <div className={styles.footerRow}>
             <a className={styles.link} href="/reset-parola">
               Ai uitat parola?
             </a>
             {inModal && onSwitchToRegister ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                onClick={onSwitchToRegister}
-              >
+              <button type="button" className={styles.linkBtn} onClick={onSwitchToRegister}>
                 Creează cont
               </button>
             ) : (
               !inModal && (
-                <button
-                  type="button"
-                  className={styles.linkBtn}
-                  onClick={() => setTab("register")}
-                >
+                <button type="button" className={styles.linkBtn} onClick={() => setTab("register")}>
                   Creează cont
                 </button>
               )
@@ -762,7 +657,6 @@ window.location.assign(next);
         </form>
       )}
 
-      {/* Panou de REGISTER (doar în varianta pagină, când tab === "register") */}
       {!inModal && tab === "register" && (
         <div
           className={styles.card}

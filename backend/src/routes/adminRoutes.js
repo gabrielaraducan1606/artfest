@@ -1,3 +1,5 @@
+// src/routes/adminRoutes.js
+
 import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../db.js";
@@ -10,10 +12,7 @@ const router = Router();
 router.use(authRequired, requireRole("ADMIN"));
 
 // baza pentru link-urile către frontend
-const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
-  /\/+$/,
-  ""
-);
+const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 
 /**
  * SELECT comun pentru user în admin (ca să nu repetăm peste tot)
@@ -63,6 +62,7 @@ const adminUserSelect = {
 
 /**
  * SELECT comun pentru vendor în acțiuni simple (activate/deactivate etc.)
+ * IMPORTANT: include și câmpurile de audit pentru entitySelfDeclared
  */
 const adminVendorSelect = {
   id: true,
@@ -79,9 +79,12 @@ const adminVendorSelect = {
   address: true,
   delivery: true,
 
-  // flag entitate juridică
+  // flag entitate juridică + audit
   entitySelfDeclared: true,
   entitySelfDeclaredAt: true,
+  entitySelfDeclaredIp: true,
+  entitySelfDeclaredUa: true,
+  entitySelfDeclaredMeta: true,
 
   user: {
     select: {
@@ -108,7 +111,7 @@ const adminVendorSelect = {
       contactPerson: true,
       phone: true,
 
-      // 🔥 new – câmpuri TVA vendor din formular
+      // câmpuri TVA vendor din formular
       vatStatus: true,
       vatRate: true,
       vatResponsibilityConfirmed: true,
@@ -149,18 +152,13 @@ function buildVendorAgreementsSummary(vendor, requiredDocs) {
   const acceptances = vendor?.VendorAcceptance || [];
 
   const acceptedDocs = acceptances.map((a) => a.document);
-  const missingDocs = requiredDocs.filter(
-    (doc) => !acceptedDocs.includes(doc)
-  );
+  const missingDocs = requiredDocs.filter((doc) => !acceptedDocs.includes(doc));
 
-  const allRequired =
-    requiredDocs.length > 0 && missingDocs.length === 0;
+  const allRequired = requiredDocs.length > 0 && missingDocs.length === 0;
 
   let lastAcceptedAt = null;
   if (acceptances.length) {
-    const latest = acceptances.reduce((acc, cur) =>
-      !acc || cur.acceptedAt > acc.acceptedAt ? cur : acc
-    );
+    const latest = acceptances.reduce((acc, cur) => (!acc || cur.acceptedAt > acc.acceptedAt ? cur : acc));
     lastAcceptedAt = latest.acceptedAt.toISOString();
   }
 
@@ -181,13 +179,12 @@ function buildVendorAgreementsSummary(vendor, requiredDocs) {
  */
 router.get("/stats", async (_req, res) => {
   try {
-    const [usersCount, vendorsCount, ordersCount, productsCount] =
-      await Promise.all([
-        prisma.user.count(),
-        prisma.vendor.count(),
-        prisma.order.count(),
-        prisma.product.count(),
-      ]);
+    const [usersCount, vendorsCount, ordersCount, productsCount] = await Promise.all([
+      prisma.user.count(),
+      prisma.vendor.count(),
+      prisma.order.count(),
+      prisma.product.count(),
+    ]);
 
     res.json({ usersCount, vendorsCount, ordersCount, productsCount });
   } catch (e) {
@@ -215,7 +212,8 @@ router.get("/users", async (_req, res) => {
 
 /**
  * GET /api/admin/vendors
- * 🔥 include și numărul de followers (ServiceFollow) pe toate serviciile vendorului
+ * include și numărul de followers (ServiceFollow) pe toate serviciile vendorului
+ * include și audit entitySelfDeclared (ip/ua/meta)
  */
 router.get("/vendors", async (_req, res) => {
   try {
@@ -227,9 +225,7 @@ router.get("/vendors", async (_req, res) => {
         isActive: true,
         isRequired: true,
       },
-      select: {
-        document: true,
-      },
+      select: { document: true },
     });
 
     const requiredDocs = activePolicies.map((p) => p.document);
@@ -261,7 +257,7 @@ router.get("/vendors", async (_req, res) => {
             contactPerson: true,
             phone: true,
 
-            // 🔥 new – TVA vendor
+            // TVA vendor
             vatStatus: true,
             vatRate: true,
             vatResponsibilityConfirmed: true,
@@ -287,9 +283,7 @@ router.get("/vendors", async (_req, res) => {
           },
         },
         services: {
-          include: {
-            profile: true,
-          },
+          include: { profile: true },
         },
         VendorAcceptance: {
           select: {
@@ -301,14 +295,12 @@ router.get("/vendors", async (_req, res) => {
       },
     });
 
-    // 🔥 calculează followers per vendor (toate follow-urile pe serviciile lui)
+    // followers per vendor (toate follow-urile pe serviciile lui)
     const vendorsWithFollowers = await Promise.all(
       vendors.map(async (v) => {
         const followers = await prisma.serviceFollow.count({
           where: {
-            service: {
-              vendorId: v.id,
-            },
+            service: { vendorId: v.id },
           },
         });
         return { vendor: v, followers };
@@ -321,29 +313,21 @@ router.get("/vendors", async (_req, res) => {
       const profile = mainService?.profile || null;
 
       const slug = profile?.slug || null;
-      const publicProfileUrl = slug
-        ? `${basePublicUrl.replace(/\/+$/, "")}/magazin/${slug}`
-        : null;
+      const publicProfileUrl = slug ? `${basePublicUrl.replace(/\/+$/, "")}/magazin/${slug}` : null;
 
-      const hasMasterAgreement = services.some(
-        (s) => s.attributes?.masterAgreementAccepted === true
-      );
+      const hasMasterAgreement = services.some((s) => s.attributes?.masterAgreementAccepted === true);
 
       const acceptedDates = services
         .map((s) => s.attributes?.masterAgreementAcceptedAt)
         .filter(Boolean)
         .sort();
 
-      const masterAgreementAcceptedAt =
-        acceptedDates.length > 0 ? acceptedDates[0] : null;
+      const masterAgreementAcceptedAt = acceptedDates.length > 0 ? acceptedDates[0] : null;
 
       const profileComplete = Boolean(
         (v.displayName || profile?.displayName) &&
           slug &&
-          (v.logoUrl ||
-            v.coverUrl ||
-            profile?.logoUrl ||
-            profile?.coverUrl) &&
+          (v.logoUrl || v.coverUrl || profile?.logoUrl || profile?.coverUrl) &&
           (v.address || profile?.address) &&
           Array.isArray(v.delivery) &&
           v.delivery.length > 0 &&
@@ -352,10 +336,7 @@ router.get("/vendors", async (_req, res) => {
 
       const onboardingStatus = profileComplete ? "done" : "profile";
 
-      const agreementsSummary = buildVendorAgreementsSummary(
-        v,
-        requiredDocs
-      );
+      const agreementsSummary = buildVendorAgreementsSummary(v, requiredDocs);
 
       return {
         id: v.id,
@@ -372,17 +353,19 @@ router.get("/vendors", async (_req, res) => {
         address: v.address,
         delivery: v.delivery,
 
+        // ✅ entitate juridică + audit
         entitySelfDeclared: v.entitySelfDeclared,
-        entitySelfDeclaredAt: v.entitySelfDeclaredAt
-          ? v.entitySelfDeclaredAt.toISOString()
-          : null,
+        entitySelfDeclaredAt: v.entitySelfDeclaredAt ? v.entitySelfDeclaredAt.toISOString() : null,
+        entitySelfDeclaredIp: v.entitySelfDeclaredIp || null,
+        entitySelfDeclaredUa: v.entitySelfDeclaredUa || null,
+        entitySelfDeclaredMeta: v.entitySelfDeclaredMeta ?? null,
 
         slug,
         publicProfileUrl,
         profileComplete,
         onboardingStatus,
 
-        // 🔥 nou: număr total de urmăritori (followers) la magazin
+        // număr total de urmăritori (followers) la magazin
         followers,
 
         user: v.user
@@ -391,9 +374,7 @@ router.get("/vendors", async (_req, res) => {
               email: v.user.email,
               role: v.user.role,
               createdAt: v.user.createdAt.toISOString(),
-              lastLoginAt: v.user.lastLoginAt
-                ? v.user.lastLoginAt.toISOString()
-                : null,
+              lastLoginAt: v.user.lastLoginAt ? v.user.lastLoginAt.toISOString() : null,
             }
           : null,
 
@@ -412,23 +393,18 @@ router.get("/vendors", async (_req, res) => {
               contactPerson: v.billing.contactPerson,
               phone: v.billing.phone,
 
-              // TVA vendor din formular
               vatStatus: v.billing.vatStatus,
               vatRate: v.billing.vatRate,
-              vatResponsibilityConfirmed:
-                v.billing.vatResponsibilityConfirmed,
-              vatLastResponsibilityConfirm:
-                v.billing.vatLastResponsibilityConfirm
-                  ? v.billing.vatLastResponsibilityConfirm.toISOString()
-                  : null,
+              vatResponsibilityConfirmed: v.billing.vatResponsibilityConfirmed,
+              vatLastResponsibilityConfirm: v.billing.vatLastResponsibilityConfirm
+                ? v.billing.vatLastResponsibilityConfirm.toISOString()
+                : null,
 
               tvaActive: v.billing.tvaActive,
               inactiv: v.billing.inactiv,
               insolvent: v.billing.insolvent,
               splitTva: v.billing.splitTva,
-              tvaVerifiedAt: v.billing.tvaVerifiedAt
-                ? v.billing.tvaVerifiedAt.toISOString()
-                : null,
+              tvaVerifiedAt: v.billing.tvaVerifiedAt ? v.billing.tvaVerifiedAt.toISOString() : null,
               tvaSource: v.billing.tvaSource,
               anafName: v.billing.anafName,
               anafAddress: v.billing.anafAddress,
@@ -501,9 +477,7 @@ router.get("/products", async (req, res) => {
         isActive: true,
         isRequired: true,
       },
-      select: {
-        document: true,
-      },
+      select: { document: true },
     });
 
     const requiredDocs = activePolicies.map((p) => p.document);
@@ -551,10 +525,7 @@ router.get("/products", async (req, res) => {
       const vendor = svc?.vendor;
 
       if (vendor) {
-        const agreementsSummary = buildVendorAgreementsSummary(
-          vendor,
-          requiredDocs
-        );
+        const agreementsSummary = buildVendorAgreementsSummary(vendor, requiredDocs);
         return {
           ...p,
           service: {
@@ -632,9 +603,7 @@ router.post("/users/:id/unsuspend", async (req, res) => {
 
     const user = await prisma.user.update({
       where: { id },
-      data: {
-        status: "ACTIVE",
-      },
+      data: { status: "ACTIVE" },
       select: adminUserSelect,
     });
 
@@ -711,14 +680,10 @@ router.post("/users/:id/send-password-reset", async (req, res) => {
     });
 
     if (!APP_URL) {
-      console.warn(
-        "[ADMIN] APP_URL/FRONTEND_URL nu este setat – nu pot genera link de resetare."
-      );
+      console.warn("[ADMIN] APP_URL/FRONTEND_URL nu este setat – nu pot genera link de resetare.");
     }
 
-    const resetLink = APP_URL
-      ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}`
-      : undefined;
+    const resetLink = APP_URL ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}` : undefined;
 
     if (resetLink) {
       await sendPasswordResetEmail({
@@ -753,9 +718,7 @@ router.post("/vendors/:id/activate", async (req, res) => {
 
     const vendor = await prisma.vendor.update({
       where: { id },
-      data: {
-        isActive: true,
-      },
+      data: { isActive: true },
       select: adminVendorSelect,
     });
 
@@ -781,9 +744,7 @@ router.post("/vendors/:id/deactivate", async (req, res) => {
 
     const vendor = await prisma.vendor.update({
       where: { id },
-      data: {
-        isActive: false,
-      },
+      data: { isActive: false },
       select: adminVendorSelect,
     });
 
@@ -836,14 +797,10 @@ router.post("/vendors/:id/send-password-reset", async (req, res) => {
     });
 
     if (!APP_URL) {
-      console.warn(
-        "[ADMIN] APP_URL/FRONTEND_URL nu este setat – nu pot genera link de resetare."
-      );
+      console.warn("[ADMIN] APP_URL/FRONTEND_URL nu este setat – nu pot genera link de resetare.");
     }
 
-    const resetLink = APP_URL
-      ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}`
-      : undefined;
+    const resetLink = APP_URL ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}` : undefined;
 
     if (resetLink) {
       await sendPasswordResetEmail({
@@ -882,9 +839,7 @@ router.post("/vendors/:id/reset-agreements", async (req, res) => {
     return res.json({ ok: true });
   } catch (e) {
     console.error("ADMIN /vendors/:id/reset-agreements error", e);
-    return res
-      .status(500)
-      .json({ error: "admin_vendor_reset_agreements_failed" });
+    return res.status(500).json({ error: "admin_vendor_reset_agreements_failed" });
   }
 });
 

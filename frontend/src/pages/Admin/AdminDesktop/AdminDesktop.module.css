@@ -640,3 +640,51 @@ html[data-theme="dark"] .clickableRow:hover {
   font-size: 0.9rem;
   resize: vertical;
 }
+/* =========================
+   NOU: block pentru JSON/meta
+   (folosit în AdminVendorsTab.jsx: <pre className={styles.codeBlock}>)
+   ========================= */
+
+.codeBlock {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;   /* ca să nu iasă din drawer */
+  word-break: break-word;  /* rupe stringurile foarte lungi */
+  max-width: 100%;
+  overflow: auto;
+}
+
+/* =========================
+   OPȚIONAL (recomandat):
+   ca valorile lungi din drawerField să nu iasă din container
+   ========================= */
+
+.drawerField span:last-child,
+.drawerField a,
+.drawerField code {
+  max-width: 60%;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* OPȚIONAL: pe mobile, lasă valorile să cadă sub label */
+@media (max-width: 420px) {
+  .drawerField {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .drawerField span:last-child,
+  .drawerField a,
+  .drawerField code {
+    max-width: 100%;
+    text-align: left;
+  }
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../lib/api";
 import styles from "./AdminMarketingPage.module.css";
 import AdminDigitalWaitlistTab from "./AdminDigitalWaitListTab";
+import AdminMarketplaceWaitlistTab from "./AdminMarketplaceWaitlistTab";
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -26,7 +27,7 @@ export default function AdminMarketingTab() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // 🔹 Tab intern: "campaign" | "prefs" | "digitalWaitlist"
+  // 🔹 Tab intern: "campaign" | "prefs" | "digitalWaitlist" | "marketplaceWaitlist"
   const [tab, setTab] = useState("campaign");
 
   // 🔹 stare pentru tabelul cu preferințe
@@ -282,10 +283,24 @@ export default function AdminMarketingTab() {
           >
             Waitlist servicii digitale
           </button>
+
+          <button
+            type="button"
+            className={cx(
+              styles.tabBtn,
+              tab === "marketplaceWaitlist" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("marketplaceWaitlist")}
+          >
+            Waitlist marketplace
+          </button>
         </div>
 
         {/* TAB: Waitlist servicii digitale */}
         {tab === "digitalWaitlist" && <AdminDigitalWaitlistTab />}
+
+        {/* TAB: Waitlist marketplace */}
+        {tab === "marketplaceWaitlist" && <AdminMarketplaceWaitlistTab />}
 
         {/* TAB: Campanii email */}
         {tab === "campaign" && (

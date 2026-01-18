@@ -1,3 +1,4 @@
+// AdminVendorsTab.jsx
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { FaUndoAlt } from "react-icons/fa";
@@ -54,6 +55,24 @@ function formatVendorVatLong(billing) {
   return "Nespecificat";
 }
 
+// ✅ helper: arată rezumat “confirmare entitate juridică”
+function formatEntityDeclarationShort(v) {
+  if (!v?.entitySelfDeclared) return "Neconfirmat";
+  // dacă ai dată, o afișăm
+  const when = v.entitySelfDeclaredAt ? formatDate(v.entitySelfDeclaredAt) : null;
+  return when ? `Confirmat • ${when}` : "Confirmat";
+}
+
+// ✅ helper: extrage pageUrl/referrer din meta (safe)
+function extractEntityMeta(meta) {
+  if (!meta) return { pageUrl: null, referrer: null };
+  if (typeof meta !== "object") return { pageUrl: null, referrer: null };
+
+  const pageUrl = typeof meta.pageUrl === "string" ? meta.pageUrl : null;
+  const referrer = typeof meta.referrer === "string" ? meta.referrer : null;
+  return { pageUrl, referrer };
+}
+
 export default function AdminVendorsTab({ vendors }) {
   const [filters, setFilters] = useState(createDefaultVendorFilters);
   const [page, setPage] = useState(1);
@@ -95,13 +114,18 @@ export default function AdminVendorsTab({ vendors }) {
         const vatStatus = v.billing?.vatStatus || "";
         const vatRate = v.billing?.vatRate || "";
 
+        // ✅ căutare și în meta entitySelfDeclared
+        const metaStr =
+          v.entitySelfDeclaredMeta ? JSON.stringify(v.entitySelfDeclaredMeta).toLowerCase() : "";
+
         return (
           name.includes(q) ||
           email.includes(q) ||
           cui.includes(q) ||
           addr.includes(q) ||
           vatStatus.toLowerCase().includes(q) ||
-          String(vatRate).toLowerCase().includes(q)
+          String(vatRate).toLowerCase().includes(q) ||
+          metaStr.includes(q)
         );
       });
     }
@@ -125,7 +149,7 @@ export default function AdminVendorsTab({ vendors }) {
       list = list.filter((v) => v.billing && v.billing.tvaActive === false);
     }
 
-    // 🔥 filtrare după urmăritori
+    // filtrare după urmăritori
     if (filters.hasFollowers === "YES") {
       list = list.filter((v) => (v.followers || 0) > 0);
     } else if (filters.hasFollowers === "NO") {
@@ -138,13 +162,9 @@ export default function AdminVendorsTab({ vendors }) {
     } else if (filters.sort === "OLDEST") {
       list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     } else if (filters.sort === "NAME") {
-      list.sort((a, b) =>
-        (a.displayName || "").localeCompare(b.displayName || "", "ro-RO")
-      );
+      list.sort((a, b) => (a.displayName || "").localeCompare(b.displayName || "", "ro-RO"));
     } else if (filters.sort === "FOLLOWERS") {
-      list.sort(
-        (a, b) => (b.followers || 0) - (a.followers || 0)
-      );
+      list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
     }
 
     return list;
@@ -159,12 +179,8 @@ export default function AdminVendorsTab({ vendors }) {
   const paginatedVendors = filteredVendors.slice(startIndex, endIndex);
 
   const updateVendorInState = useCallback((updatedVendor) => {
-    setLocalVendors((prev) =>
-      prev.map((v) => (v.id === updatedVendor.id ? updatedVendor : v))
-    );
-    setSelectedVendor((prev) =>
-      prev && prev.id === updatedVendor.id ? updatedVendor : prev
-    );
+    setLocalVendors((prev) => prev.map((v) => (v.id === updatedVendor.id ? updatedVendor : v)));
+    setSelectedVendor((prev) => (prev && prev.id === updatedVendor.id ? updatedVendor : prev));
   }, []);
 
   const handleToggleActive = async (vendor) => {
@@ -175,14 +191,9 @@ export default function AdminVendorsTab({ vendors }) {
         ? `/api/admin/vendors/${vendor.id}/deactivate`
         : `/api/admin/vendors/${vendor.id}/activate`;
       const resp = await api(endpoint, { method: "POST" });
-      if (resp?.vendor) {
-        updateVendorInState(resp.vendor);
-      }
+      if (resp?.vendor) updateVendorInState(resp.vendor);
     } catch (e) {
-      const msg =
-        e?.data?.error ||
-        e?.message ||
-        "Nu am putut actualiza statusul vendorului.";
+      const msg = e?.data?.error || e?.message || "Nu am putut actualiza statusul vendorului.";
       setActionError(msg);
     } finally {
       setBusyId(null);
@@ -198,15 +209,10 @@ export default function AdminVendorsTab({ vendors }) {
         setBusyId(null);
         return;
       }
-      await api(`/api/admin/users/${vendor.user.id}/send-password-reset`, {
-        method: "POST",
-      });
+      await api(`/api/admin/users/${vendor.user.id}/send-password-reset`, { method: "POST" });
       alert("Email de resetare parolă trimis (dacă adresa este validă).");
     } catch (e) {
-      const msg =
-        e?.data?.error ||
-        e?.message ||
-        "Nu am putut trimite emailul de resetare.";
+      const msg = e?.data?.error || e?.message || "Nu am putut trimite emailul de resetare.";
       setActionError(msg);
     } finally {
       setBusyId(null);
@@ -218,17 +224,12 @@ export default function AdminVendorsTab({ vendors }) {
     setActionError("");
     setBusyId(vendor.id);
     try {
-      await api(`/api/admin/vendors/${vendor.id}/reset-agreements`, {
-        method: "POST",
-      });
+      await api(`/api/admin/vendors/${vendor.id}/reset-agreements`, { method: "POST" });
       alert(
         "Acordurile legale au fost resetate. Vendorul va trebui să le accepte din nou la următoarea adăugare de produs."
       );
     } catch (e) {
-      const msg =
-        e?.data?.error ||
-        e?.message ||
-        "Nu am putut reseta acordurile legale pentru acest vendor.";
+      const msg = e?.data?.error || e?.message || "Nu am putut reseta acordurile legale pentru acest vendor.";
       setActionError(msg);
     } finally {
       setBusyId(null);
@@ -236,11 +237,7 @@ export default function AdminVendorsTab({ vendors }) {
   };
 
   if (!localVendors?.length) {
-    return (
-      <p className={styles.subtle}>
-        Nu există vendori sau nu au fost încărcați încă.
-      </p>
-    );
+    return <p className={styles.subtle}>Nu există vendori sau nu au fost încărcați încă.</p>;
   }
 
   return (
@@ -251,11 +248,9 @@ export default function AdminVendorsTab({ vendors }) {
           <span>Caută</span>
           <input
             type="text"
-            placeholder="Nume magazin, email, CUI, TVA sau adresă"
+            placeholder="Nume magazin, email, CUI, TVA, adresă sau meta"
             value={filters.q}
-            onChange={(e) =>
-              handleFilterChange((f) => ({ ...f, q: e.target.value }))
-            }
+            onChange={(e) => handleFilterChange((f) => ({ ...f, q: e.target.value }))}
           />
         </label>
 
@@ -263,9 +258,7 @@ export default function AdminVendorsTab({ vendors }) {
           <span>Activ</span>
           <select
             value={filters.active}
-            onChange={(e) =>
-              handleFilterChange((f) => ({ ...f, active: e.target.value }))
-            }
+            onChange={(e) => handleFilterChange((f) => ({ ...f, active: e.target.value }))}
           >
             <option value="ALL">Toți</option>
             <option value="YES">Doar activi</option>
@@ -277,12 +270,7 @@ export default function AdminVendorsTab({ vendors }) {
           <span>Billing</span>
           <select
             value={filters.hasBilling}
-            onChange={(e) =>
-              handleFilterChange((f) => ({
-                ...f,
-                hasBilling: e.target.value,
-              }))
-            }
+            onChange={(e) => handleFilterChange((f) => ({ ...f, hasBilling: e.target.value }))}
           >
             <option value="ALL">Toți</option>
             <option value="YES">Cu billing</option>
@@ -292,29 +280,18 @@ export default function AdminVendorsTab({ vendors }) {
 
         <label>
           <span>TVA activ (ANAF)</span>
-          <select
-            value={filters.tva}
-            onChange={(e) =>
-              handleFilterChange((f) => ({ ...f, tva: e.target.value }))
-            }
-          >
+          <select value={filters.tva} onChange={(e) => handleFilterChange((f) => ({ ...f, tva: e.target.value }))}>
             <option value="ALL">Toți</option>
             <option value="YES">TVA activ</option>
             <option value="NO">TVA inactiv</option>
           </select>
         </label>
 
-        {/* 🔥 nou – filtru după urmăritori */}
         <label>
           <span>Urmăritori</span>
           <select
             value={filters.hasFollowers}
-            onChange={(e) =>
-              handleFilterChange((f) => ({
-                ...f,
-                hasFollowers: e.target.value,
-              }))
-            }
+            onChange={(e) => handleFilterChange((f) => ({ ...f, hasFollowers: e.target.value }))}
           >
             <option value="ALL">Toți</option>
             <option value="YES">Cu urmăritori</option>
@@ -326,14 +303,11 @@ export default function AdminVendorsTab({ vendors }) {
           <span>Sortare</span>
           <select
             value={filters.sort}
-            onChange={(e) =>
-              handleFilterChange((f) => ({ ...f, sort: e.target.value }))
-            }
+            onChange={(e) => handleFilterChange((f) => ({ ...f, sort: e.target.value }))}
           >
             <option value="NEWEST">Cei mai noi</option>
             <option value="OLDEST">Cei mai vechi</option>
             <option value="NAME">Nume (A–Z)</option>
-            {/* 🔥 nou – sortare după urmăritori */}
             <option value="FOLLOWERS">Cei mai urmăriți</option>
           </select>
         </label>
@@ -380,11 +354,7 @@ export default function AdminVendorsTab({ vendors }) {
               const isBusy = busyId === v.id;
 
               const ag = v.agreementsSummary;
-              const agLabel = ag
-                ? ag.allRequired
-                  ? "OK"
-                  : "Incomplet"
-                : "—";
+              const agLabel = ag ? (ag.allRequired ? "OK" : "Incomplet") : "—";
               const agTitle = ag
                 ? ag.allRequired
                   ? `Toate acordurile obligatorii acceptate. Ultima acceptare: ${
@@ -392,6 +362,19 @@ export default function AdminVendorsTab({ vendors }) {
                     }`
                   : `Acorduri lipsă: ${ag.missingDocs?.join(", ") || "—"}`
                 : "Nu există informații despre acorduri pentru acest vendor.";
+
+              // ✅ tooltip pentru entitate juridică
+              const { pageUrl, referrer } = extractEntityMeta(v.entitySelfDeclaredMeta);
+              const entityTitle = v.entitySelfDeclared
+                ? [
+                    `Confirmat la: ${v.entitySelfDeclaredAt ? formatDate(v.entitySelfDeclaredAt) : "—"}`,
+                    v.entitySelfDeclaredIp ? `IP: ${v.entitySelfDeclaredIp}` : null,
+                    pageUrl ? `Page: ${pageUrl}` : null,
+                    referrer ? `Referrer: ${referrer}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")
+                : "Neconfirmat";
 
               return (
                 <tr
@@ -408,32 +391,22 @@ export default function AdminVendorsTab({ vendors }) {
                   }}
                 >
                   <td>{v.displayName}</td>
+
+                  <td title={entityTitle}>{formatEntityDeclarationShort(v)}</td>
+
                   <td>
-                    {v.entitySelfDeclared
-                      ? "Confirmat de vendor"
-                      : "Neconfirmat"}
-                  </td>
-                  <td>
-                    <span
-                      className={
-                        v.isActive
-                          ? styles.vendorStatusActive
-                          : styles.vendorStatusInactive
-                      }
-                    >
+                    <span className={v.isActive ? styles.vendorStatusActive : styles.vendorStatusInactive}>
                       {isBusy ? "…" : v.isActive ? "Activ" : "Inactiv"}
                     </span>
                   </td>
 
-                  {/* Status acorduri în tabel */}
                   <td title={agTitle}>{agLabel}</td>
 
                   <td>{v.user?.email || "—"}</td>
                   <td>{billing?.cui || "—"}</td>
                   <td>
                     {billing
-                      ? billing.tvaActive === null ||
-                        billing.tvaActive === undefined
+                      ? billing.tvaActive === null || billing.tvaActive === undefined
                         ? "—"
                         : billing.tvaActive
                         ? "Da"
@@ -453,12 +426,7 @@ export default function AdminVendorsTab({ vendors }) {
         </table>
       </div>
 
-      <Pagination
-        page={currentPage}
-        totalPages={totalPages}
-        totalItems={totalItems}
-        onPageChange={setPage}
-      />
+      <Pagination page={currentPage} totalPages={totalPages} totalItems={totalItems} onPageChange={setPage} />
 
       {selectedVendor && (
         <VendorDetailsDrawer
@@ -477,15 +445,7 @@ export default function AdminVendorsTab({ vendors }) {
 
 /* ============ Drawer detalii vendor ============ */
 
-function VendorDetailsDrawer({
-  vendor,
-  busy,
-  error,
-  onClose,
-  onToggleActive,
-  onSendReset,
-  onForceAgreementsReset,
-}) {
+function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onSendReset, onForceAgreementsReset }) {
   if (!vendor) return null;
   if (typeof document === "undefined") return null;
 
@@ -493,38 +453,22 @@ function VendorDetailsDrawer({
   const counts = vendor._count || {};
   const ag = vendor.agreementsSummary;
 
+  const { pageUrl, referrer } = extractEntityMeta(vendor.entitySelfDeclaredMeta);
+
   const node = (
     <div className={styles.drawerOverlay} onClick={onClose}>
-      <aside
-        className={styles.drawer}
-        onClick={(e) => e.stopPropagation()}
-        aria-label="Detalii vendor"
-      >
+      <aside className={styles.drawer} onClick={(e) => e.stopPropagation()} aria-label="Detalii vendor">
         <header className={styles.drawerHeader}>
           <div>
             <h3 className={styles.drawerTitle}>{vendor.displayName}</h3>
             <p className={styles.drawerSub}>
-              {vendor.entitySelfDeclared
-                ? "Entitate juridică confirmată de vendor"
-                : "Entitate juridică NEconfirmată"}{" "}
-              ·{" "}
-              <span
-                className={
-                  vendor.isActive
-                    ? styles.vendorStatusActive
-                    : styles.vendorStatusInactive
-                }
-              >
+              {vendor.entitySelfDeclared ? "Entitate juridică confirmată de vendor" : "Entitate juridică NEconfirmată"} ·{" "}
+              <span className={vendor.isActive ? styles.vendorStatusActive : styles.vendorStatusInactive}>
                 {vendor.isActive ? "Activ" : "Inactiv"}
               </span>
             </p>
           </div>
-          <button
-            type="button"
-            className={styles.drawerClose}
-            onClick={onClose}
-            aria-label="Închide"
-          >
+          <button type="button" className={styles.drawerClose} onClick={onClose} aria-label="Închide">
             ×
           </button>
         </header>
@@ -534,42 +478,78 @@ function VendorDetailsDrawer({
 
           <section className={styles.drawerSection}>
             <h4>Info magazin</h4>
+
             <div className={styles.drawerField}>
               <span>ID vendor</span>
               <code>{vendor.id}</code>
             </div>
+
             <div className={styles.drawerField}>
               <span>Entitate juridică</span>
-              <span>
-                {vendor.entitySelfDeclared
-                  ? "Confirmat de vendor"
-                  : "Neconfirmat"}
-              </span>
+              <span>{vendor.entitySelfDeclared ? "Confirmat de vendor" : "Neconfirmat"}</span>
             </div>
+
+            {/* ✅ NOU: audit confirmare */}
+            {vendor.entitySelfDeclared && (
+              <>
+                <div className={styles.drawerField}>
+                  <span>Confirmat la</span>
+                  <span>{vendor.entitySelfDeclaredAt ? formatDate(vendor.entitySelfDeclaredAt) : "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>IP confirmare</span>
+                  <span>{vendor.entitySelfDeclaredIp || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>User-Agent</span>
+                  <span style={{ wordBreak: "break-word" }}>{vendor.entitySelfDeclaredUa || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Page URL</span>
+                  <span style={{ wordBreak: "break-word" }}>{pageUrl || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Referrer</span>
+                  <span style={{ wordBreak: "break-word" }}>{referrer || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Meta (raw)</span>
+                  <pre className={styles.codeBlock}>
+                    {vendor.entitySelfDeclaredMeta ? JSON.stringify(vendor.entitySelfDeclaredMeta, null, 2) : "—"}
+                  </pre>
+                </div>
+              </>
+            )}
+
             <div className={styles.drawerField}>
               <span>Adresă magazin (profil)</span>
               <span>{vendor.address || "—"}</span>
             </div>
+
             <div className={styles.drawerField}>
               <span>Telefon</span>
               <span>{vendor.phone || "—"}</span>
             </div>
+
             <div className={styles.drawerField}>
               <span>Email public</span>
               <span>{vendor.email || "—"}</span>
             </div>
+
             <div className={styles.drawerField}>
               <span>Creat la</span>
               <span>{formatDate(vendor.createdAt)}</span>
             </div>
+
             {vendor.publicProfileUrl && (
               <div className={styles.drawerField}>
                 <span>Profil public</span>
-                <a
-                  href={vendor.publicProfileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
+                <a href={vendor.publicProfileUrl} target="_blank" rel="noreferrer">
                   Deschide magazin
                 </a>
               </div>
@@ -601,9 +581,7 @@ function VendorDetailsDrawer({
                 </div>
                 <div className={styles.drawerField}>
                   <span>Ultima acceptare</span>
-                  <span>
-                    {ag.lastAcceptedAt ? formatDate(ag.lastAcceptedAt) : "—"}
-                  </span>
+                  <span>{ag.lastAcceptedAt ? formatDate(ag.lastAcceptedAt) : "—"}</span>
                 </div>
               </>
             )}
@@ -625,16 +603,13 @@ function VendorDetailsDrawer({
             </div>
             <div className={styles.drawerField}>
               <span>Ultima logare</span>
-              <span>
-                {vendor.user?.lastLoginAt
-                  ? formatDate(vendor.user.lastLoginAt)
-                  : "—"}
-              </span>
+              <span>{vendor.user?.lastLoginAt ? formatDate(vendor.user.lastLoginAt) : "—"}</span>
             </div>
           </section>
 
           <section className={styles.drawerSection}>
             <h4>Billing</h4>
+
             <div className={styles.drawerField}>
               <span>Tip entitate</span>
               <span>{billing?.legalType || "—"}</span>
@@ -679,12 +654,12 @@ function VendorDetailsDrawer({
               <span>Telefon facturare</span>
               <span>{billing?.phone || "—"}</span>
             </div>
+
             <div className={styles.drawerField}>
               <span>TVA activ (ANAF)</span>
               <span>
                 {billing
-                  ? billing.tvaActive === null ||
-                    billing.tvaActive === undefined
+                  ? billing.tvaActive === null || billing.tvaActive === undefined
                     ? "—"
                     : billing.tvaActive
                     ? "Da"
@@ -693,7 +668,6 @@ function VendorDetailsDrawer({
               </span>
             </div>
 
-            {/* NOU – info TVA vendor din formular */}
             <div className={styles.drawerField}>
               <span>Statut TVA (vendor)</span>
               <span>{formatVendorVatLong(billing)}</span>
@@ -701,11 +675,7 @@ function VendorDetailsDrawer({
             <div className={styles.drawerField}>
               <span>Cotă TVA (vendor)</span>
               <span>
-                {billing?.vatRate
-                  ? billing.vatRate === "0"
-                    ? "0% / scutit"
-                    : `${billing.vatRate}%`
-                  : "—"}
+                {billing?.vatRate ? (billing.vatRate === "0" ? "0% / scutit" : `${billing.vatRate}%`) : "—"}
               </span>
             </div>
             <div className={styles.drawerField}>
@@ -713,9 +683,7 @@ function VendorDetailsDrawer({
               <span>
                 {billing?.vatResponsibilityConfirmed
                   ? billing.vatLastResponsibilityConfirm
-                    ? `Da – ${formatDate(
-                        billing.vatLastResponsibilityConfirm
-                      )}`
+                    ? `Da – ${formatDate(billing.vatLastResponsibilityConfirm)}`
                     : "Da"
                   : "Nu"}
               </span>
@@ -724,19 +692,13 @@ function VendorDetailsDrawer({
             <div className={styles.drawerField}>
               <span>Inactiv ANAF</span>
               <span>
-                {billing?.inactiv === null ||
-                billing?.inactiv === undefined
-                  ? "—"
-                  : billing.inactiv
-                  ? "Da"
-                  : "Nu"}
+                {billing?.inactiv === null || billing?.inactiv === undefined ? "—" : billing.inactiv ? "Da" : "Nu"}
               </span>
             </div>
             <div className={styles.drawerField}>
               <span>Insolvent</span>
               <span>
-                {billing?.insolvent === null ||
-                billing?.insolvent === undefined
+                {billing?.insolvent === null || billing?.insolvent === undefined
                   ? "—"
                   : billing.insolvent
                   ? "Da"
@@ -746,21 +708,12 @@ function VendorDetailsDrawer({
             <div className={styles.drawerField}>
               <span>Split TVA</span>
               <span>
-                {billing?.splitTva === null ||
-                billing?.splitTva === undefined
-                  ? "—"
-                  : billing.splitTva
-                  ? "Da"
-                  : "Nu"}
+                {billing?.splitTva === null || billing?.splitTva === undefined ? "—" : billing.splitTva ? "Da" : "Nu"}
               </span>
             </div>
             <div className={styles.drawerField}>
               <span>Verificat ANAF la</span>
-              <span>
-                {billing?.tvaVerifiedAt
-                  ? formatDate(billing.tvaVerifiedAt)
-                  : "—"}
-              </span>
+              <span>{billing?.tvaVerifiedAt ? formatDate(billing.tvaVerifiedAt) : "—"}</span>
             </div>
             <div className={styles.drawerField}>
               <span>Sursă verificare</span>
@@ -804,11 +757,7 @@ function VendorDetailsDrawer({
             onClick={() => onToggleActive?.(vendor)}
             disabled={busy}
           >
-            {busy
-              ? "Se actualizează…"
-              : vendor.isActive
-              ? "Dezactivează vendor"
-              : "Activează vendor"}
+            {busy ? "Se actualizează…" : vendor.isActive ? "Dezactivează vendor" : "Activează vendor"}
           </button>
 
           <button
@@ -877,9 +826,7 @@ function Pagination({ page, totalPages, totalItems, onPageChange }) {
   const pages = [];
   const start = Math.max(1, page - 2);
   const end = Math.min(totalPages, page + 2);
-  for (let p = start; p <= end; p++) {
-    pages.push(p);
-  }
+  for (let p = start; p <= end; p++) pages.push(p);
 
   return (
     <div className={styles.pagination}>
@@ -887,12 +834,7 @@ function Pagination({ page, totalPages, totalItems, onPageChange }) {
         Pagina {page} din {totalPages} · {totalItems} rezultate
       </div>
       <div className={styles.paginationControls}>
-        <button
-          type="button"
-          className={styles.paginationBtn}
-          onClick={handlePrev}
-          disabled={!canPrev}
-        >
+        <button type="button" className={styles.paginationBtn} onClick={handlePrev} disabled={!canPrev}>
           ‹ Înapoi
         </button>
 
@@ -900,21 +842,14 @@ function Pagination({ page, totalPages, totalItems, onPageChange }) {
           <button
             key={p}
             type="button"
-            className={`${styles.paginationBtn} ${
-              p === page ? styles.paginationBtnActive : ""
-            }`}
+            className={`${styles.paginationBtn} ${p === page ? styles.paginationBtnActive : ""}`}
             onClick={() => onPageChange(p)}
           >
             {p}
           </button>
         ))}
 
-        <button
-          type="button"
-          className={styles.paginationBtn}
-          onClick={handleNext}
-          disabled={!canNext}
-        >
+        <button type="button" className={styles.paginationBtn} onClick={handleNext} disabled={!canNext}>
           Înainte ›
         </button>
       </div>

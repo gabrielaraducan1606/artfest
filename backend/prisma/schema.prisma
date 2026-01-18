@@ -37,6 +37,7 @@ model User {
   emailChangeToken          String?
   vendorDeactivateExpiresAt DateTime?
   vendorDeactivateToken     String?
+   policyGateCampaigns PolicyGateCampaign[]  @relation("PolicyGateCampaignCreatedBy")
   cartItems                 CartItem[]
   comments                  Comment[]
   commentReports            CommentReport[]          @relation("CommentReportReporter")
@@ -218,6 +219,11 @@ model Vendor {
   website              String?
   socials              Json?
   address              String?
+  entitySelfDeclaredIp   String?
+  entitySelfDeclaredUa   String?
+  entitySelfDeclaredMeta Json?
+stats VendorStats?
+
   delivery             String[]
   entitySelfDeclared   Boolean                   @default(false)
   entitySelfDeclaredAt DateTime?
@@ -333,6 +339,7 @@ model VendorService {
 
   @@unique([vendorId, typeId], name: "vendor_type_unique")
   @@index([vendorId, typeId])
+   @@index([vendorId, createdAt], map: "vendor_service_vendor_created_idx") // ✅ ADD
   @@index([typeId, isActive, status, city], map: "vendor_service_filters_idx")
 }
 
@@ -381,7 +388,8 @@ model SubscriptionPlan {
   currency   String   @default("RON")
   interval   PlanInterval @default(month)
   features   String[]
-  meta       Json?          // ✅ ADĂUGAT
+  meta       Json?  
+  trialDays Int?
   isActive   Boolean @default(true)
   popular    Boolean @default(false)
   createdAt  DateTime @default(now())
@@ -406,6 +414,7 @@ model VendorSubscription {
   vendor    Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@index([vendorId, status, endAt])
+  @@index([vendorId, status, createdAt], map: "vendor_sub_vendor_status_created_idx") 
   @@index([extRef])
 }
 
@@ -491,6 +500,7 @@ model Review {
   reports   ReviewReport[]
 
   @@unique([productId, userId], name: "productId_userId")
+  @@index([status, productId], map: "review_status_product_idx") //
 }
 
 model ReviewImage {
@@ -555,6 +565,7 @@ model StoreReview {
 
   @@unique([vendorId, userId], name: "vendorId_userId")
   @@index([vendorId])
+   @@index([vendorId, status], map: "store_review_vendor_status_idx") 
   @@index([userId, createdAt])
 }
 
@@ -1460,17 +1471,72 @@ enum EmailSenderKey {
   admin
   support
 }
-model UserPolicy {
-  id          String     @id @default(cuid())
-  document    ConsentDoc
-  title       String
-  url         String
-  version     String
-  checksum    String?
-  isRequired  Boolean    @default(true)
-  isActive    Boolean    @default(true)
-  publishedAt DateTime   @default(now())
 
-  @@unique([document, version])
-  @@index([document, isActive])
+enum PolicyScope {
+  USERS
+  VENDORS
+}
+
+model PolicyGateCampaign {
+  id             String      @id @default(cuid())
+  scope          PolicyScope
+  requiresAction Boolean     @default(true)
+
+  title          String
+  message        String
+
+  sendEmail      Boolean     @default(false)
+  emailSubject   String?
+  emailBody      String?
+
+  documents      String[]
+
+  targetCount    Int         @default(0)
+  createdCount   Int         @default(0)
+  emailQueued    Int?
+  emailFailed    Int?
+
+  createdById    String?
+  createdBy      User?       @relation("PolicyGateCampaignCreatedBy", fields: [createdById], references: [id])
+
+  createdAt      DateTime    @default(now())
+  campaignKey    String      @unique @default(cuid())
+
+  @@index([scope, createdAt])
+  @@index([createdById, createdAt])
+}
+model VendorStats {
+  vendorId            String   @id
+  followers           Int      @default(0)
+  productReviewsTotal Int      @default(0)
+  storeReviewsTotal   Int      @default(0)
+  updatedAt           DateTime @updatedAt
+
+  vendor              Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+}
+enum WaitlistStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  SPAM
+}
+
+model MarketplaceWaitlistSubscriber {
+  id          String         @id @default(cuid())
+  email       String         @unique
+  source      String?        // ex: "coming-soon"
+  name        String?
+  ip          String?
+  userAgent   String?
+  status      WaitlistStatus @default(NEW)
+  notes       String?
+  contactedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([source])
 }

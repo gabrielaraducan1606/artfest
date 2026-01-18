@@ -349,6 +349,7 @@ body {
 
   /* Înălțimea barei de tab-uri de pe profil (o aproximăm la ~44px) */
   --tabs-h: 44px;
+  --bottombar-h: 64px; /* pune aici înălțimea reală a navbarului de jos */
 }
 
 /* ================== Dark Theme ================== */

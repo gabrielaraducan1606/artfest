@@ -40,21 +40,29 @@ const WAITLIST_FROM =
   process.env.EMAIL_FROM ||
   `Artfest <no-reply@artfest.ro>`;
 
-function makeUnsubscribeToken(email) {
-  const secret = process.env.WAITLIST_UNSUBSCRIBE_SECRET || process.env.JWT_SECRET;
+// Separat secret pt marketplace (ca să fie 100% independent de digital)
+function makeMarketplaceUnsubscribeToken(email) {
+  const secret =
+    process.env.MARKETPLACE_WAITLIST_UNSUBSCRIBE_SECRET ||
+    process.env.WAITLIST_UNSUBSCRIBE_SECRET ||
+    process.env.JWT_SECRET;
+
   if (!secret) throw new Error("missing_unsubscribe_secret");
+
   const h = crypto.createHmac("sha256", secret);
   h.update(normalizeEmail(email));
   return h.digest("hex");
 }
 
-function makeUnsubscribeUrl(email) {
+function makeMarketplaceUnsubscribeUrl(email) {
   if (!APP_URL) return "";
-  const token = makeUnsubscribeToken(email);
-  return `${APP_URL}/dezabonare-waitlist?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
+  const token = makeMarketplaceUnsubscribeToken(email);
+  return `${APP_URL}/dezabonare-marketplace-waitlist?email=${encodeURIComponent(
+    email
+  )}&token=${encodeURIComponent(token)}`;
 }
 
-function wrapWaitlistHtml({ html, preheader, unsubscribeUrl }) {
+function wrapMarketplaceWaitlistHtml({ html, preheader, unsubscribeUrl }) {
   return `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
     ${
@@ -75,7 +83,7 @@ function wrapWaitlistHtml({ html, preheader, unsubscribeUrl }) {
     </div>
 
     <p style="font-size:11px;color:#9ca3af;text-align:center;margin:16px 0 0;line-height:1.35;">
-      Primești acest email pentru că te-ai înscris pe lista de așteptare Servicii Digitale ${BRAND_NAME}.<br/>
+      Primești acest email pentru că te-ai înscris pe lista de așteptare Marketplace ${BRAND_NAME}.<br/>
       ${
         unsubscribeUrl
           ? `Dacă nu mai vrei notificări, te poți <a href="${unsubscribeUrl}" style="color:#6b7280;">dezabona aici</a>.`
@@ -86,13 +94,19 @@ function wrapWaitlistHtml({ html, preheader, unsubscribeUrl }) {
   `;
 }
 
-async function sendDigitalWaitlistEmail({ to, subject, html, preheader, senderKey = WAITLIST_SENDER }) {
+async function sendMarketplaceWaitlistEmail({
+  to,
+  subject,
+  html,
+  preheader,
+  senderKey = WAITLIST_SENDER,
+}) {
   if (!WAITLIST_FROM) throw new Error("missing_EMAIL_FROM");
 
   const transporter = makeTransport(senderKey);
 
-  const unsubscribeUrl = makeUnsubscribeUrl(to);
-  const finalHtml = wrapWaitlistHtml({ html, preheader, unsubscribeUrl });
+  const unsubscribeUrl = makeMarketplaceUnsubscribeUrl(to);
+  const finalHtml = wrapMarketplaceWaitlistHtml({ html, preheader, unsubscribeUrl });
   const text = stripHtml(html);
 
   const headers = {
@@ -100,6 +114,8 @@ async function sendDigitalWaitlistEmail({ to, subject, html, preheader, senderKe
     "X-Auto-Response-Suppress": "All",
     Precedence: "bulk",
   };
+
+  // list-unsubscribe (fără one-click RFC aici; e ok ca link simplu)
   if (unsubscribeUrl) headers["List-Unsubscribe"] = `<${unsubscribeUrl}>`;
 
   return transporter.sendMail({
@@ -113,12 +129,19 @@ async function sendDigitalWaitlistEmail({ to, subject, html, preheader, senderKe
   });
 }
 
+// strict: enum values
+const MARKETPLACE_STATUSES = new Set(["NEW", "CONTACTED", "CONVERTED", "SPAM"]);
+function normalizeStatus(v) {
+  const s = v == null ? "" : String(v).trim().toUpperCase();
+  return MARKETPLACE_STATUSES.has(s) ? s : null;
+}
+
 /**
- * GET /api/admin/digital-waitlist?status=new&search=gmail&page=1&limit=50
+ * GET /api/admin/marketplace-waitlist?status=NEW&search=gmail&page=1&limit=50
  */
-router.get("/digital-waitlist", authRequired, requireAdmin, async (req, res) => {
+router.get("/marketplace-waitlist", authRequired, requireAdmin, async (req, res) => {
   try {
-    const status = req.query.status ? String(req.query.status) : null;
+    const status = req.query.status ? normalizeStatus(req.query.status) : null;
     const search = req.query.search ? String(req.query.search).trim().toLowerCase() : null;
 
     const page = Math.max(1, Number(req.query.page || 1));
@@ -139,8 +162,8 @@ router.get("/digital-waitlist", authRequired, requireAdmin, async (req, res) => 
     };
 
     const [total, items] = await Promise.all([
-      prisma.digitalWaitlistSubscriber.count({ where }),
-      prisma.digitalWaitlistSubscriber.findMany({
+      prisma.marketplaceWaitlistSubscriber.count({ where }),
+      prisma.marketplaceWaitlistSubscriber.findMany({
         where,
         orderBy: { createdAt: "desc" },
         skip,
@@ -160,28 +183,31 @@ router.get("/digital-waitlist", authRequired, requireAdmin, async (req, res) => 
 
     return res.json({ ok: true, page, limit, total, items });
   } catch (err) {
-    console.error("admin digital-waitlist list error:", err);
+    console.error("admin marketplace-waitlist list error:", err);
     return res.status(500).json({ ok: false, error: "server_error" });
   }
 });
 
 /**
- * PATCH /api/admin/digital-waitlist/:id
+ * PATCH /api/admin/marketplace-waitlist/:id
+ * body: { status?, notes? }
  */
-router.patch("/digital-waitlist/:id", authRequired, requireAdmin, async (req, res) => {
+router.patch("/marketplace-waitlist/:id", authRequired, requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id);
-    const status = req.body?.status ? String(req.body.status) : null;
+
+    const status = req.body?.status ? normalizeStatus(req.body.status) : null;
     const notes = req.body?.notes != null ? String(req.body.notes) : undefined;
 
     const data = {};
     if (status) {
       data.status = status;
-      data.contactedAt = status === "contacted" ? new Date() : null;
+      // setăm contactedAt doar când intră în CONTACTED, altfel îl golim
+      data.contactedAt = status === "CONTACTED" ? new Date() : null;
     }
     if (notes !== undefined) data.notes = notes;
 
-    const row = await prisma.digitalWaitlistSubscriber.update({
+    const row = await prisma.marketplaceWaitlistSubscriber.update({
       where: { id },
       data,
       select: { id: true, email: true, status: true, notes: true, contactedAt: true },
@@ -189,30 +215,30 @@ router.patch("/digital-waitlist/:id", authRequired, requireAdmin, async (req, re
 
     return res.json({ ok: true, item: row });
   } catch (err) {
-    console.error("admin digital-waitlist patch error:", err);
+    console.error("admin marketplace-waitlist patch error:", err);
     return res.status(500).json({ ok: false, error: "server_error" });
   }
 });
 
 /**
- * DELETE /api/admin/digital-waitlist/:id
+ * DELETE /api/admin/marketplace-waitlist/:id
  */
-router.delete("/digital-waitlist/:id", authRequired, requireAdmin, async (req, res) => {
+router.delete("/marketplace-waitlist/:id", authRequired, requireAdmin, async (req, res) => {
   try {
     const id = String(req.params.id);
-    await prisma.digitalWaitlistSubscriber.delete({ where: { id } });
+    await prisma.marketplaceWaitlistSubscriber.delete({ where: { id } });
     return res.json({ ok: true });
   } catch (err) {
-    console.error("admin digital-waitlist delete error:", err);
+    console.error("admin marketplace-waitlist delete error:", err);
     return res.status(500).json({ ok: false, error: "server_error" });
   }
 });
 
 /**
- * POST /api/admin/digital-waitlist/test
+ * POST /api/admin/marketplace-waitlist/test
  * body: { to, subject, bodyHtml, preheader?, senderKey? }
  */
-router.post("/digital-waitlist/test", authRequired, requireAdmin, async (req, res) => {
+router.post("/marketplace-waitlist/test", authRequired, requireAdmin, async (req, res) => {
   try {
     const to = normalizeEmail(req.body?.to || "");
     const subject = String(req.body?.subject || "").trim();
@@ -224,22 +250,19 @@ router.post("/digital-waitlist/test", authRequired, requireAdmin, async (req, re
     if (!subject) return res.status(400).json({ ok: false, error: "missing_subject" });
     if (!bodyHtml) return res.status(400).json({ ok: false, error: "missing_body" });
 
-    await sendDigitalWaitlistEmail({ to, subject, html: bodyHtml, preheader, senderKey });
+    await sendMarketplaceWaitlistEmail({ to, subject, html: bodyHtml, preheader, senderKey });
     return res.json({ ok: true, sentCount: 1, test: true, senderKey });
   } catch (err) {
-    console.error("admin digital-waitlist test error:", err);
-    return res.status(500).json({
-      ok: false,
-      error: err?.message || "server_error",
-    });
+    console.error("admin marketplace-waitlist test error:", err);
+    return res.status(500).json({ ok: false, error: err?.message || "server_error" });
   }
 });
 
 /**
- * POST /api/admin/digital-waitlist/send
+ * POST /api/admin/marketplace-waitlist/send
  * body: { subject, bodyHtml, preheader?, onlyNew?, senderKey? }
  */
-router.post("/digital-waitlist/send", authRequired, requireAdmin, async (req, res) => {
+router.post("/marketplace-waitlist/send", authRequired, requireAdmin, async (req, res) => {
   try {
     const subject = String(req.body?.subject || "").trim();
     const bodyHtml = String(req.body?.bodyHtml || "").trim();
@@ -250,9 +273,9 @@ router.post("/digital-waitlist/send", authRequired, requireAdmin, async (req, re
     if (!subject) return res.status(400).json({ ok: false, error: "missing_subject" });
     if (!bodyHtml) return res.status(400).json({ ok: false, error: "missing_body" });
 
-    const where = onlyNew ? { status: "new" } : { NOT: { status: "unsubscribed" } };
+    const where = onlyNew ? { status: "NEW" } : {}; // trimite la toți (inclusiv CONTACTED etc) – tu alegi
 
-    const recipients = await prisma.digitalWaitlistSubscriber.findMany({
+    const recipients = await prisma.marketplaceWaitlistSubscriber.findMany({
       where,
       select: { email: true },
       orderBy: { createdAt: "desc" },
@@ -268,7 +291,7 @@ router.post("/digital-waitlist/send", authRequired, requireAdmin, async (req, re
 
       const results = await Promise.allSettled(
         batch.map((r) =>
-          sendDigitalWaitlistEmail({
+          sendMarketplaceWaitlistEmail({
             to: normalizeEmail(r.email),
             subject,
             html: bodyHtml,
@@ -288,12 +311,13 @@ router.post("/digital-waitlist/send", authRequired, requireAdmin, async (req, re
       });
     }
 
+    // marchează CONTACTED doar pe cele care au primit cu succes
     if (sentCount > 0) {
       const okEmails = recipients.map((r) => r.email).filter((e) => !failed.includes(e));
 
-      await prisma.digitalWaitlistSubscriber.updateMany({
+      await prisma.marketplaceWaitlistSubscriber.updateMany({
         where: { email: { in: okEmails } },
-        data: { status: "contacted", contactedAt: new Date() },
+        data: { status: "CONTACTED", contactedAt: new Date() },
       });
     }
 
@@ -305,13 +329,13 @@ router.post("/digital-waitlist/send", authRequired, requireAdmin, async (req, re
       failedPreview: failed.slice(0, 10),
     });
   } catch (err) {
-    console.error("admin digital-waitlist send error:", err);
+    console.error("admin marketplace-waitlist send error:", err);
     let msg = err?.message || "server_error";
     if (err?.message === "missing_EMAIL_FROM") msg = "EMAIL_FROM_* lipsește în env";
-    if (err?.message === "missing_unsubscribe_secret") msg = "WAITLIST_UNSUBSCRIBE_SECRET / JWT_SECRET lipsește în env";
+    if (err?.message === "missing_unsubscribe_secret") msg =
+      "MARKETPLACE_WAITLIST_UNSUBSCRIBE_SECRET / WAITLIST_UNSUBSCRIBE_SECRET / JWT_SECRET lipsește în env";
     return res.status(500).json({ ok: false, error: msg });
   }
 });
-
 
 export default router;

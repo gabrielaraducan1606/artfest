@@ -58,14 +58,14 @@ function buildUrl(path) {
  * - adaugă credentials: "include" (trimite cookie-urile JWT)
  * - setează Content-Type automat pentru JSON
  * - parsează răspunsul (JSON sau text)
- * - aruncă eroare cu status + data pentru coduri !2xx
+ * - aruncă eroare cu status + data pentru coduri !2xx (inclusiv 401)
  */
 export async function api(path, opts = {}) {
   const { method = "GET", body, headers = {}, ...rest } = opts;
 
   const init = {
     method,
-    credentials: "include", // important: trimite cookie-ul "token" la backend
+    credentials: "include",
     headers: { ...headers },
     ...rest,
   };
@@ -106,11 +106,10 @@ export async function api(path, opts = {}) {
     }
   }
 
-  // Convenție: dacă e 401, întoarcem un flag special pentru unele componente (ex: Login)
-  if (res.status === 401) return { __unauth: true };
-
+  // IMPORTANT: NU “înghițim” 401. Orice non-2xx => throw.
   if (!res.ok) {
-    const msg = (data && (data.error || data.message)) || `Request failed (${res.status})`;
+    const msg =
+      (data && (data.error || data.message)) || `Request failed (${res.status})`;
     const err = new Error(msg);
     err.status = res.status;
     err.data = data;

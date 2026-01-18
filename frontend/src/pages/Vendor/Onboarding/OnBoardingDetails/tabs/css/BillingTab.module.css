@@ -23,12 +23,14 @@
   line-height: 1.2;
   margin: 0;
   letter-spacing: -0.01em;
+  color: var(--color-text);
 }
 
 .saveIndicator {
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--color-muted);
 }
 
 /* Form */
@@ -60,8 +62,7 @@
   line-height: 1.2;
   background: var(--surface);
   color: var(--color-text);
-  transition: border-color 140ms ease, box-shadow 140ms ease,
-    background-color 140ms ease;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 
 .input::placeholder {
@@ -71,7 +72,7 @@
 .input:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--color-primary) 75%, var(--color-border));
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .input:disabled {
@@ -90,6 +91,7 @@
   font-weight: 650;
   margin-bottom: 6px;
   display: inline-block;
+  color: var(--color-text);
 }
 
 .help {
@@ -122,7 +124,7 @@
   align-items: start;
 
   border: 1px solid color-mix(in srgb, var(--color-primary) 25%, var(--color-border));
-  background: color-mix(in srgb, var(--surface) 92%, rgba(139, 92, 246, 0.06));
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--surface));
   border-radius: calc(var(--radius) + 2px);
   padding: 10px 12px;
 }
@@ -134,8 +136,10 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: rgba(139, 92, 246, 0.14);
-  border: 1px solid rgba(139, 92, 246, 0.24);
+
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  color: var(--color-primary);
 }
 
 /* Toolbar */
@@ -146,7 +150,7 @@
   gap: 12px;
 
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--surface) 96%, rgba(0, 0, 0, 0.02));
+  background: color-mix(in srgb, var(--surface) 94%, var(--color-bg));
   border-radius: calc(var(--radius) + 2px);
   padding: 10px 12px;
 }
@@ -189,8 +193,9 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.01em;
+
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--surface) 92%, rgba(0, 0, 0, 0.02));
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
   color: var(--color-text);
   gap: 8px;
 }
@@ -215,14 +220,15 @@
 
 .badgeMuted {
   color: var(--color-muted);
-  background: color-mix(in srgb, var(--surface) 92%, rgba(0, 0, 0, 0.02));
+  background: color-mix(in srgb, var(--color-muted) 10%, var(--surface));
+  border-color: var(--color-border);
 }
 
 /* Special: "waiting" */
 .badgeWait {
   color: var(--color-primary);
-  background: rgba(139, 92, 246, 0.10);
-  border-color: rgba(139, 92, 246, 0.22);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
 }
 
 /* Buttons */
@@ -231,7 +237,7 @@
   align-items: center;
   justify-content: center;
 
-  border: 1px solid transparent;
+  border: 1px solid var(--color-primary);
   border-radius: calc(var(--radius) + 2px);
   padding: 10px 14px;
 
@@ -240,21 +246,20 @@
   cursor: pointer;
 
   background: var(--color-primary);
-  color: white;
+  color: var(--surface);
   box-shadow: var(--shadow-md);
   text-decoration: none;
 
-  transition: transform 120ms ease, background-color 120ms ease, opacity 120ms ease;
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 
 .primaryBtn:hover {
   background: var(--color-hover);
+  border-color: var(--color-hover);
   transform: translateY(-1px);
 }
 
-.primaryBtn:active {
-  transform: translateY(0);
-}
+.primaryBtn:active { transform: translateY(0); }
 
 .primaryBtn:disabled,
 .primaryBtn[aria-disabled="true"] {
@@ -281,11 +286,12 @@
   color: var(--color-text);
   box-shadow: var(--shadow-sm);
 
-  transition: border-color 120ms ease, transform 120ms ease, opacity 120ms ease;
+  transition: border-color 120ms ease, transform 120ms ease, opacity 120ms ease, background-color 120ms ease;
 }
 
 .secondaryBtn:hover {
   border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
   transform: translateY(-1px);
 }
 
@@ -301,18 +307,23 @@
   align-items: center;
   justify-content: center;
 
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-bg));
+  color: var(--color-text);
+
   padding: 10px 10px;
   border-radius: calc(var(--radius) + 2px);
   font-weight: 700;
   cursor: pointer;
+  box-shadow: var(--shadow-sm);
+
+  transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease, opacity 120ms ease;
 }
 
 .ghostBtn:hover {
-  color: var(--color-text);
-  background: rgba(0, 0, 0, 0.03);
+  background: color-mix(in srgb, var(--surface) 86%, var(--color-bg));
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  transform: translateY(-1px);
 }
 
 .dangerBtn {
@@ -358,9 +369,7 @@
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 /* Wizard nav (buton continuă) */
@@ -378,7 +387,7 @@
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: color-mix(in srgb, #000 55%, transparent);
   display: grid;
   place-items: center;
   z-index: 60;
@@ -393,12 +402,14 @@
   border-radius: calc(var(--radius) + 4px);
   box-shadow: var(--shadow-md);
   padding: 14px 14px 12px;
+  color: var(--color-text);
 }
 
 .modalTitle {
   margin: 0 0 6px 0;
   font-size: 16px;
   letter-spacing: -0.01em;
+  color: var(--color-text);
 }
 
 .modalText {
@@ -414,42 +425,23 @@
   gap: 10px;
 }
 
-/* Dark-mode “safety”: butoanele/toolbar să nu devină text negru */
-:global(html[data-theme="dark"]) .secondaryBtn,
-:global(html[data-theme="dark"]) .ghostBtn,
-:global(html[data-theme="dark"]) .dangerBtn,
-:global(html[data-theme="dark"]) .modalCard,
-:global(html[data-theme="dark"]) .toolbar {
-  color: var(--color-text);
-}
-
 /* Responsive */
 @media (max-width: 820px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .toolbarRight {
-    justify-content: flex-start;
-  }
+  .grid { grid-template-columns: 1fr; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbarRight { justify-content: flex-start; }
 }
 
 @media (max-width: 420px) {
-  .tabPanel {
-    padding: 14px 12px 22px;
-  }
-  .primaryBtn {
-    width: 100%;
-  }
+  .tabPanel { padding: 14px 12px 22px; }
+  .primaryBtn { width: 100%; }
   .wizardNav {
     justify-content: stretch;
     flex-direction: column;
     align-items: stretch;
   }
 }
+
 /* ========== Mobile polish (override) ========== */
 @media (max-width: 820px) {
   .tabPanel {
@@ -457,9 +449,7 @@
     padding: 12px 10px 18px;
   }
 
-  .form {
-    gap: 10px;
-  }
+  .form { gap: 10px; }
 
   .header {
     gap: 10px;
@@ -467,12 +457,8 @@
     align-items: flex-start;
   }
 
-  .cardTitle {
-    font-size: 16px;
-    line-height: 1.2;
-  }
+  .cardTitle { font-size: 16px; line-height: 1.2; }
 
-  /* Info note: mai compact, fără prea mult “air” */
   .infoNote {
     grid-template-columns: 18px 1fr;
     gap: 8px;
@@ -486,39 +472,19 @@
     font-size: 12px;
   }
 
-  /* Grid: o coloană, spacing mai strâns */
-  .grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
+  .grid { grid-template-columns: 1fr; gap: 10px; }
+  .fieldGroup { gap: 5px; }
 
-  .fieldGroup {
-    gap: 5px;
-  }
+  .label { font-size: 12px; margin-bottom: 4px; }
 
-  .label {
-    font-size: 12px;
-    margin-bottom: 4px;
-  }
+  .help, .fieldError { font-size: 11px; line-height: 1.35; }
 
-  .help,
-  .fieldError {
-    font-size: 11px;
-    line-height: 1.35;
-  }
-
-  /* Inputs: mai mici, dar încă “touch-friendly” */
-  .input {
-    padding: 9px 10px;
-    font-size: 13px;
-    border-radius: var(--radius);
-  }
+  .input { padding: 9px 10px; font-size: 13px; border-radius: var(--radius); }
 
   .input:focus {
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.14);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent);
   }
 
-  /* Toolbar: coloană + butoane full width pentru ergonomie */
   .toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -527,24 +493,12 @@
     border-radius: calc(var(--radius) + 1px);
   }
 
-  .toolbarLeft {
-    gap: 4px;
-  }
+  .toolbarLeft { gap: 4px; }
 
-  .toolbarRight {
-    gap: 8px;
-    justify-content: flex-start;
-  }
+  .toolbarRight { gap: 8px; justify-content: flex-start; }
 
-  /* Badges: mai mici */
-  .badge {
-    height: 22px;
-    padding: 0 8px;
-    font-size: 11px;
-    gap: 6px;
-  }
+  .badge { height: 22px; padding: 0 8px; font-size: 11px; gap: 6px; }
 
-  /* Buttons: mai compacte + full width */
   .primaryBtn,
   .secondaryBtn,
   .dangerBtn,
@@ -555,27 +509,13 @@
 
   .primaryBtn,
   .secondaryBtn,
-  .dangerBtn {
+  .dangerBtn,
+  .ghostBtn {
     padding: 9px 12px;
     font-size: 13px;
     border-radius: calc(var(--radius) + 1px);
   }
 
-  /* Ghost: să arate ca un “link button” dar tot full width */
-  .ghostBtn {
-    padding: 9px 12px;
-    font-size: 13px;
-    border: 1px solid var(--color-border);
-    background: var(--surface);
-    color: var(--color-text);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .ghostBtn:hover {
-    background: color-mix(in srgb, var(--surface) 92%, rgba(0, 0, 0, 0.03));
-  }
-
-  /* Wizard nav: full width + spacing strâns */
   .wizardNav {
     flex-direction: column;
     align-items: stretch;
@@ -585,15 +525,7 @@
     padding-top: 10px;
   }
 
-  /* Checkbox block: un pic mai compact */
-  .fieldGroup input[type="checkbox"] {
-    transform: translateY(1px);
-  }
-
-  /* Modal: padding mai mic pe mobil */
-  .modalBackdrop {
-    padding: 12px;
-  }
+  .modalBackdrop { padding: 12px; }
 
   .modalCard {
     max-width: 480px;
@@ -601,49 +533,27 @@
     border-radius: calc(var(--radius) + 3px);
   }
 
-  .modalTitle {
-    font-size: 15px;
-    margin-bottom: 6px;
-  }
+  .modalTitle { font-size: 15px; margin-bottom: 6px; }
 
-  .modalText {
-    font-size: 13px;
-    margin-bottom: 10px;
-  }
+  .modalText { font-size: 13px; margin-bottom: 10px; }
 
   .modalActions {
     gap: 8px;
-    flex-direction: column-reverse; /* confirm jos, mai “safe” pe mobil */
+    flex-direction: column-reverse;
     align-items: stretch;
   }
 
-  /* Spinner puțin mai mic */
-  .spinner {
-    width: 13px;
-    height: 13px;
-    border-width: 2px;
-  }
+  .spinner { width: 13px; height: 13px; border-width: 2px; }
 }
 
-/* Extra small: 420px */
 @media (max-width: 420px) {
-  .tabPanel {
-    padding: 10px 8px 16px;
-  }
+  .tabPanel { padding: 10px 8px 16px; }
 
-  .cardTitle {
-    font-size: 15px;
-  }
+  .cardTitle { font-size: 15px; }
 
-  .input {
-    padding: 8px 10px;
-    font-size: 13px;
-  }
+  .input { padding: 8px 10px; font-size: 13px; }
 
-  .badge {
-    height: 21px;
-    font-size: 10.5px;
-  }
+  .badge { height: 21px; font-size: 10.5px; }
 
   .primaryBtn,
   .secondaryBtn,
@@ -652,3 +562,49 @@
     padding: 9px 10px;
   }
 }
+
+/* ========== Info accordion inside infoNote ========== */
+.infoAccordionTrigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.infoAccordionTrigger:focus { outline: none; }
+
+.infoAccordionTrigger:focus-visible {
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.infoAccordionLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.infoAccordionChevron {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-muted);
+}
+
+.infoAccordionBody { margin-top: 10px; }
+
+/* Acordeon: trigger + body să ocupe ambele coloane din .infoNote */
+.infoAccordionTrigger { grid-column: 1 / -1; }
+.infoAccordionBody { grid-column: 1 / -1; }
+
+.infoAccordionLeft { min-width: 0; }
+
+.infoAccordionLeft strong { white-space: normal; }
