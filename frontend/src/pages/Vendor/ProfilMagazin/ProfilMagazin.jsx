@@ -26,13 +26,13 @@ import { useAuth } from "../../Auth/Context/context.js";
 // secțiuni
 import AboutSection from "./components/AboutSection";
 import InfoSection from "./components/InfoSection";
-import ProductList from "./components/ProductList";
 import TabsNav from "./components/TabsNav.jsx";
 
 // lazy
 const ReviewsSection = lazy(() => import("./components/ReviewsSection.jsx"));
 const VendorGateModal = lazy(() => import("./modals/VendorGateModal"));
 const ProductModal = lazy(() => import("./modals/ProductModal"));
+const ProductList = lazy(() => import("./components/ProductList"));
 
 /* ========================= Helpers pentru erori activate ========================= */
 function extractMissing(e) {
@@ -61,6 +61,11 @@ function extractCode(e) {
     return null;
   }
 }
+
+function extractHttpStatus(e) {
+  return e?.status || e?.response?.status || e?.data?.statusCode || null;
+}
+
 function humanizeActivateError(e) {
   const code = extractCode(e);
   const missing = extractMissing(e);
@@ -348,6 +353,15 @@ function dateOnlyToISO(yyyyMmDd) {
   const dt = new Date(y, m - 1, d, 12, 0, 0);
   return dt.toISOString();
 }
+function ProfilMagazinSkeleton() {
+  return (
+    <div className={styles.wrapper} style={{ padding: "1rem" }}>
+      <div style={{ height: 220, borderRadius: 12, background: "#f3f4f6" }} />
+      <div style={{ height: 16 }} />
+      <div style={{ height: 420, borderRadius: 12, background: "#f3f4f6" }} />
+    </div>
+  );
+}
 
 export default function ProfilMagazin() {
   const { slug } = useParams();
@@ -453,6 +467,39 @@ export default function ProfilMagazin() {
     missingBilling: [],
     loading: false,
   });
+// ✅ limits (max produse) pentru plan
+const [prodLimits, setProdLimits] = useState(null);
+
+const storeSlug = sellerData?.slug || sellerData?.profile?.slug || slug;
+
+useEffect(() => {
+  if (!isOwner) return;
+
+  const storeSlug = sellerData?.slug || sellerData?.profile?.slug || slug;
+  if (!storeSlug) return;
+
+  let alive = true;
+
+  (async () => {
+    try {
+      const data = await api(
+        `/api/vendors/store/${encodeURIComponent(storeSlug)}/products/limits`,
+        { method: "GET" }
+      );
+      if (!alive) return;
+      setProdLimits(data);
+    } catch {
+      if (!alive) return;
+      setProdLimits(null);
+    }
+  })();
+
+  return () => {
+    alive = false;
+  };
+}, [isOwner, slug, sellerData?.slug, sellerData?.profile?.slug]);
+
+const canAddProduct = prodLimits?.canAdd ?? true;
 
   useEffect(() => {
     if (!isOwner) return;
@@ -1153,6 +1200,14 @@ export default function ProfilMagazin() {
 
   const handleAddProduct = async () => {
   if (!isOwner) return;
+  // ✅ dacă am atins limita, nu mai deschidem nici gate, nici modal
+  if (prodLimits?.canAdd === false) {
+    alert(
+      `Ai atins limita de produse (${prodLimits.currentProducts}/${prodLimits.maxProducts}). Upgradează planul ca să adaugi mai multe.`
+    );
+    navigate("/onboarding/details?tab=plata&solo=1");
+    return;
+  }
 
   // 🟢 dacă există deja produse, nu mai afișăm poarta – direct ProductModal
   const hasProducts = Array.isArray(products) && products.length > 0;
@@ -1473,9 +1528,22 @@ export default function ProfilMagazin() {
       }
 
       closeProductModal();
-    } catch (er) {
+        } catch (er) {
+      const status = extractHttpStatus(er);
+      const code = extractCode(er);
+
+      // ✅ limită produse / upgrade
+      if (status === 402 || code === "upgrade_required") {
+        alert(
+          "Ai atins limita de produse pentru abonamentul curent. Upgradează planul ca să adaugi mai multe produse."
+        );
+        navigate("/onboarding/details?tab=plata&solo=1");
+        return;
+      }
+
       alert(er?.message || "Nu am putut salva produsul.");
     }
+
   };
 
   const isLoading = loading;
@@ -1559,17 +1627,14 @@ export default function ProfilMagazin() {
 
     const byHash = Object.fromEntries(tabs.map((t) => [t.hash, t]));
     const h = window.location.hash;
-    const target = byHash[h] || tabs[0];
-
-    if (target?.ref?.current) {
-      const rect = target.ref.current.getBoundingClientRect();
-      const absoluteY = window.scrollY + rect.top;
-      window.scrollTo({ top: absoluteY - HEADER_OFFSET });
-      setActiveTab(target.key);
-      if (target.key === "recenzii") {
-        ensureReviewsLoaded();
-      }
-    }
+if (h && byHash[h]?.ref?.current) {
+  const target = byHash[h];
+  const rect = target.ref.current.getBoundingClientRect();
+  const absoluteY = window.scrollY + rect.top;
+  window.scrollTo({ top: absoluteY - HEADER_OFFSET });
+  setActiveTab(target.key);
+  if (target.key === "recenzii") ensureReviewsLoaded();
+}
 
     const onHash = () => {
       const hh = window.location.hash;
@@ -1587,6 +1652,17 @@ export default function ProfilMagazin() {
     return () => window.removeEventListener("hashchange", onHash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [HEADER_OFFSET]);
+
+useEffect(() => {
+  const id = setTimeout(() => {
+    import("./components/ProductList");
+    import("./components/ReviewsSection.jsx");
+    import("./modals/ProductModal");
+    import("./modals/VendorGateModal");
+  }, 50);
+
+  return () => clearTimeout(id);
+}, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1629,6 +1705,7 @@ export default function ProfilMagazin() {
   /* ========== Stare & handler pentru activare/dezactivare magazin ========== */
   const [activationBusy, setActivationBusy] = useState(false);
   const [activationError, setActivationError] = useState("");
+const hasData = !!sellerData?.slug;
 
   async function handleToggleActive() {
     if (!isOwner || !serviceId || activationBusy) return;
@@ -1764,9 +1841,10 @@ export default function ProfilMagazin() {
         ]}
       />
 
-      {isLoading ? (
-        <div style={{ padding: "2rem" }}>Se încarcă…</div>
-      ) : needsOnboarding ? (
+   {(!hasData && isLoading) ? (
+  <ProfilMagazinSkeleton />
+) : needsOnboarding ? (
+
         <div style={{ padding: "2rem" }}>
           <h2 style={{ marginBottom: 8 }}>
             Încă nu ai configurat magazinul
@@ -1976,18 +2054,26 @@ export default function ProfilMagazin() {
                   {isOwner ? (
                     <>
                       <button
-                        className={styles.followBtn}
-                        onClick={handleAddProduct}
-                        title="Adaugă produs"
-                        type="button"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        <FaPlus /> Adaugă produs
-                      </button>
+  className={styles.followBtn}
+  onClick={handleAddProduct}
+  type="button"
+  disabled={!canAddProduct}
+  title={
+    canAddProduct
+      ? "Adaugă produs"
+      : `Ai atins limita (${prodLimits?.currentProducts}/${prodLimits?.maxProducts}). Upgrade necesar.`
+  }
+  style={{
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    opacity: canAddProduct ? 1 : 0.6,
+    cursor: canAddProduct ? "pointer" : "not-allowed",
+  }}
+>
+  <FaPlus /> Adaugă produs
+</button>
+
 
                       <button
                         className={styles.followBtn}
@@ -2131,23 +2217,26 @@ export default function ProfilMagazin() {
             </section>
 
             <section
-              id="produse"
-              ref={productsRef}
-              data-tab-key="produse"
-              className={`${styles.section} sectionAnchorPad`}
-            >
-              <ProductList
-                products={products}
-                isOwner={isOwner}
-                viewMode={viewMode}
-                favorites={favorites}
-                navigate={navigate}
-                onAddFirstProduct={handleAddProduct}
-                productsCacheT={productsCacheT}
-                onEditProduct={openEditProduct}
-                categories={categories}
-              />
-            </section>
+  id="produse"
+  ref={productsRef}
+  data-tab-key="produse"
+  className={`${styles.section} sectionAnchorPad`}
+>
+  <Suspense fallback={<div style={{ padding: 12 }}>Se încarcă produsele…</div>}>
+    <ProductList
+      products={products}
+      isOwner={isOwner}
+      viewMode={viewMode}
+      favorites={favorites}
+      navigate={navigate}
+      onAddFirstProduct={handleAddProduct}
+      productsCacheT={productsCacheT}
+      onEditProduct={openEditProduct}
+      categories={categories}
+    />
+  </Suspense>
+</section>
+
 
             <section
               id="recenzii"
@@ -2239,6 +2328,7 @@ export default function ProfilMagazin() {
             const { url } = await res.json();
             return url;
           }}
+          storeSlug={storeSlug}
         />
       </Suspense>
     </>

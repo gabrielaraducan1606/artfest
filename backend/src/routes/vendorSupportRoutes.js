@@ -24,7 +24,9 @@ export async function getSessionUser(req) {
     null;
 
   const authHeader = req.headers.authorization || "";
-  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const bearerToken = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : null;
 
   const token = cookieToken || bearerToken;
   if (!token) return null;
@@ -104,11 +106,21 @@ const qMessages = z.object({
   limit: z.coerce.number().min(1).max(100).default(30),
 });
 
+const attachmentSchema = z.object({
+  url: z.string().url(),
+  name: z.string().optional(),
+  filename: z.string().optional(),
+  mimeType: z.string().optional(),
+  mime: z.string().optional(),
+  size: z.number().int().optional(),
+});
+
 const bodyCreateTicket = z.object({
   subject: z.string().min(3),
   category: z.string().default("general"),
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   message: z.string().min(1),
+  attachments: z.array(attachmentSchema).optional().default([]),
 });
 
 const paramsTicketId = z.object({ id: z.string().min(1) });
@@ -116,19 +128,7 @@ const paramsMessageId = z.object({ mid: z.string().min(1) });
 
 const bodyMessage = z.object({
   body: z.string().optional().default(""),
-  attachments: z
-    .array(
-      z.object({
-        url: z.string().url(),
-        name: z.string().optional(),
-        filename: z.string().optional(),
-        mimeType: z.string().optional(),
-        mime: z.string().optional(),
-        size: z.number().int().optional(),
-      })
-    )
-    .optional()
-    .default([]),
+  attachments: z.array(attachmentSchema).optional().default([]),
 });
 
 const bodyEditMessage = z.object({
@@ -149,15 +149,22 @@ VendorSupportRoutes.get("/me/tickets", requireAuth(), async (req, res) => {
     limit: req.query.limit ?? 20,
   });
   if (!parsed.success) {
-    return res.status(400).json({ error: "bad_request", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "bad_request", details: parsed.error.flatten() });
   }
   const { status, q, offset, limit } = parsed.data;
 
   const where = {
     requesterId: user.id,
-    audience: "VENDOR", // ⬅️ doar tichete de vendor
+    audience: "VENDOR",
     ...(status !== "all" && {
-      status: status === "open" ? "OPEN" : status === "pending" ? "PENDING" : "CLOSED",
+      status:
+        status === "open"
+          ? "OPEN"
+          : status === "pending"
+          ? "PENDING"
+          : "CLOSED",
     }),
     ...(q && { subject: { contains: q, mode: "insensitive" } }),
   };
@@ -170,7 +177,13 @@ VendorSupportRoutes.get("/me/tickets", requireAuth(), async (req, res) => {
         orderBy: [{ status: "asc" }, { lastMessageAt: "desc" }],
         skip: offset,
         take: limit,
-        select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+        select: {
+          id: true,
+          subject: true,
+          status: true,
+          priority: true,
+          updatedAt: true,
+        },
       }),
     ]);
 
@@ -189,9 +202,12 @@ VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
 
   const parsed = bodyCreateTicket.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "bad_request", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "bad_request", details: parsed.error.flatten() });
   }
-  const { subject, category, priority, message } = parsed.data;
+
+  const { subject, category, priority, message, attachments } = parsed.data;
 
   try {
     const vendor = await prisma.vendor.findUnique({
@@ -199,20 +215,62 @@ VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
       select: { id: true },
     });
 
-    const ticket = await prisma.supportTicket.create({
-      data: {
-        requesterId: user.id,
-        vendorId: vendor?.id ?? null,
-        audience: "VENDOR",
-        subject,
-        category,
-        priority: priority.toUpperCase(),
-        status: "OPEN",
-        lastMessageAt: new Date(),
-        messages: { create: { authorId: user.id, body: message } },
-        reads: { create: { userId: user.id, lastReadAt: new Date() } },
-      },
-      select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+    const ticket = await prisma.$transaction(async (tx) => {
+      // 1) ticket
+      const createdTicket = await tx.supportTicket.create({
+        data: {
+          requesterId: user.id,
+          vendorId: vendor?.id ?? null,
+          audience: "VENDOR",
+          subject,
+          category,
+          priority: priority.toUpperCase(),
+          status: "OPEN",
+          lastMessageAt: new Date(),
+        },
+        select: {
+          id: true,
+          subject: true,
+          status: true,
+          priority: true,
+          updatedAt: true,
+        },
+      });
+
+      // 2) mesaj inițial
+      const msg = await tx.supportMessage.create({
+        data: {
+          ticketId: createdTicket.id,
+          authorId: user.id,
+          body: (message || "").trim() || "(fișier)",
+        },
+        select: { id: true },
+      });
+
+      // 3) attachments
+      if (attachments?.length) {
+        await tx.supportAttachment.createMany({
+          data: attachments.map((a, idx) => ({
+            ticketId: createdTicket.id,
+            messageId: msg.id,
+            url: a.url,
+            filename: a.name ?? a.filename ?? `attachment-${idx + 1}`,
+            mime: a.mimeType ?? a.mime ?? null,
+            size: a.size ?? null,
+          })),
+        });
+      }
+
+      // 4) mark read
+      await tx.supportRead.create({
+        data: {
+          ticketId: createdTicket.id,
+          userId: user.id,
+          lastReadAt: new Date(),
+        },
+      });
+
+      return createdTicket;
     });
 
     res.status(201).json({ ticket: mapTicketToUI(ticket) });
@@ -226,7 +284,8 @@ VendorSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
 VendorSupportRoutes.delete("/tickets/:id", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
   const parsedParams = paramsTicketId.safeParse(req.params);
-  if (!parsedParams.success) return res.status(400).json({ error: "bad_request" });
+  if (!parsedParams.success)
+    return res.status(400).json({ error: "bad_request" });
   const { id } = parsedParams.data;
 
   const allowed = await ensureOwnTicketOrAdmin(user, id);
@@ -247,112 +306,136 @@ VendorSupportRoutes.delete("/tickets/:id", requireAuth(), async (req, res) => {
 });
 
 /** GET /api/vendor/support/tickets/:id/messages  (cu paginare) */
-VendorSupportRoutes.get("/tickets/:id/messages", requireAuth(), async (req, res) => {
-  const user = req.sessionUser;
+VendorSupportRoutes.get(
+  "/tickets/:id/messages",
+  requireAuth(),
+  async (req, res) => {
+    const user = req.sessionUser;
 
-  const parsedParams = paramsTicketId.safeParse(req.params);
-  const parsedQuery = qMessages.safeParse(req.query);
-  if (!parsedParams.success || !parsedQuery.success) return res.status(400).json({ error: "bad_request" });
-  const { id } = parsedParams.data;
-  const { offset, limit } = parsedQuery.data;
+    const parsedParams = paramsTicketId.safeParse(req.params);
+    const parsedQuery = qMessages.safeParse(req.query);
+    if (!parsedParams.success || !parsedQuery.success)
+      return res.status(400).json({ error: "bad_request" });
 
-  const allowed = await ensureOwnTicketOrAdmin(user, id);
-  if (!allowed) return res.status(404).json({ error: "not_found" });
+    const { id } = parsedParams.data;
+    const { offset, limit } = parsedQuery.data;
 
-  try {
-    const where = { ticketId: id };
-    const [total, rows] = await Promise.all([
-      prisma.supportMessage.count({ where }),
-      prisma.supportMessage.findMany({
-        where,
-        orderBy: { createdAt: "asc" },
-        skip: offset,
-        take: limit,
-        select: {
-          id: true,
-          body: true,
-          createdAt: true,
-          authorId: true,
-          system: true,
-          attachments: { select: { url: true, filename: true, mime: true } },
-        },
-      }),
-    ]);
+    const allowed = await ensureOwnTicketOrAdmin(user, id);
+    if (!allowed) return res.status(404).json({ error: "not_found" });
 
-    const items = rows.map((m) => ({
-      id: m.id,
-      ticketId: id,
-      from: m.system ? "them" : m.authorId === user.id ? "me" : "them",
-      body: m.body,
-      createdAt: m.createdAt,
-      attachments: (m.attachments || []).map((a) => ({
-        url: a.url,
-        name: a.filename || null,
-        mimeType: a.mime || null,
-        size: null,
-      })),
-    }));
+    try {
+      const where = { ticketId: id };
+      const [total, rows] = await Promise.all([
+        prisma.supportMessage.count({ where }),
+        prisma.supportMessage.findMany({
+          where,
+          orderBy: { createdAt: "asc" },
+          skip: offset,
+          take: limit,
+          select: {
+            id: true,
+            body: true,
+            createdAt: true,
+            authorId: true,
+            system: true,
+            attachments: { select: { url: true, filename: true, mime: true } },
+          },
+        }),
+      ]);
 
-    const nextOffset = offset + items.length;
-    res.json({ items, total, hasMore: nextOffset < total, nextOffset });
-  } catch (e) {
-    console.error("vendor get messages error:", e);
-    res.status(500).json({ error: "server_error" });
+      const items = rows.map((m) => ({
+        id: m.id,
+        ticketId: id,
+        from: m.system ? "them" : m.authorId === user.id ? "me" : "them",
+        body: m.body,
+        createdAt: m.createdAt,
+        attachments: (m.attachments || []).map((a) => ({
+          url: a.url,
+          name: a.filename || null,
+          mimeType: a.mime || null,
+          size: null,
+        })),
+      }));
+
+      const nextOffset = offset + items.length;
+      res.json({ items, total, hasMore: nextOffset < total, nextOffset });
+    } catch (e) {
+      console.error("vendor get messages error:", e);
+      res.status(500).json({ error: "server_error" });
+    }
   }
-});
+);
 
 /** POST /api/vendor/support/tickets/:id/messages */
-VendorSupportRoutes.post("/tickets/:id/messages", requireAuth(), async (req, res) => {
-  const user = req.sessionUser;
+VendorSupportRoutes.post(
+  "/tickets/:id/messages",
+  requireAuth(),
+  async (req, res) => {
+    const user = req.sessionUser;
 
-  const parsedParams = paramsTicketId.safeParse(req.params);
-  const parsedBody = bodyMessage.safeParse(req.body);
-  if (!parsedParams.success || !parsedBody.success) {
-    return res.status(400).json({ error: "bad_request" });
-  }
-  const { id } = parsedParams.data;
-  const { body, attachments } = parsedBody.data;
+    const parsedParams = paramsTicketId.safeParse(req.params);
+    const parsedBody = bodyMessage.safeParse(req.body);
+    if (!parsedParams.success || !parsedBody.success) {
+      return res.status(400).json({ error: "bad_request" });
+    }
 
-  const allowed = await ensureOwnTicketOrAdmin(user, id);
-  if (!allowed) return res.status(404).json({ error: "not_found" });
+    const { id } = parsedParams.data;
+    const { body, attachments } = parsedBody.data;
 
-  try {
-    await prisma.$transaction(async (tx) => {
-      const msg = await tx.supportMessage.create({
-        data: { ticketId: id, authorId: user.id, body: (body || "").trim() || "(fișier)" },
-        select: { id: true },
-      });
+    const allowed = await ensureOwnTicketOrAdmin(user, id);
+    if (!allowed) return res.status(404).json({ error: "not_found" });
 
-      if (attachments?.length) {
-        await tx.supportAttachment.createMany({
-          data: attachments.map((a) => ({
+    try {
+      await prisma.$transaction(async (tx) => {
+        const msg = await tx.supportMessage.create({
+          data: {
             ticketId: id,
-            messageId: msg.id,
-            url: a.url,
-            filename: a.name ?? a.filename ?? null,
-            mime: a.mimeType ?? a.mime ?? null,
-          })),
+            authorId: user.id,
+            body: (body || "").trim() || "(fișier)",
+          },
+          select: { id: true },
         });
-      }
 
-      await tx.supportTicket.update({
-        where: { id },
-        data: { lastMessageAt: new Date(), updatedAt: new Date(), status: "PENDING" },
+        if (attachments?.length) {
+          await tx.supportAttachment.createMany({
+            data: attachments.map((a, idx) => ({
+              ticketId: id,
+              messageId: msg.id,
+              url: a.url,
+              filename: a.name ?? a.filename ?? `attachment-${idx + 1}`,
+              mime: a.mimeType ?? a.mime ?? null,
+              size: a.size ?? null,
+            })),
+          });
+        }
+
+        await tx.supportTicket.update({
+          where: { id },
+          data: {
+            lastMessageAt: new Date(),
+            updatedAt: new Date(),
+            status: "PENDING",
+          },
+        });
+
+        await tx.supportRead.upsert({
+          where: { ticketId_userId: { ticketId: id, userId: user.id } },
+          update: { lastReadAt: new Date() },
+          create: {
+            ticketId: id,
+            userId: user.id,
+            lastReadAt: new Date(),
+          },
+        });
       });
 
-      await tx.supportRead.upsert({
-        where: { ticketId_userId: { ticketId: id, userId: user.id } },
-        update: { lastReadAt: new Date() },
-        create: { ticketId: id, userId: user.id, lastReadAt: new Date() },
-      });
-    });
-
-    res.status(201).json({ ok: true });
-  } catch (e) {
-    console.error("vendor post message error:", e);
-    res.status(500).json({ error: "server_error" });
+      res.status(201).json({ ok: true });
+    } catch (e) {
+      console.error("vendor post message error:", e);
+      res.status(500).json({ error: "server_error" });
+    }
   }
-});
+);
 
 /** PATCH /api/vendor/support/messages/:mid (edit) */
 VendorSupportRoutes.patch("/messages/:mid", requireAuth(), async (req, res) => {
@@ -381,6 +464,7 @@ VendorSupportRoutes.patch("/messages/:mid", requireAuth(), async (req, res) => {
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     });
+
     await prisma.supportTicket.update({
       where: { id: updated.ticketId },
       data: { lastMessageAt: last?.createdAt ?? new Date(), updatedAt: new Date() },
@@ -398,7 +482,8 @@ VendorSupportRoutes.delete("/messages/:mid", requireAuth(), async (req, res) => 
   const user = req.sessionUser;
 
   const parsedParams = paramsMessageId.safeParse(req.params);
-  if (!parsedParams.success) return res.status(400).json({ error: "bad_request" });
+  if (!parsedParams.success)
+    return res.status(400).json({ error: "bad_request" });
   const { mid } = parsedParams.data;
 
   const allowed = await ensureOwnMessageOrAdmin(user, mid);
@@ -439,7 +524,8 @@ VendorSupportRoutes.patch("/tickets/:id/read", requireAuth(), async (req, res) =
   const user = req.sessionUser;
 
   const parsedParams = paramsTicketId.safeParse(req.params);
-  if (!parsedParams.success) return res.status(400).json({ error: "bad_request" });
+  if (!parsedParams.success)
+    return res.status(400).json({ error: "bad_request" });
   const { id } = parsedParams.data;
 
   const allowed = await ensureOwnTicketOrAdmin(user, id);
@@ -487,11 +573,11 @@ VendorSupportRoutes.get("/faqs", async (req, res) => {
     res.status(500).json({ error: "server_error" });
   }
 });
+
 VendorSupportRoutes.get("/unread-count", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
   try {
-    // luăm vendorul asociat userului
     const vendor = await prisma.vendor.findUnique({
       where: { userId: user.id },
       select: { id: true },

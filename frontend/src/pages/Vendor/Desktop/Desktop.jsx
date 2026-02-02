@@ -1,5 +1,6 @@
 // DesktopV3.jsx
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../pages/Auth/Context/context.js";
 import styles from "./Desktop.module.css";
@@ -18,9 +19,11 @@ import {
   ShieldCheck,
   CreditCard,
   FileText,
-  ShieldHalf,
   CheckCircle2,
   ShoppingCart,
+  Receipt,
+  ScrollText,
+  Paperclip,
 } from "lucide-react";
 
 /* ===================== UI cache (instant render) ===================== */
@@ -28,7 +31,7 @@ const DASH_CACHE_KEY = "vendor:dashboard-cache:v1";
 
 function readDashCache() {
   try {
-    const raw = sessionStorage.getItem(DASH_CACHE_KEY);
+    const raw = localStorage.getItem(DASH_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed) return null;
@@ -37,12 +40,24 @@ function readDashCache() {
     return null;
   }
 }
+
 function writeDashCache(data) {
   try {
-    sessionStorage.setItem(DASH_CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(DASH_CACHE_KEY, JSON.stringify(data));
   } catch {
     /* noop */
   }
+}
+
+/* range helpers */
+function toISODate(d) {
+  return d.toISOString().slice(0, 10);
+}
+function lastNDaysRange(n) {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(to.getDate() - (n - 1));
+  return { from: toISODate(from), to: toISODate(to) };
 }
 
 /* ---------- helpers mute în afara componentei (fără deps) ---------- */
@@ -98,33 +113,53 @@ function humanizeActivateError(e) {
 }
 
 /* ============================ Subscriptions hook ============================ */
+/**
+ * Așteaptă ca backend-ul să întoarcă:
+ *  - ok: boolean
+ *  - kind: "trial" | "paid" (opțional)
+ *  - plan: {code,name} (opțional)
+ *  - endAt: ISO date (opțional)
+ *  - trialEndsAt: ISO date (opțional)
+ *  - status: string (opțional)
+ */
 function useSubscriptionStatus({ auto = true } = {}) {
   const [state, setState] = useState({
     ok: null,
+    kind: null, // "trial" | "paid" | null
     plan: null,
     endAt: null,
+    trialEndsAt: null,
+    status: null,
     loading: true,
     error: "",
   });
+
   const timerRef = useRef(null);
 
   const fetchOnce = useCallback(async () => {
     try {
       setState((s) => ({ ...s, loading: true, error: "" }));
       const d = await api("/api/vendors/me/subscription/status", { method: "GET" });
+
       if (d?.ok) {
         setState({
           ok: true,
+          kind: d.kind || null,
           plan: d.plan || null,
           endAt: d.endAt || null,
+          trialEndsAt: d.trialEndsAt || null,
+          status: d.status || null,
           loading: false,
           error: "",
         });
       } else {
         setState({
           ok: false,
+          kind: null,
           plan: null,
           endAt: null,
+          trialEndsAt: null,
+          status: null,
           loading: false,
           error: "",
         });
@@ -132,8 +167,11 @@ function useSubscriptionStatus({ auto = true } = {}) {
     } catch (e) {
       setState({
         ok: false,
+        kind: null,
         plan: null,
         endAt: null,
+        trialEndsAt: null,
+        status: null,
         loading: false,
         error: e?.message || "Nu am putut citi abonamentul.",
       });
@@ -186,9 +224,33 @@ function getInitials(me) {
   return ((s[0]?.[0] || "U") + (s[1]?.[0] || "").toUpperCase()).toUpperCase();
 }
 
+/* date helpers */
+function formatDT(v) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("ro-RO");
+}
+function daysLeftFromISO(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const diff = d.getTime() - Date.now();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+/* ✅ robust: trial chiar dacă backend-ul nu trimite kind */
+function isTrialSub(sub) {
+  if (!sub?.ok) return false;
+  if (sub.kind === "trial") return true;
+  const left = daysLeftFromISO(sub.trialEndsAt);
+  return typeof left === "number" && left > 0;
+}
+
 /* =============================== Componenta =============================== */
 export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
 
   // citește cache o singură dată
   const cached = useMemo(() => readDashCache(), []);
@@ -197,12 +259,10 @@ export default function DesktopV3() {
   const [onboarding, setOnboarding] = useState(() => cached?.onboarding ?? null);
 
   const [stats, setStats] = useState(() => cached?.stats ?? { visitors: 0, followers: 0 });
-  const [reviewCounts, setReviewCounts] = useState(
-    () => cached?.reviewCounts ?? { product: 0, store: 0 }
-  );
+  const [reviewCounts] = useState(() => cached?.reviewCounts ?? { product: 0, store: 0 });
 
-  // dacă avem cache -> pornește fără loader blocking
-  const [loading, setLoading] = useState(() => !cached);
+  // flag intern, dar NU afișăm text
+  const [loading, setLoading] = useState(false);
 
   const [busy, setBusy] = useState({});
   const [error, setError] = useState("");
@@ -217,7 +277,7 @@ export default function DesktopV3() {
   const [favCount, setFavCount] = useState(() => cached?.counts?.favCount ?? 0);
   const [supportUnread, setSupportUnread] = useState(() => cached?.counts?.supportUnread ?? 0);
 
-  /* ===================== 1) Cache write DEBOUNCED (evită jank) ===================== */
+  /* ===================== 1) Cache write DEBOUNCED ===================== */
   const cacheTimerRef = useRef(null);
   useEffect(() => {
     if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
@@ -253,44 +313,63 @@ export default function DesktopV3() {
     if (me?.vendor) setVendor(me.vendor);
   }, [me]);
 
-  /* ===================== 2) Split fetch: critice vs non-critice ===================== */
-  const loadAllVendor = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
+  /* ===================== 2) Fetch programat ===================== */
+  const loadAllVendor = useCallback(() => {
     setError("");
+    setLoading(true);
 
-    try {
-      // Critice: services + onboarding (afisează “main content”)
-      const [svc, ob] = await Promise.all([
-        api("/api/vendors/me/services?includeProfile=1").catch(() => ({ items: [] })),
-        api("/api/vendors/me/onboarding-status").catch(() => null),
-      ]);
+    const fetchLite = async () => {
+      try {
+        const lite = await api("/api/vendors/me/services").catch(() => ({ items: [] }));
+        setServices(lite?.items || []);
+      } catch {
+        // ignore
+      }
+    };
 
-      setServices(svc?.items || []);
-      setOnboarding(ob || null);
+    const fetchFull = async () => {
+      try {
+        const [svc, ob] = await Promise.all([
+          api("/api/vendors/me/services?includeProfile=1").catch(() => ({ items: [] })),
+          api("/api/vendors/me/onboarding-status").catch(() => null),
+        ]);
+        setServices(svc?.items || []);
+        setOnboarding(ob || null);
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false);
+      }
+    };
 
-      // Non-critice: vendor + stats (în fundal)
+    const fetchNonCritical = async () => {
       api("/api/vendors/me")
         .then((v) => v?.vendor && setVendor(v.vendor))
         .catch(() => {});
 
-      api("/api/vendors/me/stats?window=7d")
-        .then((st) => {
-          if (!st) return;
-          setStats({ visitors: st.visitors ?? 0, followers: st.followers ?? 0 });
-          setReviewCounts({
-            product: st.productReviewsTotal ?? 0,
-            store: st.storeReviewsTotal ?? 0,
-          });
+      // ✅ KPI visitors din rutele tale
+      const { from, to } = lastNDaysRange(7);
+      api(`/api/vendors/me/visitors/kpi?from=${from}&to=${to}`)
+        .then((r) => {
+          const d = r?.data;
+          if (!d) return;
+          setStats((prev) => ({ ...prev, visitors: d.visitors ?? 0 }));
         })
         .catch(() => {});
-    } catch (e) {
-      setError(e?.message || "Eroare la încărcare");
-    } finally {
-      setLoading(false);
+    };
+
+    requestAnimationFrame(fetchLite);
+
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(fetchFull, { timeout: 1500 });
+    } else {
+      setTimeout(fetchFull, 800);
     }
+
+    setTimeout(fetchNonCritical, 1200);
   }, []);
 
-  /* ===================== 3) Counts polling adaptiv + focus/visibility ===================== */
+  /* ===================== 3) Counts polling ===================== */
   useEffect(() => {
     if (!me) return;
 
@@ -329,13 +408,13 @@ export default function DesktopV3() {
       intervalId = setInterval(fetchCounts, ms);
     };
 
-    // refresh imediat (dar fără loader)
-    fetchCounts();
-    startInterval();
+    const warmup = setTimeout(() => {
+      fetchCounts();
+      startInterval();
+    }, 900);
 
     const onFocus = () => fetchCounts();
     const onVisible = () => {
-      // când revii în tab, trage instant și reconfigurează intervalul
       if (document.visibilityState === "visible") fetchCounts();
       startInterval();
     };
@@ -345,6 +424,7 @@ export default function DesktopV3() {
 
     return () => {
       alive = false;
+      clearTimeout(warmup);
       if (intervalId) clearInterval(intervalId);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
@@ -361,20 +441,15 @@ export default function DesktopV3() {
     }
 
     if (me.role === "VENDOR") {
-      const hasCachedContent =
-        (services && services.length) || onboarding || vendor || (cached && cached.ts);
-
-      loadAllVendor({ silent: !!hasCachedContent });
+      loadAllVendor();
     } else {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, me, loadAllVendor]);
 
   const completeness = useMemo(() => {
     if (!services.length) return 0;
-    const filled = services.filter((s) => s?.profile && (s.profile.displayName || s.title))
-      .length;
+    const filled = services.filter((s) => s?.profile && (s.profile.displayName || s.title)).length;
     return Math.round((filled / services.length) * 100);
   }, [services]);
 
@@ -392,13 +467,15 @@ export default function DesktopV3() {
   /* ---------------------------- Actions ---------------------------- */
   const guardSubscriptionOrRedirect = useCallback(async () => {
     if (sub.loading) await sub.refetch();
+
+    // ok = true și la trial (dacă backend-ul întoarce ok:true pentru trial)
     if (!sub.ok) {
       sub.startShortPolling?.();
-      window.location.href = "/onboarding/details?tab=plata&solo=1";
+      navigate("/onboarding/details?tab=plata&solo=1");
       return false;
     }
     return true;
-  }, [sub]);
+  }, [sub, navigate]);
 
   const onActivate = useCallback(
     async (serviceId) => {
@@ -448,7 +525,11 @@ export default function DesktopV3() {
         alert("Serviciul este activ. Dezactivează-l înainte de a-l șterge.");
         return;
       }
-      if (!confirm("Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată."))
+      if (
+        !confirm(
+          "Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată."
+        )
+      )
         return;
 
       setBusy((prev) => ({ ...prev, [serviceId]: "delete" }));
@@ -467,19 +548,20 @@ export default function DesktopV3() {
     }
   }, []);
 
-  const onPreview = useCallback((service) => {
-    const slug = service?.profile?.slug;
-    if (slug) window.open(`/magazin/${slug}`, "_blank", "noopener,noreferrer");
-    else window.location.href = "/onboarding/details";
-  }, []);
+  const onPreview = useCallback(
+    (service) => {
+      const slug = service?.profile?.slug;
+      if (slug) window.open(`/magazin/${slug}`, "_blank", "noopener,noreferrer");
+      else navigate("/onboarding/details");
+    },
+    [navigate]
+  );
 
   /* ---------------------------- Render gating ---------------------------- */
- 
-  const isVendor = me.role === "VENDOR";
-  const isAdmin = me.role === "ADMIN";
+  const isVendor = me?.role === "VENDOR";
+  const isAdmin = me?.role === "ADMIN";
   const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
 
-  /* ✅ quick memo (nu recreăm array-ul mereu) */
   const quick = useMemo(
     () => [
       { to: "/notificari", label: "Notificări", icon: <Bell size={20} />, badge: unreadNotif },
@@ -494,22 +576,31 @@ export default function DesktopV3() {
     ],
     [unreadNotif, unreadMsgs, favCount, cartCount, supportUnread]
   );
-  
- if (authLoading) return <div className={styles.page}>Se încarcă…</div>;
+
+  if (authLoading) {
+    return (
+      <section className={styles.page}>
+        <HeaderSkeleton />
+        <ServicesSkeleton />
+      </section>
+    );
+  }
+
   if (!me || me.role !== "VENDOR") return <div className={styles.page}>Acces doar pentru vendori.</div>;
 
   return (
     <section className={styles.page}>
       <Topbar me={me} completeness={completeness} sub={sub} nextStep={nextStep} />
 
-      {/* mic indicator că se face refresh în fundal */}
-      {loading ? <div className={styles.subtle}>Se actualizează datele…</div> : null}
-
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 
       <IdentityCard me={me} roleLabel={roleLabel} />
       <QuickCard quick={quick} />
 
+      {/* ✅ banner clar pentru trial */}
+      <TrialBanner sub={sub} />
+
+      {/* abonament necesar (nu apare când ok=true, inclusiv trial) */}
       <SubscriptionAlert sub={sub} />
 
       <div className={styles.kpiRow}>
@@ -530,6 +621,7 @@ export default function DesktopV3() {
             onDeactivate={onDeactivate}
             onDelete={onDelete}
             onPreview={onPreview}
+            loading={loading}
           />
         </div>
 
@@ -542,7 +634,7 @@ export default function DesktopV3() {
 
       {isAdmin && <AdminCard />}
 
-      <LogoutCard />
+      <LogoutCard onLogout={() => navigate("/autentificare", { replace: true })} />
     </section>
   );
 }
@@ -550,32 +642,41 @@ export default function DesktopV3() {
 /* ============================= Sub-componente ============================= */
 
 function Topbar({ me, completeness, sub, nextStep }) {
-  const now = useMemo(() => Date.now(), []); // stabil per mount (fără jitter)
-
   const subBadge = (() => {
-    if (sub.loading) return <span className={styles.badgeWait}>Verific abonament…</span>;
+    if (sub.loading) return <span className={styles.badgeWait} aria-label="loading" />;
 
     if (sub.ok) {
-      const end = sub.endAt ? new Date(sub.endAt) : null;
-      const daysLeft = end ? Math.ceil((end.getTime() - now) / (1000 * 60 * 60 * 24)) : null;
+      const trial = isTrialSub(sub);
+      const until = trial ? sub.trialEndsAt : sub.endAt;
+      const daysLeft = daysLeftFromISO(until);
 
       return (
         <span className={styles.badgeOk}>
-          Plan: {sub.plan?.name || sub.plan?.code || "activ"}
-          {end ? ` • până la ${end.toLocaleDateString("ro-RO")}` : ""}
-          {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+          {trial ? (
+            <>
+              Trial activ
+              {until ? ` • până la ${formatDT(until)}` : ""}
+              {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+            </>
+          ) : (
+            <>
+              Plan: {sub.plan?.name || sub.plan?.code || "activ"}
+              {until ? ` • până la ${formatDT(until)}` : ""}
+              {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+            </>
+          )}
         </span>
       );
     }
 
     return (
-      <a
+      <Link
         className={styles.badgeWarn}
-        href="/onboarding/details?tab=plata&solo=1"
+        to="/onboarding/details?tab=plata&solo=1"
         title="Activează abonamentul"
       >
         Fără abonament activ — Activează abonament
-      </a>
+      </Link>
     );
   })();
 
@@ -603,9 +704,50 @@ function Topbar({ me, completeness, sub, nextStep }) {
         </div>
       </div>
 
-      <a className={`${styles.btn} ${styles.btnPrimary}`} href={nextStep.href}>
+      <Link className={`${styles.btn} ${styles.btnPrimary}`} to={nextStep.href}>
         {nextStep.label}
-      </a>
+      </Link>
+    </div>
+  );
+}
+
+function TrialBanner({ sub }) {
+  if (sub.loading) return null;
+  const trial = isTrialSub(sub);
+  if (!trial) return null;
+
+  const until = sub.trialEndsAt;
+  const daysLeft = daysLeftFromISO(until);
+
+  return (
+    <div className={`${styles.card} ${styles.cardOk}`}>
+      <div className={styles.cardHead}>
+        <h3>Perioadă de încercare (Trial)</h3>
+      </div>
+      <p className={styles.subtle}>
+        Ai trial activ
+        {until ? (
+          <>
+            {" "}
+            până la <b>{formatDT(until)}</b>
+          </>
+        ) : null}
+        {typeof daysLeft === "number" ? (
+          <>
+            {" "}
+            • <b>{daysLeft} zile</b> rămase
+          </>
+        ) : null}
+        .
+      </p>
+      <div className={styles.actionsRow}>
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details?tab=plata&solo=1">
+          Vezi abonamentul
+        </Link>
+        <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
+          Reîncarcă status
+        </button>
+      </div>
     </div>
   );
 }
@@ -641,6 +783,7 @@ function IdentityCard({ me, roleLabel }) {
 
 function QuickCard({ quick }) {
   if (!quick.length) return null;
+
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
@@ -649,9 +792,9 @@ function QuickCard({ quick }) {
 
       <div className={styles.actionsRow} style={{ flexWrap: "wrap" }}>
         {quick.map((q) => (
-          <a
+          <Link
             key={q.to}
-            href={q.to}
+            to={q.to}
             className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`}
             style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}
           >
@@ -660,7 +803,7 @@ function QuickCard({ quick }) {
               <Badge count={q.badge} />
             </span>
             <span>{q.label}</span>
-          </a>
+          </Link>
         ))}
       </div>
     </div>
@@ -668,6 +811,7 @@ function QuickCard({ quick }) {
 }
 
 function SubscriptionAlert({ sub }) {
+  // ok=true și pentru trial => alert nu apare în trial
   if (sub.loading || sub.ok) return null;
   return (
     <div className={`${styles.card} ${styles.cardWarning}`}>
@@ -678,9 +822,9 @@ function SubscriptionAlert({ sub }) {
         Pentru a activa servicii și a apărea în căutări, ai nevoie de un abonament activ.
       </p>
       <div className={styles.actionsRow}>
-        <a className={`${styles.btn} ${styles.btnPrimary}`} href="/onboarding/details?tab=plata&solo=1">
+        <Link className={`${styles.btn} ${styles.btnPrimary}`} to="/onboarding/details?tab=plata&solo=1">
           Activează abonamentul
-        </a>
+        </Link>
         <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
           Reîncarcă status
         </button>
@@ -699,18 +843,18 @@ function OnboardingCard({ nextStep }) {
         </span>
       </div>
       <div className={styles.actionsRow}>
-        <a className={`${styles.btn} ${styles.btnPrimary}`} href="/onboarding">
+        <Link className={`${styles.btn} ${styles.btnPrimary}`} to="/onboarding">
           Alege/Adaugă servicii
-        </a>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/onboarding/details">
+        </Link>
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details">
           Completează detalii
-        </a>
+        </Link>
       </div>
     </div>
   );
 }
 
-function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPreview }) {
+function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPreview, loading }) {
   const activeCount = services.filter((s) => s.isActive && s.status === "ACTIVE").length;
 
   return (
@@ -722,16 +866,20 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
         </div>
       </div>
 
-      {services.length === 0 ? (
+      {services.length === 0 && loading ? (
+        <ServicesSkeleton />
+      ) : services.length === 0 ? (
         <EmptyState
           title="Nu ai servicii încă"
           subtitle="Începe prin a alege servicii și a completa detaliile profilului."
           ctaText="Pornește onboarding"
-          href="/onboarding"
+          to="/onboarding"
         />
       ) : (
         <ul className={styles.serviceList}>
           {services.map((s) => {
+            const hasFull = !!(s.status || s.profile?.displayName || typeof s.isActive === "boolean");
+
             const isAct = !!(s.isActive && s.status === "ACTIVE");
             const isBusy = !!busy[s.id];
             const actLabel = isAct ? "Dezactivează" : "Activează";
@@ -755,23 +903,35 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
                   </div>
 
                   <div className={styles.serviceMeta}>
-                    <span>
-                      Status: <b>{s.status}</b>
-                      {isAct ? " (activ)" : ""}
-                    </span>
-                    {s.profile?.displayName ? (
+                    {hasFull ? (
                       <>
-                        {" · "}Brand: <b>{s.profile.displayName}</b>
+                        <span>
+                          Status: <b>{s.status}</b>
+                          {isAct ? " (activ)" : ""}
+                        </span>
+
+                        {s.profile?.displayName ? (
+                          <>
+                            {" · "}Brand: <b>{s.profile.displayName}</b>
+                          </>
+                        ) : null}
+
+                        {s.city ? (
+                          <>
+                            {" · "}Oraș: <b>{s.city}</b>
+                          </>
+                        ) : null}
                       </>
-                    ) : null}
-                    {s.city ? (
-                      <>
-                        {" · "}Oraș: <b>{s.city}</b>
-                      </>
-                    ) : null}
+                    ) : (
+                      <div className={styles.metaSkeletonRow}>
+                        <span className={styles.skelLine} />
+                        <span className={styles.skelLine} />
+                        <span className={styles.skelLine} />
+                      </div>
+                    )}
                   </div>
 
-                  {missingCore && !isAct && (
+                  {hasFull && missingCore && !isAct && (
                     <div className={styles.serviceWarning}>
                       Pentru a putea activa serviciul, completează {missingFields.join(", ")}.
                     </div>
@@ -779,51 +939,61 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
                 </div>
 
                 <div className={styles.actionsRow}>
-                  <a className={`${styles.btn} ${styles.btnGhost}`} href="/onboarding/details">
-                    Editează
-                  </a>
+                  {hasFull ? (
+                    <>
+                      <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details">
+                        Editează
+                      </Link>
 
-                  <button
-                    className={`${styles.btn} ${styles.btnGhost}`}
-                    onClick={() => onPreview(s)}
-                    disabled={isBusy}
-                    type="button"
-                    title="Previzualizează"
-                  >
-                    Previzualizează
-                  </button>
+                      <button
+                        className={`${styles.btn} ${styles.btnGhost}`}
+                        onClick={() => onPreview(s)}
+                        disabled={isBusy}
+                        type="button"
+                        title="Previzualizează"
+                      >
+                        Previzualizează
+                      </button>
 
-                  {isAct ? (
-                    <button
-                      className={`${styles.btn} ${styles.btnWarn}`}
-                      onClick={() => onDeactivate(s.id)}
-                      disabled={isBusy}
-                      type="button"
-                      title={actTitle}
-                    >
-                      {busy[s.id] === "deactivate" ? "Se dezactivează…" : actLabel}
-                    </button>
+                      {isAct ? (
+                        <button
+                          className={`${styles.btn} ${styles.btnWarn}`}
+                          onClick={() => onDeactivate(s.id)}
+                          disabled={isBusy}
+                          type="button"
+                          title={actTitle}
+                        >
+                          {busy[s.id] === "deactivate" ? "Se dezactivează…" : actLabel}
+                        </button>
+                      ) : (
+                        <button
+                          className={`${styles.btn} ${styles.btnPrimary}`}
+                          onClick={() => onActivate(s.id)}
+                          disabled={isBusy}
+                          type="button"
+                          title={actTitle}
+                        >
+                          {busy[s.id] === "activate" ? "Se activează…" : actLabel}
+                        </button>
+                      )}
+
+                      <button
+                        className={`${styles.btn} ${styles.btnDanger}`}
+                        onClick={() => onDelete(s.id, isAct, s.status)}
+                        disabled={isBusy}
+                        type="button"
+                        title="Șterge definitiv"
+                      >
+                        {busy[s.id] === "delete" ? "Se șterge…" : "Șterge"}
+                      </button>
+                    </>
                   ) : (
-                    <button
-                      className={`${styles.btn} ${styles.btnPrimary}`}
-                      onClick={() => onActivate(s.id)}
-                      disabled={isBusy}
-                      type="button"
-                      title={actTitle}
-                    >
-                      {busy[s.id] === "activate" ? "Se activează…" : actLabel}
-                    </button>
+                    <>
+                      <span className={styles.skelBtn} />
+                      <span className={styles.skelBtn} />
+                      <span className={styles.skelBtn} />
+                    </>
                   )}
-
-                  <button
-                    className={`${styles.btn} ${styles.btnDanger}`}
-                    onClick={() => onDelete(s.id, isAct, s.status)}
-                    disabled={isBusy}
-                    type="button"
-                    title="Șterge definitiv"
-                  >
-                    {busy[s.id] === "delete" ? "Se șterge…" : "Șterge"}
-                  </button>
                 </div>
               </li>
             );
@@ -835,6 +1005,10 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
 }
 
 function Sidebar({ sub }) {
+  const trial = isTrialSub(sub);
+  const until = trial ? sub?.trialEndsAt : sub?.endAt;
+  const daysLeft = daysLeftFromISO(until);
+
   return (
     <aside className={styles.colSide}>
       <div className={styles.card}>
@@ -843,34 +1017,52 @@ function Sidebar({ sub }) {
         </div>
 
         {sub.loading ? (
-          <p className={styles.subtle}>Se verifică abonamentul…</p>
+          <div className={styles.metaSkeletonRow} aria-label="loading">
+            <span className={styles.skelLine} />
+            <span className={styles.skelLine} />
+            <span className={styles.skelLine} />
+          </div>
         ) : sub.ok ? (
           <>
             <p className={styles.subtle}>
-              Plan: <b>{sub.plan?.name || sub.plan?.code || "activ"}</b>
-              <br />
-              {sub.endAt ? (
+              {trial ? (
                 <>
-                  Valabil până la: <b>{new Date(sub.endAt).toLocaleDateString("ro-RO")}</b>
+                  <b>Trial activ</b>
+                  <br />
+                  {until ? (
+                    <>
+                      Valabil până la: <b>{formatDT(until)}</b>
+                      {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+                    </>
+                  ) : null}
                 </>
-              ) : null}
+              ) : (
+                <>
+                  Plan: <b>{sub.plan?.name || sub.plan?.code || "activ"}</b>
+                  <br />
+                  {until ? (
+                    <>
+                      Valabil până la: <b>{formatDT(until)}</b>
+                      {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+                    </>
+                  ) : null}
+                </>
+              )}
             </p>
 
-            <a className={`${styles.btn} ${styles.btnGhost}`} href="/onboarding/details?tab=plata&solo=1">
+            <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details?tab=plata&solo=1">
               Gestionează abonamentul
-            </a>
+            </Link>
             <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
               Reîncarcă
             </button>
           </>
         ) : (
           <>
-            <p className={styles.subtle}>
-              Nu ai un abonament activ. Activează-l pentru a-ți publica serviciile.
-            </p>
-            <a className={`${styles.btn} ${styles.btnPrimary}`} href="/onboarding/details?tab=plata&solo=1">
+            <p className={styles.subtle}>Nu ai un abonament activ. Activează-l pentru a-ți publica serviciile.</p>
+            <Link className={`${styles.btn} ${styles.btnPrimary}`} to="/onboarding/details?tab=plata&solo=1">
               Activează abonament
-            </a>
+            </Link>
             <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
               Am plătit — verifică din nou
             </button>
@@ -882,6 +1074,7 @@ function Sidebar({ sub }) {
 }
 
 function SettingsAndSecurityCard() {
+  const base = import.meta.env.VITE_API_URL.replace(/\/+$/, "");
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
@@ -889,58 +1082,40 @@ function SettingsAndSecurityCard() {
       </div>
 
       <div className={styles.actionsCol}>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/setari">
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/setari">
           <Settings size={18} style={{ marginRight: 6 }} /> Setări cont
-        </a>
+        </Link>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/invoices">
-          <FileText size={18} style={{ marginRight: 6 }} /> Facturi / documente
-        </a>
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/invoices">
+          <Receipt size={18} style={{ marginRight: 6 }} /> Facturi / documente
+        </Link>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/setari?tab=billing">
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/setari?tab=billing">
           <CreditCard size={18} style={{ marginRight: 6 }} /> Date facturare
+        </Link>
+
+        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/termenii-si-conditiile`}>
+          <ScrollText size={18} style={{ marginRight: 6 }} /> Termeni și condiții
         </a>
 
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/termenii-si-conditiile`}
-        >
-          <FileText size={18} style={{ marginRight: 6 }} /> Termeni și condiții
+        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/confidentialitate`}>
+          <ScrollText size={18} style={{ marginRight: 6 }} /> Politica de confidențialitate
         </a>
 
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/confidentialitate`}
-        >
-          <ShieldHalf size={18} style={{ marginRight: 6 }} /> Politica de confidențialitate
+        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/politica-retur`}>
+          <ScrollText size={18} style={{ marginRight: 6 }} /> Politica de retur
         </a>
 
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/politica-retur`}
-        >
-          <FileText size={18} style={{ marginRight: 6 }} /> Politica de retur
+        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/anexa-expediere`}>
+          <Paperclip size={18} style={{ marginRight: 6 }} /> Anexa expediere
         </a>
 
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/anexa-expediere`}
-        >
-          <FileText size={18} style={{ marginRight: 6 }} /> Anexa expediere
+        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/acord-vanzatori`}>
+          <Paperclip size={18} style={{ marginRight: 6 }} /> Acord vânzători
         </a>
 
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/acord-vanzatori`}
-        >
-          <FileText size={18} style={{ marginRight: 6 }} /> Acord vânzători
-        </a>
-
-        <a
-          className={`${styles.btn} ${styles.btnGhost}`}
-          href={`${import.meta.env.VITE_API_URL.replace(/\/+$/, "")}/anexa-produse`}
-        >
-          <FileText size={18} style={{ marginRight: 6 }} /> Anexa produse
+        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/anexa-produse`}>
+          <Paperclip size={18} style={{ marginRight: 6 }} /> Anexa produse
         </a>
       </div>
     </div>
@@ -954,35 +1129,35 @@ function VendorLinksCard({ unreadMsgs, supportUnread }) {
         <h3>Vânzător</h3>
       </div>
       <div className={styles.actionsCol}>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/orders">
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/orders">
           <Package size={18} style={{ marginRight: 6 }} /> Comenzile mele
-        </a>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/orders/planning">
+        </Link>
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/orders/planning">
           <LayoutDashboard size={18} style={{ marginRight: 6 }} /> Planificator comenzi
-        </a>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/vendor/visitors">
+        </Link>
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/visitors">
           <Users size={18} style={{ marginRight: 6 }} /> Vizitatori
-        </a>
+        </Link>
 
-        <a className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} href="/mesaje">
+        <Link className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} to="/mesaje">
           <span className={styles.iconWrap}>
             <MessageSquare size={18} style={{ marginRight: 6 }} />
             <Badge count={unreadMsgs} />
           </span>
           Mesaje
-        </a>
+        </Link>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/magazine">
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/magazine">
           <Store size={18} style={{ marginRight: 6 }} /> Magazine / Produse
-        </a>
+        </Link>
 
-        <a className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} href="/vendor/support">
+        <Link className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} to="/vendor/support">
           <span className={styles.iconWrap}>
             <LifeBuoy size={18} style={{ marginRight: 6 }} />
             <Badge count={supportUnread} />
           </span>
           Asistență tehnică
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -995,15 +1170,15 @@ function AdminCard() {
         <h3>Administrare</h3>
       </div>
       <div className={styles.actionsCol}>
-        <a className={`${styles.btn} ${styles.btnGhost}`} href="/admin">
+        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/admin">
           <ShieldCheck size={18} style={{ marginRight: 6 }} /> Panou Admin
-        </a>
+        </Link>
       </div>
     </div>
   );
 }
 
-function LogoutCard() {
+function LogoutCard({ onLogout }) {
   async function handleLogout(e) {
     e.preventDefault();
     try {
@@ -1011,7 +1186,7 @@ function LogoutCard() {
     } catch {
       // ignore
     }
-    window.location.href = "/autentificare";
+    onLogout?.();
   }
 
   return (
@@ -1038,19 +1213,68 @@ function KPI({ label, value }) {
   );
 }
 
-function EmptyState({ title, subtitle, ctaText, href }) {
+function EmptyState({ title, subtitle, ctaText, to }) {
   return (
     <div className={styles.empty}>
       <div className={styles.emptyTitle}>{title}</div>
       <div className={styles.subtle}>{subtitle}</div>
-      <a className={`${styles.btn} ${styles.btnPrimary}`} href={href}>
+      <Link className={`${styles.btn} ${styles.btnPrimary}`} to={to}>
         {ctaText}
-      </a>
+      </Link>
     </div>
   );
 }
 
-// mic și foarte des folosit -> păstrează-l simplu (opțional: memo)
+/* ===== Skeletons (fără text) ===== */
+function HeaderSkeleton() {
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <div className={styles.skelTitle} />
+      </div>
+      <div className={styles.metaSkeletonRow}>
+        <span className={styles.skelLine} />
+        <span className={styles.skelLine} />
+        <span className={styles.skelLine} />
+      </div>
+      <div className={styles.metaSkeletonRow} style={{ marginTop: 10 }}>
+        <span className={styles.skelLine} />
+        <span className={styles.skelLine} />
+      </div>
+    </div>
+  );
+}
+
+function ServicesSkeleton() {
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <h3>Serviciile mele</h3>
+      </div>
+
+      <ul className={styles.serviceList}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <li key={i} className={styles.serviceItem}>
+            <div className={styles.serviceMain}>
+              <div className={styles.skelTitle} />
+              <div className={styles.metaSkeletonRow}>
+                <span className={styles.skelLine} />
+                <span className={styles.skelLine} />
+                <span className={styles.skelLine} />
+              </div>
+            </div>
+            <div className={styles.actionsRow}>
+              <span className={styles.skelBtn} />
+              <span className={styles.skelBtn} />
+              <span className={styles.skelBtn} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Badge({ count }) {
   if (!count || count <= 0) return null;
   const v = Math.min(count, 99);

@@ -259,11 +259,12 @@ export default function MyOrderDetailsPage() {
       <div className={styles.head}>
         <div>
           <h1 className={styles.h1}>
-            Detalii comandă{" "}
-            <span style={{ fontWeight: 400 }}>
-              #{order.id.slice(0, 8)}…
-            </span>
-          </h1>
+  Detalii comandă{" "}
+  <span style={{ fontWeight: 400 }}>
+    #{order.orderNumber || order.id.slice(0, 8) + "…"}
+  </span>
+</h1>
+
           <p className={styles.subtle}>
             Plasată la {formatDate(order.createdAt)}
           </p>

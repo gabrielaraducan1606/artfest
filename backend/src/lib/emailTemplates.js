@@ -455,6 +455,7 @@ Dacă nu ai cerut această schimbare, ignoră acest mesaj.
 
 export function invoiceIssuedEmailTemplate({
   orderId,
+  orderNumber, // ✅ NEW (afișat)
   invoiceNumber,
   totalLabel,
   link,
@@ -463,6 +464,9 @@ export function invoiceIssuedEmailTemplate({
 }) {
   const logoSrc = pickLogoUrl(logoUrl);
   const safeInvNo = invoiceNumber || "factura ta";
+
+  // ✅ ce vede userul
+  const displayNo = orderNumber || orderId;
 
   const html = `
   <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
@@ -473,7 +477,7 @@ export function invoiceIssuedEmailTemplate({
 
     <h2 style="color:#111827;margin:0 0 8px;">A fost emisă o factură pentru comanda ta</h2>
     <p style="color:#374151;margin:0 0 12px;">
-      Pentru comanda ta <strong>#${orderId}</strong> a fost emisă <strong>${safeInvNo}</strong>.
+      Pentru comanda ta <strong>#${displayNo}</strong> a fost emisă <strong>${safeInvNo}</strong>.
     </p>
     ${
       totalLabel
@@ -506,7 +510,7 @@ export function invoiceIssuedEmailTemplate({
   `.trim();
 
   const text = [
-    `A fost emisă o factură pentru comanda ta #${orderId}.`,
+    `A fost emisă o factură pentru comanda ta #${displayNo}.`,
     `Număr factură: ${safeInvNo}`,
     totalLabel ? `Total factură: ${totalLabel}` : "",
     link ? `Poți vedea factura aici: ${link}` : "",
@@ -517,7 +521,7 @@ export function invoiceIssuedEmailTemplate({
   return {
     html,
     text,
-    subject: `Factura pentru comanda ta #${orderId}`,
+    subject: `Factura pentru comanda ta #${displayNo}`,
   };
 }
 

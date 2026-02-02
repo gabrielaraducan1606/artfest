@@ -26,6 +26,9 @@ import {
   Clock,
   ChevronDown,
   Trash2,
+  Pencil,
+  X,
+  Download,
 } from "lucide-react";
 import styles from "./Messages.module.css";
 
@@ -132,7 +135,7 @@ function useThreads({ scope, q, status, eventType, period, groupByUser }) {
       if (groupByUser) params.set("groupBy", "user");
 
       const url = `/api/inbox/threads?${params.toString()}`;
-      const d = await api(url).catch(() => null);
+     const d = await api(url); // fără .catch(() => null)
       if (d?.items) setItems(d.items);
       else setItems([]);
     } catch (e) {
@@ -167,9 +170,8 @@ function useMessages(threadId) {
     setLoading(true);
     setError(null);
     try {
-      const d = await api(`/api/inbox/threads/${threadId}/messages`).catch(
-        () => null
-      );
+      const d = await api(`/api/inbox/threads/${threadId}/messages`);
+
       if (d?.items) setMsgs(d.items);
       else setMsgs([]);
       // mark as read (best-effort)
@@ -215,6 +217,7 @@ export default function MessagesPage() {
   const [periodFilter, setPeriodFilter] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [groupByUser, setGroupByUser] = useState(false);
+const [chatBlocked, setChatBlocked] = useState(null);
 
   const {
     loading: loadingThreads,
@@ -305,13 +308,18 @@ export default function MessagesPage() {
     return current;
   }, [current, groupByUser, activeThreadId]);
 
+  const currentThreadId = activeThread?.threadId || activeThread?.id || null;
+
+useEffect(() => {
+  setChatBlocked(null);
+}, [currentThreadId]);
   const {
     loading: loadingMsgs,
     msgs,
     error: errMsgs,
     setMsgs,
     reload: reloadMsgs,
-  } = useMessages(activeThread?.threadId || activeThread?.id || null);
+  } = useMessages(currentThreadId);
 
   const listRef = useRef(null);
   useEffect(() => {
@@ -339,8 +347,45 @@ export default function MessagesPage() {
     setInternalNote(activeThread.internalNote || "");
     setTemplatesOpen(false);
   }, [activeThread]);
+function normalizeChatError(err) {
+  const status = err?.status || err?.response?.status;
 
-  const currentThreadId = activeThread?.threadId || activeThread?.id || null;
+  const data =
+    err?.data ||
+    err?.response?.data ||
+    err?.body ||
+    null;
+
+  const code =
+    data?.error ||
+    data?.code ||
+    (status === 500 ? "SERVER_ERROR" : null) ||
+    (status === 402 ? "PAYMENT_REQUIRED" : null) ||
+    "UNKNOWN_ERROR";
+
+  const message =
+    code === "CHAT_LIMIT_REACHED"
+      ? `Ai atins limita de mesaje pentru luna curentă (${data?.used ?? "?"}/${data?.limit ?? "?"}).`
+      : code === "subscription_required"
+      ? "Ai nevoie de un abonament activ pentru a folosi chat-ul."
+      : code === "CHAT_ATTACHMENTS_NOT_ALLOWED"
+      ? "Planul tău nu permite atașamente."
+      : code === "CHAT_ADVANCED_NOT_ALLOWED"
+      ? "Planul tău nu permite această funcție."
+      : code === "SERVER_ERROR"
+      ? "Ups… avem o problemă tehnică. Te rog încearcă din nou în câteva secunde."
+      : // dacă backend trimite message, îl folosim
+        data?.message ||
+        "Nu am putut trimite mesajul.";
+
+  const shouldBlock =
+    status === 402 ||
+    code === "CHAT_LIMIT_REACHED" ||
+    code === "subscription_required" ||
+    code === "CHAT_NOT_ALLOWED";
+
+  return { status, code, message, details: data, shouldBlock };
+}
 
   async function handleSend() {
     const content = text.trim();
@@ -355,26 +400,36 @@ export default function MessagesPage() {
       readByPeer: false,
     };
     setMsgs((m) => [...m, optimistic]);
-    setText("");
-    setSending(true);
-    try {
-      await api(`/api/inbox/threads/${currentThreadId}/messages`, {
-        method: "POST",
-        body: { body: content },
-      });
-      await reloadMsgs();
-      await reloadThreads();
-    } catch {
-      setMsgs((m) =>
-        m.map((x) =>
-          x.id === optimistic.id
-            ? { ...x, failed: true, pending: false }
-            : x
-        )
-      );
-    } finally {
-      setSending(false);
-    }
+setSending(true);
+
+try {
+  await api(`/api/inbox/threads/${currentThreadId}/messages`, {
+    method: "POST",
+    body: { body: content },
+  });
+
+  // ✅ golim input doar după succes
+  setText("");
+
+  await reloadMsgs();
+  await reloadThreads();
+} catch (err) {
+  const info = normalizeChatError(err);
+
+  setMsgs((m) =>
+    m.map((x) =>
+      x.id === optimistic.id ? { ...x, failed: true, pending: false } : x
+    )
+  );
+
+  // ✅ punem textul înapoi ca user-ul să nu-l piardă
+  setText(content);
+
+  if (info.shouldBlock) setChatBlocked(info);
+  else alert(info.message);
+} finally {
+  setSending(false);
+}
   }
 
   function handleKey(e) {
@@ -410,7 +465,8 @@ export default function MessagesPage() {
 
   const nextThread =
     currentIndex >= 0 && currentIndex < visibleThreads.length - 1
-      ? visibleThreads[currentIndex + 1] : null;
+      ? visibleThreads[currentIndex + 1]
+      : null;
 
   const handleAttachClick = () => {
     if (!fileInputRef.current) return;
@@ -429,8 +485,11 @@ export default function MessagesPage() {
         body: formData,
       });
       await reloadMsgs();
-    } catch (err) {
-      console.error("Eroare la upload atașamente", err);
+      } catch (err) {
+    const info = normalizeChatError(err);
+    if (info.shouldBlock) setChatBlocked(info);
+    else alert(info.message);
+
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -440,7 +499,7 @@ export default function MessagesPage() {
   async function handleSaveNote() {
     if (!currentThreadId) return;
     try {
-      await api(`/api/inbox/threads/${currentThreadId}/meta`, {
+      await api(`/api/inbox/threads/${currentThreadId}/meta-advanced`, {
         method: "PATCH",
         body: { internalNote },
       });
@@ -466,7 +525,9 @@ export default function MessagesPage() {
         })
       );
     } catch (e) {
-      console.error("Eroare la salvarea notei interne", e);
+     const info = normalizeChatError(e);
+ if (info.code === "CHAT_ADVANCED_NOT_ALLOWED") setChatBlocked(info);
+  else console.error("Eroare la salvarea notei interne", e);
     }
   }
 
@@ -520,7 +581,7 @@ export default function MessagesPage() {
 
   const isGroupedView = groupByUser;
 
-  // handler comun de ștergere, folosit și în header
+  // handler comun de ștergere conversație
   const deleteThread = async (threadId) => {
     if (!threadId) return;
     if (!window.confirm("Sigur vrei să ștergi această conversație?")) return;
@@ -536,6 +597,39 @@ export default function MessagesPage() {
       console.error("Eroare la ștergere conversație", err);
     }
   };
+
+  // ✅ Edit mesaj (presupune PATCH /api/inbox/messages/:messageId)
+  async function editMessage(messageId, newBody) {
+    if (!messageId) return;
+    try {
+      await api(`/api/inbox/threads/${currentThreadId}/messages/${messageId}`, {
+  method: "PATCH",
+  body: { body: newBody },
+});
+
+      await reloadMsgs();
+      await reloadThreads();
+    } catch (e) {
+      console.error("Eroare la editare mesaj", e);
+      alert("Nu am putut edita mesajul.");
+    }
+  }
+
+  // ✅ Șterge mesaj (presupune DELETE /api/inbox/messages/:messageId)
+  async function deleteMessage(messageId) {
+    if (!messageId) return;
+    if (!window.confirm("Ștergi acest mesaj?")) return;
+    try {
+     await api(`/api/inbox/threads/${currentThreadId}/messages/${messageId}`, {
+  method: "DELETE",
+});
+      await reloadMsgs();
+      await reloadThreads();
+    } catch (e) {
+      console.error("Eroare la ștergere mesaj", e);
+      alert("Nu am putut șterge mesajul.");
+    }
+  }
 
   return (
     <>
@@ -702,7 +796,6 @@ export default function MessagesPage() {
               const isUserGroup = isGroupedView && Array.isArray(t.threads);
 
               return (
-                // 🔧 FIX: container-ul nu mai e <button>, ci <div role="button">
                 <div
                   key={t.id}
                   role="button"
@@ -725,7 +818,6 @@ export default function MessagesPage() {
                     <div className={styles.threadRowTop}>
                       <span className={styles.threadName}>
                         {name}
-                        {/* ✅ Afișăm numărul comenzii DOAR când nu e grupare pe user */}
                         {!isGroupedView &&
                           t.orderSummary &&
                           shortOrderId(t.orderSummary) && (
@@ -879,7 +971,6 @@ export default function MessagesPage() {
                   <div>
                     <div className={styles.peerName}>
                       {current.name || "Vizitator"}
-                      {/* în mod user-group nu mai afișăm id comanda aici */}
                       {!isGroupedView &&
                         activeThread.orderSummary &&
                         shortOrderId(activeThread.orderSummary) && (
@@ -945,9 +1036,7 @@ export default function MessagesPage() {
                           value={activeThread.status || "nou"}
                           onChange={async (value) => {
                             try {
-                              await api(
-                                `/api/inbox/threads/${currentThreadId}/meta`,
-                                {
+                             await api(`/api/inbox/threads/${currentThreadId}/meta-advanced`, {
                                   method: "PATCH",
                                   body: { status: value },
                                 }
@@ -972,13 +1061,14 @@ export default function MessagesPage() {
                                   };
                                 })
                               );
+                              
                             } catch (e) {
-                              console.error(
-                                "Eroare la actualizarea statusului",
-                                e
-                              );
+                              const info = normalizeChatError(e);
+  if (info.code === "CHAT_ADVANCED_NOT_ALLOWED") setChatBlocked(info);
+  else console.error("Eroare la actualizarea statusului", e);
                             }
                           }}
+                          disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
                         />
                       )}
                     </div>
@@ -1019,9 +1109,7 @@ export default function MessagesPage() {
                       thread={activeThread}
                       onChange={async (followUpAt) => {
                         try {
-                          await api(
-                            `/api/inbox/threads/${currentThreadId}/meta`,
-                            {
+                          await api(`/api/inbox/threads/${currentThreadId}/meta-advanced`, {
                               method: "PATCH",
                               body: { followUpAt },
                             }
@@ -1046,16 +1134,16 @@ export default function MessagesPage() {
                             })
                           );
                         } catch (e) {
-                          console.error(
-                            "Eroare la actualizarea follow-up-ului",
-                            e
-                          );
+                          const info = normalizeChatError(e);
+ if (info.code === "CHAT_ADVANCED_NOT_ALLOWED") setChatBlocked(info);
+  else console.error("Eroare la actualizarea follow-up-ului", e);
                         }
                       }}
+                      disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
                     />
                   )}
 
-                  {/* Buton arhivare / dezarhivare (vizibil și pe mobil) */}
+                  {/* Buton arhivare / dezarhivare */}
                   <button
                     className={styles.iconBtn}
                     title={
@@ -1085,7 +1173,7 @@ export default function MessagesPage() {
                     <Archive size={18} />
                   </button>
 
-                  {/* Buton ștergere conversație – și pe mobil, dar doar în conversație */}
+                  {/* Buton ștergere conversație */}
                   <button
                     className={styles.iconBtn}
                     title="Șterge conversația"
@@ -1141,13 +1229,39 @@ export default function MessagesPage() {
                   <TagIcon size={14} /> Notă internă (invitatul nu o vede)
                 </label>
                 <textarea
-                  className={styles.noteInput}
-                  rows={2}
-                  placeholder="Ex: client foarte hotărât, a mai lucrat cu noi în 2022, îi place X stil…"
-                  value={internalNote}
-                  onChange={(e) => setInternalNote(e.target.value)}
-                  onBlur={handleSaveNote}
-                />
+  className={styles.noteInput}
+  rows={2}
+  placeholder={
+   chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"
+     ? "Disponibil doar pe planul Advanced."
+     : "Ex: client foarte hotărât..."
+  }
+  value={internalNote}
+  onChange={(e) => setInternalNote(e.target.value)}
+  onBlur={handleSaveNote}
+disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
+/>
+{chatBlocked && (
+  <div className={styles.chatBlockedBanner}>
+    <strong>{chatBlocked.message}</strong>
+    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+      <button
+        type="button"
+        className={styles.smallBtn}
+        onClick={() => setChatBlocked(null)}
+      >
+        Am înțeles
+      </button>
+
+      {/* dacă backend trimite upgradeUrl în payload, folosește-l */}
+      {chatBlocked?.details?.upgradeUrl && (
+        <a className={styles.smallBtnPrimary} href={chatBlocked.details.upgradeUrl}>
+          Upgrade
+        </a>
+      )}
+    </div>
+  </div>
+)}
               </div>
 
               <div className={styles.msgList} ref={listRef}>
@@ -1164,20 +1278,25 @@ export default function MessagesPage() {
                     key={m.id}
                     mine={m.from === "me"}
                     msg={m}
+                    onEdit={(body) => editMessage(m.id, body)}
+                    onDelete={() => deleteMessage(m.id)}
                   />
                 ))}
               </div>
 
               <footer className={styles.composer}>
+                
                 <div className={styles.composerLeft}>
                   <button
-                    className={styles.iconBtn}
-                    title="Atașează fișiere"
-                    type="button"
-                    onClick={handleAttachClick}
-                  >
-                    <Paperclip size={18} />
-                  </button>
+  className={styles.iconBtn}
+  title="Atașează fișiere"
+  type="button"
+  onClick={handleAttachClick}
+  disabled={uploading || sending || !currentThreadId || !!chatBlocked || activeThread?.archived}
+>
+  <Paperclip size={18} />
+</button>
+
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1218,30 +1337,40 @@ export default function MessagesPage() {
                     )}
                   </div>
                 </div>
+<textarea
+  className={styles.input}
+  rows={1}
+  placeholder={
+    chatBlocked
+      ? chatBlocked.message
+      : activeThread?.archived
+      ? "Conversație arhivată — dezarhivează ca să poți răspunde."
+      : "Scrie un mesaj…"
+  }
+  value={text}
+  onChange={(e) => {
+    setText(e.target.value);
+    autoResize(e.target);
+  }}
+  onKeyDown={handleKey}
+  disabled={!!chatBlocked || activeThread?.archived}
+  
+/>
 
-                <textarea
-                  className={styles.input}
-                  rows={1}
-                  placeholder="Scrie un mesaj…"
-                  value={text}
-                  onChange={(e) => {
-                    setText(e.target.value);
-                    autoResize(e.target);
-                  }}
-                  onKeyDown={handleKey}
-                  title="Trimite (Enter) · Linie nouă (Shift+Enter)"
-                />
-                <button
-                  className={styles.sendBtn}
-                  onClick={handleSend}
-                  disabled={
-                    !text.trim() ||
-                    sending ||
-                    uploading ||
-                    !currentThreadId
-                  }
-                  type="button"
-                >
+               <button
+  className={styles.sendBtn}
+  onClick={handleSend}
+  disabled={
+    !text.trim() ||
+    sending ||
+    uploading ||
+    !currentThreadId ||
+    !!chatBlocked ||
+    activeThread?.archived
+  }
+  type="button"
+>
+
                   {sending ? (
                     <>
                       <Loader2
@@ -1281,12 +1410,81 @@ export default function MessagesPage() {
   );
 }
 
-/* ========= Sub-componente ========= */
-function MessageBubble({ mine, msg }) {
+function MessageBubble({ mine, msg, onEdit, onDelete }) {
   const isPending = msg.pending;
   const isFailed = msg.failed;
-
   const readByPeer = !!msg.readByPeer;
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [text, setText] = useState(msg.body || "");
+
+  const hasAttachments = (msg.attachments?.length || 0) > 0;
+
+  // ✅ long-press actions (mobile)
+  const [showActions, setShowActions] = useState(false);
+  const pressTimerRef = useRef(null);
+
+  const isTouchDevice =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(pointer: coarse)").matches;
+
+  const LONG_PRESS_MS = 320;
+
+const startPress = () => {
+  if (!isTouchDevice) return;          // doar pe mobil / touch
+  if (isPending) return;              // nu pentru pending
+  if (isEditing) return;              // nu când editezi
+
+  // ✅ mutat AICI (în cadrul touchstart = user gesture)
+  if (navigator?.vibrate) navigator.vibrate(10);
+
+  clearTimeout(pressTimerRef.current);
+  pressTimerRef.current = setTimeout(() => {
+    setShowActions(true);
+  }, LONG_PRESS_MS);
+};
+
+  const cancelPress = () => {
+    clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = null;
+  };
+
+  // dacă se schimbă mesajul / intră în edit, închidem actions
+  useEffect(() => {
+    setShowActions(false);
+  }, [msg.id, isEditing]);
+
+  useEffect(() => {
+    setText(msg.body || "");
+  }, [msg.body]);
+
+  const handleDownload = async () => {
+    try {
+      const att = msg.attachments?.[0];
+      if (!att) return;
+
+      const url = att?.id
+        ? `/api/inbox/attachments/${att.id}/download`
+        : att?.url;
+
+      await forceDownload(url, att?.name || "atasament");
+    } catch (e) {
+      console.error(e);
+      alert("Nu am putut descărca atașamentul.");
+    }
+  };
+
+  function shouldRenderBody(msg) {
+    const b = (msg?.body || "").trim();
+    if (!b) return false;
+    if (msg?.attachments?.length) {
+      if (b === "📎 Atașament") return false;
+      if (/^📎\s+\d+\s+atașamente$/i.test(b)) return false;
+      if (/^📎\s+.+/.test(b) && msg.attachments.length === 1) return false;
+    }
+    return true;
+  }
 
   let tickLabel = "";
   let tickClass = "";
@@ -1297,69 +1495,294 @@ function MessageBubble({ mine, msg }) {
     tickLabel = "…";
     tickClass = styles.readTickPending;
   } else if (mine) {
-    // ✓ = trimis, ✓✓ = citit
     tickLabel = readByPeer ? "✓✓" : "✓";
     tickClass = readByPeer
       ? `${styles.readTick} ${styles.readTickRead}`
       : styles.readTick;
   }
 
-  return (
-    <div
-      className={`${styles.bubbleRow} ${
-        mine ? styles.right : styles.left
-      }`}
-    >
-      {!mine && (
-        <div className={styles.avatarSm}>
-          {initialsOf(msg.authorName || "U")}
-        </div>
-      )}
-      <div
-        className={`${styles.bubble} ${
-          mine ? styles.mine : styles.theirs
-        }`}
-      >
-        {msg.body && (
-          <div className={styles.bodyText}>{msg.body}</div>
-        )}
+  async function save() {
+    const v = (text || "").trim();
+    if (!v) return;
+    await onEdit?.(v);
+    setIsEditing(false);
+  }
 
-        {msg.attachments?.length > 0 && (
-          <div className={styles.attachments}>
-            {msg.attachments.map((att) => (
-              <a
-                key={att.id || att.url}
-                href={att.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.attachmentItem}
-              >
-                <Paperclip size={12} />
-                <span>{att.name || "Fișier"}</span>
-              </a>
-            ))}
+  const canShowActions = !isPending && (hasAttachments || mine);
+
+  return (
+    <>
+      {/* ✅ backdrop doar când actions sunt deschise pe mobil */}
+      {showActions && isTouchDevice && (
+        <button
+          type="button"
+          className={styles.msgActionsBackdrop}
+          onClick={() => setShowActions(false)}
+          aria-label="Închide acțiuni mesaj"
+        />
+      )}
+
+      <div className={`${styles.bubbleRow} ${mine ? styles.right : styles.left}`}>
+        {!mine && (
+          <div className={styles.avatarSm}>
+            {initialsOf(msg.authorName || "U")}
           </div>
         )}
 
-        <div className={styles.meta}>
-          <span>{fmtTime(msg.createdAt)}</span>
-          {mine && tickLabel && (
-            <span
-              className={tickClass}
-              title={readByPeer ? "Citit" : "Trimis"}
+        <div
+          className={`${styles.bubbleWrap} ${
+            showActions ? styles.bubbleWrapActive : ""
+          }`}
+          onTouchStart={startPress}
+          onTouchEnd={cancelPress}
+          onTouchMove={cancelPress}
+          onTouchCancel={cancelPress}
+          onContextMenu={(e) => {
+            // ținut apăsat pe Android poate deschide context menu
+            if (isTouchDevice) {
+              e.preventDefault();
+              if (canShowActions) setShowActions(true);
+            }
+          }}
+        >
+          <div className={`${styles.bubble} ${mine ? styles.mine : styles.theirs}`}>
+            {isEditing ? (
+              <textarea
+                className={styles.editInput}
+                rows={2}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    save();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setIsEditing(false);
+                    setText(msg.body || "");
+                  }
+                }}
+              />
+            ) : (
+              <>
+                {shouldRenderBody(msg) && (
+                  <div className={styles.bodyText}>{msg.body}</div>
+                )}
+
+                {msg.attachments?.length > 0 && (
+                  <AttachmentList attachments={msg.attachments} mine={mine} />
+                )}
+              </>
+            )}
+
+            <div className={styles.meta}>
+              <span>{fmtTime(msg.createdAt)}</span>
+              {mine && tickLabel && (
+                <span className={tickClass} title={readByPeer ? "Citit" : "Trimis"}>
+                  {tickLabel}
+                </span>
+              )}
+              {isPending && <span>· în curs…</span>}
+              {isFailed && <span>· nereușit</span>}
+            </div>
+          </div>
+
+          {/* ✅ Acțiuni:
+              - Desktop: apar la hover (CSS)
+              - Mobil: apar doar când showActions = true
+          */}
+          {canShowActions && (
+            <div
+              className={`${styles.msgActions} ${
+                showActions ? styles.msgActionsOpen : ""
+              }`}
             >
-              {tickLabel}
-            </span>
+              {!isEditing ? (
+                <>
+                  {hasAttachments && (
+                    <button
+                      type="button"
+                      className={styles.msgIconBtn}
+                      title="Descarcă atașamentul"
+                      onClick={() => {
+                        setShowActions(false);
+                        handleDownload();
+                      }}
+                    >
+                      <Download size={16} />
+                    </button>
+                  )}
+
+                  {mine && (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.msgIconBtn}
+                        title="Editează"
+                        onClick={() => {
+                          setShowActions(false);
+                          setIsEditing(true);
+                        }}
+                      >
+                        <Pencil size={16} />
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`${styles.msgIconBtn} ${styles.msgIconBtnDanger}`}
+                        title="Șterge"
+                        onClick={() => {
+                          setShowActions(false);
+                          onDelete?.();
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : (
+                mine && (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.msgSaveBtn}
+                      onClick={save}
+                    >
+                      Salvează
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.msgIconBtn}
+                      title="Renunță"
+                      onClick={() => {
+                        setIsEditing(false);
+                        setText(msg.body || "");
+                      }}
+                    >
+                      <X size={16} />
+                    </button>
+                  </>
+                )
+              )}
+            </div>
           )}
-          {isPending && <span>· în curs…</span>}
-          {isFailed && <span>· nereușit</span>}
         </div>
       </div>
+    </>
+  );
+}
+
+function AttachmentList({ attachments = [], mine }) {
+  const images = attachments.filter((a) => (a.mime || "").startsWith("image/"));
+  const files = attachments.filter((a) => !((a.mime || "").startsWith("image/")));
+
+  return (
+    <div className={styles.attWrap} data-mine={mine ? "1" : "0"}>
+      {images.length > 0 && (
+        <div className={styles.attGrid}>
+          {images.map((att) => {
+            // ✅ PREVIEW: direct URL public (se deschide în browser)
+            const previewHref = att?.url;
+
+            return (
+              <a
+                key={att.id || att.url}
+                href={previewHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.attThumb}
+                title={att.name || "Imagine"}
+                onClick={(e) => {
+                  if (!previewHref) e.preventDefault();
+                }}
+              >
+                <img
+                  src={att.url}
+                  alt={att.name || "Imagine"}
+                  loading="lazy"
+                />
+              </a>
+            );
+          })}
+        </div>
+      )}
+
+      {files.length > 0 && (
+        <div className={styles.attFiles}>
+          {files.map((att) => {
+            // ✅ PREVIEW: direct URL public (PDF se vede în browser, DOC etc depinde de browser)
+            const previewHref = att?.url;
+
+            return (
+              <a
+                key={att.id || att.url}
+                href={previewHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.attFileCard}
+                title={att.name || "Fișier"}
+                onClick={(e) => {
+                  if (!previewHref) e.preventDefault();
+                }}
+              >
+                <div className={styles.attFileIcon}>
+                  <Paperclip size={14} />
+                </div>
+
+                <div className={styles.attFileMeta}>
+                  <div className={styles.attFileName}>{att.name || "Fișier"}</div>
+                  <div className={styles.attFileSub}>
+                    {att.mime ? att.mime : "document"}{" "}
+                    {att.size ? `· ${prettyBytes(att.size)}` : ""}
+                  </div>
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-function StatusSelect({ value, onChange }) {
+function prettyBytes(bytes) {
+  const b = Number(bytes || 0);
+  if (!Number.isFinite(b) || b <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let v = b;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+async function forceDownload(url, filename = "atasament") {
+  if (!url) return;
+
+  const res = await fetch(url, {
+    method: "GET",
+    credentials: "include", // ok pentru cookie auth; nu schimbă nimic în rest
+  });
+
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+
+  const blob = await res.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename || "atasament";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  window.URL.revokeObjectURL(blobUrl);
+}
+
+function StatusSelect({ value, onChange, disabled }) {
   return (
     <span className={styles.statusSelectWrap}>
       <span className={styles.statusLabel}>Status lead:</span>
@@ -1367,18 +1790,20 @@ function StatusSelect({ value, onChange }) {
         className={styles.statusSelect}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
       >
         <option value="nou">Nou</option>
         <option value="in_discutii">În discuții</option>
         <option value="oferta_trimisa">Ofertă trimisă</option>
         <option value="rezervat">Rezervat</option>
         <option value="pierdut">Pierdut</option>
+        
       </select>
     </span>
   );
 }
 
-function FollowUpControl({ thread, onChange }) {
+function FollowUpControl({ thread, onChange, disabled }) {
   const label = thread?.followUpAt
     ? `Follow-up: ${fmtDate(thread.followUpAt)}`
     : "Setează follow-up";
@@ -1407,6 +1832,7 @@ function FollowUpControl({ thread, onChange }) {
           e.target.value = "placeholder";
           handleSelect(v);
         }}
+        disabled={disabled}
       >
         <option value="placeholder" disabled>
           {label}

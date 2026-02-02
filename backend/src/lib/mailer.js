@@ -658,7 +658,13 @@ export async function sendInactiveAccountWarningEmail({ to, deleteAt, userId = n
 /* ============================================================
    ORDERS (sender: no-reply@)
 ============================================================ */
-export async function sendOrderConfirmationEmail({ to, order, items, storeAddresses, userId = null }) {
+export async function sendOrderConfirmationEmail({
+  to,
+  order,
+  items,
+  storeAddresses,
+  userId = null,
+}) {
   if (!to || !order) return;
 
   const currency = order.currency || "RON";
@@ -667,9 +673,18 @@ export async function sendOrderConfirmationEmail({ to, order, items, storeAddres
   const shippingTotal = formatMoney(order.shippingTotal, currency);
 
   const address = order.shippingAddress || {};
-  const customerName = address.name || `${address.lastName || ""} ${address.firstName || ""}`.trim() || "client";
+  const customerName =
+    address.name ||
+    `${address.lastName || ""} ${address.firstName || ""}`.trim() ||
+    "client";
 
-  const orderLink = APP_URL ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}` : null;
+  // ✅ AFIȘĂM NUMĂRUL DE COMANDĂ PUBLIC (fallback pe id)
+  const displayNo = order.orderNumber || order.id;
+
+  // ✅ link-ul rămâne pe ID (intern)
+  const orderLink = APP_URL
+    ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}`
+    : null;
 
   const itemsRows =
     (items || [])
@@ -687,7 +702,8 @@ export async function sendOrderConfirmationEmail({ to, order, items, storeAddres
       .join("") ||
     `<tr><td colspan="3" style="padding:8px;text-align:center;color:#6b7280;">Detaliile produselor nu sunt disponibile.</td></tr>`;
 
-  const storeAddressesMap = storeAddresses || (order.meta && order.meta.storeAddresses) || null;
+  const storeAddressesMap =
+    storeAddresses || (order.meta && order.meta.storeAddresses) || null;
 
   let storeAddressesHtml = "";
   let storeAddressesTextLines = [];
@@ -737,8 +753,12 @@ export async function sendOrderConfirmationEmail({ to, order, items, storeAddres
   <h2 style="color:#111827;margin:0 0 8px;">Mulțumim pentru comandă, ${customerName}!</h2>
   <p style="color:#374151;margin:0 0 12px;">Comanda ta pe <strong>${BRAND_NAME}</strong> a fost înregistrată cu succes.</p>
   <p style="color:#374151;margin:0 0 16px;">
-    <strong>Număr comandă:</strong> ${order.id}<br>
-    <strong>Metodă de plată:</strong> ${order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"}
+   <strong>Număr comandă:</strong> ${displayNo}<br>
+    <strong>Metodă de plată:</strong> ${
+      order.paymentMethod === "COD"
+        ? "Plată la livrare (ramburs)"
+        : "Card online"
+    }
   </p>
 
   <h3 style="color:#111827;margin:16px 0 8px;font-size:16px;">Produse comandate</h3>
@@ -803,11 +823,21 @@ export async function sendOrderConfirmationEmail({ to, order, items, storeAddres
     `Mulțumim pentru comandă, ${customerName}!`,
     "",
     `Comanda ta pe ${BRAND_NAME} a fost înregistrată.`,
-    `Număr comandă: ${order.id}`,
-    `Metodă de plată: ${order.paymentMethod === "COD" ? "Plată la livrare (ramburs)" : "Card online"}`,
+   `Număr comandă: ${displayNo}`,
+    `Metodă de plată: ${
+      order.paymentMethod === "COD"
+        ? "Plată la livrare (ramburs)"
+        : "Card online"
+    }`,
     "",
     "Produse:",
-    ...(items || []).map((it) => `- ${it.title} x${it.qty} = ${formatMoney(it.price * it.qty, currency)}`),
+    ...(items || []).map(
+      (it) =>
+        `- ${it.title} x${it.qty} = ${formatMoney(
+          it.price * it.qty,
+          currency
+        )}`
+    ),
     "",
     `Subtotal: ${subtotal}`,
     `Transport: ${shippingTotal}`,
@@ -827,7 +857,9 @@ export async function sendOrderConfirmationEmail({ to, order, items, storeAddres
   ].filter(Boolean);
 
   const text = textLines.join("\n");
-  const emailSubject = `Confirmare comandă #${order.id} - ${BRAND_NAME}`;
+
+  // ✅ subject pe orderNumber (fallback id)
+  const emailSubject = `Confirmare comandă #${displayNo} - ${BRAND_NAME}`;
 
   return sendMailLogged({
     senderKey: "noreply",
@@ -1159,13 +1191,25 @@ export async function sendInvoiceIssuedEmail({
 }) {
   if (!to || !orderId) return;
 
+  // ✅ luăm orderNumber ca să-l afișăm în email
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { id: true, orderNumber: true },
+  });
+
   const totalLabel = formatMoney(totalGross || 0, currency);
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
-  const link = baseUrl && invoiceFrontendPath ? `${baseUrl}${invoiceFrontendPath}` : baseUrl ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}` : undefined;
+  const link =
+    baseUrl && invoiceFrontendPath
+      ? `${baseUrl}${invoiceFrontendPath}`
+      : baseUrl
+        ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
+        : undefined;
 
   const { html, text, subject } = await withLogo(invoiceIssuedEmailTemplate, {
     orderId,
+    orderNumber: order?.orderNumber || null, // ✅ NEW
     invoiceNumber,
     totalLabel,
     link,
@@ -1194,6 +1238,11 @@ export async function sendInvoiceIssuedEmail({
 ============================================================ */
 export async function sendShipmentPickupEmail({ to, orderId, awb, trackingUrl, etaLabel, slotLabel, userId = null }) {
   if (!to) return;
+const order = await prisma.order.findUnique({
+  where: { id: orderId },
+  select: { id: true, orderNumber: true },
+});
+const displayNo = order?.orderNumber || orderId;
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
   const orderLink = baseUrl ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}` : null;
@@ -1213,7 +1262,7 @@ export async function sendShipmentPickupEmail({ to, orderId, awb, trackingUrl, e
   </p>
 
   <p style="color:#374151;margin:0 0 12px;line-height:1.5;">
-    <strong>Număr comandă:</strong> ${orderId}<br>
+    <strong>Număr comandă:</strong> ${displayNo}<br>
     <strong>AWB:</strong> ${awb || "-"}<br>
     <strong>Livrare estimată:</strong> ${etaLabel || "-"} în intervalul ${slotLabel || "-"}
   </p>
@@ -1247,7 +1296,7 @@ export async function sendShipmentPickupEmail({ to, orderId, awb, trackingUrl, e
 
   const text = [
     `Comanda ta pe ${BRAND_NAME} a fost predată curierului.`,
-    `Număr comandă: ${orderId}`,
+     `Număr comandă: ${displayNo}`,
     awb ? `AWB: ${awb}` : "",
     etaLabel || slotLabel ? `Livrare estimată: ${etaLabel || ""} în intervalul ${(slotLabel || "").trim()}`.trim() : "",
     trackingUrl ? `Poți urmări coletul aici: ${trackingUrl}` : "",

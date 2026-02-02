@@ -20,27 +20,34 @@ function computeUiStatus(order, shipments = []) {
   const orderStatus = order?.status || null; // PENDING / PAID / CANCELLED / FULFILLED
   const shipmentStatuses = shipments.map((s) => s.status);
 
-  // 1) dacă order e CANCELLED -> override UI
-  if (orderStatus === "CANCELLED") return "CANCELED";
-
-  // 2) dacă avem shipments, derivăm din ele
+  // 1) dacă avem shipments, derivăm din ele (au prioritate)
   if (shipmentStatuses.length) {
-    if (shipmentStatuses.every((st) => st === "DELIVERED")) return "DELIVERED";
+    // retur real are prioritate
     if (shipmentStatuses.some((st) => st === "RETURNED")) return "RETURNED";
-    if (
-      shipmentStatuses.some((st) =>
-        ["IN_TRANSIT", "AWB", "PICKUP_SCHEDULED"].includes(st)
-      )
-    )
+
+    // anulare vendor / colet neexpediat
+    if (shipmentStatuses.some((st) => st === "REFUSED")) return "CANCELED";
+
+    // livrat doar dacă toate sunt livrate
+    if (shipmentStatuses.every((st) => st === "DELIVERED")) return "DELIVERED";
+
+    // SHIPPED doar când chiar există AWB / ridicat / în tranzit
+    if (shipmentStatuses.some((st) => ["AWB", "IN_TRANSIT"].includes(st)))
       return "SHIPPED";
+
+    // PROCESSING include și “pickup cerut”
     if (
       shipmentStatuses.some((st) =>
-        ["PREPARING", "READY_FOR_PICKUP"].includes(st)
+        ["PREPARING", "READY_FOR_PICKUP", "PICKUP_SCHEDULED"].includes(st)
       )
     )
       return "PROCESSING";
+
     if (shipmentStatuses.some((st) => st === "PENDING")) return "PENDING";
   }
+
+  // 2) dacă order e CANCELLED și NU avem shipments relevante, override UI
+  if (orderStatus === "CANCELLED") return "CANCELED";
 
   // 3) fallback din OrderStatus
   switch (orderStatus) {
@@ -53,6 +60,41 @@ function computeUiStatus(order, shipments = []) {
     default:
       return "PENDING";
   }
+}
+
+function computeShippingStage(shipments = []) {
+  const st = shipments.map((s) => s.status);
+
+  // pickup cerut / programat (fără AWB)
+  if (st.some((x) => ["READY_FOR_PICKUP", "PICKUP_SCHEDULED"].includes(x))) {
+    return {
+      code: "AWAITING_COURIER_PICKUP",
+      label: "Urmează să fie predată curierului",
+    };
+  }
+
+  if (st.some((x) => x === "AWB")) {
+    return {
+      code: "AWB_ISSUED",
+      label: "AWB emis – pregătită de expediere",
+    };
+  }
+
+  if (st.some((x) => x === "IN_TRANSIT")) {
+    return {
+      code: "IN_TRANSIT",
+      label: "Predată curierului",
+    };
+  }
+
+  if (st.length > 0 && st.every((x) => x === "DELIVERED")) {
+    return {
+      code: "DELIVERED",
+      label: "Livrată",
+    };
+  }
+
+  return null;
 }
 
 /* ----------------------------------------------------
@@ -76,12 +118,12 @@ function isOrderCancellable(order, shipments = []) {
       "PICKUP_SCHEDULED",
       "DELIVERED",
       "RETURNED",
+      "REFUSED",
     ].includes(s.status)
   );
 
   if (hasStartedOrBeyond) return false;
 
-  // altfel, e anulabilă
   return true;
 }
 
@@ -90,7 +132,7 @@ function isOrderCancellable(order, shipments = []) {
    Folosit de OrdersPage (lista de comenzi user)
 ----------------------------------------------------- */
 router.get("/my", async (req, res) => {
-  const userId = req.user.sub; // la fel ca în checkoutRoutes
+  const userId = req.user.sub;
 
   const q = String(req.query.q || "").trim();
   const statusParam = String(req.query.status || ""); // ex: "PENDING,PROCESSING,SHIPPED"
@@ -100,7 +142,6 @@ router.get("/my", async (req, res) => {
     Math.max(1, parseInt(req.query.limit || "10", 10))
   );
 
-  // status poate fi listă separată prin virgulă (tab "active" -> PENDING,PROCESSING,SHIPPED)
   const statusList = statusParam
     ? String(statusParam)
         .split(",")
@@ -149,6 +190,11 @@ router.get("/my", async (req, res) => {
 
   let items = rows.map((o) => {
     const status = computeUiStatus(o, o.shipments);
+    const shippingStage = computeShippingStage(o.shipments);
+
+    // ✅ NEW: eligibil pentru retur (doar când e livrat)
+    const returnEligible = status === "DELIVERED";
+
     const currency = o.currency || "RON";
 
     const subtotal = Number(o.subtotal || 0);
@@ -170,32 +216,40 @@ router.get("/my", async (req, res) => {
         qty: it.qty,
         priceCents: Math.round(Number(it.price || 0) * 100),
         image: imageMap.get(it.productId) || null,
-        shipmentId: s.id, // legătură item → shipment (pachet)
+        shipmentId: s.id,
       }))
     );
 
     return {
       id: o.id,
+      orderNumber: o.orderNumber || null,
       createdAt: o.createdAt,
       status, // PENDING / PROCESSING / SHIPPED / DELIVERED / RETURNED / CANCELED
       totalCents,
       currency,
       items: flatItems,
       cancellable: isOrderCancellable(o, o.shipments),
-      customerType,          // 🔹 PF / PJ pentru frontend
-      shippingAddress: addr, // (dacă vrei să-l folosești și aici în viitor)
+      customerType,
+      shippingAddress: addr,
+      shippingStage,
+
+      // ✅ NEW
+      returnEligible,
     };
   });
 
-  // Filtrare text: id comandă + titluri produse
+  // Filtrare text: id comandă + orderNumber + titluri produse
   if (q) {
     const Q = q.toLowerCase();
     items = items.filter((order) => {
       const inId = String(order.id).toLowerCase().includes(Q);
+      const inOrderNumber = String(order.orderNumber || "")
+        .toLowerCase()
+        .includes(Q);
       const inItems = order.items?.some((it) =>
         (it.title || "").toLowerCase().includes(Q)
       );
-      return inId || inItems;
+      return inId || inOrderNumber || inItems;
     });
   }
 
@@ -222,22 +276,19 @@ router.get("/my", async (req, res) => {
 ----------------------------------------------------- */
 router.get("/:id", async (req, res) => {
   const userId = req.user.sub;
-  const id = String(req.params.id);
+  const ref = String(req.params.id);
 
   const o = await prisma.order.findFirst({
-    where: { id, userId },
+    where: {
+      userId,
+      OR: [{ id: ref }, { orderNumber: ref }],
+    },
     include: {
       shipments: {
-        // 👇 ADĂUGAT: includem vendor ca să avem adresa magazinului
         include: {
           items: true,
           vendor: {
-            select: {
-              id: true,
-              displayName: true,
-              address: true,
-              city: true,
-            },
+            select: { id: true, displayName: true, address: true, city: true },
           },
         },
       },
@@ -247,6 +298,11 @@ router.get("/:id", async (req, res) => {
   if (!o) return res.status(404).json({ error: "not_found" });
 
   const status = computeUiStatus(o, o.shipments);
+  const shippingStage = computeShippingStage(o.shipments);
+
+  // ✅ NEW: eligibil pentru retur (doar când e livrat)
+  const returnEligible = status === "DELIVERED";
+
   const currency = o.currency || "RON";
 
   const subtotal = Number(o.subtotal || 0);
@@ -261,16 +317,14 @@ router.get("/:id", async (req, res) => {
   const isCompany = !!(addr.companyName || addr.companyCui);
   const customerType = isCompany ? "PJ" : "PF";
 
-  // 🔹 pentru pagina de detalii: imagini produse
+  // 🔹 imagini produse
   const productIdSet = new Set();
-
   for (const s of o.shipments) {
     for (const it of s.items) {
       if (it.productId) productIdSet.add(it.productId);
     }
   }
 
-  // map productId -> imagine
   let imageMap = new Map();
   if (productIdSet.size) {
     const products = await prisma.product.findMany({
@@ -286,7 +340,6 @@ router.get("/:id", async (req, res) => {
     );
   }
 
-  // produse flatten + shipmentId (pt. grupare pe pachete)
   const flatItems = o.shipments.flatMap((s) =>
     s.items.map((it) => ({
       id: it.id,
@@ -301,14 +354,20 @@ router.get("/:id", async (req, res) => {
 
   res.json({
     id: o.id,
+    orderNumber: o.orderNumber || null,
     createdAt: o.createdAt,
     status,
+    shippingStage,
+
+    // ✅ NEW
+    returnEligible,
+
     currency,
     subtotalCents,
     shippingCents,
     totalCents,
     shippingAddress: addr,
-    customerType, // 🔹 PF / PJ – pentru UI (detalii comandă)
+    customerType,
     items: flatItems,
     shipments: o.shipments.map((s) => ({
       id: s.id,
@@ -323,7 +382,6 @@ router.get("/:id", async (req, res) => {
         : s.vendorId
         ? "Artizan"
         : null,
-      // 👇 NEW: adresă magazin per pachet – folosită în MyOrderDetailsPage
       storeAddress: s.vendor
         ? {
             name: s.vendor.displayName || "Magazin",
@@ -341,8 +399,6 @@ router.get("/:id", async (req, res) => {
 
 /* ----------------------------------------------------
    POST /api/user/orders/:id/cancel
-   Folosit de cancelOrder(id) în UI
-   + trimis mesaje vendorilor + email clientului
 ----------------------------------------------------- */
 router.post("/:id/cancel", async (req, res) => {
   const userId = req.user.sub;
@@ -352,7 +408,7 @@ router.post("/:id/cancel", async (req, res) => {
     where: { id, userId },
     include: {
       shipments: true,
-      user: true, // ca să putem lua email-ul din o.user.email
+      user: true,
     },
   });
 
@@ -369,29 +425,20 @@ router.post("/:id/cancel", async (req, res) => {
     return res.status(400).json({ error: "not_cancellable" });
   }
 
-  // marcăm shipment-urile "active" ca RETURNED
-  await prisma.shipment.updateMany({
-    where: {
-      orderId: o.id,
-      status: {
-        in: [
-          "PENDING",
-          "PREPARING",
-          "READY_FOR_PICKUP",
-          "AWB",
-          "IN_TRANSIT",
-          "PICKUP_SCHEDULED",
-        ],
+  // ✅ tranzacție: evităm stări "mixte"
+  await prisma.$transaction([
+    prisma.shipment.updateMany({
+      where: {
+        orderId: o.id,
+        status: { in: ["PENDING"] }, // comanda anulabilă => shipments trebuie să fie încă PENDING
       },
-    },
-    data: { status: "RETURNED" },
-  });
-
-  // marcăm și comanda ca CANCELLED
-  await prisma.order.update({
-    where: { id: o.id },
-    data: { status: "CANCELLED" },
-  });
+      data: { status: "REFUSED" },
+    }),
+    prisma.order.update({
+      where: { id: o.id },
+      data: { status: "CANCELLED" },
+    }),
+  ]);
 
   // 🔹 notificări mesaje către vendor(i) (best-effort)
   try {
@@ -405,11 +452,7 @@ router.post("/:id/cancel", async (req, res) => {
 
   // 🔹 email de confirmare către client (best-effort)
   try {
-    const to =
-      o.user?.email ||
-      o.shippingAddress?.email ||
-      null;
-
+    const to = o.user?.email || o.shippingAddress?.email || null;
     if (to) {
       await sendOrderCancelledByUserEmail({ to, order: o });
     }
@@ -422,7 +465,6 @@ router.post("/:id/cancel", async (req, res) => {
 
 /* ----------------------------------------------------
    POST /api/user/orders/:id/reorder
-   Folosit de reorder(id) – re-adaugă produsele în coș
 ----------------------------------------------------- */
 router.post("/:id/reorder", async (req, res) => {
   const userId = req.user.sub;

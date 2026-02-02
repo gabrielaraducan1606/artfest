@@ -590,7 +590,8 @@ export default function ProductModal({
   setForm,
   categories = [],
   onSave,
-  uploadFile, // optional override
+  uploadFile, 
+  storeSlug,
 }) {
   const doUpload = uploadFile || uploadFileHelper;
 
@@ -636,6 +637,61 @@ export default function ProductModal({
     status: null, // "payer" | "non_payer" | null
     rate: null,   // număr (ex: 19)
   });
+// ================= Comision plan/platformă =================
+const [commissionState, setCommissionState] = useState({
+  loading: false,
+  error: "",
+  commissionBps: 0, // ex: 1200 = 12%
+  plan: null,
+});
+
+useEffect(() => {
+  if (!open) return;
+
+  if (!storeSlug) {
+    setCommissionState({
+      loading: false,
+      error: "Lipsește storeSlug (nu pot încărca comisionul).",
+      commissionBps: 0,
+      plan: null,
+    });
+    return;
+  }
+
+  let alive = true;
+  setCommissionState((s) => ({ ...s, loading: true, error: "" }));
+
+  (async () => {
+    try {
+      const resp = await api(
+        `/api/vendors/store/${encodeURIComponent(storeSlug)}/products/pricing`,
+        { method: "GET" }
+      );
+      if (!alive) return;
+
+      const bps = resp?.commissionBps != null ? Number(resp.commissionBps) : 0;
+
+      setCommissionState({
+        loading: false,
+        error: "",
+        commissionBps: Number.isFinite(bps) ? bps : 0,
+        plan: resp?.plan || null,
+      });
+    } catch (e) {
+      if (!alive) return;
+      setCommissionState({
+        loading: false,
+        error: e?.message || "Nu am putut încărca comisionul planului.",
+        commissionBps: 0,
+        plan: null,
+      });
+    }
+  })();
+
+  return () => {
+    alive = false;
+  };
+}, [open, storeSlug]);
 
   useEffect(() => {
     if (!open) return;
@@ -708,6 +764,28 @@ export default function ProductModal({
   }, [form.price, vatState.status, vatState.rate]);
 
   const { gross, rate: vatRateNum, net, vatAmount } = vatComputed;
+const commissionComputed = useMemo(() => {
+  const grossNum = Number(form.price) || 0;
+
+  // Baza comision: fără TVA dacă vendorul e payer, altfel prețul e deja final
+  const base =
+    vatState.status === "payer" && vatRateNum
+      ? (Number(net) || 0)
+      : grossNum;
+
+  // commissionBps = basis points (ex 1200 = 12.00%)
+  const pct = (Number(commissionState.commissionBps) || 0) / 100; // 1200 -> 12.00
+  const rate = pct / 100; // 12.00 -> 0.12
+
+  if (!grossNum || !Number.isFinite(base) || !Number.isFinite(rate) || rate <= 0) {
+    return { base, pct, commissionAmount: 0, vendorReceives: base };
+  }
+
+  const commissionAmount = +(base * rate).toFixed(2);
+  const vendorReceives = +(base - commissionAmount).toFixed(2);
+
+  return { base, pct, commissionAmount, vendorReceives };
+}, [form.price, vatState.status, vatRateNum, net, commissionState.commissionBps]);
 
   // ============================================================
 
@@ -1156,6 +1234,51 @@ export default function ProductModal({
               placeholder="0.00"
               required
             />
+{/* 👇 Comision platformă */}
+<div
+  style={{
+    fontSize: "0.78rem",
+    marginTop: 6,
+    marginBottom: 8,
+    color: "#4B5563",
+    lineHeight: 1.4,
+  }}
+>
+  {commissionState.loading ? (
+    <span>Se încarcă comisionul planului…</span>
+  ) : commissionState.error ? (
+    <span style={{ color: "#B91C1C" }}>{commissionState.error}</span>
+  ) : (
+    <>
+      <div>
+        Comision platformă{" "}
+        <strong>
+          {commissionComputed.pct ? `${commissionComputed.pct.toFixed(2)}%` : "0%"}
+        </strong>
+        {commissionState.plan ? (
+          <span style={{ opacity: 0.75 }}>
+            {" "}
+            · plan: <strong>{commissionState.plan.name}</strong>
+          </span>
+        ) : null}
+      </div>
+
+      {gross > 0 && (
+        <div style={{ marginTop: 2 }}>
+          Bază comision: <strong>{commissionComputed.base.toFixed(2)} RON</strong>{" "}
+          → comision: <strong>{commissionComputed.commissionAmount.toFixed(2)} RON</strong>{" "}
+          → încasare estimată (fără TVA):{" "}
+          <strong>{commissionComputed.vendorReceives.toFixed(2)} RON</strong>
+        </div>
+      )}
+
+      <div style={{ marginTop: 2, opacity: 0.75 }}>
+        Notă: comisionul se aplică pe prețul fără TVA (dacă ești plătitor de TVA).
+        Calculul final se confirmă la comandă.
+      </div>
+    </>
+  )}
+</div>
 
             {/* 👇 Aici afișăm clar TVA-ul, pe baza datelor din billing */}
             <div

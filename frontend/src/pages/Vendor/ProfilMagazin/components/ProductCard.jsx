@@ -106,7 +106,8 @@ export default function ProductCard({
   categoryLabelMap,
   categoryGroupLabelMap, // opțional
   colorLabelMap, // opțional
-  onEditProduct, // preferat
+  onEditProduct, 
+  vendorActionsOverride,// preferat
 }) {
   const nav = useNavigate();
   const loc = useLocation();
@@ -717,37 +718,37 @@ const safe = useMemo(() => {
         </div>
 
         <div className={styles.cardActions}>
-          {viewMode === "vendor" ? (
-            <div className={styles.ownerRow}>
-              <button
-                type="button"
-                className={`${styles.ownerIconBtn} ${styles.ownerIconTip}`}
-                data-tip="Editează"
-                onClick={handleEdit}
-                aria-label="Editează produs"
-              >
-                <FaEdit />
-                <span className={styles.srOnly}>
-                  Editează
-                </span>
-              </button>
+         {viewMode === "vendor" ? (
+  <div className={styles.ownerRow}>
+    {vendorActionsOverride ? (
+      vendorActionsOverride
+    ) : (
+      <>
+        <button
+          type="button"
+          className={`${styles.ownerIconBtn} ${styles.ownerIconTip}`}
+          data-tip="Editează"
+          onClick={handleEdit}
+          aria-label="Editează produs"
+        >
+          <FaEdit />
+          <span className={styles.srOnly}>Editează</span>
+        </button>
 
-              <button
-                type="button"
-                className={`${styles.ownerIconBtn} ${styles.ownerIconDanger} ${styles.ownerIconTip}`}
-                data-tip={deleting ? "Se șterge…" : "Șterge"}
-                onClick={handleDelete}
-                disabled={deleting}
-                aria-label="Șterge produs"
-              >
-                <FaTrash />
-                <span className={styles.srOnly}>
-                  {deleting
-                    ? "Se șterge…"
-                    : "Șterge"}
-                </span>
-              </button>
-            </div>
+        <button
+          type="button"
+          className={`${styles.ownerIconBtn} ${styles.ownerIconDanger} ${styles.ownerIconTip}`}
+          data-tip={deleting ? "Se șterge…" : "Șterge"}
+          onClick={handleDelete}
+          disabled={deleting}
+          aria-label="Șterge produs"
+        >
+          <FaTrash />
+          <span className={styles.srOnly}>{deleting ? "Se șterge…" : "Șterge"}</span>
+        </button>
+      </>
+    )}
+  </div>
           ) : viewMode === "user" ? (
             <div className={styles.iconRow}>
               <button

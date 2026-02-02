@@ -564,6 +564,24 @@
   body { padding-bottom: var(--mobile-bottom-bar-h); }
 
   .nav, .nav--open, .navBackdrop { display: none !important; }
+
+.badgeMini {
+  position: absolute;
+  top: -1px;
+  right: -8%;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  padding: 2 2px;
+}
+
 }
 
 /* ---- Compact & flexibil pentru mobil ---- */

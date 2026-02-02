@@ -1,4 +1,3 @@
-// backend/src/routes/checkoutRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
@@ -13,7 +12,6 @@ const normalizeDigits = (v = "") => String(v).replace(/\D/g, "");
 
 const isValidPhone = (v = "") => {
   const digits = normalizeDigits(v);
-  // simplu: 10 cifre, format românesc de bază
   return /^\d{10}$/.test(digits);
 };
 
@@ -22,14 +20,20 @@ const isValidEmail = (v = "") => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 };
 
-// 🔹 helper mic – exact ca în publicProductRoutes, dar local aici
+// helper mic – exact ca în publicProductRoutes, dar local aici
 function mapPublicBilling(billing) {
   if (!billing) return null;
   return {
     tvaActive: billing.tvaActive,
-    vatRate: billing.vatRate, // "19", "9", "5", "0"
-    vatStatus: billing.vatStatus, // "payer" | "non_payer"
+    vatRate: billing.vatRate,
+    vatStatus: billing.vatStatus,
   };
+}
+
+function generateOrderNumber() {
+  const t = Date.now().toString(36).toUpperCase();
+  const r = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `AF-${t}-${r}`.slice(0, 32);
 }
 
 /**
@@ -51,7 +55,7 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
               vendorId: true,
               vendor: {
                 select: {
-                  billing: true, // 🔹 aici luăm TVA-ul vendorului
+                  billing: true,
                 },
               },
             },
@@ -83,15 +87,14 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
           ? i.product.images[0]
           : null,
       qty: i.qty,
-      price: Math.round(i.product.priceCents) / 100, // preț BRUT (cu TVA dacă e plătitor)
+      price: Math.round(i.product.priceCents) / 100,
       currency: i.product.currency || currency,
       vendorId,
-      vendorBilling, // 🔹 TVA per vendor pentru front
+      vendorBilling,
     };
   });
 
   const subtotal = dec(mapped.reduce((s, it) => s + it.price * it.qty, 0));
-
   res.json({ items: mapped, currency, subtotal });
 });
 
@@ -110,7 +113,7 @@ async function quoteShipping({ groups, selections }) {
       vendorId: g.vendorId,
       method,
       lockerId: method === "LOCKER" ? sel.lockerId || null : null,
-      price: 15, // transport fix per vendor
+      price: 15,
     };
   });
 
@@ -124,14 +127,13 @@ async function quoteShipping({ groups, selections }) {
 }
 
 /**
- * QUOTE: calculează livrarea per vendor + selecții
+ * QUOTE
  * POST /api/checkout/quote
  */
 router.post("/checkout/quote", authRequired, async (req, res) => {
   const address = req.body?.address || {};
   const selections = req.body?.selections || {};
 
-  // frontend trimite firstName, lastName, email, phone etc.
   if (
     !address?.firstName ||
     !address?.lastName ||
@@ -186,11 +188,10 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
     return res.status(400).json({ error: "cart_empty" });
   }
 
-  // grupăm produsele pe vendorId
   const byVendor = new Map();
   for (const it of cart) {
     const vId = it.product.service?.vendorId;
-    if (!vId) continue; // safety: fără vendor, nu includem
+    if (!vId) continue;
     if (!byVendor.has(vId)) byVendor.set(vId, []);
     byVendor.get(vId).push({
       productId: it.productId,
@@ -213,7 +214,7 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
 });
 
 /**
- * PLACE: creează Order + Shipments per vendor, golește coșul
+ * PLACE
  * POST /api/checkout/place
  */
 router.post("/checkout/place", authRequired, async (req, res) => {
@@ -253,16 +254,13 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     });
   }
 
-  // nume complet pentru AWB etc.
   if (!address.name) {
     address.name = `${address.lastName} ${address.firstName}`.trim();
   }
 
-  // Tip client (PF / PJ) – fallback PF
   const ctRaw = String(customerType || "").toUpperCase();
   const ct = ctRaw === "PJ" ? "PJ" : "PF";
 
-  // Validare minimă pentru persoană juridică
   if (ct === "PJ") {
     if (!address.companyName || !address.companyCui) {
       return res.status(400).json({
@@ -273,7 +271,6 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     }
   }
 
-  // validăm metoda de plată (default COD)
   const pmRaw = String(paymentMethod || "").toUpperCase();
   const pm = pmRaw === "CARD" ? "CARD" : "COD";
 
@@ -309,7 +306,6 @@ router.post("/checkout/place", authRequired, async (req, res) => {
 
   const subtotal = dec(items.reduce((s, it) => s + it.price * it.qty, 0));
 
-  // grupăm item-urile per vendor
   const groupsMap = new Map();
   for (const it of items) {
     if (!it.vendorId) continue;
@@ -322,12 +318,10 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     items: its,
   }));
 
-  // calculăm quote în backend (nu ne bazăm pe frontend)
   const quote = await quoteShipping({ groups, selections });
   const shippingTotal = dec(quote.totalShipping);
   const total = dec(subtotal + shippingTotal);
 
-  // 👇 ADĂUGAT: pregătim adresele magazinelor (retur) pentru mail
   const vendorIds = Array.from(groupsMap.keys()).map(String);
 
   const vendors = await prisma.vendor.findMany({
@@ -337,7 +331,6 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       displayName: true,
       address: true,
       city: true,
-      // dacă mai târziu adaugi country/postalCode pe Vendor, le poți selecta aici
     },
   });
 
@@ -348,31 +341,28 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       street: v.address || "",
       city: v.city || "",
       county: address.county || "",
-      postalCode: "", // dacă adaugi postalCode pe Vendor, actualizezi aici
+      postalCode: "",
       country: "România",
     };
   }
 
   const created = await prisma.$transaction(async (tx) => {
-    // 1) Order
     const order = await tx.order.create({
       data: {
+        orderNumber: generateOrderNumber(),
         userId: req.user.sub,
         status: "PENDING",
-        paymentMethod: pm, // "COD" sau "CARD"
+        paymentMethod: pm,
         currency,
         subtotal,
         shippingTotal,
         total,
-        shippingAddress: address, // JSON cu PF/PJ + date firmă
-        customerType: ct, // enum CustomerType (PF / PJ)
-        // ❌ fără meta aici – modelul Order nu are câmp meta
+        shippingAddress: address,
+        customerType: ct,
       },
     });
 
-    // 2) Shipments per vendor
     for (const s of quote.shipments) {
-      // siguranță: vendorId trebuie să fie string valid
       if (!s.vendorId) continue;
 
       const sh = await tx.shipment.create({
@@ -387,8 +377,8 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       });
 
       const its =
-        groups.find((g) => String(g.vendorId) === String(s.vendorId))
-          ?.items || [];
+        groups.find((g) => String(g.vendorId) === String(s.vendorId))?.items ||
+        [];
 
       if (its.length) {
         await tx.shipmentItem.createMany({
@@ -397,19 +387,18 @@ router.post("/checkout/place", authRequired, async (req, res) => {
             productId: it.productId,
             title: it.title,
             qty: it.qty,
-            price: dec(it.price), // preț unitar la momentul comenzii
+            price: dec(it.price),
           })),
         });
       }
     }
 
-    // 3) golește coșul
     await tx.cartItem.deleteMany({ where: { userId: req.user.sub } });
 
     return order;
   });
 
-  // 🔔 Notificări pentru vendorii implicați în comandă
+  // Notificări vendor
   try {
     const shipments = await prisma.shipment.findMany({
       where: { orderId: created.id },
@@ -447,7 +436,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     console.error("Nu am putut crea notificările pentru vendor:", err);
   }
 
-  // email de confirmare — acum cu storeAddresses
+  // email confirmare
   try {
     await sendOrderConfirmationEmail({
       to: address.email,
@@ -456,23 +445,25 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       storeAddresses,
     });
   } catch (err) {
-    console.error(
-      "Eroare la trimiterea emailului de confirmare:",
-      err
-    );
+    console.error("Eroare la trimiterea emailului de confirmare:", err);
   }
 
-  // COD: finalizăm direct
+  // ✅ COD: returnăm și orderNumber
   if (pm === "COD") {
-    return res.json({ ok: true, orderId: created.id });
+    return res.json({
+      ok: true,
+      orderId: created.id,
+      orderNumber: created.orderNumber,
+    });
   }
 
-  // CARD: inițiem plata și trimitem redirectUrl la FE
+  // ✅ CARD: returnăm și orderNumber
   try {
     const payment = await createPaymentForOrder(created);
     return res.json({
       ok: true,
       orderId: created.id,
+      orderNumber: created.orderNumber,
       payment,
     });
   } catch (err) {
@@ -481,6 +472,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       error: "payment_init_failed",
       message: "Comanda a fost creată, dar inițierea plății a eșuat.",
       orderId: created.id,
+      orderNumber: created.orderNumber, // util ca să poți afișa și în eroare
     });
   }
 });

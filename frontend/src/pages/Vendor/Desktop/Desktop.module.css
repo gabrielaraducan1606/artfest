@@ -613,3 +613,148 @@
     align-items: stretch;
   }
 }
+.serviceMeta {
+  min-height: 16px; /* păstrează spațiu pentru meta */
+}
+.actionsRow {
+  min-height: 34px; /* păstrează spațiu pentru butoane */
+}
+/* ===================== Mobile compact KPIs + spacing ===================== */
+
+/* Tablet/mobil: mai puțin spațiu vertical */
+@media (max-width: 700px) {
+  .page {
+    gap: 12px;
+    padding: 16px 12px 28px;
+  }
+
+  .card {
+    padding: 10px 10px 12px;
+    border-radius: calc(var(--radius) + 1px);
+  }
+
+  .cardHead {
+    margin-bottom: 6px;
+  }
+
+  .cardHead h3 {
+    font-size: 14px;
+  }
+
+  .subtle {
+    font-size: 12px;
+  }
+}
+
+/* KPI: 2 coloane pe mobil, mai mic, mai “scund” */
+@media (max-width: 700px) {
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .kpi {
+    padding: 10px 10px;
+    border-radius: calc(var(--radius) + 2px);
+    gap: 2px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .kpiVal {
+    font-size: 18px;
+    line-height: 1.05;
+  }
+
+  .kpiLabel {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+}
+
+/* Extra-small: dacă e foarte îngust, 1 coloană, dar tot compact */
+@media (max-width: 420px) {
+  .kpiRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .kpi {
+    padding: 10px 10px;
+  }
+
+  .kpiVal {
+    font-size: 17px;
+  }
+}
+
+/* Quick actions pe mobil: butoane mai mici, nu full-width prea devreme */
+@media (max-width: 480px) {
+  .btn {
+    width: auto;           /* NU le întinde automat */
+    padding: 6px 12px;     /* mai mic */
+    font-size: 12px;
+  }
+
+  /* Doar în anumite zone le facem full-width (ex: coloane de acțiuni) */
+  .actionsCol .btn,
+  .logoutBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* în rows: păstrăm wrap și gap mic */
+  .actionsRow {
+    flex-direction: row;
+    gap: 8px;
+  }
+}
+
+/* Topbar: butonul mare să fie full width, dar restul compact */
+@media (max-width: 700px) {
+  .topbar {
+    gap: 10px;
+  }
+
+  .topbar > a {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .meta {
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .badge,
+  .badgeOk,
+  .badgeWait,
+  .badgeWarn {
+    padding: 2px 8px;
+    font-size: 10px;
+  }
+}
+
+/* Servicii: elemente mai compacte pe mobil */
+@media (max-width: 700px) {
+  .serviceItem {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .serviceTitle {
+    font-size: 13px;
+  }
+
+  .serviceMeta {
+    font-size: 11px;
+  }
+
+  .serviceWarning {
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+}
+.cardOk {
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.06);
+}

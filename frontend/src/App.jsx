@@ -73,6 +73,10 @@ import UserDesktop from "./pages/User/UserDesktop/UserDesktop.jsx";
 import AdminDesktop from "./pages/Admin/AdminDesktop/AdminDesktop.jsx";
 import AdminMarketingPage from "./pages/Admin/AdminMarketing/AdminMarketingPage.jsx";
 import AdminMaintenance from "./pages/Admin/AdminMaintenance/AdminMaintenancePage.jsx";
+import AdminVendorPlansPage from "./pages/Admin/AdminVendorPlansPage/AdminVendorPlansPage.jsx";
+import AdminPickupsPage from "./pages/Admin/AdminPickupsPage/AdminPickupsPage.jsx";
+import AdminBillingToClientPage from "./pages/Admin/AdminBillingToClient/AdminBillingToClient.jsx";
+
 import RouteIncidentsPage from "./pages/Admin/AdminIncidentsPage/AdminIncidentsPage.jsx";
 
 import UserSettingsPage from "./pages/User/UserSettings/UserSettingsPage.jsx";
@@ -386,6 +390,10 @@ export default function App() {
             <Route path="support" element={<AdminSupportPage />} />
             <Route path="maintenance" element={<AdminMaintenance />} />
             <Route path="incidents" element={<RouteIncidentsPage />} />
+            <Route path="/admin/vendor-plans" element={<AdminVendorPlansPage />} />
+<Route path="/admin/pickups" element={<AdminPickupsPage />} />
+<Route path="billing" element={<AdminBillingToClientPage />} />
+
           </Route>
         </Routes>
       </SEOProvider>

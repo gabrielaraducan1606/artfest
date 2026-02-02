@@ -627,3 +627,70 @@
   .chip{ font-size: 11px; padding: 3px 8px; }
   .smartSummaryText{ font-size: 12px; }
 }
+/* ===== Vendor override (ProductsPage) ===== */
+
+.ownerOverrideRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ownerBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;                 /* mic */
+  padding: 0 10px;
+  border-radius: 999px;
+
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-primary) 8%);
+  color: var(--color-text);
+}
+
+.ownerManageBtn {
+  display: inline-grid;
+  place-items: center;
+
+  height: 30px;                 /* mic */
+  padding: 0 10px;
+  border-radius: 999px;
+
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+
+  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  background: var(--surface);
+  color: var(--color-text);
+
+  cursor: pointer;
+  transition: transform 0.08s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.ownerManageBtn:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--surface) 90%, var(--color-primary) 10%);
+  box-shadow: var(--shadow-sm);
+}
+
+.ownerManageBtn:active {
+  transform: translateY(1px);
+}
+
+/* Mobile: și mai mic */
+@media (max-width: 480px) {
+  .ownerBadge,
+  .ownerManageBtn {
+    height: 28px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+}

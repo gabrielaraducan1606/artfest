@@ -330,7 +330,6 @@ router.get(
   }
 );
 
-// Status simplificat pentru Desktop (ok / nu ok)
 router.get(
   "/me/subscription/status",
   authRequired,
@@ -351,30 +350,50 @@ router.get(
         });
       }
 
+      const now = new Date();
+
+      // ✅ acceptă fie abonament plătit activ, fie trial activ
       const sub = await prisma.vendorSubscription.findFirst({
         where: {
           vendorId: meVendor.id,
-          status: "active", // SubscriptionStatus.active
+          OR: [
+            { status: "active", endAt: { gt: now } },
+            { trialEndsAt: { gt: now } },
+          ],
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
         include: { plan: true },
       });
 
-      if (!sub) {
-        return res.json({
-          ok: false,
-          code: "subscription_required",
-          upgradeUrl: "/abonament",
-        });
-      }
+     if (!sub) {
+  // 🔹 Ca să afișezi în Desktop „Începe trial (30 zile)” chiar înainte de activare
+  const trialPlan = await prisma.subscriptionPlan.findFirst({
+    where: { isActive: true, trialDays: { not: null } },
+    orderBy: [{ trialDays: "desc" }, { priceCents: "asc" }],
+    select: { code: true, name: true, trialDays: true },
+  });
+
+  return res.json({
+    ok: false,
+    code: "subscription_required",
+    upgradeUrl: "/onboarding/details?tab=plata&solo=1",
+    trialOfferDays: trialPlan?.trialDays ?? null,
+    trialPlan: trialPlan ? { code: trialPlan.code, name: trialPlan.name } : null,
+  });
+}
+
+      const isTrial = !!(sub.trialEndsAt && sub.trialEndsAt > now);
 
       return res.json({
         ok: true,
+        kind: isTrial ? "trial" : "paid",
         plan: {
           code: sub.plan?.code || sub.planId || "custom",
           name: sub.plan?.name || sub.plan?.code || "Plan activ",
         },
+        status: sub.status,
         endAt: sub.endAt ? sub.endAt.toISOString() : null,
+        trialEndsAt: sub.trialEndsAt ? sub.trialEndsAt.toISOString() : null,
       });
     } catch (e) {
       console.error("GET /api/vendors/me/subscription/status error:", e);

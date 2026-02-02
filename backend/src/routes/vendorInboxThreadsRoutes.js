@@ -31,20 +31,19 @@ const STATUS_MAP = {
 /**
  * PATCH /api/inbox/threads/:id/meta
  * body: { status?, internalNote?, followUpAt? }
+ *
+ * followUpAt:
+ * - string ISO -> normalizat la ora 08:00
+ * - null -> șterge follow-up
  */
 router.patch("/inbox/threads/:id/meta", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
-  if (!vendorId)
-    return res.status(403).json({ error: "no_vendor_for_user" });
+  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
   const { id } = req.params;
   const { status, internalNote } = req.body;
 
-  // followUpAt poate fi string ISO sau null sau deloc
-  const hasFollowUpInBody = Object.prototype.hasOwnProperty.call(
-    req.body,
-    "followUpAt"
-  );
+  const hasFollowUpInBody = Object.prototype.hasOwnProperty.call(req.body, "followUpAt");
 
   let followUpDate = null;
   if (hasFollowUpInBody) {
@@ -56,23 +55,17 @@ router.patch("/inbox/threads/:id/meta", async (req, res) => {
         return res.status(400).json({ error: "invalid_followUpAt" });
       }
 
-      // 🔴 AICI normalizăm la ora 08:00
-      // (server time; dacă rulezi serverul pe UTC și vrei RO, poți compensa cu +2/+3)
+      // normalize la 08:00 (server time)
       d.setHours(8, 0, 0, 0);
       followUpDate = d;
     } else {
-      return res
-        .status(400)
-        .json({ error: "invalid_followUpAt_type" });
+      return res.status(400).json({ error: "invalid_followUpAt_type" });
     }
   }
 
   const thread = await prisma.messageThread.findUnique({
     where: { id },
-    select: {
-      id: true,
-      vendorId: true,
-    },
+    select: { id: true, vendorId: true },
   });
 
   if (!thread || thread.vendorId !== vendorId) {
@@ -95,6 +88,11 @@ router.patch("/inbox/threads/:id/meta", async (req, res) => {
 
   if (hasFollowUpInBody) {
     dataToUpdate.followUpAt = followUpDate;
+
+    // ✅ CHEIA anti-spam:
+    // de fiecare dată când setezi/modifici/ștergi follow-up,
+    // resetezi marker-ul de "notificat", ca worker-ul să notifice o singură dată.
+    dataToUpdate.followUpNotifiedAt = null;
   }
 
   if (Object.keys(dataToUpdate).length === 0) {
@@ -104,6 +102,7 @@ router.patch("/inbox/threads/:id/meta", async (req, res) => {
   const updated = await prisma.messageThread.update({
     where: { id },
     data: dataToUpdate,
+    // dacă vrei să vezi în răspuns și followUpNotifiedAt, adaugă select/include
   });
 
   res.json({ ok: true, thread: updated });

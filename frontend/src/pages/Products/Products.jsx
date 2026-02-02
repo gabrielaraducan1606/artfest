@@ -918,15 +918,36 @@ export default function ProductsPage() {
                 const isFav = favorites.has(p.id);
 
                 return (
-                  <ProductCard
-                    key={p.id}
-                    p={p}
-                    viewMode={viewMode}
-                    isFav={isFav}
-                    onAddToCart={doAddToCart}
-                    onToggleFavorite={toggleFavorite}
-                    categoryLabelMap={categoryLabelMap}
-                  />
+                 <ProductCard
+  key={p.id}
+  p={p}
+  viewMode={viewMode}
+  isFav={isFav}
+  onAddToCart={doAddToCart}
+  onToggleFavorite={toggleFavorite}
+  categoryLabelMap={categoryLabelMap}
+
+  // ✅ doar în /produse: înlocuiește edit/șterge cu „Produsul tău”
+  vendorActionsOverride={
+  isOwner ? (
+    <div className={styles.ownerOverrideRow}>
+      <span className={styles.ownerBadge}>Produsul tău</span>
+
+      <button
+        type="button"
+        className={styles.ownerManageBtn}
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate("/vendor/store")
+        }}
+      >
+        Gestionează
+      </button>
+    </div>
+  ) : null
+}
+
+/>
                 );
               })}
             </div>

@@ -1,3 +1,4 @@
+// backend/src/routes/subscriptionRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired /*, requireRole*/ } from "../api/auth.js";
@@ -24,7 +25,13 @@ const sendError = (res, code, status = 400, extra = {}) =>
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
-/* ====================== Access guard (cu grace) ===================== */
+/* ====================== Access guard (cu grace + trial) ===================== */
+/**
+ * ✅ Permite acces dacă:
+ *  - user e ADMIN, sau
+ *  - vendor are subscription activ (cu grace optional), sau
+ *  - vendor are trial activ (trialEndsAt > now)
+ */
 export const requireActiveSubscription = asyncHandler(async (req, res, next) => {
   if (req.user?.roles?.includes?.("ADMIN") || req.user?.role === "ADMIN") return next();
 
@@ -39,19 +46,27 @@ export const requireActiveSubscription = asyncHandler(async (req, res, next) => 
   const sub = await prisma.vendorSubscription.findFirst({
     where: {
       vendorId: vendor.id,
-      status: "active",
       OR: [
-        { endAt: { gt: now } },
-        ...(graceDays > 0 ? [{ endAt: { gt: cutoff } }] : []),
+        // ✅ active subs (cu grace)
+        {
+          status: "active",
+          OR: [
+            { endAt: { gt: now } },
+            ...(graceDays > 0 ? [{ endAt: { gt: cutoff } }] : []),
+          ],
+        },
+        // ✅ trial activ (indiferent de status, daca trialEndsAt e in viitor)
+        { trialEndsAt: { gt: now } },
       ],
     },
-    orderBy: { startAt: "desc" },
-    include: { plan: { select: { id: true, code: true, name: true } } },
+    orderBy: [{ startAt: "desc" }],
+    // ✅ IMPORTANT: includem entitlements pentru guard-urile de chat/attachments
+    include: { plan: { select: { id: true, code: true, name: true, entitlements: true } } },
   });
 
   if (!sub)
     return sendError(res, "subscription_required", 402, {
-      hint: "Ai nevoie de un abonament activ.",
+      hint: "Ai nevoie de un abonament activ sau de un trial activ.",
     });
 
   req.subscription = sub;
@@ -74,12 +89,32 @@ router.get(
     const plans = await prisma.subscriptionPlan.findMany({
       where: { isActive: true },
       orderBy: { priceCents: "asc" },
+      // (opțional) explicităm ce întoarcem
+      select: {
+        code: true,
+        name: true,
+        priceCents: true,
+        currency: true,
+        interval: true,
+        features: true,
+        entitlements: true, // ✅
+        popular: true,
+        trialDays: true,
+        maxProducts: true,
+        commissionBps: true,
+        isActive: true,
+      },
     });
     res.json({ items: plans });
   })
 );
 
 /* =================== GET /vendors/me/subscription ================== */
+/**
+ * ✅ Returnează:
+ *  - sub curent (active + endAt>now) SAU trial activ (trialEndsAt>now)
+ *  - fallback: ultimul subscription (latest)
+ */
 router.get(
   "/vendors/me/subscription",
   authRequired,
@@ -90,11 +125,25 @@ router.get(
       (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
     if (!meVendor) return sendError(res, "vendor_profile_missing", 404);
 
-    const sub = await prisma.vendorSubscription.findFirst({
-      where: { vendorId: meVendor.id, status: "active", endAt: { gt: new Date() } },
-      orderBy: { startAt: "desc" },
-      include: { plan: true },
-    });
+    const now = new Date();
+
+    const sub =
+      (await prisma.vendorSubscription.findFirst({
+        where: {
+          vendorId: meVendor.id,
+          OR: [
+            { status: "active", endAt: { gt: now } },
+            { trialEndsAt: { gt: now } },
+          ],
+        },
+        orderBy: [{ startAt: "desc" }],
+        include: { plan: true }, // aici e ok să fie full plan (include entitlements)
+      })) ??
+      (await prisma.vendorSubscription.findFirst({
+        where: { vendorId: meVendor.id },
+        orderBy: [{ createdAt: "desc" }],
+        include: { plan: true },
+      }));
 
     res.json({ subscription: sub || null });
   })
@@ -112,274 +161,38 @@ router.get(
     if (!meVendor) return sendError(res, "vendor_profile_missing", 404);
 
     const now = new Date();
-    const sub = await prisma.vendorSubscription.findFirst({
-      where: { vendorId: meVendor.id, status: "active", endAt: { gt: now } },
-      include: { plan: true },
-      orderBy: { startAt: "desc" },
+
+    const current = await prisma.vendorSubscription.findFirst({
+      where: {
+        vendorId: meVendor.id,
+        OR: [
+          { status: "active", endAt: { gt: now } },
+          { trialEndsAt: { gt: now } },
+        ],
+      },
+      // ✅ includem entitlements pentru UI
+      include: { plan: { select: { code: true, name: true, entitlements: true } } },
+      orderBy: [{ startAt: "desc" }],
     });
 
-    if (!sub)
+    if (!current) {
       return res.json({
         ok: false,
         code: "subscription_required",
-        upgradeUrl: "/app/billing",
-      });
-
-    res.json({
-      ok: true,
-      plan: { code: sub.plan.code, name: sub.plan.name },
-      endAt: sub.endAt,
-    });
-  })
-);
-
-/* ===================== POST /billing/checkout ====================== */
-/* - gratuit: activează instant                                        */
-/* - plătit: creează subs pending + REDIRECT prin orchestrator         */
-router.post(
-  "/billing/checkout",
-  authRequired,
-  vendorAccessRequired,
-  asyncHandler(async (req, res) => {
-    const meVendor =
-      req.meVendor ??
-      (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
-    if (!meVendor) return sendError(res, "vendor_profile_missing", 404);
-
-    const parsed = CheckoutQuery.safeParse({
-      plan: String(req.query.plan ?? req.body?.plan ?? ""),
-      period: String(req.query.period ?? req.body?.period ?? "month"),
-      applePay: String(req.query.applePay ?? req.body?.applePay ?? ""),
-      googlePay: String(req.query.googlePay ?? req.body?.googlePay ?? ""),
-    });
-    if (!parsed.success)
-      return sendError(res, "invalid_checkout_params", 400, {
-        issues: parsed.error.issues,
-      });
-
-    const { plan: code, period, applePay, googlePay } = parsed.data;
-    const plan = await prisma.subscriptionPlan.findUnique({ where: { code } });
-    if (!plan || !plan.isActive) return sendError(res, "plan_not_found", 404);
-
-    // === FREE plan => activare imediată
-    const isFree = (plan.priceCents ?? 0) === 0;
-    if (isFree) {
-      const sub = await prisma.$transaction(async (tx) => {
-        const now = new Date();
-
-        const active = await tx.vendorSubscription.findFirst({
-          where: { vendorId: meVendor.id, status: "active", endAt: { gt: now } },
-          orderBy: { endAt: "desc" },
-        });
-        if (active) {
-          await tx.vendorSubscription.update({
-            where: { id: active.id },
-            data: { status: "canceled_at_period_end" },
-          });
-        }
-
-        const startAt = now;
-        const endAt = new Date(startAt);
-        period === "year"
-          ? endAt.setFullYear(endAt.getFullYear() + 1)
-          : endAt.setMonth(endAt.getMonth() + 1);
-
-        return tx.vendorSubscription.create({
-          data: {
-            vendorId: meVendor.id,
-            planId: plan.id,
-            status: "active",
-            startAt,
-            endAt,
-            meta: { interval: period, activation: "free" },
-          },
-        });
-      });
-
-      return res.json({
-        kind: "free_activated",
-        url: `${APP_ORIGIN}/thank-you?subscriptionId=${sub.id}`,
+        upgradeUrl: "/onboarding/details?tab=plata&solo=1",
       });
     }
 
-    // === PAID plan => subs pending + rail automat
-    const today = new Date().toISOString().slice(0, 10);
-    const idemKey = `chk_${meVendor.id}_${code}_${period}_${today}`;
-
-    const sub = await prisma.$transaction(async (tx) => {
-      const existing = await tx.vendorSubscription.findFirst({
-        where: { vendorId: meVendor.id, extRef: idemKey },
-        orderBy: { createdAt: "desc" },
-      });
-      if (existing) return existing;
-
-      const now = new Date();
-      const active = await tx.vendorSubscription.findFirst({
-        where: { vendorId: meVendor.id, status: "active", endAt: { gt: now } },
-        orderBy: { endAt: "desc" },
-      });
-
-      let startAt = now;
-      if (active) {
-        const samePlan =
-          active.planId === plan.id &&
-          (active.meta?.interval ?? "month") === period;
-        if (samePlan) startAt = new Date(active.endAt);
-        else {
-          await tx.vendorSubscription.update({
-            where: { id: active.id },
-            data: { status: "canceled_at_period_end" },
-          });
-        }
-      }
-
-      const endAt = new Date(startAt);
-      period === "year"
-        ? endAt.setFullYear(endAt.getFullYear() + 1)
-        : endAt.setMonth(endAt.getMonth() + 1);
-
-      return tx.vendorSubscription.create({
-        data: {
-          vendorId: meVendor.id,
-          planId: plan.id,
-          status: "pending",
-          startAt,
-          endAt,
-          extRef: idemKey,
-          meta: { interval: period },
-        },
-      });
-    });
-
-    // sumă (dacă ai alte reguli, ajustează aici)
-    const baseRON = plan.priceCents / 100;
-    const amountRON =
-      period === "year"
-        ? Math.round(baseRON * 12 * (1 - 0.2) * 100) / 100 // exemplu reducere 20%
-        : baseRON;
-    const description = `Abonament ${plan.name} (${period})`;
-
-    // semnale pentru orchestrator
-    const userCountry =
-      req.user?.country || req.headers["x-geo-country"] || "RO";
-    const currency = plan.currency || "RON";
-    const vendorPrefs = {
-      prefer: meVendor?.meta?.paymentsPreference || null,
-    };
-    const walletHints = {
-      applePay: applePay === "1",
-      googlePay: googlePay === "1",
-    };
-
-    const rail = await chooseRail({
-      userCountry,
-      currency,
-      vendorPrefs,
-      walletHints,
-    });
-    const { url, provider } = await startPayment({
-      rail,
-      plan,
-      period,
-      vendor: meVendor,
-      user: req.user,
-      subscription: sub,
-      amountRON,
-      description,
-    });
+    const isTrial = !!(current.trialEndsAt && current.trialEndsAt > now);
 
     return res.json({
-      kind: "provider_redirect",
-      provider,
-      url,
-      subscriptionId: sub.id,
+      ok: true,
+      kind: isTrial ? "trial" : "paid",
+      plan: current.plan, // {code, name, entitlements}
+      endAt: current.endAt ?? null,
+      trialEndsAt: current.trialEndsAt ?? null,
+      status: current.status,
     });
-  })
-);
-
-/* ====== GET /billing/checkout/netopia/start — (fallback / demo) ====== */
-router.get(
-  "/billing/checkout/netopia/start",
-  asyncHandler(async (req, res) => {
-    const subId = String(req.query.subId || "");
-    if (!subId) return sendError(res, "missing_sub_id", 400);
-
-    // în integrarea reală, generezi redirecția către Netopia aici.
-    res.redirect(
-      302,
-      `${APP_ORIGIN}/payment/redirecting?subscriptionId=${encodeURIComponent(
-        subId
-      )}`
-    );
-  })
-);
-
-/* === POST /billing/checkout/netopia/form — POST auto-submit (opțional) === */
-router.post(
-  "/billing/checkout/netopia/form",
-  asyncHandler(async (req, res) => {
-    const { subId } = req.body || {};
-    if (!subId) return sendError(res, "missing_sub_id", 400);
-
-    const actionUrl = "https://secure.mobilpay.ro"; // placeholder
-    const fields = {
-      amount: "0.00",
-      currency: "RON",
-      orderId: subId,
-      signature: "SIGN_HERE",
-    };
-
-    const inputs = Object.entries(fields)
-      .map(([k, v]) => `<input type="hidden" name="${k}" value="${String(v)}" />`)
-      .join("");
-
-    const html = `<!doctype html>
-<html><body onload="document.forms[0].submit()">
-  <form action="${actionUrl}" method="POST">
-    ${inputs}
-    <noscript><button type="submit">Continuă plata</button></noscript>
-  </form>
-</body></html>`;
-
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(html);
-  })
-);
-
-/* =================== Webhook provider (schelet generic) =================== */
-router.post(
-  "/billing/webhooks/provider",
-  asyncHandler(async (req, res) => {
-    const payload = req.body; // dacă providerul cere RAW, setează raw pe ruta asta în server
-    switch (payload?.type) {
-      case "invoice.paid":
-      case "subscription.activated": {
-        const subscriptionId =
-          payload?.data?.subscriptionId || payload?.data?.localId;
-        if (subscriptionId) {
-          await prisma.vendorSubscription.updateMany({
-            where: { id: subscriptionId },
-            data: { status: "active" },
-          });
-        }
-        break;
-      }
-      case "invoice.payment_failed":
-      case "subscription.canceled": {
-        const subscriptionId =
-          payload?.data?.subscriptionId || payload?.data?.localId;
-        if (subscriptionId) {
-          await prisma.vendorSubscription.updateMany({
-            where: { id: subscriptionId },
-            data: { status: "canceled" },
-          });
-        }
-        break;
-      }
-      default:
-        break;
-    }
-    res.json({ ok: true });
   })
 );
 
@@ -390,9 +203,81 @@ export async function expireSubscriptionsJob() {
     where: {
       status: { in: ["active", "pending", "canceled_at_period_end"] },
       endAt: { lte: now },
+      // ⚠️ dacă vrei să nu “expiri” ceva ce încă e în trial, decomentează:
+      // OR: [{ trialEndsAt: null }, { trialEndsAt: { lte: now } }],
     },
     data: { status: "expired" },
   });
 }
+
+/* =================== POST /billing/checkout =================== */
+router.post(
+  "/billing/checkout",
+  authRequired,
+  vendorAccessRequired,
+  asyncHandler(async (req, res) => {
+    // tu trimiți parametrii în query string, deci citim din req.query
+    const q = CheckoutQuery.parse(req.query);
+
+    const vendor =
+      req.meVendor ??
+      (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
+    if (!vendor) return sendError(res, "vendor_profile_missing", 404);
+
+    const plan = await prisma.subscriptionPlan.findUnique({
+      where: { code: q.plan },
+    });
+
+    if (!plan) return sendError(res, "plan_not_found", 404);
+    if (plan.isActive === false) return sendError(res, "plan_inactive", 409);
+
+    // ✅ dacă planul e gratuit: activează direct
+    if ((plan.priceCents ?? 0) === 0) {
+      const now = new Date();
+
+      // important: guard-urile tale cer status=active și endAt>now (sau trialEndsAt>now)
+      // pentru plan gratuit, pune un endAt în viitor (ex: 10 ani)
+      const endAt = new Date(now);
+      endAt.setFullYear(endAt.getFullYear() + 10);
+
+      const sub = await prisma.vendorSubscription.create({
+        data: {
+          vendorId: vendor.id,
+          planId: plan.id,
+          status: "active",
+          startAt: now,
+          endAt,
+          // opțional: meta
+          meta: { activatedBy: "free_plan" },
+        },
+        include: { plan: { select: { code: true, name: true, entitlements: true } } },
+      });
+
+      return res.json({
+        ok: true,
+        kind: "free_activated",
+        subscription: sub,
+        // trimite un URL de UI (poți ajusta)
+        url: "/onboarding/details?tab=plata&activated=1",
+      });
+    }
+
+    // ✅ altfel (plan plătit): mergi pe orchestrator
+    const { applePay, googlePay } = q;
+    const rail = chooseRail({ applePay, googlePay, plan, period: q.period });
+
+    const out = await startPayment({
+      rail,
+      vendorId: vendor.id,
+      userId: req.user.sub,
+      planCode: plan.code,
+      period: q.period,
+      appOrigin: APP_ORIGIN,
+    });
+
+    return res.json(out);
+  })
+);
 
 export default router;

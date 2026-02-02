@@ -1,13 +1,13 @@
+// frontend/src/pages/User/Orders/OrdersPage.jsx
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  Filter,
-  RotateCcw,
-  Search as SearchIcon,
-  MessageSquare, // pentru butonul "Contactează artizanul"
-} from "lucide-react";
+import { Filter, RotateCcw, Search as SearchIcon, MessageSquare } from "lucide-react";
 import { api } from "../../../lib/api";
 import styles from "./Orders.module.css";
+
+// ✅ IMPORT: modalul real de cerere retur
+// Ajustează path-ul dacă fișierul e în alt loc.
+import ReturnRequestModal from "./ReturnRequestModal/ReturnRequestModal";
 
 /**
  * Status UI trimis de backend (computeUiStatus):
@@ -31,6 +31,8 @@ const STATUS_TABS = [
 ];
 
 export default function OrdersPage() {
+  const navigate = useNavigate();
+
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
@@ -38,18 +40,30 @@ export default function OrdersPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState(null); // pentru anulare / re-comandă
+  const [busyId, setBusyId] = useState(null);
 
-  // pentru UI filtre (mobile)
+  // mobile filters
   const [isMobile, setIsMobile] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // detectăm viewport pentru butonul de filtre pe mobil
+  // ✅ ReturnRequestModal (modalul real)
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnOrderId, setReturnOrderId] = useState(null);
+
+  function openReturnModal(order) {
+    setReturnOrderId(order?.id || null);
+    setReturnOpen(true);
+  }
+
+  function closeReturnModal() {
+    setReturnOpen(false);
+    setReturnOrderId(null);
+  }
+
+  // detect viewport for filters button on mobile
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const check = () => {
-      setIsMobile(window.innerWidth <= 640);
-    };
+    const check = () => setIsMobile(window.innerWidth <= 640);
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
@@ -75,7 +89,7 @@ export default function OrdersPage() {
     };
   }, []);
 
-  // ce statusuri UI trimitem la backend în query
+  // what statuses we send to backend in query
   const statusParam = useMemo(() => {
     if (tab === "all") return "";
     if (tab === "active") return "PENDING,PROCESSING,SHIPPED";
@@ -83,27 +97,26 @@ export default function OrdersPage() {
   }, [tab]);
 
   const load = useCallback(
-    async (opts = { reset: false }) => {
+    async (opts = { reset: false, pageOverride: null }) => {
       if (!me) return;
+
       setLoading(true);
       try {
         const limit = 10;
-        const nextPage = opts.reset ? 1 : page;
+        const nextPage = opts.reset ? 1 : opts.pageOverride ?? page;
+
         const params = new URLSearchParams();
         params.set("page", String(nextPage));
         params.set("limit", String(limit));
         if (q.trim()) params.set("q", q.trim());
         if (statusParam) params.set("status", statusParam);
 
-        // backend: GET /api/user/orders/my
         const res = await api(`/api/user/orders/my?${params.toString()}`);
 
         const newItems = Array.isArray(res?.items) ? res.items : [];
-        setItems((prev) =>
-          opts.reset ? newItems : [...prev, ...newItems]
-        );
+        setItems((prev) => (opts.reset ? newItems : [...prev, ...newItems]));
 
-        const total = res?.total || 0;
+        const total = Number(res?.total || 0);
         const totalPages = Math.ceil(total / limit) || 1;
         setHasMore(nextPage < totalPages);
       } catch (e) {
@@ -115,33 +128,32 @@ export default function OrdersPage() {
     [page, q, statusParam, me]
   );
 
-  // Load la schimbarea tab-ului (reset paginare)
+  // Load when tab changes (reset paging)
   useEffect(() => {
     if (!me) return;
     setPage(1);
-    load({ reset: true });
+    load({ reset: true, pageOverride: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, me]); // q este aplicat la submit
+  }, [tab, me]);
 
-  // Load extra la schimbarea paginii
+  // Load more on page change
   useEffect(() => {
     if (!me) return;
     if (page === 1) return;
-    load({ reset: false });
+    load({ reset: false, pageOverride: page });
   }, [page, load, me]);
 
   function onSearch(e) {
     e.preventDefault();
     setPage(1);
-    load({ reset: true });
+    load({ reset: true, pageOverride: 1 });
   }
 
-  // Reset filtre (desktop + mobil)
   function resetFilters() {
     setQ("");
     setTab("all");
     setPage(1);
-    // re-load va fi declanșat de useEffect-ul pe tab
+    // load va fi declanșat de useEffect([tab, me])
   }
 
   function openFiltersModal() {
@@ -154,22 +166,23 @@ export default function OrdersPage() {
 
   function applyFiltersFromModal() {
     setPage(1);
-    load({ reset: true });
     setFiltersOpen(false);
+    load({ reset: true, pageOverride: 1 });
   }
 
   async function cancelOrder(id) {
     if (
       !confirm(
-        "Sigur vrei să anulezi această comandă?  La confirmare, artizanii vor primi automat o notificare cu anularea comenzii."
+        "Sigur vrei să anulezi această comandă? La confirmare, artizanii vor primi automat o notificare cu anularea comenzii."
       )
     )
       return;
+
     setBusyId(id);
     try {
       await api(`/api/user/orders/${id}/cancel`, { method: "POST" });
       setPage(1);
-      await load({ reset: true });
+      await load({ reset: true, pageOverride: 1 });
     } catch (e) {
       alert(e?.message || "Nu am putut anula comanda.");
     } finally {
@@ -182,7 +195,7 @@ export default function OrdersPage() {
     try {
       await api(`/api/user/orders/${id}/reorder`, { method: "POST" });
       if (confirm("Produsele au fost adăugate în coș. Deschizi coșul?")) {
-        window.location.href = "/cos";
+        navigate("/cos");
       }
     } catch (e) {
       alert(
@@ -196,34 +209,19 @@ export default function OrdersPage() {
 
   /**
    * Contactează artizanul pentru această comandă.
-   * - dacă avem shipments cu vendorId pe obiectul din listă, le folosim direct
-   * - altfel facem fetch la detaliile comenzii și extragem vendorId de acolo
+   * Lista /my nu include shipments, deci:
+   * - fetch detalii comandă
+   * - extrage vendorId din shipments
+   * - ensure thread
+   * - navigate către /cont/mesaje
    */
   async function contactVendorForOrder(order) {
     try {
-      let vendorId = null;
+      const details = await api(`/api/user/orders/${encodeURIComponent(order.id)}`);
 
-      // 1. încercăm din datele deja primite în listă
-      if (Array.isArray(order.shipments) && order.shipments.length > 0) {
-        const first = order.shipments.find((s) => s.vendorId);
-        if (first && first.vendorId) {
-          vendorId = first.vendorId;
-        }
-      }
-
-      // 2. dacă nu avem, încărcăm detaliile comenzii
-      if (!vendorId) {
-        const details = await api(
-          `/api/user/orders/${encodeURIComponent(order.id)}`
-        );
-        const shipments = Array.isArray(details?.shipments)
-          ? details.shipments
-          : [];
-        const first = shipments.find((s) => s.vendorId);
-        if (first && first.vendorId) {
-          vendorId = first.vendorId;
-        }
-      }
+      const shipments = Array.isArray(details?.shipments) ? details.shipments : [];
+      const first = shipments.find((s) => s?.vendorId);
+      const vendorId = first?.vendorId || null;
 
       if (!vendorId) {
         alert(
@@ -234,17 +232,14 @@ export default function OrdersPage() {
 
       const res = await api("/api/user-inbox/ensure-thread", {
         method: "POST",
-        body: { vendorId },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendorId }),
       });
 
       const threadId = res?.threadId;
-      if (!threadId) {
-        throw new Error("Nu am primit ID-ul conversației.");
-      }
+      if (!threadId) throw new Error("Nu am primit ID-ul conversației.");
 
-      window.location.href = `/cont/mesaje?thread=${encodeURIComponent(
-        threadId
-      )}`;
+      navigate(`/cont/mesaje?thread=${encodeURIComponent(threadId)}`);
     } catch (e) {
       console.error(e);
       alert(
@@ -255,11 +250,7 @@ export default function OrdersPage() {
   }
 
   if (!me && !loading) {
-    return (
-      <div className={styles.page}>
-        Trebuie să te autentifici pentru a vedea comenzile.
-      </div>
-    );
+    return <div className={styles.page}>Trebuie să te autentifici pentru a vedea comenzile.</div>;
   }
 
   return (
@@ -269,19 +260,14 @@ export default function OrdersPage() {
           <div>
             <h1 className={styles.h1}>Comenzile mele</h1>
             <p className={styles.subtle}>
-              Vizualizezi statusul comenzii tale așa cum este actualizat
-              de artizani și curier.
+              Vizualizezi statusul comenzii tale așa cum este actualizat de artizani și curier.
             </p>
           </div>
 
           <div className={styles.headRight}>
-            {/* 🔍 SearchBar */}
+            {/* SearchBar */}
             <form className={styles.searchBar} onSubmit={onSearch}>
-              <button
-                type="submit"
-                className={styles.searchBarIconBtn}
-                aria-label="Caută"
-              >
+              <button type="submit" className={styles.searchBarIconBtn} aria-label="Caută">
                 <SearchIcon size={18} />
               </button>
               <input
@@ -317,14 +303,12 @@ export default function OrdersPage() {
           </div>
         </header>
 
-        {/* Tabs status UI (PENDING / PROCESSING / SHIPPED / ...) */}
+        {/* Tabs */}
         <div className={styles.tabs}>
           {STATUS_TABS.map((t) => (
             <button
               key={t.key}
-              className={`${styles.tab} ${
-                tab === t.key ? styles.tabActive : ""
-              }`}
+              className={`${styles.tab} ${tab === t.key ? styles.tabActive : ""}`}
               onClick={() => setTab(t.key)}
               type="button"
             >
@@ -333,7 +317,7 @@ export default function OrdersPage() {
           ))}
         </div>
 
-        {/* Listă comenzi */}
+        {/* Orders list */}
         <div className={styles.list}>
           {items.length === 0 && !loading && (
             <EmptyState
@@ -350,13 +334,14 @@ export default function OrdersPage() {
               order={o}
               onCancel={cancelOrder}
               onReorder={reorder}
-              onContact={contactVendorForOrder} // 👈 handler Contactează artizanul
+              onContact={contactVendorForOrder}
+              onReturn={openReturnModal} // ✅ deschide ReturnRequestModal
               busy={busyId === o.id}
             />
           ))}
         </div>
 
-        {/* Paginare */}
+        {/* Pagination */}
         {hasMore && (
           <div className={styles.loadMoreWrap}>
             <button
@@ -370,7 +355,7 @@ export default function OrdersPage() {
         )}
       </section>
 
-      {/* Modal filtre – mobil */}
+      {/* Filters modal – mobile */}
       {filtersOpen && (
         <div
           className={styles.modalBackdrop}
@@ -403,9 +388,7 @@ export default function OrdersPage() {
               </label>
 
               <div>
-                <div className={styles.modalSectionLabel}>
-                  Status comandă
-                </div>
+                <div className={styles.modalSectionLabel}>Status comandă</div>
                 <div className={styles.statusPills}>
                   {STATUS_TABS.map((t) => (
                     <button
@@ -424,34 +407,37 @@ export default function OrdersPage() {
             </div>
 
             <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.btnGhost}
-                onClick={closeFiltersModal}
-              >
+              <button type="button" className={styles.btnGhost} onClick={closeFiltersModal}>
                 Anulează
               </button>
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={applyFiltersFromModal}
-              >
+              <button type="button" className={styles.btnPrimary} onClick={applyFiltersFromModal}>
                 Aplică filtre
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* ✅ AICI se deschide modalul real de retur */}
+      <ReturnRequestModal
+        open={returnOpen}
+        onClose={closeReturnModal}
+        orderId={returnOrderId}
+      />
     </>
   );
 }
 
-/* ====== sub-componente ====== */
-function OrderCard({ order, onCancel, onReorder, onContact, busy }) {
+/* ===== sub-components ===== */
+
+function OrderCard({ order, onCancel, onReorder, onContact, onReturn, busy }) {
   const navigate = useNavigate();
 
   const canCancel = !!order.cancellable;
   const canReorder = order.status !== "CANCELED";
+
+  // ✅ Buton retur doar când backend zice că e eligibil
+  const canReturn = !!order.returnEligible && order.status === "DELIVERED";
 
   const created = new Date(order.createdAt);
   const createdLabel = created.toLocaleString("ro-RO", {
@@ -463,7 +449,6 @@ function OrderCard({ order, onCancel, onReorder, onContact, busy }) {
     navigate(`/comanda/${order.id}`);
   };
 
-  // dacă backend trimite customerType + shippingAddress, marcăm clar PJ
   const isCompany = order.customerType === "PJ";
   const addr = order.shippingAddress || {};
   const companyName = addr.companyName;
@@ -483,14 +468,25 @@ function OrderCard({ order, onCancel, onReorder, onContact, busy }) {
     >
       <header className={styles.cardHead}>
         <div className={styles.orderMeta}>
-          <div className={styles.orderId}># {shortId(order.id)}</div>
+          <div className={styles.orderId}># {order.orderNumber || shortId(order.id)}</div>
+
           <div className={styles.dot} />
+
           <div className={`${styles.badge} ${styles[`st_${order.status}`]}`}>
             {STATUS_LABEL[order.status] || order.status}
           </div>
+
+          {order?.shippingStage?.label && (
+            <>
+              <div className={styles.dot} />
+              <div className={styles.subtle}>{order.shippingStage.label}</div>
+            </>
+          )}
+
           <div className={styles.dot} />
           <div className={styles.date}>{createdLabel}</div>
         </div>
+
         <div className={styles.total}>
           Total: <b>{money(order.totalCents, order.currency)}</b>
         </div>
@@ -499,22 +495,19 @@ function OrderCard({ order, onCancel, onReorder, onContact, busy }) {
       {isCompany && (
         <div style={{ marginTop: 4, marginBottom: 4 }}>
           <span className={styles.subtle}>
-            Facturare pe firmă
-            {companyName ? `: ${companyName}` : ""}
+            Facturare pe firmă{companyName ? `: ${companyName}` : ""}
           </span>
         </div>
       )}
 
-      {/* corp card: produse (stânga) + buton contactează (dreapta) */}
       <div className={styles.cardBody}>
-        {/* Produse din comandă */}
         <ul className={styles.itemList}>
           {order.items?.map((it) => (
             <li className={styles.item} key={it.id}>
               <Link
                 to={it.productId ? `/produs/${it.productId}` : "#"}
                 className={styles.itemThumbLink}
-                onClick={(e) => e.stopPropagation()} // rămâne: vrem să mergem la produs, nu la detalii comandă
+                onClick={(e) => e.stopPropagation()}
               >
                 <img
                   src={it.image || "/placeholder.png"}
@@ -533,19 +526,14 @@ function OrderCard({ order, onCancel, onReorder, onContact, busy }) {
                   {it.title}
                 </Link>
                 <div className={styles.itemMeta}>
-                  Cantitate: <b>{it.qty}</b> · Preț:{" "}
-                  <b>{money(it.priceCents, order.currency)}</b>
+                  Cantitate: <b>{it.qty}</b> · Preț: <b>{money(it.priceCents, order.currency)}</b>
                 </div>
               </div>
             </li>
           ))}
         </ul>
 
-        {/* partea din dreapta – Contactează artizanul */}
-        <div
-          className={styles.cardBodyRight}
-          onClick={(e) => e.stopPropagation()} // aici vrem să NU deschidem detaliile, ci să facem contact
-        >
+        <div className={styles.cardBodyRight} onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             className={styles.btnGhost}
@@ -558,34 +546,33 @@ function OrderCard({ order, onCancel, onReorder, onContact, busy }) {
         </div>
       </div>
 
-      {/* Footer – doar acțiuni pe comandă, nu deschide detalii la click înăuntru */}
-      <footer
-        className={styles.actionsRow}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          className={styles.btnGhost}
-          onClick={goToDetails}
-        >
+      <footer className={styles.actionsRow} onClick={(e) => e.stopPropagation()}>
+        <button type="button" className={styles.btnGhost} onClick={goToDetails}>
           Detalii comandă
         </button>
 
-        {canReorder && (
+        {canReturn && (
           <button
-            className={styles.btnPrimary}
-            disabled={busy}
-            onClick={() => onReorder(order.id)}
+            type="button"
+            className={styles.btnGhost}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onReturn?.(order);
+            }}
           >
+            Retur
+          </button>
+        )}
+
+        {canReorder && (
+          <button className={styles.btnPrimary} disabled={busy} onClick={() => onReorder(order.id)}>
             {busy ? "Se adaugă…" : "Comandă din nou"}
           </button>
         )}
+
         {canCancel && (
-          <button
-            className={styles.btnWarn}
-            disabled={busy}
-            onClick={() => onCancel(order.id)}
-          >
+          <button className={styles.btnWarn} disabled={busy} onClick={() => onCancel(order.id)}>
             {busy ? "Se anulează…" : "Anulează comanda"}
           </button>
         )}

@@ -80,6 +80,10 @@ import publicCategories from "./src/routes/categoriesRoutes.js";
 import adminPolicyNotificationsRoutes from "./src/routes/adminPolicyNotificationsRoutes.js";
 import marketplaceWaitlistRouter from "./src/routes/waitlistMarketplaceRoutes.js";
 import adminMarketplaceWaitlistRouter from "./src/routes/adminMarketplaceWaitlistRoutes.js";
+import adminSubscriptions from "./src/routes/adminSubscriptionRoutes.js";
+import adminPickupsRoutes from "./src/routes/adminPickupsRoutes.js";
+import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
+import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -401,6 +405,11 @@ app.use("/api/public", digitalWaitlistRoutes);
 app.use("/api/admin", adminDigitalWaitlistRoutes);
 app.use("/api", marketplaceWaitlistRouter);
 app.use("/api/admin", adminMarketplaceWaitlistRouter);
+app.use("/api", adminSubscriptions);
+app.use("/api/admin", adminPickupsRoutes);
+app.use("/api/admin", adminInvoicesRoutes);
+
+app.use("/api", platformBillingRouter);
 
 // în app.js / routes index
 app.use("/api/admin", adminPolicyNotificationsRoutes);

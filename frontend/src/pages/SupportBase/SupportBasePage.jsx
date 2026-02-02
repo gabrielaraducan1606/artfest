@@ -2043,27 +2043,25 @@ function MessageBubble({ m, onEdit, onDelete }) {
             <>{m.body}</>
           )}
 
-          {m.attachments?.length ? (
-            <ul
-              style={{
-                marginTop: 6,
-                display: "grid",
-                gap: 4,
-              }}
-            >
-              {m.attachments.map((a, i) => (
-                <li key={i}>
-                  <button
-                    type="button"
-                    onClick={() => setPreview(a)}
-                    className={styles.linkBtn}
-                  >
-                    {a.name || a.url}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+         {m.attachments?.length ? (
+  <div className={styles.attachList}>
+    {m.attachments.map((a, i) => {
+      const title = a.name || a.filename || `Atașament ${i + 1}`;
+      return (
+        <button
+          key={i}
+          type="button"
+          onClick={() => setPreview({ ...a, name: title })}
+          className={styles.attachLine}
+          title={title}
+        >
+          <Paperclip size={14} />
+          <span className={styles.attachTitle}>{title}</span>
+        </button>
+      );
+    })}
+  </div>
+) : null}
 
           <div className={styles.meta}>
             {fmtTime(m.createdAt)}

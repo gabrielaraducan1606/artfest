@@ -13,10 +13,19 @@ body {
   box-sizing: border-box;
 }
 
-/* ===== Shadow tokens (aliniază la globalele tale) ===== */
+/* ===== Tokens locale (aliniate la globalele tale) ===== */
 :root {
   --shadow-1: var(--shadow-sm);
   --shadow-2: var(--shadow-md);
+
+  --support-surface: var(--surface);
+  --support-bg: var(--color-bg);
+  --support-text: var(--color-text);
+  --support-border: var(--color-border);
+  --support-muted: var(--color-muted);
+
+  --support-top-offset: var(--appbar-h, 0px);
+  --support-bottom-offset: var(--bottombar-h, 0px);
 }
 
 /* ===== Layout general ===== */
@@ -38,7 +47,7 @@ body {
 
 /* ===== Mobile tabs ===== */
 .mobileTabs {
-  display: none; /* vizibil doar pe mobil prin media query */
+  display: none;
 }
 
 /* tab bar pentru mobil */
@@ -47,8 +56,8 @@ body {
     display: flex;
     gap: 4px;
     padding: 8px 4px 4px;
-    border-bottom: 1px solid var(--color-border);
-    background: var(--surface);
+    border-bottom: 1px solid var(--support-border);
+    background: var(--support-surface);
     position: sticky;
     top: 0;
     z-index: 4;
@@ -66,13 +75,18 @@ body {
   cursor: pointer;
   opacity: 0.7;
   white-space: nowrap;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 .mobileTabActive {
-  background: color-mix(in oklab, var(--color-primary) 14%, var(--surface));
+  background: rgba(0, 0, 0, 0.04);
   opacity: 1;
   font-weight: 600;
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .mobileTabActive {
+    background: color-mix(in oklab, var(--color-primary) 14%, var(--support-surface));
+  }
 }
 
 /* ========== left ========= */
@@ -82,13 +96,14 @@ body {
 }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--color-border);
+  background: var(--support-surface);
+  border: 1px solid var(--support-border);
   border-radius: calc(var(--radius) + 6px);
   padding: 12px;
   box-shadow: var(--shadow-1);
 }
 
+/* ===== Banner program / online ===== */
 .supportMeta {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -97,11 +112,16 @@ body {
   margin-bottom: 10px;
   padding: 8px 10px;
   border-radius: 12px;
-  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
-  border: 1px solid
-    color-mix(in oklab, var(--color-primary) 22%, var(--color-border));
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--support-border);
   font-size: 12px;
-  color: var(--color-text);
+  color: var(--support-text);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .supportMeta {
+    background: color-mix(in oklab, var(--color-primary) 6%, var(--support-surface));
+    border-color: color-mix(in oklab, var(--color-primary) 22%, var(--support-border));
+  }
 }
 
 .onlineDot,
@@ -114,36 +134,52 @@ body {
 
 .onlineDot {
   background: var(--color-success);
-  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-success) 22%, transparent);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .onlineDot {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-success) 22%, transparent);
+  }
 }
 
 .offlineDot {
-  background: color-mix(in oklab, var(--color-muted) 70%, transparent);
-  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-muted) 18%, transparent);
+  background: rgba(163, 163, 163, 0.8);
+  box-shadow: 0 0 0 4px rgba(163, 163, 163, 0.14);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .offlineDot {
+    background: color-mix(in oklab, var(--support-muted) 70%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--support-muted) 18%, transparent);
+  }
 }
 
 .mutedSmall {
   font-size: 11px;
   line-height: 1.45;
-  color: var(--color-muted);
+  color: var(--support-muted);
   margin-top: 4px;
   font-weight: 400;
-  opacity: 0.95;
   max-width: 320px;
 }
 
-/* banner off-hours pt prioritate ridicată (folosit în JSX) */
+/* banner off-hours pt prioritate ridicată */
 .offHoursBanner {
-  border: 1px solid color-mix(in oklab, var(--color-warning) 35%, var(--color-border));
-  background: color-mix(in oklab, var(--color-warning) 14%, var(--surface));
-  color: var(--color-text);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--support-text);
   border-radius: 12px;
   padding: 10px 10px;
   font-size: 12px;
   margin-bottom: 10px;
 }
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .offHoursBanner {
+    border-color: color-mix(in oklab, var(--color-warning) 35%, var(--support-border));
+    background: color-mix(in oklab, var(--color-warning) 14%, var(--support-surface));
+  }
+}
 
-/* titlu + acțiune în card (ex. Deschide tichet + plus) */
+/* titlu + acțiune în card */
 .headRow {
   display: flex;
   align-items: center;
@@ -158,10 +194,8 @@ body {
   gap: 8px;
   font-weight: 700;
   margin-bottom: 10px;
-  color: var(--color-text);
+  color: var(--support-text);
 }
-
-/* când e în headRow, nu mai avem nevoie de margin-bottom suplimentar */
 .headRow .head {
   margin-bottom: 0;
 }
@@ -171,6 +205,7 @@ body {
   display: grid;
   gap: 10px;
 }
+
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -180,17 +215,57 @@ body {
 .input {
   width: 100%;
   max-width: 100%;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   background: transparent;
-  color: var(--color-text);
+  color: var(--support-text);
   border-radius: var(--radius);
   padding: 8px 10px;
   outline: none;
 }
 
 .input:focus {
-  box-shadow: 0 0 0 3px
-    color-mix(in oklab, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+}
+/* ===== Fix dropdown (select/option) în dark mode ===== */
+
+/* 1) Select-ul propriu-zis */
+select.input {
+  background: var(--surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+/* 2) Forțează schema de culori pt UI nativ al select-ului
+   (ajută mult pe Chrome/Edge; pe iOS/Safari e limitat) */
+html[data-theme="dark"] select.input {
+  color-scheme: dark;
+}
+html[data-theme="light"] select.input {
+  color-scheme: light;
+}
+
+/* 3) Meniul dropdown (opțiunile) */
+select.input option,
+select.input optgroup {
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+/* 4) Opțiuni dezactivate (dacă ai) */
+select.input option:disabled {
+  color: var(--color-muted);
+}
+
+/* 5) Highlight la selectare (nu merge peste tot, dar când merge ajută) */
+select.input option:checked {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast, #fff);
+}
+
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .input:focus {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
+  }
 }
 
 /* attach */
@@ -206,15 +281,20 @@ body {
   height: 34px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   background: transparent;
   border-radius: 10px;
   cursor: pointer;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 .iconBtn:hover {
-  background: color-mix(in oklab, var(--color-text) 6%, transparent);
+  background: rgba(0, 0, 0, 0.04);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .iconBtn:hover {
+    background: color-mix(in oklab, var(--support-text) 6%, transparent);
+  }
 }
 
 .primary {
@@ -227,7 +307,7 @@ body {
   border-radius: 10px;
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-primary-contrast, #fff);
   font-weight: 600;
   cursor: pointer;
 }
@@ -244,7 +324,7 @@ body {
 
 .muted {
   font-size: 12px;
-  color: var(--color-muted);
+  color: var(--support-muted);
 }
 
 /* FAQ */
@@ -253,17 +333,17 @@ body {
   grid-template-columns: 16px 1fr;
   gap: 8px;
   align-items: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   border-radius: 10px;
   padding: 6px 10px;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 .search input {
   border: 0;
   outline: none;
   background: transparent;
-  color: var(--color-text);
+  color: var(--support-text);
   min-width: 0;
   width: 100%;
 }
@@ -275,19 +355,24 @@ body {
 }
 
 .faqItem {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   border-radius: 10px;
   padding: 0;
 }
 
 .faqItem[open] {
-  background: color-mix(in oklab, var(--color-text) 3%, transparent);
+  background: rgba(0, 0, 0, 0.03);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .faqItem[open] {
+    background: color-mix(in oklab, var(--support-text) 3%, transparent);
+  }
 }
 
 .tip {
   margin-top: 8px;
   font-size: 12px;
-  color: var(--color-muted);
+  color: var(--support-muted);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -296,8 +381,8 @@ body {
 /* ========== right / split ========= */
 
 .right {
-  background: var(--surface);
-  border: 1px solid var(--color-border);
+  background: var(--support-surface);
+  border: 1px solid var(--support-border);
   border-radius: calc(var(--radius) + 6px);
   padding: 12px;
   display: grid;
@@ -314,9 +399,14 @@ body {
   position: sticky;
   top: 0;
   z-index: 3;
-  background: color-mix(in oklab, var(--surface) 85%, transparent);
+  background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(6px);
   padding: 4px 2px 6px;
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .toolbar {
+    background: color-mix(in oklab, var(--support-surface) 85%, transparent);
+  }
 }
 
 .filtersRow {
@@ -336,8 +426,8 @@ body {
   top: calc(100% + 8px);
   right: 0;
   min-width: 240px;
-  background: var(--surface);
-  border: 1px solid var(--color-border);
+  background: var(--support-surface);
+  border: 1px solid var(--support-border);
   border-radius: 12px;
   padding: 10px;
   box-shadow: var(--shadow-2);
@@ -352,12 +442,12 @@ body {
 
 .popoverRow label {
   font-size: 12px;
-  color: var(--color-muted);
+  color: var(--support-muted);
 }
 
 .divider {
   height: 1px;
-  background: var(--color-border);
+  background: var(--support-border);
   margin: 8px 0;
 }
 
@@ -369,7 +459,7 @@ body {
   min-height: 68vh;
 }
 
-/* ===== IMPORTANT: helper ca să permită scroll intern ===== */
+/* helper ca să permită scroll intern */
 .split,
 .ticketDetail,
 .ticketList {
@@ -378,18 +468,21 @@ body {
 
 /* ===== Ticket list ===== */
 .ticketList {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   border-radius: 12px;
   padding: 4px;
   display: grid;
   gap: 4px;
   align-content: start;
-  background: color-mix(in oklab, var(--surface) 96%, transparent);
+  background: var(--support-surface);
 
-  /* scroll intern, să nu lungească pagina */
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: calc(100vh - 220px);
+
+  /* folosește offset-urile globale */
+  max-height: calc(
+    100vh - var(--support-top-offset) - var(--support-bottom-offset) - 180px
+  );
 }
 
 .ticketItem {
@@ -397,17 +490,22 @@ body {
   flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   border-radius: 10px;
   background: transparent;
   cursor: pointer;
   text-align: left;
-  color: var(--color-text);
+  color: var(--support-text);
   transition: background 0.15s ease, transform 0.06s ease;
 }
 
 .ticketItem:hover {
-  background: color-mix(in oklab, var(--color-text) 4%, transparent);
+  background: rgba(0, 0, 0, 0.04);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .ticketItem:hover {
+    background: color-mix(in oklab, var(--support-text) 4%, transparent);
+  }
 }
 
 .ticketItem:active {
@@ -441,7 +539,7 @@ body {
 
 .time {
   font-size: 11px;
-  color: var(--color-muted);
+  color: var(--support-muted);
 }
 
 /* badges */
@@ -457,21 +555,39 @@ body {
 }
 
 .open {
-  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  background: rgba(139, 92, 246, 0.10);
   color: var(--color-primary);
-  border-color: color-mix(in oklab, var(--color-primary) 22%, var(--color-border));
+  border-color: rgba(139, 92, 246, 0.22);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .open {
+    background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+    border-color: color-mix(in oklab, var(--color-primary) 22%, var(--support-border));
+  }
 }
 
 .pending {
-  background: color-mix(in oklab, var(--color-warning) 12%, transparent);
+  background: rgba(245, 158, 11, 0.12);
   color: var(--color-warning);
-  border-color: color-mix(in oklab, var(--color-warning) 28%, var(--color-border));
+  border-color: rgba(245, 158, 11, 0.28);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .pending {
+    background: color-mix(in oklab, var(--color-warning) 12%, transparent);
+    border-color: color-mix(in oklab, var(--color-warning) 28%, var(--support-border));
+  }
 }
 
 .closed {
-  background: color-mix(in oklab, var(--color-success) 12%, transparent);
+  background: rgba(34, 197, 94, 0.12);
   color: var(--color-success);
-  border-color: color-mix(in oklab, var(--color-success) 28%, var(--color-border));
+  border-color: rgba(34, 197, 94, 0.28);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .closed {
+    background: color-mix(in oklab, var(--color-success) 12%, transparent);
+    border-color: color-mix(in oklab, var(--color-success) 28%, var(--support-border));
+  }
 }
 
 .priority {
@@ -484,11 +600,9 @@ body {
 .pHigh {
   background: var(--color-danger);
 }
-
 .pMed {
   background: var(--color-warning);
 }
-
 .pLow {
   background: var(--color-success);
 }
@@ -508,19 +622,19 @@ body {
 
 /* ===== Ticket detail ===== */
 .ticketDetail {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: color-mix(in oklab, var(--surface) 96%, transparent);
+  background: var(--support-surface);
 }
 
 .detailEmpty {
   flex: 1;
   display: grid;
   place-items: center;
-  color: var(--color-muted);
+  color: var(--support-muted);
   gap: 6px;
   padding: 16px;
   text-align: center;
@@ -531,12 +645,17 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 8px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--support-border);
   position: sticky;
   top: 0;
   backdrop-filter: blur(6px);
-  background: color-mix(in oklab, var(--surface) 85%, transparent);
+  background: rgba(255, 255, 255, 0.82);
   z-index: 1;
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .detailHead {
+    background: color-mix(in oklab, var(--support-surface) 85%, transparent);
+  }
 }
 
 .onlyMobile {
@@ -548,7 +667,7 @@ body {
   align-items: center;
   gap: 8px;
   font-weight: 700;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 .actionRow {
@@ -565,27 +684,43 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+
+  /* gradient subtil, consistent pe dark: folosește primary */
   background: radial-gradient(
     circle at top,
-    color-mix(in oklab, var(--color-text) 3%, transparent),
+    rgba(139, 92, 246, 0.10),
     transparent 55%
   );
-  min-width: 0;
-  max-height: calc(100vh - 230px);
+
+  max-height: calc(
+    100vh - var(--support-top-offset) - var(--support-bottom-offset) - 190px
+  );
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .msgList {
+    background: radial-gradient(
+      circle at top,
+      color-mix(in oklab, var(--color-primary) 10%, transparent),
+      transparent 55%
+    );
+  }
 }
 
-/* un pic mai compact pe mobil */
+/* compact pe mobil */
 @media (max-width: 768px) {
   .msgList {
     padding: 10px 8px 12px;
     gap: 8px;
-    max-height: calc(100vh - 190px);
+    max-height: calc(
+      100vh - var(--support-top-offset) - var(--support-bottom-offset) - 160px
+    );
   }
 }
 
 .empty,
 .error {
-  color: var(--color-muted);
+  color: var(--support-muted);
   text-align: center;
   padding: 10px;
 }
@@ -622,31 +757,42 @@ body {
   border-radius: 18px;
   font-size: 13px;
   line-height: 1.4;
-  background: color-mix(in oklab, var(--surface) 92%, var(--color-text) 2%);
-  color: var(--color-text);
-  box-shadow: 0 1px 3px color-mix(in oklab, var(--color-text) 10%, transparent);
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--support-text);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.10);
   word-wrap: break-word;
   word-break: break-word;
 }
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .bubble {
+    background: color-mix(in oklab, var(--support-surface) 92%, var(--support-text) 2%);
+    box-shadow: 0 1px 3px color-mix(in oklab, var(--support-text) 10%, transparent);
+  }
+}
 
-/* mesajele mele – accent, aliniate la dreapta */
+/* mesajele mele */
 .mine {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-primary-contrast, #fff);
   border: none;
   border-bottom-right-radius: 4px;
   border-bottom-left-radius: 18px;
 }
 
-/* mesajele suportului – fundal neutru */
+/* mesajele suportului */
 .theirs {
-  background: var(--surface);
-  border: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
+  background: var(--support-surface);
+  border: 1px solid rgba(0,0,0,0.10);
   border-bottom-left-radius: 4px;
   border-bottom-right-radius: 18px;
 }
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .theirs {
+    border-color: color-mix(in oklab, var(--support-border) 70%, transparent);
+  }
+}
 
-/* zona pt oră + status */
+/* meta: oră + status */
 .meta {
   font-size: 10px;
   opacity: 0.8;
@@ -654,16 +800,23 @@ body {
   text-align: right;
 }
 
-/* dacă bulele au atașamente, separăm puțin textul de listă */
+/* dacă bulele au atașamente */
 .bubble ul {
   margin-top: 6px;
 }
 
-/* mesaj eșuat – contur fin roșu */
+/* mesaj eșuat */
 .failed {
   box-shadow:
-    0 1px 3px color-mix(in oklab, var(--color-text) 10%, transparent),
-    0 0 0 1px color-mix(in oklab, var(--color-danger) 45%, transparent);
+    0 1px 3px rgba(0,0,0,0.10),
+    0 0 0 1px rgba(239, 68, 68, 0.35);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .failed {
+    box-shadow:
+      0 1px 3px color-mix(in oklab, var(--support-text) 10%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--color-danger) 45%, transparent);
+  }
 }
 
 /* acțiuni mesaj */
@@ -672,26 +825,23 @@ body {
   gap: 4px;
   align-items: center;
 }
-
 .msgBubbleWrap:hover .msgActions {
   display: inline-flex;
 }
-
-/* pe mobil le lăsăm vizibile mereu, ca să fie descoperibile */
 @media (max-width: 768px) {
   .msgActions {
     display: inline-flex;
   }
 }
 
-/* buton de scroll la ultimele mesaje */
+/* buton scroll la ultimele mesaje (contrast bun pe dark) */
 .toBottom {
   position: sticky;
   bottom: 8px;
   margin-left: auto;
-  background: color-mix(in oklab, var(--color-text) 92%, transparent);
-  color: var(--surface);
-  border: 0;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast, #fff);
+  border: 1px solid rgba(139, 92, 246, 0.45);
   border-radius: 999px;
   padding: 6px 12px;
   box-shadow: var(--shadow-2);
@@ -701,18 +851,22 @@ body {
   align-items: center;
   gap: 4px;
 }
+.toBottom:hover {
+  background: var(--color-hover);
+  border-color: var(--color-hover);
+}
 
 /* ===== Composer ===== */
 .composer {
   padding: 8px;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--support-border);
   display: grid;
   grid-template-columns: 30px 1fr auto;
   gap: 8px;
   align-items: center;
   position: sticky;
   bottom: 0;
-  background: var(--surface);
+  background: var(--support-surface);
   z-index: 1;
 }
 
@@ -738,11 +892,16 @@ body {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   border-radius: 999px;
   font-size: 12px;
-  color: var(--color-text);
-  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  color: var(--support-text);
+  background: rgba(0,0,0,0.03);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .fileChip {
+    background: color-mix(in oklab, var(--support-surface) 92%, transparent);
+  }
 }
 
 .fileChipName {
@@ -773,13 +932,24 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    color-mix(in oklab, var(--color-text) 8%, transparent),
-    color-mix(in oklab, var(--color-text) 4%, transparent),
-    color-mix(in oklab, var(--color-text) 8%, transparent)
+    rgba(0,0,0,0.08),
+    rgba(0,0,0,0.04),
+    rgba(0,0,0,0.08)
   );
   background-size: 200% 100%;
   animation: shimmer 1.2s infinite linear;
   border-radius: 8px;
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--support-text) 8%, transparent),
+      color-mix(in oklab, var(--support-text) 4%, transparent),
+      color-mix(in oklab, var(--support-text) 8%, transparent)
+    );
+    background-size: 200% 100%;
+  }
 }
 
 @keyframes shimmer {
@@ -794,7 +964,6 @@ body {
 .spin {
   animation: spin 0.8s linear infinite;
 }
-
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -809,8 +978,14 @@ body {
 
 .msgList::-webkit-scrollbar-thumb,
 .ticketList::-webkit-scrollbar-thumb {
-  background: color-mix(in oklab, var(--color-text) 18%, transparent);
+  background: rgba(0,0,0,0.18);
   border-radius: 8px;
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .msgList::-webkit-scrollbar-thumb,
+  .ticketList::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--support-text) 18%, transparent);
+  }
 }
 
 /* === Divizoare zile & marker mesaje noi === */
@@ -818,7 +993,7 @@ body {
   display: grid;
   place-items: center;
   font-size: 12px;
-  color: var(--color-muted);
+  color: var(--support-muted);
   margin: 8px 0;
   position: relative;
 }
@@ -829,11 +1004,11 @@ body {
   left: 0;
   right: 0;
   height: 1px;
-  background: var(--color-border);
+  background: var(--support-border);
 }
 
 .dayDivider span {
-  background: color-mix(in oklab, var(--surface) 96%, transparent);
+  background: var(--support-surface);
   padding: 0 8px;
   position: relative;
   z-index: 1;
@@ -843,20 +1018,26 @@ body {
   align-self: center;
   font-size: 11px;
   font-weight: 700;
-  color: var(--color-text);
-  background: color-mix(in oklab, var(--color-warning) 28%, transparent);
-  border: 1px solid color-mix(in oklab, var(--color-warning) 55%, var(--color-border));
+  color: var(--support-text);
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.40);
   border-radius: 999px;
   padding: 2px 8px;
   margin: 6px 0;
 }
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .newMarker {
+    background: color-mix(in oklab, var(--color-warning) 28%, transparent);
+    border-color: color-mix(in oklab, var(--color-warning) 55%, var(--support-border));
+  }
+}
 
-/* === FAB mobil pentru UX rapid === */
+/* === FAB === */
 .fab {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 9998; /* peste navbar, sub sheet */
+  z-index: 9998;
   width: 52px;
   height: 52px;
   border-radius: 999px;
@@ -864,30 +1045,34 @@ body {
   place-items: center;
   border: none;
   cursor: pointer;
-  box-shadow: var(--shadow-md);
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--color-primary) 92%, white 8%),
-    var(--color-primary)
-  );
-  color: #fff;
+  box-shadow: var(--shadow-2);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast, #fff);
+}
+.fab:hover {
+  background: var(--color-hover);
 }
 
-/* ===== Bottom sheet (pentru mobil) ===== */
+/* ===== Bottom sheet ===== */
 .sheetBackdrop {
   position: fixed;
   inset: 0;
-  background: color-mix(in oklab, var(--color-text) 35%, transparent);
+  background: rgba(0,0,0,0.35);
   backdrop-filter: blur(2px);
-  z-index: 9999; /* peste navbar/bottom-nav */
+  z-index: 9999;
   display: grid;
   place-items: end;
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .sheetBackdrop {
+    background: color-mix(in oklab, var(--support-text) 35%, transparent);
+  }
 }
 
 .sheet {
   width: 100%;
   max-height: 88vh;
-  background: var(--surface);
+  background: var(--support-surface);
   border-radius: 18px 18px 0 0;
   box-shadow: var(--shadow-2);
   transform: translateY(0);
@@ -900,8 +1085,13 @@ body {
   width: 40px;
   height: 4px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--color-text) 20%, transparent);
+  background: rgba(0,0,0,0.20);
   margin: 8px auto 0;
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .sheetGrab {
+    background: color-mix(in oklab, var(--support-text) 20%, transparent);
+  }
 }
 
 .sheetHead {
@@ -910,12 +1100,12 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--support-border);
 }
 
 .sheetTitle {
   font-weight: 800;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 .sheetBody {
@@ -934,17 +1124,22 @@ body {
 }
 
 .chip {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   background: transparent;
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 12px;
   cursor: pointer;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 .chip:hover {
-  background: color-mix(in oklab, var(--color-text) 4%, transparent);
+  background: rgba(0,0,0,0.04);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .chip:hover {
+    background: color-mix(in oklab, var(--support-text) 4%, transparent);
+  }
 }
 
 .chip:active {
@@ -961,22 +1156,31 @@ body {
   width: 100%;
   text-align: left;
   padding: 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--support-border);
   border-radius: 12px;
   background: transparent;
   cursor: pointer;
   font-weight: 600;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 .sheetItem:hover {
-  background: color-mix(in oklab, var(--color-text) 4%, transparent);
+  background: rgba(0,0,0,0.04);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .sheetItem:hover {
+    background: color-mix(in oklab, var(--support-text) 4%, transparent);
+  }
 }
 
-/* variantă “danger” pentru sheetItem (folosit în JSX) */
 .sheetItem.danger {
-  border-color: color-mix(in oklab, var(--color-danger) 35%, var(--color-border));
+  border-color: rgba(239, 68, 68, 0.35);
   color: var(--color-danger);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .sheetItem.danger {
+    border-color: color-mix(in oklab, var(--color-danger) 35%, var(--support-border));
+  }
 }
 
 /* ==== Link button pt atașamente ==== */
@@ -1002,17 +1206,22 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text);
+  border-bottom: 1px solid var(--support-border);
+  color: var(--support-text);
 }
 
 .accordion[open] summary {
-  background: color-mix(in oklab, var(--color-text) 3%, transparent);
+  background: rgba(0,0,0,0.03);
+}
+@supports (background: color-mix(in oklab, red 10%, transparent)) {
+  .accordion[open] summary {
+    background: color-mix(in oklab, var(--support-text) 3%, transparent);
+  }
 }
 
 .accBody {
   padding: 12px;
-  color: var(--color-text);
+  color: var(--support-text);
 }
 
 /* ===== Media: reduce motion ===== */
@@ -1025,7 +1234,7 @@ body {
 
 /* ===== Responsivitate ===== */
 
-/* ≤ 1280px: spațiere mai compactă & coloană stânga mai îngustă */
+/* ≤ 1280px */
 @media (max-width: 1280px) {
   .wrap {
     padding: 12px;
@@ -1034,20 +1243,19 @@ body {
   }
 }
 
-/* opțional: ajustare la 1120px */
+/* ≤ 1120px */
 @media (max-width: 1120px) {
   .wrap {
     grid-template-columns: minmax(0, 300px) 1fr;
   }
 }
 
-/* ≤ 1024px: o singură coloană, sidebar (deschide tichet + FAQ) la final */
+/* ≤ 1024px */
 @media (max-width: 1024px) {
   .wrap {
     grid-template-columns: 1fr;
   }
 
-  /* pe mobil/tabletă, lista/detaliul au prioritate, sidebar-ul e ultimul „chenar” */
   .split,
   .ticketList,
   .ticketDetail {
@@ -1066,10 +1274,10 @@ body {
   }
 }
 
-/* ≤ 768px: design mobil */
+/* ≤ 768px */
 @media (max-width: 768px) {
   .wrap {
-    padding-bottom: 80px;
+    padding-bottom: calc(var(--support-bottom-offset) + 16px);
   }
 
   .ticketDetail {
@@ -1135,17 +1343,14 @@ body {
     max-height: 92vh;
   }
 
-  /* override înălțimi pe mobil (mai puțin offset) */
-  .msgList {
-    max-height: calc(100vh - 190px);
-  }
-
   .ticketList {
-    max-height: calc(100vh - 190px);
+    max-height: calc(
+      100vh - var(--support-top-offset) - var(--support-bottom-offset) - 150px
+    );
   }
 }
 
-/* ≤ 640px: compactare */
+/* ≤ 640px */
 @media (max-width: 640px) {
   .grid2 {
     grid-template-columns: 1fr;
@@ -1169,7 +1374,7 @@ body {
   }
 }
 
-/* ===== Media helpers: media intrinseci să nu iasă din container ===== */
+/* media intrinseci */
 img,
 video,
 canvas,
@@ -1212,20 +1417,19 @@ svg {
 }
 
 @media (max-width: 768px) {
-  /* font global un pic mai mic pe mobil */
   body {
     font-size: 14px;
   }
 
   .wrap {
-    padding: 8px 10px 72px;
+    padding: 8px 10px calc(var(--support-bottom-offset) + 12px);
     gap: 10px;
   }
 
   .card {
     border-radius: 12px;
     padding: 10px;
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-1);
   }
 
   .head {
@@ -1236,4 +1440,43 @@ svg {
   label {
     font-size: 12px;
   }
+}
+/* ===== Attachments (simple: icon + title) ===== */
+.attachList {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.attachLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.attachLine:hover {
+  text-decoration: underline;
+}
+
+.attachTitle {
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 420px;
+
+  /* permite wrap pe 2 rânduri */
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.25;
+
+  display: -webkit-box;     /* max 2 rânduri */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

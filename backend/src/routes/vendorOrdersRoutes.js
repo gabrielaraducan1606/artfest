@@ -18,10 +18,212 @@ import {
 const prisma = new PrismaClient();
 const router = express.Router();
 
-const dec = (n) => Number.parseFloat(Number(n || 0).toFixed(2));
+// --- SSE: vendor orders updates (in-memory subscribers per vendor)
+const vendorSubscribers = new Map(); // vendorId -> Set(res)
 const isPostgres =
   (process.env.DATABASE_URL || "").startsWith("postgres://") ||
   (process.env.DATABASE_URL || "").startsWith("postgresql://");
+
+function sseSend(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+export function sseBroadcastToVendor(vendorId, event, data) {
+  const set = vendorSubscribers.get(vendorId);
+  if (!set || set.size === 0) return;
+
+  for (const res of Array.from(set)) {
+    try {
+      sseSend(res, event, data);
+    } catch {
+      // ✅ curățăm conexiunile moarte
+      try { res.end?.(); } catch {}
+      set.delete(res);
+    }
+  }
+
+  if (set.size === 0) vendorSubscribers.delete(vendorId);
+}
+
+/* ----------------------------------------------------
+   Helpers: plan activ + comision
+----------------------------------------------------- */
+function generateOrderNumber() {
+  const t = Date.now().toString(36).toUpperCase();
+  const r = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `AF-${t}-${r}`.slice(0, 32);
+}
+
+// ia planul activ al vendorului; fallback la starter (dacă există în DB)
+async function getActivePlanForVendor(vendorId) {
+  const now = new Date();
+
+  const sub = await prisma.vendorSubscription.findFirst({
+    where: {
+      vendorId,
+      status: "active",
+      endAt: { gt: now },
+    },
+    include: { plan: true },
+    orderBy: { endAt: "desc" },
+  });
+
+  if (sub?.plan) return sub.plan;
+
+  // fallback la starter dacă există
+  const starter = await prisma.subscriptionPlan.findUnique({
+    where: { code: "starter" },
+  });
+
+  return starter ?? { code: "starter", name: "Starter", commissionBps: 0 };
+}
+// ----------------------------------------------------
+// ✅ Ledger helpers (earnings)
+// ----------------------------------------------------
+function round2(n) {
+  return Number.parseFloat(Number(n || 0).toFixed(2));
+}
+
+/**
+ * Calculează earning-ul vendorului pe shipment, folosind aceeași logică ca în GET /orders/:id:
+ * - items subtotal gross -> net în funcție de TVA vendor
+ * - comision pe itemsNet (bps din plan)
+ * - vendorNet = itemsNet - commissionNet
+ *
+ * Notă: shipping NU intră în earning vendor (ai spus "shipping e plătit direct curierului").
+ */
+async function computeVendorEarningForShipment({ vendorId, shipmentId }) {
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    include: { items: true, order: true },
+  });
+  if (!shipment) throw new Error("shipment_not_found");
+
+  const billing = await prisma.vendorBilling.findUnique({ where: { vendorId } });
+  const vatStatus = billing?.vatStatus || null;
+  const vatRate = vatStatus === "payer" ? Number(billing?.vatRate || 0) : 0;
+
+  const subtotalGross = (shipment.items || []).reduce(
+    (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
+    0
+  );
+
+  const itemsNet =
+    vatRate > 0 ? subtotalGross / (1 + vatRate / 100) : subtotalGross;
+
+  const plan = await getActivePlanForVendor(vendorId);
+  let commissionBps = Number(plan?.commissionBps || 0);
+  if (!Number.isFinite(commissionBps) || commissionBps < 0) commissionBps = 0;
+
+  const commissionNet = round2((itemsNet * commissionBps) / 10000);
+  const vendorNet = round2(itemsNet - commissionNet);
+
+  return {
+    currency: shipment.order?.currency || "RON",
+    orderId: shipment.orderId,
+    itemsNet: round2(itemsNet),
+    commissionNet,
+    vendorNet,
+    vatStatus,
+    vatRate,
+    commissionBps,
+  };
+}
+async function ensureSaleLedgerEntry({ vendorId, shipmentId }) {
+  // idempotent: avem @@unique([shipmentId]) în model (ai pus @unique)
+  // folosim upsert ca să nu dublăm
+  const earning = await computeVendorEarningForShipment({ vendorId, shipmentId });
+
+  return prisma.vendorEarningEntry.upsert({
+    where: { shipmentId }, // trebuie să fie @unique în Prisma
+    update: {}, // nu recalculăm retroactiv; ajustări se fac cu ADJUSTMENT
+    create: {
+      vendorId,
+      shipmentId,
+      orderId: earning.orderId,
+      type: "SALE",
+      occurredAt: new Date(),
+      currency: earning.currency,
+      itemsNet: earning.itemsNet,
+      commissionNet: earning.commissionNet,
+      vendorNet: earning.vendorNet,
+      meta: {
+        source: "shipment_status_fulfilled",
+        vatStatus: earning.vatStatus,
+        vatRate: earning.vatRate,
+        commissionBps: earning.commissionBps,
+      },
+    },
+  });
+}
+
+async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
+  // REFUND doar dacă există SALE pe shipment
+  const sale = await prisma.vendorEarningEntry.findUnique({
+    where: { shipmentId },
+  });
+  if (!sale) return null;
+
+  let existingRefund = null;
+
+if (isPostgres) {
+  existingRefund = await prisma.vendorEarningEntry.findFirst({
+    where: {
+      vendorId,
+      type: "REFUND",
+      meta: { path: ["refShipmentId"], equals: shipmentId },
+    },
+  });
+} else {
+  const lastRefunds = await prisma.vendorEarningEntry.findMany({
+    where: { vendorId, type: "REFUND" },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: { id: true, meta: true },
+  });
+
+  existingRefund =
+    lastRefunds.find((r) => r?.meta?.refShipmentId === shipmentId) || null;
+}
+
+if (existingRefund) return existingRefund;
+
+  // creați intrare negativă (fără shipmentId ca să nu lovești unique)
+  return prisma.vendorEarningEntry.create({
+    data: {
+      vendorId,
+      shipmentId: null,
+      orderId: sale.orderId,
+      type: "REFUND",
+      occurredAt: new Date(),
+      currency: sale.currency,
+      // Decimal Prisma suportă mul; dacă nu, fallback numeric
+      itemsNet: sale.itemsNet?.mul ? sale.itemsNet.mul(-1) : -Number(sale.itemsNet || 0),
+      commissionNet: sale.commissionNet?.mul ? sale.commissionNet.mul(-1) : -Number(sale.commissionNet || 0),
+      vendorNet: sale.vendorNet?.mul ? sale.vendorNet.mul(-1) : -Number(sale.vendorNet || 0),
+      meta: { refShipmentId: shipmentId, source: "shipment_status_returned" },
+    },
+  });
+}
+
+const dec = (n) => Number.parseFloat(Number(n || 0).toFixed(2));
+
+/* ----------------------------------------------------
+   ✅ LOCK: după ce vendor cere curier -> până la AWB
+----------------------------------------------------- */
+function isAwaitingAwbLock(shipment) {
+  // când ai programat pickup (pickupScheduledAt) dar nu ai încă AWB
+  return !!shipment?.pickupScheduledAt && !shipment?.awb;
+}
+
+function lock409(res) {
+  return res.status(409).json({
+    error: "ORDER_LOCKED_AWAITING_AWB",
+    message:
+      "Comanda este blocată deoarece ai cerut curier. Așteaptă AWB-ul de la admin, apoi poți modifica din nou comanda.",
+  });
+}
 
 /* ----------------------------------------------------
    Tiny cache (TTL) pentru listă (reduce load, “instant feel”)
@@ -117,16 +319,11 @@ function uiToShipmentStatus(ui) {
       return "PENDING";
     case "preparing":
       return "PREPARING";
-    case "confirmed":
-      return "READY_FOR_PICKUP";
-    case "fulfilled":
-      return "DELIVERED";
-    case "cancelled":
-      return "RETURNED";
     default:
       return null;
   }
 }
+
 
 function shipmentToUiStatus(st) {
   switch (st) {
@@ -134,16 +331,39 @@ function shipmentToUiStatus(st) {
       return "new";
     case "PREPARING":
       return "preparing";
+
+    // ✅ gata de predare / pickup cerut / AWB emis
     case "READY_FOR_PICKUP":
     case "PICKUP_SCHEDULED":
+    case "AWB":
       return "confirmed";
+
+    // ✅ predată curierului
+    case "IN_TRANSIT":
+      return "fulfilled";
+
+    // ✅ livrată (tot în “fulfilled” la vendor)
     case "DELIVERED":
       return "fulfilled";
+
+    case "REFUSED":
     case "RETURNED":
       return "cancelled";
+
     default:
       return "new";
   }
+}
+
+// ✅ User UI mapping (PENDING / PROCESSING / SHIPPED / DELIVERED / CANCELED / RETURNED)
+function shipmentToUserUiStatus(st) {
+  if (st === "DELIVERED") return "DELIVERED";
+  if (st === "RETURNED") return "RETURNED";
+  if (st === "REFUSED") return "CANCELED";
+  if (["AWB", "IN_TRANSIT"].includes(st)) return "SHIPPED";
+  if (["PREPARING", "READY_FOR_PICKUP", "PICKUP_SCHEDULED"].includes(st))
+    return "PROCESSING";
+  return "PENDING";
 }
 
 /* ----------------------------------------------------
@@ -229,6 +449,22 @@ function endOfDay(d) {
   return x;
 }
 
+// ----------------------------------------------------
+// Helper: găsește shipment-ul vendorului după:
+// - orderId (cuid)
+// - sau orderNumber (ex: "AF-...")
+// ----------------------------------------------------
+async function findShipmentByOrderRef({ vendorId, orderRef, include, select }) {
+  return prisma.shipment.findFirst({
+    where: {
+      vendorId,
+      OR: [{ orderId: orderRef }, { order: { orderNumber: orderRef } }],
+    },
+    include,
+    select,
+  });
+}
+
 /* ----------------------------------------------------
    Helper: unread meta per orderId
    - Postgres: 1 query (rapid)
@@ -244,11 +480,9 @@ async function getThreadMetaByOrderId({ vendorId, orderIds }) {
 
   if (!threads.length) return new Map();
 
-  // ✅ Postgres: single query join+count cu vendorLastReadAt per thread
   if (isPostgres) {
     const threadIds = threads.map((t) => t.id);
 
-    // Note: queryRaw sigur aici pentru perf. Ajustează numele tabelelor dacă diferă.
     const rows = await prisma.$queryRaw`
       SELECT
         t."orderId" as "orderId",
@@ -269,8 +503,6 @@ async function getThreadMetaByOrderId({ vendorId, orderIds }) {
       map.set(r.orderId, { threadId: r.threadId, unreadCount: r.unreadCount });
     }
 
-    // Dacă există thread fără mesaje, queryRaw poate întoarce unreadCount 0, dar tot îl include
-    // însă păstrăm oricum meta minimal:
     for (const t of threads) {
       if (!map.has(t.orderId)) {
         map.set(t.orderId, { threadId: t.id, unreadCount: 0 });
@@ -280,7 +512,6 @@ async function getThreadMetaByOrderId({ vendorId, orderIds }) {
     return map;
   }
 
-  // ✅ Fallback (alte DB): counts in paralel (mult mai rapid decât for+await)
   const counts = await Promise.all(
     threads.map(async (t) => {
       const unreadCount = await prisma.message.count({
@@ -306,7 +537,6 @@ async function getThreadMetaByOrderId({ vendorId, orderIds }) {
 
 /* ----------------------------------------------------
    GET /api/vendor/orders
-   (OPTIMIZAT)
 ----------------------------------------------------- */
 router.get("/orders", requireVendor, async (req, res) => {
   const vendorId = req.user.vendorId;
@@ -322,7 +552,6 @@ router.get("/orders", requireVendor, async (req, res) => {
     Math.max(1, parseInt(req.query.pageSize || "20", 10))
   );
 
-  // tiny cache key (vendor + querystring)
   const cacheKey = `v:${vendorId}|q:${q}|st:${statusUi}|f:${from ? from.toISOString() : ""}|t:${
     to ? to.toISOString() : ""
   }|p:${page}|ps:${pageSize}`;
@@ -331,19 +560,26 @@ router.get("/orders", requireVendor, async (req, res) => {
   if (cached) return res.json(cached);
 
   const where = {
-    vendorId,
-    ...(statusUi ? { status: uiToShipmentStatus(statusUi) } : {}),
-    ...(from || to
-      ? {
-          createdAt: {
-            ...(from ? { gte: from } : {}),
-            ...(to ? { lte: endOfDay(to) } : {}),
-          },
-        }
-      : {}),
-  };
+  vendorId,
+...(statusUi === "confirmed"
+  ? { status: { in: ["READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB"] } }
+  : statusUi === "fulfilled"
+  ? { status: { in: ["IN_TRANSIT", "DELIVERED"] } }
+  : statusUi === "cancelled"
+  ? { status: { in: ["RETURNED", "REFUSED"] } }
+  : statusUi
+  ? { status: uiToShipmentStatus(statusUi) }
+  : {}),
 
-  // ✅ select minim (mai rapid decât include: true)
+};
+
+  if (q) {
+    where.OR = [
+      { orderId: { contains: q } },
+      { order: { orderNumber: { contains: q, mode: "insensitive" } } },
+    ];
+  }
+
   const [rows, total] = await Promise.all([
     prisma.shipment.findMany({
       where,
@@ -355,28 +591,32 @@ router.get("/orders", requireVendor, async (req, res) => {
         orderId: true,
         createdAt: true,
         status: true,
-
-        // shipping price per shipment (vendor)
         price: true,
 
         // curier
+        courierProvider: true,
+        courierService: true,
         awb: true,
         labelUrl: true,
+
         pickupDate: true,
         pickupSlotStart: true,
         pickupSlotEnd: true,
+        pickupScheduledAt: true, // ✅ ADD (pt lock)
+deliveredAt: true,
+refusedAt: true,
+returnedAt: true,
 
-        // items minimal pentru subtotal
         items: { select: { qty: true, price: true } },
 
-        // order minimal pentru tabel
         order: {
           select: {
+            orderNumber: true,
             paymentMethod: true,
             vendorNotes: true,
             invoiceNumber: true,
             invoiceDate: true,
-            shippingAddress: true, // JSON; dacă devine prea mare, denormalizează name/email/phone în Shipment
+            shippingAddress: true,
           },
         },
       },
@@ -396,7 +636,8 @@ router.get("/orders", requireVendor, async (req, res) => {
     const shipmentTotal = shipmentSubtotal + shipmentShipping;
 
     return {
-      id: s.orderId, // Order.id, folosit în /orders/:id
+      id: s.orderId,
+      orderNumber: o.orderNumber || null,
       shortId: String(s.id).slice(-6).toUpperCase(),
       createdAt: s.createdAt,
 
@@ -410,11 +651,20 @@ router.get("/orders", requireVendor, async (req, res) => {
 
       shipmentId: s.id,
       shipmentStatus: s.status,
+
+      courierProvider: s.courierProvider || null,
+      courierService: s.courierService || null,
+
       awb: s.awb,
       labelUrl: s.labelUrl,
+
+      pickupScheduledAt: s.pickupScheduledAt, // ✅ ADD (pt lock)
       pickupDate: s.pickupDate,
       pickupSlotStart: s.pickupSlotStart,
       pickupSlotEnd: s.pickupSlotEnd,
+deliveredAt: s.deliveredAt || null,
+refusedAt: s.refusedAt || null,
+returnedAt: s.returnedAt || null,
 
       vendorNotes: o.vendorNotes || "",
       paymentMethod: o.paymentMethod || null,
@@ -427,21 +677,6 @@ router.get("/orders", requireVendor, async (req, res) => {
     };
   });
 
-  // ✅ q filter (păstrat ca înainte pentru compatibilitate)
-  // NOTĂ: ideal e să muți în DB (mai ales dacă ai multe comenzi).
-  if (q) {
-    const Q = q.toLowerCase();
-    items = items.filter(
-      (r) =>
-        (r.customerName || "").toLowerCase().includes(Q) ||
-        (r.customerPhone || "").toLowerCase().includes(Q) ||
-        (r.customerEmail || "").toLowerCase().includes(Q) ||
-        (r.id || "").toLowerCase().includes(Q) ||
-        (r.shortId || "").toLowerCase().includes(Q)
-    );
-  }
-
-  // ✅ meta mesaje: fără N+1 secvențial
   if (items.length > 0) {
     const orderIds = items.map((i) => i.id);
     const metaByOrderId = await getThreadMetaByOrderId({ vendorId, orderIds });
@@ -461,17 +696,54 @@ router.get("/orders", requireVendor, async (req, res) => {
   cacheSet(cacheKey, payload);
   res.json(payload);
 });
+// ✅ pune asta imediat după GET /orders (lista), înainte de GET /orders/:id
+
+router.get("/orders/stream", requireVendor, (req, res) => {
+  const vendorId = req.user.vendorId;
+
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // nginx: disable buffering
+  res.flushHeaders?.();
+
+  // force open stream
+  res.write(`: connected\n\n`);
+
+  // keep alive ping
+  const ping = setInterval(() => {
+    try {
+      res.write(`event: ping\ndata: {}\n\n`);
+    } catch {}
+  }, 25000);
+
+  if (!vendorSubscribers.has(vendorId)) vendorSubscribers.set(vendorId, new Set());
+  vendorSubscribers.get(vendorId).add(res);
+
+  // send ready
+  sseSend(res, "ready", { ok: true });
+
+  req.on("close", () => {
+    clearInterval(ping);
+    const set = vendorSubscribers.get(vendorId);
+    if (set) {
+      set.delete(res);
+      if (set.size === 0) vendorSubscribers.delete(vendorId);
+    }
+  });
+});
 
 /* ----------------------------------------------------
    GET /api/vendor/orders/:id
-   (păstrat aproape identic)
 ----------------------------------------------------- */
 router.get("/orders/:id", requireVendor, async (req, res) => {
   const vendorId = req.user.vendorId;
   const orderId = String(req.params.id);
 
-  const s = await prisma.shipment.findFirst({
-    where: { orderId, vendorId },
+  const s = await findShipmentByOrderRef({
+    vendorId,
+    orderRef: orderId,
     include: {
       order: {
         include: {
@@ -533,10 +805,33 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
     gross: dec(shipmentTotal),
   };
 
+  let commissionBps = 0;
+  try {
+    const plan = await getActivePlanForVendor(vendorId);
+    commissionBps = Number(plan?.commissionBps || 0);
+    if (!Number.isFinite(commissionBps) || commissionBps < 0) commissionBps = 0;
+  } catch (e) {
+    console.error("getActivePlanForVendor failed:", e);
+    commissionBps = 0;
+  }
+
+  const itemsNet = Number(itemsBreakdown?.net || 0);
+  const commissionNet = round2((itemsNet * commissionBps) / 10000);
+  const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
+
+  const vendorFinancials = {
+    commissionBps,
+    commissionRate: round2(commissionBps / 10000),
+    itemsNet: round2(itemsNet),
+    commissionNet,
+    vendorNetBeforeShipping,
+  };
+
   const messageThreads = o.messageThreads || [];
 
   res.json({
     id: o.id,
+    orderNumber: o.orderNumber || null,
     shortId: s.id.slice(-6).toUpperCase(),
     createdAt: o.createdAt,
 
@@ -548,8 +843,8 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
       vatRate,
       vatStatus,
       items: itemsBreakdown,
-      shipping: shippingBreakdown,
       total: totalBreakdown,
+      vendorFinancials,
     },
 
     status: shipmentToUiStatus(s.status),
@@ -581,9 +876,15 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
       awb: s.awb,
       labelUrl: s.labelUrl,
       trackingUrl: s.trackingUrl,
+
+      pickupScheduledAt: s.pickupScheduledAt, // ✅ ADD (pt lock)
       pickupDate: s.pickupDate,
       pickupSlotStart: s.pickupSlotStart,
       pickupSlotEnd: s.pickupSlotEnd,
+deliveredAt: s.deliveredAt || null,
+refusedAt: s.refusedAt || null,
+returnedAt: s.returnedAt || null,
+
       parcels: s.parcels,
       weightKg: s.weightKg,
       lengthCm: s.lengthCm,
@@ -607,25 +908,96 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
   const orderId = String(req.params.id);
 
   const nextUi = String(req.body?.status || "");
-  const next = uiToShipmentStatus(nextUi);
-  if (!next) return res.status(400).json({ error: "bad_status" });
+
+let next = null;
+switch (nextUi) {
+  case "new":
+    next = "PENDING";
+    break;
+  case "preparing":
+    next = "PREPARING";
+    break;
+  case "confirmed":
+    // vendor confirmă că e gata de predare
+    next = "READY_FOR_PICKUP";
+    break;
+  case "fulfilled":
+  next = "IN_TRANSIT"; // predată curierului
+  break;
+
+ case "cancelled":
+  // vendor anulează (nu e retur real) => REFUSED
+  next = "REFUSED";
+  break;
+  default:
+    next = null;
+}
+
+if (!next) return res.status(400).json({ error: "bad_status" });
+
 
   const cancelReason = req.body?.cancelReason || null;
   const cancelReasonNote = req.body?.cancelReasonNote || null;
 
-  const s = await prisma.shipment.findFirst({
-    where: { orderId, vendorId },
+  const s = await findShipmentByOrderRef({
+    vendorId,
+    orderRef: orderId,
     include: { order: true },
   });
-
   if (!s) return res.status(404).json({ error: "not_found" });
 
-  const updatedShipment = await prisma.shipment.update({
-    where: { id: s.id },
-    data: {
-      status: next,
-    },
+  // ✅ LOCK: pickup cerut dar încă nu există AWB
+  if (isAwaitingAwbLock(s)) {
+    return lock409(res);
+  }
+
+  // ✅ REGULĂ: nu permite "fulfilled" fără AWB
+  // (ca să fie consistent cu UI: butonul e dezactivat până apare AWB)
+  if (nextUi === "fulfilled" && !s.awb) {
+    return res.status(409).json({
+      error: "AWB_REQUIRED_TO_FULFILL",
+      message:
+        "Nu poți marca comanda ca finalizată până nu există AWB. Așteaptă AWB-ul de la admin.",
+    });
+  }
+
+ const updatedShipment = await prisma.shipment.update({
+  where: { id: s.id },
+  data: { status: next },
+  include: { order: true },
+});
+if (nextUi === "cancelled") {
+  const all = await prisma.shipment.findMany({
+    where: { orderId: updatedShipment.orderId },
+    select: { status: true },
   });
+
+  const allCancelled = all.every((x) =>
+    ["REFUSED", "RETURNED"].includes(x.status)
+  );
+
+  if (allCancelled) {
+    await prisma.order.update({
+      where: { id: updatedShipment.orderId },
+      data: { status: "CANCELLED" },
+    });
+  }
+}
+
+// ----------------------------------------------------
+// ✅ Ledger: SALE la fulfilled, REFUND la cancelled (RETURNED)
+// ----------------------------------------------------
+try {
+  if (updatedShipment.status === "DELIVERED") {
+   await ensureSaleLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
+ }
+
+if (updatedShipment.status === "REFUSED" || updatedShipment.status === "RETURNED") {
+   await ensureRefundLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
+ }
+} catch (e) {
+  console.error("Ledger update failed:", e);
+}
 
   if (nextUi === "cancelled") {
     try {
@@ -650,16 +1022,15 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
   try {
     const o = s.order;
     if (o?.userId) {
-      const vendorUiStatus = shipmentToUiStatus(updatedShipment.status);
-      await notifyUserOnOrderStatusChange(o.id, vendorUiStatus);
+      const userUiStatus = shipmentToUserUiStatus(updatedShipment.status);
+await notifyUserOnOrderStatusChange(o.id, userUiStatus);
+
     }
   } catch (e) {
     console.error("notifyUserOnOrderStatusChange failed:", e);
   }
 
-  // invalidează cache rapid (simplu)
   ordersCache.clear();
-
   res.json({ ok: true, shipment: updatedShipment });
 });
 
@@ -672,12 +1043,18 @@ router.patch("/orders/:id/notes", requireVendor, async (req, res) => {
 
   const notes = String(req.body?.vendorNotes || "");
 
-  const s = await prisma.shipment.findFirst({
-    where: { orderId, vendorId },
+  const s = await findShipmentByOrderRef({
+    vendorId,
+    orderRef: orderId,
     include: { order: true },
   });
 
   if (!s) return res.status(404).json({ error: "not_found" });
+
+  // ✅ LOCK
+  if (isAwaitingAwbLock(s)) {
+    return lock409(res);
+  }
 
   const updatedOrder = await prisma.order.update({
     where: { id: s.orderId },
@@ -685,137 +1062,117 @@ router.patch("/orders/:id/notes", requireVendor, async (req, res) => {
   });
 
   ordersCache.clear();
-
   res.json({ ok: true, vendorNotes: updatedOrder.vendorNotes });
 });
 
 /* ----------------------------------------------------
    POST /api/vendor/shipments/:id/schedule-pickup
 ----------------------------------------------------- */
-router.post("/shipments/:id/schedule-pickup", requireVendor, async (req, res) => {
-  const vendorId = req.user.vendorId;
-  const id = String(req.params.id);
+router.post(
+  "/shipments/:id/schedule-pickup",
+  requireVendor,
+  async (req, res) => {
+    const vendorId = req.user.vendorId;
+    const id = String(req.params.id);
 
-  const { consents = {}, pickup = {}, dimensions = {} } = req.body || {};
+    const { consents = {}, pickup = {}, dimensions = {} } = req.body || {};
 
-  const s = await prisma.shipment.findFirst({
-    where: { id, vendorId },
-    include: { order: true },
-  });
-
-  if (!s) return res.status(404).json({ error: "not_found" });
-
-  const policy = await prisma.vendorPolicy.findFirst({
-    where: { document: "SHIPPING_ADDENDUM", isActive: true },
-  });
-
-  if (policy) {
-    const ok = await prisma.vendorAcceptance.findFirst({
-      where: {
-        vendorId,
-        document: "SHIPPING_ADDENDUM",
-        version: policy.version,
-      },
+    const s = await prisma.shipment.findFirst({
+      where: { id, vendorId },
+      include: { order: true },
     });
 
-    if (!ok) {
-      return res.status(412).json({
-        error: "policy_not_accepted",
-        policy: { version: policy.version, url: policy.url },
+    if (!s) return res.status(404).json({ error: "not_found" });
+
+    const policy = await prisma.vendorPolicy.findFirst({
+      where: { document: "SHIPPING_ADDENDUM", isActive: true },
+    });
+
+    if (policy) {
+      const ok = await prisma.vendorAcceptance.findFirst({
+        where: {
+          vendorId,
+          document: "SHIPPING_ADDENDUM",
+          version: policy.version,
+        },
       });
-    }
-  }
 
-  const now = new Date();
-  const pickupDate = new Date(now);
-  if (pickup.day === "tomorrow") pickupDate.setDate(pickupDate.getDate() + 1);
-
-  const [startH, endH] = String(pickup.slot || "14-18")
-    .split("-")
-    .map((n) => parseInt(n, 10));
-
-  const slotStart = new Date(pickupDate);
-  slotStart.setHours(startH || 14, 0, 0, 0);
-
-  const slotEnd = new Date(pickupDate);
-  slotEnd.setHours(endH || 18, 0, 0, 0);
-
-  const awb = "AWB" + id.slice(-8).toUpperCase();
-  const labelUrl = `https://labels.example/${awb}.pdf`;
-  const trackingUrl = `https://track.example/${awb}`;
-
-  const updated = await prisma.shipment.update({
-    where: { id },
-    data: {
-      status: "PICKUP_SCHEDULED",
-      consents,
-      parcels: Number(dimensions.parcels || 1),
-      weightKg: Number(dimensions.weightKg || 1),
-      lengthCm: Number(dimensions.l || 0),
-      widthCm: Number(dimensions.w || 0),
-      heightCm: Number(dimensions.h || 0),
-      pickupDate,
-      pickupSlotStart: slotStart,
-      pickupSlotEnd: slotEnd,
-      pickupScheduledAt: now,
-      awb,
-      labelUrl,
-      trackingUrl,
-      courierProvider: "YOUR_PROVIDER",
-      courierService: "standard24h",
-    },
-    include: { order: true },
-  });
-
-  const o = updated.order;
-  const etaLabel = pickup.day === "today" ? "azi" : "mâine";
-  const slotLabel = pickup.slot || "14-18";
-
-  try {
-    if (o?.id && o.userId) {
-      await notifyUserOnShipmentPickupScheduled(o.id, updated.id);
-    }
-  } catch (e) {
-    console.error("notifyUserOnShipmentPickupScheduled failed:", e);
-  }
-
-  try {
-    const shippingAddress = o?.shippingAddress || {};
-    let to = shippingAddress.email || null;
-
-    if (!to && o?.userId) {
-      const user = await prisma.user.findUnique({
-        where: { id: o.userId },
-        select: { email: true },
-      });
-      to = user?.email || null;
+      if (!ok) {
+        return res.status(412).json({
+          error: "policy_not_accepted",
+          policy: { version: policy.version, url: policy.url },
+        });
+      }
     }
 
-    if (to) {
-      await sendShipmentPickupEmail({
-        to,
-        orderId: o.id,
-        awb: updated.awb,
-        trackingUrl: updated.trackingUrl,
-        etaLabel,
-        slotLabel,
-      });
-    }
-  } catch (e) {
-    console.error("sendShipmentPickupEmail failed:", e);
-  }
+    const now = new Date();
+    const pickupDate = new Date(now);
+    if (pickup.day === "tomorrow") pickupDate.setDate(pickupDate.getDate() + 1);
 
-  ordersCache.clear();
+    const [startH, endH] = String(pickup.slot || "14-18")
+      .split("-")
+      .map((n) => parseInt(n, 10));
 
-  res.json({
-    ok: true,
-    awb: updated.awb,
-    eta: etaLabel,
-    slot: slotLabel,
-    labelUrl: updated.labelUrl,
-    trackingUrl: updated.trackingUrl,
-  });
+    const slotStart = new Date(pickupDate);
+    slotStart.setHours(startH || 14, 0, 0, 0);
+
+    const slotEnd = new Date(pickupDate);
+    slotEnd.setHours(endH || 18, 0, 0, 0);
+
+    const updated = await prisma.shipment.update({
+      where: { id },
+      data: {
+        status: "PICKUP_SCHEDULED",
+        consents,
+        parcels: Number(dimensions.parcels || 1),
+        weightKg: Number(dimensions.weightKg || 1),
+        lengthCm: Number(dimensions.l || 0),
+        widthCm: Number(dimensions.w || 0),
+        heightCm: Number(dimensions.h || 0),
+
+        pickupDate,
+        pickupSlotStart: slotStart,
+        pickupSlotEnd: slotEnd,
+        pickupScheduledAt: now,
+
+        // NU mai reseta awb/label/tracking aici
+      },
+      include: { order: true },
+    });
+// 🔴 notify vendor UI instantly (pickup scheduled + lock starts)
+sseBroadcastToVendor(vendorId, "pickup_scheduled", {
+  orderId: updated.orderId,
+  shipmentId: updated.id,
+  pickupScheduledAt: updated.pickupScheduledAt,
+  pickupDate: updated.pickupDate,
+  pickupSlotStart: updated.pickupSlotStart,
+  pickupSlotEnd: updated.pickupSlotEnd,
+  status: "confirmed", // UI status (confirmed)
 });
+
+    const o = updated.order;
+    const etaLabel = pickup.day === "today" ? "azi" : "mâine";
+    const slotLabel = pickup.slot || "14-18";
+
+    try {
+      if (o?.id && o.userId) {
+        await notifyUserOnShipmentPickupScheduled(o.id, updated.id);
+      }
+    } catch (e) {
+      console.error("notifyUserOnShipmentPickupScheduled failed:", e);
+    }
+
+    ordersCache.clear();
+
+    res.json({
+      ok: true,
+      shipmentId: updated.id,
+      status: updated.status,
+      eta: etaLabel,
+      slot: slotLabel,
+    });
+  }
+);
 
 /* ----------------------------------------------------
    GET label redirect
@@ -839,8 +1196,9 @@ router.post("/orders/:id/thread", requireVendor, async (req, res) => {
   const vendorId = req.user.vendorId;
   const orderId = String(req.params.id);
 
-  const s = await prisma.shipment.findFirst({
-    where: { orderId, vendorId },
+  const s = await findShipmentByOrderRef({
+    vendorId,
+    orderRef: orderId,
     include: { order: true },
   });
 
@@ -872,15 +1230,16 @@ router.post("/orders/:id/thread", requireVendor, async (req, res) => {
 
 /* ----------------------------------------------------
    🧾 GET /api/vendor/orders/:id/invoice
-   (păstrat)
+   (NEBLOCAT — doar citire)
 ----------------------------------------------------- */
 router.get("/orders/:id/invoice", requireVendor, async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
     const orderId = String(req.params.id);
 
-    const shipment = await prisma.shipment.findFirst({
-      where: { orderId, vendorId },
+    const shipment = await findShipmentByOrderRef({
+      vendorId,
+      orderRef: orderId,
       include: { order: true, items: true },
     });
 
@@ -913,12 +1272,7 @@ router.get("/orders/:id/invoice", requireVendor, async (req, res) => {
 
     const customerAddressStr =
       shipping.address ||
-      [
-        shipping.street,
-        shipping.city,
-        shipping.county,
-        shipping.postalCode,
-      ]
+      [shipping.street, shipping.city, shipping.county, shipping.postalCode]
         .filter(Boolean)
         .join(", ");
 
@@ -1027,6 +1381,7 @@ router.get("/orders/:id/invoice", requireVendor, async (req, res) => {
 
 /* ----------------------------------------------------
    🧾 POST /api/vendor/orders/:id/invoice
+   (BLOCAT când awaiting AWB)
 ----------------------------------------------------- */
 router.post("/orders/:id/invoice", requireVendor, async (req, res) => {
   try {
@@ -1035,13 +1390,19 @@ router.post("/orders/:id/invoice", requireVendor, async (req, res) => {
 
     const { invoice, sendEmail } = InvoicePayload.parse(req.body || {});
 
-    const shipment = await prisma.shipment.findFirst({
-      where: { orderId, vendorId },
+    const shipment = await findShipmentByOrderRef({
+      vendorId,
+      orderRef: orderId,
       include: { order: true },
     });
 
     if (!shipment || !shipment.order) {
       return res.status(404).json({ error: "order_not_found_for_vendor" });
+    }
+
+    // ✅ LOCK
+    if (isAwaitingAwbLock(shipment)) {
+      return lock409(res);
     }
 
     const order = shipment.order;
@@ -1193,8 +1554,14 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
     const vendorId = req.user.vendorId;
 
     const payload = ManualOrderInput.parse(req.body || {});
-    const { customer, address, items, shippingPrice, paymentMethod, vendorNotes } =
-      payload;
+    const {
+      customer,
+      address,
+      items,
+      shippingPrice,
+      paymentMethod,
+      vendorNotes,
+    } = payload;
 
     const subtotal = items.reduce(
       (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
@@ -1213,19 +1580,29 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
       postalCode: address?.postalCode || "",
     };
 
-    const order = await prisma.order.create({
-      data: {
-        status: "PENDING",
-        currency: "RON",
-        subtotal,
-        shippingTotal,
-        total,
-        paymentMethod,
-        shippingAddress,
-        vendorNotes: vendorNotes || "",
-        userId: null,
-      },
-    });
+    let order;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        order = await prisma.order.create({
+          data: {
+            orderNumber: generateOrderNumber(),
+            status: "PENDING",
+            currency: "RON",
+            subtotal,
+            shippingTotal,
+            total,
+            paymentMethod,
+            shippingAddress,
+            vendorNotes: vendorNotes || "",
+            userId: null,
+          },
+        });
+        break;
+      } catch (e) {
+        if (e?.code === "P2002" && attempt < 2) continue;
+        throw e;
+      }
+    }
 
     const shipment = await prisma.shipment.create({
       data: {
@@ -1295,6 +1672,71 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
       message: "Nu am putut crea comanda manuală.",
     });
   }
+});
+
+/* ----------------------------------------------------
+   POST /api/vendor/shipments/:id/mark-picked-up
+----------------------------------------------------- */
+router.post("/shipments/:id/mark-picked-up", requireVendor, async (req, res) => {
+  const vendorId = req.user.vendorId;
+  const id = String(req.params.id);
+
+  const s = await prisma.shipment.findFirst({
+    where: { id, vendorId },
+    include: { order: true },
+  });
+
+  if (!s) return res.status(404).json({ error: "not_found" });
+
+  if (s.status === "IN_TRANSIT") {
+    return res.json({ ok: true, shipment: s, already: true });
+  }
+
+  if (!["PICKUP_SCHEDULED", "READY_FOR_PICKUP"].includes(s.status)) {
+    return res.status(409).json({ error: "bad_status" });
+  }
+
+  const updated = await prisma.shipment.update({
+    where: { id },
+    data: { status: "IN_TRANSIT" },
+    include: { order: true },
+  });
+
+  try {
+    const o = updated.order;
+    const shippingAddress = o?.shippingAddress || {};
+    let to = shippingAddress.email || null;
+
+    if (!to && o?.userId) {
+      const user = await prisma.user.findUnique({
+        where: { id: o.userId },
+        select: { email: true },
+      });
+      to = user?.email || null;
+    }
+
+    if (to) {
+      await sendShipmentPickupEmail({
+        to,
+        orderId: o.id,
+        awb: updated.awb || null,
+        trackingUrl: updated.trackingUrl || null,
+        etaLabel: updated.pickupDate ? "azi/mâine" : null,
+        slotLabel:
+          updated.pickupSlotStart && updated.pickupSlotEnd
+            ? `${updated.pickupSlotStart.toISOString().slice(11, 16)}-${updated.pickupSlotEnd
+                .toISOString()
+                .slice(11, 16)}`
+            : null,
+        userId: o.userId || null,
+      });
+    }
+  } catch (e) {
+    console.error("sendShipmentPickupEmail (mark-picked-up) failed:", e);
+  }
+
+  ordersCache.clear();
+  return res.json({ ok: true, shipment: updated });
 });
 
 export default router;

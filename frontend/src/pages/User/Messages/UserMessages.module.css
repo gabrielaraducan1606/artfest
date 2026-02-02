@@ -1,13 +1,26 @@
 @import "../../../styles/variables.css";
 
+/* =========================================================
+   Tokens locale (ca la vendor, fără schimbări globale)
+========================================================= */
+.wrap {
+  --msg-hover: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  --msg-hover-2: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
+  --msg-primary-soft: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  --msg-border-soft: color-mix(in srgb, var(--color-border) 70%, transparent);
+  --msg-shadow: var(--shadow-md, 0 8px 18px rgba(0, 0, 0, 0.08));
+  --msg-shadow-sm: var(--shadow-sm, 0 3px 10px rgba(0, 0, 0, 0.06));
+  --msg-radius: var(--radius, 12px);
+}
+
 /* ============ Layout general ============ */
 .wrap {
   display: flex;
   max-width: 1100px;
   margin: 16px auto;
   background: var(--surface);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--msg-radius);
+  box-shadow: var(--msg-shadow);
   border: 1px solid var(--color-border);
   overflow: hidden;
   min-height: 520px;
@@ -41,32 +54,39 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--color-text, inherit);
 }
 
 .iconBtn {
   border: none;
   background: transparent;
-  padding: 4px;
+  padding: 6px;
   border-radius: 999px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--color-muted);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.05s ease;
 }
 
 .iconBtn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--msg-hover);
+  color: var(--color-text, inherit);
+}
+
+.iconBtn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .iconBtn:disabled {
-  opacity: 0.3;
+  opacity: 0.35;
   cursor: default;
   pointer-events: none;
 }
 
 .active {
-  background: rgba(139, 92, 246, 0.1);
+  background: var(--msg-primary-soft);
   color: var(--color-primary);
 }
 
@@ -80,7 +100,6 @@
     transform: rotate(360deg);
   }
 }
-
 .spin {
   animation: spin 0.8s linear infinite;
 }
@@ -89,28 +108,36 @@
   padding: 8px 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   border-bottom: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-muted);
 }
 
 .searchBar input {
   flex: 1;
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 7px 12px;
   font-size: 13px;
   background: var(--color-bg);
+  color: var(--color-text, inherit);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchBar input::placeholder {
+  color: var(--color-muted);
 }
 
 .searchBar input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
 /* Toggle grupare conversații */
 .groupToggleRow {
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg);
   display: flex;
@@ -122,9 +149,10 @@
   font-size: 11px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--color-muted);
   cursor: pointer;
+  user-select: none;
 }
 
 .groupToggle input {
@@ -135,61 +163,67 @@
 
 .scopeTabs {
   display: flex;
-  gap: 4px;
-  padding: 6px 8px 6px 8px;
+  gap: 6px;
+  padding: 8px;
   border-bottom: 1px solid var(--color-border);
+  background: var(--surface);
 }
 
 .tab {
   flex: 1;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
-  padding: 6px 4px;
+  padding: 7px 8px;
   border-radius: 999px;
   font-size: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   color: var(--color-muted);
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.tab:hover {
+  background: var(--msg-hover);
+  color: var(--color-text, inherit);
 }
 
 .tab.active {
-  background: rgba(139, 92, 246, 0.09);
+  background: var(--msg-primary-soft);
   color: var(--color-primary);
-  font-weight: 500;
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
 .threadList {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-}
-
-.threadList {
   scrollbar-width: thin;
 }
 
 .threadList::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .threadList::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-text, #111) 14%, transparent);
+  border-radius: 999px;
 }
 
 .threadItem {
   width: 100%;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: none;
-  border-bottom: 1px solid rgba(229, 229, 229, 0.7);
+  border-bottom: 1px solid var(--msg-border-soft);
   background: transparent;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
   text-align: left;
+  transition: background 0.15s ease;
 }
 
 .threadItem:last-child {
@@ -197,28 +231,29 @@
 }
 
 .threadItem:hover {
-  background: rgba(0, 0, 0, 0.02);
+  background: var(--msg-hover);
 }
 
 .selected {
-  background: rgba(139, 92, 246, 0.06);
+  background: var(--msg-primary-soft);
 }
 
 .unread .threadName {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .threadAvatar {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: rgba(139, 92, 246, 0.12);
+  background: var(--msg-primary-soft);
   color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
+  flex: 0 0 auto;
 }
 
 .threadBody {
@@ -230,7 +265,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+  gap: 10px;
 }
 
 .threadName {
@@ -241,6 +277,7 @@
   display: inline-flex;
   align-items: center;
   max-width: 100%;
+  color: var(--color-text, inherit);
 }
 
 /* Badge număr comandă în listă + header */
@@ -248,25 +285,27 @@
 .peerOrderBadge {
   display: inline-flex;
   align-items: center;
-  margin-left: 4px;
-  padding: 1px 6px;
+  margin-left: 6px;
+  padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
-  background: rgba(148, 163, 184, 0.18);
-  color: #0f172a;
+  background: color-mix(in srgb, var(--color-text, #111) 8%, transparent);
+  color: var(--color-text, inherit);
   vertical-align: middle;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
 }
 
 .threadTime {
   font-size: 11px;
   color: var(--color-muted);
+  flex: 0 0 auto;
 }
 
 .threadRowBottom {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .threadLastMsg {
@@ -275,30 +314,32 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* acțiuni icon în listă */
 .threadInlineActions {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 4px;
+  gap: 6px;
+  margin-left: 6px;
 }
 
 .threadIconBtn {
   border: none;
   background: transparent;
-  padding: 2px;
+  padding: 4px;
   border-radius: 999px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--color-muted);
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .threadIconBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--msg-hover);
   color: var(--color-primary);
 }
 
@@ -321,9 +362,10 @@
 .threadStatus {
   font-size: 10px;
   color: var(--color-muted);
-  padding: 2px 6px;
+  padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.15);
+  background: color-mix(in srgb, var(--color-text, #111) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
 }
 
 .empty,
@@ -332,6 +374,10 @@
   padding: 12px;
   font-size: 12px;
   color: var(--color-muted);
+}
+
+.error {
+  color: var(--color-danger);
 }
 
 /* ============ Chat ============ */
@@ -350,6 +396,7 @@
   justify-content: space-between;
   border-bottom: 1px solid var(--color-border);
   background: var(--surface);
+  gap: 10px;
 }
 
 .hideDesktop {
@@ -363,25 +410,31 @@
 .chatPeer {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .avatarLg {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: rgba(139, 92, 246, 0.12);
+  background: var(--msg-primary-soft);
   color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 800;
+  flex: 0 0 auto;
 }
 
 .peerName {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
+  color: var(--color-text, inherit);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .peerSub {
@@ -392,33 +445,32 @@
 .chatActions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 
 .msgList {
   flex: 1;
-  padding: 10px 14px;
+  padding: 12px 14px;
   overflow-y: auto;
   min-height: 0;
-}
-
-.msgList {
   scrollbar-width: thin;
 }
 
 .msgList::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .msgList::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-text, #111) 14%, transparent);
+  border-radius: 999px;
 }
 
 /* ============ Bule ============ */
 .bubbleRow {
   display: flex;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  gap: 6px;
 }
 
 .left {
@@ -433,36 +485,46 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.06);
+  background: color-mix(in srgb, var(--color-text, #111) 8%, transparent);
   color: var(--color-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  margin-right: 6px;
   margin-top: 4px;
+  flex: 0 0 auto;
+}
+
+/* ✅ wrapper pentru bulă + acțiuni */
+.bubbleWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
 }
 
 .bubble {
   max-width: 68%;
-  padding: 7px 10px;
-  border-radius: 12px;
+  padding: 8px 10px;
+  border-radius: 14px;
   font-size: 13px;
   line-height: 1.35;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--msg-shadow-sm);
   word-wrap: break-word;
+  color: var(--color-text, inherit);
 }
 
 .mine {
   background: var(--color-primary);
   color: #fff;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 6px;
 }
 
 .theirs {
   background: var(--surface);
   border: 1px solid var(--color-border);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 6px;
 }
 
 .bodyText {
@@ -470,12 +532,12 @@
 }
 
 .meta {
-  margin-top: 3px;
+  margin-top: 5px;
   font-size: 10px;
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .meta span {
@@ -485,12 +547,12 @@
 
 .readTick {
   font-size: 11px;
-  color: rgba(224, 224, 255, 0.7);
+  color: color-mix(in srgb, #fff 75%, transparent);
   letter-spacing: -1px;
 }
 
 .readTickRead {
-  color: #c4b5fd;
+  color: color-mix(in srgb, #fff 90%, transparent);
 }
 
 .readTickPending {
@@ -503,24 +565,93 @@
   color: var(--color-danger);
 }
 
+/* ✅ acțiuni mesaj (download/edit/delete) */
+.msgActions {
+  display: none;
+  gap: 4px;
+  align-items: center;
+}
+
+.bubbleWrap:hover .msgActions {
+  display: inline-flex;
+}
+
+.msgIconBtn {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  padding: 5px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.msgIconBtn:hover {
+  background: var(--msg-hover);
+  color: var(--color-text, inherit);
+}
+
+.msgIconBtnDanger:hover {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
+}
+
+.msgSaveBtn {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.msgSaveBtn:hover {
+  filter: brightness(0.95);
+}
+
+.editInput {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text, inherit);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  resize: none;
+}
+
+.editInput:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
 /* ============ Composer ============ */
 .composer {
-  padding: 8px 10px;
+  padding: 10px;
   border-top: 1px solid var(--color-border);
   background: var(--surface);
   display: flex;
   align-items: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .input {
   flex: 1;
   resize: none;
-  border-radius: 999px;
+  border-radius: 18px;
   border: 1px solid var(--color-border);
-  padding: 7px 12px;
+  padding: 9px 12px;
   font-size: 13px;
   line-height: 1.4;
+  background: var(--color-bg);
+  color: var(--color-text, inherit);
 
   min-height: 40px;
   max-height: 80px;
@@ -528,19 +659,23 @@
   scrollbar-width: thin;
 }
 
+.input::placeholder {
+  color: var(--color-muted);
+}
+
 .input::-webkit-scrollbar {
-  width: 5px;
+  width: 7px;
 }
 
 .input::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18);
+  background: color-mix(in srgb, var(--color-text, #111) 16%, transparent);
   border-radius: 999px;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .sendBtn {
@@ -549,11 +684,12 @@
   background: var(--color-primary);
   color: #fff;
   font-size: 13px;
-  padding: 7px 12px;
+  padding: 9px 12px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
 }
 
 .sendBtn:disabled {
@@ -562,7 +698,7 @@
 }
 
 .sendBtn:not(:disabled):hover {
-  background: var(--color-hover);
+  filter: brightness(0.95);
 }
 
 .chatEmpty {
@@ -571,7 +707,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--color-muted);
   font-size: 13px;
 }
@@ -579,31 +715,50 @@
 /* ============ Tabs comenzi în mod grupat ============ */
 .orderTabs {
   display: flex;
-  gap: 4px;
-  padding: 4px 12px;
+  gap: 6px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--color-border);
   overflow-x: auto;
+  background: var(--surface);
+  scrollbar-width: thin;
+}
+
+.orderTabs::-webkit-scrollbar {
+  height: 8px;
+}
+
+.orderTabs::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text, #111) 14%, transparent);
+  border-radius: 999px;
 }
 
 .orderTab,
 .orderTabActive {
-  padding: 4px 8px;
+  padding: 7px 10px;
   border-radius: 999px;
   font-size: 12px;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
+  color: var(--color-text, inherit);
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.orderTab:hover {
+  background: var(--msg-hover);
 }
 
 .orderTabActive {
-  border-color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
   color: var(--color-primary);
-  font-weight: 500;
+  font-weight: 700;
+  background: var(--msg-primary-soft);
 }
 
 .orderTabDate {
-  margin-left: 4px;
-  opacity: 0.7;
+  opacity: 0.75;
   font-size: 11px;
 }
 
@@ -641,17 +796,14 @@
     display: none;
   }
 
-  /* ascundem acțiunile inline în listă pe mobil,
-     păstrăm doar acțiunile din header-ul conversației */
   .threadInlineActions {
     display: none;
   }
 
-  /* header-ul de chat se rupe pe 2 rânduri pe mobil */
   .chatHead {
     flex-wrap: wrap;
     align-items: flex-start;
-    gap: 6px;
+    gap: 8px;
   }
 
   .chatPeer {
@@ -662,7 +814,7 @@
     width: 100%;
     justify-content: flex-end;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
@@ -681,7 +833,7 @@
 
     border-top-left-radius: 16px;
     border-top-right-radius: 16px;
-    box-shadow: 0 -8px 20px rgba(15, 23, 42, 0.18);
+    box-shadow: 0 -10px 30px color-mix(in srgb, var(--color-text, #111) 18%, transparent);
     overflow: hidden;
 
     transform: translateY(100%);
@@ -692,7 +844,6 @@
     z-index: 10001;
   }
 
-  /* când există conversație selectată -> sheet deschis */
   .wrap[data-mobile-open="1"] .chat {
     transform: translateY(0);
     opacity: 1;
@@ -703,7 +854,7 @@
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.35);
+    background: color-mix(in srgb, var(--color-text, #111) 28%, transparent);
     backdrop-filter: blur(2px);
     opacity: 0;
     pointer-events: none;
@@ -715,4 +866,355 @@
     opacity: 1;
     pointer-events: auto;
   }
+}
+
+/* ============ Attach preview chips (composer) ============ */
+.attachPreviewRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.attachChip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.attachChipName {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachChipSize {
+  opacity: 0.7;
+  font-size: 12px;
+}
+
+.attachChipRemove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--color-muted);
+}
+
+.attachChipRemove:hover {
+  color: var(--color-text, inherit);
+}
+
+.attachUploadBtn {
+  margin-left: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+  color: var(--color-text, inherit);
+}
+
+.attachUploadBtn:hover {
+  background: var(--msg-hover);
+}
+
+/* ============ Attachments PRO (grid + file cards) ============ */
+.attWrap {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+/* thumbnails imagini */
+.attGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.attThumb {
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  aspect-ratio: 1 / 1;
+}
+
+.attThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1);
+  transition: transform 0.15s ease;
+}
+
+.attThumb:hover img {
+  transform: scale(1.03);
+}
+
+/* file cards */
+.attFiles {
+  display: grid;
+  gap: 6px;
+}
+
+.attFileCard {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  color: inherit;
+}
+
+.bubble.mine .attFileCard {
+  background: color-mix(in srgb, #fff 16%, transparent);
+  border-color: color-mix(in srgb, #fff 28%, transparent);
+}
+
+.attFileCard:hover {
+  background: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
+}
+
+.attFileIcon {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  flex: 0 0 auto;
+}
+
+.bubble.mine .attFileIcon {
+  background: color-mix(in srgb, #fff 20%, transparent);
+  color: #fff;
+}
+
+.attFileMeta {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.attFileName {
+  font-size: 12px;
+  font-weight: 700;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attFileSub {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* ============ Backward compatibility (dacă încă folosești attachmentItem în JSX) ============ */
+.attachments {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attachmentItem {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  text-decoration: none;
+  color: inherit;
+}
+
+.bubble.mine .attachmentItem {
+  background: color-mix(in srgb, #fff 16%, transparent);
+  border-color: color-mix(in srgb, #fff 28%, transparent);
+}
+
+.attachmentItem:hover {
+  background: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
+}
+
+.attachmentIcon {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+}
+
+.bubble.mine .attachmentIcon {
+  background: color-mix(in srgb, #fff 20%, transparent);
+  color: #fff;
+}
+
+.attachmentMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.attachmentName {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.attachmentSub {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.attachmentDl {
+  opacity: 0.8;
+  display: inline-flex;
+}
+.bubbleWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.msgActions {
+  display: none;
+  gap: 4px;
+  align-items: center;
+}
+
+/* =========================================================
+   MOBIL: butoane acțiuni mesaj mai mari (USER)
+========================================================= */
+@media (max-width: 768px) {
+  /* arată actions mereu pe mobil (la tine deja e, dar îl fixăm) */
+  .msgActions {
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  /* butoane touch-friendly */
+  .msgIconBtn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    /* ca la vendor: puțin "card" */
+    border: 1px solid var(--color-border);
+    background: var(--surface);
+  }
+
+  /* iconul din buton (lucide = svg) */
+  .msgIconBtn svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  /* butonul Salvează – mai mare, ușor de apăsat */
+  .msgSaveBtn {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
+    border-radius: 999px;
+  }
+}
+/* acțiuni mesaj */
+.msgActions {
+  display: none;
+  gap: 8px;
+  align-items: center;
+}
+
+/* desktop: la hover */
+.bubbleWrap:hover .msgActions {
+  display: inline-flex;
+}
+
+/* mobil: ascunse by default */
+@media (max-width: 768px) {
+  .msgActions {
+    display: none;
+  }
+
+  /* doar când long-press a deschis */
+  .msgActionsOpen {
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+    padding: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+    box-shadow: var(--msg-shadow-sm);
+  }
+
+  .msgIconBtn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--surface);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .msgIconBtn svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .msgSaveBtn {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
+    border-radius: 999px;
+  }
+}
+
+/* Backdrop când acțiunile sunt deschise (mobil) */
+.msgActionsBackdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent; /* invizibil - doar pentru tap outside */
+  border: none;
+  padding: 0;
+  margin: 0;
+  z-index: 12000;
+}
+
+/* ridicăm bubble deasupra backdrop-ului */
+.bubbleWrapActive {
+  z-index: 12001;
 }

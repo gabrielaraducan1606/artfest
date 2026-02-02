@@ -2,7 +2,6 @@
 
 /* =========================================================
    Tokens locale (nu cer modificări globale)
-   - folosesc culori existente; fallback-uri doar dacă lipsesc
 ========================================================= */
 .wrap {
   --msg-hover: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
@@ -16,7 +15,9 @@
   --msg-radius: var(--radius, 12px);
 }
 
-/* ============ Layout general ============ */
+/* =========================================================
+   Layout general (desktop + base)
+========================================================= */
 .wrap {
   display: flex;
   max-width: 1100px;
@@ -32,7 +33,9 @@
   max-height: 600px;
 }
 
-/* ============ Sidebar conversații ============ */
+/* =========================================================
+   Sidebar conversații
+========================================================= */
 .sidebar {
   width: 32%;
   min-width: 260px;
@@ -135,7 +138,8 @@
 .searchBar input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
 /* filtre */
@@ -171,7 +175,8 @@
 .filterRow select:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 /* Toggle grupare conversații pe client */
@@ -221,7 +226,8 @@
   gap: 6px;
   color: var(--color-muted);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .tab:hover {
@@ -431,7 +437,9 @@
   color: var(--color-danger);
 }
 
-/* ============ Chat ============ */
+/* =========================================================
+   Chat (base)
+========================================================= */
 .chat {
   flex: 1;
   display: flex;
@@ -530,7 +538,9 @@
   border-radius: 999px;
 }
 
-/* ============ Bule ============ */
+/* =========================================================
+   Bule
+========================================================= */
 .bubbleRow {
   display: flex;
   margin-bottom: 8px;
@@ -559,6 +569,15 @@
   flex: 0 0 auto;
 }
 
+/* wrapper pentru bulă + acțiuni */
+.bubbleWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
 .bubble {
   max-width: 68%;
   padding: 8px 10px;
@@ -584,31 +603,6 @@
 
 .bodyText {
   white-space: pre-wrap;
-}
-
-.attachments {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.attachmentItem {
-  font-size: 11px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-primary);
-  text-decoration: none;
-  padding: 4px 6px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
-}
-
-.attachmentItem:hover {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-  text-decoration: none;
 }
 
 .meta {
@@ -645,7 +639,126 @@
   color: var(--color-danger);
 }
 
-/* ============ Notă + follow-up ============ */
+/* =========================================================
+   Acțiuni mesaj (DESKTOP hover, MOBIL long-press)
+========================================================= */
+.msgActions {
+  display: none;
+  gap: 4px;
+  align-items: center;
+}
+
+/* desktop: la hover */
+.bubbleWrap:hover .msgActions {
+  display: inline-flex;
+}
+
+/* mobil: doar când long-press deschide */
+@media (max-width: 768px) {
+  .msgActions {
+    display: none;
+  }
+  .msgActionsOpen {
+    display: inline-flex;
+  }
+}
+
+/* Backdrop când acțiunile sunt deschise (mobil) */
+.msgActionsBackdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent; /* invizibil, doar pentru "tap outside" */
+  border: none;
+  padding: 0;
+  margin: 0;
+  z-index: 12000;
+}
+
+/* ridicăm bubble deasupra backdrop-ului */
+.bubbleWrapActive {
+  z-index: 12001;
+}
+
+/* pe mobil: aranjăm acțiunile ca un mic "pill" lângă mesaj */
+@media (max-width: 768px) {
+  .msgActionsOpen {
+    gap: 8px;
+    align-items: center;
+    padding: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--color-border) 85%, transparent);
+    box-shadow: var(--msg-shadow-sm);
+  }
+
+  .msgIconBtn {
+    padding: 10px;
+    border-radius: 999px;
+  }
+}
+
+.msgIconBtn {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  padding: 5px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.msgIconBtn:hover {
+  background: var(--msg-hover);
+  color: var(--color-text, inherit);
+}
+
+.msgIconBtnDanger:hover {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
+}
+
+.msgSaveBtn {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.msgSaveBtn:hover {
+  filter: brightness(0.95);
+}
+
+.editInput {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text, inherit);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  resize: none;
+}
+
+.editInput:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+/* =========================================================
+   Notă + status + follow-up
+========================================================= */
 .internalNote {
   padding: 8px 14px 8px;
   border-bottom: 1px solid var(--color-border);
@@ -680,7 +793,8 @@
 .noteInput:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .chip {
@@ -718,25 +832,24 @@
 .statusSelect:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
-/* ============ Follow-up control (select) ============ */
+/* Follow-up control */
 .followUp {
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-
   font-size: 11px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   padding: 6px 10px;
-
   background: var(--surface);
   color: var(--color-text, inherit);
-
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .followUp:hover {
@@ -746,28 +859,24 @@
 
 .followUp:focus-within {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
-/* select-ul propriu-zis */
 .followUpSelect {
   border: none;
   background: transparent;
   font-size: 11px;
-  padding: 0 22px 0 2px; /* loc pentru săgeată */
+  padding: 0 22px 0 2px;
   cursor: pointer;
   color: inherit;
   min-width: 140px;
-
-  /* încercăm să “uniformizăm” aspectul în browser */
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
-
   outline: none;
 }
 
-/* săgeată custom (nu depinde de OS) */
 .followUp::after {
   content: "";
   position: absolute;
@@ -776,28 +885,28 @@
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 6px solid color-mix(in srgb, var(--color-text, #111) 45%, transparent);
+  border-top: 6px solid
+    color-mix(in srgb, var(--color-text, #111) 45%, transparent);
   pointer-events: none;
 }
 
-/* disabled (dacă ajungi să pui) */
 .followUpSelect:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
-/* === Dropdown-ul (lista) - limitat, depinde de browser === */
 .followUpSelect option {
   background: var(--surface);
   color: var(--color-text, inherit);
 }
 
-/* opțiunea placeholder (disabled) - unele browsere respectă */
 .followUpSelect option[disabled] {
   color: var(--color-muted);
 }
 
-/* ============ Composer ============ */
+/* =========================================================
+   Composer
+========================================================= */
 .composer {
   padding: 10px;
   border-top: 1px solid var(--color-border);
@@ -860,7 +969,6 @@
   line-height: 1.4;
   background: var(--color-bg);
   color: var(--color-text, inherit);
-
   min-height: 40px;
   max-height: 80px;
   overflow-y: auto;
@@ -883,7 +991,8 @@
 .input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .sendBtn {
@@ -920,7 +1029,9 @@
   font-size: 13px;
 }
 
-/* ============ Tabs comenzi în mod grupat ============ */
+/* =========================================================
+   Tabs comenzi în mod grupat
+========================================================= */
 .orderTabs {
   display: flex;
   gap: 6px;
@@ -970,23 +1081,135 @@
   font-size: 11px;
 }
 
-/* ============ Backdrop pentru mobil ============ */
+/* =========================================================
+   Backdrop mobil
+========================================================= */
 .mobileBackdrop {
   display: none;
 }
 
-/* ============ Responsive (mobil) ============ */
+/* =========================================================
+   Attachments PRO
+========================================================= */
+.attWrap {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+/* thumbnails imagini */
+.attGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.attThumb {
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  aspect-ratio: 1 / 1;
+}
+
+.attThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1);
+  transition: transform 0.15s ease;
+}
+
+.attThumb:hover img {
+  transform: scale(1.03);
+}
+
+/* file cards */
+.attFiles {
+  display: grid;
+  gap: 6px;
+}
+
+.attFileCard {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+}
+
+.bubble.mine .attFileCard {
+  background: color-mix(in srgb, #fff 16%, transparent);
+  border-color: color-mix(in srgb, #fff 28%, transparent);
+}
+
+.attFileCard:hover {
+  background: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
+}
+
+.attFileIcon {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  flex: 0 0 auto;
+}
+
+.bubble.mine .attFileIcon {
+  background: color-mix(in srgb, #fff 20%, transparent);
+  color: #fff;
+}
+
+.attFileMeta {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.attFileName {
+  font-size: 12px;
+  font-weight: 700;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attFileSub {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* =========================================================
+   RESPONSIVE (MOBIL) – BOMBA
+========================================================= */
 @media (max-width: 768px) {
+  /* safe-area + dvh */
   .wrap {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+
     flex-direction: column;
     max-width: 100%;
     margin: 0;
     border-radius: 0;
     box-shadow: none;
-    border-left: none;
-    border-right: none;
-    height: 100vh;
-    max-height: 100vh;
+    border: none;
+
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 100dvh;
+
+    background: var(--color-bg);
   }
 
   .sidebar {
@@ -994,6 +1217,64 @@
     min-width: 0;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
+    background: var(--surface);
+  }
+
+  /* sticky top stack */
+  .sideHead {
+    padding-top: calc(10px + var(--safe-top));
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--surface);
+    backdrop-filter: blur(10px);
+  }
+
+  .searchBar {
+    position: sticky;
+    top: calc(46px + var(--safe-top));
+    z-index: 4;
+    background: var(--surface);
+  }
+
+  .scopeTabs {
+    position: sticky;
+    top: calc(46px + var(--safe-top) + 44px);
+    z-index: 3;
+    background: var(--surface);
+  }
+
+  .threadList {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* touch targets */
+  .threadItem {
+    padding: 12px 12px;
+    gap: 12px;
+  }
+
+  .threadAvatar {
+    width: 34px;
+    height: 34px;
+    font-size: 12px;
+  }
+
+  .threadName {
+    font-size: 14px;
+  }
+
+  .threadLastMsg {
+    font-size: 12px;
+  }
+
+  .threadTime {
+    font-size: 11px;
+  }
+
+  .threadInlineActions {
+    display: none !important;
   }
 
   .hideDesktop {
@@ -1004,32 +1285,115 @@
     display: none;
   }
 
-  .threadInlineActions {
-    display: none;
+  /* bottom sheet */
+  .chat {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+
+    height: 86dvh;
+    max-height: 86dvh;
+
+    background: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+
+    box-shadow: 0 -18px 50px
+      color-mix(in srgb, var(--color-text, #111) 18%, transparent);
+    overflow: hidden;
+
+    transform: translateY(104%);
+    opacity: 0;
+    pointer-events: none;
+
+    transition: transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1),
+      opacity 180ms ease-out;
+    z-index: 10001;
+
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
+  .wrap[data-mobile-open="1"] .chat {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* handle */
+  .chat::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-text, #111) 18%, transparent);
+    z-index: 6;
+  }
+
+  /* header sticky */
   .chatHead {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+
+    padding-top: 22px; /* loc pentru handle */
+    padding-bottom: 10px;
+    padding-left: 12px;
+    padding-right: 12px;
+
+    background: color-mix(in srgb, var(--surface) 86%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--color-border) 80%, transparent);
+
     flex-wrap: wrap;
     align-items: flex-start;
-    gap: 8px;
+    gap: 10px;
   }
 
   .chatPeer {
     flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .avatarLg {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+  }
+
+  .peerName {
+    font-size: 15px;
+  }
+
+  .peerSub {
+    font-size: 12px;
   }
 
   .chatActions {
     width: 100%;
-    justify-content: flex-end;
+    justify-content: space-between;
     align-items: center;
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+  }
+
+  .iconBtn {
+    padding: 8px;
   }
 
   .followUp {
     flex: 1 1 auto;
     max-width: 100%;
-    justify-content: flex-start;
+    padding: 8px 10px;
   }
 
   .followUpSelect {
@@ -1039,57 +1403,251 @@
     white-space: nowrap;
   }
 
-  .navSwitch {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  /* note sticky-ish (optional, dar arată bine) */
+  .internalNote {
+    padding: 10px 12px;
   }
 
-  .chat {
-    position: fixed;
-    left: 0;
-    right: 0;
+  /* grouped order tabs */
+  .orderTabs {
+    padding: 10px 12px;
+    gap: 8px;
+    background: var(--surface);
+  }
+
+  .orderTab,
+  .orderTabActive {
+    padding: 9px 12px;
+  }
+
+  /* listă mesaje cu spațiu pt composer + safe bottom */
+  .msgList {
+    padding: 12px 12px calc(12px + 72px + var(--safe-bottom));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .msgList::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  /* bubbles mai wide */
+  .bubble {
+    max-width: 86%;
+    font-size: 14px;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .mine {
+    border-bottom-right-radius: 8px;
+  }
+
+  .theirs {
+    border-bottom-left-radius: 8px;
+  }
+
+  .meta {
+    font-size: 11px;
+    margin-top: 6px;
+  }
+
+  /* ✅ IMPORTANT: nu mai afișăm actions by default (long-press only)
+     (aici era regula care strica tot) */
+
+  /* attachments premium */
+  .attGrid {
+    gap: 8px;
+  }
+
+  .attThumb {
+    border-radius: 14px;
+  }
+
+  .attFileCard {
+    padding: 10px 12px;
+    border-radius: 14px;
+  }
+
+  .attFileIcon {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+  }
+
+  /* composer sticky bottom */
+  .composer {
+    position: sticky;
     bottom: 0;
-    max-width: 100%;
-    height: 80vh;
-    max-height: 80vh;
-    background: var(--color-bg);
-    display: flex;
-    flex-direction: column;
-
-    border-top-left-radius: 16px;
-    border-top-right-radius: 16px;
-    box-shadow: 0 -10px 30px color-mix(in srgb, var(--color-text, #111) 18%, transparent);
-    overflow: hidden;
-
-    transform: translateY(100%);
-    opacity: 0;
-    pointer-events: none;
-    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
-
-    z-index: 10001;
+    z-index: 6;
+    padding: 10px 10px calc(10px + var(--safe-bottom));
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid
+      color-mix(in srgb, var(--color-border) 80%, transparent);
   }
 
-  .wrap[data-mobile-open="1"] .chat {
-    transform: translateY(0);
-    opacity: 1;
-    pointer-events: auto;
+  .input {
+    min-height: 44px;
+    border-radius: 18px;
+    font-size: 14px;
+    padding: 10px 12px;
   }
 
+  .sendBtn {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  /* backdrop full screen */
   .mobileBackdrop {
     display: block;
     position: fixed;
     inset: 0;
-    background: color-mix(in srgb, var(--color-text, #111) 28%, transparent);
-    backdrop-filter: blur(2px);
+    background: color-mix(in srgb, var(--color-text, #111) 32%, transparent);
+    backdrop-filter: blur(6px);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s ease-out;
+    transition: opacity 200ms ease-out;
     z-index: 10000;
   }
 
   .wrap[data-mobile-open="1"] + .mobileBackdrop {
     opacity: 1;
     pointer-events: auto;
+  }
+
+  /* tap highlight off */
+  .threadItem,
+  .iconBtn,
+  .tab,
+  .msgIconBtn,
+  .sendBtn {
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+}
+/* =========================================================
+   ICONURI MARI PENTRU ACȚIUNI MESAJ – MOBIL
+========================================================= */
+@media (max-width: 768px) {
+  /* buton touch-friendly */
+  .msgIconBtn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* mărim iconurile SVG */
+  .msgIconBtn svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  /* buton Salvează */
+  .msgSaveBtn {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
+  }
+
+  /* spațiere mai aerisită între acțiuni */
+  .msgActionsOpen {
+    gap: 10px;
+  }
+}
+.composer {
+  padding: 10px;
+  border-top: 1px solid var(--color-border);
+  background: var(--surface);
+  display: flex;
+
+  /* ✅ important */
+  flex-wrap: wrap;         /* permite banner pe rând separat */
+  align-items: flex-end;
+  gap: 8px;
+}
+.chatBlockedBanner {
+  width: 100%; /* ✅ ia tot rândul în composer */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #f59e0b 35%, var(--color-border));
+  background: var(--msg-warning-soft);
+  color: var(--msg-warning-text);
+
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.chatBlockedBanner strong {
+  font-weight: 600;
+}
+
+/* containerul cu butoane din banner (tu îl ai inline style acum) */
+.chatBlockedBanner > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0 !important; /* ✅ suprascrie marginTop: 8 din inline style */
+}
+
+/* buton “Am înțeles” */
+.smallBtn {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text, inherit);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.smallBtn:hover {
+  background: var(--msg-hover);
+}
+
+/* link “Upgrade” */
+.smallBtnPrimary {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  background: var(--color-primary);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.smallBtnPrimary:hover {
+  filter: brightness(0.95);
+}
+@media (max-width: 768px) {
+  .chatBlockedBanner {
+    padding: 10px;
+    font-size: 12px;
+    border-radius: 14px;
+  }
+
+  .chatBlockedBanner {
+    flex-direction: column;      /* text sus, butoane jos */
+    align-items: flex-start;
+  }
+
+  .chatBlockedBanner > div {
+    width: 100%;
+    justify-content: flex-end;
   }
 }

@@ -6,28 +6,24 @@
  * - Rulează toate scripturile de seed care initializează baza de date.
  * - Este punctul unic de intrare pentru seed-uri (planuri, servicii, admin, etc).
  * - Poți adăuga aici pe viitor seed-uri suplimentare.
+ *
+ * IMPORTANT:
+ * - seed-service-types.mjs rulează singur la import (side-effect).
+ * - seed-subscription-plans.mjs trebuie să exporte funcția seedSubscriptionPlans(prisma)
+ *   (fără PrismaClient intern și fără auto-run).
  */
 
 import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+import { seedSubscriptionPlans } from "./seed-subscription-plans.mjs";
 
 // 1) Seed pentru tipurile de servicii vendor (rulează la import)
 import "./seed-service-types.mjs";
 
-// 2) Seed pentru planurile de abonament
-import { seedSubscriptionPlans } from "./seed-subscription-plans.mjs";
+const prisma = new PrismaClient();
 
 async function main() {
-  /**
-   * Dacă fișierul seed-service-types.mjs rulează singur la import, nu trebuie apelat.
-   * Dacă în viitor va expune o funcție, o vei apela aici.
-   *
-   * Exemplu (dacă ar exista funcția):
-   *    await seedServiceTypes();
-   */
-
-  // rulăm seed pentru planurile de abonament
-  await seedSubscriptionPlans();
+  // 2) Seed pentru planurile de abonament
+  await seedSubscriptionPlans(prisma);
 }
 
 main()

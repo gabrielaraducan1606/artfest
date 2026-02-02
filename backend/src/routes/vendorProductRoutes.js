@@ -3,7 +3,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired /*, requireRole */ } from "../api/auth.js";
-import { CATEGORIES, CATEGORY_SET } from "../constants/categories.js";
+import { CATEGORY_SET } from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
 
 const router = Router();
@@ -60,10 +60,7 @@ function mapProduct(p) {
     category: p.category || null,
     color: p.color || null,
 
-    // aici să fie fără default "READY" forțat
-    availability: p.availability
-      ? String(p.availability).toUpperCase()
-      : null,
+    availability: p.availability ? String(p.availability).toUpperCase() : null,
     leadTimeDays: p.leadTimeDays ?? null,
     readyQty: p.readyQty ?? null,
     nextShipDate: p.nextShipDate ?? null,
@@ -91,7 +88,6 @@ function normalizeAvailabilityPayload(body, currentProduct = null) {
   } else if (currentProduct?.availability) {
     availabilityRaw = String(currentProduct.availability).toUpperCase();
   } else {
-    // 🔴 Nici în body, nici în currentProduct -> nu mai punem READY default
     return { error: "availability_required" };
   }
 
@@ -102,8 +98,8 @@ function normalizeAvailabilityPayload(body, currentProduct = null) {
   const out = {
     availability: availabilityRaw,
     leadTimeDays: null,
-    readyQty: null, // default null (READY poate fi fără cantitate setată)
-    nextShipDate: null, // PREORDER poate fi fără dată
+    readyQty: null,
+    nextShipDate: null,
   };
 
   if (availabilityRaw === "MADE_TO_ORDER") {
@@ -136,7 +132,7 @@ function normalizeAvailabilityPayload(body, currentProduct = null) {
   }
 
   if (availabilityRaw === "SOLD_OUT") {
-    out.readyQty = 0; // epuizat = 0
+    out.readyQty = 0;
   }
 
   return { ok: true, ...out };
@@ -159,6 +155,87 @@ function normalizeTags(value) {
   }
   return [];
 }
+
+/* ================= Plan limit helpers ================= */
+
+// ia planul activ al vendorului; fallback la starter
+async function getActivePlanForVendor(vendorId) {
+  const now = new Date();
+
+  const sub = await prisma.vendorSubscription.findFirst({
+    where: {
+      vendorId,
+      status: "active",
+      endAt: { gt: now },
+    },
+    include: { plan: true },
+    orderBy: { endAt: "desc" },
+  });
+
+  if (sub?.plan) return sub.plan;
+
+  const starter = await prisma.subscriptionPlan.findUnique({
+    where: { code: "starter" },
+  });
+
+  return starter ?? { code: "starter", name: "Starter", maxProducts: 25 };
+}
+
+// limită PER STORE/SERVICE (serviceId) + override PER VENDOR
+async function checkProductLimitForService({ serviceId, vendorId }) {
+  const plan = await getActivePlanForVendor(vendorId);
+
+  // ✅ override din Vendor
+  const v = await prisma.vendor.findUnique({
+    where: { id: vendorId },
+    select: { productLimitOverride: true },
+  });
+
+  // ✅ limită finală:
+  // -1 => nelimitat
+  // >=0 => limită fixă
+  // null/undefined => plan.maxProducts
+  let limit;
+  if (v?.productLimitOverride === -1) limit = null;
+  else if (typeof v?.productLimitOverride === "number") limit = v.productLimitOverride;
+  else limit = plan.maxProducts;
+
+  if (limit == null) {
+    // nelimitat
+    return {
+      ok: true,
+      plan: { code: plan.code, name: plan.name },
+      limit: null,
+      current: null,
+      override: v?.productLimitOverride ?? null,
+    };
+  }
+
+  const current = await prisma.product.count({
+    where: { serviceId },
+  });
+
+  if (current >= limit) {
+    return {
+      ok: false,
+      error: "upgrade_required",
+      reason: "products_limit_reached",
+      plan: { code: plan.code, name: plan.name },
+      limit,
+      current,
+      override: v?.productLimitOverride ?? null,
+    };
+  }
+
+  return {
+    ok: true,
+    plan: { code: plan.code, name: plan.name },
+    limit,
+    current,
+    override: v?.productLimitOverride ?? null,
+  };
+}
+
 
 /* ============== Handlere publice & vendor ============== */
 
@@ -226,7 +303,6 @@ async function publicListProducts(req, res) {
         { description: { contains: qstr, mode: "insensitive" } },
         { category: { contains: qstr, mode: "insensitive" } },
         { color: { contains: qstr, mode: "insensitive" } },
-        // căutăm și în stil / ocazii (array de string-uri)
         { styleTags: { has: qstr } },
         { occasionTags: { has: qstr } },
       ]);
@@ -308,45 +384,99 @@ async function getProduct(req, res) {
   }
 }
 
+/** GET /vendors/store/:slug/products/limits (UI helper) */
+async function getProductLimits(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
+    if (error) return res.status(status).json({ error });
+
+    const plan = await getActivePlanForVendor(service.vendorId);
+    const maxProducts = plan.maxProducts ?? null;
+
+    const currentProducts = await prisma.product.count({
+      where: { serviceId: service.id },
+    });
+
+    const canAdd = maxProducts == null ? true : currentProducts < maxProducts;
+
+    return res.json({
+      plan: { code: plan.code, name: plan.name },
+      maxProducts,
+      currentProducts,
+      canAdd,
+    });
+  } catch (e) {
+    console.error("GET /vendors/store/:slug/products/limits error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+/** GET /vendors/store/:slug/products/pricing (UI helper: TVA e separat; aici dăm comisionul) */
+async function getProductPricing(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
+    if (error) return res.status(status).json({ error });
+
+    const plan = await getActivePlanForVendor(service.vendorId);
+
+    // ⚠️ presupunem că în DB ai subscriptionPlan.commissionBps (int, ex: 1200 = 12%)
+    const commissionBps =
+      plan?.commissionBps != null ? Number(plan.commissionBps) : 0;
+
+    return res.json({
+      plan: { code: plan?.code || "starter", name: plan?.name || "Starter" },
+      commissionBps: Number.isFinite(commissionBps) ? commissionBps : 0,
+    });
+  } catch (e) {
+    console.error("GET /vendors/store/:slug/products/pricing error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
 /** POST /vendors/store/:slug/products */
 async function createProduct(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
-    const { service, error, status } = await getOwnedProductsServiceBySlug(
-      slug,
-      req.user.sub
-    );
+    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
     if (error) return res.status(status).json({ error });
 
+    // ✅ LIMITARE plan (per store/service)
+    const limitCheck = await checkProductLimitForService({
+      serviceId: service.id,
+      vendorId: service.vendorId,
+    });
+
+    if (!limitCheck.ok) {
+      // 402 = Payment Required (bun pt upgrade)
+      return res.status(402).json(limitCheck);
+    }
+
     const {
-  title,
-  description = "",
-  price,
-  images = [],
-  currency = "RON",
-  category = null,
+      title,
+      description = "",
+      price,
+      images = [],
+      currency = "RON",
+      category = null,
+      color = null,
 
-  // culoare
-  color = null,
+      availability,
+      leadTimeDays,
+      readyQty,
+      nextShipDate,
+      acceptsCustom = false,
+      isHidden = false,
+      isActive = true,
 
-  // handmade
-  availability,
-  leadTimeDays,
-  readyQty,
-  nextShipDate,
-  acceptsCustom = false,
-  isHidden = false,
-  isActive = true, // ✅ NOU: putem controla activ/inactiv la creare
-
-  // detalii structurate
-  materialMain,
-  technique,
-  styleTags,
-  occasionTags,
-  dimensions,
-  careInstructions,
-  specialNotes,
-} = req.body || {};
+      materialMain,
+      technique,
+      styleTags,
+      occasionTags,
+      dimensions,
+      careInstructions,
+      specialNotes,
+    } = req.body || {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
       return res.status(400).json({ error: "invalid_title" });
@@ -371,20 +501,16 @@ async function createProduct(req, res) {
       cat = c;
     }
 
-    // 🔹 validare + normalizare culoare (folosim COLOR_SET)
+    // culoare tolerantă
     let colorCode = null;
-if (color != null && String(color).trim() !== "") {
-  const c = String(color).trim();
-
-  if (COLOR_SET.has(c)) {
-    // culoare cunoscută -> o salvăm
-    colorCode = c;
-  } else {
-    // culoare necunoscută -> nu blocăm request-ul, doar o ignorăm
-    console.warn("Unknown color code from payload:", c);
-    colorCode = null;
-  }
-}
+    if (color != null && String(color).trim() !== "") {
+      const c = String(color).trim();
+      if (COLOR_SET.has(c)) colorCode = c;
+      else {
+        console.warn("Unknown color code from payload:", c);
+        colorCode = null;
+      }
+    }
 
     const availNorm = normalizeAvailabilityPayload(
       { availability, leadTimeDays, readyQty, nextShipDate },
@@ -396,34 +522,33 @@ if (color != null && String(color).trim() !== "") {
     const occasionTagsNorm = normalizeTags(occasionTags);
 
     const created = await prisma.product.create({
-  data: {
-    serviceId: service.id,
-    title: title.trim(),
-    description: String(description || ""),
-    priceCents,
-    currency: String(currency || "RON"),
-    images: imgs,
-    isActive: !!isActive,      // ✅ NOU
-    isHidden: !!isHidden,
-    category: cat,
+      data: {
+        serviceId: service.id,
+        title: title.trim(),
+        description: String(description || ""),
+        priceCents,
+        currency: String(currency || "RON"),
+        images: imgs,
+        isActive: !!isActive,
+        isHidden: !!isHidden,
+        category: cat,
+        color: colorCode,
 
-    color: colorCode,
+        availability: availNorm.availability,
+        leadTimeDays: availNorm.leadTimeDays,
+        readyQty: availNorm.readyQty,
+        nextShipDate: availNorm.nextShipDate,
+        acceptsCustom: !!acceptsCustom,
 
-    availability: availNorm.availability,
-    leadTimeDays: availNorm.leadTimeDays,
-    readyQty: availNorm.readyQty,
-    nextShipDate: availNorm.nextShipDate,
-    acceptsCustom: !!acceptsCustom,
-
-    materialMain: materialMain ? String(materialMain).trim() : null,
-    technique: technique ? String(technique).trim() : null,
-    styleTags: styleTagsNorm,
-    occasionTags: occasionTagsNorm,
-    dimensions: dimensions ? String(dimensions).trim() : null,
-    careInstructions: careInstructions ? String(careInstructions) : null,
-    specialNotes: specialNotes ? String(specialNotes) : null,
-  },
-});
+        materialMain: materialMain ? String(materialMain).trim() : null,
+        technique: technique ? String(technique).trim() : null,
+        styleTags: styleTagsNorm,
+        occasionTags: occasionTagsNorm,
+        dimensions: dimensions ? String(dimensions).trim() : null,
+        careInstructions: careInstructions ? String(careInstructions) : null,
+        specialNotes: specialNotes ? String(specialNotes) : null,
+      },
+    });
 
     return res.status(201).json(mapProduct(created));
   } catch (e) {
@@ -489,65 +614,53 @@ async function updateProduct(req, res) {
       }
     }
 
-    // 🔹 culoare (cu validare COLOR_SET, dar tolerantă)
-if (req.body.color !== undefined) {
-  const v = req.body.color;
-  if (v == null || String(v).trim() === "") {
-    patch.color = null;
-  } else {
-    const c = String(v).trim();
-    if (COLOR_SET.has(c)) {
-      patch.color = c;        // culoare cunoscută
-    } else {
-      console.warn("Unknown color code on update:", c);
-      patch.color = null;     // ignorăm ce nu recunoaștem
+    // culoare tolerantă
+    if (req.body.color !== undefined) {
+      const v = req.body.color;
+      if (v == null || String(v).trim() === "") {
+        patch.color = null;
+      } else {
+        const c = String(v).trim();
+        if (COLOR_SET.has(c)) {
+          patch.color = c;
+        } else {
+          console.warn("Unknown color code on update:", c);
+          patch.color = null;
+        }
+      }
     }
-  }
-}
 
-    // material principal
     if (req.body.materialMain !== undefined) {
       const v = req.body.materialMain;
-      patch.materialMain =
-        v == null || String(v).trim() === "" ? null : String(v).trim();
+      patch.materialMain = v == null || String(v).trim() === "" ? null : String(v).trim();
     }
 
-    // tehnică
     if (req.body.technique !== undefined) {
       const v = req.body.technique;
-      patch.technique =
-        v == null || String(v).trim() === "" ? null : String(v).trim();
+      patch.technique = v == null || String(v).trim() === "" ? null : String(v).trim();
     }
 
-    // styleTags
     if (req.body.styleTags !== undefined) {
       patch.styleTags = normalizeTags(req.body.styleTags);
     }
 
-    // occasionTags
     if (req.body.occasionTags !== undefined) {
       patch.occasionTags = normalizeTags(req.body.occasionTags);
     }
 
-    // dimensiuni
     if (req.body.dimensions !== undefined) {
       const v = req.body.dimensions;
-      patch.dimensions =
-        v == null || String(v).trim() === "" ? null : String(v).trim();
+      patch.dimensions = v == null || String(v).trim() === "" ? null : String(v).trim();
     }
 
-    // instrucțiuni de îngrijire
     if (req.body.careInstructions !== undefined) {
       const v = req.body.careInstructions;
-      patch.careInstructions =
-        v == null || String(v).trim() === "" ? null : String(v);
+      patch.careInstructions = v == null || String(v).trim() === "" ? null : String(v);
     }
 
-    // special notes
     if (req.body.specialNotes !== undefined) {
       const v = req.body.specialNotes;
-      patch.specialNotes =
-        v == null || String(v).trim() === "" ? null : String(v);
+      patch.specialNotes = v == null || String(v).trim() === "" ? null : String(v);
     }
 
     const availNorm = normalizeAvailabilityPayload(req.body, product);
@@ -608,33 +721,29 @@ router.get("/public/store/:slug/products", publicListProducts);
 
 // Helper: înregistrează același set de rute sub un prefix (vendors și vendor)
 function registerProductRoutes(prefix) {
+  router.get(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, getProduct);
+
+  router.post(`/${prefix}/store/:slug/products`, authRequired, vendorAccessRequired, createProduct);
+
+  // UI helper (limits)
   router.get(
-    `/${prefix}/products/:id`,
+    `/${prefix}/store/:slug/products/limits`,
     authRequired,
     vendorAccessRequired,
-    getProduct
+    getProductLimits
+  );
+  
+  // UI helper: pricing (commission)
+  router.get(
+    `/${prefix}/store/:slug/products/pricing`,
+    authRequired,
+    vendorAccessRequired,
+    getProductPricing
   );
 
-  router.post(
-    `/${prefix}/store/:slug/products`,
-    authRequired,
-    vendorAccessRequired,
-    createProduct
-  );
+  router.put(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, updateProduct);
 
-  router.put(
-    `/${prefix}/products/:id`,
-    authRequired,
-    vendorAccessRequired,
-    updateProduct
-  );
-
-  router.delete(
-    `/${prefix}/products/:id`,
-    authRequired,
-    vendorAccessRequired,
-    deleteProduct
-  );
+  router.delete(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, deleteProduct);
 }
 
 // montează pe ambele prefixuri:
@@ -642,11 +751,6 @@ registerProductRoutes("vendors"); // canonical
 registerProductRoutes("vendor");  // alias pt. front-urile care folosesc singular
 
 // alias simplu: /api/products/:id pentru vendor dashboard
-router.get(
-  "/products/:id",
-  authRequired,
-  vendorAccessRequired,
-  getProduct
-);
+router.get("/products/:id", authRequired, vendorAccessRequired, getProduct);
 
 export default router;

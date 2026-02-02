@@ -705,6 +705,15 @@ export default function Navbar() {
             <NavLink className={styles.navLink} to="/admin/incidents">
               Incidente
             </NavLink>
+            <NavLink className={styles.navLink} to="/admin/vendor-plans" end>
+              Abonamente
+            </NavLink>
+            <NavLink className={styles.navLink} to="/admin/pickups" end>
+              Colete
+            </NavLink>
+            <NavLink className={styles.navLink} to="billing" end>
+              Facturare
+            </NavLink>
           </nav>
 
           <div className={styles.actionsRight}>

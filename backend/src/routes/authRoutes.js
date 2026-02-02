@@ -538,8 +538,8 @@ router.post("/login", async (req, res) => {
 
     const jwt = signToken({ sub: user.id, role: user.role, tv: user.tokenVersion });
 
-    const maxAge = (remember ? 30 : 7) * 24 * 60 * 60 * 1000;
-    res.cookie("token", jwt, cookieOpts(req, maxAge));
+const maxAge = remember ? 30 * 24 * 60 * 60 * 1000 : undefined; // OFF => session cookie
+res.cookie("token", jwt, cookieOpts(req, maxAge));
 
     const displayName =
       user.name || [user.firstName, user.lastName].filter(Boolean).join(" ") || "";

@@ -6,23 +6,12 @@ import { sendVendorFollowUpReminderEmail } from "../lib/mailer.js";
 export async function runFollowUpNotificationJob() {
   const now = new Date();
 
-  // Căutăm thread-urile unde followUpAt a ajuns + nu sunt arhivate
-  // și NU au deja notificare "followup" generată de job (dedupe corect).
+  // ✅ Luăm doar thread-urile care sunt due + ne-arhivate + încă nenotificate
   const threads = await prisma.messageThread.findMany({
     where: {
-      followUpAt: { lte: now },
+      followUpAt: { not: null, lte: now },
       archived: false,
-
-      // ✅ Dedupe doar pentru notificările generate de job (nu blochează "follow-up setat" etc.)
-      notifications: {
-        none: {
-          type: "followup",
-          meta: {
-            path: ["generatedByJob"],
-            equals: true,
-          },
-        },
-      },
+      followUpNotifiedAt: null, // ✅ cheia anti-spam
     },
     select: {
       id: true,
@@ -39,10 +28,24 @@ export async function runFollowUpNotificationJob() {
     },
   });
 
-  if (!threads.length) return;
+  if (!threads.length) {
+    console.log("[followUpNotificationJob] created 0 followup notifications + emails");
+    return;
+  }
+
+  let created = 0;
 
   for (const thread of threads) {
     const followDate = thread.followUpAt;
+
+    // ✅ claim atomic: dacă între timp altă rulare a job-ului l-a procesat,
+    // updateMany va avea count=0 și nu mai facem nimic
+    const claimed = await prisma.messageThread.updateMany({
+      where: { id: thread.id, followUpNotifiedAt: null },
+      data: { followUpNotifiedAt: now },
+    });
+
+    if (claimed.count === 0) continue;
 
     const readableDate = followDate
       ? followDate.toLocaleString("ro-RO", {
@@ -54,11 +57,15 @@ export async function runFollowUpNotificationJob() {
         })
       : "";
 
-    // ✅ Ruta corectă către vendor UI (din frontend-ul tău)
     const threadLink = `/vendor/messages?threadId=${thread.id}`;
 
-    // 1) Notificare în dashboard vendor
+    // ✅ dedupeKey stabil: o singură notificare per thread follow-up
+    // (funcționează doar dacă ai dedupeKey @unique în Notification)
+    const dedupeKey = `followup:${thread.id}`;
+
+    // 1) Notificare în dashboard vendor (o singură dată)
     await createVendorNotification(thread.vendorId, {
+      dedupeKey,
       type: "followup",
       title: `Follow-up pentru ${thread.contactName || "client"}`,
       body: readableDate
@@ -67,16 +74,14 @@ export async function runFollowUpNotificationJob() {
       link: threadLink,
       meta: {
         generatedByJob: true,
+        threadId: thread.id,
         contactPhone: thread.contactPhone || null,
         followUpAt: followDate ? followDate.toISOString() : null,
       },
-      // dacă vrei să "pară" că a fost creată fix la followUpAt:
-      // createdAt: followDate,
     });
 
-    // 2) Email către vendor
-    const vendorEmail =
-      thread.vendor?.email || thread.vendor?.user?.email || null;
+    // 2) Email către vendor (o singură dată, protejat de claim)
+    const vendorEmail = thread.vendor?.email || thread.vendor?.user?.email || null;
 
     if (vendorEmail) {
       await sendVendorFollowUpReminderEmail({
@@ -86,9 +91,11 @@ export async function runFollowUpNotificationJob() {
         threadLink,
       });
     }
+
+    created += 1;
   }
 
   console.log(
-    `[followUpNotificationJob] created ${threads.length} followup notifications + emails`
+    `[followUpNotificationJob] created ${created} followup notifications + emails`
   );
 }

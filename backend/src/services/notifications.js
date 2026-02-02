@@ -3,21 +3,29 @@ import { prisma } from "../db.js";
 
 /**
  * Creează o notificare pentru un user (client).
+ * ✅ Dedupe safe: dacă există unică (dedupeKey), ignoră duplicatele (P2002).
  */
 export async function createUserNotification(userId, data) {
   if (!userId) return null;
 
-  return prisma.notification.create({
-    data: {
-      userId,
-      vendorId: null,
-      ...data, // type, title, body, link, meta etc.
-    },
-  });
+  try {
+    return await prisma.notification.create({
+      data: {
+        userId,
+        vendorId: null,
+        ...data, // type, title, body, link, meta, dedupeKey etc.
+      },
+    });
+  } catch (e) {
+    // Prisma unique violation
+    if (e?.code === "P2002") return null;
+    throw e;
+  }
 }
 
 /**
  * Creează o notificare pentru vendor (user-ul din dashboard).
+ * ✅ Dedupe safe: dacă există unică (dedupeKey), ignoră duplicatele (P2002).
  */
 export async function createVendorNotification(vendorId, data) {
   const vendor = await prisma.vendor.findUnique({
@@ -27,13 +35,18 @@ export async function createVendorNotification(vendorId, data) {
 
   if (!vendor) throw new Error("vendor_not_found");
 
-  return prisma.notification.create({
-    data: {
-      userId: vendor.userId,
-      vendorId: vendor.id,
-      ...data,
-    },
-  });
+  try {
+    return await prisma.notification.create({
+      data: {
+        userId: vendor.userId,
+        vendorId: vendor.id,
+        ...data, // include dedupeKey dacă îl dai
+      },
+    });
+  } catch (e) {
+    if (e?.code === "P2002") return null;
+    throw e;
+  }
 }
 
 /* ============================================================
@@ -67,9 +80,8 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
         select: {
           id: true,
           displayName: true,
-          // ✅ luăm slug-ul magazinului din service->profile
           services: {
-            where: { status: "ACTIVE" }, // dacă nu ai status, scoate where-ul
+            where: { status: "ACTIVE" },
             take: 1,
             select: {
               id: true,
@@ -91,7 +103,8 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
 
   const authorName =
     (review.user?.name ||
-      [review.user?.firstName, review.user?.lastName].filter(Boolean).join(" "))?.trim() || "";
+      [review.user?.firstName, review.user?.lastName].filter(Boolean).join(" "))?.trim() ||
+    "";
 
   const author = authorName ? ` de la ${authorName}` : "";
   const preview = trimPreview(review.comment);
@@ -100,21 +113,17 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
   let body = `Ai primit o recenzie nouă pentru ${storeName}${author}.`;
   if (preview) body += `\n\n„${preview}”`;
 
-  // ✅ slug magazin (din service profile)
   const storeSlug = review.vendor?.services?.[0]?.profile?.slug;
 
-  // fallback simplu, ca să nu rupi dacă nu există slug
   const link = storeSlug
     ? `/magazin/${storeSlug}#review-${review.id}`
     : `/magazin/${vendorId}#review-${review.id}`;
 
-  const exists = await prisma.notification.findFirst({
-    where: { vendorId, type: "review", link },
-    select: { id: true },
-  });
-  if (exists) return null;
+  // ✅ dedupe atomic (fără race condition)
+  const dedupeKey = `store_review_created:${vendorId}:${review.id}`;
 
   return createVendorNotification(vendorId, {
+    dedupeKey,
     type: "review",
     title,
     body,
@@ -142,7 +151,7 @@ export async function notifyUserOnStoreReviewReply(reviewId) {
           id: true,
           displayName: true,
           services: {
-            where: { status: "ACTIVE" }, // dacă nu ai status, scoate where-ul
+            where: { status: "ACTIVE" },
             take: 1,
             select: {
               id: true,
@@ -171,13 +180,11 @@ export async function notifyUserOnStoreReviewReply(reviewId) {
     ? `/magazin/${storeSlug}#review-${review.id}`
     : `/magazin/${review.vendorId}#review-${review.id}`;
 
-  const exists = await prisma.notification.findFirst({
-    where: { userId: review.userId, type: "review", link, title },
-    select: { id: true },
-  });
-  if (exists) return null;
+  // ✅ dedupe atomic (un răspuns per review)
+  const dedupeKey = `store_review_reply:${review.userId}:${review.id}`;
 
   return createUserNotification(review.userId, {
+    dedupeKey,
     type: "review",
     title,
     body,
@@ -234,9 +241,7 @@ export async function notifyVendorOnProductReviewCreated(reviewId) {
 
   const authorName =
     (review.user?.name ||
-      [review.user?.firstName, review.user?.lastName]
-        .filter(Boolean)
-        .join(" "))?.trim() ||
+      [review.user?.firstName, review.user?.lastName].filter(Boolean).join(" "))?.trim() ||
     (review.user?.email ? review.user.email.split("@")[0] : "");
 
   const author = authorName ? ` de la ${authorName}` : "";
@@ -248,14 +253,11 @@ export async function notifyVendorOnProductReviewCreated(reviewId) {
 
   const link = `/produs/${review.productId}#review-${review.id}`;
 
-  // ✅ IMPORTANT: type "review" (unificat)
-  const exists = await prisma.notification.findFirst({
-    where: { vendorId, type: "review", link },
-    select: { id: true },
-  });
-  if (exists) return null;
+  // ✅ dedupe atomic
+  const dedupeKey = `product_review_created:${vendorId}:${review.id}`;
 
   return createVendorNotification(vendorId, {
+    dedupeKey,
     type: "review",
     title,
     body,
@@ -303,19 +305,15 @@ export async function notifyUserOnProductReviewReply(reviewId) {
   const preview = text.length > 140 ? text.slice(0, 137).trimEnd() + "..." : text;
 
   const title = `${vendorName} ți-a răspuns la recenzia ta`;
-  const body =
-    preview || `Ai primit un răspuns la recenzia ta pentru „${productTitle}”.`;
+  const body = preview || `Ai primit un răspuns la recenzia ta pentru „${productTitle}”.`;
 
   const link = `/produs/${review.productId}#review-${review.id}`;
 
-  // ✅ IMPORTANT: type "review" (unificat)
-  const exists = await prisma.notification.findFirst({
-    where: { userId: review.userId, type: "review", link, title },
-    select: { id: true },
-  });
-  if (exists) return null;
+  // ✅ dedupe atomic
+  const dedupeKey = `product_review_reply:${review.userId}:${review.id}`;
 
   return createUserNotification(review.userId, {
+    dedupeKey,
     type: "review",
     title,
     body,
@@ -335,10 +333,18 @@ export async function notifyUserOnProductReviewReply(reviewId) {
 export async function notifyUserOnOrderStatusChange(orderId, vendorUiStatus) {
   const o = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { id: true, userId: true, total: true, currency: true },
+    select: {
+      id: true,
+      orderNumber: true, // ✅
+      userId: true,
+      total: true,
+      currency: true,
+    },
   });
 
   if (!o || !o.userId) return null;
+
+  const displayNo = o.orderNumber || o.id; // ✅
 
   const totalNumber = Number(o.total || 0);
   const totalStr = `${totalNumber.toFixed(2)} ${o.currency || "RON"}`;
@@ -348,35 +354,40 @@ export async function notifyUserOnOrderStatusChange(orderId, vendorUiStatus) {
 
   switch (vendorUiStatus) {
     case "new":
-      title = `Comanda ta #${o.id} a fost înregistrată`;
+      title = `Comanda ta #${displayNo} a fost înregistrată`; // ✅
       body =
         `Comanda ta în valoare de ${totalStr} a ajuns la furnizor. ` +
         `Vei primi notificări pe parcursul procesării.`;
       break;
+
     case "preparing":
-      title = `Comanda #${o.id} este în pregătire`;
+      title = `Comanda #${displayNo} este în pregătire`; // ✅
       body = `Furnizorul pregătește produsele pentru expediere.`;
       break;
+
     case "confirmed":
-      title = `Comanda #${o.id} este pregătită pentru livrare`;
+      title = `Comanda #${displayNo} este pregătită pentru livrare`; // ✅
       body =
         `Comanda ta în valoare de ${totalStr} e pregătită pentru curier sau ridicare. ` +
         `Verifică detaliile în pagina comenzii.`;
       break;
+
     case "fulfilled":
-      title = `Comanda #${o.id} a fost livrată`;
+      title = `Comanda #${displayNo} a fost livrată`; // ✅
       body =
         `Comanda ta a fost marcată ca livrată. Sperăm să te bucuri de produse! ` +
         `Ne poți lăsa și un review.`;
       break;
+
     case "cancelled":
-      title = `Comanda #${o.id} a fost anulată de furnizor`;
+      title = `Comanda #${displayNo} a fost anulată de furnizor`; // ✅
       body =
         `Comanda ta în valoare de ${totalStr} a fost anulată de furnizor. ` +
         `Dacă ai întrebări, te rugăm să contactezi suportul.`;
       break;
+
     default:
-      title = `Status actualizat pentru comanda #${o.id}`;
+      title = `Status actualizat pentru comanda #${displayNo}`; // ✅
       body = `Statusul comenzii tale a fost actualizat de către furnizor.`;
   }
 
@@ -384,7 +395,7 @@ export async function notifyUserOnOrderStatusChange(orderId, vendorUiStatus) {
     type: "order",
     title,
     body,
-    link: `/comanda/${o.id}`,
+    link: `/comanda/${o.id}`, // ✅ rămâne pe id
   });
 }
 
@@ -392,7 +403,13 @@ export async function notifyUserOnInvoiceIssued(orderId, invoiceId) {
   const [order, invoice] = await Promise.all([
     prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, userId: true, total: true, currency: true },
+      select: {
+        id: true,
+        orderNumber: true, // ✅
+        userId: true,
+        total: true,
+        currency: true,
+      },
     }),
     prisma.invoice.findUnique({
       where: { id: invoiceId },
@@ -402,16 +419,20 @@ export async function notifyUserOnInvoiceIssued(orderId, invoiceId) {
 
   if (!order || !order.userId) return null;
 
+  const displayNo = order.orderNumber || order.id; // ✅
+
   const totalNumber = Number(order.total || 0);
   const totalStr = `${totalNumber.toFixed(2)} ${order.currency || "RON"}`;
 
   const invNo = invoice?.number || "factură";
+  const dedupeKey = `invoice_issued:${order.userId}:${invoiceId}`;
 
   return createUserNotification(order.userId, {
+    dedupeKey,
     type: "invoice",
-    title: `Ai o factură nouă pentru comanda #${order.id}`,
+    title: `Ai o factură nouă pentru comanda #${displayNo}`, // ✅
     body: `Factura ${invNo} a fost emisă pentru comanda ta în valoare de ${totalStr}.`,
-    link: `/comanda/${order.id}`,
+    link: `/comanda/${order.id}`, // ✅ rămâne pe id
   });
 }
 
@@ -419,7 +440,7 @@ export async function notifyUserOnShipmentPickupScheduled(orderId, shipmentId) {
   const [order, shipment] = await Promise.all([
     prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, userId: true },
+      select: { id: true, orderNumber: true, userId: true }, // ✅
     }),
     prisma.shipment.findUnique({
       where: { id: shipmentId },
@@ -434,6 +455,8 @@ export async function notifyUserOnShipmentPickupScheduled(orderId, shipmentId) {
 
   if (!order || !order.userId) return null;
 
+  const displayNo = order.orderNumber || order.id; // ✅
+
   const awb = shipment?.awb || null;
   const courier =
     shipment?.courierProvider || shipment?.courierService || "curier";
@@ -444,11 +467,14 @@ export async function notifyUserOnShipmentPickupScheduled(orderId, shipmentId) {
   if (hasTracking)
     body += ` Poți urmări livrarea în pagina comenzii sau în linkul de tracking.`;
 
+  const dedupeKey = `shipment_pickup:${order.userId}:${shipmentId}`;
+
   return createUserNotification(order.userId, {
+    dedupeKey,
     type: "shipping",
-    title: `Coletul pentru comanda #${order.id} este în drum spre tine`,
+    title: `Coletul pentru comanda #${displayNo} este în drum spre tine`, // ✅
     body,
-    link: `/comanda/${order.id}`,
+    link: `/comanda/${order.id}`, // ✅ rămâne pe id
   });
 }
 
@@ -469,12 +495,12 @@ export async function notifyUserOnSupportReply(ticketId, options = {}) {
   if (messagePreview) {
     const trimmed = messagePreview.trim();
     if (trimmed) {
-      const short =
-        trimmed.length > 120 ? trimmed.slice(0, 117).trimEnd() + "..." : trimmed;
+      const short = trimmed.length > 120 ? trimmed.slice(0, 117).trimEnd() + "..." : trimmed;
       body += `\n\n„${short}”`;
     }
   }
 
+  // de obicei vrei fiecare reply -> fără dedupeKey (sau poți dedupe pe messageId dacă ai)
   return createUserNotification(ticket.requesterId, {
     type: "support",
     title: `Răspuns nou la tichetul tău`,
@@ -509,6 +535,7 @@ export async function notifyUserOnSupportStatusChange(ticketId, newStatus) {
     body = `Tichetul "${subject}" a fost marcat ca rezolvat/închis. Dacă mai ai întrebări, poți deschide un tichet nou.`;
   }
 
+  // aici e ok să trimiți de fiecare dată
   return createUserNotification(ticket.requesterId, {
     type: "support",
     title,
@@ -521,9 +548,9 @@ export async function notifyUserOnInboxMessage(thread, messageBody) {
   if (!thread || !thread.userId) return null;
 
   const trimmed = String(messageBody || "").trim();
-  const short =
-    trimmed.length > 140 ? trimmed.slice(0, 137).trimEnd() + "..." : trimmed;
+  const short = trimmed.length > 140 ? trimmed.slice(0, 137).trimEnd() + "..." : trimmed;
 
+  // dacă ai messageId, dedupe pe el; aici n-avem, deci lăsăm fără dedupeKey
   return createUserNotification(thread.userId, {
     type: "message",
     title: `Mesaj nou de la ${thread.vendor?.displayName || "magazin"}`,
@@ -579,17 +606,13 @@ export async function notifyVendorOnProductCommentCreated(commentId) {
   let body = `Ai primit un comentariu nou pentru „${productTitle}”${author}.`;
   if (preview) body += `\n\n„${preview}”`;
 
-  // ancoră pentru comentariu (front-ul tău poate folosi id-ul)
   const link = `/produs/${c.productId}#comment-${c.id}`;
 
-  // dedupe: aceeași notificare pentru același comment
-  const exists = await prisma.notification.findFirst({
-    where: { vendorId, type: "review", link },
-    select: { id: true },
-  });
-  if (exists) return null;
+  // ✅ dedupe atomic: un comment -> o notificare
+  const dedupeKey = `product_comment_created:${vendorId}:${c.id}`;
 
   return createVendorNotification(vendorId, {
+    dedupeKey,
     type: "review",
     title,
     body,
@@ -606,7 +629,6 @@ export async function notifyVendorOnProductCommentCreated(commentId) {
 
 /**
  * User: primește reply la comentariul lui (când se creează un comment cu parentId).
- * IMPORTANT: varianta asta NU cere relation `parent` în Prisma.
  */
 export async function notifyUserOnProductCommentReply(commentId) {
   if (!commentId) return null;
@@ -619,7 +641,7 @@ export async function notifyUserOnProductCommentReply(commentId) {
       parentId: true,
       text: true,
       createdAt: true,
-      userId: true, // autor reply
+      userId: true,
       user: {
         select: { id: true, firstName: true, lastName: true, name: true, email: true },
       },
@@ -635,7 +657,6 @@ export async function notifyUserOnProductCommentReply(commentId) {
 
   if (!c?.parentId) return null;
 
-  // aflăm user-ul comentariului părinte
   const parent = await prisma.comment.findUnique({
     where: { id: c.parentId },
     select: { id: true, userId: true },
@@ -644,7 +665,6 @@ export async function notifyUserOnProductCommentReply(commentId) {
   const parentUserId = parent?.userId || null;
   if (!parentUserId) return null;
 
-  // nu notificăm dacă îți răspunzi singur
   if (parentUserId === c.userId) return null;
 
   const productTitle = c.product?.title || "produs";
@@ -661,13 +681,11 @@ export async function notifyUserOnProductCommentReply(commentId) {
 
   const link = `/produs/${c.productId}#comment-${c.id}`;
 
-  const exists = await prisma.notification.findFirst({
-    where: { userId: parentUserId, type: "review", link, title },
-    select: { id: true },
-  });
-  if (exists) return null;
+  // ✅ dedupe atomic: un reply -> o notificare
+  const dedupeKey = `product_comment_reply:${parentUserId}:${c.id}`;
 
   return createUserNotification(parentUserId, {
+    dedupeKey,
     type: "review",
     title,
     body,
@@ -687,7 +705,7 @@ export async function notifyUserOnProductCommentReply(commentId) {
 
 /**
  * Vendor: cineva a început să urmărească magazinul (service).
- * Dedupe: same vendorId + type + link + kind/serviceId.
+ * ✅ dedupe atomic (fără spam) folosind dedupeKey.
  */
 export async function notifyVendorOnStoreFollowCreated(serviceId, followerUserId = null) {
   if (!serviceId) return null;
@@ -712,26 +730,13 @@ export async function notifyVendorOnStoreFollowCreated(serviceId, followerUserId
   const vendorId = service.vendorId;
   const storeName = service.profile?.displayName || service.title || "magazinul tău";
 
-  // Link: ideal către pagina de followers din dashboard; sau către pagina magazinului public
-  // Alege una (eu păstrez dashboard-ul tău):
   const link = "/vendor/visitors";
 
-  // dedupe (opțional, dar recomandat)
-  const exists = await prisma.notification.findFirst({
-    where: {
-      vendorId,
-      type: "follow",
-      link,
-      // dacă ai meta JSON, poți dedup-ui mai strict după serviceId
-      // dar Prisma nu permite mereu filter JSON la fel în toate DB-urile,
-      // așa că păstrăm un dedupe simplu + title/link.
-      title: "Magazinul tău are un nou urmăritor",
-    },
-    select: { id: true },
-  });
-  if (exists) return null;
+  // ✅ o singură notificare per service + follower
+  const dedupeKey = `follow:${service.id}:${followerUserId || "anon"}`;
 
   return createVendorNotification(vendorId, {
+    dedupeKey,
     type: "follow",
     title: "Magazinul tău are un nou urmăritor",
     body: `Cineva a început să urmărească ${storeName}.`,
@@ -741,6 +746,56 @@ export async function notifyVendorOnStoreFollowCreated(serviceId, followerUserId
       serviceId: service.id,
       storeSlug: service.profile?.slug || null,
       followerUserId: followerUserId || null,
+    },
+  });
+}
+
+export async function notifyVendorOnAwbAssigned(orderId, shipmentId) {
+  if (!orderId || !shipmentId) return null;
+
+  const [order, shipment] = await Promise.all([
+    prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        orderNumber: true,
+      },
+    }),
+    prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      select: {
+        id: true,
+        vendorId: true,
+        awb: true,
+        labelUrl: true,
+        trackingUrl: true,
+      },
+    }),
+  ]);
+
+  if (!order || !shipment?.vendorId) return null;
+
+  const displayNo = order.orderNumber || order.id;
+
+  const dedupeKey = `vendor_awb_assigned:${shipment.vendorId}:${shipment.id}:${shipment.awb || "noawb"}`;
+
+  return createVendorNotification(shipment.vendorId, {
+    dedupeKey,
+    type: "shipping",
+    title: `AWB disponibil pentru comanda #${displayNo}`,
+    body: shipment.awb
+      ? `AWB-ul a fost setat: ${shipment.awb}. Poți finaliza comanda după predare.`
+      : `AWB-ul a fost setat. Poți finaliza comanda după predare.`,
+    link: `/vendor/orders/${order.id}`,
+    meta: {
+      kind: "awb_assigned",
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      shipmentId: shipment.id,
+      awb: shipment.awb || null,
+      labelUrl: shipment.labelUrl || null,
+      trackingUrl: shipment.trackingUrl || null,
+      vendorId: shipment.vendorId,
     },
   });
 }

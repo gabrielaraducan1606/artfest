@@ -157,7 +157,8 @@ export default function OrderDetailsPage() {
   const ship = order.shipment || {};
   const addr = order.shippingAddress || {};
   const items = order.items || [];
-  const priceBreakdown = order.priceBreakdown || null;
+const priceBreakdown = order.priceBreakdown || null;
+const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
 
   const isCompany =
     order.customerType === "PJ" ||
@@ -234,9 +235,9 @@ export default function OrderDetailsPage() {
           <ArrowLeft size={16} /> Înapoi
         </button>
 
-        <h1 className={styles.h1}>
-          Comanda <code>{order.shortId || order.id}</code>
-        </h1>
+       <h1 className={styles.h1}>
+  Comanda <code>{order.orderNumber || order.shortId || order.id}</code>
+</h1>
 
         <div className={styles.headerActions}>
           {/* Mesaje client */}
@@ -524,39 +525,62 @@ export default function OrderDetailsPage() {
           </table>
         </div>
 
-        {/* 🔹 TOTAL + BREAKDOWN PRODUSE / TVA / TRANSPORT */}
-        <div className={styles.totalBar}>
-          <div>
-            Produse: <strong>{formatMoney(order.subtotal)}</strong>
-            {priceBreakdown && priceBreakdown.items && (
-              <div className={styles.muted}>
-                {formatMoney(priceBreakdown.items.net)} fără TVA +{" "}
-                {formatMoney(priceBreakdown.items.vat)} TVA
-              </div>
-            )}
-          </div>
-          <div>
-            Transport: <strong>{formatMoney(order.shippingTotal)}</strong>
-            {priceBreakdown && priceBreakdown.shipping && (
-              <div className={styles.muted}>
-                {formatMoney(priceBreakdown.shipping.net)} fără TVA +{" "}
-                {formatMoney(priceBreakdown.shipping.vat)} TVA
-              </div>
-            )}
-          </div>
-          <div>
-            Total: <strong>{formatMoney(order.total)}</strong>
-            {priceBreakdown && priceBreakdown.total && (
-              <div className={styles.muted}>
-                {formatMoney(priceBreakdown.total.net)} fără TVA +{" "}
-                {formatMoney(priceBreakdown.total.vat)} TVA
-                {priceBreakdown.vatRate > 0 && (
-                  <> (cota TVA {priceBreakdown.vatRate}%)</>
-                )}
-              </div>
-            )}
-          </div>
+     {/* 🔹 TOTAL (strict produse) */}
+<div className={styles.totalBar}>
+
+  {vf && (
+    <>
+     {/* 🔹 TOTAL (strict produse) */}
+<div className={styles.totalBar}>
+  <div>
+    Produsele tale: <strong>{formatMoney(order.subtotal)}</strong>
+    {priceBreakdown?.items && (
+      <div className={styles.muted}>
+        {formatMoney(priceBreakdown.items.net)} fără TVA +{" "}
+        {formatMoney(priceBreakdown.items.vat)} TVA
+      </div>
+    )}
+  </div>
+
+  {vf && (
+    <>
+      <div>
+        Bază comision (produse fără TVA):{" "}
+        <strong>{formatMoney(vf.itemsNet)}</strong>
+        <div className={styles.muted}>Comisionul se aplică pe NET</div>
+      </div>
+
+      <div>
+        Comision produse: <strong>{formatMoney(vf.commissionNet)}</strong>
+        <div className={styles.muted}>
+          {((vf.commissionBps || 0) / 100).toFixed(2)}%
         </div>
+      </div>
+
+      <div>
+        Îți rămâne (din produse):{" "}
+        <strong>{formatMoney(vf.vendorNetBeforeShipping)}</strong>
+        <div className={styles.muted}>Produse fără TVA − comision</div>
+      </div>
+    </>
+  )}
+</div>
+
+    </>
+  )}
+</div>
+
+{/* opțional: afișezi transportul separat, fără TVA */}
+<div className={styles.totalBar} style={{ marginTop: 10 }}>
+  <div>
+    Transport: <strong>{formatMoney(order.shippingTotal)}</strong>
+  </div>
+  <div>
+    Total comandă: <strong>{formatMoney(order.total)}</strong>
+  </div>
+</div>
+
+
       </section>
 
       {/* Info lead din inbox (dacă există) */}
@@ -1155,7 +1179,7 @@ function InvoiceModal({ order, onClose, onSaved }) {
       <div className={`${styles.modal} ${styles.invoiceModal}`}>
         <div className={styles.modalHead}>
           <h3>
-            Factură pentru comanda <code>{order.shortId || order.id}</code>
+            Factură pentru comanda <code>{order.orderNumber || order.shortId || order.id}</code>
           </h3>
           <button
             className={styles.iconBtn}
@@ -1572,7 +1596,7 @@ function CancelOrderModal({ order, onClose, onCancelled }) {
       <div className={styles.modal}>
         <div className={styles.modalHead}>
           <h3>
-            Anulează comanda <code>{order.shortId || order.id}</code>
+            Anulează comanda <code>{order.orderNumber || order.shortId || order.id}</code>
           </h3>
           <button
             className={styles.iconBtn}
