@@ -65,7 +65,7 @@
 
 /* ===== Dropdown ===== */
 .dropdown { position: relative; }
-.dropdownIcon { margin-left: 4px; font-size: 0.75rem; }
+.dropdownIcon { margin-left: 4px; font-size: 0.75rem; color: white; }
 .dropdownContent {
   display: none;
   position: absolute;
@@ -568,7 +568,7 @@
 .badgeMini {
   position: absolute;
   top: -1px;
-  right: -8%;
+  right: 18%;
   background: var(--color-primary);
   color: #fff;
   font-size: 10px;
@@ -828,4 +828,457 @@
 }
 @media (max-width: 768px){
   .modalBody .sellBtn { display: inline-flex; }
+}
+.iconWrapper {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+/* =========================
+   Notifications Popover
+   ========================= */
+
+.notifPanel{
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 18px 45px rgba(0,0,0,.18);
+  overflow: hidden;
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+
+.notifHead{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+}
+
+.notifTitle{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.notifClose{
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+}
+.notifClose:hover{
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+
+.notifBody{
+  padding: 8px;
+  max-height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.notifBody::-webkit-scrollbar{ width: 10px; }
+.notifBody::-webkit-scrollbar-thumb{
+  background: color-mix(in oklab, var(--color-border) 40%, var(--color-primary));
+  border-radius: 8px;
+}
+.notifBody::-webkit-scrollbar-track{ background: transparent; }
+
+.notifInfo{
+  padding: 10px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.notifError{
+  padding: 10px;
+  font-size: 13px;
+  color: #b91c1c;
+  background: color-mix(in oklab, #ef4444 10%, transparent);
+  border: 1px solid color-mix(in oklab, #ef4444 25%, transparent);
+  border-radius: 12px;
+}
+
+.notifList{
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.notifItem{ margin: 0; }
+
+.notifRow{
+  border-radius: 14px;
+  padding: 10px 10px 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: color-mix(in oklab, var(--surface) 85%, var(--color-border));
+  display: grid;
+  gap: 6px;
+  transition: background .15s ease, border-color .15s ease, transform .05s ease;
+}
+.notifRow:hover{
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+  background: color-mix(in oklab, var(--surface) 85%, var(--color-primary) 8%);
+}
+.notifRow:active{ transform: translateY(0.5px); }
+
+.notifUnread{
+  border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+}
+
+.notifRowTop{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.notifRowTitle{
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--color-text);
+  line-height: 1.25;
+}
+
+.notifRowText{
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+
+.notifRowActions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.notifActionBtn{
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.notifActionBtn:hover{
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+.notifActionBtn svg{
+  width: 16px;
+  height: 16px;
+}
+
+.notifFooter{
+  padding: 10px;
+  border-top: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+}
+
+.notifFullBtn{
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.notifFullBtn:hover{
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+
+/* Mobile: fă-l aproape full width */
+@media (max-width: 520px){
+  .notifPanel{
+    width: min(92vw, 380px) !important;
+    left: 12px !important;
+    right: 12px !important;
+  }
+}
+/* ===== Notifications Popover – compact pe mobil ===== */
+@media (max-width: 520px) {
+  .notifPanel {
+    width: min(86vw, 330px) !important;
+    left: 7vw !important;         /* centrat-ish */
+    right: auto !important;
+    border-radius: 14px;
+  }
+
+  .notifHead {
+    padding: 8px 10px;
+  }
+
+  .notifTitle {
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .notifClose {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+  }
+
+  .notifBody {
+    padding: 6px;
+    max-height: 280px;            /* mai mic */
+  }
+
+  .notifRow {
+    padding: 8px;
+    border-radius: 12px;
+    gap: 4px;
+  }
+
+  .notifRowTitle {
+    font-size: 12px;
+  }
+
+  .notifRowText {
+    font-size: 11px;
+  }
+
+  .notifActionBtn {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+
+  .notifFooter {
+    padding: 8px;
+  }
+
+  .notifFullBtn {
+    padding: 9px 10px;
+    font-size: 12px;
+    border-radius: 12px;
+  }
+}
+/* =========================
+   Messages Popover (fix layout)
+   Folosește clasele din JSX: notifPop/notifHead/notifBody/notifFooter/notifAllBtn
+   ========================= */
+
+.notifPop{
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 18px 45px rgba(0,0,0,.18);
+  overflow: hidden;
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+
+  /* 🔥 important: nu mai suprapune footer peste listă */
+  display: flex;
+  flex-direction: column;
+
+  /* opțional: max height ca să nu iasă din ecran */
+  max-height: min(520px, calc(100vh - 90px));
+}
+
+.notifHead{
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+}
+
+.notifBody{
+  flex: 1 1 auto;
+  padding: 8px;
+  overflow: auto;
+  overscroll-behavior: contain;
+
+  /* ✅ spațiu ca ultimul item să nu se “lipească” de footer */
+  padding-bottom: 12px;
+}
+
+.notifBody::-webkit-scrollbar{ width: 10px; }
+.notifBody::-webkit-scrollbar-thumb{
+  background: color-mix(in oklab, var(--color-border) 40%, var(--color-primary));
+  border-radius: 8px;
+}
+.notifBody::-webkit-scrollbar-track{ background: transparent; }
+
+.notifFooter{
+  flex: 0 0 auto;
+  padding: 10px;
+  border-top: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+}
+
+.notifEmpty{
+  padding: 10px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.notifList{
+  display: grid;
+  gap: 8px;
+}
+
+.notifItem{
+  width: 100%;
+  border: 1px solid transparent;
+  background: color-mix(in oklab, var(--surface) 85%, var(--color-border));
+  border-radius: 14px;
+  padding: 10px 10px 8px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .05s ease;
+}
+
+.notifItem:hover{
+  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
+  background: color-mix(in oklab, var(--surface) 85%, var(--color-primary) 8%);
+}
+.notifItem:active{ transform: translateY(0.5px); }
+
+/* butonul din footer (“Vezi toate mesajele”) */
+.notifAllBtn{
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.notifAllBtn:hover{
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+
+/* Mobile: aproape full width */
+@media (max-width: 520px){
+  .notifPop{
+    width: min(92vw, 380px) !important;
+    left: 12px !important;
+    right: 12px !important;
+  }
+
+  .notifBody{
+    max-height: min(360px, calc(100vh - 150px));
+  }
+}
+/* ===== Chat popover (desktop) ===== */
+.chatPop{
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  border-radius: 16px;
+  box-shadow: 0 18px 45px rgba(0,0,0,.18);
+  overflow: hidden;
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  display: flex;
+  flex-direction: column;
+}
+
+.chatPopInner{
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.chatPopHead{
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+}
+
+.chatPopBody{
+  flex: 1 1 auto;
+  padding: 12px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chatPopComposer{
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+}
+
+.chatPopInput{
+  flex: 1;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.chatPopInput:focus{
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
+  border-color: var(--color-primary);
+}
+
+.chatPopSend{
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.chatPopSend:hover{
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, transparent);
+}
+.chatPopSend:disabled{
+  opacity: .6;
+  cursor: not-allowed;
 }

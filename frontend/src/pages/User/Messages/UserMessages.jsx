@@ -17,7 +17,6 @@ import {
   X,
   Download,
   FileText,
-  Image as ImageIcon,
 } from "lucide-react";
 import styles from "./UserMessages.module.css";
 
@@ -148,14 +147,10 @@ function useMessages(threadId) {
     setLoading(true);
     setError(null);
     try {
-      const d = await api(`${API_BASE}/threads/${threadId}/messages`).catch(
-        () => null
-      );
+      const d = await api(`${API_BASE}/threads/${threadId}/messages`).catch(() => null);
       if (d?.items) setMsgs(d.items);
       else setMsgs([]);
-      await api(`${API_BASE}/threads/${threadId}/read`, {
-        method: "PATCH",
-      }).catch(() => {});
+      await api(`${API_BASE}/threads/${threadId}/read`, { method: "PATCH" }).catch(() => {});
     } catch (e) {
       setError(e?.message || "Eroare la încărcarea mesajelor");
     } finally {
@@ -179,8 +174,7 @@ function useMessages(threadId) {
 /* ========= Pagina ========= */
 export default function UserMessagesPage() {
   const [searchParams] = useSearchParams();
-  const threadIdFromUrl =
-    searchParams.get("threadId") || searchParams.get("thread") || null;
+  const threadIdFromUrl = searchParams.get("threadId") || searchParams.get("thread") || null;
 
   const [scope, setScope] = useState("all"); // all | unread | archived
   const [q, setQ] = useState("");
@@ -210,9 +204,7 @@ export default function UserMessagesPage() {
 
     const isBrowser = typeof window !== "undefined";
     const isMobile =
-      isBrowser &&
-      window.matchMedia &&
-      window.matchMedia("(max-width: 768px)").matches;
+      isBrowser && window.matchMedia && window.matchMedia("(max-width: 768px)").matches;
 
     if (threadIdFromUrl) return;
 
@@ -254,13 +246,8 @@ export default function UserMessagesPage() {
 
   const currentThreadId = activeThread?.threadId || activeThread?.id || null;
 
-  const {
-    loading: loadingMsgs,
-    msgs,
-    error: errMsgs,
-    setMsgs,
-    reload: reloadMsgs,
-  } = useMessages(currentThreadId);
+  const { loading: loadingMsgs, msgs, error: errMsgs, setMsgs, reload: reloadMsgs } =
+    useMessages(currentThreadId);
 
   const listRef = useRef(null);
   useEffect(() => {
@@ -280,12 +267,9 @@ export default function UserMessagesPage() {
   const [uploadingFiles, setUploadingFiles] = useState(false);
 
   const visibleThreads = useMemo(() => {
-    if (scope === "unread") {
+    if (scope === "unread")
       return threads.filter((t) => (t.unreadCount || 0) > 0 && !t.archived);
-    }
-    if (scope === "archived") {
-      return threads.filter((t) => t.archived);
-    }
+    if (scope === "archived") return threads.filter((t) => t.archived);
     return threads.filter((t) => !t.archived);
   }, [threads, scope]);
 
@@ -314,9 +298,7 @@ export default function UserMessagesPage() {
           }
           return {
             ...t,
-            threads: t.threads.map((th) =>
-              th.threadId === threadId ? { ...th, archived } : th
-            ),
+            threads: t.threads.map((th) => (th.threadId === threadId ? { ...th, archived } : th)),
           };
         })
       );
@@ -380,43 +362,58 @@ export default function UserMessagesPage() {
       await reloadThreads();
     } catch {
       setMsgs((m) =>
-        m.map((x) =>
-          x.id === optimistic.id ? { ...x, failed: true, pending: false } : x
-        )
+        m.map((x) => (x.id === optimistic.id ? { ...x, failed: true, pending: false } : x))
       );
     } finally {
       setSending(false);
     }
   }
-// ✅ Edit mesaj USER: PATCH /api/user-inbox/threads/:id/messages/:mid
-async function editMessage(messageId, newBody) {
-  if (!currentThreadId || !messageId) return;
-  try {
-    await api(`${API_BASE}/threads/${currentThreadId}/messages/${messageId}`, {
-      method: "PATCH",
-      body: { body: newBody },
-    });
-    await reloadMsgs();
-    await reloadThreads();
-  } catch (e) {
-    console.error("Eroare la editare mesaj", e);
-    alert("Nu am putut edita mesajul.");
-  }
-}
 
-// ✅ Șterge mesaj USER: DELETE /api/user-inbox/threads/:id/messages/:mid
-async function deleteMessage(messageId) {
+  // ✅ Edit mesaj USER (presupune că ai ruta PATCH în backend)
+  async function editMessage(messageId, newBody) {
+    if (!currentThreadId || !messageId) return;
+    if (String(messageId).startsWith("local_")) return;
+    try {
+      await api(`${API_BASE}/threads/${currentThreadId}/messages/${messageId}`, {
+        method: "PATCH",
+        body: { body: newBody },
+      });
+      await reloadMsgs();
+      await reloadThreads();
+    } catch (e) {
+      console.error("Eroare la editare mesaj", e);
+      alert("Nu am putut edita mesajul.");
+    }
+  }
+
+  async function deleteMessage(messageId) {
   if (!currentThreadId || !messageId) return;
+  if (String(messageId).startsWith("local_")) return;
   if (!window.confirm("Ștergi acest mesaj?")) return;
+
+  // ✅ optimistic: nu îl scoatem din UI, îl transformăm în placeholder
+  setMsgs((m) =>
+    m.map((x) =>
+      x.id === messageId
+        ? { ...x, _deletedLocal: true, body: "", attachments: x.attachments || [] }
+        : x
+    )
+  );
+
   try {
     await api(`${API_BASE}/threads/${currentThreadId}/messages/${messageId}`, {
       method: "DELETE",
     });
+
+    // ✅ dacă backend îl returnează încă (ideal), reload îl păstrează cu flag
     await reloadMsgs();
     await reloadThreads();
   } catch (e) {
     console.error("Eroare la ștergere mesaj", e);
     alert("Nu am putut șterge mesajul.");
+
+    // rollback (opțional): reîncarcă din server ca să revină mesajul
+    await reloadMsgs();
   }
 }
 
@@ -437,13 +434,11 @@ async function deleteMessage(messageId) {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
-    // adăugăm peste cele existente (max 10 total)
     setPickedFiles((prev) => {
       const merged = [...prev, ...files];
       return merged.slice(0, 10);
     });
 
-    // reset ca să putem selecta același fișier din nou
     e.target.value = "";
   };
 
@@ -453,22 +448,23 @@ async function deleteMessage(messageId) {
 
   const clearPickedFiles = () => setPickedFiles([]);
 
-  // ✅ Upload attachments -> POST /threads/:id/attachments (multipart)
+  // ✅ Upload attachments (FIX: folosim copie locală)
   const uploadPickedFiles = async () => {
     if (!currentThreadId) return;
     if (!pickedFiles.length) return;
 
-    // optimistic "message" with pending attachments
+    const filesToUpload = [...pickedFiles]; // ✅ copie locală
+
     const optimisticId = `local_att_${Date.now()}`;
     const optimistic = {
       id: optimisticId,
       threadId: currentThreadId,
       from: "me",
-      body: "", // mesaj container
+      body: "",
       createdAt: nowIso(),
       pending: true,
       readByPeer: false,
-      attachments: pickedFiles.map((f, i) => ({
+      attachments: filesToUpload.map((f, i) => ({
         id: `${optimisticId}_${i}`,
         url: null,
         name: f.name,
@@ -480,35 +476,41 @@ async function deleteMessage(messageId) {
 
     setMsgs((m) => [...m, optimistic]);
     setUploadingFiles(true);
-    clearPickedFiles();
+    clearPickedFiles(); // ✅ ok acum
 
     try {
       const fd = new FormData();
-      pickedFiles.forEach((f) => fd.append("files", f));
+      filesToUpload.forEach((f) => fd.append("files", f)); // ✅ folosește copia
 
-      // IMPORTANT: api() probabil trimite JSON implicit.
-      // Pentru multipart folosim fetch direct.
+      const token =
+        localStorage.getItem("token") ||
+        localStorage.getItem("accessToken") ||
+        sessionStorage.getItem("token") ||
+        sessionStorage.getItem("accessToken");
+
       const resp = await fetch(`${API_BASE}/threads/${currentThreadId}/attachments`, {
         method: "POST",
         body: fd,
         credentials: "include",
         headers: {
-          // nu seta Content-Type! browser îl pune singur cu boundary
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
 
       const data = await resp.json().catch(() => null);
-      if (!resp.ok) throw new Error(data?.error || "upload_failed");
 
-      // după upload: reîncărcăm conversația ca să prindem mesajul + urls
+      if (!resp.ok) {
+        console.error("Upload attachments failed:", { status: resp.status, data });
+        const msg =
+          data?.message || data?.details || data?.error || `upload_failed_${resp.status}`;
+        throw new Error(msg);
+      }
+
       await reloadMsgs();
       await reloadThreads();
     } catch (e) {
-      // mark failed optimistic
       setMsgs((m) =>
-        m.map((x) =>
-          x.id === optimisticId ? { ...x, failed: true, pending: false } : x
-        )
+        m.map((x) => (x.id === optimisticId ? { ...x, failed: true, pending: false } : x))
       );
       console.error("Upload failed", e);
       alert("Nu am putut încărca fișierele. Încearcă din nou.");
@@ -544,16 +546,14 @@ async function deleteMessage(messageId) {
   return (
     <>
       <div className={styles.wrap} data-mobile-open={hasCurrent ? "1" : "0"}>
-        {/* Sidebar conversații */}
+        {/* Sidebar */}
         <aside className={styles.sidebar}>
           <div className={styles.sideHead}>
             <div className={styles.sideTitle}>
               <MessageSquare size={18} /> Mesaje
             </div>
             <button
-              className={`${styles.iconBtn} ${
-                loadingThreads ? styles.iconBtnLoading : ""
-              }`}
+              className={`${styles.iconBtn} ${loadingThreads ? styles.iconBtnLoading : ""}`}
               title="Reîncarcă"
               onClick={reloadThreads}
               type="button"
@@ -614,12 +614,8 @@ async function deleteMessage(messageId) {
           </div>
 
           <div className={styles.threadList}>
-            {loadingThreads && !threads.length && (
-              <div className={styles.empty}>Se încarcă…</div>
-            )}
-            {errThreads && (
-              <div className={styles.error}>Nu am putut încărca conversațiile.</div>
-            )}
+            {loadingThreads && !threads.length && <div className={styles.empty}>Se încarcă…</div>}
+            {errThreads && <div className={styles.error}>Nu am putut încărca conversațiile.</div>}
             {!loadingThreads && !visibleThreads.length && (
               <div className={styles.empty}>Nu există conversații.</div>
             )}
@@ -655,7 +651,9 @@ async function deleteMessage(messageId) {
                       <span className={styles.threadName}>
                         {name}
                         {orderBadge && (
-                          <span className={styles.threadOrderBadge}>{" · "}Comanda {orderBadge}</span>
+                          <span className={styles.threadOrderBadge}>
+                            {" · "}Comanda {orderBadge}
+                          </span>
                         )}
                       </span>
                       <span className={styles.threadTime}>{fmtTime(t.lastAt)}</span>
@@ -665,37 +663,6 @@ async function deleteMessage(messageId) {
                       <span className={styles.threadLastMsg}>{lastMsg}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         {t.archived && <span className={styles.threadStatus}>Arhivat</span>}
-
-                        {!isStoreGroup && (
-                          <span className={styles.threadInlineActions}>
-                            <button
-                              type="button"
-                              className={styles.threadIconBtn}
-                              title={t.archived ? "Dezarhivează conversația" : "Arhivează conversația"}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                archiveThread(t.id, !t.archived);
-                              }}
-                            >
-                              <Archive size={14} />
-                            </button>
-
-                            <button
-                              type="button"
-                              className={`${styles.threadIconBtn} ${styles.threadIconBtnDanger}`}
-                              title="Șterge conversația"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                deleteThread(t.id);
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </span>
-                        )}
-
                         {hasUnread && <span className={styles.unreadBadge}>{t.unreadCount}</span>}
                       </div>
                     </div>
@@ -710,9 +677,7 @@ async function deleteMessage(messageId) {
         <section
           className={styles.chat}
           style={
-            isDragging
-              ? { transform: `translateY(${dragY}px)`, transition: "none" }
-              : undefined
+            isDragging ? { transform: `translateY(${dragY}px)`, transition: "none" } : undefined
           }
           onTouchStart={handleSheetTouchStart}
           onTouchMove={handleSheetTouchMove}
@@ -794,12 +759,16 @@ async function deleteMessage(messageId) {
                       <button
                         key={th.threadId}
                         type="button"
-                        className={th.threadId === currentThreadId ? styles.orderTabActive : styles.orderTab}
+                        className={
+                          th.threadId === currentThreadId ? styles.orderTabActive : styles.orderTab
+                        }
                         onClick={() => setActiveThreadId(th.threadId)}
                       >
                         <span>{sid ? `Comanda ${sid}` : "Conversație fără comandă"}</span>
                         {th.lastAt && <span className={styles.orderTabDate}>{fmtDate(th.lastAt)}</span>}
-                        {th.unreadCount > 0 && <span className={styles.unreadBadge}>{th.unreadCount}</span>}
+                        {th.unreadCount > 0 && (
+                          <span className={styles.unreadBadge}>{th.unreadCount}</span>
+                        )}
                       </button>
                     );
                   })}
@@ -812,18 +781,17 @@ async function deleteMessage(messageId) {
 
                 {msgs.map((m) => (
                   <MessageBubble
-   key={m.id}
-    mine={m.from === "me"}
-    msg={m}
-    onEdit={(body) => editMessage(m.id, body)}
-    onDelete={() => deleteMessage(m.id)}
-  />
+                    key={m.id}
+                    mine={m.from === "me"}
+                    msg={m}
+                    onEdit={(body) => editMessage(m.id, body)}
+                    onDelete={() => deleteMessage(m.id)}
+                  />
                 ))}
               </div>
 
-              {/* ✅ Composer */}
+              {/* Composer */}
               <footer className={styles.composer}>
-                {/* hidden file input */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -843,7 +811,6 @@ async function deleteMessage(messageId) {
                 </button>
 
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {/* picked files preview */}
                   {!!pickedFiles.length && (
                     <div className={styles.attachPreviewRow}>
                       {pickedFiles.map((f, idx) => (
@@ -922,70 +889,33 @@ async function deleteMessage(messageId) {
     </>
   );
 }
+
 function MessageBubble({ mine, msg, onEdit, onDelete }) {
   const isPending = msg.pending;
   const isFailed = msg.failed;
   const readByPeer = !!msg.readByPeer;
+function isDeletedPlaceholder(m) {
+  // 1) dacă backend trimite un flag (recomandat) — ex: m.deleted === true
+  if (m?.deleted) return true;
 
-  const atts = Array.isArray(msg.attachments) ? msg.attachments : [];
-  const hasAttachments = atts.length > 0;
+  // 2) dacă noi îl marcăm local după DELETE
+  if (m?._deletedLocal) return true;
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState(msg.body || "");
-// ✅ long-press actions (mobile)
-const [showActions, setShowActions] = useState(false);
-const pressTimerRef = useRef(null);
+  // 3) fallback: dacă body e gol și nu are attachments (opțional)
+  // return !String(m?.body || "").trim() && !(m?.attachments?.length > 0);
 
-const isTouchDevice =
-  typeof window !== "undefined" &&
-  window.matchMedia &&
-  window.matchMedia("(pointer: coarse)").matches;
-
-const LONG_PRESS_MS = 320;
-
-const startPress = () => {
-  if (!isTouchDevice) return;   // doar touch
-  if (isPending) return;        // nu pentru pending
-  if (isEditing) return;        // nu când editezi
-  clearTimeout(pressTimerRef.current);
-  pressTimerRef.current = setTimeout(() => {
-    setShowActions(true);
-    // feedback haptic doar dacă e permis
-    if (navigator?.vibrate) navigator.vibrate(10);
-  }, LONG_PRESS_MS);
-};
-
-const cancelPress = () => {
-  clearTimeout(pressTimerRef.current);
-  pressTimerRef.current = null;
-};
-
-  useEffect(() => {
-    setEditText(msg.body || "");
-  }, [msg.body]);
-
-  function triggerBrowserDownload(url) {
-  if (!url) return;
-  const a = document.createElement("a");
-  a.href = url;
-  a.rel = "noreferrer";
-  // a.download = "atasament"; // optional; pe cross-origin poate fi ignorat
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  return false;
 }
 
-const handleDownload = () => {
-  const att = atts?.[0];
-  if (!att) return;
+const isDeleted = isDeletedPlaceholder(msg);
+const deletedText = mine ? "Mesaj șters de tine" : "Mesaj șters";
 
-  const url = att?.id
-    ? `${API_BASE}/attachments/${att.id}/download`
-    : att?.url;
+  const atts = useMemo(() => {
+    const a = msg?.attachments;
+    return Array.isArray(a) ? a : [];
+  }, [msg?.attachments]);
 
-  triggerBrowserDownload(url);
-};
-
+  const hasAttachments = atts.length > 0;
 
   function shouldRenderBody(m) {
     const b = (m?.body || "").trim();
@@ -998,12 +928,77 @@ const handleDownload = () => {
     return true;
   }
 
+  const hasBody = !isDeleted && shouldRenderBody(msg);
+  const bubbleKind = hasAttachments && !hasBody ? "att" : "msg";
+
+  const imgAtts = useMemo(() => atts.filter((a) => isImageMime(a.mime)), [atts]);
+  const fileAtts = useMemo(() => atts.filter((a) => !isImageMime(a.mime)), [atts]);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(msg.body || "");
+
+  // ✅ long-press actions (mobile)
+  const [showActions, setShowActions] = useState(false);
+  const pressTimerRef = useRef(null);
+
+  const isTouchDevice =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(pointer: coarse)").matches;
+
+  const LONG_PRESS_MS = 320;
+
+  const startPress = () => {
+    if (!isTouchDevice) return;
+    if (isPending) return;
+    if (isEditing) return;
+    clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => {
+      setShowActions(true);
+      if (navigator?.vibrate) navigator.vibrate(10);
+    }, LONG_PRESS_MS);
+  };
+
+  const cancelPress = () => {
+    clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = null;
+  };
+
+  useEffect(() => {
+    setEditText(msg.body || "");
+  }, [msg.body]);
+
+  useEffect(() => {
+    setShowActions(false);
+  }, [msg.id, isEditing]);
+
+  function triggerBrowserDownload(url) {
+    if (!url) return;
+    const a = document.createElement("a");
+    a.href = url;
+    a.rel = "noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  const handleDownload = () => {
+    const att = atts?.[0];
+    if (!att) return;
+    const url = att?.id ? `${API_BASE}/attachments/${att.id}/download` : att?.url;
+    triggerBrowserDownload(url);
+  };
+
   async function saveEdit() {
     const v = (editText || "").trim();
     if (!v) return;
     await onEdit?.(v);
     setIsEditing(false);
   }
+
+  // ✅ nu arăta edit/delete pentru mesaje locale (optimistic)
+ const canMutate =
+  mine && !isPending && !isDeleted && !String(msg.id || "").startsWith("local_");
 
   let tickLabel = "";
   let tickClass = "";
@@ -1015,33 +1010,29 @@ const handleDownload = () => {
     tickClass = styles.readTickPending;
   } else if (mine) {
     tickLabel = readByPeer ? "✓✓" : "✓";
-    tickClass = readByPeer
-      ? `${styles.readTick} ${styles.readTickRead}`
-      : styles.readTick;
+    tickClass = readByPeer ? `${styles.readTick} ${styles.readTickRead}` : styles.readTick;
   }
-useEffect(() => {
-  setShowActions(false);
-}, [msg.id, isEditing]);
 
   return (
     <div className={`${styles.bubbleRow} ${mine ? styles.right : styles.left}`}>
-      {!mine && <div className={styles.avatarSm}>{initialsOf(msg.authorName || "M")}</div>}
-
       <div
-  className={`${styles.bubbleWrap} ${showActions ? styles.bubbleWrapActive : ""}`}
-  onTouchStart={startPress}
-  onTouchEnd={cancelPress}
-  onTouchMove={cancelPress}
-  onTouchCancel={cancelPress}
-  onContextMenu={(e) => {
-    if (isTouchDevice) {
-      e.preventDefault();
-      if (!isPending && (hasAttachments || mine)) setShowActions(true);
-    }
-  }}
->
-
-        <div className={`${styles.bubble} ${mine ? styles.mine : styles.theirs}`}>
+        className={`${styles.bubbleWrap} ${showActions ? styles.bubbleWrapActive : ""}`}
+        onTouchStart={startPress}
+        onTouchEnd={cancelPress}
+        onTouchMove={cancelPress}
+        onTouchCancel={cancelPress}
+        onContextMenu={(e) => {
+          if (isTouchDevice) {
+            e.preventDefault();
+            if (!isPending && (hasAttachments || canMutate)) setShowActions(true);
+          }
+        }}
+      >
+        <div
+          className={`${styles.bubble} ${mine ? styles.mine : styles.theirs}`}
+          data-state={isFailed ? "failed" : isPending ? "pending" : "ok"}
+          data-kind={bubbleKind}
+        >
           {isEditing ? (
             <textarea
               className={styles.editInput}
@@ -1062,41 +1053,77 @@ useEffect(() => {
             />
           ) : (
             <>
-              {shouldRenderBody(msg) && <div className={styles.bodyText}>{msg.body}</div>}
+             {isDeleted ? (
+  <div className={styles.bodyText} style={{ opacity: 0.65, fontStyle: "italic" }}>
+    {deletedText}
+  </div>
+) : (
+  hasBody && <div className={styles.bodyText}>{msg.body}</div>
+)}
+
 
               {!!atts.length && (
-                <div className={styles.attachments}>
-                  {atts.map((a) => {
-                    const img = isImageMime(a.mime);
-                    const previewHref = a?.url;
+                <div className={styles.attWrap}>
+                  {!!imgAtts.length && (
+                    <div className={styles.attGrid} data-count={imgAtts.length}>
+                      {imgAtts.map((a) => {
+                        const href = a?.url;
+                        return (
+                          <a
+                            key={a.id || a.name}
+                            className={styles.attThumb}
+                            href={href || "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => {
+                              if (!href) e.preventDefault();
+                            }}
+                            title={a.name}
+                          >
+                            {href ? (
+                              <img src={href} alt={a.name || "Imagine"} loading="lazy" />
+                            ) : (
+                              <div className={styles.attThumbPlaceholder}>IMG</div>
+                            )}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                    return (
-                      <a
-                        key={a.id || `${a.name}_${previewHref}`}
-                        className={styles.attachmentItem}
-                        href={previewHref || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => {
-                          if (!previewHref) e.preventDefault();
-                        }}
-                        title={a.name}
-                      >
-                        <span className={styles.attachmentIcon}>
-                          {img ? <ImageIcon size={16} /> : <FileText size={16} />}
-                        </span>
+                  {!!fileAtts.length && (
+                    <div className={styles.attFiles}>
+                      {fileAtts.map((a) => {
+                        const href = a?.id ? `${API_BASE}/attachments/${a.id}/download` : a?.url;
 
-                        <span className={styles.attachmentMeta}>
-                          <span className={styles.attachmentName}>{a.name || "Fișier"}</span>
-                          <span className={styles.attachmentSub}>
-                            {a.mime || "file"}
-                            {a.size ? ` · ${niceBytes(a.size)}` : ""}
-                            {a.pending ? " · în curs…" : ""}
-                          </span>
-                        </span>
-                      </a>
-                    );
-                  })}
+                        return (
+                          <a
+                            key={a.id || a.name}
+                            className={styles.attFileCard}
+                            href={href || "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => {
+                              if (!href) e.preventDefault();
+                            }}
+                            title={a.name}
+                          >
+                            <span className={styles.attFileIcon}>
+                              <FileText size={16} />
+                            </span>
+
+                            <span className={styles.attFileMeta}>
+                              <span className={styles.attFileName}>{a.name || "Fișier"}</span>
+                              <span className={styles.attFileSub}>
+                                {a.size ? niceBytes(a.size) : ""}
+                                {a.pending ? " · în curs…" : ""}
+                              </span>
+                            </span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -1109,17 +1136,12 @@ useEffect(() => {
                 {tickLabel}
               </span>
             )}
-            {isPending && <span>· în curs…</span>}
-            {isFailed && <span>· nereușit</span>}
           </div>
         </div>
 
-        {/* ✅ Acțiuni: download pt attachments; edit/delete doar pt mine; nu pt pending */}
-        {!isPending && (hasAttachments || mine) && (
-          <div
-  className={`${styles.msgActions} ${showActions ? styles.msgActionsOpen : ""}`}
->
-
+        {/* actions */}
+        {!isPending && (hasAttachments || canMutate) && (
+          <div className={`${styles.msgActions} ${showActions ? styles.msgActionsOpen : ""}`}>
             {!isEditing ? (
               <>
                 {hasAttachments && (
@@ -1128,26 +1150,24 @@ useEffect(() => {
                     className={styles.msgIconBtn}
                     title="Descarcă atașamentul"
                     onClick={() => {
-  setShowActions(false);
-  handleDownload();
-}}
-
+                      setShowActions(false);
+                      handleDownload();
+                    }}
                   >
                     <Download size={14} />
                   </button>
                 )}
 
-                {mine && (
+                {canMutate && (
                   <>
                     <button
                       type="button"
                       className={styles.msgIconBtn}
                       title="Editează"
                       onClick={() => {
-  setShowActions(false);
-  setIsEditing(true);
-}}
-
+                        setShowActions(false);
+                        setIsEditing(true);
+                      }}
                     >
                       <Pencil size={14} />
                     </button>
@@ -1157,10 +1177,9 @@ useEffect(() => {
                       className={`${styles.msgIconBtn} ${styles.msgIconBtnDanger}`}
                       title="Șterge"
                       onClick={() => {
-  setShowActions(false);
-  onDelete?.();
-}}
-
+                        setShowActions(false);
+                        onDelete?.();
+                      }}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -1168,7 +1187,7 @@ useEffect(() => {
                 )}
               </>
             ) : (
-              mine && (
+              canMutate && (
                 <>
                   <button type="button" className={styles.msgSaveBtn} onClick={saveEdit}>
                     Salvează

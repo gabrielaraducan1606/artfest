@@ -8,7 +8,14 @@ import { createVendorNotification } from "../services/notifications.js";
 const router = Router();
 const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
 
-const normalizeDigits = (v = "") => String(v).replace(/\D/g, "");
+const normalizeText = (v = "") => String(v || "").trim();
+const normalizeDigits = (v = "") => String(v || "").replace(/\D/g, "");
+const normalizeCui = (v = "") =>
+  String(v || "")
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/[^A-Z0-9]/g, "")
+    .trim();
 
 const isValidPhone = (v = "") => {
   const digits = normalizeDigits(v);
@@ -20,7 +27,23 @@ const isValidEmail = (v = "") => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 };
 
-// helper mic – exact ca în publicProductRoutes, dar local aici
+const isValidPostalCode = (v = "") => {
+  const trimmed = String(v || "").trim();
+  return !trimmed || /^\d{6}$/.test(trimmed);
+};
+
+const isValidCui = (v = "") => {
+  const cui = normalizeCui(v);
+
+  if (!cui) return false;
+
+  if (cui.startsWith("RO")) {
+    return /^RO\d{2,10}$/.test(cui);
+  }
+
+  return /^\d{2,10}$/.test(cui);
+};
+
 function mapPublicBilling(billing) {
   if (!billing) return null;
   return {
@@ -36,8 +59,252 @@ function generateOrderNumber() {
   return `AF-${t}-${r}`.slice(0, 32);
 }
 
+function buildFullName(obj = {}) {
+  if (normalizeText(obj.name)) return normalizeText(obj.name);
+  return `${normalizeText(obj.lastName)} ${normalizeText(obj.firstName)}`.trim();
+}
+
+function buildNormalizedShippingAddress(address) {
+  return {
+    ...address,
+    firstName: normalizeText(address?.firstName),
+    lastName: normalizeText(address?.lastName),
+    name: buildFullName(address),
+    phone: normalizeDigits(address?.phone).slice(0, 10),
+    email: normalizeText(address?.email),
+    county: address?.county || "",
+    city: normalizeText(address?.city),
+    postalCode: normalizeText(address?.postalCode),
+    street: normalizeText(address?.street),
+    notes: normalizeText(address?.notes),
+  };
+}
+
+function buildNormalizedBillingAddress(billingAddress) {
+  if (!billingAddress) return null;
+
+  return {
+    ...billingAddress,
+    companyName: normalizeText(billingAddress.companyName),
+    companyCui: normalizeCui(billingAddress.companyCui),
+    companyRegCom: normalizeText(billingAddress.companyRegCom),
+    county: billingAddress.county || "",
+    city: normalizeText(billingAddress.city),
+    postalCode: normalizeText(billingAddress.postalCode),
+    street: normalizeText(billingAddress.street),
+  };
+}
+
+function buildNormalizedContactPerson(contactPerson) {
+  if (!contactPerson) return null;
+
+  return {
+    ...contactPerson,
+    firstName: normalizeText(contactPerson.firstName),
+    lastName: normalizeText(contactPerson.lastName),
+    name: buildFullName(contactPerson),
+    email: normalizeText(contactPerson.email),
+    phone: normalizeDigits(contactPerson.phone).slice(0, 10),
+  };
+}
+
+function validateShippingAddress(address) {
+  if (!address) {
+    return {
+      error: "address_required",
+      message: "Adresa de livrare este obligatorie.",
+    };
+  }
+
+  if (!normalizeText(address.firstName)) {
+    return {
+      error: "shipping_first_name_required",
+      message: "Completează prenumele pentru livrare.",
+    };
+  }
+
+  if (!normalizeText(address.lastName)) {
+    return {
+      error: "shipping_last_name_required",
+      message: "Completează numele pentru livrare.",
+    };
+  }
+
+  if (!normalizeText(address.phone)) {
+    return {
+      error: "phone_required",
+      message: "Completează numărul de telefon.",
+    };
+  }
+
+  if (!isValidPhone(address.phone)) {
+    return {
+      error: "phone_invalid",
+      message: "Numărul de telefon trebuie să conțină exact 10 cifre.",
+    };
+  }
+
+  if (!normalizeText(address.email)) {
+    return {
+      error: "email_required",
+      message: "Completează adresa de email.",
+    };
+  }
+
+  if (!isValidEmail(address.email)) {
+    return {
+      error: "email_invalid",
+      message: "Adresa de email nu este validă.",
+    };
+  }
+
+  if (!address.county) {
+    return {
+      error: "shipping_county_required",
+      message: "Selectează județul pentru livrare.",
+    };
+  }
+
+  if (!normalizeText(address.city)) {
+    return {
+      error: "shipping_city_required",
+      message: "Completează orașul / localitatea pentru livrare.",
+    };
+  }
+
+  if (!normalizeText(address.street)) {
+    return {
+      error: "shipping_street_required",
+      message: "Completează strada și numărul pentru livrare.",
+    };
+  }
+
+  if (!isValidPostalCode(address.postalCode)) {
+    return {
+      error: "shipping_postal_code_invalid",
+      message: "Codul poștal pentru livrare trebuie să aibă exact 6 cifre.",
+    };
+  }
+
+  return null;
+}
+
+function validateBillingCompany(billingAddress) {
+  if (!billingAddress) {
+    return {
+      error: "company_required",
+      message: "Datele firmei sunt obligatorii pentru persoană juridică.",
+    };
+  }
+
+  if (!normalizeText(billingAddress.companyName)) {
+    return {
+      error: "company_name_required",
+      message: "Completează denumirea firmei.",
+    };
+  }
+
+  if (!normalizeText(billingAddress.companyCui)) {
+    return {
+      error: "company_cui_required",
+      message: "Completează CUI-ul firmei.",
+    };
+  }
+
+  if (!isValidCui(billingAddress.companyCui)) {
+    return {
+      error: "company_cui_invalid",
+      message: "CUI-ul firmei nu are un format valid.",
+    };
+  }
+
+  if (!billingAddress.county) {
+    return {
+      error: "company_county_required",
+      message: "Selectează județul sediului firmei.",
+    };
+  }
+
+  if (!normalizeText(billingAddress.city)) {
+    return {
+      error: "company_city_required",
+      message: "Completează orașul sediului firmei.",
+    };
+  }
+
+  if (!normalizeText(billingAddress.street)) {
+    return {
+      error: "company_street_required",
+      message: "Completează strada și numărul sediului firmei.",
+    };
+  }
+
+  if (!isValidPostalCode(billingAddress.postalCode)) {
+    return {
+      error: "company_postal_code_invalid",
+      message: "Codul poștal al sediului firmei trebuie să aibă exact 6 cifre.",
+    };
+  }
+
+  return null;
+}
+
+function validateContactPerson(contactPerson) {
+  if (!contactPerson) {
+    return {
+      error: "contact_required",
+      message: "Persoana de contact este obligatorie.",
+    };
+  }
+
+  if (!normalizeText(contactPerson.firstName)) {
+    return {
+      error: "contact_first_name_required",
+      message: "Completează prenumele persoanei de contact.",
+    };
+  }
+
+  if (!normalizeText(contactPerson.lastName)) {
+    return {
+      error: "contact_last_name_required",
+      message: "Completează numele persoanei de contact.",
+    };
+  }
+
+  if (!normalizeText(contactPerson.email)) {
+    return {
+      error: "contact_email_required",
+      message: "Completează emailul persoanei de contact.",
+    };
+  }
+
+  if (!isValidEmail(contactPerson.email)) {
+    return {
+      error: "contact_email_invalid",
+      message: "Emailul persoanei de contact nu este valid.",
+    };
+  }
+
+  if (!normalizeText(contactPerson.phone)) {
+    return {
+      error: "contact_phone_required",
+      message: "Completează telefonul persoanei de contact.",
+    };
+  }
+
+  if (!isValidPhone(contactPerson.phone)) {
+    return {
+      error: "contact_phone_invalid",
+      message:
+        "Telefonul persoanei de contact trebuie să conțină exact 10 cifre.",
+    };
+  }
+
+  return null;
+}
+
 /**
- * SUMMARY: items + subtotal (include thumb, vendorId, vendorBilling)
+ * SUMMARY
  */
 router.get("/checkout/summary", authRequired, async (req, res) => {
   const items = await prisma.cartItem.findMany({
@@ -99,9 +366,7 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
 });
 
 /**
- * SHIPPING QUOTE:
- * - 15 RON standard per vendor (indiferent de curier/locker)
- * - selecțiile (COURIER / LOCKER) doar influențează metoda
+ * SHIPPING QUOTE
  */
 async function quoteShipping({ groups, selections }) {
   const shipments = groups.map((g) => {
@@ -128,44 +393,14 @@ async function quoteShipping({ groups, selections }) {
 
 /**
  * QUOTE
- * POST /api/checkout/quote
  */
 router.post("/checkout/quote", authRequired, async (req, res) => {
-  const address = req.body?.address || {};
+  const address = buildNormalizedShippingAddress(req.body?.address || {});
   const selections = req.body?.selections || {};
 
-  if (
-    !address?.firstName ||
-    !address?.lastName ||
-    !address?.phone ||
-    !address?.email ||
-    !address?.county ||
-    !address?.city ||
-    !address?.street
-  ) {
-    return res.status(400).json({
-      error: "address_invalid",
-      message:
-        "Completează nume, prenume, telefon, email, județ, oraș și stradă.",
-    });
-  }
-
-  if (!isValidPhone(address.phone)) {
-    return res.status(400).json({
-      error: "phone_invalid",
-      message: "Numărul de telefon trebuie să conțină 10 cifre.",
-    });
-  }
-
-  if (!isValidEmail(address.email)) {
-    return res.status(400).json({
-      error: "email_invalid",
-      message: "Adresa de email nu este validă.",
-    });
-  }
-
-  if (!address.name) {
-    address.name = `${address.lastName} ${address.firstName}`.trim();
+  const shippingError = validateShippingAddress(address);
+  if (shippingError) {
+    return res.status(400).json(shippingError);
   }
 
   const cart = await prisma.cartItem.findMany({
@@ -184,8 +419,10 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
   });
 
   if (!cart.length) {
-    console.warn("checkout/quote: cart_empty for user", req.user.sub);
-    return res.status(400).json({ error: "cart_empty" });
+    return res.status(400).json({
+      error: "cart_empty",
+      message: "Coșul este gol.",
+    });
   }
 
   const byVendor = new Map();
@@ -215,64 +452,46 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
 
 /**
  * PLACE
- * POST /api/checkout/place
  */
 router.post("/checkout/place", authRequired, async (req, res) => {
-  const { address, selections, paymentMethod, customerType } = req.body || {};
-
-  if (!address) {
-    return res.status(400).json({ error: "address_required" });
-  }
-
-  if (
-    !address?.firstName ||
-    !address?.lastName ||
-    !address?.phone ||
-    !address?.email ||
-    !address?.county ||
-    !address?.city ||
-    !address?.street
-  ) {
-    return res.status(400).json({
-      error: "address_invalid",
-      message:
-        "Completează nume, prenume, telefon, email, județ, oraș și stradă.",
-    });
-  }
-
-  if (!isValidPhone(address.phone)) {
-    return res.status(400).json({
-      error: "phone_invalid",
-      message: "Numărul de telefon trebuie să conțină 10 cifre.",
-    });
-  }
-
-  if (!isValidEmail(address.email)) {
-    return res.status(400).json({
-      error: "email_invalid",
-      message: "Adresa de email nu este validă.",
-    });
-  }
-
-  if (!address.name) {
-    address.name = `${address.lastName} ${address.firstName}`.trim();
-  }
+  const {
+    address,
+    billingAddress,
+    contactPerson,
+    selections,
+    paymentMethod,
+    customerType,
+    shipToDifferentAddress,
+  } = req.body || {};
 
   const ctRaw = String(customerType || "").toUpperCase();
   const ct = ctRaw === "PJ" ? "PJ" : "PF";
 
-  if (ct === "PJ") {
-    if (!address.companyName || !address.companyCui) {
-      return res.status(400).json({
-        error: "company_invalid",
-        message:
-          "Pentru persoană juridică, completează denumirea firmei și CUI-ul.",
-      });
-    }
-  }
-
   const pmRaw = String(paymentMethod || "").toUpperCase();
   const pm = pmRaw === "CARD" ? "CARD" : "COD";
+
+  const normalizedAddress = buildNormalizedShippingAddress(address || {});
+  const normalizedBillingAddress =
+    ct === "PJ" ? buildNormalizedBillingAddress(billingAddress || {}) : null;
+  const normalizedContactPerson =
+    ct === "PJ" ? buildNormalizedContactPerson(contactPerson || {}) : null;
+
+  const shippingError = validateShippingAddress(normalizedAddress);
+  if (shippingError) {
+    return res.status(400).json(shippingError);
+  }
+
+  if (ct === "PJ") {
+    const companyError = validateBillingCompany(normalizedBillingAddress);
+    if (companyError) {
+      return res.status(400).json(companyError);
+    }
+
+    const contactError = validateContactPerson(normalizedContactPerson);
+    if (contactError) {
+      return res.status(400).json(contactError);
+    }
+  }
 
   const cart = await prisma.cartItem.findMany({
     where: { userId: req.user.sub },
@@ -290,8 +509,10 @@ router.post("/checkout/place", authRequired, async (req, res) => {
   });
 
   if (!cart.length) {
-    console.warn("checkout/place: cart_empty for user", req.user.sub);
-    return res.status(400).json({ error: "cart_empty" });
+    return res.status(400).json({
+      error: "cart_empty",
+      message: "Coșul este gol.",
+    });
   }
 
   const currency = cart[0]?.product?.currency || "RON";
@@ -340,11 +561,28 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       name: v.displayName || "Magazin",
       street: v.address || "",
       city: v.city || "",
-      county: address.county || "",
+      county: normalizedAddress.county || "",
       postalCode: "",
       country: "România",
     };
   }
+
+  const shippingAddressForOrder =
+    ct === "PJ" && !shipToDifferentAddress
+      ? {
+          firstName: normalizedContactPerson?.firstName || "",
+          lastName: normalizedContactPerson?.lastName || "",
+          name: buildFullName(normalizedContactPerson || {}),
+          email: normalizedContactPerson?.email || "",
+          phone: normalizedContactPerson?.phone || "",
+          county: normalizedBillingAddress?.county || "",
+          city: normalizedBillingAddress?.city || "",
+          postalCode: normalizedBillingAddress?.postalCode || "",
+          street: normalizedBillingAddress?.street || "",
+          notes: normalizedAddress?.notes || "",
+          companyName: normalizedBillingAddress?.companyName || "",
+        }
+      : normalizedAddress;
 
   const created = await prisma.$transaction(async (tx) => {
     const order = await tx.order.create({
@@ -357,7 +595,10 @@ router.post("/checkout/place", authRequired, async (req, res) => {
         subtotal,
         shippingTotal,
         total,
-        shippingAddress: address,
+        shippingAddress: shippingAddressForOrder,
+        billingAddress: ct === "PJ" ? normalizedBillingAddress : null,
+        contactPerson: ct === "PJ" ? normalizedContactPerson : null,
+        shipToDifferentAddress: ct === "PJ" ? Boolean(shipToDifferentAddress) : false,
         customerType: ct,
       },
     });
@@ -398,7 +639,6 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     return order;
   });
 
-  // Notificări vendor
   try {
     const shipments = await prisma.shipment.findMany({
       where: { orderId: created.id },
@@ -436,10 +676,9 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     console.error("Nu am putut crea notificările pentru vendor:", err);
   }
 
-  // email confirmare
   try {
     await sendOrderConfirmationEmail({
-      to: address.email,
+      to: shippingAddressForOrder.email,
       order: created,
       items,
       storeAddresses,
@@ -448,7 +687,6 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     console.error("Eroare la trimiterea emailului de confirmare:", err);
   }
 
-  // ✅ COD: returnăm și orderNumber
   if (pm === "COD") {
     return res.json({
       ok: true,
@@ -457,7 +695,6 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     });
   }
 
-  // ✅ CARD: returnăm și orderNumber
   try {
     const payment = await createPaymentForOrder(created);
     return res.json({
@@ -472,7 +709,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       error: "payment_init_failed",
       message: "Comanda a fost creată, dar inițierea plății a eșuat.",
       orderId: created.id,
-      orderNumber: created.orderNumber, // util ca să poți afișa și în eroare
+      orderNumber: created.orderNumber,
     });
   }
 });

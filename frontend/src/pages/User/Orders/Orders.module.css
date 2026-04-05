@@ -597,3 +597,18 @@
   }
 
 }
+/* optional */
+.skeleton {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  height: 120px;
+  margin-bottom: 12px;
+}
+
+/* recomandat pentru imagini: evită layout shift dacă nu ai deja */
+.thumb {
+  width: 56px;       /* ajustează după design */
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+}

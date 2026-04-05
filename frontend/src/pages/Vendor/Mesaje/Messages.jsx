@@ -473,28 +473,53 @@ try {
     fileInputRef.current.click();
   };
 
-  async function handleFilesChange(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length || !currentThreadId) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      files.forEach((file) => formData.append("files", file));
-      await api(`/api/inbox/threads/${currentThreadId}/attachments`, {
-        method: "POST",
-        body: formData,
-      });
-      await reloadMsgs();
-      } catch (err) {
+async function handleFilesChange(e) {
+  const files = Array.from(e.target.files || []);
+  if (!files.length || !currentThreadId) return;
+
+  const filesToUpload = [...files]; // copie
+  setUploading(true);
+
+  try {
+    const fd = new FormData();
+    filesToUpload.forEach((f) => fd.append("files", f));
+
+    const token =
+      localStorage.getItem("token") ||
+      localStorage.getItem("accessToken") ||
+      sessionStorage.getItem("token") ||
+      sessionStorage.getItem("accessToken");
+
+    const resp = await fetch(`/api/inbox/threads/${currentThreadId}/attachments`, {
+      method: "POST",
+      body: fd,
+      credentials: "include",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+    const data = await resp.json().catch(() => null);
+
+    if (!resp.ok) {
+      const err = { status: resp.status, data };
+      const info = normalizeChatError(err);
+      if (info.shouldBlock) setChatBlocked(info);
+      else alert(info.message);
+      return;
+    }
+
+    await reloadMsgs();
+    await reloadThreads();
+  } catch (err) {
     const info = normalizeChatError(err);
     if (info.shouldBlock) setChatBlocked(info);
     else alert(info.message);
-
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
+  } finally {
+    setUploading(false);
+    e.target.value = "";
   }
+}
 
   async function handleSaveNote() {
     if (!currentThreadId) return;
@@ -581,22 +606,52 @@ try {
 
   const isGroupedView = groupByUser;
 
-  // handler comun de ștergere conversație
   const deleteThread = async (threadId) => {
-    if (!threadId) return;
-    if (!window.confirm("Sigur vrei să ștergi această conversație?")) return;
-    try {
-      await api(`/api/inbox/threads/${threadId}`, {
-        method: "DELETE",
-      });
-      setThreads((items) => items.filter((it) => it.id !== threadId));
-      if (selectedId === threadId) {
-        clearSelection();
-      }
-    } catch (err) {
-      console.error("Eroare la ștergere conversație", err);
-    }
-  };
+  if (!threadId) return;
+  if (!window.confirm("Sigur vrei să ștergi această conversație?")) return;
+
+  try {
+    await api(`/api/inbox/threads/${threadId}`, { method: "DELETE" });
+
+    setThreads((items) =>
+      items
+        .map((t) => {
+          // mod normal: thread direct
+          if (!Array.isArray(t.threads)) {
+            return t.id === threadId ? null : t;
+          }
+
+          // mod groupByUser: scoatem thread-ul din grup
+          const remaining = (t.threads || []).filter((th) => th.threadId !== threadId);
+          if (!remaining.length) return null;
+
+          // recalculăm sumarul grupului (primary = cel mai recent)
+          const sorted = remaining.slice().sort((a, b) => (+b.lastAt || 0) - (+a.lastAt || 0));
+          const primary = sorted[0];
+
+          const totalUnread = sorted.reduce((s, x) => s + (x.unreadCount || 0), 0);
+
+          return {
+            ...t,
+            lastAt: primary.lastAt,
+            lastMsg: primary.lastMsg,
+            archived: primary.archived,
+            unreadCount: totalUnread,
+            orderCount: remaining.length,
+            threads: remaining,
+          };
+        })
+        .filter(Boolean)
+    );
+
+    // dacă ștergeai thread-ul activ, curățăm selecția
+    if (currentThreadId === threadId) clearSelection();
+
+    await reloadThreads();
+  } catch (err) {
+    console.error("Eroare la ștergere conversație", err);
+  }
+};
 
   // ✅ Edit mesaj (presupune PATCH /api/inbox/messages/:messageId)
   async function editMessage(messageId, newBody) {

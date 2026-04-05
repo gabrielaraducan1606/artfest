@@ -86,6 +86,7 @@ router.get("/unread-count", async (req, res) => {
     where: {
       userId,
       archivedByUser: false,
+      deletedByUserAt: null, // ✅ thread vizibil userului
     },
     select: { id: true, userLastReadAt: true },
   });
@@ -96,6 +97,7 @@ router.get("/unread-count", async (req, res) => {
     const unreadCount = await prisma.message.count({
       where: {
         threadId: t.id,
+        deletedByUserAt: null, // ✅ mesaj vizibil userului
         NOT: { authorType: "USER" },
         ...(t.userLastReadAt ? { createdAt: { gt: t.userLastReadAt } } : {}),
       },
@@ -118,6 +120,7 @@ router.get("/threads", async (req, res) => {
 
   const where = {
     userId,
+    deletedByUserAt: null, // ✅ nu returna thread-uri șterse pentru user
     archivedByUser:
       scope === "archived" ? true : scope === "all" ? false : undefined,
     OR: q
@@ -151,6 +154,7 @@ router.get("/threads", async (req, res) => {
       const unreadCount = await prisma.message.count({
         where: {
           threadId: t.id,
+          deletedByUserAt: null, // ✅ ignore mesaje șterse user
           NOT: { authorType: "USER" },
           ...(t.userLastReadAt ? { createdAt: { gt: t.userLastReadAt } } : {}),
         },
@@ -240,32 +244,27 @@ router.get("/threads/:id/messages", async (req, res) => {
 
   try {
     const thread = await prisma.messageThread.findFirst({
-      where: { id: threadId, userId },
+      where: { id: threadId, userId, deletedByUserAt: null }, // ✅ thread vizibil
       select: { id: true, vendorLastReadAt: true },
     });
 
     if (!thread) return res.status(404).json({ error: "Thread not found" });
 
     const msgs = await prisma.message.findMany({
-      where: { threadId },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        body: true,
-        createdAt: true,
-        authorType: true,
-        authorName: true,
-        attachments: {
-          select: {
-            id: true,
-            filename: true,
-            url: true,
-            size: true,
-            mime: true,
-          },
-        },
-      },
-    });
+  where: { threadId }, // ✅ include și șterse
+  orderBy: { createdAt: "asc" },
+  select: {
+    id: true,
+    body: true,
+    createdAt: true,
+    authorType: true,
+    authorName: true,
+    deletedByUserAt: true, // ✅ IMPORTANT
+    attachments: {
+      select: { id: true, filename: true, url: true, size: true, mime: true },
+    },
+  },
+});
 
     const items = msgs.map((m) => {
       const from = m.authorType === "USER" ? "me" : "them";
@@ -274,22 +273,28 @@ router.get("/threads/:id/messages", async (req, res) => {
         thread.vendorLastReadAt &&
         m.createdAt <= thread.vendorLastReadAt;
 
-      return {
-        id: m.id,
-        threadId,
-        from,
-        authorName: m.authorType === "USER" ? undefined : m.authorName || "Vendor",
-        body: m.body,
-        createdAt: m.createdAt,
-        readByPeer,
-        attachments: (m.attachments || []).map((a) => ({
-          id: a.id,
-          name: a.filename,
-          url: a.url,
-          size: a.size,
-          mime: a.mime,
-        })),
-      };
+const isDeletedForUser = !!m.deletedByUserAt;
+
+return {
+  id: m.id,
+  threadId,
+  from,
+  authorName: m.authorType === "USER" ? undefined : m.authorName || "Vendor",
+  body: isDeletedForUser ? "" : m.body,
+  createdAt: m.createdAt,
+  readByPeer,
+  deleted: isDeletedForUser, // ✅ flag pt frontend
+  attachments: isDeletedForUser
+    ? [] // ✅ user nu mai vede atașamentele după delete
+    : (m.attachments || []).map((a) => ({
+        id: a.id,
+        name: a.filename,
+        url: a.url,
+        size: a.size,
+        mime: a.mime,
+      })),
+};
+
     });
 
     res.json({ items });
@@ -310,7 +315,7 @@ router.patch("/threads/:id/read", async (req, res) => {
   const threadId = String(req.params.id || "");
 
   const thread = await prisma.messageThread.findFirst({
-    where: { id: threadId, userId },
+    where: { id: threadId, userId, deletedByUserAt: null }, // ✅
     select: { id: true },
   });
   if (!thread) return res.status(404).json({ error: "Thread not found" });
@@ -336,7 +341,7 @@ router.post("/threads/:id/messages", async (req, res) => {
   }
 
   const thread = await prisma.messageThread.findFirst({
-    where: { id: threadId, userId },
+    where: { id: threadId, userId, deletedByUserAt: null }, // ✅ thread vizibil
     select: { id: true, vendorId: true },
   });
   if (!thread) return res.status(404).json({ error: "Thread not found" });
@@ -344,6 +349,7 @@ router.post("/threads/:id/messages", async (req, res) => {
   const msg = await prisma.message.create({
     data: {
       threadId,
+      vendorId: thread.vendorId, // ✅ important (ai vendorId obligatoriu în Message)
       body: String(body).trim(),
       authorType: "USER",
     },
@@ -378,131 +384,137 @@ router.post("/threads/:id/messages", async (req, res) => {
 
 /* =========================
    ✅ POST /api/user-inbox/threads/:id/attachments
-   - upload fișiere în R2
-   - creează un mesaj USER cu attachments
 ========================= */
-router.post("/threads/:id/attachments", upload.array("files", 10), async (req, res) => {
-  const userId = req.user.sub;
-  const threadId = String(req.params.id || "");
+router.post(
+  "/threads/:id/attachments",
+  upload.array("files", 10),
+  async (req, res) => {
+    const userId = req.user.sub;
+    const threadId = String(req.params.id || "");
 
-  const files = Array.isArray(req.files) ? req.files : [];
-  if (!files.length) {
-    return res.status(400).json({ error: "no_files" });
-  }
-
-  const thread = await prisma.messageThread.findFirst({
-    where: { id: threadId, userId },
-    select: { id: true, vendorId: true },
-  });
-  if (!thread) return res.status(404).json({ error: "Thread not found" });
-
-  const publicBase = getPublicBase();
-  if (!publicBase) {
-    return res.status(500).json({
-      error: "r2_public_base_missing",
-      message: "Setează R2_PUBLIC_BASE_URL (sau R2_PUBLIC_BASE).",
-    });
-  }
-
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      // 1) mesaj container (body obligatoriu în schema ta)
-      const msg = await tx.message.create({
-        data: {
-          threadId,
-          authorType: "USER",
-          body: "📎 Atașament",
-        },
-        select: { id: true, createdAt: true },
-      });
-
-      // 2) upload + attachments
-      const created = [];
-
-      for (const f of files) {
-        const originalName = safeFilename(f.originalname || "file");
-        const ext = extOf(originalName);
-        const rnd = crypto.randomBytes(10).toString("hex");
-
-        const key = `inbox/${threadId}/${msg.id}/${Date.now()}_${rnd}${ext}`;
-
-        await uploadToR2({
-          key,
-          buffer: f.buffer,
-          contentType: f.mimetype,
-        });
-
-        const url = publicUrlForKey(key);
-
-        const att = await tx.messageAttachment.create({
-          data: {
-            messageId: msg.id,
-            filename: originalName, // ✅ conform Prisma schema
-            url,
-            size: typeof f.size === "number" ? f.size : null,
-            mime: f.mimetype || null,
-          },
-          select: { id: true, filename: true, url: true, size: true, mime: true },
-        });
-
-        created.push(att);
-      }
-
-      // 3) update thread lastMsg/lastAt
-      const lastMsgLabel =
-        created.length === 1
-          ? `📎 ${created[0].filename}`
-          : `📎 ${created.length} atașamente`;
-
-      await tx.messageThread.update({
-        where: { id: threadId },
-        data: {
-          lastMsg: lastMsgLabel,
-          lastAt: msg.createdAt,
-          userLastReadAt: new Date(),
-        },
-      });
-
-      return { msg, created };
-    });
-
-    // 4) notificare vendor
-    try {
-      if (thread.vendorId) {
-        await createVendorNotification(thread.vendorId, {
-          type: "message",
-          title: "Atașament nou de la client",
-          body:
-            result.created.length === 1
-              ? `📎 ${result.created[0].filename}`
-              : `📎 ${result.created.length} fișiere atașate`,
-          link: "/mesaje",
-        });
-      }
-    } catch (e) {
-      console.error("Nu am putut crea notificarea pentru vendor (atașament):", e);
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) {
+      return res.status(400).json({ error: "no_files" });
     }
 
-    return res.status(201).json({
-      ok: true,
-      messageId: result.msg.id,
-      createdAt: result.msg.createdAt,
-      attachments: result.created.map((a) => ({
-        id: a.id,
-        name: a.filename,
-        url: a.url,
-        size: a.size,
-        mime: a.mime,
-      })),
+    const thread = await prisma.messageThread.findFirst({
+      where: { id: threadId, userId, deletedByUserAt: null }, // ✅ thread vizibil
+      select: { id: true, vendorId: true },
     });
-  } catch (e) {
-    console.error("POST /threads/:id/attachments error:", e);
-    return res.status(500).json({
-      error: "server_error",
-      details: String(e?.message || e),
-    });
+    if (!thread) return res.status(404).json({ error: "Thread not found" });
+
+    const publicBase = getPublicBase();
+    if (!publicBase) {
+      return res.status(500).json({
+        error: "r2_public_base_missing",
+        message: "Setează R2_PUBLIC_BASE_URL (sau R2_PUBLIC_BASE).",
+      });
+    }
+
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        const msg = await tx.message.create({
+          data: {
+            threadId,
+            vendorId: thread.vendorId, // ✅
+            authorType: "USER",
+            body: "📎 Atașament",
+          },
+          select: { id: true, createdAt: true },
+        });
+
+        const created = [];
+
+        for (const f of files) {
+          const originalName = safeFilename(f.originalname || "file");
+          const ext = extOf(originalName);
+          const rnd = crypto.randomBytes(10).toString("hex");
+
+          const key = `inbox/${threadId}/${msg.id}/${Date.now()}_${rnd}${ext}`;
+
+          await uploadToR2({
+            key,
+            buffer: f.buffer,
+            contentType: f.mimetype,
+          });
+
+          const url = publicUrlForKey(key);
+
+          const att = await tx.messageAttachment.create({
+            data: {
+              messageId: msg.id,
+              filename: originalName,
+              url,
+              size: typeof f.size === "number" ? f.size : null,
+              mime: f.mimetype || null,
+            },
+            select: {
+              id: true,
+              filename: true,
+              url: true,
+              size: true,
+              mime: true,
+            },
+          });
+
+          created.push(att);
+        }
+
+        const lastMsgLabel =
+          created.length === 1
+            ? `📎 ${created[0].filename}`
+            : `📎 ${created.length} atașamente`;
+
+        await tx.messageThread.update({
+          where: { id: threadId },
+          data: {
+            lastMsg: lastMsgLabel,
+            lastAt: msg.createdAt,
+            userLastReadAt: new Date(),
+          },
+        });
+
+        return { msg, created };
+      });
+
+      // notificare vendor
+      try {
+        if (thread.vendorId) {
+          await createVendorNotification(thread.vendorId, {
+            type: "message",
+            title: "Atașament nou de la client",
+            body:
+              result.created.length === 1
+                ? `📎 ${result.created[0].filename}`
+                : `📎 ${result.created.length} fișiere atașate`,
+            link: "/mesaje",
+          });
+        }
+      } catch (e) {
+        console.error("Nu am putut crea notificarea pentru vendor (atașament):", e);
+      }
+
+      return res.status(201).json({
+        ok: true,
+        messageId: result.msg.id,
+        createdAt: result.msg.createdAt,
+        attachments: result.created.map((a) => ({
+          id: a.id,
+          name: a.filename,
+          url: a.url,
+          size: a.size,
+          mime: a.mime,
+        })),
+      });
+    } catch (e) {
+      console.error("POST /threads/:id/attachments error:", e);
+      return res.status(500).json({
+        error: "server_error",
+        details: String(e?.message || e),
+      });
+    }
   }
-});
+);
 
 /* =========================
    PATCH /api/user-inbox/threads/:id/archive
@@ -513,7 +525,7 @@ router.patch("/threads/:id/archive", async (req, res) => {
   const { archived = true } = req.body || {};
 
   const thread = await prisma.messageThread.findFirst({
-    where: { id: threadId, userId },
+    where: { id: threadId, userId, deletedByUserAt: null }, // ✅
     select: { id: true },
   });
   if (!thread) return res.status(404).json({ error: "Thread not found" });
@@ -528,13 +540,14 @@ router.patch("/threads/:id/archive", async (req, res) => {
 
 /* =========================
    DELETE /api/user-inbox/threads/:id
+   ✅ soft-delete thread pentru user
 ========================= */
 router.delete("/threads/:id", async (req, res) => {
   const userId = req.user.sub;
   const threadId = String(req.params.id || "");
 
   const thread = await prisma.messageThread.findFirst({
-    where: { id: threadId, userId },
+    where: { id: threadId, userId, deletedByUserAt: null },
     select: { id: true },
   });
 
@@ -542,12 +555,12 @@ router.delete("/threads/:id", async (req, res) => {
     return res.status(404).json({ error: "Thread not found" });
   }
 
-  await prisma.message.deleteMany({
-    where: { threadId },
-  });
-
-  await prisma.messageThread.delete({
+  await prisma.messageThread.update({
     where: { id: threadId },
+    data: {
+      deletedByUserAt: new Date(),
+      archivedByUser: true,
+    },
   });
 
   res.json({ ok: true });
@@ -555,14 +568,12 @@ router.delete("/threads/:id", async (req, res) => {
 
 /* =========================
    POST /api/user-inbox/ensure-thread
-   Body: { vendorId?: string, serviceId?: string, storeSlug?: string }
 ========================= */
 router.post("/ensure-thread", async (req, res) => {
   try {
     const userId = req.user.sub;
     let { vendorId, serviceId, storeSlug } = req.body || {};
 
-    // dacă nu avem vendorId, încercăm din serviceId
     if (!vendorId && serviceId) {
       try {
         const service = await prisma.vendorService.findUnique({
@@ -575,7 +586,6 @@ router.post("/ensure-thread", async (req, res) => {
       }
     }
 
-    // dacă nu avem vendorId, încercăm din storeSlug (ServiceProfile.slug)
     if (!vendorId && storeSlug) {
       try {
         const profile = await prisma.serviceProfile.findUnique({
@@ -592,11 +602,31 @@ router.post("/ensure-thread", async (req, res) => {
       return res.status(400).json({ error: "vendor_not_resolved" });
     }
 
-    // thread existent user + vendor
     let thread = await prisma.messageThread.findFirst({
-      where: { userId, vendorId: String(vendorId) },
+      where: { userId, vendorId: String(vendorId), deletedByUserAt: null },
       select: { id: true },
     });
+
+    // dacă user a “șters conversația” (soft-delete), o “re-activăm”
+    if (!thread) {
+      const deletedThread = await prisma.messageThread.findFirst({
+        where: {
+          userId,
+          vendorId: String(vendorId),
+          deletedByUserAt: { not: null },
+        },
+        select: { id: true },
+      });
+
+      if (deletedThread) {
+        await prisma.messageThread.update({
+          where: { id: deletedThread.id },
+          data: { deletedByUserAt: null, archivedByUser: false },
+        });
+
+        return res.json({ ok: true, threadId: deletedThread.id });
+      }
+    }
 
     if (!thread) {
       const user = await prisma.user.findUnique({
@@ -604,7 +634,9 @@ router.post("/ensure-thread", async (req, res) => {
         select: { firstName: true, lastName: true, email: true, phone: true },
       });
 
-      const contactName = [user?.firstName, user?.lastName].filter(Boolean).join(" ");
+      const contactName = [user?.firstName, user?.lastName]
+        .filter(Boolean)
+        .join(" ");
 
       thread = await prisma.messageThread.create({
         data: {
@@ -615,6 +647,7 @@ router.post("/ensure-thread", async (req, res) => {
           contactPhone: user?.phone || null,
           archivedByUser: false,
           archived: false,
+          deletedByUserAt: null,
         },
         select: { id: true },
       });
@@ -626,7 +659,11 @@ router.post("/ensure-thread", async (req, res) => {
     return res.status(500).json({ error: "server_error" });
   }
 });
-// ✅ DOWNLOAD ATTACHMENT (User) - proxy ca să evităm CORS + forțăm download
+
+/* =========================
+   ✅ DOWNLOAD ATTACHMENT (User)
+   - blocăm dacă mesajul e șters pentru user
+========================= */
 router.get("/attachments/:attId/download", async (req, res) => {
   try {
     const userId = req.user.sub;
@@ -640,18 +677,26 @@ router.get("/attachments/:attId/download", async (req, res) => {
         url: true,
         filename: true,
         mime: true,
-        message: { select: { thread: { select: { userId: true } } } },
+        message: {
+          select: {
+            deletedByUserAt: true, // ✅
+            thread: { select: { userId: true } },
+          },
+        },
       },
     });
 
     if (!att || !att.url) return res.status(404).json({ error: "not_found" });
 
-    // verificăm că attachment-ul aparține userului logat
     if (String(att.message?.thread?.userId || "") !== String(userId)) {
       return res.status(403).json({ error: "forbidden" });
     }
 
-    // fetch upstream (R2/public URL)
+    // ✅ dacă mesajul e șters pentru user, nu mai permitem download
+    if (att.message?.deletedByUserAt) {
+      return res.status(404).json({ error: "not_found" });
+    }
+
     const upstream = await fetch(att.url);
     if (!upstream.ok || !upstream.body) {
       return res.status(502).json({ error: "upstream_failed" });
@@ -659,11 +704,8 @@ router.get("/attachments/:attId/download", async (req, res) => {
 
     const filename = att.filename || "atasament";
     const contentType =
-      att.mime ||
-      upstream.headers.get("content-type") ||
-      "application/octet-stream";
+      att.mime || upstream.headers.get("content-type") || "application/octet-stream";
 
-    // ✅ Forțăm download
     res.setHeader("Content-Type", contentType);
     res.setHeader(
       "Content-Disposition",
@@ -673,10 +715,11 @@ router.get("/attachments/:attId/download", async (req, res) => {
     const len = upstream.headers.get("content-length");
     if (len) res.setHeader("Content-Length", len);
 
-    // stream către client (Node stream)
     const nodeStream = Readable.fromWeb(upstream.body);
     nodeStream.on("error", () => {
-      try { res.end(); } catch {}
+      try {
+        res.end();
+      } catch {}
     });
     nodeStream.pipe(res);
   } catch (e) {
@@ -685,18 +728,23 @@ router.get("/attachments/:attId/download", async (req, res) => {
   }
 });
 
+/* =========================
+   DELETE /api/user-inbox/threads/:id/messages/:mid
+   ✅ soft-delete message pentru user
+   ✅ UPDATE lastMsg/lastAt "global" (pt vendor thread list)
+========================= */
 router.delete("/threads/:id/messages/:mid", async (req, res) => {
   const userId = req.user.sub;
   const { id: threadId, mid: messageId } = req.params;
 
   const thread = await prisma.messageThread.findFirst({
-    where: { id: threadId, userId },
-    select: { id: true },
+    where: { id: threadId, userId, deletedByUserAt: null },
+    select: { id: true, vendorId: true },
   });
   if (!thread) return res.status(404).json({ error: "not_found" });
 
   const message = await prisma.message.findFirst({
-    where: { id: messageId, threadId },
+    where: { id: messageId, threadId, deletedByUserAt: null }, // ✅ nu “re-delete” mesaj deja șters
     select: { id: true, authorType: true },
   });
   if (!message) return res.status(404).json({ error: "not_found" });
@@ -707,27 +755,141 @@ router.delete("/threads/:id/messages/:mid", async (req, res) => {
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.messageAttachment.deleteMany({ where: { messageId } });
-      await tx.message.delete({ where: { id: messageId } });
+      const now = new Date();
 
-      const last = await tx.message.findFirst({
+      // ✅ soft delete pentru user
+      await tx.message.update({
+        where: { id: messageId },
+        data: {
+          deletedByUserAt: now,
+
+          // OPTIONAL (dacă vrei să nu mai păstrezi conținutul original în DB):
+          // body: "🚫 Mesaj șters de utilizator",
+        },
+      });
+
+      // ✅ recompute last GLOBAL (nu doar "vizibil userului")
+      const lastGlobal = await tx.message.findFirst({
         where: { threadId },
         orderBy: { createdAt: "desc" },
-        select: { body: true, createdAt: true },
+        select: { body: true, createdAt: true, deletedByUserAt: true },
       });
+
+      const lastMsgGlobalLabel = lastGlobal?.deletedByUserAt
+        ? "🚫 Mesaj șters de utilizator"
+        : lastGlobal?.body || null;
 
       await tx.messageThread.update({
         where: { id: threadId },
         data: {
-          lastMsg: last?.body || null,
-          lastAt: last?.createdAt || null,
+          lastMsg: lastMsgGlobalLabel,
+          lastAt: lastGlobal?.createdAt || null,
         },
       });
     });
 
+    // (opțional) notificare vendor că user a șters un mesaj
+    try {
+      if (thread.vendorId) {
+        await createVendorNotification(thread.vendorId, {
+          type: "message",
+          title: "Mesaj șters de client",
+          body: "Clientul a șters un mesaj din conversație.",
+          link: "/mesaje",
+        });
+      }
+    } catch (e) {
+      console.error("Nu am putut crea notificarea pentru vendor (mesaj șters):", e);
+    }
+
     return res.json({ ok: true });
   } catch (e) {
     console.error("user delete message error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+});
+
+router.patch("/threads/:id/messages/:mid", async (req, res) => {
+  const userId = req.user.sub;
+  const { id: threadId, mid: messageId } = req.params;
+  const { body } = req.body || {};
+
+  if (!body || !String(body).trim()) {
+    return res.status(400).json({ error: "Mesajul nu poate fi gol" });
+  }
+
+  const thread = await prisma.messageThread.findFirst({
+    where: {
+      id: String(threadId),
+      userId,
+      deletedByUserAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (!thread) {
+    return res.status(404).json({ error: "Thread not found" });
+  }
+
+  const message = await prisma.message.findFirst({
+    where: {
+      id: String(messageId),
+      threadId: String(threadId),
+      authorType: "USER",
+      deletedByUserAt: null,
+    },
+    select: {
+      id: true,
+      createdAt: true,
+    },
+  });
+
+  if (!message) {
+    return res.status(404).json({ error: "Message not found" });
+  }
+
+  try {
+    const updated = await prisma.message.update({
+      where: { id: String(messageId) },
+      data: {
+        body: String(body).trim(),
+      },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+      },
+    });
+
+    const lastMessage = await prisma.message.findFirst({
+      where: { threadId: String(threadId) },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        deletedByUserAt: true,
+      },
+    });
+
+    const lastMsgLabel = lastMessage?.deletedByUserAt
+      ? "🚫 Mesaj șters de utilizator"
+      : lastMessage?.body || null;
+
+    await prisma.messageThread.update({
+      where: { id: String(threadId) },
+      data: {
+        lastMsg: lastMsgLabel,
+        lastAt: lastMessage?.createdAt || null,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      item: updated,
+    });
+  } catch (e) {
+    console.error("user edit message error:", e);
     return res.status(500).json({ error: "server_error" });
   }
 });

@@ -1,37 +1,22 @@
 // backend/src/routes/subscriptionRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { authRequired /*, requireRole*/ } from "../api/auth.js";
+import { authRequired } from "../api/auth.js";
 import { z } from "zod";
-
-/* orchestrator — alege automat Stripe/Netopia */
-import { chooseRail, startPayment } from "../payments/orchestrator.js";
-
-/* guard tolerant (evită 403 în onboarding) */
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
+
+// ✅ NEW: Stripe subscription checkout
+import { createSubscriptionCheckoutSession } from "../payments/stripe.subscriptions.js"; 
+// dacă path-ul nu e corect la tine, mută payments în backend/src/payments și importă local.
 
 const router = Router();
 
-/* ============ APP origin (frontend) pentru redirecturi UI ============ */
-const APP_ORIGIN =
-  process.env.APP_ORIGIN ||
-  process.env.FRONTEND_URL ||
-  "http://localhost:5173"; // vite default; în prod setează domeniul tău FE
-
-/* ============================== Utils =============================== */
 const sendError = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ ok: false, error: code, message: code, ...extra });
 
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
-/* ====================== Access guard (cu grace + trial) ===================== */
-/**
- * ✅ Permite acces dacă:
- *  - user e ADMIN, sau
- *  - vendor are subscription activ (cu grace optional), sau
- *  - vendor are trial activ (trialEndsAt > now)
- */
 export const requireActiveSubscription = asyncHandler(async (req, res, next) => {
   if (req.user?.roles?.includes?.("ADMIN") || req.user?.role === "ADMIN") return next();
 
@@ -47,7 +32,6 @@ export const requireActiveSubscription = asyncHandler(async (req, res, next) => 
     where: {
       vendorId: vendor.id,
       OR: [
-        // ✅ active subs (cu grace)
         {
           status: "active",
           OR: [
@@ -55,12 +39,10 @@ export const requireActiveSubscription = asyncHandler(async (req, res, next) => 
             ...(graceDays > 0 ? [{ endAt: { gt: cutoff } }] : []),
           ],
         },
-        // ✅ trial activ (indiferent de status, daca trialEndsAt e in viitor)
         { trialEndsAt: { gt: now } },
       ],
     },
     orderBy: [{ startAt: "desc" }],
-    // ✅ IMPORTANT: includem entitlements pentru guard-urile de chat/attachments
     include: { plan: { select: { id: true, code: true, name: true, entitlements: true } } },
   });
 
@@ -73,23 +55,19 @@ export const requireActiveSubscription = asyncHandler(async (req, res, next) => 
   next();
 });
 
-/* ============================= Schemas ============================= */
 const CheckoutQuery = z.object({
   plan: z.string().trim().min(1),
   period: z.enum(["month", "year"]).default("month"),
-  // hints pentru orchestrator (opțional)
   applePay: z.string().optional(),
   googlePay: z.string().optional(),
 });
 
-/* ======================== GET /billing/plans ======================= */
 router.get(
   "/billing/plans",
   asyncHandler(async (_req, res) => {
     const plans = await prisma.subscriptionPlan.findMany({
       where: { isActive: true },
       orderBy: { priceCents: "asc" },
-      // (opțional) explicităm ce întoarcem
       select: {
         code: true,
         name: true,
@@ -97,24 +75,22 @@ router.get(
         currency: true,
         interval: true,
         features: true,
-        entitlements: true, // ✅
+        entitlements: true,
         popular: true,
         trialDays: true,
         maxProducts: true,
         commissionBps: true,
         isActive: true,
+
+        // useful debug (optional)
+        stripePriceMonthId: true,
+        stripePriceYearId: true,
       },
     });
     res.json({ items: plans });
   })
 );
 
-/* =================== GET /vendors/me/subscription ================== */
-/**
- * ✅ Returnează:
- *  - sub curent (active + endAt>now) SAU trial activ (trialEndsAt>now)
- *  - fallback: ultimul subscription (latest)
- */
 router.get(
   "/vendors/me/subscription",
   authRequired,
@@ -131,13 +107,10 @@ router.get(
       (await prisma.vendorSubscription.findFirst({
         where: {
           vendorId: meVendor.id,
-          OR: [
-            { status: "active", endAt: { gt: now } },
-            { trialEndsAt: { gt: now } },
-          ],
+          OR: [{ status: "active", endAt: { gt: now } }, { trialEndsAt: { gt: now } }],
         },
         orderBy: [{ startAt: "desc" }],
-        include: { plan: true }, // aici e ok să fie full plan (include entitlements)
+        include: { plan: true },
       })) ??
       (await prisma.vendorSubscription.findFirst({
         where: { vendorId: meVendor.id },
@@ -149,7 +122,6 @@ router.get(
   })
 );
 
-/* ========== GET /vendors/me/subscription/status (pentru UI) ========= */
 router.get(
   "/vendors/me/subscription/status",
   authRequired,
@@ -165,12 +137,8 @@ router.get(
     const current = await prisma.vendorSubscription.findFirst({
       where: {
         vendorId: meVendor.id,
-        OR: [
-          { status: "active", endAt: { gt: now } },
-          { trialEndsAt: { gt: now } },
-        ],
+        OR: [{ status: "active", endAt: { gt: now } }, { trialEndsAt: { gt: now } }],
       },
-      // ✅ includem entitlements pentru UI
       include: { plan: { select: { code: true, name: true, entitlements: true } } },
       orderBy: [{ startAt: "desc" }],
     });
@@ -188,7 +156,7 @@ router.get(
     return res.json({
       ok: true,
       kind: isTrial ? "trial" : "paid",
-      plan: current.plan, // {code, name, entitlements}
+      plan: current.plan,
       endAt: current.endAt ?? null,
       trialEndsAt: current.trialEndsAt ?? null,
       status: current.status,
@@ -196,27 +164,22 @@ router.get(
   })
 );
 
-/* ===================== Job opțional: expirare ===================== */
 export async function expireSubscriptionsJob() {
   const now = new Date();
   await prisma.vendorSubscription.updateMany({
     where: {
       status: { in: ["active", "pending", "canceled_at_period_end"] },
       endAt: { lte: now },
-      // ⚠️ dacă vrei să nu “expiri” ceva ce încă e în trial, decomentează:
-      // OR: [{ trialEndsAt: null }, { trialEndsAt: { lte: now } }],
     },
     data: { status: "expired" },
   });
 }
 
-/* =================== POST /billing/checkout =================== */
 router.post(
   "/billing/checkout",
   authRequired,
   vendorAccessRequired,
   asyncHandler(async (req, res) => {
-    // tu trimiți parametrii în query string, deci citim din req.query
     const q = CheckoutQuery.parse(req.query);
 
     const vendor =
@@ -225,19 +188,13 @@ router.post(
 
     if (!vendor) return sendError(res, "vendor_profile_missing", 404);
 
-    const plan = await prisma.subscriptionPlan.findUnique({
-      where: { code: q.plan },
-    });
-
+    const plan = await prisma.subscriptionPlan.findUnique({ where: { code: q.plan } });
     if (!plan) return sendError(res, "plan_not_found", 404);
     if (plan.isActive === false) return sendError(res, "plan_inactive", 409);
 
-    // ✅ dacă planul e gratuit: activează direct
+    // ✅ plan gratuit: activezi direct (cum aveai)
     if ((plan.priceCents ?? 0) === 0) {
       const now = new Date();
-
-      // important: guard-urile tale cer status=active și endAt>now (sau trialEndsAt>now)
-      // pentru plan gratuit, pune un endAt în viitor (ex: 10 ani)
       const endAt = new Date(now);
       endAt.setFullYear(endAt.getFullYear() + 10);
 
@@ -248,7 +205,6 @@ router.post(
           status: "active",
           startAt: now,
           endAt,
-          // opțional: meta
           meta: { activatedBy: "free_plan" },
         },
         include: { plan: { select: { code: true, name: true, entitlements: true } } },
@@ -258,25 +214,30 @@ router.post(
         ok: true,
         kind: "free_activated",
         subscription: sub,
-        // trimite un URL de UI (poți ajusta)
         url: "/onboarding/details?tab=plata&activated=1",
       });
     }
 
-    // ✅ altfel (plan plătit): mergi pe orchestrator
-    const { applePay, googlePay } = q;
-    const rail = chooseRail({ applePay, googlePay, plan, period: q.period });
+    // ✅ plan plătit: Stripe Checkout Subscription
+    try {
+      const out = await createSubscriptionCheckoutSession({
+        vendorId: vendor.id,
+        userId: req.user.sub,
+        planCode: plan.code,
+        period: q.period,
+      });
 
-    const out = await startPayment({
-      rail,
-      vendorId: vendor.id,
-      userId: req.user.sub,
-      planCode: plan.code,
-      period: q.period,
-      appOrigin: APP_ORIGIN,
-    });
-
-    return res.json(out);
+      return res.json({
+        ok: true,
+        kind: "provider_redirect",
+        provider: "stripe",
+        url: out.url,
+      });
+    } catch (e) {
+      const code = e?.message || "checkout_failed";
+      const status = e?.status || 400;
+      return sendError(res, code, status);
+    }
   })
 );
 

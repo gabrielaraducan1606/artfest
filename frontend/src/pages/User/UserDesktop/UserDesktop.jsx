@@ -1,5 +1,6 @@
 // frontend/src/pages/account/UserDesktop.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../../lib/api";
 import styles from "./UserDesktop.module.css";
 
@@ -29,8 +30,31 @@ import {
   Trash2,
   Clock,
   ShoppingCart,
-  ArrowRight,
 } from "lucide-react";
+
+/* ===================== tiny cache (stale-while-revalidate) ===================== */
+const ME_CACHE_KEY = "user:me:v1";
+const COUNTS_CACHE_KEY = "user:counts:v1";
+
+function readCache(key, maxAgeMs) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.ts) return null;
+    if (Date.now() - parsed.ts > maxAgeMs) return null;
+    return parsed.data ?? null;
+  } catch {
+    return null;
+  }
+}
+function writeCache(key, data) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+  } catch {
+    /* ignore */
+  }
+}
 
 /* ---------- mici utilitare UI ---------- */
 function Stars({ value = 0 }) {
@@ -38,11 +62,7 @@ function Stars({ value = 0 }) {
   return (
     <span className={styles.stars} aria-label={`Rating ${value} din 5`}>
       {[0, 1, 2, 3, 4].map((i) => (
-        <Star
-          key={i}
-          size={14}
-          className={i < full ? styles.starFull : styles.starEmpty}
-        />
+        <Star key={i} size={14} className={i < full ? styles.starFull : styles.starEmpty} />
       ))}
     </span>
   );
@@ -56,34 +76,34 @@ function displayName(me) {
 
 function getInitials(me) {
   const s = displayName(me).split(" ").filter(Boolean);
-  return (s[0]?.[0] || "U")
-    .concat(s[1]?.[0] || "")
-    .toUpperCase();
+  return (s[0]?.[0] || "U").concat(s[1]?.[0] || "").toUpperCase();
 }
 
-
-// label-uri frumoase pentru status comenzi
-const STATUS_LABELS = {
-  PENDING: "În așteptare",
-  PROCESSING: "În procesare",
-  SHIPPED: "Expediată",
-  DELIVERED: "Livrată",
-  RETURNED: "Returnată",
-  CANCELED: "Anulată",
-};
-
 /* ------- sub-componente simple ------- */
-function RowLink({ to, label, icon, badge }) {
+function RowLink({ to, label, icon, badge, onPrefetch }) {
   return (
-    <a className={styles.row} href={to}>
+    <Link className={styles.row} to={to} onMouseEnter={onPrefetch}>
       <div className={styles.left}>
         <span className={styles.rowIcon}>{icon}</span>
         <span className={styles.rowLabel}>{label}</span>
       </div>
       <div className={styles.right}>
-        {badge > 0 && (
-          <span className={styles.badge}>{Math.min(badge, 99)}</span>
-        )}
+        {badge > 0 && <span className={styles.badge}>{Math.min(badge, 99)}</span>}
+        <ChevronRight size={18} className={styles.chev} />
+      </div>
+    </Link>
+  );
+}
+
+function RowExternalLink({ href, label, icon, badge }) {
+  return (
+    <a className={styles.row} href={href} target="_blank" rel="noreferrer">
+      <div className={styles.left}>
+        <span className={styles.rowIcon}>{icon}</span>
+        <span className={styles.rowLabel}>{label}</span>
+      </div>
+      <div className={styles.right}>
+        {badge > 0 && <span className={styles.badge}>{Math.min(badge, 99)}</span>}
         <ChevronRight size={18} className={styles.chev} />
       </div>
     </a>
@@ -115,29 +135,11 @@ function EmptyDash({ text }) {
   return <div className={styles.empty}>{text}</div>;
 }
 
+/* =============================== Component =============================== */
 export default function UserDesktop() {
-  /* ====== identitate + tema ====== */
-  const [me, setMe] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const [unreadNotif, setUnreadNotif] = useState(0);
-  const [unreadMsgs, setUnreadMsgs] = useState(0); // inbox vendor (doar pt VENDOR)
-
-  // 🔢 numărul de produse în coș și în wishlist
-  const [cartCount, setCartCount] = useState(0);
-  const [wishlistCount, setWishlistCount] = useState(0);
-
-  // 🔢 numărul de mesaje necitite în inbox-ul userului
-  const [userUnreadMsgs, setUserUnreadMsgs] = useState(0);
-
-  // 🔢 numărul de tichete suport cu mesaje noi
-  const [supportUnread, setSupportUnread] = useState(0);
-
-  const [onboarding, setOnboarding] = useState(null);
-
+  /* ====== theme ====== */
   const [theme, setTheme] = useState(() => {
-    const saved =
-      typeof window !== "undefined" ? localStorage.getItem("theme") : null;
+    const saved = typeof window !== "undefined" ? localStorage.getItem("theme") : null;
     return saved === "dark" ? "dark" : "light";
   });
 
@@ -150,98 +152,160 @@ export default function UserDesktop() {
     }
   }, [theme]);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const d = await api("/api/auth/me");
-        if (!alive) return;
-        if (!d?.user) {
-          window.location.href = "/autentificare?redirect=/desktop";
-          return;
-        }
-        setMe(d.user);
-      } catch {
-        window.location.href = "/autentificare?redirect=/desktop";
-        return;
-      } finally {
-        setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  /* ====== identity (cache first) ====== */
+  const cachedMe = useMemo(() => readCache(ME_CACHE_KEY, 5 * 60_000), []);
+  const cachedCounts = useMemo(() => readCache(COUNTS_CACHE_KEY, 20_000), []);
+
+  const [me, setMe] = useState(cachedMe || null);
+
+  // IMPORTANT: dacă avem cache, nu mai blocăm pagina cu loading
+  const [loading, setLoading] = useState(!cachedMe);
+
+  /* ====== counts (cache first) ====== */
+  const [unreadNotif, setUnreadNotif] = useState(cachedCounts?.unreadNotif ?? 0);
+  const [unreadMsgs, setUnreadMsgs] = useState(cachedCounts?.unreadMsgs ?? 0); // inbox vendor
+  const [cartCount, setCartCount] = useState(cachedCounts?.cartCount ?? 0);
+  const [wishlistCount, setWishlistCount] = useState(cachedCounts?.wishlistCount ?? 0);
+  const [userUnreadMsgs, setUserUnreadMsgs] = useState(cachedCounts?.userUnreadMsgs ?? 0);
+  const [supportUnread, setSupportUnread] = useState(cachedCounts?.supportUnread ?? 0);
+
+  const [onboarding, setOnboarding] = useState(null);
 
   const isVendor = me?.role === "VENDOR";
   const isAdmin = me?.role === "ADMIN";
   const isUser = me?.role === "USER";
-  const roleLabel = isVendor
-    ? "Vânzător"
-    : isAdmin
-    ? "Administrator"
-    : "Utilizator";
+  const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
 
+  // ✅ docs base ca în vendor desktop
+  const docsBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
+  /* ===================== 1) fetch me (revalidate) ===================== */
   useEffect(() => {
-    if (!me) return;
     let alive = true;
+
     (async () => {
       try {
-        const [notif, vendorInbox, cart, wishlist, userInbox, support] =
-          await Promise.all([
-            api("/api/notifications/unread-count").catch(() => ({ count: 0 })),
-            isVendor
-              ? api("/api/inbox/unread-count").catch(() => ({ count: 0 }))
-              : Promise.resolve({ count: 0 }),
-            api("/api/cart/count").catch(() => ({ count: 0 })),
-            api("/api/wishlist/count").catch(() => ({ count: 0 })), // alias favorites
-            api("/api/user-inbox/unread-count").catch(() => ({ count: 0 })),
-            api("/api/support/unread-count").catch(() => ({ count: 0 })),
-          ]);
-
+        const d = await api("/api/auth/me");
         if (!alive) return;
 
-        setUnreadNotif(notif?.count || 0);
-        setUnreadMsgs(vendorInbox?.count || 0);
-        setCartCount(cart?.count || 0);
-        setWishlistCount(wishlist?.count || 0);
-        setUserUnreadMsgs(userInbox?.count || 0);
-        setSupportUnread(support?.count || 0);
+        if (!d?.user) {
+          writeCache(ME_CACHE_KEY, null);
+          window.location.href = "/autentificare?redirect=/desktop";
+          return;
+        }
+
+        setMe(d.user);
+        writeCache(ME_CACHE_KEY, d.user);
       } catch {
-        /* ignore */
-      }
-
-      if (isVendor) {
-        try {
-          const ob = await api(
-            "/api/vendors/me/onboarding-status"
-          ).catch(() => null);
-          if (alive) setOnboarding(ob || null);
-        } catch {
-          /* ignore */
+        if (!cachedMe) {
+          window.location.href = "/autentificare?redirect=/desktop";
+          return;
         }
-      }
-
-      // 📊 blocurile de "desktop" pentru USER (comenzi, notificări etc.)
-      if (isUser) {
-        try {
-          const desktop = await api("/api/user/desktop").catch(() => null);
-          if (!alive || !desktop) return;
-          
-        } catch {
-          /* ignore */
-        }
+        // dacă avem cache, nu omorâm UX-ul; lăsăm userul să vadă pagina
+      } finally {
+        if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
-  }, [me, isVendor, isUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  /* ====== recenzii & comentarii (mobile list + paginare) ====== */
+  /* ===================== 2) fetch counts (revalidate + cache) ===================== */
+  useEffect(() => {
+    if (!me) return;
+
+    let alive = true;
+
+    const fetchCounts = async () => {
+      try {
+        const [notif, vendorInbox, cart, wishlist, userInbox, support] = await Promise.all([
+          api("/api/notifications/unread-count").catch(() => ({ count: 0 })),
+          me.role === "VENDOR"
+            ? api("/api/inbox/unread-count").catch(() => ({ count: 0 }))
+            : Promise.resolve({ count: 0 }),
+          api("/api/cart/count").catch(() => ({ count: 0 })),
+          api("/api/wishlist/count").catch(() => ({ count: 0 })),
+          api("/api/user-inbox/unread-count").catch(() => ({ count: 0 })),
+          api("/api/support/unread-count").catch(() => ({ count: 0 })),
+        ]);
+
+        if (!alive) return;
+
+        const next = {
+          unreadNotif: notif?.count || 0,
+          unreadMsgs: vendorInbox?.count || 0,
+          cartCount: cart?.count || 0,
+          wishlistCount: wishlist?.count || 0,
+          userUnreadMsgs: userInbox?.count || 0,
+          supportUnread: support?.count || 0,
+        };
+
+        setUnreadNotif(next.unreadNotif);
+        setUnreadMsgs(next.unreadMsgs);
+        setCartCount(next.cartCount);
+        setWishlistCount(next.wishlistCount);
+        setUserUnreadMsgs(next.userUnreadMsgs);
+        setSupportUnread(next.supportUnread);
+
+        writeCache(COUNTS_CACHE_KEY, next);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    // fetch imediat
+    fetchCounts();
+
+    // polling light (mai rar când tab-ul nu e activ)
+    let intervalId = null;
+    const startInterval = () => {
+      if (intervalId) clearInterval(intervalId);
+      const ms = document.visibilityState === "visible" ? 20_000 : 60_000;
+      intervalId = setInterval(fetchCounts, ms);
+    };
+    startInterval();
+
+    const onFocus = () => fetchCounts();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchCounts();
+      startInterval();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      alive = false;
+      if (intervalId) clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [me]);
+
+  /* ===================== 3) onboarding (vendor only) ===================== */
+  useEffect(() => {
+    if (!me || me.role !== "VENDOR") return;
+
+    let alive = true;
+    api("/api/vendors/me/onboarding-status")
+      .then((ob) => alive && setOnboarding(ob || null))
+      .catch(() => {});
+
+    return () => {
+      alive = false;
+    };
+  }, [me]);
+
+  /* ====== recenzii & comentarii (paginare) ====== */
   const [revTab, setRevTab] = useState("sent"); // "sent" | "received"
-  const [comTab, setComTab] = useState(isVendor ? "received" : "sent");
+  const [comTab, setComTab] = useState("sent");
+  useEffect(() => {
+    if (!me) return;
+    setComTab(me.role === "VENDOR" ? "received" : "sent");
+  }, [me]);
 
   const [reviewsSent, setReviewsSent] = useState([]);
   const [reviewsRecv, setReviewsRecv] = useState([]);
@@ -266,16 +330,14 @@ export default function UserDesktop() {
     try {
       setRevLoading(true);
       const limit = 10;
+
       const [sent, recv] = await Promise.all([
-        api(`/api/reviews/my?page=${page}&limit=${limit}`).catch(() => ({
-          items: [],
-        })),
+        api(`/api/desktop-reviews/my?page=${page}&limit=${limit}`).catch(() => ({ items: [] })),
         isVendor
-          ? api(`/api/reviews/received?page=${page}&limit=${limit}`).catch(
-              () => ({ items: [] })
-            )
+          ? api(`/api/desktop-reviews/received?page=${page}&limit=${limit}`).catch(() => ({ items: [] }))
           : { items: [] },
       ]);
+
       if (replace) {
         setReviewsSent(sent.items || []);
         setReviewsRecv(recv.items || []);
@@ -283,10 +345,8 @@ export default function UserDesktop() {
         setReviewsSent((prev) => [...prev, ...(sent.items || [])]);
         setReviewsRecv((prev) => [...prev, ...(recv.items || [])]);
       }
-      setRevHasMore(
-        (sent.items?.length || 0) === limit ||
-          (recv.items?.length || 0) === limit
-      );
+
+      setRevHasMore((sent.items?.length || 0) === limit || (recv.items?.length || 0) === limit);
       setRevPage(page);
     } finally {
       setRevLoading(false);
@@ -297,16 +357,14 @@ export default function UserDesktop() {
     try {
       setComLoading(true);
       const limit = 10;
+
       const [sent, recv] = await Promise.all([
-        api(`/api/comments/my?page=${page}&limit=${limit}`).catch(() => ({
-          items: [],
-        })),
+        api(`/api/product-comments/my?page=${page}&limit=${limit}`).catch(() => ({ items: [] })),
         isVendor
-          ? api(`/api/comments/received?page=${page}&limit=${limit}`).catch(
-              () => ({ items: [] })
-            )
+          ? api(`/api/product-comments/received?page=${page}&limit=${limit}`).catch(() => ({ items: [] }))
           : { items: [] },
       ]);
+
       if (replace) {
         setCommentsSent(sent.items || []);
         setCommentsRecv(recv.items || []);
@@ -314,23 +372,25 @@ export default function UserDesktop() {
         setCommentsSent((prev) => [...prev, ...(sent.items || [])]);
         setCommentsRecv((prev) => [...prev, ...(recv.items || [])]);
       }
-      setComHasMore(
-        (sent.items?.length || 0) === limit ||
-          (recv.items?.length || 0) === limit
-      );
+
+      setComHasMore((sent.items?.length || 0) === limit || (recv.items?.length || 0) === limit);
       setComPage(page);
     } finally {
       setComLoading(false);
     }
   }
 
-  // 🔥 Ștergere recenzie produs
   async function handleDeleteReview(r) {
     if (!r?.id) return;
     const ok = window.confirm("Sigur vrei să ștergi această recenzie?");
     if (!ok) return;
+
     try {
-      await api(`/api/reviews/${r.id}`, { method: "DELETE" });
+      if (r.kind === "STORE_REVIEW") {
+        await api(`/api/store-reviews/${r.id}`, { method: "DELETE" });
+      } else {
+        await api(`/api/reviews/${r.id}`, { method: "DELETE" });
+      }
       setReviewsSent((prev) => prev.filter((it) => it.id !== r.id));
     } catch (e) {
       console.error(e);
@@ -338,13 +398,13 @@ export default function UserDesktop() {
     }
   }
 
-  // 🔥 Ștergere comentariu (recenzie magazin)
   async function handleDeleteComment(c) {
     if (!c?.id) return;
     const ok = window.confirm("Sigur vrei să ștergi acest comentariu?");
     if (!ok) return;
+
     try {
-      await api(`/api/store-reviews/${c.id}`, { method: "DELETE" });
+      await api(`/api/reviews/${c.id}`, { method: "DELETE" });
       setCommentsSent((prev) => prev.filter((it) => it.id !== c.id));
     } catch (e) {
       console.error(e);
@@ -352,64 +412,63 @@ export default function UserDesktop() {
     }
   }
 
-  /* ===== Quick grid cu badge-uri (inclus Mesaje & Suport) ===== */
-  const quick = [
-    {
-      to: "/notificari",
-      label: "Notificări",
-      icon: <Bell size={20} />,
-      badge: unreadNotif,
-    },
-    {
-      to: "/cos",
-      label: "Coș",
-      icon: <ShoppingCart size={20} />,
-      badge: cartCount,
-    },
-    {
-      to: "/wishlist",
-      label: "Dorințe",
-      icon: <Heart size={20} />,
-      badge: wishlistCount,
-    },
-    // Mesaje + Suport pentru user final
-    ...(isUser
-      ? [
-         {
-        to: "/comenzile-mele",
-        label: "Comenzi",
-        icon: <Package size={20} />,
-        badge: 0, // sau scoți badge dacă nu vrei
-      },
-          {
-            to: "/cont/mesaje",
-            label: "Mesaje",
-            icon: <MessageSquare size={20} />,
-            badge: userUnreadMsgs,
-          },
-          {
-            to: "/account/support",
-            label: "Suport",
-            icon: <LifeBuoy size={20} />,
-            badge: supportUnread,
-          },
-        ]
-      : []),
-    // Mesaje pentru vânzător (inbox-ul de vendor)
-    ...(isVendor
-      ? [
-          {
-            to: "/cont/mesaje",
-            label: "Mesaje clienți",
-            icon: <MessageSquare size={20} />,
-            badge: unreadMsgs,
-          },
-        ]
-      : []),
-    { to: "/cont/setari", label: "Setări", icon: <Settings size={20} /> },
-  ].slice(0, 6); // păstrăm max 6 tile-uri
+  /* ===== Quick grid cu badge-uri ===== */
+  const quick = useMemo(
+    () =>
+      [
+        { to: "/notificari", label: "Notificări", icon: <Bell size={20} />, badge: unreadNotif },
+        { to: "/cos", label: "Coș", icon: <ShoppingCart size={20} />, badge: cartCount },
+        { to: "/wishlist", label: "Dorințe", icon: <Heart size={20} />, badge: wishlistCount },
 
-  // Logout
+        ...(isUser
+          ? [
+              { to: "/comenzile-mele", label: "Comenzi", icon: <Package size={20} />, badge: 0 },
+              { to: "/cont/mesaje", label: "Mesaje", icon: <MessageSquare size={20} />, badge: userUnreadMsgs },
+              { to: "/account/support", label: "Suport", icon: <LifeBuoy size={20} />, badge: supportUnread },
+            ]
+          : []),
+
+        ...(isVendor
+          ? [{ to: "/cont/mesaje", label: "Mesaje clienți", icon: <MessageSquare size={20} />, badge: unreadMsgs }]
+          : []),
+
+        { to: "/cont/setari", label: "Setări", icon: <Settings size={20} /> },
+      ].slice(0, 6),
+    [unreadNotif, cartCount, wishlistCount, isUser, userUnreadMsgs, supportUnread, isVendor, unreadMsgs]
+  );
+
+  /* ===================== Prefetch (best-effort) ===================== */
+  // NOTE: ajustează paths dacă ai alte foldere; dacă nu există fișierul, nu crapă build-ul
+  const didPrefetchRef = useRef(false);
+  useEffect(() => {
+    if (didPrefetchRef.current) return;
+    didPrefetchRef.current = true;
+
+    // mică pauză ca să nu concureze cu primul render
+    const t = setTimeout(() => {
+      try {
+        // best effort: dacă ai lazy routes, asta le aduce în cache
+        import("../Notification/UserNotaificationPage.jsx").catch(() => {});
+        import("../../Cart/Cart.jsx").catch(() => {});
+        import("../../Wishlist/Wishlist.jsx").catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    }, 400);
+
+    return () => clearTimeout(t);
+  }, []);
+
+  const prefetchMap = useMemo(
+    () => ({
+      "/notificari": () => import("../Notification/UserNotaificationPage.jsx").catch(() => {}),
+      "/cos": () => import("../../Cart/Cart.jsx").catch(() => {}),
+      "/wishlist": () => import("../../Wishlist/Wishlist.jsx").catch(() => {}),
+    }),
+    []
+  );
+
+  /* ===== Logout ===== */
   async function handleLogout(e) {
     e.preventDefault();
     try {
@@ -417,6 +476,9 @@ export default function UserDesktop() {
     } catch {
       /* ignore */
     }
+    // curățăm cache-ul ca să nu “flash-uiască” la următoarea intrare
+    writeCache(ME_CACHE_KEY, null);
+    writeCache(COUNTS_CACHE_KEY, null);
     window.location.href = "/autentificare";
   }
 
@@ -424,11 +486,7 @@ export default function UserDesktop() {
     return (
       <div className={styles.page}>
         <div className={styles.stickyTop}>
-          <button
-            className={styles.iconBtn}
-            aria-label="Înapoi"
-            onClick={() => history.back()}
-          >
+          <button className={styles.iconBtn} aria-label="Înapoi" onClick={() => history.back()}>
             <ArrowLeft size={18} />
           </button>
           <h1 className={styles.pageTitle}>Cont</h1>
@@ -443,11 +501,7 @@ export default function UserDesktop() {
     <div className={styles.page}>
       {/* ===== header sticky (mobile) ===== */}
       <div className={styles.stickyTop}>
-        <button
-          className={styles.iconBtn}
-          aria-label="Înapoi"
-          onClick={() => history.back()}
-        >
+        <button className={styles.iconBtn} aria-label="Înapoi" onClick={() => history.back()}>
           <ArrowLeft size={18} />
         </button>
         <h1 className={styles.pageTitle}>Cont</h1>
@@ -482,17 +536,18 @@ export default function UserDesktop() {
       <div className={styles.card}>
         <div className={styles.quickGrid}>
           {quick.map((q) => (
-            <a key={q.to} href={q.to} className={styles.quickItem}>
+            <Link
+              key={q.to}
+              to={q.to}
+              className={styles.quickItem}
+              onMouseEnter={prefetchMap[q.to]}
+            >
               <span className={styles.quickIcon}>
                 {q.icon}
-                {q.badge > 0 && (
-                  <span className={styles.quickBadge}>
-                    {Math.min(q.badge, 99)}
-                  </span>
-                )}
+                {q.badge > 0 && <span className={styles.quickBadge}>{Math.min(q.badge, 99)}</span>}
               </span>
               <span className={styles.quickLabel}>{q.label}</span>
-            </a>
+            </Link>
           ))}
         </div>
       </div>
@@ -511,17 +566,16 @@ export default function UserDesktop() {
                 : "Continuă setup"}
             </span>
           </div>
-          <a href="/onboarding" className={styles.bannerBtn}>
+          <Link to="/onboarding" className={styles.bannerBtn}>
             Continuă
-          </a>
+          </Link>
         </div>
       )}
 
-      {/* ===== Dashboard (doar Wishlist scurt) ===== */}
+      {/* ===== Dashboard (opțional) ===== */}
       {isUser && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Activitate recentă</h2>
-
         </section>
       )}
 
@@ -534,9 +588,7 @@ export default function UserDesktop() {
           <div className={styles.segment}>
             <button
               type="button"
-              className={`${styles.segBtn} ${
-                revTab === "sent" ? styles.segActive : ""
-              }`}
+              className={`${styles.segBtn} ${revTab === "sent" ? styles.segActive : ""}`}
               onClick={() => {
                 setRevTab("sent");
                 if (revPage !== 1) loadReviews(1, true);
@@ -544,81 +596,44 @@ export default function UserDesktop() {
             >
               Trimise
             </button>
-            <button
-              type="button"
-              className={`${styles.segBtn} ${
-                revTab === "received" ? styles.segActive : ""
-              }`}
-              onClick={() => {
-                setRevTab("received");
-                if (revPage !== 1) loadReviews(1, true);
-              }}
-              disabled={!isVendor}
-              title={!isVendor ? "Doar pentru vânzători" : undefined}
-            >
-              Primite
-            </button>
           </div>
         </div>
 
         <div className={styles.list}>
           {(revTab === "sent" ? reviewsSent : reviewsRecv).map((r) => (
-            <article
-              key={r.id || `${r.itemId}-${r.createdAt}`}
-              className={styles.itemCard}
-            >
-              <a
-                href={r.productUrl || r.targetUrl || "#"}
-                className={styles.itemThumb}
-              >
+            <article key={r.id || `${r.itemId}-${r.createdAt}`} className={styles.itemCard}>
+              <a href={r.productUrl || r.targetUrl || "#"} className={styles.itemThumb}>
                 <img src={r.image || "/placeholder.png"} alt="" loading="lazy" />
               </a>
               <div className={styles.itemBody}>
                 <div className={styles.itemTop}>
-                  <a
-                    className={styles.itemTitle}
-                    href={r.productUrl || r.targetUrl || "#"}
-                  >
+                  <a className={styles.itemTitle} href={r.productUrl || r.targetUrl || "#"}>
                     {r.productTitle || r.title || "Produs / Serviciu"}
                   </a>
                   <time className={styles.itemTime}>
-                    <Clock size={12} />{" "}
-                    {new Date(
-                      r.createdAt || Date.now()
-                    ).toLocaleDateString("ro-RO")}
+                    <Clock size={12} /> {new Date(r.createdAt || Date.now()).toLocaleDateString("ro-RO")}
                   </time>
                 </div>
+
                 <div className={styles.itemMeta}>
                   <Stars value={r.rating || 0} />
                 </div>
+
                 {r.text && <p className={styles.itemText}>{r.text}</p>}
+
                 <div className={styles.itemActions}>
                   {revTab === "sent" ? (
                     <>
-                      <a
-                        href={
-                          (r.productUrl || "#") + (r.id ? `#rev-${r.id}` : "")
-                        }
-                        className={styles.linkBtn}
-                      >
+                      <a href={(r.productUrl || "#") + (r.id ? `#rev-${r.id}` : "")} className={styles.linkBtn}>
                         <Pencil size={14} /> Editează
                       </a>
-                      <button
-                        type="button"
-                        className={styles.linkBtnDanger}
-                        onClick={() => handleDeleteReview(r)}
-                      >
+                      <button type="button" className={styles.linkBtnDanger} onClick={() => handleDeleteReview(r)}>
                         <Trash2 size={14} /> Șterge
                       </button>
                     </>
                   ) : (
                     isVendor && (
-                      <a
-                        href={
-                          (r.productUrl || "#") + (r.id ? `#rev-${r.id}` : "")
-                        }
-                        className={styles.linkBtn}
-                      >
+                      <a href={(r.productUrl || "#") + (r.id ? `#rev-${r.id}` : "")} className={styles.linkBtn}>
                         <Reply size={14} /> Răspunde
                       </a>
                     )
@@ -628,15 +643,12 @@ export default function UserDesktop() {
             </article>
           ))}
 
-          {!revLoading &&
-            (revTab === "sent" ? reviewsSent : reviewsRecv).length === 0 && (
-              <div className={styles.empty}>
-                Nu există recenzii{" "}
-                {revTab === "sent" ? "trimise" : "primite"} încă.
-              </div>
-            )}
+          {!revLoading && (revTab === "sent" ? reviewsSent : reviewsRecv).length === 0 && (
+            <div className={styles.empty}>
+              Nu există recenzii {revTab === "sent" ? "trimise" : "primite"} încă.
+            </div>
+          )}
 
-          {/* Paginare mică: Înapoi / Înainte */}
           <div className={styles.pager}>
             <button
               type="button"
@@ -668,9 +680,7 @@ export default function UserDesktop() {
           <div className={styles.segment}>
             <button
               type="button"
-              className={`${styles.segBtn} ${
-                comTab === "sent" ? styles.segActive : ""
-              }`}
+              className={`${styles.segBtn} ${comTab === "sent" ? styles.segActive : ""}`}
               onClick={() => {
                 setComTab("sent");
                 if (comPage !== 1) loadComments(1, true);
@@ -678,74 +688,44 @@ export default function UserDesktop() {
             >
               Trimise
             </button>
-            <button
-              type="button"
-              className={`${styles.segBtn} ${
-                comTab === "received" ? styles.segActive : ""
-              }`}
-              onClick={() => {
-                setComTab("received");
-                if (comPage !== 1) loadComments(1, true);
-              }}
-              disabled={!isVendor}
-              title={!isVendor ? "Doar pentru vânzători" : undefined}
-            >
-              Primite
-            </button>
           </div>
         </div>
 
         <div className={styles.list}>
           {(comTab === "sent" ? commentsSent : commentsRecv).map((c) => (
-            <article
-              key={c.id || `${c.itemId}-${c.createdAt}`}
-              className={styles.itemCard}
-            >
-              <a
-                href={c.productUrl || c.targetUrl || "#"}
-                className={styles.itemThumb}
-              >
+            <article key={c.id || `${c.itemId}-${c.createdAt}`} className={styles.itemCard}>
+              <a href={c.productUrl || c.targetUrl || "#"} className={styles.itemThumb}>
                 <img src={c.image || "/placeholder.png"} alt="" loading="lazy" />
               </a>
               <div className={styles.itemBody}>
                 <div className={styles.itemTop}>
-                  <a
-                    className={styles.itemTitle}
-                    href={c.productUrl || c.targetUrl || "#"}
-                  >
+                  <a className={styles.itemTitle} href={c.productUrl || c.targetUrl || "#"}>
                     {c.productTitle || c.title || "Produs / Serviciu"}
                   </a>
                   <time className={styles.itemTime}>
-                    <Clock size={12} />{" "}
-                    {new Date(
-                      c.createdAt || Date.now()
-                    ).toLocaleDateString("ro-RO")}
+                    <Clock size={12} /> {new Date(c.createdAt || Date.now()).toLocaleDateString("ro-RO")}
                   </time>
                 </div>
+
+                <div className={styles.itemMeta}>
+                  <Stars value={c.rating || 0} />
+                </div>
+
                 {c.text && <p className={styles.itemText}>{c.text}</p>}
+
                 <div className={styles.itemActions}>
                   {comTab === "sent" ? (
                     <>
-                      <a
-                        href={c.productUrl || "#"}
-                        className={styles.linkBtn}
-                      >
+                      <a href={c.productUrl || "#"} className={styles.linkBtn}>
                         <Pencil size={14} /> Editează
                       </a>
-                      <button
-                        type="button"
-                        className={styles.linkBtnDanger}
-                        onClick={() => handleDeleteComment(c)}
-                      >
+                      <button type="button" className={styles.linkBtnDanger} onClick={() => handleDeleteComment(c)}>
                         <Trash2 size={14} /> Șterge
                       </button>
                     </>
                   ) : (
                     isVendor && (
-                      <a
-                        href={c.productUrl || "#"}
-                        className={styles.linkBtn}
-                      >
+                      <a href={c.productUrl || "#"} className={styles.linkBtn}>
                         <Reply size={14} /> Răspunde
                       </a>
                     )
@@ -755,15 +735,12 @@ export default function UserDesktop() {
             </article>
           ))}
 
-          {!comLoading &&
-            (comTab === "sent" ? commentsSent : commentsRecv).length === 0 && (
-              <div className={styles.empty}>
-                Nu există comentarii{" "}
-                {comTab === "sent" ? "trimise" : "primite"} încă.
-              </div>
-            )}
+          {!comLoading && (comTab === "sent" ? commentsSent : commentsRecv).length === 0 && (
+            <div className={styles.empty}>
+              Nu există comentarii {comTab === "sent" ? "trimise" : "primite"} încă.
+            </div>
+          )}
 
-          {/* Paginare mică pentru comentarii */}
           <div className={styles.pager}>
             <button
               type="button"
@@ -786,17 +763,11 @@ export default function UserDesktop() {
         </div>
       </section>
 
-      {/* ===== Setări & ajutor (link pe /cont/setari + pagini legale) ===== */}
+      {/* ===== Setări & ajutor ===== */}
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Setări & securitate</h2>
         <div className={styles.card}>
-          <RowLink
-            to="/cont/setari"
-            label="Setări cont"
-            icon={<Settings size={20} />}
-          />
-
-          {/* Ajutor & suport cu badge de tichete noi */}
+          <RowLink to="/cont/setari" label="Setări cont" icon={<Settings size={20} />} />
           <RowLink
             to="/account/support"
             label="Ajutor & suport"
@@ -804,28 +775,11 @@ export default function UserDesktop() {
             badge={supportUnread}
           />
 
-          {/* Documente legale acceptate la crearea contului */}
-          <RowLink
-            to="/termeni-si-conditii"
-            label="Termeni și condiții"
-            icon={<FileText size={20} />}
-          />
-          <RowLink
-            to="/politica-de-confidentialitate"
-            label="Politica de confidențialitate"
-            icon={<ShieldHalf size={20} />}
-          />
-          <RowLink
-            to="/politica-de-retur"
-            label="Politica de retur"
-            icon={<FileText size={20} />}
-          />
+          <RowExternalLink href={`${docsBase}/termenii-si-conditiile`} label="Termeni și condiții" icon={<FileText size={20} />} />
+          <RowExternalLink href={`${docsBase}/confidentialitate`} label="Politica de confidențialitate" icon={<ShieldHalf size={20} />} />
+          <RowExternalLink href={`${docsBase}/politica-retur`} label="Politica de retur" icon={<FileText size={20} />} />
 
-          <RowLink
-            to="/facturi"
-            label="Facturi / documente"
-            icon={<FileText size={20} />}
-          />
+          {/* <RowLink to="/facturi" label="Facturi / documente" icon={<FileText size={20} />} /> */}
         </div>
       </section>
 
@@ -834,32 +788,11 @@ export default function UserDesktop() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Vânzător</h2>
           <div className={styles.card}>
-            <RowLink
-              to="/planner"
-              label="Planificator comenzi"
-              icon={<LayoutDashboard size={20} />}
-            />
-            <RowLink
-              to="/vendor/visitors"
-              label="Vizitatori"
-              icon={<Users size={20} />}
-            />
-            <RowLink
-              to="/cont/mesaje"
-              label="Mesaje"
-              icon={<MessageSquare size={20} />}
-              badge={unreadMsgs}
-            />
-            <RowLink
-              to="/magazine"
-              label="Magazine / Produse"
-              icon={<Store size={20} />}
-            />
-            <RowLink
-              to="/asistenta-tehnica"
-              label="Asistență tehnică"
-              icon={<LifeBuoy size={20} />}
-            />
+            <RowLink to="/planner" label="Planificator comenzi" icon={<LayoutDashboard size={20} />} />
+            <RowLink to="/vendor/visitors" label="Vizitatori" icon={<Users size={20} />} />
+            <RowLink to="/cont/mesaje" label="Mesaje" icon={<MessageSquare size={20} />} badge={unreadMsgs} />
+            <RowLink to="/magazine" label="Magazine / Produse" icon={<Store size={20} />} />
+            <RowLink to="/asistenta-tehnica" label="Asistență tehnică" icon={<LifeBuoy size={20} />} />
           </div>
         </section>
       )}
@@ -868,22 +801,14 @@ export default function UserDesktop() {
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>Administrare</h2>
           <div className={styles.card}>
-            <RowLink
-              to="/admin"
-              label="Panou Admin"
-              icon={<ShieldCheck size={20} />}
-            />
+            <RowLink to="/admin" label="Panou Admin" icon={<ShieldCheck size={20} />} />
           </div>
         </section>
       )}
 
       {/* ===== Logout ===== */}
       <div className={styles.card}>
-        <button
-          className={styles.logoutBtn}
-          onClick={handleLogout}
-          type="button"
-        >
+        <button className={styles.logoutBtn} onClick={handleLogout} type="button">
           <LogOut size={18} />
           Deconectare
         </button>

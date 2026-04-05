@@ -210,55 +210,62 @@ export default function UserNotificationsPage() {
                   <Bell size={16} />
                 </div>
 
-                {/* corp notificare */}
-                <button
-                  type="button"
-                  className={styles.body}
-                  onClick={() => {
-                    if (isUnread) markRead(n.id);
-                    if (n.link) window.location.href = n.link;
-                  }}
-                >
-                  <div className={styles.row}>
-                    <div className={styles.itemTitle}>{n.title}</div>
-                    <div className={styles.time}>{fmt(n.createdAt)}</div>
-                  </div>
+               {/* corp notificare */}
+<div
+  role="button"
+  tabIndex={0}
+  className={styles.body}
+  onClick={() => {
+    if (isUnread) markRead(n.id);
+    if (n.link) window.location.href = n.link;
+  }}
+  onKeyDown={(e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (isUnread) markRead(n.id);
+      if (n.link) window.location.href = n.link;
+    }
+  }}
+>
+  <div className={styles.row}>
+    <div className={styles.itemTitle}>{n.title}</div>
+    <div className={styles.time}>{fmt(n.createdAt)}</div>
+  </div>
 
-                  {n.body && <div className={styles.itemText}>{n.body}</div>}
+  {n.body && <div className={styles.itemText}>{n.body}</div>}
 
-                  {/* MOBILE footer: Vezi detalii + butoane pe aceeași linie */}
-                  <div className={styles.footerRow}>
-                    {n.link ? <div className={styles.link}>Vezi detalii</div> : <span />}
+  <div className={styles.footerRow}>
+    {n.link ? <div className={styles.link}>Vezi detalii</div> : <span />}
 
-                    <div className={styles.actionsInline}>
-                      {isUnread && (
-                        <button
-                          type="button"
-                          className={styles.ghostBtn}
-                          title="Marchează citit"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            markRead(n.id);
-                          }}
-                        >
-                          <Check size={14} />
-                        </button>
-                      )}
+    <div className={styles.actionsInline}>
+      {isUnread && (
+        <button
+          type="button"
+          className={styles.ghostBtn}
+          title="Marchează citit"
+          onClick={(e) => {
+            e.stopPropagation();
+            markRead(n.id);
+          }}
+        >
+          <Check size={14} />
+        </button>
+      )}
 
-                      <button
-                        type="button"
-                        className={styles.ghostBtn}
-                        title={n.archived ? "Dezarhivează" : "Arhivează"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleArchive(n.id, n.archived);
-                        }}
-                      >
-                        <Archive size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </button>
+      <button
+        type="button"
+        className={styles.ghostBtn}
+        title={n.archived ? "Dezarhivează" : "Arhivează"}
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleArchive(n.id, n.archived);
+        }}
+      >
+        <Archive size={14} />
+      </button>
+    </div>
+  </div>
+</div>
 
                 {/* DESKTOP actions (coloana din dreapta) */}
                 <div className={styles.rowActions}>

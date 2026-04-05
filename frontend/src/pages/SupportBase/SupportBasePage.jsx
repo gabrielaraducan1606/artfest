@@ -725,7 +725,7 @@ async function handleCreate(e) {
 
   async function deleteTicket(id) {
     if (!id) return;
-    if (!confirm("Ștergi acest tichet? Acțiunea este definitivă."))
+    if (!confirm("Ștergi acest tichet? Nu va mai apărea la tichetele tale."))
       return;
     try {
       await api(`${supportBase}/tickets/${id}`, {

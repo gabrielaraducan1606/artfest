@@ -1,17 +1,16 @@
-import React, {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { guestCart } from "../../lib/guestCart";
 import styles from "./Checkout.module.css";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+
+const SHIPPING_PER_VENDOR = 15;
+
 const isHttp = (u = "") => /^https?:\/\//i.test(u);
 const isDataOrBlob = (u = "") => /^(data|blob):/i.test(u);
+
 const resolveFileUrl = (u) => {
   if (!u) return "";
   if (isHttp(u) || isDataOrBlob(u)) return u;
@@ -20,14 +19,19 @@ const resolveFileUrl = (u) => {
 };
 
 const money = (v, currency = "RON") =>
-  new Intl.NumberFormat("ro-RO", { style: "currency", currency }).format(
-    v ?? 0
-  );
-
-// transport standard: 15 lei / magazin (vendor)
-const SHIPPING_PER_VENDOR = 15;
+  new Intl.NumberFormat("ro-RO", {
+    style: "currency",
+    currency,
+  }).format(v ?? 0);
 
 const normalizeDigits = (v = "") => v.replace(/\D/g, "");
+const normalizeText = (v = "") => String(v || "").trim();
+const normalizeCui = (v = "") =>
+  String(v || "")
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/[^A-Z0-9]/g, "")
+    .trim();
 
 const isValidPhone = (v = "") => /^\d{10}$/.test(normalizeDigits(v));
 
@@ -36,55 +40,458 @@ const isValidEmail = (v = "") => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 };
 
+const isValidPostalCode = (v = "") => {
+  const trimmed = String(v || "").trim();
+  return !trimmed || /^\d{6}$/.test(trimmed);
+};
+
+const isValidCui = (v = "") => {
+  const cui = normalizeCui(v);
+
+  if (!cui) return false;
+
+  if (cui.startsWith("RO")) {
+    return /^RO\d{2,10}$/.test(cui);
+  }
+
+  return /^\d{2,10}$/.test(cui);
+};
+
+function round2(n) {
+  return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function buildFullName(address) {
+  if (normalizeText(address.name)) return normalizeText(address.name);
+  return `${normalizeText(address.lastName)} ${normalizeText(
+    address.firstName
+  )}`.trim();
+}
+
+function validateCheckoutForm({
+  shippingAddress,
+  billingCompany,
+  contactPerson,
+  customerType,
+  items,
+  shipToDifferentAddress,
+}) {
+  const errors = {};
+
+  if (!items.length) {
+    return {
+      formError: "Coșul este gol.",
+      errors,
+    };
+  }
+
+  if (customerType === "PF") {
+    if (!normalizeText(shippingAddress.lastName)) {
+      errors.lastName = "Completează numele.";
+    }
+
+    if (!normalizeText(shippingAddress.firstName)) {
+      errors.firstName = "Completează prenumele.";
+    }
+
+    if (!normalizeText(shippingAddress.email)) {
+      errors.email = "Completează adresa de email.";
+    } else if (!isValidEmail(shippingAddress.email)) {
+      errors.email = "Introdu o adresă de email validă.";
+    }
+
+    if (!normalizeText(shippingAddress.phone)) {
+      errors.phone = "Completează numărul de telefon.";
+    } else if (!isValidPhone(shippingAddress.phone)) {
+      errors.phone = "Numărul de telefon trebuie să conțină exact 10 cifre.";
+    }
+
+    if (!shippingAddress.county) {
+      errors.county = "Selectează județul din listă.";
+    }
+
+    if (!normalizeText(shippingAddress.city)) {
+      errors.city = "Completează orașul / localitatea.";
+    }
+
+    if (!normalizeText(shippingAddress.street)) {
+      errors.street = "Completează strada și numărul.";
+    }
+
+    if (!isValidPostalCode(shippingAddress.postalCode)) {
+      errors.postalCode = "Codul poștal trebuie să aibă exact 6 cifre.";
+    }
+  }
+
+  if (customerType === "PJ") {
+    if (!normalizeText(billingCompany.companyName)) {
+      errors.companyName = "Completează denumirea firmei.";
+    }
+
+    if (!normalizeText(billingCompany.companyCui)) {
+      errors.companyCui = "Completează CUI-ul firmei.";
+    } else if (!isValidCui(billingCompany.companyCui)) {
+      errors.companyCui = "CUI-ul trebuie să fie de forma 12345678 sau RO12345678.";
+    }
+
+    if (!billingCompany.county) {
+      errors.companyCounty = "Selectează județul sediului din listă.";
+    }
+
+    if (!normalizeText(billingCompany.city)) {
+      errors.companyCity = "Completează orașul sediului.";
+    }
+
+    if (!normalizeText(billingCompany.street)) {
+      errors.companyStreet = "Completează strada și numărul sediului.";
+    }
+
+    if (!isValidPostalCode(billingCompany.postalCode)) {
+      errors.companyPostalCode =
+        "Codul poștal al sediului trebuie să aibă exact 6 cifre.";
+    }
+
+    if (!normalizeText(contactPerson.lastName)) {
+      errors.contactLastName = "Completează numele persoanei de contact.";
+    }
+
+    if (!normalizeText(contactPerson.firstName)) {
+      errors.contactFirstName = "Completează prenumele persoanei de contact.";
+    }
+
+    if (!normalizeText(contactPerson.email)) {
+      errors.contactEmail =
+        "Completează adresa de email a persoanei de contact.";
+    } else if (!isValidEmail(contactPerson.email)) {
+      errors.contactEmail =
+        "Introdu o adresă de email validă pentru persoana de contact.";
+    }
+
+    if (!normalizeText(contactPerson.phone)) {
+      errors.contactPhone = "Completează telefonul persoanei de contact.";
+    } else if (!isValidPhone(contactPerson.phone)) {
+      errors.contactPhone =
+        "Telefonul persoanei de contact trebuie să conțină exact 10 cifre.";
+    }
+
+    if (shipToDifferentAddress) {
+      if (!normalizeText(shippingAddress.lastName)) {
+        errors.lastName = "Completează numele.";
+      }
+
+      if (!normalizeText(shippingAddress.firstName)) {
+        errors.firstName = "Completează prenumele.";
+      }
+
+      if (!normalizeText(shippingAddress.email)) {
+        errors.email = "Completează adresa de email.";
+      } else if (!isValidEmail(shippingAddress.email)) {
+        errors.email = "Introdu o adresă de email validă.";
+      }
+
+      if (!normalizeText(shippingAddress.phone)) {
+        errors.phone = "Completează numărul de telefon.";
+      } else if (!isValidPhone(shippingAddress.phone)) {
+        errors.phone = "Numărul de telefon trebuie să conțină exact 10 cifre.";
+      }
+
+      if (!shippingAddress.county) {
+        errors.county = "Selectează județul din listă.";
+      }
+
+      if (!normalizeText(shippingAddress.city)) {
+        errors.city = "Completează orașul / localitatea.";
+      }
+
+      if (!normalizeText(shippingAddress.street)) {
+        errors.street = "Completează strada și numărul.";
+      }
+
+      if (!isValidPostalCode(shippingAddress.postalCode)) {
+        errors.postalCode = "Codul poștal trebuie să aibă exact 6 cifre.";
+      }
+    }
+  }
+
+  return { errors };
+}
+
+function validateSingleField({
+  fieldName,
+  shippingAddress,
+  billingCompany,
+  contactPerson,
+}) {
+  switch (fieldName) {
+    case "lastName":
+      if (!normalizeText(shippingAddress.lastName)) {
+        return "Completează numele.";
+      }
+      return "";
+
+    case "firstName":
+      if (!normalizeText(shippingAddress.firstName)) {
+        return "Completează prenumele.";
+      }
+      return "";
+
+    case "email":
+      if (!normalizeText(shippingAddress.email)) {
+        return "Completează adresa de email.";
+      }
+      if (!isValidEmail(shippingAddress.email)) {
+        return "Introdu o adresă de email validă.";
+      }
+      return "";
+
+    case "phone":
+      if (!normalizeText(shippingAddress.phone)) {
+        return "Completează numărul de telefon.";
+      }
+      if (!isValidPhone(shippingAddress.phone)) {
+        return "Numărul de telefon trebuie să conțină exact 10 cifre.";
+      }
+      return "";
+
+    case "county":
+      if (!shippingAddress.county) {
+        return "Selectează județul din listă.";
+      }
+      return "";
+
+    case "city":
+      if (!normalizeText(shippingAddress.city)) {
+        return "Completează orașul / localitatea.";
+      }
+      return "";
+
+    case "street":
+      if (!normalizeText(shippingAddress.street)) {
+        return "Completează strada și numărul.";
+      }
+      return "";
+
+    case "postalCode":
+      if (!isValidPostalCode(shippingAddress.postalCode)) {
+        return "Codul poștal trebuie să aibă exact 6 cifre.";
+      }
+      return "";
+
+    case "companyName":
+      if (!normalizeText(billingCompany.companyName)) {
+        return "Completează denumirea firmei.";
+      }
+      return "";
+
+    case "companyCui":
+      if (!normalizeText(billingCompany.companyCui)) {
+        return "Completează CUI-ul firmei.";
+      }
+      if (!isValidCui(billingCompany.companyCui)) {
+        return "CUI-ul trebuie să fie de forma 12345678 sau RO12345678.";
+      }
+      return "";
+
+    case "companyCounty":
+      if (!billingCompany.county) {
+        return "Selectează județul sediului din listă.";
+      }
+      return "";
+
+    case "companyCity":
+      if (!normalizeText(billingCompany.city)) {
+        return "Completează orașul sediului.";
+      }
+      return "";
+
+    case "companyStreet":
+      if (!normalizeText(billingCompany.street)) {
+        return "Completează strada și numărul sediului.";
+      }
+      return "";
+
+    case "companyPostalCode":
+      if (!isValidPostalCode(billingCompany.postalCode)) {
+        return "Codul poștal al sediului trebuie să aibă exact 6 cifre.";
+      }
+      return "";
+
+    case "contactLastName":
+      if (!normalizeText(contactPerson.lastName)) {
+        return "Completează numele persoanei de contact.";
+      }
+      return "";
+
+    case "contactFirstName":
+      if (!normalizeText(contactPerson.firstName)) {
+        return "Completează prenumele persoanei de contact.";
+      }
+      return "";
+
+    case "contactEmail":
+      if (!normalizeText(contactPerson.email)) {
+        return "Completează adresa de email a persoanei de contact.";
+      }
+      if (!isValidEmail(contactPerson.email)) {
+        return "Introdu o adresă de email validă pentru persoana de contact.";
+      }
+      return "";
+
+    case "contactPhone":
+      if (!normalizeText(contactPerson.phone)) {
+        return "Completează telefonul persoanei de contact.";
+      }
+      if (!isValidPhone(contactPerson.phone)) {
+        return "Telefonul persoanei de contact trebuie să conțină exact 10 cifre.";
+      }
+      return "";
+
+    default:
+      return "";
+  }
+}
+
+function getReadableApiError(error) {
+  const raw =
+    error?.message ||
+    error?.error ||
+    error?.code ||
+    error?.response?.message ||
+    "";
+
+  const normalized = String(raw).trim().toLowerCase();
+
+  switch (normalized) {
+    case "company_invalid":
+      return "Datele firmei nu sunt valide. Verifică denumirea firmei, CUI-ul și adresa de facturare.";
+
+    case "company_cui_invalid":
+      return "CUI-ul firmei nu este valid. Introdu un CUI de forma 12345678 sau RO12345678.";
+
+    case "company_name_required":
+      return "Completează denumirea firmei.";
+
+    case "company_address_invalid":
+      return "Adresa firmei este incompletă sau invalidă. Verifică județul, orașul și strada.";
+
+    case "contact_invalid":
+      return "Datele persoanei de contact nu sunt valide. Verifică numele, emailul și telefonul.";
+
+    case "address_invalid":
+      return "Adresa de livrare este incompletă sau invalidă.";
+
+    case "email_invalid":
+      return "Adresa de email introdusă nu este validă.";
+
+    case "phone_invalid":
+      return "Numărul de telefon introdus nu este valid.";
+
+    case "cart_empty":
+      return "Coșul este gol.";
+
+    case "payment_invalid":
+      return "Metoda de plată selectată nu este validă.";
+
+    default:
+      return raw || "Plasarea comenzii a eșuat. Verifică datele completate.";
+  }
+}
+
+function focusFirstError(fieldErrors, fieldRefs) {
+  const firstKey = Object.keys(fieldErrors)[0];
+  if (!firstKey) return;
+
+  const ref = fieldRefs[firstKey];
+  const el = ref?.current;
+
+  if (el && typeof el.focus === "function") {
+    el.focus();
+  }
+}
+
+function getItemVatBreakdown(item) {
+  const qty = Number(item?.qty || 0);
+  const gross = Number(item?.price || 0) * qty;
+
+  const billing = item?.vendorBilling || null;
+  const isVatPayer =
+    billing?.tvaActive === true || billing?.vatStatus === "payer";
+
+  const rateNum =
+    isVatPayer && billing?.vatRate ? parseFloat(billing.vatRate) : 0;
+
+  const hasRate = Number.isFinite(rateNum) && rateNum > 0;
+  const net = hasRate ? gross / (1 + rateNum / 100) : gross;
+  const vat = gross - net;
+
+  return {
+    gross: round2(gross),
+    net: round2(net),
+    vat: round2(vat),
+  };
+}
+
 export default function Checkout() {
   const nav = useNavigate();
 
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState([]); // [{ productId, title, image, qty, price, currency, vendorId, vendorBilling }]
+  const [items, setItems] = useState([]);
   const [currency, setCurrency] = useState("RON");
-  const [subtotal, setSubtotal] = useState(0);
 
-  const [address, setAddress] = useState({
+  const [shippingAddress, setShippingAddress] = useState({
     firstName: "",
     lastName: "",
-    name: "", // nume complet – pentru backend / AWB
+    name: "",
     phone: "",
     email: "",
-    county: "", // cod județ (AB, AG, B, ...)
+    county: "",
     city: "",
     postalCode: "",
     street: "",
     notes: "",
-    // date firmă (PJ) – strictul necesar
+  });
+
+  const [billingCompany, setBillingCompany] = useState({
     companyName: "",
     companyCui: "",
     companyRegCom: "",
+    county: "",
+    city: "",
+    postalCode: "",
+    street: "",
   });
 
-  const [customerType, setCustomerType] = useState("PF"); // "PF" | "PJ"
+  const [contactPerson, setContactPerson] = useState({
+    firstName: "",
+    lastName: "",
+    name: "",
+    phone: "",
+    email: "",
+  });
+
+  const [customerType, setCustomerType] = useState("PF");
+  const [shipToDifferentAddress, setShipToDifferentAddress] = useState(false);
 
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("CARD"); // "CARD" | "COD" (ramburs)
+  const [paymentMethod, setPaymentMethod] = useState("CARD");
 
   const [counties, setCounties] = useState([]);
   const [countiesLoading, setCountiesLoading] = useState(true);
 
-  // ce vede userul în input la Județ (nume, nu cod)
   const [countyInput, setCountyInput] = useState("");
+  const [companyCountyInput, setCompanyCountyInput] = useState("");
 
-  // control pentru afișarea dropdown-ului de județe
   const [showCountyDropdown, setShowCountyDropdown] = useState(false);
+  const [showCompanyCountyDropdown, setShowCompanyCountyDropdown] =
+    useState(false);
 
-  // erori pe câmpuri
   const [fieldErrors, setFieldErrors] = useState({});
-
-  // stepper
   const [activeStep, setActiveStep] = useState(1);
+
   const addressSectionRef = useRef(null);
   const paymentSectionRef = useRef(null);
 
-  // refs pentru focus pe primul câmp cu eroare
   const lastNameRef = useRef(null);
   const firstNameRef = useRef(null);
   const emailRef = useRef(null);
@@ -92,168 +499,193 @@ export default function Checkout() {
   const countyRef = useRef(null);
   const cityRef = useRef(null);
   const streetRef = useRef(null);
+  const postalCodeRef = useRef(null);
+
   const companyNameRef = useRef(null);
   const companyCuiRef = useRef(null);
+  const companyCountyRef = useRef(null);
+  const companyCityRef = useRef(null);
+  const companyStreetRef = useRef(null);
+  const companyPostalCodeRef = useRef(null);
 
-  const fieldRefs = {
-    lastName: lastNameRef,
-    firstName: firstNameRef,
-    email: emailRef,
-    phone: phoneRef,
-    county: countyRef,
-    city: cityRef,
-    street: streetRef,
-    companyName: companyNameRef,
-    companyCui: companyCuiRef,
-  };
+  const contactLastNameRef = useRef(null);
+  const contactFirstNameRef = useRef(null);
+  const contactEmailRef = useRef(null);
+  const contactPhoneRef = useRef(null);
 
-  // listă de județe filtrată + ordonată în funcție de ce scrie userul
+  const fieldRefs = useMemo(
+    () => ({
+      lastName: lastNameRef,
+      firstName: firstNameRef,
+      email: emailRef,
+      phone: phoneRef,
+      county: countyRef,
+      city: cityRef,
+      street: streetRef,
+      postalCode: postalCodeRef,
+      companyName: companyNameRef,
+      companyCui: companyCuiRef,
+      companyCounty: companyCountyRef,
+      companyCity: companyCityRef,
+      companyStreet: companyStreetRef,
+      companyPostalCode: companyPostalCodeRef,
+      contactLastName: contactLastNameRef,
+      contactFirstName: contactFirstNameRef,
+      contactEmail: contactEmailRef,
+      contactPhone: contactPhoneRef,
+    }),
+    []
+  );
+
   const filteredCounties = useMemo(() => {
     if (!counties.length) return [];
 
     const q = countyInput.trim().toLowerCase();
 
     if (!q) {
-      return [...counties].sort((a, b) =>
-        a.name.localeCompare(b.name, "ro")
-      );
+      return [...counties].sort((a, b) => a.name.localeCompare(b.name, "ro"));
     }
 
-    const filtered = counties.filter((c) => {
-      const name = c.name.toLowerCase();
-      const code = c.code.toLowerCase();
-      return name.includes(q) || code.includes(q);
-    });
-
-    return filtered.sort((a, b) => {
-      const na = a.name.toLowerCase();
-      const nb = b.name.toLowerCase();
-
-      const aStarts = na.startsWith(q);
-      const bStarts = nb.startsWith(q);
-
-      if (aStarts && !bStarts) return -1;
-      if (!aStarts && bStarts) return 1;
-
-      return na.localeCompare(nb, "ro");
-    });
+    return counties
+      .filter((c) => {
+        const name = c.name.toLowerCase();
+        const code = c.code.toLowerCase();
+        return name.includes(q) || code.includes(q);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "ro"));
   }, [counties, countyInput]);
 
-  // grupare produse per vendor (magazin)
+  const filteredCompanyCounties = useMemo(() => {
+    if (!counties.length) return [];
+
+    const q = companyCountyInput.trim().toLowerCase();
+
+    if (!q) {
+      return [...counties].sort((a, b) => a.name.localeCompare(b.name, "ro"));
+    }
+
+    return counties
+      .filter((c) => {
+        const name = c.name.toLowerCase();
+        const code = c.code.toLowerCase();
+        return name.includes(q) || code.includes(q);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "ro"));
+  }, [counties, companyCountyInput]);
+
   const vendors = useMemo(() => {
     const map = new Map();
+
     for (const it of items) {
-      const v = String(it.vendorId || "unknown");
-      if (!map.has(v)) map.set(v, []);
-      map.get(v).push(it);
+      const vendorKey = String(it.vendorId || "unknown");
+      if (!map.has(vendorKey)) map.set(vendorKey, []);
+      map.get(vendorKey).push(it);
     }
-    return Array.from(map.entries()).map(([vendorId, its]) => ({
+
+    return Array.from(map.entries()).map(([vendorId, vendorItems]) => ({
       vendorId,
-      items: its,
+      items: vendorItems,
     }));
   }, [items]);
 
-  // transport total = 15 lei * numărul de magazine diferite
   const shippingTotal = useMemo(
     () => vendors.length * SHIPPING_PER_VENDOR,
     [vendors.length]
   );
 
-  // 🔹 TVA per vendor + total (pe produse)
   const vatTotals = useMemo(() => {
-    const round2 = (n) =>
-      Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
-
     let totalNet = 0;
     let totalVat = 0;
     let totalGross = 0;
 
-    const perVendorMap = new Map();
-
     for (const it of items) {
-      const vendorKey = String(it.vendorId || "unknown");
-      if (!perVendorMap.has(vendorKey)) {
-        perVendorMap.set(vendorKey, {
-          vendorId: vendorKey,
-          net: 0,
-          vat: 0,
-          gross: 0,
-          billing: it.vendorBilling || null,
-        });
-      }
+      const qty = Number(it.qty || 0);
+      const price = Number(it.price || 0);
+      const lineGross = price * qty;
 
-      const vendorInfo = perVendorMap.get(vendorKey);
-
-      const lineGross = (it.price || 0) * (it.qty || 0);
-
-      const b = it.vendorBilling || null;
-      // plătitor TVA dacă:
-      //  - tvaActive === true (ANAF confirmat) SAU
-      //  - vatStatus === "payer" (fallback la declarația vendorului)
+      const billing = it.vendorBilling || null;
       const isVatPayer =
-        (b?.tvaActive === true) || (b?.vatStatus === "payer");
+        billing?.tvaActive === true || billing?.vatStatus === "payer";
 
-      const rateNum = isVatPayer && b?.vatRate ? parseFloat(b.vatRate) : 0;
+      const rateNum =
+        isVatPayer && billing?.vatRate ? parseFloat(billing.vatRate) : 0;
+
       const hasRate = Number.isFinite(rateNum) && rateNum > 0;
 
-      const lineNet = hasRate
-        ? lineGross / (1 + rateNum / 100)
-        : lineGross;
+      const lineNet = hasRate ? lineGross / (1 + rateNum / 100) : lineGross;
       const lineVat = lineGross - lineNet;
-
-      vendorInfo.net += lineNet;
-      vendorInfo.vat += lineVat;
-      vendorInfo.gross += lineGross;
 
       totalNet += lineNet;
       totalVat += lineVat;
       totalGross += lineGross;
     }
 
-    const perVendor = Array.from(perVendorMap.values()).map((v) => ({
-      vendorId: v.vendorId,
-      net: round2(v.net),
-      vat: round2(v.vat),
-      gross: round2(v.gross),
-      billing: v.billing,
-    }));
-
     return {
       totalNet: round2(totalNet),
       totalVat: round2(totalVat),
       totalGross: round2(totalGross),
-      perVendor,
     };
   }, [items]);
 
-  // total de plată = produse (cu TVA) + transport
   const grandTotal = useMemo(
-    () => vatTotals.totalGross + shippingTotal,
+    () => round2(vatTotals.totalGross + shippingTotal),
     [vatTotals.totalGross, shippingTotal]
   );
 
-  // form "basic valid" pentru disable la buton
-  const isFormBasicallyValid = useMemo(() => {
-    const baseValid =
-      address.firstName &&
-      address.lastName &&
-      isValidEmail(address.email) &&
-      isValidPhone(address.phone) &&
-      address.county &&
-      address.city &&
-      address.street &&
-      items.length > 0;
-
-    if (!baseValid) return false;
-
-    if (customerType === "PJ") {
-      return !!address.companyName && !!address.companyCui;
+  const isAddressStepValid = useMemo(() => {
+    if (customerType === "PF") {
+      return (
+        !!normalizeText(shippingAddress.firstName) &&
+        !!normalizeText(shippingAddress.lastName) &&
+        isValidEmail(shippingAddress.email) &&
+        isValidPhone(shippingAddress.phone) &&
+        !!shippingAddress.county &&
+        !!normalizeText(shippingAddress.city) &&
+        !!normalizeText(shippingAddress.street) &&
+        isValidPostalCode(shippingAddress.postalCode)
+      );
     }
 
-    return true; // PF
-  }, [address, items.length, customerType]);
+    const companyValid =
+      !!normalizeText(billingCompany.companyName) &&
+      isValidCui(billingCompany.companyCui) &&
+      !!billingCompany.county &&
+      !!normalizeText(billingCompany.city) &&
+      !!normalizeText(billingCompany.street) &&
+      isValidPostalCode(billingCompany.postalCode);
 
-  // helper pentru ștergerea erorii unui câmp când userul editează
+    const contactValid =
+      !!normalizeText(contactPerson.firstName) &&
+      !!normalizeText(contactPerson.lastName) &&
+      isValidEmail(contactPerson.email) &&
+      isValidPhone(contactPerson.phone);
+
+    if (!companyValid || !contactValid) return false;
+
+    if (!shipToDifferentAddress) return true;
+
+    return (
+      !!normalizeText(shippingAddress.firstName) &&
+      !!normalizeText(shippingAddress.lastName) &&
+      isValidEmail(shippingAddress.email) &&
+      isValidPhone(shippingAddress.phone) &&
+      !!shippingAddress.county &&
+      !!normalizeText(shippingAddress.city) &&
+      !!normalizeText(shippingAddress.street) &&
+      isValidPostalCode(shippingAddress.postalCode)
+    );
+  }, [
+    customerType,
+    shippingAddress,
+    billingCompany,
+    contactPerson,
+    shipToDifferentAddress,
+  ]);
+
+  const isFormBasicallyValid = useMemo(() => {
+    return isAddressStepValid && items.length > 0;
+  }, [isAddressStepValid, items.length]);
+
   function clearFieldError(name) {
     setFieldErrors((prev) => {
       if (!prev[name]) return prev;
@@ -263,14 +695,88 @@ export default function Checkout() {
     });
   }
 
-  // 1) Auth + cart summary + restore address din localStorage
+  function setFieldError(name, message) {
+    setFieldErrors((prev) => {
+      if (!message) {
+        if (!prev[name]) return prev;
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      }
+
+      if (prev[name] === message) return prev;
+      return { ...prev, [name]: message };
+    });
+  }
+
+  function validateAndSetFieldError(fieldName) {
+    const message = validateSingleField({
+      fieldName,
+      shippingAddress,
+      billingCompany,
+      contactPerson,
+    });
+
+    setFieldError(fieldName, message);
+    return !message;
+  }
+
+  function updateShippingField(name, value) {
+    setShippingAddress((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  }
+
+  function updateBillingCompanyField(name, value) {
+    setBillingCompany((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  }
+
+  function updateContactField(name, value) {
+    setContactPerson((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  }
+
+  function updateShippingNames(partial) {
+    setShippingAddress((prev) => {
+      const next = { ...prev, ...partial };
+      return {
+        ...next,
+        name: `${normalizeText(next.lastName)} ${normalizeText(
+          next.firstName
+        )}`.trim(),
+      };
+    });
+  }
+
+  function updateContactNames(partial) {
+    setContactPerson((prev) => {
+      const next = { ...prev, ...partial };
+      return {
+        ...next,
+        name: `${normalizeText(next.lastName)} ${normalizeText(
+          next.firstName
+        )}`.trim(),
+      };
+    });
+  }
+
   useEffect(() => {
+    let cancelled = false;
+
     (async () => {
       setLoading(true);
       setError("");
+
       try {
-        const d = await api("/api/auth/me").catch(() => null);
-        const me = d?.user || null;
+        const authData = await api("/api/auth/me").catch(() => null);
+        const me = authData?.user || null;
+
         if (!me) {
           const redir = encodeURIComponent("/checkout");
           nav(`/autentificare?redirect=${redir}`);
@@ -278,78 +784,118 @@ export default function Checkout() {
         }
 
         const local = guestCart.list();
+
         if (local.length) {
           try {
-            const r = await api("/api/cart/merge", {
+            const mergeResult = await api("/api/cart/merge", {
               method: "POST",
               body: { items: local },
             });
+
+            if (cancelled) return;
+
             guestCart.clear();
+
             try {
               window.dispatchEvent(new CustomEvent("cart:changed"));
             } catch {
-              /* ignore */
+              // ignore
             }
-            if (r?.skipped > 0) {
+
+            if (mergeResult?.skipped > 0) {
               alert(
-                r.merged > 0
-                  ? `Am adăugat ${r.merged} produse în coșul tău. ${r.skipped} produse au fost omise.`
-                  : `${r.skipped} produse din coșul de vizitator au fost omise.`
+                mergeResult.merged > 0
+                  ? `Am adăugat ${mergeResult.merged} produse în coșul tău. ${mergeResult.skipped} produse au fost omise.`
+                  : `${mergeResult.skipped} produse din coșul de vizitator au fost omise.`
               );
             }
           } catch {
-            /* ignore merge errors */
+            // ignore
           }
         }
 
-        const s = await api("/api/checkout/summary");
-        setItems(Array.isArray(s?.items) ? s.items : []);
-        setCurrency(s?.currency || "RON");
-        setSubtotal(s?.subtotal || 0);
+        const summary = await api("/api/checkout/summary");
+        if (cancelled) return;
 
-        // restore adresă + tip client din localStorage (dacă există)
+        setItems(Array.isArray(summary?.items) ? summary.items : []);
+        setCurrency(summary?.currency || "RON");
+
         try {
           const saved = localStorage.getItem("checkoutAddress");
           if (saved) {
             const parsed = JSON.parse(saved);
             if (parsed && typeof parsed === "object") {
-              const { customerType: savedType, ...savedAddress } = parsed;
-              setAddress((prev) => ({
-                ...prev,
-                ...savedAddress,
-              }));
+              const {
+                customerType: savedType,
+                shipToDifferentAddress: savedShipToDifferentAddress,
+                shippingAddress: savedShippingAddress,
+                billingCompany: savedBillingCompany,
+                contactPerson: savedContactPerson,
+              } = parsed;
+
+              if (savedShippingAddress) {
+                setShippingAddress((prev) => ({
+                  ...prev,
+                  ...savedShippingAddress,
+                }));
+              }
+
+              if (savedBillingCompany) {
+                setBillingCompany((prev) => ({
+                  ...prev,
+                  ...savedBillingCompany,
+                }));
+              }
+
+              if (savedContactPerson) {
+                setContactPerson((prev) => ({
+                  ...prev,
+                  ...savedContactPerson,
+                }));
+              }
+
               if (savedType === "PF" || savedType === "PJ") {
                 setCustomerType(savedType);
               }
+
+              setShipToDifferentAddress(Boolean(savedShipToDifferentAddress));
             }
           }
         } catch {
           // ignore
         }
+      } catch {
+        if (!cancelled) {
+          setError("Nu am putut încărca checkout-ul.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [nav]);
 
-  // 2) Fetch județe
   useEffect(() => {
     let cancelled = false;
+
     setCountiesLoading(true);
 
     api("/api/geo/ro/counties")
       .then((res) => {
         if (cancelled) return;
-        const items = Array.isArray(res?.items) ? res.items : [];
-        setCounties(items);
+        setCounties(Array.isArray(res?.items) ? res.items : []);
       })
       .catch(() => {
         if (cancelled) return;
         setCounties([]);
       })
       .finally(() => {
-        if (cancelled) return;
-        setCountiesLoading(false);
+        if (!cancelled) setCountiesLoading(false);
       });
 
     return () => {
@@ -357,109 +903,220 @@ export default function Checkout() {
     };
   }, []);
 
-  // sincronizăm countyInput (label) cu codul din address.county când avem lista
   useEffect(() => {
-    if (!address.county || !counties.length) return;
-    const found = counties.find((c) => c.code === address.county);
-    if (found) {
-      setCountyInput(found.name);
-    }
-  }, [address.county, counties]);
+    if (!shippingAddress.county || !counties.length) return;
+    const found = counties.find((c) => c.code === shippingAddress.county);
+    if (found) setCountyInput(found.name);
+  }, [shippingAddress.county, counties]);
 
-  // salvare adresă + tip client în localStorage la fiecare modificare
+  useEffect(() => {
+    if (!billingCompany.county || !counties.length) return;
+    const found = counties.find((c) => c.code === billingCompany.county);
+    if (found) setCompanyCountyInput(found.name);
+  }, [billingCompany.county, counties]);
+
   useEffect(() => {
     try {
-      const data = JSON.stringify({ ...address, customerType });
-      localStorage.setItem("checkoutAddress", data);
+      localStorage.setItem(
+        "checkoutAddress",
+        JSON.stringify({
+          customerType,
+          shipToDifferentAddress,
+          shippingAddress,
+          billingCompany,
+          contactPerson,
+        })
+      );
     } catch {
       // ignore
     }
-  }, [address, customerType]);
+  }, [
+    customerType,
+    shipToDifferentAddress,
+    shippingAddress,
+    billingCompany,
+    contactPerson,
+  ]);
 
-  // selectare județ din dropdown
-  function handleSelectCounty(county) {
+  useEffect(() => {
+    if (customerType === "PF") {
+      setBillingCompany({
+        companyName: "",
+        companyCui: "",
+        companyRegCom: "",
+        county: "",
+        city: "",
+        postalCode: "",
+        street: "",
+      });
+
+      setContactPerson({
+        firstName: "",
+        lastName: "",
+        name: "",
+        phone: "",
+        email: "",
+      });
+
+      setCompanyCountyInput("");
+      setShipToDifferentAddress(false);
+      setFieldErrors({});
+    }
+  }, [customerType]);
+
+  function handleSelectShippingCounty(county) {
     setCountyInput(county.name);
     setShowCountyDropdown(false);
-    setAddress((prev) => ({
+    setShippingAddress((prev) => ({
       ...prev,
       county: county.code,
     }));
     clearFieldError("county");
   }
 
-  async function placeOrder() {
-    if (!items.length) {
-      setError("Coșul este gol.");
+  function handleSelectCompanyCounty(county) {
+    setCompanyCountyInput(county.name);
+    setShowCompanyCountyDropdown(false);
+    setBillingCompany((prev) => ({
+      ...prev,
+      county: county.code,
+    }));
+    clearFieldError("companyCounty");
+  }
+
+  const goToStep1 = () => {
+    setActiveStep(1);
+    addressSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
+  const goToStep2 = () => {
+    const { errors } = validateCheckoutForm({
+      shippingAddress,
+      billingCompany,
+      contactPerson,
+      customerType,
+      items,
+      shipToDifferentAddress,
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError(
+        "Există câmpuri incomplete sau completate greșit. Verifică mesajele afișate sub câmpuri."
+      );
+      setActiveStep(1);
+      focusFirstError(errors, fieldRefs);
+      addressSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
       return;
     }
 
-    const newFieldErrors = {};
+    setError("");
+    setActiveStep(2);
+    paymentSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
-    if (!address.lastName) newFieldErrors.lastName = "Completează numele.";
-    if (!address.firstName)
-      newFieldErrors.firstName = "Completează prenumele.";
-    if (!address.email) {
-      newFieldErrors.email = "Completează adresa de email.";
-    } else if (!isValidEmail(address.email)) {
-      newFieldErrors.email = "Adresa de email nu este validă.";
+  async function placeOrder() {
+    if (placing) return;
+
+    const { errors, formError } = validateCheckoutForm({
+      shippingAddress,
+      billingCompany,
+      contactPerson,
+      customerType,
+      items,
+      shipToDifferentAddress,
+    });
+
+    if (formError) {
+      setError(formError);
+      return;
     }
 
-    if (!address.phone) {
-      newFieldErrors.phone = "Completează telefonul.";
-    } else if (!isValidPhone(address.phone)) {
-      newFieldErrors.phone = "Numărul de telefon trebuie să aibă 10 cifre.";
-    }
-
-    if (!address.county) newFieldErrors.county = "Alege județul.";
-    if (!address.city)
-      newFieldErrors.city = "Completează orașul / localitatea.";
-    if (!address.street)
-      newFieldErrors.street = "Completează strada și numărul.";
-
-    if (customerType === "PJ") {
-      if (!address.companyName) {
-        newFieldErrors.companyName = "Completează denumirea firmei.";
-      }
-      if (!address.companyCui) {
-        newFieldErrors.companyCui = "Completează CUI-ul.";
-      }
-    }
-
-    if (Object.keys(newFieldErrors).length > 0) {
-      setFieldErrors(newFieldErrors);
-      setError("Te rugăm să corectezi câmpurile marcate.");
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError(
+        "Te rugăm să corectezi câmpurile incomplete sau completate greșit."
+      );
       setActiveStep(1);
-
-      // focus pe primul câmp cu eroare
-      const firstKey = Object.keys(newFieldErrors)[0];
-      const ref = fieldRefs[firstKey];
-      const el = ref?.current;
-      if (el && typeof el.focus === "function") {
-        el.focus();
-      }
-
+      focusFirstError(errors, fieldRefs);
       return;
     }
 
     setPlacing(true);
     setError("");
     setFieldErrors({});
+
     try {
-      const fullName =
-        address.name ||
-        `${address.lastName || ""} ${address.firstName || ""}`.trim();
+      const normalizedContactPerson =
+        customerType === "PJ"
+          ? {
+              firstName: normalizeText(contactPerson.firstName),
+              lastName: normalizeText(contactPerson.lastName),
+              name: buildFullName(contactPerson),
+              email: normalizeText(contactPerson.email),
+              phone: normalizeDigits(contactPerson.phone).slice(0, 10),
+            }
+          : null;
+
+      const finalShippingAddress =
+        customerType === "PJ" && !shipToDifferentAddress
+          ? {
+              firstName: normalizeText(contactPerson.firstName),
+              lastName: normalizeText(contactPerson.lastName),
+              name: buildFullName(contactPerson),
+              email: normalizeText(contactPerson.email),
+              phone: normalizeDigits(contactPerson.phone).slice(0, 10),
+              county: billingCompany.county,
+              city: normalizeText(billingCompany.city),
+              postalCode: normalizeText(billingCompany.postalCode),
+              street: normalizeText(billingCompany.street),
+              notes: normalizeText(shippingAddress.notes),
+              companyName: normalizeText(billingCompany.companyName),
+            }
+          : {
+              ...shippingAddress,
+              firstName: normalizeText(shippingAddress.firstName),
+              lastName: normalizeText(shippingAddress.lastName),
+              name: buildFullName(shippingAddress),
+              email: normalizeText(shippingAddress.email),
+              phone: normalizeDigits(shippingAddress.phone).slice(0, 10),
+              city: normalizeText(shippingAddress.city),
+              postalCode: normalizeText(shippingAddress.postalCode),
+              street: normalizeText(shippingAddress.street),
+              notes: normalizeText(shippingAddress.notes),
+            };
 
       const body = {
-        address: {
-          ...address,
-          name: fullName,
-        },
-        customerType, // "PF" sau "PJ"
-        paymentMethod, // "CARD" sau "COD" (ramburs)
-        // shipping info rămâne cum îl ai în backend (poți să-l trimiți sau nu)
+        address: finalShippingAddress,
+        billingAddress:
+          customerType === "PJ"
+            ? {
+                companyName: normalizeText(billingCompany.companyName),
+                companyCui: normalizeCui(billingCompany.companyCui),
+                companyRegCom: normalizeText(billingCompany.companyRegCom),
+                county: billingCompany.county,
+                city: normalizeText(billingCompany.city),
+                postalCode: normalizeText(billingCompany.postalCode),
+                street: normalizeText(billingCompany.street),
+              }
+            : null,
+        contactPerson: normalizedContactPerson,
+        customerType,
+        paymentMethod,
+        shipToDifferentAddress:
+          customerType === "PJ" ? shipToDifferentAddress : false,
       };
 
-      const r = await api("/api/checkout/place", {
+      const result = await api("/api/checkout/place", {
         method: "POST",
         body,
       });
@@ -467,50 +1124,38 @@ export default function Checkout() {
       try {
         window.dispatchEvent(new CustomEvent("cart:changed"));
       } catch {
-        /* ignore */
+        // ignore
       }
 
-      if (paymentMethod === "CARD" && r?.payment?.redirectUrl) {
-        window.location.href = r.payment.redirectUrl;
+      if (paymentMethod === "CARD" && result?.payment?.redirectUrl) {
+        window.location.href = result.payment.redirectUrl;
         return;
       }
 
-      if (r?.orderId) {
-        return nav(`/multumim?order=${encodeURIComponent(r.orderId)}`);
+      if (result?.orderId) {
+        nav(`/multumim?order=${encodeURIComponent(result.orderId)}`);
+        return;
       }
 
       alert("Comanda a fost înregistrată.");
       nav("/comenzile-mele");
-    } catch (e) {
-      setError(e?.message || "Plasarea comenzii a eșuat.");
-    } finally {
+   } catch (e) {
+  setError(getReadableApiError(e));
+} finally {
       setPlacing(false);
     }
   }
 
-  // handlers pentru stepper (scroll la secțiuni)
-  const goToStep1 = () => {
-    setActiveStep(1);
-    addressSectionRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const goToStep2 = () => {
-    setActiveStep(2);
-    paymentSectionRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  if (loading)
+  if (loading) {
     return (
-      <div className={styles.container}>
-        Se încarcă detaliile comenzii…
-      </div>
+      <div className={styles.container}>Se încarcă detaliile comenzii…</div>
     );
+  }
 
   return (
     <div className={styles.container}>
       <h2 className={styles.pageTitle}>Checkout</h2>
 
-      {/* stepper interactiv */}
       <div className={styles.steps}>
         <button
           type="button"
@@ -519,8 +1164,9 @@ export default function Checkout() {
           }`}
           onClick={goToStep1}
         >
-          <span>1</span> Date livrare
+          <span>1</span> Date
         </button>
+
         <button
           type="button"
           className={`${styles.step} ${
@@ -537,58 +1183,105 @@ export default function Checkout() {
       {items.length === 0 ? (
         <div className={styles.empty}>
           Coșul tău este gol.{" "}
-          <a href="/produse" className={styles.linkPrimary}>
+          <Link to="/produse" className={styles.linkPrimary}>
             Mergi la produse
-          </a>
+          </Link>
         </div>
       ) : (
         <div className={styles.layout}>
-          {/* Stânga: produse + adresă + livrare per vendor */}
           <div className={styles.left}>
             <section className={styles.card}>
               <h3 className={styles.cardTitle}>Produsele tale</h3>
               <p className={styles.muted}>
-                Produsele sunt realizate de artizani independenți, special
-                pentru evenimentul tău.
+                Produsele sunt realizate de artizani independenți, special pentru
+                evenimentul tău.
               </p>
+
               <ul className={styles.itemsList}>
-                {items.map((it) => (
-                  <li key={`${it.productId}`} className={styles.itemRow}>
-                    <div className={styles.itemMedia}>
-                      {it.image ? (
-                        <img
-                          src={resolveFileUrl(it.image)}
-                          alt={it.title}
-                          className={styles.thumb}
-                        />
-                      ) : (
-                        <div className={styles.thumbPlaceholder} />
-                      )}
-                    </div>
-                    <div className={styles.itemTitle}>{it.title}</div>
-                    <div className={styles.itemQty}>x{it.qty}</div>
-                    <div className={styles.itemPrice}>
-                      {money(it.price * it.qty, it.currency || currency)}
-                    </div>
-                  </li>
-                ))}
+                {items.map((it) => {
+                  const breakdown = getItemVatBreakdown(it);
+
+                  return (
+                    <li key={String(it.productId)} className={styles.itemRow}>
+                      <div className={styles.itemMedia}>
+                        {it.image ? (
+                          <img
+                            src={resolveFileUrl(it.image)}
+                            alt={it.title}
+                            className={styles.thumb}
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        ) : (
+                          <div className={styles.thumbPlaceholder} />
+                        )}
+                      </div>
+
+                      <div className={styles.itemTitle}>{it.title}</div>
+                      <div className={styles.itemQty}>x{it.qty}</div>
+
+                      <div className={styles.itemPrice}>
+                        {customerType === "PJ" ? (
+                          <div style={{ textAlign: "right" }}>
+                            <div>
+                              <strong>
+                                {money(breakdown.net, it.currency || currency)}
+                              </strong>
+                            </div>
+                            <div style={{ fontSize: 12, opacity: 0.75 }}>
+                              TVA: {money(breakdown.vat, it.currency || currency)}
+                            </div>
+                            <div style={{ fontSize: 12, opacity: 0.85 }}>
+                              {money(breakdown.gross, it.currency || currency)}{" "}
+                              cu TVA
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: "right" }}>
+                            <div>
+                              <strong>
+                                {money(breakdown.gross, it.currency || currency)}
+                              </strong>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
+
               <div className={styles.divider} />
-              <div className={styles.summaryRow}>
-                <span>Produse (total cu TVA)</span>
-                <strong>{money(subtotal, currency)}</strong>
-              </div>
+
+              {customerType === "PJ" ? (
+                <>
+                  <div className={styles.summaryRow}>
+                    <span>Produse (fără TVA)</span>
+                    <strong>{money(vatTotals.totalNet, currency)}</strong>
+                  </div>
+                  <div className={styles.summaryRow}>
+                    <span>TVA produse</span>
+                    <strong>{money(vatTotals.totalVat, currency)}</strong>
+                  </div>
+                  <div className={styles.summaryRow}>
+                    <span>Produse (cu TVA)</span>
+                    <strong>{money(vatTotals.totalGross, currency)}</strong>
+                  </div>
+                </>
+              ) : (
+                <div className={styles.summaryRow}>
+                  <span>Produse</span>
+                  <strong>{money(vatTotals.totalGross, currency)}</strong>
+                </div>
+              )}
             </section>
 
-            <section
-              ref={addressSectionRef}
-              className={styles.card}
-            >
-              <h3 className={styles.cardTitle}>Adresă livrare</h3>
+            <section ref={addressSectionRef} className={styles.card}>
+              <h3 className={styles.cardTitle}>Date client</h3>
 
-              {/* Tip client PF / PJ */}
               <div className={styles.customerTypeRow}>
                 <span className={styles.customerTypeLabel}>Tip client</span>
+
                 <div className={styles.customerTypeOptions}>
                   <label className={styles.radio}>
                     <input
@@ -600,6 +1293,7 @@ export default function Checkout() {
                     />
                     <span>Persoană fizică</span>
                   </label>
+
                   <label className={styles.radio}>
                     <input
                       type="radio"
@@ -608,170 +1302,129 @@ export default function Checkout() {
                       checked={customerType === "PJ"}
                       onChange={() => setCustomerType("PJ")}
                     />
-                    <span>Persoană juridică (firmă)</span>
+                    <span>Persoană juridică</span>
                   </label>
                 </div>
               </div>
 
-              <div className={styles.formGrid}>
-                {/* NUME */}
-                <label className={styles.field}>
-                  <span>Nume*</span>
-                  <input
-                    ref={lastNameRef}
-                    value={address.lastName}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      clearFieldError("lastName");
-                      setAddress((prev) => ({
-                        ...prev,
-                        lastName: value,
-                        name: `${value} ${prev.firstName}`.trim(),
-                      }));
-                    }}
-                    placeholder="Ex: Popescu"
-                    aria-invalid={!!fieldErrors.lastName}
-                    aria-describedby={
-                      fieldErrors.lastName ? "error-lastName" : undefined
-                    }
-                  />
-                  {fieldErrors.lastName && (
-                    <span
-                      id="error-lastName"
-                      className={styles.fieldError}
-                    >
-                      {fieldErrors.lastName}
-                    </span>
-                  )}
-                </label>
+              {customerType === "PF" ? (
+                <div className={styles.formGrid}>
+                  <label className={styles.field}>
+                    <span>Nume*</span>
+                    <input
+                      ref={lastNameRef}
+                      className={fieldErrors.lastName ? styles.inputError : ""}
+                      value={shippingAddress.lastName}
+                      onChange={(e) => {
+                        clearFieldError("lastName");
+                        updateShippingNames({ lastName: e.target.value });
+                      }}
+                      onBlur={() => validateAndSetFieldError("lastName")}
+                      placeholder="Ex: Popescu"
+                    />
+                    {fieldErrors.lastName && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.lastName}
+                      </span>
+                    )}
+                  </label>
 
-                {/* PRENUME */}
-                <label className={styles.field}>
-                  <span>Prenume*</span>
-                  <input
-                    ref={firstNameRef}
-                    value={address.firstName}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      clearFieldError("firstName");
-                      setAddress((prev) => ({
-                        ...prev,
-                        firstName: value,
-                        name: `${prev.lastName} ${value}`.trim(),
-                      }));
-                    }}
-                    placeholder="Ex: Ana"
-                    aria-invalid={!!fieldErrors.firstName}
-                    aria-describedby={
-                      fieldErrors.firstName ? "error-firstName" : undefined
-                    }
-                  />
-                  {fieldErrors.firstName && (
-                    <span
-                      id="error-firstName"
-                      className={styles.fieldError}
-                    >
-                      {fieldErrors.firstName}
-                    </span>
-                  )}
-                </label>
+                  <label className={styles.field}>
+                    <span>Prenume*</span>
+                    <input
+                      ref={firstNameRef}
+                      className={fieldErrors.firstName ? styles.inputError : ""}
+                      value={shippingAddress.firstName}
+                      onChange={(e) => {
+                        clearFieldError("firstName");
+                        updateShippingNames({ firstName: e.target.value });
+                      }}
+                      onBlur={() => validateAndSetFieldError("firstName")}
+                      placeholder="Ex: Ana"
+                    />
+                    {fieldErrors.firstName && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.firstName}
+                      </span>
+                    )}
+                  </label>
 
-                {/* EMAIL */}
-                <label className={styles.field}>
-                  <span>Email*</span>
-                  <input
-                    ref={emailRef}
-                    type="email"
-                    value={address.email}
-                    onChange={(e) => {
-                      clearFieldError("email");
-                      setAddress({ ...address, email: e.target.value });
-                    }}
-                    placeholder="exemplu@domeniu.ro"
-                    aria-invalid={!!fieldErrors.email}
-                    aria-describedby={
-                      fieldErrors.email ? "error-email" : undefined
-                    }
-                  />
-                </label>
-                {fieldErrors.email && (
-                  <span id="error-email" className={styles.fieldError}>
-                    {fieldErrors.email}
-                  </span>
-                )}
+                  <label className={styles.field}>
+                    <span>Email*</span>
+                    <input
+                      ref={emailRef}
+                      className={fieldErrors.email ? styles.inputError : ""}
+                      type="email"
+                      value={shippingAddress.email}
+                      onChange={(e) => {
+                        clearFieldError("email");
+                        updateShippingField("email", e.target.value);
+                      }}
+                      onBlur={() => validateAndSetFieldError("email")}
+                      placeholder="exemplu@domeniu.ro"
+                    />
+                    {fieldErrors.email && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.email}
+                      </span>
+                    )}
+                  </label>
 
-                {/* TELEFON */}
-                <label className={styles.field}>
-                  <span>Telefon*</span>
-                  <input
-                    ref={phoneRef}
-                    type="tel"
-                    inputMode="numeric"
-                    pattern="\d*"
-                    maxLength={10}
-                    value={address.phone}
-                    onChange={(e) => {
-                      const digits = normalizeDigits(e.target.value).slice(
-                        0,
-                        10
-                      );
-                      clearFieldError("phone");
-                      setAddress({ ...address, phone: digits });
-                    }}
-                    placeholder="07xxxxxxxx"
-                    aria-invalid={!!fieldErrors.phone}
-                    aria-describedby={
-                      fieldErrors.phone ? "error-phone" : undefined
-                    }
-                  />
-                  {fieldErrors.phone && (
-                    <span id="error-phone" className={styles.fieldError}>
-                      {fieldErrors.phone}
-                    </span>
-                  )}
-                </label>
+                  <label className={styles.field}>
+                    <span>Telefon*</span>
+                    <input
+                      ref={phoneRef}
+                      className={fieldErrors.phone ? styles.inputError : ""}
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      value={shippingAddress.phone}
+                      onChange={(e) => {
+                        clearFieldError("phone");
+                        updateShippingField(
+                          "phone",
+                          normalizeDigits(e.target.value).slice(0, 10)
+                        );
+                      }}
+                      onBlur={() => validateAndSetFieldError("phone")}
+                      placeholder="07xxxxxxxx"
+                    />
+                    {fieldErrors.phone && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.phone}
+                      </span>
+                    )}
+                  </label>
 
-                {/* JUDEȚ cu autosuggest */}
-                <label className={styles.field}>
-                  <span>Județ*</span>
-                  {countiesLoading ? (
-                    <div className={styles.selectPlaceholder}>
-                      Se încarcă județele…
-                    </div>
-                  ) : (
-                    <div className={styles.autocomplete}>
-                      <input
-                        ref={countyRef}
-                        value={countyInput}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          clearFieldError("county");
-                          setCountyInput(val);
-                          setShowCountyDropdown(true);
-                          setAddress((prev) => ({
-                            ...prev,
-                            county: "",
-                          }));
-                        }}
-                        onFocus={() => {
-                          if (counties.length) setShowCountyDropdown(true);
-                        }}
-                        onBlur={() => {
-                          setTimeout(
-                            () => setShowCountyDropdown(false),
-                            150
-                          );
-                        }}
-                        placeholder="Scrie numele județului..."
-                        autoComplete="off"
-                        aria-invalid={!!fieldErrors.county}
-                        aria-describedby={
-                          fieldErrors.county ? "error-county" : undefined
-                        }
-                      />
+                  <label className={styles.field}>
+                    <span>Județ*</span>
 
-                      {showCountyDropdown &&
-                        filteredCounties.length > 0 && (
+                    {countiesLoading ? (
+                      <div className={styles.selectPlaceholder}>
+                        Se încarcă județele…
+                      </div>
+                    ) : (
+                      <div className={styles.autocomplete}>
+                        <input
+                          ref={countyRef}
+                          className={fieldErrors.county ? styles.inputError : ""}
+                          value={countyInput}
+                          onChange={(e) => {
+                            clearFieldError("county");
+                            setCountyInput(e.target.value);
+                            setShowCountyDropdown(true);
+                            updateShippingField("county", "");
+                          }}
+                          onFocus={() => setShowCountyDropdown(true)}
+                          onBlur={() => {
+                            setTimeout(() => setShowCountyDropdown(false), 150);
+                            setTimeout(() => validateAndSetFieldError("county"), 160);
+                          }}
+                          placeholder="Scrie numele județului..."
+                          autoComplete="off"
+                        />
+
+                        {showCountyDropdown && filteredCounties.length > 0 && (
                           <ul className={styles.autocompleteList}>
                             {filteredCounties.map((c) => (
                               <li
@@ -779,7 +1432,7 @@ export default function Checkout() {
                                 className={styles.autocompleteItem}
                                 onMouseDown={(e) => {
                                   e.preventDefault();
-                                  handleSelectCounty(c);
+                                  handleSelectShippingCounty(c);
                                 }}
                               >
                                 {c.name}{" "}
@@ -790,104 +1443,98 @@ export default function Checkout() {
                             ))}
                           </ul>
                         )}
-                    </div>
-                  )}
-                  {fieldErrors.county && (
-                    <span
-                      id="error-county"
-                      className={styles.fieldError}
-                    >
-                      {fieldErrors.county}
-                    </span>
-                  )}
-                </label>
+                      </div>
+                    )}
 
-                {/* LOCALITATE */}
-                <label className={styles.field}>
-                  <span>Oraș / Localitate*</span>
-                  <input
-                    ref={cityRef}
-                    value={address.city}
-                    onChange={(e) => {
-                      clearFieldError("city");
-                      setAddress((prev) => ({
-                        ...prev,
-                        city: e.target.value,
-                      }));
-                    }}
-                    placeholder="Ex: București"
-                    aria-invalid={!!fieldErrors.city}
-                    aria-describedby={
-                      fieldErrors.city ? "error-city" : undefined
-                    }
-                  />
-                  {fieldErrors.city && (
-                    <span id="error-city" className={styles.fieldError}>
-                      {fieldErrors.city}
-                    </span>
-                  )}
-                </label>
+                    {fieldErrors.county && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.county}
+                      </span>
+                    )}
+                  </label>
 
-                {/* COD POȘTAL */}
-                <label className={styles.field}>
-                  <span>Cod poștal</span>
-                  <input
-                    value={address.postalCode}
-                    onChange={(e) =>
-                      setAddress((prev) => ({
-                        ...prev,
-                        postalCode: e.target.value,
-                      }))
-                    }
-                    placeholder="Ex: 040011"
-                  />
-                </label>
+                  <label className={styles.field}>
+                    <span>Oraș / Localitate*</span>
+                    <input
+                      ref={cityRef}
+                      className={fieldErrors.city ? styles.inputError : ""}
+                      value={shippingAddress.city}
+                      onChange={(e) => {
+                        clearFieldError("city");
+                        updateShippingField("city", e.target.value);
+                      }}
+                      onBlur={() => validateAndSetFieldError("city")}
+                      placeholder="Ex: București"
+                    />
+                    {fieldErrors.city && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.city}
+                      </span>
+                    )}
+                  </label>
 
-                {/* STRADĂ */}
-                <label className={styles.fieldFull}>
-                  <span>Stradă și număr*</span>
-                  <input
-                    ref={streetRef}
-                    value={address.street}
-                    onChange={(e) => {
-                      clearFieldError("street");
-                      setAddress({ ...address, street: e.target.value });
-                    }}
-                    placeholder="Ex: Șos. Olteniței 123"
-                    aria-invalid={!!fieldErrors.street}
-                    aria-describedby={
-                      fieldErrors.street ? "error-street" : undefined
-                    }
-                  />
-                  {fieldErrors.street && (
-                    <span
-                      id="error-street"
-                      className={styles.fieldError}
-                    >
-                      {fieldErrors.street}
-                    </span>
-                  )}
-                </label>
+                  <label className={styles.field}>
+                    <span>Cod poștal</span>
+                    <input
+                      ref={postalCodeRef}
+                      className={fieldErrors.postalCode ? styles.inputError : ""}
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={shippingAddress.postalCode}
+                      onChange={(e) => {
+                        clearFieldError("postalCode");
+                        updateShippingField(
+                          "postalCode",
+                          normalizeDigits(e.target.value).slice(0, 6)
+                        );
+                      }}
+                      onBlur={() => validateAndSetFieldError("postalCode")}
+                      placeholder="Ex: 040011"
+                    />
+                    {fieldErrors.postalCode && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.postalCode}
+                      </span>
+                    )}
+                  </label>
 
-                {/* OBSERVAȚII */}
-                <label className={styles.fieldFull}>
-                  <span>Observații (opțional)</span>
-                  <textarea
-                    value={address.notes}
-                    onChange={(e) =>
-                      setAddress({ ...address, notes: e.target.value })
-                    }
-                    placeholder="Detalii pentru curier (interfon, interval orar, persoană de contact la eveniment etc.)"
-                    rows={3}
-                  />
-                </label>
+                  <label className={styles.fieldFull}>
+                    <span>Stradă și număr*</span>
+                    <input
+                      ref={streetRef}
+                      className={fieldErrors.street ? styles.inputError : ""}
+                      value={shippingAddress.street}
+                      onChange={(e) => {
+                        clearFieldError("street");
+                        updateShippingField("street", e.target.value);
+                      }}
+                      onBlur={() => validateAndSetFieldError("street")}
+                      placeholder="Ex: Șos. Olteniței 123"
+                    />
+                    {fieldErrors.street && (
+                      <span className={styles.fieldError}>
+                        {fieldErrors.street}
+                      </span>
+                    )}
+                  </label>
 
-                {/* DATE FIRMĂ – doar dacă este persoană juridică */}
-                {customerType === "PJ" && (
-                  <>
+                  <label className={styles.fieldFull}>
+                    <span>Observații (opțional)</span>
+                    <textarea
+                      value={shippingAddress.notes}
+                      onChange={(e) =>
+                        updateShippingField("notes", e.target.value)
+                      }
+                      rows={3}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <>
+                  <div className={styles.formGrid}>
                     <div className={styles.fieldFull}>
                       <span className={styles.sectionLabel}>
-                        Date facturare firmă
+                        Date facturare persoană juridică
                       </span>
                     </div>
 
@@ -895,28 +1542,20 @@ export default function Checkout() {
                       <span>Denumire firmă*</span>
                       <input
                         ref={companyNameRef}
-                        value={address.companyName}
+                        className={fieldErrors.companyName ? styles.inputError : ""}
+                        value={billingCompany.companyName}
                         onChange={(e) => {
-                          const value = e.target.value;
                           clearFieldError("companyName");
-                          setAddress((prev) => ({
-                            ...prev,
-                            companyName: value,
-                          }));
+                          updateBillingCompanyField(
+                            "companyName",
+                            e.target.value
+                          );
                         }}
+                        onBlur={() => validateAndSetFieldError("companyName")}
                         placeholder="Ex: SC Exemplu SRL"
-                        aria-invalid={!!fieldErrors.companyName}
-                        aria-describedby={
-                          fieldErrors.companyName
-                            ? "error-companyName"
-                            : undefined
-                        }
                       />
                       {fieldErrors.companyName && (
-                        <span
-                          id="error-companyName"
-                          className={styles.fieldError}
-                        >
+                        <span className={styles.fieldError}>
                           {fieldErrors.companyName}
                         </span>
                       )}
@@ -926,28 +1565,20 @@ export default function Checkout() {
                       <span>CUI*</span>
                       <input
                         ref={companyCuiRef}
-                        value={address.companyCui}
+                        className={fieldErrors.companyCui ? styles.inputError : ""}
+                        value={billingCompany.companyCui}
                         onChange={(e) => {
-                          const value = e.target.value;
                           clearFieldError("companyCui");
-                          setAddress((prev) => ({
-                            ...prev,
-                            companyCui: value,
-                          }));
+                          updateBillingCompanyField(
+                            "companyCui",
+                            normalizeCui(e.target.value)
+                          );
                         }}
-                        placeholder="Ex: RO12345678"
-                        aria-invalid={!!fieldErrors.companyCui}
-                        aria-describedby={
-                          fieldErrors.companyCui
-                            ? "error-companyCui"
-                            : undefined
-                        }
+                        onBlur={() => validateAndSetFieldError("companyCui")}
+                        placeholder="Ex: 12345678 sau RO12345678"
                       />
                       {fieldErrors.companyCui && (
-                        <span
-                          id="error-companyCui"
-                          className={styles.fieldError}
-                        >
+                        <span className={styles.fieldError}>
                           {fieldErrors.companyCui}
                         </span>
                       )}
@@ -956,46 +1587,559 @@ export default function Checkout() {
                     <label className={styles.field}>
                       <span>Nr. Reg. Comerțului</span>
                       <input
-                        value={address.companyRegCom}
+                        value={billingCompany.companyRegCom}
                         onChange={(e) =>
-                          setAddress((prev) => ({
-                            ...prev,
-                            companyRegCom: e.target.value,
-                          }))
+                          updateBillingCompanyField(
+                            "companyRegCom",
+                            e.target.value
+                          )
                         }
                         placeholder="Ex: J40/1234/2024"
                       />
                     </label>
-                  </>
-                )}
-              </div>
+
+                    <label className={styles.field}>
+                      <span>Județ sediu*</span>
+
+                      {countiesLoading ? (
+                        <div className={styles.selectPlaceholder}>
+                          Se încarcă județele…
+                        </div>
+                      ) : (
+                        <div className={styles.autocomplete}>
+                          <input
+                            ref={companyCountyRef}
+                            className={
+                              fieldErrors.companyCounty ? styles.inputError : ""
+                            }
+                            value={companyCountyInput}
+                            onChange={(e) => {
+                              clearFieldError("companyCounty");
+                              setCompanyCountyInput(e.target.value);
+                              setShowCompanyCountyDropdown(true);
+                              updateBillingCompanyField("county", "");
+                            }}
+                            onFocus={() => setShowCompanyCountyDropdown(true)}
+                            onBlur={() => {
+                              setTimeout(
+                                () => setShowCompanyCountyDropdown(false),
+                                150
+                              );
+                              setTimeout(
+                                () => validateAndSetFieldError("companyCounty"),
+                                160
+                              );
+                            }}
+                            placeholder="Scrie numele județului..."
+                            autoComplete="off"
+                          />
+
+                          {showCompanyCountyDropdown &&
+                            filteredCompanyCounties.length > 0 && (
+                              <ul className={styles.autocompleteList}>
+                                {filteredCompanyCounties.map((c) => (
+                                  <li
+                                    key={c.code}
+                                    className={styles.autocompleteItem}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      handleSelectCompanyCounty(c);
+                                    }}
+                                  >
+                                    {c.name}{" "}
+                                    <span className={styles.autocompleteCode}>
+                                      ({c.code})
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                        </div>
+                      )}
+
+                      {fieldErrors.companyCounty && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.companyCounty}
+                        </span>
+                      )}
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>Oraș sediu*</span>
+                      <input
+                        ref={companyCityRef}
+                        className={fieldErrors.companyCity ? styles.inputError : ""}
+                        value={billingCompany.city}
+                        onChange={(e) => {
+                          clearFieldError("companyCity");
+                          updateBillingCompanyField("city", e.target.value);
+                        }}
+                        onBlur={() => validateAndSetFieldError("companyCity")}
+                        placeholder="Ex: București"
+                      />
+                      {fieldErrors.companyCity && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.companyCity}
+                        </span>
+                      )}
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>Cod poștal sediu</span>
+                      <input
+                        ref={companyPostalCodeRef}
+                        className={
+                          fieldErrors.companyPostalCode ? styles.inputError : ""
+                        }
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={billingCompany.postalCode}
+                        onChange={(e) => {
+                          clearFieldError("companyPostalCode");
+                          updateBillingCompanyField(
+                            "postalCode",
+                            normalizeDigits(e.target.value).slice(0, 6)
+                          );
+                        }}
+                        onBlur={() =>
+                          validateAndSetFieldError("companyPostalCode")
+                        }
+                        placeholder="Ex: 040011"
+                      />
+                      {fieldErrors.companyPostalCode && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.companyPostalCode}
+                        </span>
+                      )}
+                    </label>
+
+                    <label className={styles.fieldFull}>
+                      <span>Stradă și număr sediu*</span>
+                      <input
+                        ref={companyStreetRef}
+                        className={
+                          fieldErrors.companyStreet ? styles.inputError : ""
+                        }
+                        value={billingCompany.street}
+                        onChange={(e) => {
+                          clearFieldError("companyStreet");
+                          updateBillingCompanyField("street", e.target.value);
+                        }}
+                        onBlur={() => validateAndSetFieldError("companyStreet")}
+                        placeholder="Ex: Șos. Olteniței 123"
+                      />
+                      {fieldErrors.companyStreet && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.companyStreet}
+                        </span>
+                      )}
+                    </label>
+
+                    <div className={styles.fieldFull}>
+                      <span className={styles.sectionLabel}>
+                        Persoană de contact
+                      </span>
+                    </div>
+
+                    <label className={styles.field}>
+                      <span>Nume*</span>
+                      <input
+                        ref={contactLastNameRef}
+                        className={
+                          fieldErrors.contactLastName ? styles.inputError : ""
+                        }
+                        value={contactPerson.lastName}
+                        onChange={(e) => {
+                          clearFieldError("contactLastName");
+                          updateContactNames({ lastName: e.target.value });
+                        }}
+                        onBlur={() =>
+                          validateAndSetFieldError("contactLastName")
+                        }
+                        placeholder="Ex: Popescu"
+                      />
+                      {fieldErrors.contactLastName && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.contactLastName}
+                        </span>
+                      )}
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>Prenume*</span>
+                      <input
+                        ref={contactFirstNameRef}
+                        className={
+                          fieldErrors.contactFirstName ? styles.inputError : ""
+                        }
+                        value={contactPerson.firstName}
+                        onChange={(e) => {
+                          clearFieldError("contactFirstName");
+                          updateContactNames({ firstName: e.target.value });
+                        }}
+                        onBlur={() =>
+                          validateAndSetFieldError("contactFirstName")
+                        }
+                        placeholder="Ex: Ana"
+                      />
+                      {fieldErrors.contactFirstName && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.contactFirstName}
+                        </span>
+                      )}
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>Email*</span>
+                      <input
+                        ref={contactEmailRef}
+                        className={
+                          fieldErrors.contactEmail ? styles.inputError : ""
+                        }
+                        type="email"
+                        value={contactPerson.email}
+                        onChange={(e) => {
+                          clearFieldError("contactEmail");
+                          updateContactField("email", e.target.value);
+                        }}
+                        onBlur={() => validateAndSetFieldError("contactEmail")}
+                        placeholder="exemplu@domeniu.ro"
+                      />
+                      {fieldErrors.contactEmail && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.contactEmail}
+                        </span>
+                      )}
+                    </label>
+
+                    <label className={styles.field}>
+                      <span>Telefon*</span>
+                      <input
+                        ref={contactPhoneRef}
+                        className={
+                          fieldErrors.contactPhone ? styles.inputError : ""
+                        }
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={contactPerson.phone}
+                        onChange={(e) => {
+                          clearFieldError("contactPhone");
+                          updateContactField(
+                            "phone",
+                            normalizeDigits(e.target.value).slice(0, 10)
+                          );
+                        }}
+                        onBlur={() => validateAndSetFieldError("contactPhone")}
+                        placeholder="07xxxxxxxx"
+                      />
+                      {fieldErrors.contactPhone && (
+                        <span className={styles.fieldError}>
+                          {fieldErrors.contactPhone}
+                        </span>
+                      )}
+                    </label>
+                  </div>
+
+                  <div className={styles.card} style={{ marginTop: 16 }}>
+                    <label className={styles.radio}>
+                      <input
+                        type="checkbox"
+                        checked={shipToDifferentAddress}
+                        onChange={(e) =>
+                          setShipToDifferentAddress(e.target.checked)
+                        }
+                      />
+                      <span>Livrez la altă adresă</span>
+                    </label>
+
+                    {shipToDifferentAddress && (
+                      <div style={{ marginTop: 16 }}>
+                        <div className={styles.formGrid}>
+                          <div className={styles.fieldFull}>
+                            <span className={styles.sectionLabel}>
+                              Adresă de livrare
+                            </span>
+                          </div>
+
+                          <label className={styles.field}>
+                            <span>Nume*</span>
+                            <input
+                              ref={lastNameRef}
+                              className={
+                                fieldErrors.lastName ? styles.inputError : ""
+                              }
+                              value={shippingAddress.lastName}
+                              onChange={(e) => {
+                                clearFieldError("lastName");
+                                updateShippingNames({
+                                  lastName: e.target.value,
+                                });
+                              }}
+                              onBlur={() => validateAndSetFieldError("lastName")}
+                              placeholder="Ex: Popescu"
+                            />
+                            {fieldErrors.lastName && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.lastName}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.field}>
+                            <span>Prenume*</span>
+                            <input
+                              ref={firstNameRef}
+                              className={
+                                fieldErrors.firstName ? styles.inputError : ""
+                              }
+                              value={shippingAddress.firstName}
+                              onChange={(e) => {
+                                clearFieldError("firstName");
+                                updateShippingNames({
+                                  firstName: e.target.value,
+                                });
+                              }}
+                              onBlur={() =>
+                                validateAndSetFieldError("firstName")
+                              }
+                              placeholder="Ex: Ana"
+                            />
+                            {fieldErrors.firstName && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.firstName}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.field}>
+                            <span>Email*</span>
+                            <input
+                              ref={emailRef}
+                              className={fieldErrors.email ? styles.inputError : ""}
+                              type="email"
+                              value={shippingAddress.email}
+                              onChange={(e) => {
+                                clearFieldError("email");
+                                updateShippingField("email", e.target.value);
+                              }}
+                              onBlur={() => validateAndSetFieldError("email")}
+                              placeholder="exemplu@domeniu.ro"
+                            />
+                            {fieldErrors.email && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.email}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.field}>
+                            <span>Telefon*</span>
+                            <input
+                              ref={phoneRef}
+                              className={fieldErrors.phone ? styles.inputError : ""}
+                              type="tel"
+                              inputMode="numeric"
+                              maxLength={10}
+                              value={shippingAddress.phone}
+                              onChange={(e) => {
+                                clearFieldError("phone");
+                                updateShippingField(
+                                  "phone",
+                                  normalizeDigits(e.target.value).slice(0, 10)
+                                );
+                              }}
+                              onBlur={() => validateAndSetFieldError("phone")}
+                              placeholder="07xxxxxxxx"
+                            />
+                            {fieldErrors.phone && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.phone}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.field}>
+                            <span>Județ*</span>
+
+                            {countiesLoading ? (
+                              <div className={styles.selectPlaceholder}>
+                                Se încarcă județele…
+                              </div>
+                            ) : (
+                              <div className={styles.autocomplete}>
+                                <input
+                                  ref={countyRef}
+                                  className={
+                                    fieldErrors.county ? styles.inputError : ""
+                                  }
+                                  value={countyInput}
+                                  onChange={(e) => {
+                                    clearFieldError("county");
+                                    setCountyInput(e.target.value);
+                                    setShowCountyDropdown(true);
+                                    updateShippingField("county", "");
+                                  }}
+                                  onFocus={() => setShowCountyDropdown(true)}
+                                  onBlur={() => {
+                                    setTimeout(
+                                      () => setShowCountyDropdown(false),
+                                      150
+                                    );
+                                    setTimeout(
+                                      () => validateAndSetFieldError("county"),
+                                      160
+                                    );
+                                  }}
+                                  placeholder="Scrie numele județului..."
+                                  autoComplete="off"
+                                />
+
+                                {showCountyDropdown &&
+                                  filteredCounties.length > 0 && (
+                                    <ul className={styles.autocompleteList}>
+                                      {filteredCounties.map((c) => (
+                                        <li
+                                          key={c.code}
+                                          className={styles.autocompleteItem}
+                                          onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            handleSelectShippingCounty(c);
+                                          }}
+                                        >
+                                          {c.name}{" "}
+                                          <span
+                                            className={styles.autocompleteCode}
+                                          >
+                                            ({c.code})
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                              </div>
+                            )}
+
+                            {fieldErrors.county && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.county}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.field}>
+                            <span>Oraș / Localitate*</span>
+                            <input
+                              ref={cityRef}
+                              className={fieldErrors.city ? styles.inputError : ""}
+                              value={shippingAddress.city}
+                              onChange={(e) => {
+                                clearFieldError("city");
+                                updateShippingField("city", e.target.value);
+                              }}
+                              onBlur={() => validateAndSetFieldError("city")}
+                              placeholder="Ex: București"
+                            />
+                            {fieldErrors.city && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.city}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.field}>
+                            <span>Cod poștal</span>
+                            <input
+                              ref={postalCodeRef}
+                              className={
+                                fieldErrors.postalCode ? styles.inputError : ""
+                              }
+                              inputMode="numeric"
+                              maxLength={6}
+                              value={shippingAddress.postalCode}
+                              onChange={(e) => {
+                                clearFieldError("postalCode");
+                                updateShippingField(
+                                  "postalCode",
+                                  normalizeDigits(e.target.value).slice(0, 6)
+                                );
+                              }}
+                              onBlur={() =>
+                                validateAndSetFieldError("postalCode")
+                              }
+                              placeholder="Ex: 040011"
+                            />
+                            {fieldErrors.postalCode && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.postalCode}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.fieldFull}>
+                            <span>Stradă și număr*</span>
+                            <input
+                              ref={streetRef}
+                              className={
+                                fieldErrors.street ? styles.inputError : ""
+                              }
+                              value={shippingAddress.street}
+                              onChange={(e) => {
+                                clearFieldError("street");
+                                updateShippingField("street", e.target.value);
+                              }}
+                              onBlur={() => validateAndSetFieldError("street")}
+                              placeholder="Ex: Șos. Olteniței 123"
+                            />
+                            {fieldErrors.street && (
+                              <span className={styles.fieldError}>
+                                {fieldErrors.street}
+                              </span>
+                            )}
+                          </label>
+
+                          <label className={styles.fieldFull}>
+                            <span>Observații (opțional)</span>
+                            <textarea
+                              value={shippingAddress.notes}
+                              onChange={(e) =>
+                                updateShippingField("notes", e.target.value)
+                              }
+                              rows={3}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </section>
 
-            {/* livrare per vendor – simplu, 15 lei / magazin */}
             <section className={styles.card}>
               <h3 className={styles.cardTitle}>Metodă de livrare</h3>
               <p className={styles.muted}>
-                Livrare standard prin curier:{" "}
-                <strong>15 lei / magazin</strong>. Dacă ai produse de la
-                mai mulți artizani, costul de transport se calculează
-                separat pentru fiecare, astfel încât să ajungă la timp
-                pentru eveniment.
+                Livrare standard prin curier: <strong>15 lei / magazin</strong>.
+                Dacă ai produse de la mai mulți artizani, costul de transport se
+                calculează separat pentru fiecare.
               </p>
 
               <div className={styles.shipGrid}>
                 {vendors.map((g) => {
                   const key = String(g.vendorId);
+                  const vendorLabel =
+                    key === "unknown" ? "Magazin" : `Magazin #${key.slice(0, 6)}…`;
+
                   return (
                     <div key={key} className={styles.vendorBox}>
                       <div className={styles.vendorHead}>
-                        <strong>Magazin #{key.slice(0, 6)}…</strong>
+                        <strong>{vendorLabel}</strong>
                         <span>{g.items.length} produse</span>
                       </div>
+
                       <div className={styles.summaryRow}>
                         <span>Curier standard</span>
-                        <strong>
-                          {money(SHIPPING_PER_VENDOR, currency)}
-                        </strong>
+                        <strong>{money(SHIPPING_PER_VENDOR, currency)}</strong>
                       </div>
                     </div>
                   );
@@ -1010,30 +2154,42 @@ export default function Checkout() {
             </section>
           </div>
 
-          {/* Dreapta: sumar + plată + plasare */}
           <aside className={styles.right}>
-            <div
-              ref={paymentSectionRef}
-              className={styles.card}
-            >
+            <div ref={paymentSectionRef} className={styles.card}>
               <h3 className={styles.cardTitle}>Sumar comandă</h3>
+
               <p className={styles.muted}>
-                Ai produse de la{" "}
-                <strong>{vendors.length}</strong>{" "}
+                Ai produse de la <strong>{vendors.length}</strong>{" "}
                 {vendors.length === 1
                   ? "magazin (artizan)."
                   : "magazine (artizani)."}{" "}
                 Fiecare pregătește și trimite produsele separat.
               </p>
 
-              <div className={styles.summaryRow}>
-                <span>Produse (fără TVA)</span>
-                <strong>{money(vatTotals.totalNet, currency)}</strong>
-              </div>
-              <div className={styles.summaryRow}>
-                <span>TVA produse</span>
-                <strong>{money(vatTotals.totalVat, currency)}</strong>
-              </div>
+              {customerType === "PJ" ? (
+                <>
+                  <div className={styles.summaryRow}>
+                    <span>Produse (fără TVA)</span>
+                    <strong>{money(vatTotals.totalNet, currency)}</strong>
+                  </div>
+
+                  <div className={styles.summaryRow}>
+                    <span>TVA produse</span>
+                    <strong>{money(vatTotals.totalVat, currency)}</strong>
+                  </div>
+
+                  <div className={styles.summaryRow}>
+                    <span>Produse (cu TVA)</span>
+                    <strong>{money(vatTotals.totalGross, currency)}</strong>
+                  </div>
+                </>
+              ) : (
+                <div className={styles.summaryRow}>
+                  <span>Produse</span>
+                  <strong>{money(vatTotals.totalGross, currency)}</strong>
+                </div>
+              )}
+
               <div className={styles.summaryRow}>
                 <span>Transport</span>
                 <strong>{money(shippingTotal, currency)}</strong>
@@ -1044,6 +2200,7 @@ export default function Checkout() {
               <div className={styles.summaryRow}>
                 <span>Metodă de plată</span>
               </div>
+
               <div className={styles.paymentMethods}>
                 <label className={styles.radio}>
                   <input
@@ -1055,6 +2212,7 @@ export default function Checkout() {
                   />
                   <span>Card online</span>
                 </label>
+
                 <label className={styles.radio}>
                   <input
                     type="radio"
@@ -1068,10 +2226,19 @@ export default function Checkout() {
               </div>
 
               <div className={styles.divider} />
+
               <div className={styles.totalRow}>
                 <span>Total de plată</span>
                 <strong>{money(grandTotal, currency)}</strong>
               </div>
+
+              <p className={styles.helperText}>
+                {customerType === "PJ"
+                  ? shipToDifferentAddress
+                    ? "Pentru persoane juridice completezi separat datele de facturare, persoana de contact și adresa de livrare."
+                    : "Pentru persoane juridice, livrarea se face la sediu, folosind persoana de contact introdusă."
+                  : "Prețurile afișate pentru persoane fizice reprezintă prețul final."}
+              </p>
 
               <button
                 className={styles.primaryBtn}
@@ -1088,24 +2255,19 @@ export default function Checkout() {
 
               {!isFormBasicallyValid && !placing && (
                 <p className={styles.helperText}>
-                  Completează câmpurile obligatorii marcate cu * pentru a
-                  continua.
+                  Completează câmpurile obligatorii marcate cu * pentru a continua.
                 </p>
               )}
 
               <p className={styles.legalNote}>
                 Continuând, accepți{" "}
-                <a href="/termeni" target="_blank" rel="noreferrer">
+                <Link to="/termeni" target="_blank" rel="noreferrer">
                   Termenii
-                </a>{" "}
+                </Link>{" "}
                 și confirmi că ai citit{" "}
-                <a
-                  href="/confidentialitate"
-                  target="_blank"
-                  rel="noreferrer"
-                >
+                <Link to="/confidentialitate" target="_blank" rel="noreferrer">
                   Politica de confidențialitate
-                </a>
+                </Link>
                 .
               </p>
             </div>
@@ -1115,18 +2277,13 @@ export default function Checkout() {
               <ul className={styles.bullets}>
                 <li>
                   Vezi{" "}
-                  <a
-                    href="/politica-de-retur"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
+                  <Link to="/politica-de-retur" target="_blank" rel="noreferrer">
                     Politica de retur
-                  </a>
+                  </Link>
                   .
                 </li>
                 <li>
-                  La generarea AWB, datele de livrare sunt transmise
-                  curierului.
+                  La generarea AWB, datele de livrare sunt transmise curierului.
                 </li>
               </ul>
             </div>

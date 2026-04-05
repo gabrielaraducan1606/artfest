@@ -14,6 +14,7 @@ function createDefaultVendorFilters() {
     hasBilling: "ALL", // ALL | YES | NO
     tva: "ALL", // ALL | YES | NO (ANAF tvaActive)
     hasFollowers: "ALL", // ALL | YES | NO
+    stripe: "ALL", // ALL | CONNECTED | NOT_CONNECTED | ENABLED | PENDING | RESTRICTED
     sort: "NEWEST", // NEWEST | OLDEST | NAME | FOLLOWERS
   };
 }
@@ -58,7 +59,6 @@ function formatVendorVatLong(billing) {
 // ✅ helper: arată rezumat “confirmare entitate juridică”
 function formatEntityDeclarationShort(v) {
   if (!v?.entitySelfDeclared) return "Neconfirmat";
-  // dacă ai dată, o afișăm
   const when = v.entitySelfDeclaredAt ? formatDate(v.entitySelfDeclaredAt) : null;
   return when ? `Confirmat • ${when}` : "Confirmat";
 }
@@ -73,6 +73,17 @@ function extractEntityMeta(meta) {
   return { pageUrl, referrer };
 }
 
+function getStripeShortStatus(v) {
+  const connected = !!v?.stripeAccountId;
+  if (!connected) return "—";
+  const st = v?.stripeConnectStatus || "pending";
+  if (st === "enabled") return "Enabled";
+  if (st === "pending") return "Pending";
+  if (st === "restricted") return "Restricted";
+  if (st === "not_started") return "—";
+  return String(st);
+}
+
 export default function AdminVendorsTab({ vendors }) {
   const [filters, setFilters] = useState(createDefaultVendorFilters);
   const [page, setPage] = useState(1);
@@ -82,7 +93,6 @@ export default function AdminVendorsTab({ vendors }) {
   const [actionError, setActionError] = useState("");
   const [busyId, setBusyId] = useState(null);
 
-  // sync când se schimbă lista din props
   useEffect(() => {
     setLocalVendors(vendors || []);
   }, [vendors]);
@@ -100,7 +110,6 @@ export default function AdminVendorsTab({ vendors }) {
     setPage(1);
   };
 
-  // filtrare + sortare
   const filteredVendors = useMemo(() => {
     let list = [...(localVendors || [])];
     const q = filters.q.trim().toLowerCase();
@@ -114,9 +123,11 @@ export default function AdminVendorsTab({ vendors }) {
         const vatStatus = v.billing?.vatStatus || "";
         const vatRate = v.billing?.vatRate || "";
 
-        // ✅ căutare și în meta entitySelfDeclared
-        const metaStr =
-          v.entitySelfDeclaredMeta ? JSON.stringify(v.entitySelfDeclaredMeta).toLowerCase() : "";
+        const metaStr = v.entitySelfDeclaredMeta ? JSON.stringify(v.entitySelfDeclaredMeta).toLowerCase() : "";
+
+        // ✅ căutare și în Stripe fields
+        const stripeId = (v.stripeAccountId || "").toLowerCase();
+        const stripeStatus = (v.stripeConnectStatus || "").toLowerCase();
 
         return (
           name.includes(q) ||
@@ -125,52 +136,41 @@ export default function AdminVendorsTab({ vendors }) {
           addr.includes(q) ||
           vatStatus.toLowerCase().includes(q) ||
           String(vatRate).toLowerCase().includes(q) ||
-          metaStr.includes(q)
+          metaStr.includes(q) ||
+          stripeId.includes(q) ||
+          stripeStatus.includes(q)
         );
       });
     }
 
-    if (filters.active === "YES") {
-      list = list.filter((v) => v.isActive);
-    } else if (filters.active === "NO") {
-      list = list.filter((v) => !v.isActive);
-    }
+    if (filters.active === "YES") list = list.filter((v) => v.isActive);
+    else if (filters.active === "NO") list = list.filter((v) => !v.isActive);
 
-    if (filters.hasBilling === "YES") {
-      list = list.filter((v) => !!v.billing);
-    } else if (filters.hasBilling === "NO") {
-      list = list.filter((v) => !v.billing);
-    }
+    if (filters.hasBilling === "YES") list = list.filter((v) => !!v.billing);
+    else if (filters.hasBilling === "NO") list = list.filter((v) => !v.billing);
 
-    // filtrare după TVA ANAF
-    if (filters.tva === "YES") {
-      list = list.filter((v) => v.billing?.tvaActive === true);
-    } else if (filters.tva === "NO") {
-      list = list.filter((v) => v.billing && v.billing.tvaActive === false);
-    }
+    if (filters.tva === "YES") list = list.filter((v) => v.billing?.tvaActive === true);
+    else if (filters.tva === "NO") list = list.filter((v) => v.billing && v.billing.tvaActive === false);
 
-    // filtrare după urmăritori
-    if (filters.hasFollowers === "YES") {
-      list = list.filter((v) => (v.followers || 0) > 0);
-    } else if (filters.hasFollowers === "NO") {
-      list = list.filter((v) => (v.followers || 0) === 0);
-    }
+    if (filters.hasFollowers === "YES") list = list.filter((v) => (v.followers || 0) > 0);
+    else if (filters.hasFollowers === "NO") list = list.filter((v) => (v.followers || 0) === 0);
+
+    // ✅ Stripe filter
+    if (filters.stripe === "CONNECTED") list = list.filter((v) => !!v.stripeAccountId);
+    else if (filters.stripe === "NOT_CONNECTED") list = list.filter((v) => !v.stripeAccountId);
+    else if (filters.stripe === "ENABLED") list = list.filter((v) => v.stripeConnectStatus === "enabled");
+    else if (filters.stripe === "PENDING") list = list.filter((v) => !!v.stripeAccountId && v.stripeConnectStatus === "pending");
+    else if (filters.stripe === "RESTRICTED") list = list.filter((v) => !!v.stripeAccountId && v.stripeConnectStatus === "restricted");
 
     // sortare
-    if (filters.sort === "NEWEST") {
-      list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    } else if (filters.sort === "OLDEST") {
-      list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-    } else if (filters.sort === "NAME") {
-      list.sort((a, b) => (a.displayName || "").localeCompare(b.displayName || "", "ro-RO"));
-    } else if (filters.sort === "FOLLOWERS") {
-      list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
-    }
+    if (filters.sort === "NEWEST") list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    else if (filters.sort === "OLDEST") list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    else if (filters.sort === "NAME") list.sort((a, b) => (a.displayName || "").localeCompare(b.displayName || "", "ro-RO"));
+    else if (filters.sort === "FOLLOWERS") list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
 
     return list;
   }, [localVendors, filters]);
 
-  // paginare
   const totalItems = filteredVendors.length;
   const totalPages = totalItems ? Math.ceil(totalItems / PAGE_SIZE) : 1;
   const currentPage = Math.min(page, totalPages);
@@ -191,7 +191,7 @@ export default function AdminVendorsTab({ vendors }) {
         ? `/api/admin/vendors/${vendor.id}/deactivate`
         : `/api/admin/vendors/${vendor.id}/activate`;
       const resp = await api(endpoint, { method: "POST" });
-      if (resp?.vendor) updateVendorInState(resp.vendor);
+      if (resp?.vendor) updateVendorInState({ ...vendor, ...resp.vendor });
     } catch (e) {
       const msg = e?.data?.error || e?.message || "Nu am putut actualiza statusul vendorului.";
       setActionError(msg);
@@ -219,17 +219,32 @@ export default function AdminVendorsTab({ vendors }) {
     }
   };
 
-  // forțează re-acceptarea acordurilor legale pentru vendor
   const handleForceAgreementsReset = async (vendor) => {
     setActionError("");
     setBusyId(vendor.id);
     try {
       await api(`/api/admin/vendors/${vendor.id}/reset-agreements`, { method: "POST" });
-      alert(
-        "Acordurile legale au fost resetate. Vendorul va trebui să le accepte din nou la următoarea adăugare de produs."
-      );
+      alert("Acordurile legale au fost resetate. Vendorul va trebui să le accepte din nou la următoarea adăugare de produs.");
     } catch (e) {
       const msg = e?.data?.error || e?.message || "Nu am putut reseta acordurile legale pentru acest vendor.";
+      setActionError(msg);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleStripeSync = async (vendor) => {
+    setActionError("");
+    setBusyId(vendor.id);
+    try {
+      const resp = await api(`/api/admin/vendors/${vendor.id}/stripe/sync`, { method: "POST" });
+      if (resp?.vendor) {
+        // merge: păstrezi tot ce avea vendorul în admin + actualizezi doar Stripe fields
+        updateVendorInState({ ...vendor, ...resp.vendor });
+      }
+      alert("Status Stripe actualizat.");
+    } catch (e) {
+      const msg = e?.data?.message || e?.data?.error || e?.message || "Nu am putut sincroniza statusul Stripe.";
       setActionError(msg);
     } finally {
       setBusyId(null);
@@ -248,7 +263,7 @@ export default function AdminVendorsTab({ vendors }) {
           <span>Caută</span>
           <input
             type="text"
-            placeholder="Nume magazin, email, CUI, TVA, adresă sau meta"
+            placeholder="Nume magazin, email, CUI, TVA, adresă, Stripe..."
             value={filters.q}
             onChange={(e) => handleFilterChange((f) => ({ ...f, q: e.target.value }))}
           />
@@ -256,10 +271,7 @@ export default function AdminVendorsTab({ vendors }) {
 
         <label>
           <span>Activ</span>
-          <select
-            value={filters.active}
-            onChange={(e) => handleFilterChange((f) => ({ ...f, active: e.target.value }))}
-          >
+          <select value={filters.active} onChange={(e) => handleFilterChange((f) => ({ ...f, active: e.target.value }))}>
             <option value="ALL">Toți</option>
             <option value="YES">Doar activi</option>
             <option value="NO">Doar inactivi</option>
@@ -268,10 +280,7 @@ export default function AdminVendorsTab({ vendors }) {
 
         <label>
           <span>Billing</span>
-          <select
-            value={filters.hasBilling}
-            onChange={(e) => handleFilterChange((f) => ({ ...f, hasBilling: e.target.value }))}
-          >
+          <select value={filters.hasBilling} onChange={(e) => handleFilterChange((f) => ({ ...f, hasBilling: e.target.value }))}>
             <option value="ALL">Toți</option>
             <option value="YES">Cu billing</option>
             <option value="NO">Fără billing</option>
@@ -289,10 +298,7 @@ export default function AdminVendorsTab({ vendors }) {
 
         <label>
           <span>Urmăritori</span>
-          <select
-            value={filters.hasFollowers}
-            onChange={(e) => handleFilterChange((f) => ({ ...f, hasFollowers: e.target.value }))}
-          >
+          <select value={filters.hasFollowers} onChange={(e) => handleFilterChange((f) => ({ ...f, hasFollowers: e.target.value }))}>
             <option value="ALL">Toți</option>
             <option value="YES">Cu urmăritori</option>
             <option value="NO">Fără urmăritori</option>
@@ -300,11 +306,20 @@ export default function AdminVendorsTab({ vendors }) {
         </label>
 
         <label>
+          <span>Stripe</span>
+          <select value={filters.stripe} onChange={(e) => handleFilterChange((f) => ({ ...f, stripe: e.target.value }))}>
+            <option value="ALL">Toți</option>
+            <option value="CONNECTED">Conectați</option>
+            <option value="NOT_CONNECTED">Neconectați</option>
+            <option value="ENABLED">Enabled</option>
+            <option value="PENDING">Pending</option>
+            <option value="RESTRICTED">Restricted</option>
+          </select>
+        </label>
+
+        <label>
           <span>Sortare</span>
-          <select
-            value={filters.sort}
-            onChange={(e) => handleFilterChange((f) => ({ ...f, sort: e.target.value }))}
-          >
+          <select value={filters.sort} onChange={(e) => handleFilterChange((f) => ({ ...f, sort: e.target.value }))}>
             <option value="NEWEST">Cei mai noi</option>
             <option value="OLDEST">Cei mai vechi</option>
             <option value="NAME">Nume (A–Z)</option>
@@ -313,12 +328,7 @@ export default function AdminVendorsTab({ vendors }) {
         </label>
 
         <div className={styles.filtersActions}>
-          <button
-            type="button"
-            className={styles.resetBtn}
-            onClick={resetFilters}
-            title="Resetează toate filtrele"
-          >
+          <button type="button" className={styles.resetBtn} onClick={resetFilters} title="Resetează toate filtrele">
             <FaUndoAlt size={14} />
             <span>Reset</span>
           </button>
@@ -338,6 +348,9 @@ export default function AdminVendorsTab({ vendors }) {
               <th>Acorduri legale</th>
               <th>Utilizator</th>
               <th>Billing (CUI)</th>
+              <th>Stripe</th>
+              <th>Payouts</th>
+              <th>Charges</th>
               <th>TVA activ (ANAF)</th>
               <th>TVA (vendor)</th>
               <th># Servicii</th>
@@ -357,13 +370,10 @@ export default function AdminVendorsTab({ vendors }) {
               const agLabel = ag ? (ag.allRequired ? "OK" : "Incomplet") : "—";
               const agTitle = ag
                 ? ag.allRequired
-                  ? `Toate acordurile obligatorii acceptate. Ultima acceptare: ${
-                      ag.lastAcceptedAt ? formatDate(ag.lastAcceptedAt) : "n/a"
-                    }`
+                  ? `Toate acordurile obligatorii acceptate. Ultima acceptare: ${ag.lastAcceptedAt ? formatDate(ag.lastAcceptedAt) : "n/a"}`
                   : `Acorduri lipsă: ${ag.missingDocs?.join(", ") || "—"}`
                 : "Nu există informații despre acorduri pentru acest vendor.";
 
-              // ✅ tooltip pentru entitate juridică
               const { pageUrl, referrer } = extractEntityMeta(v.entitySelfDeclaredMeta);
               const entityTitle = v.entitySelfDeclared
                 ? [
@@ -375,6 +385,9 @@ export default function AdminVendorsTab({ vendors }) {
                     .filter(Boolean)
                     .join("\n")
                 : "Neconfirmat";
+
+              const stripeConnected = !!v.stripeAccountId;
+              const stripeStatusLabel = getStripeShortStatus(v);
 
               return (
                 <tr
@@ -391,7 +404,6 @@ export default function AdminVendorsTab({ vendors }) {
                   }}
                 >
                   <td>{v.displayName}</td>
-
                   <td title={entityTitle}>{formatEntityDeclarationShort(v)}</td>
 
                   <td>
@@ -401,9 +413,13 @@ export default function AdminVendorsTab({ vendors }) {
                   </td>
 
                   <td title={agTitle}>{agLabel}</td>
-
                   <td>{v.user?.email || "—"}</td>
                   <td>{billing?.cui || "—"}</td>
+
+                  <td title={stripeConnected ? `acct: ${v.stripeAccountId}` : "Neconectat"}>{stripeStatusLabel}</td>
+                  <td>{stripeConnected ? (v.stripePayoutsEnabled ? "Da" : "Nu") : "—"}</td>
+                  <td>{stripeConnected ? (v.stripeChargesEnabled ? "Da" : "Nu") : "—"}</td>
+
                   <td>
                     {billing
                       ? billing.tvaActive === null || billing.tvaActive === undefined
@@ -413,6 +429,7 @@ export default function AdminVendorsTab({ vendors }) {
                         : "Nu"
                       : "—"}
                   </td>
+
                   <td>{formatVendorVatShort(billing)}</td>
                   <td>{counts.services ?? 0}</td>
                   <td>{counts.visitors ?? 0}</td>
@@ -437,6 +454,7 @@ export default function AdminVendorsTab({ vendors }) {
           onToggleActive={handleToggleActive}
           onSendReset={handleSendReset}
           onForceAgreementsReset={handleForceAgreementsReset}
+          onStripeSync={handleStripeSync}
         />
       )}
     </>
@@ -445,7 +463,16 @@ export default function AdminVendorsTab({ vendors }) {
 
 /* ============ Drawer detalii vendor ============ */
 
-function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onSendReset, onForceAgreementsReset }) {
+function VendorDetailsDrawer({
+  vendor,
+  busy,
+  error,
+  onClose,
+  onToggleActive,
+  onSendReset,
+  onForceAgreementsReset,
+  onStripeSync,
+}) {
   if (!vendor) return null;
   if (typeof document === "undefined") return null;
 
@@ -454,6 +481,8 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
   const ag = vendor.agreementsSummary;
 
   const { pageUrl, referrer } = extractEntityMeta(vendor.entitySelfDeclaredMeta);
+
+  const stripeConnected = !!vendor.stripeAccountId;
 
   const node = (
     <div className={styles.drawerOverlay} onClick={onClose}>
@@ -489,7 +518,6 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
               <span>{vendor.entitySelfDeclared ? "Confirmat de vendor" : "Neconfirmat"}</span>
             </div>
 
-            {/* ✅ NOU: audit confirmare */}
             {vendor.entitySelfDeclared && (
               <>
                 <div className={styles.drawerField}>
@@ -556,17 +584,69 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
             )}
           </section>
 
+          {/* ✅ Stripe Connect */}
+          <section className={styles.drawerSection}>
+            <h4>Stripe Connect</h4>
+
+            <div className={styles.drawerField}>
+              <span>Conectat</span>
+              <span>{stripeConnected ? "Da" : "Nu"}</span>
+            </div>
+
+            {stripeConnected && (
+              <>
+                <div className={styles.drawerField}>
+                  <span>Account ID</span>
+                  <code>{vendor.stripeAccountId}</code>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Status</span>
+                  <span>{vendor.stripeConnectStatus || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Payouts enabled</span>
+                  <span>{vendor.stripePayoutsEnabled ? "Da" : "Nu"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Charges enabled</span>
+                  <span>{vendor.stripeChargesEnabled ? "Da" : "Nu"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Details submitted</span>
+                  <span>{vendor.stripeDetailsSubmitted ? "Da" : "Nu"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Onboarded la</span>
+                  <span>{vendor.stripeOnboardedAt ? formatDate(vendor.stripeOnboardedAt) : "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Disabled reason</span>
+                  <span style={{ wordBreak: "break-word" }}>{vendor.stripeDisabledReason || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Requirements due</span>
+                  <pre className={styles.codeBlock}>
+                    {vendor.stripeRequirementsDue ? JSON.stringify(vendor.stripeRequirementsDue, null, 2) : "—"}
+                  </pre>
+                </div>
+              </>
+            )}
+          </section>
+
           {/* Acorduri legale */}
           <section className={styles.drawerSection}>
             <h4>Acorduri legale</h4>
             <div className={styles.drawerField}>
               <span>Status acorduri</span>
               <span>
-                {ag
-                  ? ag.allRequired
-                    ? "Toate acordurile obligatorii sunt acceptate"
-                    : "Incomplet – lipsesc acorduri"
-                  : "Nu există informații"}
+                {ag ? (ag.allRequired ? "Toate acordurile obligatorii sunt acceptate" : "Incomplet – lipsesc acorduri") : "Nu există informații"}
               </span>
             </div>
             {ag && (
@@ -658,13 +738,7 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
             <div className={styles.drawerField}>
               <span>TVA activ (ANAF)</span>
               <span>
-                {billing
-                  ? billing.tvaActive === null || billing.tvaActive === undefined
-                    ? "—"
-                    : billing.tvaActive
-                    ? "Da"
-                    : "Nu"
-                  : "—"}
+                {billing ? (billing.tvaActive === null || billing.tvaActive === undefined ? "—" : billing.tvaActive ? "Da" : "Nu") : "—"}
               </span>
             </div>
 
@@ -674,42 +748,24 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
             </div>
             <div className={styles.drawerField}>
               <span>Cotă TVA (vendor)</span>
-              <span>
-                {billing?.vatRate ? (billing.vatRate === "0" ? "0% / scutit" : `${billing.vatRate}%`) : "—"}
-              </span>
+              <span>{billing?.vatRate ? (billing.vatRate === "0" ? "0% / scutit" : `${billing.vatRate}%`) : "—"}</span>
             </div>
             <div className={styles.drawerField}>
               <span>Responsabil TVA confirmat</span>
-              <span>
-                {billing?.vatResponsibilityConfirmed
-                  ? billing.vatLastResponsibilityConfirm
-                    ? `Da – ${formatDate(billing.vatLastResponsibilityConfirm)}`
-                    : "Da"
-                  : "Nu"}
-              </span>
+              <span>{billing?.vatResponsibilityConfirmed ? (billing.vatLastResponsibilityConfirm ? `Da – ${formatDate(billing.vatLastResponsibilityConfirm)}` : "Da") : "Nu"}</span>
             </div>
 
             <div className={styles.drawerField}>
               <span>Inactiv ANAF</span>
-              <span>
-                {billing?.inactiv === null || billing?.inactiv === undefined ? "—" : billing.inactiv ? "Da" : "Nu"}
-              </span>
+              <span>{billing?.inactiv === null || billing?.inactiv === undefined ? "—" : billing.inactiv ? "Da" : "Nu"}</span>
             </div>
             <div className={styles.drawerField}>
               <span>Insolvent</span>
-              <span>
-                {billing?.insolvent === null || billing?.insolvent === undefined
-                  ? "—"
-                  : billing.insolvent
-                  ? "Da"
-                  : "Nu"}
-              </span>
+              <span>{billing?.insolvent === null || billing?.insolvent === undefined ? "—" : billing.insolvent ? "Da" : "Nu"}</span>
             </div>
             <div className={styles.drawerField}>
               <span>Split TVA</span>
-              <span>
-                {billing?.splitTva === null || billing?.splitTva === undefined ? "—" : billing.splitTva ? "Da" : "Nu"}
-              </span>
+              <span>{billing?.splitTva === null || billing?.splitTva === undefined ? "—" : billing.splitTva ? "Da" : "Nu"}</span>
             </div>
             <div className={styles.drawerField}>
               <span>Verificat ANAF la</span>
@@ -751,12 +807,7 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
         </div>
 
         <footer className={styles.drawerFooter}>
-          <button
-            type="button"
-            className={styles.drawerBtnSecondary}
-            onClick={() => onToggleActive?.(vendor)}
-            disabled={busy}
-          >
+          <button type="button" className={styles.drawerBtnSecondary} onClick={() => onToggleActive?.(vendor)} disabled={busy}>
             {busy ? "Se actualizează…" : vendor.isActive ? "Dezactivează vendor" : "Activează vendor"}
           </button>
 
@@ -765,11 +816,7 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
             className={styles.drawerBtnSecondary}
             onClick={() => onSendReset?.(vendor)}
             disabled={busy || !vendor.user?.id}
-            title={
-              vendor.user?.id
-                ? "Trimite un email de resetare parolă user-ului asociat"
-                : "Vendor fără user asociat"
-            }
+            title={vendor.user?.id ? "Trimite un email de resetare parolă user-ului asociat" : "Vendor fără user asociat"}
           >
             Trimite resetare parolă
           </button>
@@ -793,10 +840,15 @@ function VendorDetailsDrawer({ vendor, busy, error, onClose, onToggleActive, onS
 
           <button
             type="button"
-            className={styles.drawerBtnDisabled}
-            disabled
-            title="Impersonare vendor – de implementat în backend"
+            className={styles.drawerBtnSecondary}
+            onClick={() => onStripeSync?.(vendor)}
+            disabled={busy || !vendor.stripeAccountId}
+            title={vendor.stripeAccountId ? "Reîncarcă statusul Stripe din server (Stripe API)" : "Vendor fără Stripe"}
           >
+            Sync Stripe
+          </button>
+
+          <button type="button" className={styles.drawerBtnDisabled} disabled title="Impersonare vendor – de implementat în backend">
             Impersonează (în curând)
           </button>
         </footer>

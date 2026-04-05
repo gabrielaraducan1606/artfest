@@ -6,6 +6,7 @@ import styles from "./AdminDesktop.module.css";
 
 import AdminUsersTab from "./tabs/AdminUsersTab.jsx";
 import AdminVendorsTab from "./tabs/AdminVendorsTab.jsx";
+import AdminVendorPlansTab from "./tabs/AdminVendorTabPlans.jsx"; // ✅ NOU
 import AdminOrdersTab from "./tabs/AdminOrdersTab.jsx";
 import AdminProductsTab from "./tabs/AdminProductsTab.jsx";
 import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
@@ -21,10 +22,11 @@ const TABS = [
   { id: "adminAllUsers", label: "Toate conturile" },
   { id: "users", label: "Useri (clienți)" },
   { id: "vendors", label: "Vendori" },
+  { id: "vendorPlans", label: "Abonamente (Vendori)" }, // ✅ NOU
   { id: "orders", label: "Comenzi" },
   { id: "products", label: "Produse" },
   { id: "policies", label: "Politici / consimțăminte" },
-  { id: "emails", label: "Emailuri" }, // 👈 nou
+  { id: "emails", label: "Emailuri" },
 ];
 
 const TAB_IDS = TABS.reduce((acc, t) => {
@@ -47,15 +49,19 @@ export default function AdminDesktop() {
   const [userConsents, setUserConsents] = useState([]);
   const [vendorAgreements, setVendorAgreements] = useState([]);
 
+  // ✅ NOU: abonamente vendori (list)
+  const [vendorPlans, setVendorPlans] = useState({ total: 0, items: [] });
+
   // simple cache
   const [loadedTabs, setLoadedTabs] = useState({
     adminAllUsers: false,
     users: false,
     vendors: false,
+    vendorPlans: false, // ✅ NOU
     orders: false,
     products: false,
     policies: false,
-    emails: false, // 👈 nou
+    emails: false,
   });
 
   const [stats, setStats] = useState({
@@ -120,6 +126,12 @@ export default function AdminDesktop() {
     setVendorAgreements(va.agreements || []);
   }, []);
 
+  // ✅ NOU: vendor plans
+  const loadVendorPlans = useCallback(async () => {
+    const d = await api("/api/admin/vendors/plans?take=50&skip=0");
+    setVendorPlans({ total: d.total ?? 0, items: d.items ?? [] });
+  }, []);
+
   /**
    * Loader generic pe baza tab-ului activ.
    */
@@ -150,6 +162,9 @@ export default function AdminDesktop() {
         } else if (tabId === TAB_IDS.vendors) {
           await loadVendors();
           setLoadedTabs((prev) => ({ ...prev, vendors: true }));
+        } else if (tabId === TAB_IDS.vendorPlans) {
+          await loadVendorPlans();
+          setLoadedTabs((prev) => ({ ...prev, vendorPlans: true }));
         } else if (tabId === TAB_IDS.orders) {
           await loadOrders();
           setLoadedTabs((prev) => ({ ...prev, orders: true }));
@@ -175,6 +190,7 @@ export default function AdminDesktop() {
       loadedTabs,
       loadUsers,
       loadVendors,
+      loadVendorPlans,
       loadOrders,
       loadProducts,
       loadPolicies,
@@ -236,6 +252,9 @@ export default function AdminDesktop() {
     if (activeTab === TAB_IDS.vendors && !vendors.length) {
       return <EmptyState text="Nu există vendori încă." />;
     }
+    if (activeTab === TAB_IDS.vendorPlans && !vendorPlans?.items?.length) {
+      return <EmptyState text="Nu există încă abonamente sau nu au fost încărcate." />;
+    }
     if (activeTab === TAB_IDS.orders && !orders.length) {
       return <EmptyState text="Nu există comenzi în acest moment." />;
     }
@@ -274,6 +293,18 @@ export default function AdminDesktop() {
 
     if (activeTab === TAB_IDS.vendors) {
       return <AdminVendorsTab vendors={vendors} />;
+    }
+
+    // ✅ NOU
+    if (activeTab === TAB_IDS.vendorPlans) {
+      return (
+        <AdminVendorPlansTab
+          initial={vendorPlans}
+          onRefresh={async () => {
+            await loadVendorPlans();
+          }}
+        />
+      );
     }
 
     if (activeTab === TAB_IDS.orders) {

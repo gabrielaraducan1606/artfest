@@ -624,3 +624,65 @@ export function digitalWaitlistConfirmationTemplate({
 
   return { html, text, subject: `Confirmare înscriere – ${brandName}` };
 }
+export function userSupportReplyTemplate({
+  name,
+  subject,
+  reply,
+  brandName = "Artfest",
+  logoUrl,
+  link,
+}) {
+  const safeName = name || "Salut";
+  const safeSubject = subject || "Tichet suport";
+
+  const html = `
+  <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+    <div style="text-align:center;margin-bottom:20px;">
+      <img src="${logoUrl}" alt="${brandName} logo" width="120" height="120"
+           style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+    </div>
+
+    <h2 style="color:#111827;margin:0 0 8px;">Ai primit un răspuns de la suport</h2>
+    <p style="color:#374151;margin:0 0 12px;">Bună${safeName ? " " + safeName : ""},</p>
+
+    <p style="color:#374151;margin:0 0 12px;">
+      <strong>Subiect:</strong> ${safeSubject}
+    </p>
+
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px 14px;color:#111827;line-height:1.5;">
+      ${String(reply || "").replace(/\n/g, "<br/>")}
+    </div>
+
+    ${
+      link
+        ? `<p style="text-align:center;margin:20px 0 0;">
+            <a href="${link}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+              Vezi conversația
+            </a>
+          </p>`
+        : ""
+    }
+
+    <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+    <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+      Acest email a fost generat automat de ${brandName}.
+    </p>
+  </div>
+  `.trim();
+
+  const text = [
+    `Ai primit un răspuns de la suport (${brandName}).`,
+    `Subiect: ${safeSubject}`,
+    "",
+    String(reply || ""),
+    link ? `\nVezi conversația: ${link}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    subject: `Răspuns suport: ${safeSubject}`,
+    html,
+    text,
+  };
+}

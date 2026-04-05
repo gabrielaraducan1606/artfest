@@ -12,9 +12,9 @@ import Modal from "../ui/Modal";
 import styles from "../components/css/ProductModal.module.css";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
-import { api } from "../../../../lib/api"; // 👈 NOU: pentru a citi TVA din billing
+import { api } from "../../../../lib/api";
 
-// IMPORTURI CONSTANTE (ajustează path-urile dacă e nevoie)
+// IMPORTURI CONSTANTE
 import {
   COLORS_DETAILED,
 } from "../../../../../../backend/src/constants/colors.js";
@@ -68,9 +68,9 @@ function AccordionSection({ id, title, open, onToggle, children }) {
 function TagComboField({
   id,
   label,
-  value,      // CSV: "a, b, c"
-  onChange,   // primește CSV
-  options,    // array de string (labeluri)
+  value,
+  onChange,
+  options,
   placeholder,
   note,
 }) {
@@ -208,6 +208,7 @@ function TagComboField({
         <input
           id={id}
           value={inputValue}
+          onFocus={() => setOpenList(true)}
           onChange={(e) => {
             setInputValue(e.target.value);
             setOpenList(true);
@@ -224,6 +225,7 @@ function TagComboField({
           }}
         />
       </div>
+
       {note && (
         <div
           style={{
@@ -235,6 +237,7 @@ function TagComboField({
           {note}
         </div>
       )}
+
       {tags.length > 0 && (
         <button
           type="button"
@@ -253,6 +256,7 @@ function TagComboField({
           Șterge toate valorile
         </button>
       )}
+
       {openList && (
         <div
           style={{
@@ -267,7 +271,6 @@ function TagComboField({
             position: "relative",
           }}
         >
-          {/* HEADER + BUTON ÎNCHIDE */}
           <div
             style={{
               position: "sticky",
@@ -319,17 +322,15 @@ function TagComboField({
               </div>
             ))
           ) : (
-            inputValue && (
-              <div
-                style={{
-                  padding: "6px 10px",
-                  fontSize: "0.8rem",
-                  color: "rgba(0,0,0,0.6)",
-                }}
-              >
-                Nicio sugestie – poți folosi varianta tastată de tine.
-              </div>
-            )
+            <div
+              style={{
+                padding: "6px 10px",
+                fontSize: "0.8rem",
+                color: "rgba(0,0,0,0.6)",
+              }}
+            >
+              Nicio sugestie – poți folosi varianta tastată de tine.
+            </div>
           )}
         </div>
       )}
@@ -341,12 +342,12 @@ function TagComboField({
 function SingleTagComboField({
   id,
   label,
-  value,      // string simplu
-  onChange,   // primește string simplu
-  options,    // [{ key, label }]
+  value,
+  onChange,
+  options,
   placeholder,
   note,
-  useOptionKeyAsValue = false, // 👈 nou: doar pentru câmpuri care trimit key la backend
+  useOptionKeyAsValue = false,
 }) {
   const [inputValue, setInputValue] = useState("");
   const [openList, setOpenList] = useState(false);
@@ -411,9 +412,9 @@ function SingleTagComboField({
 
     const valueToSave = matched
       ? useOptionKeyAsValue
-        ? matched.key      // 👈 pentru colors: salvăm key
-        : matched.label    // pentru material/tehnică: salvăm label
-      : norm;              // fallback: free text
+        ? matched.key
+        : matched.label
+      : norm;
 
     onChange(valueToSave);
     setInputValue("");
@@ -498,13 +499,13 @@ function SingleTagComboField({
         <input
           id={id}
           value={inputValue}
+          onFocus={() => setOpenList(true)}
           onChange={(e) => {
             setInputValue(e.target.value);
             setOpenList(true);
           }}
           onKeyDown={onKeyDown}
           onBlur={() => {
-            // mic delay ca să permită click pe sugestie
             setTimeout(() => setOpenList(false), 120);
           }}
           placeholder={value ? "" : placeholder}
@@ -531,7 +532,7 @@ function SingleTagComboField({
         </div>
       )}
 
-      {openList && suggestions.length > 0 && (
+      {openList && (
         <div
           style={{
             marginTop: 4,
@@ -545,36 +546,32 @@ function SingleTagComboField({
             position: "relative",
           }}
         >
-          {suggestions.map((opt) => (
+          {suggestions.length > 0 ? (
+            suggestions.map((opt) => (
+              <div
+                key={opt.key || opt.label}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setChip(opt.key)}
+                style={{
+                  padding: "6px 10px",
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                }}
+              >
+                {opt.label}
+              </div>
+            ))
+          ) : (
             <div
-              key={opt.key || opt.label}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setChip(opt.key)}
               style={{
                 padding: "6px 10px",
-                fontSize: "0.85rem",
-                cursor: "pointer",
+                fontSize: "0.8rem",
+                color: "rgba(0,0,0,0.6)",
               }}
             >
-              {opt.label}
+              Nicio sugestie – poți folosi varianta tastată de tine.
             </div>
-          ))}
-        </div>
-      )}
-
-      {openList && suggestions.length === 0 && inputValue && (
-        <div
-          style={{
-            marginTop: 4,
-            padding: "6px 10px",
-            fontSize: "0.8rem",
-            borderRadius: 6,
-            border: "1px solid rgba(0,0,0,0.08)",
-            background: "#fff",
-            color: "rgba(0,0,0,0.6)",
-          }}
-        >
-          Nicio sugestie – poți folosi varianta tastată de tine.
+          )}
         </div>
       )}
     </div>
@@ -590,12 +587,11 @@ export default function ProductModal({
   setForm,
   categories = [],
   onSave,
-  uploadFile, 
+  uploadFile,
   storeSlug,
 }) {
   const doUpload = uploadFile || uploadFileHelper;
 
-  // ==== helper general pentru câmpuri simple ====
   const updateField = useCallback(
     (field) => (e) => {
       const value = e?.target?.value ?? e;
@@ -604,11 +600,10 @@ export default function ProductModal({
     [setForm]
   );
 
-  // starea de deschidere pentru secțiunile acordeonului
   const [openSections, setOpenSections] = useState({
-    basic: false,
+    basic: true,
     details: false,
-    category: false,
+    category: true,
     availability: false,
     images: false,
   });
@@ -617,81 +612,79 @@ export default function ProductModal({
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   }, []);
 
-  // când se deschide modalul, resetăm secțiunile
   useEffect(() => {
     if (open) {
       setOpenSections({
-        basic: false,
+        basic: true,
         details: false,
-        category: false,
+        category: true,
         availability: false,
         images: false,
       });
     }
   }, [open]);
 
-  // ================= TVA din date de facturare =================
   const [vatState, setVatState] = useState({
     loading: false,
     error: "",
-    status: null, // "payer" | "non_payer" | null
-    rate: null,   // număr (ex: 19)
+    status: null,
+    rate: null,
   });
-// ================= Comision plan/platformă =================
-const [commissionState, setCommissionState] = useState({
-  loading: false,
-  error: "",
-  commissionBps: 0, // ex: 1200 = 12%
-  plan: null,
-});
 
-useEffect(() => {
-  if (!open) return;
+  const [commissionState, setCommissionState] = useState({
+    loading: false,
+    error: "",
+    commissionBps: 0,
+    plan: null,
+  });
 
-  if (!storeSlug) {
-    setCommissionState({
-      loading: false,
-      error: "Lipsește storeSlug (nu pot încărca comisionul).",
-      commissionBps: 0,
-      plan: null,
-    });
-    return;
-  }
+  useEffect(() => {
+    if (!open) return;
 
-  let alive = true;
-  setCommissionState((s) => ({ ...s, loading: true, error: "" }));
-
-  (async () => {
-    try {
-      const resp = await api(
-        `/api/vendors/store/${encodeURIComponent(storeSlug)}/products/pricing`,
-        { method: "GET" }
-      );
-      if (!alive) return;
-
-      const bps = resp?.commissionBps != null ? Number(resp.commissionBps) : 0;
-
+    if (!storeSlug) {
       setCommissionState({
         loading: false,
-        error: "",
-        commissionBps: Number.isFinite(bps) ? bps : 0,
-        plan: resp?.plan || null,
-      });
-    } catch (e) {
-      if (!alive) return;
-      setCommissionState({
-        loading: false,
-        error: e?.message || "Nu am putut încărca comisionul planului.",
+        error: "Lipsește storeSlug (nu pot încărca comisionul).",
         commissionBps: 0,
         plan: null,
       });
+      return;
     }
-  })();
 
-  return () => {
-    alive = false;
-  };
-}, [open, storeSlug]);
+    let alive = true;
+    setCommissionState((s) => ({ ...s, loading: true, error: "" }));
+
+    (async () => {
+      try {
+        const resp = await api(
+          `/api/vendors/store/${encodeURIComponent(storeSlug)}/products/pricing`,
+          { method: "GET" }
+        );
+        if (!alive) return;
+
+        const bps = resp?.commissionBps != null ? Number(resp.commissionBps) : 0;
+
+        setCommissionState({
+          loading: false,
+          error: "",
+          commissionBps: Number.isFinite(bps) ? bps : 0,
+          plan: resp?.plan || null,
+        });
+      } catch (e) {
+        if (!alive) return;
+        setCommissionState({
+          loading: false,
+          error: e?.message || "Nu am putut încărca comisionul planului.",
+          commissionBps: 0,
+          plan: null,
+        });
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [open, storeSlug]);
 
   useEffect(() => {
     if (!open) return;
@@ -739,7 +732,6 @@ useEffect(() => {
     };
   }, [open]);
 
-  // Calcul TVA plecând de la ideea că prețul introdus este PREȚ FINAL CU TVA
   const vatComputed = useMemo(() => {
     const gross = Number(form.price) || 0;
     const rate =
@@ -764,32 +756,29 @@ useEffect(() => {
   }, [form.price, vatState.status, vatState.rate]);
 
   const { gross, rate: vatRateNum, net, vatAmount } = vatComputed;
-const commissionComputed = useMemo(() => {
-  const grossNum = Number(form.price) || 0;
+  const hasValidPrice = Number(form.price) > 0;
 
-  // Baza comision: fără TVA dacă vendorul e payer, altfel prețul e deja final
-  const base =
-    vatState.status === "payer" && vatRateNum
-      ? (Number(net) || 0)
-      : grossNum;
+  const commissionComputed = useMemo(() => {
+    const grossNum = Number(form.price) || 0;
 
-  // commissionBps = basis points (ex 1200 = 12.00%)
-  const pct = (Number(commissionState.commissionBps) || 0) / 100; // 1200 -> 12.00
-  const rate = pct / 100; // 12.00 -> 0.12
+    const base =
+      vatState.status === "payer" && vatRateNum
+        ? (Number(net) || 0)
+        : grossNum;
 
-  if (!grossNum || !Number.isFinite(base) || !Number.isFinite(rate) || rate <= 0) {
-    return { base, pct, commissionAmount: 0, vendorReceives: base };
-  }
+    const pct = (Number(commissionState.commissionBps) || 0) / 100;
+    const rate = pct / 100;
 
-  const commissionAmount = +(base * rate).toFixed(2);
-  const vendorReceives = +(base - commissionAmount).toFixed(2);
+    if (!grossNum || !Number.isFinite(base) || !Number.isFinite(rate) || rate <= 0) {
+      return { base, pct, commissionAmount: 0, vendorReceives: base };
+    }
 
-  return { base, pct, commissionAmount, vendorReceives };
-}, [form.price, vatState.status, vatRateNum, net, commissionState.commissionBps]);
+    const commissionAmount = +(base * rate).toFixed(2);
+    const vendorReceives = +(base - commissionAmount).toFixed(2);
 
-  // ============================================================
+    return { base, pct, commissionAmount, vendorReceives };
+  }, [form.price, vatState.status, vatRateNum, net, commissionState.commissionBps]);
 
-  // Detectăm forma categoriilor
   const isDetailed =
     Array.isArray(categories) &&
     categories.length > 0 &&
@@ -797,7 +786,6 @@ const commissionComputed = useMemo(() => {
     categories[0] !== null &&
     "key" in categories[0];
 
-  // Normalizăm într-o listă de opțiuni { key, label, group, groupLabel }
   const options = useMemo(() => {
     if (isDetailed) {
       return categories.map((c) => ({
@@ -820,14 +808,12 @@ const commissionComputed = useMemo(() => {
     [options]
   );
 
-  // ===== Combobox state (categorie) =====
   const [query, setQuery] = useState("");
   const [openList, setOpenList] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef(null);
   const listRef = useRef(null);
 
-  // Drop-up calc
   const wrapRef = useRef(null);
   const [openUp, setOpenUp] = useState(false);
   const [listMaxH, setListMaxH] = useState(320);
@@ -859,7 +845,6 @@ const commissionComputed = useMemo(() => {
     };
   }, [openList, computeComboDirection]);
 
-  // închidere la click în afara combobox-ului categorie
   useEffect(() => {
     if (!openList) return;
     const handleClickOutside = (e) => {
@@ -875,7 +860,6 @@ const commissionComputed = useMemo(() => {
     };
   }, [openList]);
 
-  // Pornește cu labelul categoriei curente
   useEffect(() => {
     if (!form?.category) {
       setQuery("");
@@ -884,7 +868,6 @@ const commissionComputed = useMemo(() => {
     setQuery(getLabelFor(form.category));
   }, [form?.category, getLabelFor]);
 
-  // Filtrare tolerantă la diacritice pt. categorii
   const normalize = useCallback(
     (s) =>
       String(s || "")
@@ -905,7 +888,6 @@ const commissionComputed = useMemo(() => {
     );
   }, [options, query, normalize]);
 
-  // Grupare pentru afișare (categorii)
   const grouped = useMemo(() => {
     const by = new Map();
     for (const o of filtered) {
@@ -919,7 +901,6 @@ const commissionComputed = useMemo(() => {
     );
   }, [filtered]);
 
-  // Listă liniară pentru navigare cu tastatura
   const flatWithHeaders = useMemo(() => {
     const arr = [];
     for (const g of grouped) {
@@ -933,14 +914,12 @@ const commissionComputed = useMemo(() => {
     return arr;
   }, [grouped]);
 
-  // Când deschidem lista, setăm primul "item" ca activ
   useEffect(() => {
     if (openList) {
       setActiveIndex(flatWithHeaders.findIndex((x) => x.__type === "item"));
     }
   }, [openList, flatWithHeaders]);
 
-  // Select categorie
   const selectOption = useCallback(
     (opt) => {
       if (!opt) return;
@@ -952,7 +931,6 @@ const commissionComputed = useMemo(() => {
     [setForm]
   );
 
-  // Keyboard pe input (combobox)
   const onInputKeyDown = useCallback(
     (e) => {
       if (!openList && ["ArrowDown", "ArrowUp"].includes(e.key)) {
@@ -989,7 +967,6 @@ const commissionComputed = useMemo(() => {
     [openList, activeIndex, flatWithHeaders, selectOption]
   );
 
-  // Opțiuni pentru câmpurile cu constante (single chip + multi-tag)
   const materialOptions = useMemo(
     () => MATERIALS_DETAILED.map((m) => ({ key: m.key, label: m.label })),
     []
@@ -1015,7 +992,6 @@ const commissionComputed = useMemo(() => {
     []
   );
 
-  // ====== Images: DnD + Paste + Main image ======
   const dragIndexRef = useRef(-1);
 
   const setMainImage = useCallback(
@@ -1062,9 +1038,7 @@ const commissionComputed = useMemo(() => {
       e.dataTransfer.effectAllowed = "move";
       try {
         e.dataTransfer.setData("text/plain", String(idx));
-      } catch {
-        /* noop */
-      }
+      } catch {""}
     },
     []
   );
@@ -1088,7 +1062,6 @@ const commissionComputed = useMemo(() => {
     [moveImage]
   );
 
-  // Upload handler stabil
   const onFilesPicked = useCallback(
     async (files) => {
       if (!files?.length) return;
@@ -1111,7 +1084,6 @@ const commissionComputed = useMemo(() => {
     [doUpload, setForm]
   );
 
-  // PASTE: URL sau fișiere image/*
   const onPasteImages = useCallback(
     async (e) => {
       const text = e.clipboardData?.getData("text")?.trim();
@@ -1132,7 +1104,6 @@ const commissionComputed = useMemo(() => {
     [onFilesPicked, setForm]
   );
 
-  // normalizează câmpurile când se schimbă availability
   useEffect(() => {
     setForm((s) => {
       const av = s.availability;
@@ -1194,7 +1165,6 @@ const commissionComputed = useMemo(() => {
 
       <div className={styles.modalBody}>
         <form onSubmit={onSave} className={styles.formGrid}>
-          {/* ===== Secțiunea 1: Informații de bază ===== */}
           <AccordionSection
             id="basic"
             title="Informații de bază"
@@ -1223,119 +1193,118 @@ const commissionComputed = useMemo(() => {
               min="0"
               className={styles.input}
               value={
-                Number.isFinite(Number(form.price))
-                  ? String(form.price)
-                  : ""
+                form.price === "" || form.price == null
+                  ? ""
+                  : String(form.price)
               }
               onChange={(e) => {
-                const v = Math.max(0, Number(e.target.value || 0));
-                setForm((s) => ({ ...s, price: v }));
+                const raw = e.target.value;
+                setForm((s) => ({
+                  ...s,
+                  price: raw === "" ? "" : Math.max(0, Number(raw)),
+                }));
               }}
               placeholder="0.00"
               required
             />
-{/* 👇 Comision platformă */}
-<div
-  style={{
-    fontSize: "0.78rem",
-    marginTop: 6,
-    marginBottom: 8,
-    color: "#4B5563",
-    lineHeight: 1.4,
-  }}
->
-  {commissionState.loading ? (
-    <span>Se încarcă comisionul planului…</span>
-  ) : commissionState.error ? (
-    <span style={{ color: "#B91C1C" }}>{commissionState.error}</span>
-  ) : (
-    <>
-      <div>
-        Comision platformă{" "}
-        <strong>
-          {commissionComputed.pct ? `${commissionComputed.pct.toFixed(2)}%` : "0%"}
-        </strong>
-        {commissionState.plan ? (
-          <span style={{ opacity: 0.75 }}>
-            {" "}
-            · plan: <strong>{commissionState.plan.name}</strong>
-          </span>
-        ) : null}
-      </div>
 
-      {gross > 0 && (
-        <div style={{ marginTop: 2 }}>
-          Bază comision: <strong>{commissionComputed.base.toFixed(2)} RON</strong>{" "}
-          → comision: <strong>{commissionComputed.commissionAmount.toFixed(2)} RON</strong>{" "}
-          → încasare estimată (fără TVA):{" "}
-          <strong>{commissionComputed.vendorReceives.toFixed(2)} RON</strong>
-        </div>
-      )}
+            {hasValidPrice && (
+              <div
+                style={{
+                  fontSize: "0.78rem",
+                  marginTop: 6,
+                  marginBottom: 8,
+                  color: "#4B5563",
+                  lineHeight: 1.4,
+                }}
+              >
+                {commissionState.loading ? (
+                  <span>Se încarcă comisionul planului…</span>
+                ) : commissionState.error ? (
+                  <span style={{ color: "#B91C1C" }}>{commissionState.error}</span>
+                ) : (
+                  <>
+                    <div>
+                      Comision platformă{" "}
+                      <strong>
+                        {commissionComputed.pct ? `${commissionComputed.pct.toFixed(2)}%` : "0%"}
+                      </strong>
+                      {commissionState.plan ? (
+                        <span style={{ opacity: 0.75 }}>
+                          {" "}
+                          · plan: <strong>{commissionState.plan.name}</strong>
+                        </span>
+                      ) : null}
+                    </div>
 
-      <div style={{ marginTop: 2, opacity: 0.75 }}>
-        Notă: comisionul se aplică pe prețul fără TVA (dacă ești plătitor de TVA).
-        Calculul final se confirmă la comandă.
-      </div>
-    </>
-  )}
-</div>
+                    <div style={{ marginTop: 2 }}>
+                      Bază comision: <strong>{commissionComputed.base.toFixed(2)} RON</strong>{" "}
+                      → comision: <strong>{commissionComputed.commissionAmount.toFixed(2)} RON</strong>{" "}
+                      → încasare estimată (fără TVA):{" "}
+                      <strong>{commissionComputed.vendorReceives.toFixed(2)} RON</strong>
+                    </div>
 
-            {/* 👇 Aici afișăm clar TVA-ul, pe baza datelor din billing */}
-            <div
-              style={{
-                fontSize: "0.78rem",
-                marginTop: 4,
-                marginBottom: 8,
-                color: "#4B5563",
-                lineHeight: 1.4,
-              }}
-            >
-              {vatState.loading ? (
-                <span>Se încarcă setările de TVA ale magazinului…</span>
-              ) : vatState.status === "payer" && vatRateNum ? (
-                <>
-                  <div>
-                    Conform datelor de facturare, magazinul este{" "}
-                    <strong>plătitor de TVA</strong>, cotă{" "}
-                    <strong>{vatRateNum}%</strong>.
-                  </div>
-                  {gross > 0 && (
+                    <div style={{ marginTop: 2, opacity: 0.75 }}>
+                      Notă: comisionul se aplică pe prețul fără TVA (dacă ești plătitor de TVA).
+                      Calculul final se confirmă la comandă.
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {hasValidPrice && (
+              <div
+                style={{
+                  fontSize: "0.78rem",
+                  marginTop: 4,
+                  marginBottom: 8,
+                  color: "#4B5563",
+                  lineHeight: 1.4,
+                }}
+              >
+                {vatState.loading ? (
+                  <span>Se încarcă setările de TVA ale magazinului…</span>
+                ) : vatState.status === "payer" && vatRateNum ? (
+                  <>
+                    <div>
+                      Conform datelor de facturare, magazinul este{" "}
+                      <strong>plătitor de TVA</strong>, cotă{" "}
+                      <strong>{vatRateNum}%</strong>.
+                    </div>
                     <div style={{ marginTop: 2 }}>
                       Pentru prețul introdus:{" "}
                       <strong>{net.toFixed(2)} RON</strong> (fără TVA) +{" "}
-                      <strong>{vatAmount.toFixed(2)} RON</strong> TVA (
-                      {vatRateNum}%) ={" "}
-                      <strong>{gross.toFixed(2)} RON</strong> (preț
-                      final).
+                      <strong>{vatAmount.toFixed(2)} RON</strong> TVA ({vatRateNum}%)
+                      {" = "}
+                      <strong>{gross.toFixed(2)} RON</strong> (preț final).
                     </div>
-                  )}
-                </>
-              ) : vatState.status === "non_payer" ? (
-                <div>
-                  Conform datelor de facturare,{" "}
-                  <strong>nu ești plătitor de TVA</strong>. Prețul
-                  introdus este tratat ca sumă finală (nu se evidențiază
-                  TVA separat pe factură).
-                </div>
-              ) : (
-                <div>
-                  Nu am găsit informații despre statutul tău de TVA în{" "}
-                  <strong>Date facturare</strong>. Completează acea
-                  secțiune pentru a vedea detaliat TVA-ul aferent
-                  produselor.
-                </div>
-              )}
-              {vatState.error && (
-                <div
-                  style={{
-                    marginTop: 2,
-                    color: "#B91C1C",
-                  }}
-                >
-                  {vatState.error}
-                </div>
-              )}
-            </div>
+                  </>
+                ) : vatState.status === "non_payer" ? (
+                  <div>
+                    Conform datelor de facturare, <strong>nu ești plătitor de TVA</strong>.
+                    Prețul introdus este tratat ca sumă finală.
+                  </div>
+                ) : (
+                  <div>
+                    Nu am găsit informații despre statutul tău de TVA în{" "}
+                    <strong>Date facturare</strong>. Completează acea secțiune pentru a
+                    vedea detaliat TVA-ul aferent produselor.
+                  </div>
+                )}
+
+                {vatState.error && (
+                  <div
+                    style={{
+                      marginTop: 2,
+                      color: "#B91C1C",
+                    }}
+                  >
+                    {vatState.error}
+                  </div>
+                )}
+              </div>
+            )}
 
             <label className={styles.label}>Status vizibilitate</label>
             <div
@@ -1356,7 +1325,6 @@ const commissionComputed = useMemo(() => {
                       return {
                         ...s,
                         isActive: checked,
-                        // dacă activ devine true, ascuns devine false
                         isHidden: checked ? false : s.isHidden,
                       };
                     })
@@ -1378,7 +1346,6 @@ const commissionComputed = useMemo(() => {
                       return {
                         ...s,
                         isHidden: checked,
-                        // dacă ascuns devine true, activ devine false
                         isActive: checked ? false : s.isActive,
                       };
                     })
@@ -1392,7 +1359,6 @@ const commissionComputed = useMemo(() => {
             </div>
           </AccordionSection>
 
-          {/* ===== Secțiunea 2: Detalii produs ===== */}
           <AccordionSection
             id="details"
             title="Detalii produs"
@@ -1411,7 +1377,6 @@ const commissionComputed = useMemo(() => {
               rows={5}
             />
 
-            {/* MATERIAL (single chip) */}
             <SingleTagComboField
               id="product-material"
               label="Material principal"
@@ -1424,7 +1389,6 @@ const commissionComputed = useMemo(() => {
               note="Poți alege un material din sugestii sau poți scrie exact materialul folosit, dacă nu se regăsește în listă."
             />
 
-            {/* TEHNICĂ (single chip) */}
             <SingleTagComboField
               id="product-technique"
               label="Tehnică / cum este lucrat"
@@ -1437,7 +1401,6 @@ const commissionComputed = useMemo(() => {
               note="Poți selecta o tehnică din sugestii sau poți descrie liber metoda ta."
             />
 
-            {/* STIL (multi-tag) */}
             <TagComboField
               id="product-style-tags"
               label="Stil (tag-uri separate prin virgulă)"
@@ -1450,7 +1413,6 @@ const commissionComputed = useMemo(() => {
               note="Poți adăuga unul sau mai multe stiluri. Alege din sugestii sau scrie propriile variante; apasă Enter pentru a crea un tag."
             />
 
-            {/* OCAZII (multi-tag) */}
             <TagComboField
               id="product-occasion-tags"
               label="Ocazii (tag-uri separate prin virgulă)"
@@ -1474,7 +1436,6 @@ const commissionComputed = useMemo(() => {
               placeholder="ex: 20 x 30 cm"
             />
 
-            {/* ÎNGRIJIRE (multi-tag) */}
             <TagComboField
               id="product-care-instructions"
               label="Instrucțiuni de îngrijire"
@@ -1499,7 +1460,6 @@ const commissionComputed = useMemo(() => {
               placeholder="ex: fiecare piesă este unică, pot apărea mici variații față de fotografie"
             />
 
-            {/* CULOARE (single chip) */}
             <SingleTagComboField
               id="product-color"
               label="Culoare principală"
@@ -1528,7 +1488,6 @@ const commissionComputed = useMemo(() => {
             </label>
           </AccordionSection>
 
-          {/* ===== Secțiunea 3: Categorie ===== */}
           <AccordionSection
             id="category"
             title="Categorie"
@@ -1569,7 +1528,6 @@ const commissionComputed = useMemo(() => {
                   onFocus={() => setOpenList(true)}
                   onKeyDown={onInputKeyDown}
                   onBlur={() => {
-                    // mic delay ca să nu se închidă înainte de click pe opțiune
                     setTimeout(() => {
                       setOpenList(false);
                       setActiveIndex(-1);
@@ -1666,7 +1624,6 @@ const commissionComputed = useMemo(() => {
                 </div>
               )}
 
-              {/* select "invizibil" pentru required + fallback */}
               <select
                 tabIndex={-1}
                 aria-hidden="true"
@@ -1692,7 +1649,6 @@ const commissionComputed = useMemo(() => {
             </div>
           </AccordionSection>
 
-          {/* ===== Secțiunea 4: Disponibilitate & stoc ===== */}
           <AccordionSection
             id="availability"
             title="Disponibilitate & stoc"
@@ -1799,7 +1755,6 @@ const commissionComputed = useMemo(() => {
             )}
           </AccordionSection>
 
-          {/* ===== Secțiunea 5: Imagini ===== */}
           <AccordionSection
             id="images"
             title="Imagini"
@@ -1809,7 +1764,6 @@ const commissionComputed = useMemo(() => {
             <label className={styles.label}>Imagini produs</label>
 
             <div className={styles.imagesRow} onPaste={onPasteImages}>
-              {/* butonul custom + text separat */}
               <div className={styles.fileUploadWrapper}>
                 <input
                   id="product-images-input"
@@ -1830,7 +1784,6 @@ const commissionComputed = useMemo(() => {
                       );
                     }
 
-                    // resetăm inputul ca să poți alege din nou aceleași fișiere
                     e.target.value = "";
                     await onFilesPicked(files);
                   }}
@@ -1848,7 +1801,6 @@ const commissionComputed = useMemo(() => {
                 </span>
               </div>
 
-              {/* thumbnails, dacă există imagini */}
               {!!form.images?.length && (
                 <div className={styles.thumbGrid}>
                   {form.images.map((img, idx) => (
@@ -1915,7 +1867,6 @@ const commissionComputed = useMemo(() => {
             </div>
           </AccordionSection>
 
-          {/* ===== Footer ===== */}
           <div className={styles.modalFooter}>
             <button
               type="button"

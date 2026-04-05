@@ -6,11 +6,10 @@ import styles from "./OnBoardingDetails.module.css";
 import ProfileTab from "./tabs/ProfileTabBoarding.jsx";
 import BillingTab from "./tabs/BillingTab.jsx";
 import PaymentTab from "./tabs/PaymentTab.jsx";
+import ConnectPayoutsTab from "./tabs/ConnectPayoutsTab.jsx";
 
 const VANITY_BASE = "www.artfest.ro";
-
-// taburi valide
-const ALLOWED_TABS = ["profil", "facturare", "plata"];
+const ALLOWED_TABS = ["profil", "facturare", "incasari", "plata"];
 
 const slugify = (s = "") =>
   String(s)
@@ -24,7 +23,6 @@ export default function OnBoardingDetails() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // parse query params din URL (stabil via useMemo)
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const qpTab = (params.get("tab") || "").toLowerCase();
   const solo = params.get("solo") === "1";
@@ -35,20 +33,17 @@ export default function OnBoardingDetails() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [err, setErr] = useState("");
 
-  const [saveState, setSaveState] = useState({}); // by serviceId
-  const [saveError, setSaveError] = useState({}); // by serviceId
-
+  const [saveState, setSaveState] = useState({});
+  const [saveError, setSaveError] = useState({});
   const [billingStatus, setBillingStatus] = useState("idle");
 
-  // ===== sincronizare tab <-> URL =====
-
-  // când se schimbă URL-ul (back/forward), sincronizează state-ul
+  // URL -> state
   useEffect(() => {
     if (ALLOWED_TABS.includes(qpTab)) setActiveTab(qpTab);
     else setActiveTab("profil");
   }, [qpTab]);
 
-  // când se schimbă tab-ul în UI, rescrie query-ul (fără reload)
+  // state -> URL
   useEffect(() => {
     const curr = new URLSearchParams(location.search);
     const currTab = (curr.get("tab") || "").toLowerCase();
@@ -63,7 +58,6 @@ export default function OnBoardingDetails() {
     navigate({ search: `?${curr.toString()}` }, { replace: true });
   }, [activeTab, solo, location.search, navigate]);
 
-  // dacă intri în solo mode fără tab valid, forțează URL corect
   useEffect(() => {
     if (solo && !ALLOWED_TABS.includes(qpTab)) {
       navigate({ search: "?tab=profil&solo=1" }, { replace: true });
@@ -71,35 +65,32 @@ export default function OnBoardingDetails() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== initial fetch =====
   const fetchMyServices = useCallback(async () => {
     const d = await api("/api/vendors/me/services?includeProfile=1", { method: "GET" });
     if (d?.__unauth) {
-      // ajustează ruta de login dacă în aplicație folosiți /autentificare
       navigate("/autentificare?redirect=/onboarding/details", { replace: true });
       return [];
     }
-    const items = (d.items || []).map((s) => ({
+
+    return (d.items || []).map((s) => ({
       ...s,
       attributes: s.attributes || {},
       profile: {
-        displayName:    s.profile?.displayName || "",
-        slug:           s.profile?.slug || "",
-        logoUrl:        s.profile?.logoUrl || "",
-        coverUrl:       s.profile?.coverUrl || "",
-        phone:          s.profile?.phone || "",
-        email:          s.profile?.email || "",
-        address:        s.profile?.address || "",
-        delivery:       Array.isArray(s.profile?.delivery) ? s.profile.delivery : [],
-        tagline:        s.profile?.tagline || "",
-        about:          s.profile?.about || "",
-        city:           s.profile?.city || "",
-        website:        s.profile?.website || "",
-        // 🔹 ADĂUGAT: descrierea scurtă, ca să fie citită & resalvată corect
+        displayName: s.profile?.displayName || "",
+        slug: s.profile?.slug || "",
+        logoUrl: s.profile?.logoUrl || "",
+        coverUrl: s.profile?.coverUrl || "",
+        phone: s.profile?.phone || "",
+        email: s.profile?.email || "",
+        address: s.profile?.address || "",
+        delivery: Array.isArray(s.profile?.delivery) ? s.profile.delivery : [],
+        tagline: s.profile?.tagline || "",
+        about: s.profile?.about || "",
+        city: s.profile?.city || "",
+        website: s.profile?.website || "",
         shortDescription: s.profile?.shortDescription || "",
       },
     }));
-    return items;
   }, [navigate]);
 
   useEffect(() => {
@@ -113,15 +104,12 @@ export default function OnBoardingDetails() {
     })();
   }, [fetchMyServices]);
 
-  /* ======= AUTOSAVE INFRA (debounce per serviceId) ======= */
-  const timers = useRef({}); // { [serviceId]: timeoutId }
-
+  const timers = useRef({});
   function schedule(serviceId, fn, delay = 600) {
     if (timers.current[serviceId]) clearTimeout(timers.current[serviceId]);
     timers.current[serviceId] = setTimeout(fn, delay);
   }
 
-  // cleanup timere la unmount
   useEffect(() => {
     return () => {
       Object.values(timers.current || {}).forEach((t) => clearTimeout(t));
@@ -129,14 +117,12 @@ export default function OnBoardingDetails() {
     };
   }, []);
 
-  /* ===== Update PROFIL (PUT /vendor-services/:id/profile) ===== */
   const updateProfile = useCallback((idx, patch) => {
     setServices((prev) => {
       const next = [...prev];
       const s = { ...next[idx] };
       const p = { ...(s.profile || {}) };
 
-      // auto-slug la schimbarea numelui dacă nu s-a atins slug-ul manual
       if (patch.displayName && !p.slug) p.slug = slugify(patch.displayName);
 
       Object.assign(p, patch);
@@ -148,21 +134,15 @@ export default function OnBoardingDetails() {
         setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
         schedule(serviceId, async () => {
           try {
-            await api(
-              `/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`,
-              {
-                method: "PUT",
-                body: { ...p, mirrorVendor: true },
-              }
-            );
+            await api(`/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`, {
+              method: "PUT",
+              body: { ...p, mirrorVendor: true },
+            });
             setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
             setSaveState((m) => ({ ...m, [serviceId]: "error" }));
-            setSaveError((m) => ({
-              ...m,
-              [serviceId]: e?.message || "Eroare la salvarea profilului",
-            }));
+            setSaveError((m) => ({ ...m, [serviceId]: e?.message || "Eroare la salvarea profilului" }));
           }
         });
       }
@@ -171,7 +151,6 @@ export default function OnBoardingDetails() {
     });
   }, []);
 
-  /* ===== Update SERVICE BASICS (PATCH /me/services/:id) ===== */
   const updateServiceBasics = useCallback((idx, patch) => {
     setServices((prev) => {
       const next = [...prev];
@@ -199,10 +178,7 @@ export default function OnBoardingDetails() {
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
             setSaveState((m) => ({ ...m, [serviceId]: "error" }));
-            setSaveError((m) => ({
-              ...m,
-              [serviceId]: e?.message || "Eroare la salvare",
-            }));
+            setSaveError((m) => ({ ...m, [serviceId]: e?.message || "Eroare la salvare" }));
           }
         });
       }
@@ -211,7 +187,6 @@ export default function OnBoardingDetails() {
     });
   }, []);
 
-  /* ===== Upload helper (POST /api/upload) ===== */
   const uploadFile = useCallback(async (file) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -220,17 +195,10 @@ export default function OnBoardingDetails() {
     return d.url;
   }, []);
 
-  const isSavingAny = useMemo(
-    () => Object.values(saveState).some((s) => s === "saving"),
-    [saveState]
-  );
-  const hasNameConflict = false; // dacă vrei, poți calcula pe baza verificărilor de disponibilitate
+  const isSavingAny = useMemo(() => Object.values(saveState).some((s) => s === "saving"), [saveState]);
+  const hasNameConflict = false;
 
-  /* ============================================================
-     SOLO MODE
-     - Dacă ?solo=1 -> NU mai afișăm bara de taburi;
-     - Randăm DOAR componenta corespunzătoare lui activeTab.
-     ============================================================ */
+  // SOLO MODE
   if (solo) {
     return (
       <section className={styles.wrap}>
@@ -245,38 +213,31 @@ export default function OnBoardingDetails() {
             uploadFile={uploadFile}
             isSavingAny={isSavingAny}
             hasNameConflict={hasNameConflict}
-            onContinue={() => {
-              /* în solo nu navigăm nicăieri */
-            }}
+            onContinue={() => {}}
             err={err}
             setErr={setErr}
           />
         )}
 
         {activeTab === "facturare" && (
-          <BillingTab
-            onSaved={() => {}}
-            onStatusChange={() => {}}
-            canContinue={false}
-            onContinue={() => {}}
-          />
+          <BillingTab onSaved={() => {}} onStatusChange={() => {}} canContinue={false} onContinue={() => {}} />
         )}
+
+        {activeTab === "incasari" && <ConnectPayoutsTab />}
 
         {activeTab === "plata" && <PaymentTab />}
       </section>
     );
   }
 
-  // ===== MOD NORMAL: taburi complete =====
+  // NORMAL MODE
   return (
     <section className={styles.wrap}>
       <nav className={styles.tabsBar} role="tablist" aria-label="Onboarding tabs">
         <button
           role="tab"
           aria-selected={activeTab === "profil"}
-          className={`${styles.tab} ${
-            activeTab === "profil" ? styles.tabActive : ""
-          }`}
+          className={`${styles.tab} ${activeTab === "profil" ? styles.tabActive : ""}`}
           onClick={() => setActiveTab("profil")}
           type="button"
         >
@@ -286,9 +247,7 @@ export default function OnBoardingDetails() {
         <button
           role="tab"
           aria-selected={activeTab === "facturare"}
-          className={`${styles.tab} ${
-            activeTab === "facturare" ? styles.tabActive : ""
-          }`}
+          className={`${styles.tab} ${activeTab === "facturare" ? styles.tabActive : ""}`}
           onClick={() => setActiveTab("facturare")}
           type="button"
         >
@@ -297,10 +256,18 @@ export default function OnBoardingDetails() {
 
         <button
           role="tab"
+          aria-selected={activeTab === "incasari"}
+          className={`${styles.tab} ${activeTab === "incasari" ? styles.tabActive : ""}`}
+          onClick={() => setActiveTab("incasari")}
+          type="button"
+        >
+          Activează încasări
+        </button>
+
+        <button
+          role="tab"
           aria-selected={activeTab === "plata"}
-          className={`${styles.tab} ${
-            activeTab === "plata" ? styles.tabActive : ""
-          }`}
+          className={`${styles.tab} ${activeTab === "plata" ? styles.tabActive : ""}`}
           onClick={() => setActiveTab("plata")}
           type="button"
         >
@@ -327,12 +294,14 @@ export default function OnBoardingDetails() {
 
       {activeTab === "facturare" && (
         <BillingTab
-          onSaved={() => setActiveTab("plata")}
+          onSaved={() => setActiveTab("incasari")}
           onStatusChange={setBillingStatus}
           canContinue={billingStatus === "saved"}
-          onContinue={() => setActiveTab("plata")}
+          onContinue={() => setActiveTab("incasari")}
         />
       )}
+
+      {activeTab === "incasari" && <ConnectPayoutsTab />}
 
       {activeTab === "plata" && <PaymentTab />}
     </section>

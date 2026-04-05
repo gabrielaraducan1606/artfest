@@ -28,9 +28,7 @@ function Section({ icon, title, subtitle, children, right }) {
           {icon}
           <div>
             <div className={settingsStyles.title}>{title}</div>
-            {subtitle && (
-              <div className={settingsStyles.subtitle}>{subtitle}</div>
-            )}
+            {subtitle && <div className={settingsStyles.subtitle}>{subtitle}</div>}
           </div>
         </div>
         <div>{right}</div>
@@ -98,9 +96,7 @@ export default function UserSettingsPage() {
       setProfileErr("");
       setProfileOk(false);
     } catch (e) {
-      setProfileErr(
-        e?.message || "Nu am putut încărca datele de profil. Încearcă din nou."
-      );
+      setProfileErr(e?.message || "Nu am putut încărca datele de profil. Încearcă din nou.");
     }
   }, []);
 
@@ -148,83 +144,12 @@ export default function UserSettingsPage() {
     setProfile((p) => ({ ...p, avatarUrl: d.url }));
   }, []);
 
-  /* ================== NOTIFICĂRI (in-app) ================== */
-  const [notifications, setNotifications] = useState({
-    inAppMessageNew: true,
-    inAppBookingUpdates: true,
-    inAppEventReminders: true,
-  });
-  const [notifInitial, setNotifInitial] = useState(null);
-  const [notifSaving, setNotifSaving] = useState(false);
-  const [notifErr, setNotifErr] = useState("");
-  const [notifOk, setNotifOk] = useState(false);
-
-  const canSaveNotifications =
-    !notifSaving &&
-    notifInitial &&
-    JSON.stringify(notifications) !== JSON.stringify(notifInitial);
-
-  const loadNotifications = useCallback(async () => {
-    try {
-      const d = await api("/api/account/me/notifications", { method: "GET" });
-      const n = d.notifications || {};
-      const next = {
-        inAppMessageNew:
-          typeof n.inAppMessageNew === "boolean" ? n.inAppMessageNew : true,
-        inAppBookingUpdates:
-          typeof n.inAppBookingUpdates === "boolean"
-            ? n.inAppBookingUpdates
-            : true,
-        inAppEventReminders:
-          typeof n.inAppEventReminders === "boolean"
-            ? n.inAppEventReminders
-            : true,
-      };
-      setNotifications(next);
-      setNotifInitial(next);
-      setNotifErr("");
-      setNotifOk(false);
-    } catch (e) {
-      setNotifErr(
-        e?.message ||
-          "Nu am putut încărca preferințele de notificare. Încearcă din nou."
-      );
-    }
-  }, []);
-
-  const saveNotifications = useCallback(async () => {
-    setNotifErr("");
-    setNotifOk(false);
-    setNotifSaving(true);
-    try {
-      const d = await api("/api/account/me/notifications", {
-        method: "PATCH",
-        body: { notifications },
-      });
-      const next = d.notifications || notifications;
-      setNotifications(next);
-      setNotifInitial(next);
-      setNotifOk(true);
-    } catch (e) {
-      setNotifErr(
-        e?.data?.message ||
-          e?.message ||
-          "Nu am putut salva notificările. Te rugăm să încerci din nou."
-      );
-      setNotifOk(false);
-    } finally {
-      setNotifSaving(false);
-    }
-  }, [notifications]);
-
-  /* ================== LOAD PROFILE + NOTIFICATIONS DUPĂ AUTH ================== */
-
+  /* ================== LOAD PROFILE DUPĂ AUTH ================== */
   useEffect(() => {
     if (!loading) {
       loadProfile();
-      loadNotifications();
     }
-  }, [loading, loadProfile, loadNotifications]);
+  }, [loading, loadProfile]);
 
   /* ================== SECURITATE: PAROLĂ ================== */
   const [oldPass, setOldPass] = useState("");
@@ -280,9 +205,7 @@ export default function UserSettingsPage() {
       return;
     }
     if (passScore < 3) {
-      setPassErr(
-        "Parola este prea slabă. Folosește o combinație de litere mari/mici, cifre și simboluri."
-      );
+      setPassErr("Parola este prea slabă. Folosește o combinație de litere mari/mici, cifre și simboluri.");
       return;
     }
 
@@ -303,12 +226,9 @@ export default function UserSettingsPage() {
 
       const serverMsg =
         e?.data?.message ||
-        (code === "invalid_current_password" &&
-          "Parola curentă nu este corectă.") ||
-        (code === "same_as_current" &&
-          "Parola nouă nu poate fi identică cu parola curentă.") ||
-        (code === "password_reused" &&
-          "Nu poți reutiliza una dintre ultimele parole.") ||
+        (code === "invalid_current_password" && "Parola curentă nu este corectă.") ||
+        (code === "same_as_current" && "Parola nouă nu poate fi identică cu parola curentă.") ||
+        (code === "password_reused" && "Nu poți reutiliza una dintre ultimele parole.") ||
         (code === "weak_password" &&
           "Parola este prea slabă. Te rugăm să folosești o combinație de litere mari/mici, cifre și simboluri.") ||
         e?.message ||
@@ -321,7 +241,6 @@ export default function UserSettingsPage() {
   }, [oldPass, newPass, newPass2, passScore]);
 
   /* ================== SECURITATE: EMAIL ================== */
-
   const [newEmail, setNewEmail] = useState("");
   const [emailCurrentPass, setEmailCurrentPass] = useState("");
   const [emailSaving, setEmailSaving] = useState(false);
@@ -347,7 +266,7 @@ export default function UserSettingsPage() {
         return;
       }
 
-      if (emailTrimmed === profile.email.toLowerCase()) {
+      if (emailTrimmed === (profile.email || "").toLowerCase()) {
         setEmailErr("Emailul nou este identic cu cel curent.");
         return;
       }
@@ -372,12 +291,9 @@ export default function UserSettingsPage() {
       } catch (e) {
         const msg =
           e?.data?.message ||
-          (e?.data?.error === "invalid_current_password" &&
-            "Parola curentă nu este corectă.") ||
-          (e?.data?.error === "email_taken" &&
-            "Există deja un cont cu acest email.") ||
-          (e?.data?.error === "same_email" &&
-            "Emailul nou este identic cu cel curent.") ||
+          (e?.data?.error === "invalid_current_password" && "Parola curentă nu este corectă.") ||
+          (e?.data?.error === "email_taken" && "Există deja un cont cu acest email.") ||
+          (e?.data?.error === "same_email" && "Emailul nou este identic cu cel curent.") ||
           e?.message ||
           "Nu am putut schimba emailul.";
         setEmailErr(msg);
@@ -427,21 +343,18 @@ export default function UserSettingsPage() {
             onClick={() => {
               load();
               loadProfile();
-              loadNotifications();
             }}
             title="Reîncarcă"
           >
             <RefreshCcw size={16} />
           </button>
         </div>
+
         <nav className={settingsStyles.tabs}>
           {tabs.map((t) => (
             <button
               key={t.key}
-              className={cls(
-                settingsStyles.tab,
-                active === t.key && settingsStyles.active
-              )}
+              className={cls(settingsStyles.tab, active === t.key && settingsStyles.active)}
               onClick={() => setActive(t.key)}
             >
               {t.icon} {t.label}
@@ -464,11 +377,7 @@ export default function UserSettingsPage() {
             title="Profil"
             subtitle="Datele tale de bază"
             right={
-              <button
-                className={settingsStyles.primary}
-                onClick={saveProfile}
-                disabled={!canSaveProfile}
-              >
+              <button className={settingsStyles.primary} onClick={saveProfile} disabled={!canSaveProfile}>
                 {profileSaving ? "Se salvează…" : "Salvează profilul"}
               </button>
             }
@@ -476,16 +385,10 @@ export default function UserSettingsPage() {
             <div className={settingsStyles.grid1}>
               <label className={settingsStyles.field}>
                 <span>Email (nu se poate modifica aici)</span>
-                <input
-                  className={settingsStyles.input}
-                  type="email"
-                  value={profile.email}
-                  disabled
-                />
+                <input className={settingsStyles.input} type="email" value={profile.email} disabled />
 
                 <p className={settingsStyles.helperText}>
-                  Adresa de email folosită la conectare se poate schimba din
-                  tabul{" "}
+                  Adresa de email folosită la conectare se poate schimba din tabul{" "}
                   <button
                     type="button"
                     className={settingsStyles.linkButton}
@@ -504,12 +407,7 @@ export default function UserSettingsPage() {
                     className={settingsStyles.input}
                     type="text"
                     value={profile.firstName}
-                    onChange={(e) =>
-                      setProfile((p) => ({
-                        ...p,
-                        firstName: e.target.value,
-                      }))
-                    }
+                    onChange={(e) => setProfile((p) => ({ ...p, firstName: e.target.value }))}
                     placeholder="Ex: Andreea"
                   />
                 </label>
@@ -520,12 +418,7 @@ export default function UserSettingsPage() {
                     className={settingsStyles.input}
                     type="text"
                     value={profile.lastName}
-                    onChange={(e) =>
-                      setProfile((p) => ({
-                        ...p,
-                        lastName: e.target.value,
-                      }))
-                    }
+                    onChange={(e) => setProfile((p) => ({ ...p, lastName: e.target.value }))}
                     placeholder="Ex: Popescu"
                   />
                 </label>
@@ -535,22 +428,13 @@ export default function UserSettingsPage() {
                 <span>Poză profil</span>
                 <div className={settingsStyles.avatarRow}>
                   {profile.avatarUrl && (
-                    <img
-                      src={profile.avatarUrl}
-                      alt="Avatar"
-                      className={settingsStyles.avatar}
-                    />
+                    <img src={profile.avatarUrl} alt="Avatar" className={settingsStyles.avatar} />
                   )}
                   <input
                     className={settingsStyles.input}
                     type="url"
                     value={profile.avatarUrl}
-                    onChange={(e) =>
-                      setProfile((p) => ({
-                        ...p,
-                        avatarUrl: e.target.value,
-                      }))
-                    }
+                    onChange={(e) => setProfile((p) => ({ ...p, avatarUrl: e.target.value }))}
                     placeholder="https://..."
                   />
                   <input
@@ -562,9 +446,7 @@ export default function UserSettingsPage() {
                         try {
                           await uploadAvatar(file);
                         } catch (err) {
-                          setProfileErr(
-                            err?.message || "Nu am putut încărca imaginea."
-                          );
+                          setProfileErr(err?.message || "Nu am putut încărca imaginea.");
                         }
                       }
                     }}
@@ -577,91 +459,32 @@ export default function UserSettingsPage() {
                   {profileErr}
                 </div>
               )}
-              {profileOk && (
-                <div className={settingsStyles.success}>
-                  ✅ Profilul a fost actualizat.
-                </div>
-              )}
+              {profileOk && <div className={settingsStyles.success}>✅ Profilul a fost actualizat.</div>}
             </div>
           </Section>
         )}
 
-        {/* NOTIFICĂRI (in-app) */}
+        {/* ================== NOTIFICĂRI (informativ) ================== */}
         {!loading && active === "notifications" && (
           <Section
             icon={<Bell size={18} />}
             title="Notificări în aplicație"
-            subtitle="Controlează notificările pe care le vezi în contul tău Artfest. Emailurile esențiale legate de comenzi și securitate vor fi trimise în continuare, indiferent de aceste setări. momentan sunt pentru comenzi, suport implementate. "
-            right={
-              <button
-                className={settingsStyles.primary}
-                onClick={saveNotifications}
-                disabled={!canSaveNotifications}
-              >
-                {notifSaving ? "Se salvează…" : "Salvează notificările"}
-              </button>
-            }
+            subtitle="Notificările sunt informative: îți arătăm evenimente importante din contul tău (comenzi, mesaje, suport, recenzii). Nu e nevoie să le configurezi. Emailurile esențiale (comenzi, plăți, securitate) vor fi trimise în continuare."
           >
             <div className={settingsStyles.grid1}>
-              <label className={settingsStyles.checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={notifications.inAppMessageNew}
-                  onChange={(e) =>
-                    setNotifications((n) => ({
-                      ...n,
-                      inAppMessageNew: e.target.checked,
-                    }))
-                  }
-                />
-                <span>
-                  Afișează notificări când primesc mesaje noi de la magazine.
-                </span>
-              </label>
+              <div className={settingsStyles.card} style={{ padding: 12 }}>
+                <div className={settingsStyles.title}>Primești notificări când:</div>
+                <ul style={{ margin: "10px 0 0 18px" }}>
+                  <li>Primești mesaje noi de la magazine (conversații).</li>
+                  <li>Statusul comenzii se modifică (confirmare, pregătire, livrare, anulare).</li>
+                  <li>Ai activitate de suport (răspunsuri / status la tichete).</li>
+                  <li>Primești răspuns la recenzii/comentarii (acolo unde e cazul).</li>
+                </ul>
 
-              <label className={settingsStyles.checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={notifications.inAppBookingUpdates}
-                  onChange={(e) =>
-                    setNotifications((n) => ({
-                      ...n,
-                      inAppBookingUpdates: e.target.checked,
-                    }))
-                  }
-                />
-                <span>
-                  Afișează notificări pentru comenzi și rezervări (creare,
-                  confirmare, modificări, anulare).
-                </span>
-              </label>
-
-              <label className={settingsStyles.checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={notifications.inAppEventReminders}
-                  onChange={(e) =>
-                    setNotifications((n) => ({
-                      ...n,
-                      inAppEventReminders: e.target.checked,
-                    }))
-                  }
-                />
-                <span>
-                  Afișează remindere în aplicație înainte de evenimentele mele.
-                </span>
-              </label>
-
-              {notifErr && (
-                <div className={settingsStyles.error} role="alert">
-                  {notifErr}
+                <div className={settingsStyles.subtitle} style={{ marginTop: 10 }}>
+                  Preferințele de marketing (promoții, recomandări) se gestionează separat în tab-ul „Marketing”.
                 </div>
-              )}
-              {notifOk && (
-                <div className={settingsStyles.success}>
-                  ✅ Preferințele de notificare au fost salvate.
-                </div>
-              )}
+              </div>
             </div>
           </Section>
         )}
@@ -677,11 +500,7 @@ export default function UserSettingsPage() {
               title="Securitate – parolă"
               subtitle="Schimbă parola contului tău"
               right={
-                <button
-                  className={settingsStyles.primary}
-                  onClick={changePassword}
-                  disabled={!canSavePass}
-                >
+                <button className={settingsStyles.primary} onClick={changePassword} disabled={!canSavePass}>
                   {savingPass ? "Se salvează…" : "Salvează parola"}
                 </button>
               }
@@ -726,35 +545,23 @@ export default function UserSettingsPage() {
                 </div>
 
                 {newPass && newPass.length < MIN_LEN && (
-                  <div className={settingsStyles.warn}>
-                    Parola trebuie să aibă cel puțin {MIN_LEN} caractere.
-                  </div>
+                  <div className={settingsStyles.warn}>Parola trebuie să aibă cel puțin {MIN_LEN} caractere.</div>
                 )}
 
                 {newPass2 && newPass && newPass !== newPass2 && (
-                  <div className={settingsStyles.warn}>
-                    Parolele nu se potrivesc.
-                  </div>
+                  <div className={settingsStyles.warn}>Parolele nu se potrivesc.</div>
                 )}
 
                 {newPass && (
-                  <div
-                    style={{ marginTop: 4, fontSize: 12, color: "#6b7280" }}
-                  >
+                  <div style={{ marginTop: 4, fontSize: 12, color: "#6b7280" }}>
                     Complexitate parolă:{" "}
-                    {passScore <= 2
-                      ? "slabă"
-                      : passScore === 3
-                      ? "medie"
-                      : "puternică"}
-                    . Recomandat: litere mari/mici, cifre și simboluri.
+                    {passScore <= 2 ? "slabă" : passScore === 3 ? "medie" : "puternică"}. Recomandat: litere mari/mici,
+                    cifre și simboluri.
                   </div>
                 )}
 
                 {capsOnPass && passFocused && (
-                  <div className={settingsStyles.warn}>
-                    CapsLock este activ – ai grijă la literele mari.
-                  </div>
+                  <div className={settingsStyles.warn}>CapsLock este activ – ai grijă la literele mari.</div>
                 )}
 
                 {passErr && (
@@ -766,27 +573,17 @@ export default function UserSettingsPage() {
                 {passErrCode === "invalid_current_password" && (
                   <div className={settingsStyles.helperText}>
                     Dacă nu îți amintești parola curentă, poți folosi opțiunea{" "}
-                    <a
-                      href={FORGOT_PASSWORD_URL}
-                      className={settingsStyles.link}
-                    >
+                    <a href={FORGOT_PASSWORD_URL} className={settingsStyles.link}>
                       „Am uitat parola”
                     </a>
                     .
                   </div>
                 )}
 
-                {passOk && (
-                  <div className={settingsStyles.success}>
-                    ✅ Parola a fost schimbată cu succes.
-                  </div>
-                )}
+                {passOk && <div className={settingsStyles.success}>✅ Parola a fost schimbată cu succes.</div>}
 
                 <div style={{ marginTop: 12 }}>
-                  <a
-                    href={FORGOT_PASSWORD_URL}
-                    className={settingsStyles.link}
-                  >
+                  <a href={FORGOT_PASSWORD_URL} className={settingsStyles.link}>
                     Am uitat parola veche
                   </a>
                 </div>
@@ -798,11 +595,7 @@ export default function UserSettingsPage() {
               title="Email de conectare"
               subtitle="Schimbă adresa de email folosită pentru login. Pentru siguranță, este nevoie de parola curentă."
               right={
-                <button
-                  className={settingsStyles.primary}
-                  onClick={changeEmail}
-                  disabled={!canSaveEmail}
-                >
+                <button className={settingsStyles.primary} onClick={changeEmail} disabled={!canSaveEmail}>
                   {emailSaving ? "Se salvează…" : "Salvează emailul"}
                 </button>
               }
@@ -810,12 +603,7 @@ export default function UserSettingsPage() {
               <div className={settingsStyles.grid1}>
                 <label className={settingsStyles.field}>
                   <span>Email curent</span>
-                  <input
-                    className={settingsStyles.input}
-                    type="email"
-                    value={profile.email}
-                    disabled
-                  />
+                  <input className={settingsStyles.input} type="email" value={profile.email} disabled />
                 </label>
 
                 <label className={settingsStyles.field}>
@@ -848,10 +636,8 @@ export default function UserSettingsPage() {
 
                 {emailOk && (
                   <div className={settingsStyles.success}>
-                    ✅ Ți-am trimis un email de confirmare la{" "}
-                    <strong>{pendingEmailInfo}</strong>. Te rugăm să accesezi
-                    linkul din acel email pentru a finaliza schimbarea
-                    adresei de email.
+                    ✅ Ți-am trimis un email de confirmare la <strong>{pendingEmailInfo}</strong>. Te rugăm să accesezi
+                    linkul din acel email pentru a finaliza schimbarea adresei de email.
                   </div>
                 )}
               </div>
@@ -861,17 +647,13 @@ export default function UserSettingsPage() {
 
         {/* ȘTERGERE CONT */}
         {!loading && active === "danger" && (
-          <Section
-            icon={<Trash2 size={18} />}
-            title="Zonă periculoasă"
-            subtitle="Acțiuni ireversibile"
-          >
+          <Section icon={<Trash2 size={18} />} title="Zonă periculoasă" subtitle="Acțiuni ireversibile">
             <div className={settingsStyles.danger}>
               <div>
                 <div className={settingsStyles.title}>Ștergere cont</div>
                 <div className={settingsStyles.subtitle}>
-                  Această acțiune nu poate fi anulată. Toate datele tale vor fi
-                  eliminate și nu vei mai putea accesa contul.
+                  Această acțiune nu poate fi anulată. Toate datele tale vor fi eliminate și nu vei mai putea accesa
+                  contul.
                 </div>
               </div>
 
@@ -886,11 +668,7 @@ export default function UserSettingsPage() {
             </div>
 
             {deleteErr && (
-              <div
-                className={settingsStyles.error}
-                role="alert"
-                style={{ marginTop: 12 }}
-              >
+              <div className={settingsStyles.error} role="alert" style={{ marginTop: 12 }}>
                 {deleteErr}
               </div>
             )}

@@ -829,5 +829,109 @@ router.patch(
     res.json({ ok: true, reply });
   }
 );
+// GET /api/product-comments/my
+router.get("/product-comments/my", authRequired, async (req, res) => {
+  try {
+    const userId = req.user.sub;
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const skip = (page - 1) * limit;
+
+    const where = {
+      userId,
+      // dacă vrei strict “comentarii”: doar cele cu text
+      comment: { not: "" },
+    };
+
+    const [total, items] = await Promise.all([
+      prisma.review.count({ where }),
+      prisma.review.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: {
+          product: { select: { id: true, title: true, images: true } },
+          images: { select: { url: true } },
+        },
+      }),
+    ]);
+
+    const mapped = items.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      rating: r.rating,
+      text: r.comment || "",
+      productTitle: r.product?.title || "Produs",
+      productUrl: r.product ? `/produs/${r.product.id}` : null,
+      image:
+        (r.images && r.images[0]?.url) ||
+        (Array.isArray(r.product?.images) ? r.product.images[0] : null) ||
+        null,
+      kind: "PRODUCT_COMMENT",
+    }));
+
+    res.json({ total, page, limit, items: mapped });
+  } catch (e) {
+    console.error("GET /api/product-comments/my error", e);
+    res.status(500).json({ error: "product_comments_my_failed" });
+  }
+});
+
+// GET /api/product-comments/received (pt vendor: comentarii la produse din magazinul lui)
+router.get("/product-comments/received", authRequired, async (req, res) => {
+  try {
+    const userId = req.user.sub;
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!vendor) return res.json({ total: 0, page: 1, limit: 10, items: [] });
+
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const skip = (page - 1) * limit;
+
+    const where = {
+      status: "APPROVED",
+      comment: { not: "" }, // dacă vrei strict “comentarii”
+      product: { service: { vendorId: vendor.id } },
+    };
+
+    const [total, items] = await Promise.all([
+      prisma.review.count({ where }),
+      prisma.review.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: {
+          product: { select: { id: true, title: true, images: true } },
+          images: { select: { url: true } },
+        },
+      }),
+    ]);
+
+    const mapped = items.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      rating: r.rating,
+      text: r.comment || "",
+      productTitle: r.product?.title || "Produs",
+      productUrl: r.product ? `/produs/${r.product.id}` : null,
+      image:
+        (r.images && r.images[0]?.url) ||
+        (Array.isArray(r.product?.images) ? r.product.images[0] : null) ||
+        null,
+      kind: "PRODUCT_COMMENT",
+    }));
+
+    res.json({ total, page, limit, items: mapped });
+  } catch (e) {
+    console.error("GET /api/product-comments/received error", e);
+    res.status(500).json({ error: "product_comments_received_failed" });
+  }
+});
 
 export default router;

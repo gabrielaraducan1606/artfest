@@ -32,8 +32,7 @@ function computeUiStatus(order, shipments = []) {
     if (shipmentStatuses.every((st) => st === "DELIVERED")) return "DELIVERED";
 
     // SHIPPED doar când chiar există AWB / ridicat / în tranzit
-    if (shipmentStatuses.some((st) => ["AWB", "IN_TRANSIT"].includes(st)))
-      return "SHIPPED";
+    if (shipmentStatuses.some((st) => ["AWB", "IN_TRANSIT"].includes(st))) return "SHIPPED";
 
     // PROCESSING include și “pickup cerut”
     if (
@@ -67,31 +66,19 @@ function computeShippingStage(shipments = []) {
 
   // pickup cerut / programat (fără AWB)
   if (st.some((x) => ["READY_FOR_PICKUP", "PICKUP_SCHEDULED"].includes(x))) {
-    return {
-      code: "AWAITING_COURIER_PICKUP",
-      label: "Urmează să fie predată curierului",
-    };
+    return { code: "AWAITING_COURIER_PICKUP", label: "Urmează să fie predată curierului" };
   }
 
   if (st.some((x) => x === "AWB")) {
-    return {
-      code: "AWB_ISSUED",
-      label: "AWB emis – pregătită de expediere",
-    };
+    return { code: "AWB_ISSUED", label: "AWB emis – pregătită de expediere" };
   }
 
   if (st.some((x) => x === "IN_TRANSIT")) {
-    return {
-      code: "IN_TRANSIT",
-      label: "Predată curierului",
-    };
+    return { code: "IN_TRANSIT", label: "Predată curierului" };
   }
 
   if (st.length > 0 && st.every((x) => x === "DELIVERED")) {
-    return {
-      code: "DELIVERED",
-      label: "Livrată",
-    };
+    return { code: "DELIVERED", label: "Livrată" };
   }
 
   return null;
@@ -127,9 +114,33 @@ function isOrderCancellable(order, shipments = []) {
   return true;
 }
 
+function parseStatusList(statusParam) {
+  return statusParam
+    ? String(statusParam)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function toInsensitiveContains(q) {
+  return { contains: q, mode: "insensitive" };
+}
+
+function computeTotalsCents(order) {
+  const currency = order.currency || "RON";
+  const subtotal = Number(order.subtotal || 0);
+  const shippingTotal = Number(order.shippingTotal || 0);
+  const total = Number(order.total || subtotal + shippingTotal);
+  return { currency, totalCents: Math.round(total * 100) };
+}
+
 /* ----------------------------------------------------
    GET /api/user/orders/my
-   Folosit de OrdersPage (lista de comenzi user)
+   Optimized:
+   - query + paginare în DB (skip/take)
+   - select minimal (nu include tot)
+   - filtrare UI status în memorie cu "overfetch" ca să umple pagina
 ----------------------------------------------------- */
 router.get("/my", async (req, res) => {
   const userId = req.user.sub;
@@ -137,136 +148,180 @@ router.get("/my", async (req, res) => {
   const q = String(req.query.q || "").trim();
   const statusParam = String(req.query.status || ""); // ex: "PENDING,PROCESSING,SHIPPED"
   const page = Math.max(1, parseInt(req.query.page || "1", 10));
-  const limit = Math.min(
-    50,
-    Math.max(1, parseInt(req.query.limit || "10", 10))
-  );
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
 
-  const statusList = statusParam
-    ? String(statusParam)
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
+  const statusList = parseStatusList(statusParam);
 
-  const where = { userId };
+  // where în DB (cât se poate)
+  const where = {
+    userId,
+    ...(q
+      ? {
+          OR: [
+            { orderNumber: toInsensitiveContains(q) },
+            // id e cuid, de obicei nu e căutat, dar păstrăm funcțional
+            { id: toInsensitiveContains(q) },
+            {
+              shipments: {
+                some: {
+                  items: {
+                    some: {
+                      title: toInsensitiveContains(q),
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        }
+      : {}),
+  };
 
-  // luăm toate comenzile userului, apoi filtrăm în memorie după status UI
-  const rows = await prisma.order.findMany({
-    where,
-    include: {
-      shipments: {
-        include: { items: true },
+  // total rapid (pentru paginare UI). Atenție: acest total NU ține cont de uiStatus derivat.
+  // Dacă vrei total exact per tab, ai nevoie de denormalizare uiStatus sau de logică de numărare (scump).
+  // Practic, front-ul tău calculează totalPages din total; ca să nu “mintă” prea tare, îl facem "best-effort":
+  // - dacă nu ai statusList => total e exact
+  // - dacă ai statusList => total e aproximativ (maxim), dar hasMore îl controlăm din fetch real
+  const totalDb = await prisma.order.count({ where });
+
+  // OVERFETCH ca să putem filtra pe uiStatus (derivat din shipments) dar să nu citim tot
+  const INTERNAL_CHUNK = Math.min(200, limit * 8); // ex: limit 10 => 80
+  const startIndexWanted = (page - 1) * limit;
+
+  let collected = [];
+  let scanned = 0;
+  let skip = 0;
+
+  // ca să ajungem la "pagina N" după filtrare, trebuie să sărim primele startIndexWanted rezultate filtrate
+  let filteredOffsetToSkip = startIndexWanted;
+
+  // limităm bucla ca să nu fie infinită dacă filtrele sunt foarte restrictive
+  const MAX_LOOPS = 25;
+
+  for (let loop = 0; loop < MAX_LOOPS; loop++) {
+    const rows = await prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: INTERNAL_CHUNK,
+      select: {
+        id: true,
+        orderNumber: true,
+        createdAt: true,
+        status: true,
+        currency: true,
+        subtotal: true,
+        shippingTotal: true,
+        total: true,
+        shippingAddress: true,
+        shipments: {
+          select: {
+            id: true,
+            status: true,
+            items: {
+              select: {
+                id: true,
+                productId: true,
+                title: true,
+                qty: true,
+                price: true,
+              },
+            },
+          },
+        },
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+    });
 
-  // 🔹 colectăm toate productId din shipment items
-  const productIdSet = new Set();
-  for (const o of rows) {
-    for (const s of o.shipments) {
-      for (const it of s.items) {
-        if (it.productId) productIdSet.add(it.productId);
+    if (!rows.length) break;
+
+    skip += rows.length;
+    scanned += rows.length;
+
+    // colectăm productIds doar din chunk-ul curent (și doar dacă avem nevoie)
+    const productIdSet = new Set();
+    for (const o of rows) {
+      for (const s of o.shipments) {
+        for (const it of s.items) {
+          if (it.productId) productIdSet.add(it.productId);
+        }
       }
     }
-  }
 
-  // 🔹 map productId -> prima imagine (sau null)
-  let imageMap = new Map();
-  if (productIdSet.size) {
-    const products = await prisma.product.findMany({
-      where: { id: { in: Array.from(productIdSet) } },
-      select: { id: true, images: true },
-    });
+    let imageMap = new Map();
+    if (productIdSet.size) {
+      const products = await prisma.product.findMany({
+        where: { id: { in: Array.from(productIdSet) } },
+        select: { id: true, images: true },
+      });
 
-    imageMap = new Map(
-      products.map((p) => [
-        p.id,
-        Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
-      ])
-    );
-  }
-
-  let items = rows.map((o) => {
-    const status = computeUiStatus(o, o.shipments);
-    const shippingStage = computeShippingStage(o.shipments);
-
-    // ✅ NEW: eligibil pentru retur (doar când e livrat)
-    const returnEligible = status === "DELIVERED";
-
-    const currency = o.currency || "RON";
-
-    const subtotal = Number(o.subtotal || 0);
-    const shippingTotal = Number(o.shippingTotal || 0);
-    const total = Number(o.total || subtotal + shippingTotal);
-
-    const totalCents = Math.round(total * 100);
-
-    const addr = o.shippingAddress || {};
-    const isCompany = !!(addr.companyName || addr.companyCui);
-    const customerType = isCompany ? "PJ" : "PF";
-
-    // flatten peste toate shipment items (multi-vendor)
-    const flatItems = o.shipments.flatMap((s) =>
-      s.items.map((it) => ({
-        id: it.id,
-        productId: it.productId,
-        title: it.title,
-        qty: it.qty,
-        priceCents: Math.round(Number(it.price || 0) * 100),
-        image: imageMap.get(it.productId) || null,
-        shipmentId: s.id,
-      }))
-    );
-
-    return {
-      id: o.id,
-      orderNumber: o.orderNumber || null,
-      createdAt: o.createdAt,
-      status, // PENDING / PROCESSING / SHIPPED / DELIVERED / RETURNED / CANCELED
-      totalCents,
-      currency,
-      items: flatItems,
-      cancellable: isOrderCancellable(o, o.shipments),
-      customerType,
-      shippingAddress: addr,
-      shippingStage,
-
-      // ✅ NEW
-      returnEligible,
-    };
-  });
-
-  // Filtrare text: id comandă + orderNumber + titluri produse
-  if (q) {
-    const Q = q.toLowerCase();
-    items = items.filter((order) => {
-      const inId = String(order.id).toLowerCase().includes(Q);
-      const inOrderNumber = String(order.orderNumber || "")
-        .toLowerCase()
-        .includes(Q);
-      const inItems = order.items?.some((it) =>
-        (it.title || "").toLowerCase().includes(Q)
+      imageMap = new Map(
+        products.map((p) => [p.id, Array.isArray(p.images) && p.images[0] ? p.images[0] : null])
       );
-      return inId || inOrderNumber || inItems;
-    });
+    }
+
+    // map + filtrare uiStatus în memorie
+    for (const o of rows) {
+      const uiStatus = computeUiStatus(o, o.shipments);
+      if (statusList.length && !statusList.includes(uiStatus)) continue;
+
+      // "skip" pentru pagina cerută după filtrare
+      if (filteredOffsetToSkip > 0) {
+        filteredOffsetToSkip--;
+        continue;
+      }
+
+      const shippingStage = computeShippingStage(o.shipments);
+      const returnEligible = uiStatus === "DELIVERED";
+
+      const { currency, totalCents } = computeTotalsCents(o);
+
+      const addr = o.shippingAddress || {};
+      const isCompany = !!(addr.companyName || addr.companyCui);
+      const customerType = isCompany ? "PJ" : "PF";
+
+      const flatItems = o.shipments.flatMap((s) =>
+        s.items.map((it) => ({
+          id: it.id,
+          productId: it.productId,
+          title: it.title,
+          qty: it.qty,
+          priceCents: Math.round(Number(it.price || 0) * 100),
+          image: it.productId ? imageMap.get(it.productId) || null : null,
+          shipmentId: s.id,
+        }))
+      );
+
+      collected.push({
+        id: o.id,
+        orderNumber: o.orderNumber || null,
+        createdAt: o.createdAt,
+        status: uiStatus,
+        totalCents,
+        currency,
+        items: flatItems,
+        cancellable: isOrderCancellable(o, o.shipments),
+        customerType,
+        shippingAddress: addr,
+        shippingStage,
+        returnEligible,
+      });
+
+      if (collected.length >= limit) break;
+    }
+
+    if (collected.length >= limit) break;
   }
 
-  // Filtrare după status UI (tab-uri)
-  if (statusList.length) {
-    items = items.filter((o) => statusList.includes(o.status));
-  }
-
-  // paginare după ce am filtrat
-  const total = items.length;
-  const start = (page - 1) * limit;
-  const end = start + limit;
-  const pageItems = items.slice(start, end);
+  // hasMore “real” pentru pagina curentă: dacă am reușit să umplem pagina și încă mai există date în DB,
+  // e probabil că există next. Mai corect: mai încercăm să vedem dacă există încă măcar 1 rezultat filtrat după colectare.
+  // (nu facem extra query; folosim un heuristic ok)
+  const hasMore = collected.length === limit && scanned < totalDb;
 
   res.json({
-    total,
-    items: pageItems,
+    // total: exact doar când nu ai statusList; altfel e best-effort (maxim posibil din DB)
+    total: statusList.length ? totalDb : totalDb,
+    items: collected,
+    hasMore, // extra (front-ul tău nu-l folosește acum, dar e util)
   });
 });
 
@@ -300,7 +355,6 @@ router.get("/:id", async (req, res) => {
   const status = computeUiStatus(o, o.shipments);
   const shippingStage = computeShippingStage(o.shipments);
 
-  // ✅ NEW: eligibil pentru retur (doar când e livrat)
   const returnEligible = status === "DELIVERED";
 
   const currency = o.currency || "RON";
@@ -317,7 +371,7 @@ router.get("/:id", async (req, res) => {
   const isCompany = !!(addr.companyName || addr.companyCui);
   const customerType = isCompany ? "PJ" : "PF";
 
-  // 🔹 imagini produse
+  // imagini produse
   const productIdSet = new Set();
   for (const s of o.shipments) {
     for (const it of s.items) {
@@ -358,10 +412,7 @@ router.get("/:id", async (req, res) => {
     createdAt: o.createdAt,
     status,
     shippingStage,
-
-    // ✅ NEW
     returnEligible,
-
     currency,
     subtotalCents,
     shippingCents,
@@ -416,21 +467,15 @@ router.post("/:id/cancel", async (req, res) => {
 
   const uiStatus = computeUiStatus(o, o.shipments);
 
-  // în UI permiți anulare doar pentru PENDING / PROCESSING
-  // + să nu fi început vreun vendor pregătirea
-  if (
-    !["PENDING", "PROCESSING"].includes(uiStatus) ||
-    !isOrderCancellable(o, o.shipments)
-  ) {
+  if (!["PENDING", "PROCESSING"].includes(uiStatus) || !isOrderCancellable(o, o.shipments)) {
     return res.status(400).json({ error: "not_cancellable" });
   }
 
-  // ✅ tranzacție: evităm stări "mixte"
   await prisma.$transaction([
     prisma.shipment.updateMany({
       where: {
         orderId: o.id,
-        status: { in: ["PENDING"] }, // comanda anulabilă => shipments trebuie să fie încă PENDING
+        status: { in: ["PENDING"] },
       },
       data: { status: "REFUSED" },
     }),
@@ -440,22 +485,17 @@ router.post("/:id/cancel", async (req, res) => {
     }),
   ]);
 
-  // 🔹 notificări mesaje către vendor(i) (best-effort)
+  // notificări către vendor(i) (best-effort)
   try {
-    await sendOrderCancelledByUserNotifications({
-      orderId: o.id,
-      userId,
-    });
+    await sendOrderCancelledByUserNotifications({ orderId: o.id, userId });
   } catch (e) {
     console.error("sendOrderCancelledByUserNotifications failed:", e);
   }
 
-  // 🔹 email de confirmare către client (best-effort)
+  // email către client (best-effort)
   try {
     const to = o.user?.email || o.shippingAddress?.email || null;
-    if (to) {
-      await sendOrderCancelledByUserEmail({ to, order: o });
-    }
+    if (to) await sendOrderCancelledByUserEmail({ to, order: o });
   } catch (e) {
     console.error("sendOrderCancelledByUserEmail failed:", e);
   }
@@ -484,6 +524,7 @@ router.post("/:id/reorder", async (req, res) => {
   const allItems = o.shipments.flatMap((s) => s.items);
 
   for (const it of allItems) {
+    if (!it.productId) continue;
     await prisma.cartItem.upsert({
       where: {
         userId_productId: {
@@ -492,9 +533,7 @@ router.post("/:id/reorder", async (req, res) => {
         },
       },
       update: {
-        qty: {
-          increment: it.qty,
-        },
+        qty: { increment: it.qty },
       },
       create: {
         userId,

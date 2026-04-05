@@ -1,4 +1,3 @@
-// src/pages/ProductDetails/ProductDetails.jsx
 import React, {
   useCallback,
   useEffect,
@@ -36,15 +35,12 @@ import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 
-// lazy: Reviews & Comments (performanță)
 const ReviewsSection = lazy(() => import("./ReviewSection/ReviewSection"));
 const CommentsSection = lazy(() => import("./CommentSection/CommentSection"));
-// lazy: ProductModal ca înainte
 const ProductModal = lazy(() =>
   import("../ProfilMagazin/modals/ProductModal.jsx")
 );
 
-// helper dată – ca în ProfilMagazin (PREORDER)
 const dateOnlyToISO = (yyyyMmDd) => {
   if (!yyyyMmDd) return null;
   const [y, m, d] = String(yyyyMmDd).split("-").map(Number);
@@ -113,27 +109,27 @@ export default function ProductDetails() {
   const [submittingComment, setSubmittingComment] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState(null);
 
-  // acordioane desktop
   const [openAccordions, setOpenAccordions] = useState({
     details: false,
     reviews: false,
     comments: false,
   });
 
-  // tab-uri mobile
   const [activeMobileTab, setActiveMobileTab] = useState("descriere");
   const isMobile = useIsMobile(768);
 
-  // edit modal
   const [editOpen, setEditOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [prodForm, setProdForm] = useState(emptyProdForm);
   const [savingProd, setSavingProd] = useState(false);
   const [categories, setCategories] = useState([]);
 
+  const [reviewsLoaded, setReviewsLoaded] = useState(false);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
+  const [deferredSections, setDeferredSections] = useState(false);
+
   const mountedRef = useRef(true);
 
-  // swipe mobil
   const touchStartX = useRef(null);
   const touchEndX = useRef(null);
 
@@ -144,16 +140,26 @@ export default function ProductDetails() {
     };
   }, []);
 
-  // reset la schimbare product id
   useEffect(() => {
     setActiveIdx(0);
     setQty(1);
     setEditOpen(false);
     setEditingProduct(null);
     setProdForm(emptyProdForm);
+
     setComments([]);
     setCommentText("");
     setEditingCommentId(null);
+
+    setReviews([]);
+    setAvg({ average: 0, count: 0 });
+
+    setStoreProducts([]);
+    setSimilarProducts([]);
+
+    setReviewsLoaded(false);
+    setCommentsLoaded(false);
+    setDeferredSections(false);
   }, [id]);
 
   const cacheT = useMemo(
@@ -179,7 +185,6 @@ export default function ProductDetails() {
     [images, activeIdx, cacheT]
   );
 
-  // prefetch următoarea imagine (pentru UX)
   useEffect(() => {
     const next = images[(activeIdx + 1) % images.length];
     if (!next) return;
@@ -209,6 +214,7 @@ export default function ProductDetails() {
 
   const availabilityText = useMemo(() => {
     if (!product?.availability) return null;
+
     switch (product.availability) {
       case "READY":
         if (typeof product.readyQty === "number") {
@@ -218,18 +224,22 @@ export default function ProductDetails() {
           return "În stoc, dar stoc foarte limitat.";
         }
         return "În stoc, gata de livrare.";
+
       case "MADE_TO_ORDER":
         return product.leadTimeDays
           ? `Realizat la comandă, timpul de execuție este de aproximativ ${product.leadTimeDays} zile.`
           : "Realizat la comandă, timpul de execuție este comunicat după plasarea comenzii.";
+
       case "PREORDER":
         return product.nextShipDate
           ? `Disponibil la precomandă, livrare estimată începând cu ${new Date(
               product.nextShipDate
             ).toLocaleDateString("ro-RO")}.`
           : "Disponibil la precomandă.";
+
       case "SOLD_OUT":
         return "Stoc epuizat momentan.";
+
       default:
         return null;
     }
@@ -237,7 +247,6 @@ export default function ProductDetails() {
 
   const isSoldOut = product?.availability === "SOLD_OUT";
 
-  // ownership
   const myVendorId = me?.vendor?.id ?? null;
   const myUserId = me?.id ?? me?.sub ?? null;
 
@@ -259,21 +268,24 @@ export default function ProductDetails() {
 
   const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
 
-  const requireAuth = (fn) => (...args) => {
-    if (!me) {
-      alert(
-        "Pentru a salva produsele tale preferate și a putea reveni la ele oricând, te rugăm să te autentifici. Te așteptăm cu drag, durează doar câteva secunde! 💛"
-      );
-      const redir = encodeURIComponent(
-        window.location.pathname + window.location.search
-      );
-      navigate(`/autentificare?redirect=${redir}`);
-      return;
-    }
-    return fn(...args);
-  };
+  const requireAuth = useCallback(
+    (fn) => (...args) => {
+      if (!me) {
+        alert(
+          "Pentru a salva produsele tale preferate și a putea reveni la ele oricând, te rugăm să te autentifici. Te așteptăm cu drag, durează doar câteva secunde! 💛"
+        );
+        const redir = encodeURIComponent(
+          window.location.pathname + window.location.search
+        );
+        navigate(`/autentificare?redirect=${redir}`);
+        return;
+      }
+      return fn(...args);
+    },
+    [me, navigate]
+  );
 
-  const onAddToCart = async () => {
+  const onAddToCart = useCallback(async () => {
     if (!product || isOwner || adding || isSoldOut) return;
 
     if (!me) {
@@ -285,7 +297,6 @@ export default function ProductDetails() {
         window.location.pathname + window.location.search
       );
       navigate(`/autentificare?redirect=${redir}`);
-
       return;
     }
 
@@ -319,7 +330,7 @@ export default function ProductDetails() {
     } finally {
       setAdding(false);
     }
-  };
+  }, [product, isOwner, adding, isSoldOut, me, navigate, qty]);
 
   const addToCartAny = onAddToCart;
 
@@ -328,19 +339,23 @@ export default function ProductDetails() {
     [favorites, product]
   );
 
-  const toggleFavorite = async () => {
+  const toggleFavorite = useCallback(async () => {
     if (!product || isOwner) return;
+
     const prev = isFav;
+
     setFavorites((set) => {
       const next = new Set(set);
       prev ? next.delete(product.id) : next.add(product.id);
       return next;
     });
+
     try {
       const r = await api("/api/favorites/toggle", {
         method: "POST",
         body: { productId: product.id },
       });
+
       if (r?.error === "cannot_favorite_own_product") {
         setFavorites((set) => {
           const next = new Set(set);
@@ -355,6 +370,7 @@ export default function ProductDetails() {
         prev ? next.add(product.id) : next.delete(product.id);
         return next;
       });
+
       const msg =
         e?.message ||
         (e?.status === 403
@@ -362,10 +378,11 @@ export default function ProductDetails() {
           : "Nu am putut actualiza favoritele.");
       alert(msg);
     }
-  };
+  }, [product, isOwner, isFav]);
+
   const toggleFavoriteSafe = requireAuth(toggleFavorite);
 
-  const shareIt = async () => {
+  const shareIt = useCallback(async () => {
     try {
       const url = window.location.href;
       if (navigator.share) {
@@ -389,9 +406,8 @@ export default function ProductDetails() {
       console.error(e);
       alert("Nu am putut copia linkul.");
     }
-  };
+  }, [product?.title]);
 
-  /* ========= Recenzii produs – loader ========= */
   const loadReviewsForProduct = useCallback(async (prodId) => {
     try {
       const [list, stats] = await Promise.all([
@@ -423,7 +439,6 @@ export default function ProductDetails() {
     }
   }, []);
 
-  /* ========= Comentarii produs – loader ========= */
   const loadCommentsForProduct = useCallback(async (prodId) => {
     try {
       const res = await api(
@@ -443,253 +458,332 @@ export default function ProductDetails() {
     }
   }, []);
 
-  /* ========= Loader principal produs (optimizat) ========= */
+  const loadStoreProducts = useCallback(async (p) => {
+    if (!p?.service?.profile?.slug) {
+      if (mountedRef.current) setStoreProducts([]);
+      return;
+    }
+
+    try {
+      const items = await api(
+        `/api/public/store/${encodeURIComponent(p.service.profile.slug)}/products`
+      );
+
+      if (!mountedRef.current) return;
+
+      const list = Array.isArray(items) ? items : [];
+      setStoreProducts(list.filter((x) => x.id !== p.id));
+    } catch {
+      if (mountedRef.current) setStoreProducts([]);
+    }
+  }, []);
+
+  const loadSimilarProducts = useCallback(async (p) => {
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "48");
+      params.set("sort", "popular");
+      if (p.category) params.set("category", p.category);
+      if (p.color) params.set("color", p.color);
+
+      const res = await api(`/api/public/products?${params.toString()}`);
+      if (!mountedRef.current) return;
+
+      const items = Array.isArray(res?.items) ? res.items : [];
+      const baseList = items.filter((it) => it.id !== p.id);
+
+      const same = (a, b) =>
+        a && b && String(a).toLowerCase() === String(b).toLowerCase();
+
+      const splitTags = (v) =>
+        String(v || "")
+          .split(",")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean);
+
+      const productStyleTags = splitTags(p.styleTags);
+      const productOccasionTags = splitTags(p.occasionTags);
+
+      let strict = baseList.filter((it) => same(it.category, p.category));
+
+      if (p.color) {
+        strict = strict.filter((it) => same(it.color, p.color));
+      }
+
+      if (productStyleTags.length) {
+        strict = strict.filter((it) => {
+          const itsTags = splitTags(it.styleTags);
+          return itsTags.some((tag) => productStyleTags.includes(tag));
+        });
+      }
+
+      if (productOccasionTags.length) {
+        strict = strict.filter((it) => {
+          const itsTags = splitTags(it.occasionTags);
+          return itsTags.some((tag) => productOccasionTags.includes(tag));
+        });
+      }
+
+      let finalList = strict;
+
+      if (finalList.length < 4) {
+        finalList = baseList.filter((it) => same(it.category, p.category));
+      }
+
+      if (finalList.length < 4) {
+        finalList = baseList;
+      }
+
+      setSimilarProducts(finalList.slice(0, 12));
+    } catch {
+      if (mountedRef.current) setSimilarProducts([]);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const [meRes, p] = await Promise.all([
-        api("/api/auth/me").catch(() => null),
-        api(`/api/public/products/${encodeURIComponent(id)}`),
-      ]);
+      const p = await api(`/api/public/products/${encodeURIComponent(id)}`);
 
       if (!mountedRef.current) return;
 
-      setMe(meRes?.user || null);
       setProduct(p);
-      setLoading(false); // produsul poate fi afișat deja
+      setLoading(false);
 
-      // recenzii + comentarii (în background)
-      loadReviewsForProduct(p.id);
-      loadCommentsForProduct(p.id);
-
-      api("/api/favorites/ids")
-        .then((fav) => {
+      api("/api/auth/me")
+        .then((meRes) => {
           if (!mountedRef.current) return;
-          const set = new Set(Array.isArray(fav?.items) ? fav.items : []);
-          setFavorites(set);
+
+          const user = meRes?.user || null;
+          setMe(user);
+
+          if (!user) return;
+
+          api("/api/favorites/ids")
+            .then((fav) => {
+              if (!mountedRef.current) return;
+              setFavorites(new Set(Array.isArray(fav?.items) ? fav.items : []));
+            })
+            .catch(() => {});
         })
         .catch(() => {});
 
-      if (p?.service?.profile?.slug) {
-        api(
-          `/api/public/store/${encodeURIComponent(
-            p.service.profile.slug
-          )}/products`
-        )
-          .then((items) => {
-            if (!mountedRef.current) return;
-            const list = Array.isArray(items) ? items : [];
-            setStoreProducts(list.filter((x) => x.id !== p.id));
-          })
-          .catch(() => mountedRef.current && setStoreProducts([]));
-      } else {
-        setStoreProducts([]);
-      }
-
-      // produse similare – filtrate după produsul curent
-      try {
-        const params = new URLSearchParams();
-        params.set("limit", "48"); // luăm mai multe, filtrăm pe client
-        params.set("sort", "popular");
-        if (p.category) params.set("category", p.category);
-        if (p.color) params.set("color", p.color);
-
-        const res = await api(`/api/public/products?${params.toString()}`);
-        if (mountedRef.current) {
-          const items = Array.isArray(res?.items) ? res.items : [];
-
-          // scoatem produsul curent
-          const baseList = items.filter((it) => it.id !== p.id);
-
-          const same = (a, b) =>
-            a && b && String(a).toLowerCase() === String(b).toLowerCase();
-
-          const splitTags = (v) =>
-            String(v || "")
-              .split(",")
-              .map((t) => t.trim().toLowerCase())
-              .filter(Boolean);
-
-          const productStyleTags = splitTags(p.styleTags);
-          const productOccasionTags = splitTags(p.occasionTags);
-
-          // 1. strict: aceeași categorie
-          let strict = baseList.filter((it) => same(it.category, p.category));
-
-          // 2. + aceeași culoare (dacă produsul are culoare)
-          if (p.color) {
-            strict = strict.filter((it) => same(it.color, p.color));
-          }
-
-          // 3. + styleTags comune (dacă există)
-          if (productStyleTags.length) {
-            strict = strict.filter((it) => {
-              const itsTags = splitTags(it.styleTags);
-              return itsTags.some((tag) => productStyleTags.includes(tag));
-            });
-          }
-
-          // 4. + occasionTags comune (dacă există)
-          if (productOccasionTags.length) {
-            strict = strict.filter((it) => {
-              const itsTags = splitTags(it.occasionTags);
-              return itsTags.some((tag) => productOccasionTags.includes(tag));
-            });
-          }
-
-          let finalList = strict;
-
-          // dacă lista strictă e prea mică, relaxăm treptat
-          if (finalList.length < 4) {
-            // fallback 1: doar categorie
-            finalList = baseList.filter((it) => same(it.category, p.category));
-          }
-
-          if (finalList.length < 4) {
-            // fallback 2: orice alt produs (fără produsul curent)
-            finalList = baseList;
-          }
-
-          setSimilarProducts(finalList.slice(0, 12));
-        }
-      } catch {
-        if (mountedRef.current) setSimilarProducts([]);
-      }
     } catch (e) {
-      if (mountedRef.current)
-        setError(e?.message || "Nu am putut încărca produsul.");
+      if (!mountedRef.current) return;
+      setError(e?.message || "Nu am putut încărca produsul.");
       setLoading(false);
     }
-  }, [id, loadReviewsForProduct, loadCommentsForProduct]);
+  }, [id]);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
-  /* ========= Submit review cu imagini ========= */
-  const submitReview = async ({ rating, comment, images }) => {
-    if (isOwner) return;
-    if (!me) {
-      return navigate(
-        `/autentificare?redirect=${encodeURIComponent(
-          window.location.pathname + window.location.search
-        )}`
-      );
-    }
-    if (rating < 1 || rating > 5) {
-      alert("Alege un rating între 1 și 5.");
-      return;
-    }
+  useEffect(() => {
+    if (!product) return;
 
-    try {
-      setSubmittingReview(true);
+    const run = () => {
+      if (!mountedRef.current) return;
+      setDeferredSections(true);
+    };
 
-      const form = new FormData();
-      form.append("productId", product.id);
-      form.append("rating", String(rating));
-      form.append("comment", comment || "");
-
-      (images || []).forEach((file) => {
-        form.append("images", file);
-      });
-
-      const res = await fetch("/api/reviews", {
-        method: "POST",
-        body: form,
-      });
-
-      if (!res.ok) {
-        let msg = "Nu am putut trimite recenzia.";
-        try {
-          const err = await res.json();
-          if (err?.error === "rate_limited") {
-            msg =
-              "Ai atins limita de recenzii. Poți trimite maximum 10 recenzii la 24 de ore.";
-          } else if (err?.error === "cannot_review_own_product") {
-            msg = "Nu poți lăsa recenzie pentru propriul produs.";
-          }
-        } catch {
-          /* ignore */
+    if ("requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(run);
+      return () => {
+        if ("cancelIdleCallback" in window) {
+          window.cancelIdleCallback(idleId);
         }
-        alert(msg);
+      };
+    }
+
+    const t = setTimeout(run, 1);
+    return () => clearTimeout(t);
+  }, [product]);
+
+  useEffect(() => {
+    if (!product || !deferredSections) return;
+    loadStoreProducts(product);
+    loadSimilarProducts(product);
+  }, [product, deferredSections, loadStoreProducts, loadSimilarProducts]);
+
+  useEffect(() => {
+    if (!product?.id || reviewsLoaded) return;
+
+    if (isMobile) {
+      if (activeMobileTab !== "recenzii") return;
+    } else {
+      if (!openAccordions.reviews) return;
+    }
+
+    setReviewsLoaded(true);
+    loadReviewsForProduct(product.id);
+  }, [
+    product?.id,
+    reviewsLoaded,
+    isMobile,
+    activeMobileTab,
+    openAccordions.reviews,
+    loadReviewsForProduct,
+  ]);
+
+  useEffect(() => {
+    if (!product?.id || commentsLoaded) return;
+
+    if (isMobile) {
+      if (activeMobileTab !== "intrebari") return;
+    } else {
+      if (!openAccordions.comments) return;
+    }
+
+    setCommentsLoaded(true);
+    loadCommentsForProduct(product.id);
+  }, [
+    product?.id,
+    commentsLoaded,
+    isMobile,
+    activeMobileTab,
+    openAccordions.comments,
+    loadCommentsForProduct,
+  ]);
+
+  const submitReview = useCallback(
+    async ({ rating, comment, images }) => {
+      if (isOwner) return;
+
+      if (!me) {
+        return navigate(
+          `/autentificare?redirect=${encodeURIComponent(
+            window.location.pathname + window.location.search
+          )}`
+        );
+      }
+
+      if (rating < 1 || rating > 5) {
+        alert("Alege un rating între 1 și 5.");
         return;
       }
 
-      setRevRating(0);
-      setRevText("");
+      try {
+        setSubmittingReview(true);
 
-      await loadReviewsForProduct(product.id);
-    } catch (e2) {
-      alert(e2?.message || "Nu am putut trimite recenzia.");
-    } finally {
-      setSubmittingReview(false);
-    }
-  };
+        const form = new FormData();
+        form.append("productId", product.id);
+        form.append("rating", String(rating));
+        form.append("comment", comment || "");
 
-  /* ========= Edit / submit comentariu ========= */
+        (images || []).forEach((file) => {
+          form.append("images", file);
+        });
 
-  const startEditComment = (comment) => {
+        const res = await fetch("/api/reviews", {
+          method: "POST",
+          body: form,
+        });
+
+        if (!res.ok) {
+          let msg = "Nu am putut trimite recenzia.";
+          try {
+            const err = await res.json();
+            if (err?.error === "rate_limited") {
+              msg =
+                "Ai atins limita de recenzii. Poți trimite maximum 10 recenzii la 24 de ore.";
+            } else if (err?.error === "cannot_review_own_product") {
+              msg = "Nu poți lăsa recenzie pentru propriul produs.";
+            }
+          } catch {
+            /* ignore */
+          }
+          alert(msg);
+          return;
+        }
+
+        setRevRating(0);
+        setRevText("");
+        setReviewsLoaded(true);
+        await loadReviewsForProduct(product.id);
+      } catch (e2) {
+        alert(e2?.message || "Nu am putut trimite recenzia.");
+      } finally {
+        setSubmittingReview(false);
+      }
+    },
+    [isOwner, me, navigate, product?.id, loadReviewsForProduct]
+  );
+
+  const startEditComment = useCallback((comment) => {
     setEditingCommentId(comment.id);
     setCommentText(comment.text || "");
 
-    // scroll la formular, să vadă clar că editează
     const formTextarea = document.querySelector(
       "#tab-intrebari textarea, .commentsSection textarea"
     );
+
     if (formTextarea) {
       formTextarea.scrollIntoView({ behavior: "smooth", block: "start" });
       formTextarea.focus();
     }
-  };
+  }, []);
 
-  const cancelEditComment = () => {
+  const cancelEditComment = useCallback(() => {
     setEditingCommentId(null);
     setCommentText("");
-  };
-const submitComment = async (e) => {
-  e?.preventDefault?.();
+  }, []);
 
-  // ✅ Owner-ul NU poate crea comentariu top-level nou,
-  // dar poate edita propriile comentarii/răspunsuri (editingCommentId)
-  if (isOwner && !editingCommentId) return;
+  const submitComment = useCallback(
+    async (e) => {
+      e?.preventDefault?.();
 
-  if (!me)
-    return navigate(
-      `/autentificare?redirect=${encodeURIComponent(
-        window.location.pathname + window.location.search
-      )}`
-    );
+      if (isOwner && !editingCommentId) return;
 
-  const text = commentText.trim();
-  if (!text) return;
+      if (!me) {
+        return navigate(
+          `/autentificare?redirect=${encodeURIComponent(
+            window.location.pathname + window.location.search
+          )}`
+        );
+      }
 
-  try {
-    setSubmittingComment(true);
+      const text = commentText.trim();
+      if (!text) return;
 
-    if (editingCommentId) {
-      await api(`/api/comments/${encodeURIComponent(editingCommentId)}`, {
-        method: "PATCH",
-        body: { text },
-      });
-      setEditingCommentId(null);
-      setCommentText("");
-    } else {
-      await api("/api/comments", {
-        method: "POST",
-        body: { productId: product.id, text },
-      });
-      setCommentText("");
-    }
+      try {
+        setSubmittingComment(true);
 
-    await loadCommentsForProduct(product.id);
-  } catch (e2) {
-    alert(e2?.message || "Nu am putut trimite comentariul.");
-  } finally {
-    setSubmittingComment(false);
-  }
-};
+        if (editingCommentId) {
+          await api(`/api/comments/${encodeURIComponent(editingCommentId)}`, {
+            method: "PATCH",
+            body: { text },
+          });
+          setEditingCommentId(null);
+          setCommentText("");
+        } else {
+          await api("/api/comments", {
+            method: "POST",
+            body: { productId: product.id, text },
+          });
+          setCommentText("");
+        }
+
+        setCommentsLoaded(true);
+        await loadCommentsForProduct(product.id);
+      } catch (e2) {
+        alert(e2?.message || "Nu am putut trimite comentariul.");
+      } finally {
+        setSubmittingComment(false);
+      }
+    },
+    [
+      isOwner,
+      editingCommentId,
+      me,
+      navigate,
+      commentText,
+      product?.id,
+      loadCommentsForProduct,
+    ]
+  );
 
   useEffect(() => {
     if (product?.title) {
@@ -752,19 +846,18 @@ const submitComment = async (e) => {
     [product, imagesForLd, displayPriceForLd, schemaAvailability]
   );
 
-  // swipe handlers
-  const onTouchStart = (e) => {
+  const onTouchStart = useCallback((e) => {
     if (!e.touches || e.touches.length === 0) return;
     touchStartX.current = e.touches[0].clientX;
     touchEndX.current = null;
-  };
+  }, []);
 
-  const onTouchMove = (e) => {
+  const onTouchMove = useCallback((e) => {
     if (!e.touches || e.touches.length === 0) return;
     touchEndX.current = e.touches[0].clientX;
-  };
+  }, []);
 
-  const onTouchEnd = () => {
+  const onTouchEnd = useCallback(() => {
     if (
       touchStartX.current == null ||
       touchEndX.current == null ||
@@ -774,8 +867,10 @@ const submitComment = async (e) => {
       touchEndX.current = null;
       return;
     }
+
     const diff = touchStartX.current - touchEndX.current;
     const threshold = 40;
+
     if (Math.abs(diff) > threshold) {
       if (diff > 0) {
         setActiveIdx((i) => (i + 1) % images.length);
@@ -783,20 +878,21 @@ const submitComment = async (e) => {
         setActiveIdx((i) => (i - 1 + images.length) % images.length);
       }
     }
+
     touchStartX.current = null;
     touchEndX.current = null;
-  };
+  }, [images.length]);
 
-  const toggleAccordion = (key) => {
+  const toggleAccordion = useCallback((key) => {
     setOpenAccordions((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
-  };
+  }, []);
 
-  // categorii pt ProductModal
   const ensureCategories = useCallback(async () => {
     if (categories.length) return;
+
     try {
       const c = await api("/api/public/categories/detailed").catch(() => []);
       if (!mountedRef.current) return;
@@ -806,20 +902,24 @@ const submitComment = async (e) => {
     }
   }, [categories.length]);
 
-  const uploadFile = async (f) => {
+  const uploadFile = useCallback(async (f) => {
     const fd = new FormData();
     fd.append("file", f);
+
     const res = await fetch("/api/upload", {
       method: "POST",
       body: fd,
     });
+
     if (!res.ok) throw new Error("Upload eșuat");
+
     const { url } = await res.json();
     return url;
-  };
+  }, []);
 
   const openEditModal = useCallback(async () => {
     if (!product?.id) return;
+
     try {
       await ensureCategories();
 
@@ -884,144 +984,151 @@ const submitComment = async (e) => {
     }
   }, [product?.id, ensureCategories]);
 
-  const handleSaveProduct = async (e) => {
-    e?.preventDefault?.();
-    if (!editingProduct || !prodForm.id) {
-      alert("Nu am găsit produsul pentru salvare.");
-      return;
-    }
+  const handleSaveProduct = useCallback(
+    async (e) => {
+      e?.preventDefault?.();
 
-    try {
-      setSavingProd(true);
-
-      const title = (prodForm.title || "").trim();
-      const description = prodForm.description || "";
-      const price = Number(prodForm.price);
-      const imagesArr = Array.isArray(prodForm.images) ? prodForm.images : [];
-      const category = (prodForm.category || "").trim();
-
-      const color = (prodForm.color || "").trim() || null;
-      const materialMain = (prodForm.materialMain || "").trim() || null;
-      const technique = (prodForm.technique || "").trim() || null;
-      const styleTags = (prodForm.styleTags || "").trim();
-      const occasionTags = (prodForm.occasionTags || "").trim();
-      const dimensions = (prodForm.dimensions || "").trim() || null;
-      const careInstructions =
-        (prodForm.careInstructions || "").trim() || null;
-      const specialNotes = (prodForm.specialNotes || "").trim() || null;
-
-      if (!title) {
-        alert("Te rog adaugă un titlu.");
-        setSavingProd(false);
+      if (!editingProduct || !prodForm.id) {
+        alert("Nu am găsit produsul pentru salvare.");
         return;
       }
-      if (!Number.isFinite(price) || price < 0) {
-        alert("Preț invalid.");
-        setSavingProd(false);
-        return;
-      }
-      if (!category) {
-        alert("Selectează categoria produsului.");
-        setSavingProd(false);
-        return;
-      }
-
-      const basePayload = {
-        title,
-        description,
-        price,
-        images: imagesArr,
-        category,
-        currency: prodForm.currency || "RON",
-        isActive: prodForm.isActive !== false,
-        isHidden: !!prodForm.isHidden,
-
-        acceptsCustom: !!prodForm.acceptsCustom,
-
-        color,
-        materialMain,
-        technique,
-        styleTags,
-        occasionTags,
-        dimensions,
-        careInstructions,
-        specialNotes,
-      };
-
-      const av = String(prodForm.availability || "READY").toUpperCase();
-
-      const payload = {
-        ...basePayload,
-        availability: av,
-        leadTimeDays: null,
-        readyQty: null,
-        nextShipDate: null,
-      };
-
-      if (av === "MADE_TO_ORDER") {
-        const lt = Number(prodForm.leadTimeDays || 0);
-        payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
-      }
-
-      if (av === "READY") {
-        if (prodForm.readyQty !== "" && prodForm.readyQty != null) {
-          const rq = Number(prodForm.readyQty);
-          payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
-        } else {
-          payload.readyQty = null;
-        }
-      }
-
-      if (av === "PREORDER") {
-        payload.nextShipDate = prodForm.nextShipDate
-          ? dateOnlyToISO(prodForm.nextShipDate)
-          : null;
-      }
-
-      if (av === "SOLD_OUT") {
-        payload.readyQty = 0;
-      }
-
-      const pid = editingProduct.id || editingProduct._id;
-
-      const saved = await api(
-        `/api/vendors/products/${encodeURIComponent(pid)}`,
-        {
-          method: "PUT",
-          body: payload,
-        }
-      );
 
       try {
-        window.dispatchEvent(
-          new CustomEvent("vendor:productUpdated", {
-            detail: { product: saved },
-          })
+        setSavingProd(true);
+
+        const title = (prodForm.title || "").trim();
+        const description = prodForm.description || "";
+        const price = Number(prodForm.price);
+        const imagesArr = Array.isArray(prodForm.images) ? prodForm.images : [];
+        const category = (prodForm.category || "").trim();
+
+        const color = (prodForm.color || "").trim() || null;
+        const materialMain = (prodForm.materialMain || "").trim() || null;
+        const technique = (prodForm.technique || "").trim() || null;
+        const styleTags = (prodForm.styleTags || "").trim();
+        const occasionTags = (prodForm.occasionTags || "").trim();
+        const dimensions = (prodForm.dimensions || "").trim() || null;
+        const careInstructions =
+          (prodForm.careInstructions || "").trim() || null;
+        const specialNotes = (prodForm.specialNotes || "").trim() || null;
+
+        if (!title) {
+          alert("Te rog adaugă un titlu.");
+          setSavingProd(false);
+          return;
+        }
+
+        if (!Number.isFinite(price) || price < 0) {
+          alert("Preț invalid.");
+          setSavingProd(false);
+          return;
+        }
+
+        if (!category) {
+          alert("Selectează categoria produsului.");
+          setSavingProd(false);
+          return;
+        }
+
+        const basePayload = {
+          title,
+          description,
+          price,
+          images: imagesArr,
+          category,
+          currency: prodForm.currency || "RON",
+          isActive: prodForm.isActive !== false,
+          isHidden: !!prodForm.isHidden,
+
+          acceptsCustom: !!prodForm.acceptsCustom,
+
+          color,
+          materialMain,
+          technique,
+          styleTags,
+          occasionTags,
+          dimensions,
+          careInstructions,
+          specialNotes,
+        };
+
+        const av = String(prodForm.availability || "READY").toUpperCase();
+
+        const payload = {
+          ...basePayload,
+          availability: av,
+          leadTimeDays: null,
+          readyQty: null,
+          nextShipDate: null,
+        };
+
+        if (av === "MADE_TO_ORDER") {
+          const lt = Number(prodForm.leadTimeDays || 0);
+          payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
+        }
+
+        if (av === "READY") {
+          if (prodForm.readyQty !== "" && prodForm.readyQty != null) {
+            const rq = Number(prodForm.readyQty);
+            payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
+          } else {
+            payload.readyQty = null;
+          }
+        }
+
+        if (av === "PREORDER") {
+          payload.nextShipDate = prodForm.nextShipDate
+            ? dateOnlyToISO(prodForm.nextShipDate)
+            : null;
+        }
+
+        if (av === "SOLD_OUT") {
+          payload.readyQty = 0;
+        }
+
+        const pid = editingProduct.id || editingProduct._id;
+
+        const saved = await api(
+          `/api/vendors/products/${encodeURIComponent(pid)}`,
+          {
+            method: "PUT",
+            body: payload,
+          }
         );
-      } catch {
-        /* noop */
+
+        try {
+          window.dispatchEvent(
+            new CustomEvent("vendor:productUpdated", {
+              detail: { product: saved },
+            })
+          );
+        } catch {
+          /* noop */
+        }
+
+        setProduct((prev) => ({ ...(prev || {}), ...(saved || {}) }));
+
+        setEditOpen(false);
+        setEditingProduct(null);
+      } catch (er) {
+        alert(er?.message || "Nu am putut salva produsul.");
+      } finally {
+        setSavingProd(false);
       }
-
-      setProduct((prev) => ({ ...(prev || {}), ...(saved || {}) }));
-
-      setEditOpen(false);
-      setEditingProduct(null);
-    } catch (er) {
-      alert(er?.message || "Nu am putut salva produsul.");
-    } finally {
-      setSavingProd(false);
-    }
-  };
+    },
+    [editingProduct, prodForm]
+  );
 
   const hasStructuredDetails = getHasStructuredDetails(
     product,
     availabilityText
   );
 
-  if (loading)
+  if (loading) {
     return <div className={styles.pageWrap}>Se încarcă…</div>;
+  }
 
-  if (error || !product)
+  if (error || !product) {
     return (
       <div className={styles.pageWrap}>
         <p>{error || "Produsul nu a fost găsit."}</p>
@@ -1034,6 +1141,7 @@ const submitComment = async (e) => {
         </button>
       </div>
     );
+  }
 
   return (
     <div className={styles.pageWrap}>
@@ -1042,7 +1150,6 @@ const submitComment = async (e) => {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 
-      {/* Breadcrumbs */}
       <div className={styles.breadcrumbs}>
         <button
           className={styles.linkBtn}
@@ -1052,6 +1159,7 @@ const submitComment = async (e) => {
           <FaChevronLeft /> Înapoi
         </button>
         <span className={styles.sep}>/</span>
+
         {product?.service?.profile?.slug ? (
           <Link
             className={styles.link}
@@ -1064,14 +1172,12 @@ const submitComment = async (e) => {
           </Link>
         ) : product?.vendor?.displayName ? (
           <span className={styles.muted}>
-            <FaStore style={{ marginRight: 6 }} />{" "}
-            {product.vendor?.displayName}
+            <FaStore style={{ marginRight: 6 }} /> {product.vendor?.displayName}
           </span>
         ) : null}
       </div>
 
       <div className={styles.grid}>
-        {/* Galerie extrasă în componentă separată */}
         <ProductGallery
           productTitle={product.title}
           images={images}
@@ -1085,7 +1191,6 @@ const submitComment = async (e) => {
           setZoomOpen={setZoomOpen}
         />
 
-        {/* Info + tabs mobile */}
         <div className={styles.infoCard}>
           <div className={styles.titleRow}>
             <h1 className={styles.title}>{product.title}</h1>
@@ -1134,20 +1239,19 @@ const submitComment = async (e) => {
             <div className={styles.availabilityRow}>
               {product.availability === "READY" && (
                 <span className={styles.badgeReady}>
-                  {typeof product.readyQty === "number" &&
-                  product.readyQty > 0
+                  {typeof product.readyQty === "number" && product.readyQty > 0
                     ? `În stoc (${product.readyQty} buc.)`
                     : "În stoc"}
                 </span>
               )}
+
               {product.availability === "MADE_TO_ORDER" && (
                 <span className={styles.badgeMto}>
                   Realizat la comandă
-                  {product.leadTimeDays
-                    ? ` · ${product.leadTimeDays} zile`
-                    : ""}
+                  {product.leadTimeDays ? ` · ${product.leadTimeDays} zile` : ""}
                 </span>
               )}
+
               {product.availability === "PREORDER" && (
                 <span className={styles.badgePreorder}>
                   Precomandă
@@ -1158,9 +1262,11 @@ const submitComment = async (e) => {
                     : ""}
                 </span>
               )}
+
               {product.availability === "SOLD_OUT" && (
                 <span className={styles.badgeSoldOut}>Stoc epuizat</span>
               )}
+
               {product.acceptsCustom && (
                 <span className={styles.badgeCustom}>
                   Acceptă comenzi personalizate
@@ -1179,13 +1285,10 @@ const submitComment = async (e) => {
           {hasDescription && (
             <div className={styles.inlineDetailsBox}>
               <h2 className={styles.inlineBoxTitle}>Descriere produs</h2>
-              <p className={styles.inlineDescription}>
-                {product.description}
-              </p>
+              <p className={styles.inlineDescription}>{product.description}</p>
             </div>
           )}
 
-          {/* CTA row */}
           <div className={styles.ctaRow}>
             {viewMode !== "vendor" && (
               <>
@@ -1219,6 +1322,7 @@ const submitComment = async (e) => {
                   >
                     −
                   </button>
+
                   <input
                     type="number"
                     min={1}
@@ -1227,16 +1331,14 @@ const submitComment = async (e) => {
                       setQty(
                         Math.max(
                           1,
-                          Math.min(
-                            999,
-                            parseInt(e.target.value || "1", 10)
-                          )
+                          Math.min(999, parseInt(e.target.value || "1", 10))
                         )
                       )
                     }
                     aria-label="Cantitate"
                     className={styles.qtyInput}
                   />
+
                   <button
                     type="button"
                     className={styles.qtyBtn}
@@ -1294,7 +1396,6 @@ const submitComment = async (e) => {
             </div>
           </div>
 
-          {/* Mini card magazin */}
           <div className={styles.shopCard}>
             <div className={styles.shopAvatarWrap}>
               <img
@@ -1305,10 +1406,7 @@ const submitComment = async (e) => {
                         cacheT
                       )
                     : product.vendor?.logoUrl
-                    ? withCache(
-                        resolveFileUrl(product.vendor.logoUrl),
-                        cacheT
-                      )
+                    ? withCache(resolveFileUrl(product.vendor.logoUrl), cacheT)
                     : avatarPlaceholder(64, "Magazin")
                 }
                 alt={
@@ -1320,6 +1418,7 @@ const submitComment = async (e) => {
                 onError={(e) => onImgError(e, 64, 64, "Magazin")}
               />
             </div>
+
             <div className={styles.shopMeta}>
               <div className={styles.shopNameRow}>
                 {product?.service?.profile?.slug ? (
@@ -1337,6 +1436,7 @@ const submitComment = async (e) => {
                   </span>
                 )}
               </div>
+
               {product?.service?.vendor?.city && (
                 <div className={styles.shopCity}>
                   {product.service.vendor.city}
@@ -1345,7 +1445,6 @@ const submitComment = async (e) => {
             </div>
           </div>
 
-          {/* Tabs mobile */}
           {isMobile && (
             <>
               <div
@@ -1367,6 +1466,7 @@ const submitComment = async (e) => {
                 >
                   Descriere
                 </button>
+
                 {hasStructuredDetails && (
                   <button
                     type="button"
@@ -1383,6 +1483,7 @@ const submitComment = async (e) => {
                     Detalii
                   </button>
                 )}
+
                 <button
                   type="button"
                   className={`${styles.mobileTab} ${
@@ -1397,6 +1498,7 @@ const submitComment = async (e) => {
                 >
                   Recenzii
                 </button>
+
                 <button
                   type="button"
                   className={`${styles.mobileTab} ${
@@ -1480,9 +1582,7 @@ const submitComment = async (e) => {
                 >
                   {activeMobileTab === "intrebari" && (
                     <div className={styles.mobileTabPanel}>
-                      <Suspense
-                        fallback={<div>Se încarcă comentariile…</div>}
-                      >
+                      <Suspense fallback={<div>Se încarcă comentariile…</div>}>
                         <CommentsSection
                           comments={comments}
                           isOwner={isOwner}
@@ -1509,7 +1609,6 @@ const submitComment = async (e) => {
         </div>
       </div>
 
-      {/* Desktop: Detalii / Recenzii / Întrebări pe acordeon */}
       {!isMobile && hasStructuredDetails && (
         <section className={styles.descriptionSection}>
           <div className={styles.accordion}>
@@ -1520,9 +1619,7 @@ const submitComment = async (e) => {
               aria-expanded={openAccordions.details}
             >
               <div className={styles.accordionTitleWrap}>
-                <span className={styles.accordionTitle}>
-                  Detalii produs
-                </span>
+                <span className={styles.accordionTitle}>Detalii produs</span>
                 <span className={styles.accordionMeta}>
                   Informații despre disponibilitate, material, dimensiuni și
                   alte detalii
@@ -1555,9 +1652,7 @@ const submitComment = async (e) => {
               aria-expanded={openAccordions.reviews}
             >
               <div className={styles.accordionTitleWrap}>
-                <span className={styles.accordionTitle}>
-                  Recenzii produs
-                </span>
+                <span className={styles.accordionTitle}>Recenzii produs</span>
                 <span className={styles.accordionMeta}>
                   {avg.count > 0
                     ? `${avg.average.toFixed(1)} ★ · ${avg.count} recenzii`
@@ -1568,6 +1663,7 @@ const submitComment = async (e) => {
                 <FaChevronDown />
               </span>
             </button>
+
             {openAccordions.reviews && (
               <div className={styles.accordionBody}>
                 <Suspense fallback={<div>Se încarcă recenziile…</div>}>
@@ -1612,6 +1708,7 @@ const submitComment = async (e) => {
                 <FaChevronDown />
               </span>
             </button>
+
             {openAccordions.comments && (
               <div className={styles.accordionBody}>
                 <Suspense fallback={<div>Se încarcă comentariile…</div>}>
@@ -1636,24 +1733,25 @@ const submitComment = async (e) => {
         </section>
       )}
 
-      {/* Produse din acest magazin */}
-      <section className={styles.relatedSec}>
-        <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
-        <StoreProductsSlider
-          products={storeProducts}
-          cacheT={cacheT}
-          navigate={navigate}
-        />
-      </section>
+      {deferredSections && (
+        <>
+          <section className={styles.relatedSec}>
+            <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
+            <StoreProductsSlider
+              products={storeProducts}
+              cacheT={cacheT}
+              navigate={navigate}
+            />
+          </section>
 
-      {/* Produse similare */}
-      <SimilarProductsGrid
-        products={similarProducts}
-        cacheT={cacheT}
-        navigate={navigate}
-      />
+          <SimilarProductsGrid
+            products={similarProducts}
+            cacheT={cacheT}
+            navigate={navigate}
+          />
+        </>
+      )}
 
-      {/* Zoom imagini */}
       <ImageZoom
         open={zoomOpen}
         images={images}
@@ -1663,8 +1761,7 @@ const submitComment = async (e) => {
         onClose={() => setZoomOpen(false)}
       />
 
-      {/* ProductModal */}
-      {isOwner && (
+      {isOwner && editOpen && (
         <Suspense fallback={null}>
           <ProductModal
             open={editOpen}

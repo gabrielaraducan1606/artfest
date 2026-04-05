@@ -26,6 +26,8 @@ import logo from "../../assets/LogoArtfest.png";
 import Register from "../../pages/Auth/Register/Register";
 import Login from "../../pages/Auth/Login/Login";
 import { guestCart } from "../../lib/guestCart";
+import NotificationsPopover from "./NotificationsPopover";
+import MessagesPopover from "./MessagesPopover";
 
 /* ========================= Modal (cu portal & blur) ========================= */
 function Modal({ open, onClose, title, children }) {
@@ -102,27 +104,36 @@ function MobileBar({ me, unreadNotif, cartCount, onOpenAuth }) {
       </NavLink>
 
       {/* CONT: dacă nu e logat -> deschide modalul */}
-      {me ? (
-        <NavLink to="/cont" className={styles.mobileItem} aria-label="Contul meu">
-          <UserIcon size={22} />
-          <span>Cont</span>
-          {unreadNotif > 0 && (
-            <span className={styles.badgeMini}>
-              {Math.min(unreadNotif, 99)}
-            </span>
-          )}
-        </NavLink>
-      ) : (
-        <button
-          type="button"
-          className={styles.mobileItem}
-          aria-label="Autentificare"
-          onClick={() => onOpenAuth?.("login")}
-        >
-          <UserIcon size={22} />
-          <span>Cont</span>
-        </button>
-      )}
+{me ? (
+  <NavLink
+    to={
+      me.role === "USER"
+        ? "/desktop-user"
+        : me.role === "VENDOR"
+        ? "/desktop"
+        : "/desktop" // fallback (poți pune "/admin" pt ADMIN)
+    }
+    className={styles.mobileItem}
+    aria-label="Contul meu"
+  >
+    <UserIcon size={22} />
+    <span>Cont</span>
+
+    {unreadNotif > 0 && (
+      <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
+    )}
+  </NavLink>
+) : (
+  <button
+    type="button"
+    className={styles.mobileItem}
+    aria-label="Autentificare"
+    onClick={() => onOpenAuth?.("login")}
+  >
+    <UserIcon size={22} />
+    <span>Cont</span>
+  </button>
+)}
 
       {me && (
         <NavLink
@@ -189,6 +200,19 @@ export default function Navbar() {
       typeof window !== "undefined" ? localStorage.getItem("theme") : null;
     return saved === "light" || saved === "dark" ? saved : "light";
   });
+const [notifOpen, setNotifOpen] = useState(false);
+const notifBtnDesktopRef = useRef(null);
+const notifBtnMobileRef = useRef(null);
+useEffect(() => {
+  setNotifOpen(false);
+}, [location.pathname]);
+const [msgOpen, setMsgOpen] = useState(false);
+const msgBtnDesktopRef = useRef(null);
+const msgBtnMobileRef = useRef(null);
+
+useEffect(() => {
+  setMsgOpen(false);
+}, [location.pathname]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -1192,27 +1216,37 @@ export default function Navbar() {
           </NavLink>
 
           {me && (
-            <NavLink className={styles.iconWrapper} to="/notificari" title="Notificări" aria-label="Notificări">
-              <Bell size={22} />
-              {unreadNotif > 0 && (
-                <span className={styles.badge}>{Math.min(unreadNotif, 99)}</span>
-              )}
-            </NavLink>
-          )}
-
-          {me && (
-            <NavLink
-              className={styles.iconWrapper}
-              to={isVendor ? "/mesaje" : "/cont/mesaje"}
-              title="Mesaje"
-              aria-label="Mesaje"
-            >
-              <MessageSquare size={22} />
-              {unreadMsgs > 0 && (
-                <span className={styles.badge}>{Math.min(unreadMsgs, 99)}</span>
-              )}
-            </NavLink>
-          )}
+  <button
+    ref={notifBtnDesktopRef}
+    type="button"
+    className={styles.iconWrapper}
+    title="Notificări"
+    aria-label="Notificări"
+    aria-haspopup="dialog"
+    aria-expanded={notifOpen ? "true" : "false"}
+    onClick={() => setNotifOpen((v) => !v)}
+  >
+    <Bell size={22} />
+    {unreadNotif > 0 && (
+      <span className={styles.badge}>{Math.min(unreadNotif, 99)}</span>
+    )}
+  </button>
+)}
+{me && (
+  <button
+    ref={msgBtnDesktopRef}
+    type="button"
+    className={styles.iconWrapper}
+    title="Mesaje"
+    aria-label="Mesaje"
+    aria-haspopup="dialog"
+    aria-expanded={msgOpen ? "true" : "false"}
+    onClick={() => setMsgOpen((v) => !v)}
+  >
+    <MessageSquare size={22} />
+    {unreadMsgs > 0 && <span className={styles.badge}>{Math.min(unreadMsgs, 99)}</span>}
+  </button>
+)}
 
           {me && (
             <NavLink className={styles.iconWrapper} to="/wishlist" title="Lista de dorințe" aria-label="Lista de dorințe">
@@ -1275,10 +1309,7 @@ export default function Navbar() {
 
               <div className={styles.dropdownContent} style={{ padding: 10, minWidth: 240 }}>
                 <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
-                  <li>
-                    <NavLink to="/cont">{isVendor ? "Cont (mobil)" : "Contul meu"}</NavLink>
-                  </li>
-
+                 
                   {isVendor ? (
                     <>
                       <li><NavLink to="/vendor/orders">Comenzile mele</NavLink></li>
@@ -1288,7 +1319,6 @@ export default function Navbar() {
                   ) : (
                     <>
                       <li><NavLink to="/comenzile-mele">Comenzile mele</NavLink></li>
-                      <li><NavLink to="/facturi">Facturi</NavLink></li>
                       <li><NavLink to="/cont/setari">Setări</NavLink></li>
                     </>
                   )}
@@ -1324,32 +1354,41 @@ export default function Navbar() {
         <div className={styles.mobileSearchRow}>
           <div className={styles.mobileSearchLeft}>
             {me && (
-              <NavLink
-                className={styles.iconWrapper}
-                to={isVendor ? "/mesaje" : "/cont/mesaje"}
-                title="Mesaje"
-                aria-label="Mesaje"
-              >
-                <MessageSquare size={22} />
-                {unreadMsgs > 0 && (
-                  <span className={styles.badgeMini}>{Math.min(unreadMsgs, 99)}</span>
-                )}
-              </NavLink>
-            )}
+  <button
+    ref={msgBtnMobileRef}
+    type="button"
+    className={styles.iconWrapper}
+    title="Mesaje"
+    aria-label="Mesaje"
+    aria-haspopup="dialog"
+    aria-expanded={msgOpen ? "true" : "false"}
+    onClick={() => setMsgOpen((v) => !v)}
+  >
+    <MessageSquare size={22} />
+    {unreadMsgs > 0 && (
+      <span className={styles.badgeMini}>{Math.min(unreadMsgs, 99)}</span>
+    )}
+  </button>
+)}
 
-            {me && (
-              <NavLink
-                className={styles.iconWrapper}
-                to="/notificari"
-                title="Notificări"
-                aria-label="Notificări"
-              >
-                <Bell size={22} />
-                {unreadNotif > 0 && (
-                  <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
-                )}
-              </NavLink>
-            )}
+           {me && (
+  <button
+    ref={notifBtnMobileRef}
+    type="button"
+    className={styles.iconWrapper}
+    title="Notificări"
+    aria-label="Notificări"
+    aria-haspopup="dialog"
+    aria-expanded={notifOpen ? "true" : "false"}
+    onClick={() => setNotifOpen((v) => !v)}
+  >
+    <Bell size={22} />
+    {unreadNotif > 0 && (
+      <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
+    )}
+  </button>
+)}
+
           </div>
 
           <form
@@ -1581,6 +1620,25 @@ export default function Navbar() {
           setPartnerOpen(false);
         }}
       />
+      <NotificationsPopover
+  open={notifOpen}
+  onClose={() => setNotifOpen(false)}
+  me={me}
+  anchorRef={notifBtnDesktopRef.current ? notifBtnDesktopRef : notifBtnMobileRef}
+  navigate={navigate}
+  fullPageHref="/notificari"
+  limit={8}
+/>
+<MessagesPopover
+  open={msgOpen}
+  onClose={() => setMsgOpen(false)}
+  me={me}
+  anchorRef={msgBtnDesktopRef.current ? msgBtnDesktopRef : msgBtnMobileRef}
+  navigate={navigate}
+  fullPageHref={isVendor ? "/mesaje" : "/cont/mesaje"}
+  limit={8}
+/>
+
     </header>
   );
 }

@@ -40,56 +40,26 @@ const encodeCursor = (o) =>
     "utf8"
   ).toString("base64");
 
-/** GET /api/favorites/ids */
+/** GET /api/favorites/ids — paginat + cursor (super rapid) */
 router.get("/ids", authRequired, async (req, res) => {
-  try {
-    const favs = await prisma.favorite.findMany({
-      where: { userId: req.user.sub },
-      select: { productId: true },
-      orderBy: { createdAt: "desc" },
-    });
-    res.json({ items: favs.map((f) => f.productId) });
-  } catch (err) {
-    console.error("GET /api/favorites/ids FAILED:", err);
-    res.status(500).json({ error: "favorites_ids_failed" });
-  }
-});
-
-/** GET /api/favorites — pagina Wishlist, cu keyset pagination (createdAt, productId) */
-router.get("/", authRequired, async (req, res) => {
   try {
     const { limit, sort, cursor } = ListQuery.parse(req.query);
     const c = decodeCursor(cursor);
+    if (cursor && !c) return res.status(400).json({ error: "invalid_cursor" });
 
-    // ✅ dacă avem cursor dar nu-l putem decoda, răspundem 400
-    if (cursor && !c) {
-      return res.status(400).json({ error: "invalid_cursor" });
-    }
-
-    const where = { userId: req.user.sub };
+    const userId = req.user.sub;
+    const where = { userId };
 
     if (c?.createdAt && c?.productId) {
       if (sort === "newest") {
-        // sort desc -> luam strict mai mici
         where.OR = [
           { createdAt: { lt: c.createdAt } },
-          {
-            AND: [
-              { createdAt: c.createdAt },
-              { productId: { lt: c.productId } },
-            ],
-          },
+          { AND: [{ createdAt: c.createdAt }, { productId: { lt: c.productId } }] },
         ];
       } else {
-        // sort asc -> luam strict mai mari
         where.OR = [
           { createdAt: { gt: c.createdAt } },
-          {
-            AND: [
-              { createdAt: c.createdAt },
-              { productId: { gt: c.productId } },
-            ],
-          },
+          { AND: [{ createdAt: c.createdAt }, { productId: { gt: c.productId } }] },
         ];
       }
     }
@@ -99,52 +69,119 @@ router.get("/", authRequired, async (req, res) => {
         ? [{ createdAt: "asc" }, { productId: "asc" }]
         : [{ createdAt: "desc" }, { productId: "desc" }];
 
-    // facem count doar pentru prima pagină (fără cursor)
+    const rows = await prisma.favorite.findMany({
+      where,
+      take: limit + 1,
+      orderBy,
+      select: { productId: true, createdAt: true },
+    });
+
+    const page = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const last = page.at(-1);
+    const nextCursor = hasMore && last ? encodeCursor(last) : null;
+
+    res.json({
+      items: page, // [{productId, createdAt}]
+      nextCursor,
+      hasMore,
+    });
+  } catch (err) {
+    console.error("GET /api/favorites/ids FAILED:", err);
+    res.status(500).json({ error: "favorites_ids_failed" });
+  }
+});
+
+/** GET /api/favorites — FAST: 2 queries (favorites rows + products by ids) */
+router.get("/", authRequired, async (req, res) => {
+  try {
+    const { limit, sort, cursor } = ListQuery.parse(req.query);
+    const c = decodeCursor(cursor);
+
+    if (cursor && !c) {
+      return res.status(400).json({ error: "invalid_cursor" });
+    }
+
+    const userId = req.user.sub;
+
+    const where = { userId };
+
+    // cursor conditions (keyset)
+    if (c?.createdAt && c?.productId) {
+      if (sort === "newest") {
+        where.OR = [
+          { createdAt: { lt: c.createdAt } },
+          { AND: [{ createdAt: c.createdAt }, { productId: { lt: c.productId } }] },
+        ];
+      } else {
+        where.OR = [
+          { createdAt: { gt: c.createdAt } },
+          { AND: [{ createdAt: c.createdAt }, { productId: { gt: c.productId } }] },
+        ];
+      }
+    }
+
+    const orderBy =
+      sort === "oldest"
+        ? [{ createdAt: "asc" }, { productId: "asc" }]
+        : [{ createdAt: "desc" }, { productId: "desc" }];
+
     const doCount = !cursor;
 
+    // 1) favorites rows (super light)
     const [rows, totalCountRaw] = await Promise.all([
       prisma.favorite.findMany({
         where,
-        take: limit + 1, // overfetch pentru hasMore
+        take: limit + 1,
         orderBy,
-        include: {
-          product: {
-            select: {
-              id: true,
-              title: true,
-              priceCents: true,
-              currency: true,
-              images: true,
-              service: {
-                select: {
-                  vendorId: true,
-                  vendor: {
-                    select: { userId: true, displayName: true, id: true },
-                  },
-                  profile: { select: { slug: true, displayName: true } },
-                },
-              },
-              // dacă există în modelul tău:
-              // isActive: true,
-              // stock: true,
-            },
-          },
-        },
+        select: { productId: true, createdAt: true }, // 🔥 no include here
       }),
-      doCount
-        ? prisma.favorite.count({ where: { userId: req.user.sub } })
-        : Promise.resolve(null),
+      doCount ? prisma.favorite.count({ where: { userId } }) : Promise.resolve(null),
     ]);
 
     const page = rows.slice(0, limit);
     const hasMore = rows.length > limit;
 
+    const ids = page.map((r) => r.productId);
+    if (!ids.length) {
+      return res.json({
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+        totalCount: doCount ? totalCountRaw : undefined,
+      });
+    }
+
+    // 2) products by ids (minimal select)
+    const products = await prisma.product.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        title: true,
+        priceCents: true,
+        currency: true,
+        images: true,
+        isActive: true,
+        readyQty: true, // folosești ca stock (sau adaptezi)
+        service: {
+          select: {
+            vendorId: true,
+            profile: { select: { slug: true, displayName: true } },
+            vendor: { select: { displayName: true } },
+          },
+        },
+      },
+    });
+
+    // preserve order
+    const byId = new Map(products.map((p) => [p.id, p]));
+
     const items = page
-      .filter((r) => !!r.product)
       .map((r) => {
-        const p = r.product;
-        const price =
-          typeof p.priceCents === "number" ? p.priceCents / 100 : null;
+        const p = byId.get(r.productId);
+        if (!p) return null; // produs șters => îl ignori
+        const price = typeof p.priceCents === "number" ? p.priceCents / 100 : null;
+
         const vendorId = p?.service?.vendorId ?? null;
         const vendorName =
           p?.service?.profile?.displayName ??
@@ -160,28 +197,31 @@ router.get("/", authRequired, async (req, res) => {
             title: p.title || "Produs",
             price,
             currency: p.currency || "RON",
-            images: Array.isArray(p.images) ? p.images : [],
+            images: Array.isArray(p.images) ? p.images.slice(0, 1) : [], // 🔥 trimite doar prima imagine
             vendorId,
             vendorSlug,
             vendorName,
-            isActive: p?.isActive ?? true,
-            stock: p?.stock ?? undefined,
+            isActive: p.isActive ?? true,
+            stock: typeof p.readyQty === "number" ? p.readyQty : undefined, // adaptează la modelul tău
           },
         };
-      });
+      })
+      .filter(Boolean);
 
     const last = page.at(-1);
     const nextCursor = hasMore && last ? encodeCursor(last) : null;
-    const totalCount = doCount ? totalCountRaw : undefined;
 
-    res.json({ items, nextCursor, hasMore, totalCount });
+    res.json({
+      items,
+      nextCursor,
+      hasMore,
+      totalCount: doCount ? totalCountRaw : undefined,
+    });
   } catch (err) {
     console.error("GET /api/favorites FAILED:", err);
     res.status(500).json({
       error: "favorites_list_failed",
-      message:
-        err?.message ||
-        "Nu am putut încărca lista de favorite. Verifică logurile serverului.",
+      message: err?.message || "Nu am putut încărca lista de favorite.",
     });
   }
 });
@@ -227,12 +267,13 @@ router.post("/toggle", authRequired, async (req, res) => {
 router.post("/", authRequired, async (req, res) => {
   try {
     const { productId } = BodyToggle.parse(req.body || {});
-    const prod = await prisma.product.findUnique({
-      where: { id: productId },
-      include: {
-        service: { select: { vendor: { select: { userId: true } } } },
-      },
-    });
+  const prod = await prisma.product.findUnique({
+  where: { id: productId },
+  select: {
+    id: true,
+    service: { select: { vendor: { select: { userId: true } } } },
+  },
+});
     if (!prod) return res.status(404).json({ error: "product_not_found" });
 
     const ownerUserId = prod?.service?.vendor?.userId;

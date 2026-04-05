@@ -24,7 +24,9 @@ export async function getSessionUser(req) {
     null;
 
   const authHeader = req.headers.authorization || "";
-  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const bearerToken = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : null;
 
   const token = cookieToken || bearerToken;
   if (!token) return null;
@@ -70,14 +72,17 @@ function requireAuth() {
 
 async function ensureOwnTicketOrAdmin(user, ticketId) {
   if (user?.role === "ADMIN") return true;
+
   const t = await prisma.supportTicket.findFirst({
     where: {
       id: ticketId,
       requesterId: user.id,
-      audience: "USER", // ⬅️ doar tichete de tip USER
+      audience: "USER",
+      deletedAt: null, // ✅ nu permite acces la soft-deleted
     },
     select: { id: true },
   });
+
   return !!t;
 }
 
@@ -146,15 +151,24 @@ UserSupportRoutes.get("/me/tickets", requireAuth(), async (req, res) => {
     limit: req.query.limit ?? 20,
   });
   if (!parsed.success) {
-    return res.status(400).json({ error: "bad_request", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "bad_request", details: parsed.error.flatten() });
   }
   const { status, q, offset, limit } = parsed.data;
 
   const where = {
     requesterId: user.id,
-    audience: "USER", // ⬅️ doar tichete de tip USER
+    audience: "USER",
+    deletedAt: null, // ✅ exclude soft-deleted
+    archivedByRequesterAt: null, // ✅ exclude “șterse” de user (arhivate)
     ...(status !== "all" && {
-      status: status === "open" ? "OPEN" : status === "pending" ? "PENDING" : "CLOSED",
+      status:
+        status === "open"
+          ? "OPEN"
+          : status === "pending"
+          ? "PENDING"
+          : "CLOSED",
     }),
     ...(q && { subject: { contains: q, mode: "insensitive" } }),
   };
@@ -167,7 +181,13 @@ UserSupportRoutes.get("/me/tickets", requireAuth(), async (req, res) => {
         orderBy: [{ status: "asc" }, { lastMessageAt: "desc" }],
         skip: offset,
         take: limit,
-        select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+        select: {
+          id: true,
+          subject: true,
+          status: true,
+          priority: true,
+          updatedAt: true,
+        },
       }),
     ]);
 
@@ -186,25 +206,39 @@ UserSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
 
   const parsed = bodyCreateTicket.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "bad_request", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "bad_request", details: parsed.error.flatten() });
   }
   const { subject, category, priority, message, attachments } = parsed.data;
 
   try {
     const ticket = await prisma.$transaction(async (tx) => {
+      const now = new Date();
+
       // 1) Creează tichetul
       const createdTicket = await tx.supportTicket.create({
         data: {
           requesterId: user.id,
-          vendorId: null, // ⬅️ user normal, nu vendor
+          vendorId: null,
           audience: "USER",
           subject,
           category,
           priority: priority.toUpperCase(),
           status: "OPEN",
-          lastMessageAt: new Date(),
+          lastMessageAt: now,
+
+          // ✅ NEW: armăm “ciclul” pentru email la reply de admin
+          lastRequesterMessageAt: now,
+          notifyEmailOnAdminReply: true,
         },
-        select: { id: true, subject: true, status: true, priority: true, updatedAt: true },
+        select: {
+          id: true,
+          subject: true,
+          status: true,
+          priority: true,
+          updatedAt: true,
+        },
       });
 
       // 2) Mesajul inițial
@@ -217,17 +251,14 @@ UserSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
         select: { id: true },
       });
 
-      // 3) Atașamentele, dacă există
+      // 3) Atașamentele
       if (attachments && attachments.length) {
         await tx.supportAttachment.createMany({
           data: attachments.map((a, idx) => ({
             ticketId: createdTicket.id,
             messageId: msg.id,
             url: a.url,
-            filename:
-              a.name ??
-              a.filename ??
-              `attachment-${idx + 1}`,
+            filename: a.name ?? a.filename ?? `attachment-${idx + 1}`,
             mime: a.mimeType ?? a.mime ?? null,
             size: a.size ?? null,
           })),
@@ -239,7 +270,7 @@ UserSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
         data: {
           ticketId: createdTicket.id,
           userId: user.id,
-          lastReadAt: new Date(),
+          lastReadAt: now,
         },
       });
 
@@ -253,26 +284,34 @@ UserSupportRoutes.post("/tickets", requireAuth(), async (req, res) => {
   }
 });
 
-/** DELETE /api/support/tickets/:id  (owner/admin) */
+/**
+ * DELETE /api/support/tickets/:id
+ * ✅ “Ștergere” user = ARHIVARE (nu hard-delete)
+ */
 UserSupportRoutes.delete("/tickets/:id", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
   const parsedParams = paramsTicketId.safeParse(req.params);
-  if (!parsedParams.success) return res.status(400).json({ error: "bad_request" });
+  if (!parsedParams.success) {
+    return res.status(400).json({ error: "bad_request" });
+  }
   const { id } = parsedParams.data;
 
   const allowed = await ensureOwnTicketOrAdmin(user, id);
   if (!allowed) return res.status(404).json({ error: "not_found" });
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.supportAttachment.deleteMany({ where: { ticketId: id } });
-      await tx.supportRead.deleteMany({ where: { ticketId: id } });
-      await tx.supportMessage.deleteMany({ where: { ticketId: id } });
-      await tx.supportTicket.delete({ where: { id } });
+    await prisma.supportTicket.update({
+      where: { id },
+      data: {
+        archivedByRequesterAt: new Date(),
+        status: "CLOSED", // opțional, dar recomandat
+        updatedAt: new Date(),
+      },
     });
+
     res.json({ ok: true });
   } catch (e) {
-    console.error("user delete ticket error:", e);
+    console.error("user delete(ticket archive) error:", e);
     res.status(500).json({ error: "server_error" });
   }
 });
@@ -283,7 +322,9 @@ UserSupportRoutes.get("/tickets/:id/messages", requireAuth(), async (req, res) =
 
   const parsedParams = paramsTicketId.safeParse(req.params);
   const parsedQuery = qMessages.safeParse(req.query);
-  if (!parsedParams.success || !parsedQuery.success) return res.status(400).json({ error: "bad_request" });
+  if (!parsedParams.success || !parsedQuery.success) {
+    return res.status(400).json({ error: "bad_request" });
+  }
   const { id } = parsedParams.data;
   const { offset, limit } = parsedQuery.data;
 
@@ -341,16 +382,33 @@ UserSupportRoutes.post("/tickets/:id/messages", requireAuth(), async (req, res) 
   if (!parsedParams.success || !parsedBody.success) {
     return res.status(400).json({ error: "bad_request" });
   }
+
   const { id } = parsedParams.data;
   const { body, attachments } = parsedBody.data;
 
   const allowed = await ensureOwnTicketOrAdmin(user, id);
   if (!allowed) return res.status(404).json({ error: "not_found" });
 
+  // ✅ blochează scrisul pe tichete arhivate de user
+  const ticket = await prisma.supportTicket.findUnique({
+    where: { id },
+    select: { id: true, archivedByRequesterAt: true, deletedAt: true },
+  });
+  if (!ticket || ticket.deletedAt) return res.status(404).json({ error: "not_found" });
+  if (ticket.archivedByRequesterAt) {
+    return res.status(409).json({ error: "ticket_archived" });
+  }
+
   try {
     await prisma.$transaction(async (tx) => {
+      const now = new Date();
+
       const msg = await tx.supportMessage.create({
-        data: { ticketId: id, authorId: user.id, body: (body || "").trim() || "(fișier)" },
+        data: {
+          ticketId: id,
+          authorId: user.id,
+          body: (body || "").trim() || "(fișier)",
+        },
         select: { id: true },
       });
 
@@ -360,25 +418,29 @@ UserSupportRoutes.post("/tickets/:id/messages", requireAuth(), async (req, res) 
             ticketId: id,
             messageId: msg.id,
             url: a.url,
-            filename:
-              a.name ??
-              a.filename ??
-              `attachment-${idx + 1}`,
+            filename: a.name ?? a.filename ?? `attachment-${idx + 1}`,
             mime: a.mimeType ?? a.mime ?? null,
             size: a.size ?? null,
           })),
         });
       }
 
+      // când user scrie, tichetul rămâne “în lucru”
+      // ✅ NEW: lastRequesterMessageAt = now (armează email la răspuns admin)
       await tx.supportTicket.update({
         where: { id },
-        data: { lastMessageAt: new Date(), updatedAt: new Date(), status: "PENDING" },
+        data: {
+          lastMessageAt: now,
+          updatedAt: now,
+          status: "PENDING",
+          lastRequesterMessageAt: now,
+        },
       });
 
       await tx.supportRead.upsert({
         where: { ticketId_userId: { ticketId: id, userId: user.id } },
-        update: { lastReadAt: new Date() },
-        create: { ticketId: id, userId: user.id, lastReadAt: new Date() },
+        update: { lastReadAt: now },
+        create: { ticketId: id, userId: user.id, lastReadAt: now },
       });
     });
 
@@ -416,6 +478,7 @@ UserSupportRoutes.patch("/messages/:mid", requireAuth(), async (req, res) => {
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     });
+
     await prisma.supportTicket.update({
       where: { id: updated.ticketId },
       data: { lastMessageAt: last?.createdAt ?? new Date(), updatedAt: new Date() },
@@ -433,7 +496,9 @@ UserSupportRoutes.delete("/messages/:mid", requireAuth(), async (req, res) => {
   const user = req.sessionUser;
 
   const parsedParams = paramsMessageId.safeParse(req.params);
-  if (!parsedParams.success) return res.status(400).json({ error: "bad_request" });
+  if (!parsedParams.success) {
+    return res.status(400).json({ error: "bad_request" });
+  }
   const { mid } = parsedParams.data;
 
   const allowed = await ensureOwnMessageOrAdmin(user, mid);
@@ -474,7 +539,9 @@ UserSupportRoutes.patch("/tickets/:id/read", requireAuth(), async (req, res) => 
   const user = req.sessionUser;
 
   const parsedParams = paramsTicketId.safeParse(req.params);
-  if (!parsedParams.success) return res.status(400).json({ error: "bad_request" });
+  if (!parsedParams.success) {
+    return res.status(400).json({ error: "bad_request" });
+  }
   const { id } = parsedParams.data;
 
   const allowed = await ensureOwnTicketOrAdmin(user, id);
@@ -496,13 +563,15 @@ UserSupportRoutes.patch("/tickets/:id/read", requireAuth(), async (req, res) => 
 
 /** GET /api/support/unread-count */
 UserSupportRoutes.get("/unread-count", requireAuth(), async (req, res) => {
-  const user = req.sessionUser; // <-- userul autenticat (id, role)
+  const user = req.sessionUser;
 
   try {
     const tickets = await prisma.supportTicket.findMany({
       where: {
         audience: "USER",
-        requesterId: user.id, // tichete deținute de acest user
+        requesterId: user.id,
+        deletedAt: null,
+        archivedByRequesterAt: null,
       },
       select: {
         id: true,

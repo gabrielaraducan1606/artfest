@@ -37,8 +37,9 @@ export function sseBroadcastToVendor(vendorId, event, data) {
     try {
       sseSend(res, event, data);
     } catch {
-      // ✅ curățăm conexiunile moarte
-      try { res.end?.(); } catch {}
+      try {
+        res.end?.();
+      } catch {}
       set.delete(res);
     }
   }
@@ -55,7 +56,6 @@ function generateOrderNumber() {
   return `AF-${t}-${r}`.slice(0, 32);
 }
 
-// ia planul activ al vendorului; fallback la starter (dacă există în DB)
 async function getActivePlanForVendor(vendorId) {
   const now = new Date();
 
@@ -71,16 +71,16 @@ async function getActivePlanForVendor(vendorId) {
 
   if (sub?.plan) return sub.plan;
 
-  // fallback la starter dacă există
   const starter = await prisma.subscriptionPlan.findUnique({
     where: { code: "starter" },
   });
 
   return starter ?? { code: "starter", name: "Starter", commissionBps: 0 };
 }
-// ----------------------------------------------------
-// ✅ Ledger helpers (earnings)
-// ----------------------------------------------------
+
+/* ----------------------------------------------------
+   ✅ Ledger helpers (earnings)
+----------------------------------------------------- */
 function round2(n) {
   return Number.parseFloat(Number(n || 0).toFixed(2));
 }
@@ -91,7 +91,7 @@ function round2(n) {
  * - comision pe itemsNet (bps din plan)
  * - vendorNet = itemsNet - commissionNet
  *
- * Notă: shipping NU intră în earning vendor (ai spus "shipping e plătit direct curierului").
+ * Notă: shipping NU intră în earning vendor.
  */
 async function computeVendorEarningForShipment({ vendorId, shipmentId }) {
   const shipment = await prisma.shipment.findUnique({
@@ -130,14 +130,13 @@ async function computeVendorEarningForShipment({ vendorId, shipmentId }) {
     commissionBps,
   };
 }
+
 async function ensureSaleLedgerEntry({ vendorId, shipmentId }) {
-  // idempotent: avem @@unique([shipmentId]) în model (ai pus @unique)
-  // folosim upsert ca să nu dublăm
   const earning = await computeVendorEarningForShipment({ vendorId, shipmentId });
 
   return prisma.vendorEarningEntry.upsert({
-    where: { shipmentId }, // trebuie să fie @unique în Prisma
-    update: {}, // nu recalculăm retroactiv; ajustări se fac cu ADJUSTMENT
+    where: { shipmentId },
+    update: {},
     create: {
       vendorId,
       shipmentId,
@@ -159,7 +158,6 @@ async function ensureSaleLedgerEntry({ vendorId, shipmentId }) {
 }
 
 async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
-  // REFUND doar dacă există SALE pe shipment
   const sale = await prisma.vendorEarningEntry.findUnique({
     where: { shipmentId },
   });
@@ -167,29 +165,28 @@ async function ensureRefundLedgerEntry({ vendorId, shipmentId }) {
 
   let existingRefund = null;
 
-if (isPostgres) {
-  existingRefund = await prisma.vendorEarningEntry.findFirst({
-    where: {
-      vendorId,
-      type: "REFUND",
-      meta: { path: ["refShipmentId"], equals: shipmentId },
-    },
-  });
-} else {
-  const lastRefunds = await prisma.vendorEarningEntry.findMany({
-    where: { vendorId, type: "REFUND" },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    select: { id: true, meta: true },
-  });
+  if (isPostgres) {
+    existingRefund = await prisma.vendorEarningEntry.findFirst({
+      where: {
+        vendorId,
+        type: "REFUND",
+        meta: { path: ["refShipmentId"], equals: shipmentId },
+      },
+    });
+  } else {
+    const lastRefunds = await prisma.vendorEarningEntry.findMany({
+      where: { vendorId, type: "REFUND" },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { id: true, meta: true },
+    });
 
-  existingRefund =
-    lastRefunds.find((r) => r?.meta?.refShipmentId === shipmentId) || null;
-}
+    existingRefund =
+      lastRefunds.find((r) => r?.meta?.refShipmentId === shipmentId) || null;
+  }
 
-if (existingRefund) return existingRefund;
+  if (existingRefund) return existingRefund;
 
-  // creați intrare negativă (fără shipmentId ca să nu lovești unique)
   return prisma.vendorEarningEntry.create({
     data: {
       vendorId,
@@ -198,9 +195,10 @@ if (existingRefund) return existingRefund;
       type: "REFUND",
       occurredAt: new Date(),
       currency: sale.currency,
-      // Decimal Prisma suportă mul; dacă nu, fallback numeric
       itemsNet: sale.itemsNet?.mul ? sale.itemsNet.mul(-1) : -Number(sale.itemsNet || 0),
-      commissionNet: sale.commissionNet?.mul ? sale.commissionNet.mul(-1) : -Number(sale.commissionNet || 0),
+      commissionNet: sale.commissionNet?.mul
+        ? sale.commissionNet.mul(-1)
+        : -Number(sale.commissionNet || 0),
       vendorNet: sale.vendorNet?.mul ? sale.vendorNet.mul(-1) : -Number(sale.vendorNet || 0),
       meta: { refShipmentId: shipmentId, source: "shipment_status_returned" },
     },
@@ -210,11 +208,10 @@ if (existingRefund) return existingRefund;
 const dec = (n) => Number.parseFloat(Number(n || 0).toFixed(2));
 
 /* ----------------------------------------------------
-   ✅ LOCK: după ce vendor cere curier -> până la AWB
+   ✅ LOCK: dezactivat temporar pentru lansare fără curier/AWB
 ----------------------------------------------------- */
-function isAwaitingAwbLock(shipment) {
-  // când ai programat pickup (pickupScheduledAt) dar nu ai încă AWB
-  return !!shipment?.pickupScheduledAt && !shipment?.awb;
+function isAwaitingAwbLock(_shipment) {
+  return false;
 }
 
 function lock409(res) {
@@ -226,10 +223,10 @@ function lock409(res) {
 }
 
 /* ----------------------------------------------------
-   Tiny cache (TTL) pentru listă (reduce load, “instant feel”)
+   Tiny cache (TTL) pentru listă
 ----------------------------------------------------- */
-const ORDERS_CACHE_TTL_MS = 3000; // 3 sec
-const ordersCache = new Map(); // key -> { ts, payload }
+const ORDERS_CACHE_TTL_MS = 3000;
+const ordersCache = new Map();
 
 function cacheGet(key) {
   const v = ordersCache.get(key);
@@ -242,7 +239,6 @@ function cacheGet(key) {
 }
 
 function cacheSet(key, payload) {
-  // prevenim creștere nelimitată
   if (ordersCache.size > 500) ordersCache.clear();
   ordersCache.set(key, { ts: Date.now(), payload });
 }
@@ -278,9 +274,7 @@ router.use(async (req, _res, next) => {
         vendorId: user.vendor?.id || null,
       };
     }
-  } catch {
-    /* ignorăm erorile */
-  }
+  } catch {}
 
   next();
 });
@@ -289,7 +283,6 @@ router.use(async (req, _res, next) => {
    Guard VENDOR
 ----------------------------------------------------- */
 function requireVendor(req, res, next) {
-  // dev bypass
   if (
     !req.user &&
     process.env.NODE_ENV !== "production" &&
@@ -324,38 +317,28 @@ function uiToShipmentStatus(ui) {
   }
 }
 
-
 function shipmentToUiStatus(st) {
   switch (st) {
     case "PENDING":
       return "new";
     case "PREPARING":
       return "preparing";
-
-    // ✅ gata de predare / pickup cerut / AWB emis
     case "READY_FOR_PICKUP":
     case "PICKUP_SCHEDULED":
     case "AWB":
       return "confirmed";
-
-    // ✅ predată curierului
     case "IN_TRANSIT":
       return "fulfilled";
-
-    // ✅ livrată (tot în “fulfilled” la vendor)
     case "DELIVERED":
       return "fulfilled";
-
     case "REFUSED":
     case "RETURNED":
       return "cancelled";
-
     default:
       return "new";
   }
 }
 
-// ✅ User UI mapping (PENDING / PROCESSING / SHIPPED / DELIVERED / CANCELED / RETURNED)
 function shipmentToUserUiStatus(st) {
   if (st === "DELIVERED") return "DELIVERED";
   if (st === "RETURNED") return "RETURNED";
@@ -367,7 +350,7 @@ function shipmentToUserUiStatus(st) {
 }
 
 /* ----------------------------------------------------
-   🎫 Zod schema pentru facturi (InvoiceModal)
+   🎫 Zod schema pentru facturi
 ----------------------------------------------------- */
 const InvoiceLineInput = z.object({
   description: z.string().min(1),
@@ -423,7 +406,6 @@ const ManualOrderInput = z.object({
   vendorNotes: z.string().optional(),
 });
 
-/* helper pentru număr factură */
 async function getNextInvoiceNumber(vendorId) {
   const year = new Date().getFullYear();
   const prefix = `AF-${year}-`;
@@ -467,8 +449,6 @@ async function findShipmentByOrderRef({ vendorId, orderRef, include, select }) {
 
 /* ----------------------------------------------------
    Helper: unread meta per orderId
-   - Postgres: 1 query (rapid)
-   - fallback: Promise.all counts (concurent)
 ----------------------------------------------------- */
 async function getThreadMetaByOrderId({ vendorId, orderIds }) {
   if (!orderIds?.length) return new Map();
@@ -552,26 +532,25 @@ router.get("/orders", requireVendor, async (req, res) => {
     Math.max(1, parseInt(req.query.pageSize || "20", 10))
   );
 
-  const cacheKey = `v:${vendorId}|q:${q}|st:${statusUi}|f:${from ? from.toISOString() : ""}|t:${
-    to ? to.toISOString() : ""
-  }|p:${page}|ps:${pageSize}`;
+  const cacheKey = `v:${vendorId}|q:${q}|st:${statusUi}|f:${
+    from ? from.toISOString() : ""
+  }|t:${to ? to.toISOString() : ""}|p:${page}|ps:${pageSize}`;
 
   const cached = cacheGet(cacheKey);
   if (cached) return res.json(cached);
 
   const where = {
-  vendorId,
-...(statusUi === "confirmed"
-  ? { status: { in: ["READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB"] } }
-  : statusUi === "fulfilled"
-  ? { status: { in: ["IN_TRANSIT", "DELIVERED"] } }
-  : statusUi === "cancelled"
-  ? { status: { in: ["RETURNED", "REFUSED"] } }
-  : statusUi
-  ? { status: uiToShipmentStatus(statusUi) }
-  : {}),
-
-};
+    vendorId,
+    ...(statusUi === "confirmed"
+      ? { status: { in: ["READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB"] } }
+      : statusUi === "fulfilled"
+      ? { status: { in: ["IN_TRANSIT", "DELIVERED"] } }
+      : statusUi === "cancelled"
+      ? { status: { in: ["RETURNED", "REFUSED"] } }
+      : statusUi
+      ? { status: uiToShipmentStatus(statusUi) }
+      : {}),
+  };
 
   if (q) {
     where.OR = [
@@ -592,23 +571,18 @@ router.get("/orders", requireVendor, async (req, res) => {
         createdAt: true,
         status: true,
         price: true,
-
-        // curier
         courierProvider: true,
         courierService: true,
         awb: true,
         labelUrl: true,
-
         pickupDate: true,
         pickupSlotStart: true,
         pickupSlotEnd: true,
-        pickupScheduledAt: true, // ✅ ADD (pt lock)
-deliveredAt: true,
-refusedAt: true,
-returnedAt: true,
-
+        pickupScheduledAt: true,
+        deliveredAt: true,
+        refusedAt: true,
+        returnedAt: true,
         items: { select: { qty: true, price: true } },
-
         order: {
           select: {
             orderNumber: true,
@@ -640,38 +614,29 @@ returnedAt: true,
       orderNumber: o.orderNumber || null,
       shortId: String(s.id).slice(-6).toUpperCase(),
       createdAt: s.createdAt,
-
       customerName: addr.name || "",
       customerPhone: addr.phone || "",
       customerEmail: addr.email || "",
       address: addr,
-
       status: shipmentToUiStatus(s.status),
       total: shipmentTotal,
-
       shipmentId: s.id,
       shipmentStatus: s.status,
-
       courierProvider: s.courierProvider || null,
       courierService: s.courierService || null,
-
       awb: s.awb,
       labelUrl: s.labelUrl,
-
-      pickupScheduledAt: s.pickupScheduledAt, // ✅ ADD (pt lock)
+      pickupScheduledAt: s.pickupScheduledAt,
       pickupDate: s.pickupDate,
       pickupSlotStart: s.pickupSlotStart,
       pickupSlotEnd: s.pickupSlotEnd,
-deliveredAt: s.deliveredAt || null,
-refusedAt: s.refusedAt || null,
-returnedAt: s.returnedAt || null,
-
+      deliveredAt: s.deliveredAt || null,
+      refusedAt: s.refusedAt || null,
+      returnedAt: s.returnedAt || null,
       vendorNotes: o.vendorNotes || "",
       paymentMethod: o.paymentMethod || null,
-
       invoiceNumber: o.invoiceNumber || null,
       invoiceDate: o.invoiceDate || null,
-
       messageThreadId: null,
       messageUnreadCount: 0,
     };
@@ -696,7 +661,6 @@ returnedAt: s.returnedAt || null,
   cacheSet(cacheKey, payload);
   res.json(payload);
 });
-// ✅ pune asta imediat după GET /orders (lista), înainte de GET /orders/:id
 
 router.get("/orders/stream", requireVendor, (req, res) => {
   const vendorId = req.user.vendorId;
@@ -705,13 +669,11 @@ router.get("/orders/stream", requireVendor, (req, res) => {
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no"); // nginx: disable buffering
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  // force open stream
   res.write(`: connected\n\n`);
 
-  // keep alive ping
   const ping = setInterval(() => {
     try {
       res.write(`event: ping\ndata: {}\n\n`);
@@ -721,7 +683,6 @@ router.get("/orders/stream", requireVendor, (req, res) => {
   if (!vendorSubscribers.has(vendorId)) vendorSubscribers.set(vendorId, new Set());
   vendorSubscribers.get(vendorId).add(res);
 
-  // send ready
   sseSend(res, "ready", { ok: true });
 
   req.on("close", () => {
@@ -834,11 +795,9 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
     orderNumber: o.orderNumber || null,
     shortId: s.id.slice(-6).toUpperCase(),
     createdAt: o.createdAt,
-
     subtotal: shipmentSubtotal,
     shippingTotal: shipmentShipping,
     total: shipmentTotal,
-
     priceBreakdown: {
       vatRate,
       vatStatus,
@@ -846,7 +805,6 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
       total: totalBreakdown,
       vendorFinancials,
     },
-
     status: shipmentToUiStatus(s.status),
     statusLabel: {
       new: "Nouă",
@@ -855,20 +813,16 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
       fulfilled: "Finalizată",
       cancelled: "Anulată",
     }[shipmentToUiStatus(s.status)],
-
     shippingAddress: addr,
     customerType,
-
     items: s.items.map((it) => ({
       id: it.id,
       title: it.title,
       qty: it.qty,
       price: it.price,
     })),
-
     vendorNotes: o.vendorNotes || "",
     paymentMethod: o.paymentMethod || null,
-
     shipment: {
       id: s.id,
       courierProvider: s.courierProvider,
@@ -876,15 +830,13 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
       awb: s.awb,
       labelUrl: s.labelUrl,
       trackingUrl: s.trackingUrl,
-
-      pickupScheduledAt: s.pickupScheduledAt, // ✅ ADD (pt lock)
+      pickupScheduledAt: s.pickupScheduledAt,
       pickupDate: s.pickupDate,
       pickupSlotStart: s.pickupSlotStart,
       pickupSlotEnd: s.pickupSlotEnd,
-deliveredAt: s.deliveredAt || null,
-refusedAt: s.refusedAt || null,
-returnedAt: s.returnedAt || null,
-
+      deliveredAt: s.deliveredAt || null,
+      refusedAt: s.refusedAt || null,
+      returnedAt: s.returnedAt || null,
       parcels: s.parcels,
       weightKg: s.weightKg,
       lengthCm: s.lengthCm,
@@ -892,10 +844,8 @@ returnedAt: s.returnedAt || null,
       heightCm: s.heightCm,
       consents: s.consents,
     },
-
     invoiceNumber: o.invoiceNumber || null,
     invoiceDate: o.invoiceDate || null,
-
     messageThreads,
   });
 });
@@ -909,32 +859,28 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
 
   const nextUi = String(req.body?.status || "");
 
-let next = null;
-switch (nextUi) {
-  case "new":
-    next = "PENDING";
-    break;
-  case "preparing":
-    next = "PREPARING";
-    break;
-  case "confirmed":
-    // vendor confirmă că e gata de predare
-    next = "READY_FOR_PICKUP";
-    break;
-  case "fulfilled":
-  next = "IN_TRANSIT"; // predată curierului
-  break;
+  let next = null;
+  switch (nextUi) {
+    case "new":
+      next = "PENDING";
+      break;
+    case "preparing":
+      next = "PREPARING";
+      break;
+    case "confirmed":
+      next = "READY_FOR_PICKUP";
+      break;
+    case "fulfilled":
+      next = "DELIVERED";
+      break;
+    case "cancelled":
+      next = "REFUSED";
+      break;
+    default:
+      next = null;
+  }
 
- case "cancelled":
-  // vendor anulează (nu e retur real) => REFUSED
-  next = "REFUSED";
-  break;
-  default:
-    next = null;
-}
-
-if (!next) return res.status(400).json({ error: "bad_status" });
-
+  if (!next) return res.status(400).json({ error: "bad_status" });
 
   const cancelReason = req.body?.cancelReason || null;
   const cancelReasonNote = req.body?.cancelReasonNote || null;
@@ -946,58 +892,45 @@ if (!next) return res.status(400).json({ error: "bad_status" });
   });
   if (!s) return res.status(404).json({ error: "not_found" });
 
-  // ✅ LOCK: pickup cerut dar încă nu există AWB
   if (isAwaitingAwbLock(s)) {
     return lock409(res);
   }
 
-  // ✅ REGULĂ: nu permite "fulfilled" fără AWB
-  // (ca să fie consistent cu UI: butonul e dezactivat până apare AWB)
-  if (nextUi === "fulfilled" && !s.awb) {
-    return res.status(409).json({
-      error: "AWB_REQUIRED_TO_FULFILL",
-      message:
-        "Nu poți marca comanda ca finalizată până nu există AWB. Așteaptă AWB-ul de la admin.",
-    });
-  }
-
- const updatedShipment = await prisma.shipment.update({
-  where: { id: s.id },
-  data: { status: next },
-  include: { order: true },
-});
-if (nextUi === "cancelled") {
-  const all = await prisma.shipment.findMany({
-    where: { orderId: updatedShipment.orderId },
-    select: { status: true },
+  const updatedShipment = await prisma.shipment.update({
+    where: { id: s.id },
+    data: { status: next },
+    include: { order: true },
   });
 
-  const allCancelled = all.every((x) =>
-    ["REFUSED", "RETURNED"].includes(x.status)
-  );
-
-  if (allCancelled) {
-    await prisma.order.update({
-      where: { id: updatedShipment.orderId },
-      data: { status: "CANCELLED" },
+  if (nextUi === "cancelled") {
+    const all = await prisma.shipment.findMany({
+      where: { orderId: updatedShipment.orderId },
+      select: { status: true },
     });
+
+    const allCancelled = all.every((x) =>
+      ["REFUSED", "RETURNED"].includes(x.status)
+    );
+
+    if (allCancelled) {
+      await prisma.order.update({
+        where: { id: updatedShipment.orderId },
+        data: { status: "CANCELLED" },
+      });
+    }
   }
-}
 
-// ----------------------------------------------------
-// ✅ Ledger: SALE la fulfilled, REFUND la cancelled (RETURNED)
-// ----------------------------------------------------
-try {
-  if (updatedShipment.status === "DELIVERED") {
-   await ensureSaleLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
- }
+  try {
+    if (updatedShipment.status === "DELIVERED") {
+      await ensureSaleLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
+    }
 
-if (updatedShipment.status === "REFUSED" || updatedShipment.status === "RETURNED") {
-   await ensureRefundLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
- }
-} catch (e) {
-  console.error("Ledger update failed:", e);
-}
+    if (updatedShipment.status === "REFUSED" || updatedShipment.status === "RETURNED") {
+      await ensureRefundLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
+    }
+  } catch (e) {
+    console.error("Ledger update failed:", e);
+  }
 
   if (nextUi === "cancelled") {
     try {
@@ -1023,8 +956,7 @@ if (updatedShipment.status === "REFUSED" || updatedShipment.status === "RETURNED
     const o = s.order;
     if (o?.userId) {
       const userUiStatus = shipmentToUserUiStatus(updatedShipment.status);
-await notifyUserOnOrderStatusChange(o.id, userUiStatus);
-
+      await notifyUserOnOrderStatusChange(o.id, userUiStatus);
     }
   } catch (e) {
     console.error("notifyUserOnOrderStatusChange failed:", e);
@@ -1051,7 +983,6 @@ router.patch("/orders/:id/notes", requireVendor, async (req, res) => {
 
   if (!s) return res.status(404).json({ error: "not_found" });
 
-  // ✅ LOCK
   if (isAwaitingAwbLock(s)) {
     return lock409(res);
   }
@@ -1068,111 +999,104 @@ router.patch("/orders/:id/notes", requireVendor, async (req, res) => {
 /* ----------------------------------------------------
    POST /api/vendor/shipments/:id/schedule-pickup
 ----------------------------------------------------- */
-router.post(
-  "/shipments/:id/schedule-pickup",
-  requireVendor,
-  async (req, res) => {
-    const vendorId = req.user.vendorId;
-    const id = String(req.params.id);
+router.post("/shipments/:id/schedule-pickup", requireVendor, async (req, res) => {
+  const vendorId = req.user.vendorId;
+  const id = String(req.params.id);
 
-    const { consents = {}, pickup = {}, dimensions = {} } = req.body || {};
+  const { consents = {}, pickup = {}, dimensions = {} } = req.body || {};
 
-    const s = await prisma.shipment.findFirst({
-      where: { id, vendorId },
-      include: { order: true },
-    });
+  const s = await prisma.shipment.findFirst({
+    where: { id, vendorId },
+    include: { order: true },
+  });
 
-    if (!s) return res.status(404).json({ error: "not_found" });
+  if (!s) return res.status(404).json({ error: "not_found" });
 
-    const policy = await prisma.vendorPolicy.findFirst({
-      where: { document: "SHIPPING_ADDENDUM", isActive: true },
-    });
+  const policy = await prisma.vendorPolicy.findFirst({
+    where: { document: "SHIPPING_ADDENDUM", isActive: true },
+  });
 
-    if (policy) {
-      const ok = await prisma.vendorAcceptance.findFirst({
-        where: {
-          vendorId,
-          document: "SHIPPING_ADDENDUM",
-          version: policy.version,
-        },
-      });
-
-      if (!ok) {
-        return res.status(412).json({
-          error: "policy_not_accepted",
-          policy: { version: policy.version, url: policy.url },
-        });
-      }
-    }
-
-    const now = new Date();
-    const pickupDate = new Date(now);
-    if (pickup.day === "tomorrow") pickupDate.setDate(pickupDate.getDate() + 1);
-
-    const [startH, endH] = String(pickup.slot || "14-18")
-      .split("-")
-      .map((n) => parseInt(n, 10));
-
-    const slotStart = new Date(pickupDate);
-    slotStart.setHours(startH || 14, 0, 0, 0);
-
-    const slotEnd = new Date(pickupDate);
-    slotEnd.setHours(endH || 18, 0, 0, 0);
-
-    const updated = await prisma.shipment.update({
-      where: { id },
-      data: {
-        status: "PICKUP_SCHEDULED",
-        consents,
-        parcels: Number(dimensions.parcels || 1),
-        weightKg: Number(dimensions.weightKg || 1),
-        lengthCm: Number(dimensions.l || 0),
-        widthCm: Number(dimensions.w || 0),
-        heightCm: Number(dimensions.h || 0),
-
-        pickupDate,
-        pickupSlotStart: slotStart,
-        pickupSlotEnd: slotEnd,
-        pickupScheduledAt: now,
-
-        // NU mai reseta awb/label/tracking aici
+  if (policy) {
+    const ok = await prisma.vendorAcceptance.findFirst({
+      where: {
+        vendorId,
+        document: "SHIPPING_ADDENDUM",
+        version: policy.version,
       },
-      include: { order: true },
     });
-// 🔴 notify vendor UI instantly (pickup scheduled + lock starts)
-sseBroadcastToVendor(vendorId, "pickup_scheduled", {
-  orderId: updated.orderId,
-  shipmentId: updated.id,
-  pickupScheduledAt: updated.pickupScheduledAt,
-  pickupDate: updated.pickupDate,
-  pickupSlotStart: updated.pickupSlotStart,
-  pickupSlotEnd: updated.pickupSlotEnd,
-  status: "confirmed", // UI status (confirmed)
-});
 
-    const o = updated.order;
-    const etaLabel = pickup.day === "today" ? "azi" : "mâine";
-    const slotLabel = pickup.slot || "14-18";
-
-    try {
-      if (o?.id && o.userId) {
-        await notifyUserOnShipmentPickupScheduled(o.id, updated.id);
-      }
-    } catch (e) {
-      console.error("notifyUserOnShipmentPickupScheduled failed:", e);
+    if (!ok) {
+      return res.status(412).json({
+        error: "policy_not_accepted",
+        policy: { version: policy.version, url: policy.url },
+      });
     }
-
-    ordersCache.clear();
-
-    res.json({
-      ok: true,
-      shipmentId: updated.id,
-      status: updated.status,
-      eta: etaLabel,
-      slot: slotLabel,
-    });
   }
-);
+
+  const now = new Date();
+  const pickupDate = new Date(now);
+  if (pickup.day === "tomorrow") pickupDate.setDate(pickupDate.getDate() + 1);
+
+  const [startH, endH] = String(pickup.slot || "14-18")
+    .split("-")
+    .map((n) => parseInt(n, 10));
+
+  const slotStart = new Date(pickupDate);
+  slotStart.setHours(startH || 14, 0, 0, 0);
+
+  const slotEnd = new Date(pickupDate);
+  slotEnd.setHours(endH || 18, 0, 0, 0);
+
+  const updated = await prisma.shipment.update({
+    where: { id },
+    data: {
+      status: "PICKUP_SCHEDULED",
+      consents,
+      parcels: Number(dimensions.parcels || 1),
+      weightKg: Number(dimensions.weightKg || 1),
+      lengthCm: Number(dimensions.l || 0),
+      widthCm: Number(dimensions.w || 0),
+      heightCm: Number(dimensions.h || 0),
+      pickupDate,
+      pickupSlotStart: slotStart,
+      pickupSlotEnd: slotEnd,
+      pickupScheduledAt: now,
+    },
+    include: { order: true },
+  });
+
+  sseBroadcastToVendor(vendorId, "pickup_scheduled", {
+    orderId: updated.orderId,
+    shipmentId: updated.id,
+    pickupScheduledAt: updated.pickupScheduledAt,
+    pickupDate: updated.pickupDate,
+    pickupSlotStart: updated.pickupSlotStart,
+    pickupSlotEnd: updated.pickupSlotEnd,
+    status: "confirmed",
+  });
+
+  const o = updated.order;
+  const etaLabel = pickup.day === "today" ? "azi" : "mâine";
+  const slotLabel = pickup.slot || "14-18";
+
+  try {
+    if (o?.id && o.userId) {
+      await notifyUserOnShipmentPickupScheduled(o.id, updated.id);
+    }
+  } catch (e) {
+    console.error("notifyUserOnShipmentPickupScheduled failed:", e);
+  }
+
+  ordersCache.clear();
+
+  res.json({
+    ok: true,
+    shipmentId: updated.id,
+    status: updated.status,
+    eta: etaLabel,
+    slot: slotLabel,
+  });
+});
 
 /* ----------------------------------------------------
    GET label redirect
@@ -1230,7 +1154,6 @@ router.post("/orders/:id/thread", requireVendor, async (req, res) => {
 
 /* ----------------------------------------------------
    🧾 GET /api/vendor/orders/:id/invoice
-   (NEBLOCAT — doar citire)
 ----------------------------------------------------- */
 router.get("/orders/:id/invoice", requireVendor, async (req, res) => {
   try {
@@ -1381,7 +1304,6 @@ router.get("/orders/:id/invoice", requireVendor, async (req, res) => {
 
 /* ----------------------------------------------------
    🧾 POST /api/vendor/orders/:id/invoice
-   (BLOCAT când awaiting AWB)
 ----------------------------------------------------- */
 router.post("/orders/:id/invoice", requireVendor, async (req, res) => {
   try {
@@ -1400,7 +1322,6 @@ router.post("/orders/:id/invoice", requireVendor, async (req, res) => {
       return res.status(404).json({ error: "order_not_found_for_vendor" });
     }
 
-    // ✅ LOCK
     if (isAwaitingAwbLock(shipment)) {
       return lock409(res);
     }
@@ -1522,9 +1443,7 @@ router.post("/orders/:id/invoice", requireVendor, async (req, res) => {
           invoiceDate: saved.issueDate,
         },
       });
-    } catch {
-      // ok
-    }
+    } catch {}
 
     try {
       if (order.userId) {

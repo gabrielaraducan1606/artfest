@@ -72,7 +72,23 @@ function groupByDate(items = []) {
 
 /* ==== UI mici: status & priority ==== */
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, archivedByRequesterAt, deletedAt }) {
+  // ✅ priority: show deleted/archived badges over normal status
+  if (deletedAt) {
+    return (
+      <span className={`${styles.badge} ${styles.closed}`}>
+        ● Șters (admin)
+      </span>
+    );
+  }
+  if (archivedByRequesterAt) {
+    return (
+      <span className={`${styles.badge} ${styles.pending}`}>
+        ● Șters de utilizator
+      </span>
+    );
+  }
+
   const s = lc(status);
   if (s === "open") {
     return <span className={`${styles.badge} ${styles.open}`}>● Deschis</span>;
@@ -260,7 +276,7 @@ function MessageBubble({ m, onEdit, onDelete, isMobile }) {
 
 /* ==== Composer simplu pentru admin (doar text) ==== */
 
-function TicketComposer({ onSend, disabled }) {
+function TicketComposer({ onSend, disabled, hint }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const taRef = useRef(null);
@@ -299,7 +315,7 @@ function TicketComposer({ onSend, disabled }) {
         ref={taRef}
         className={styles.input}
         rows={1}
-        placeholder="Scrie un răspuns ca admin…"
+        placeholder={hint || "Scrie un răspuns ca admin…"}
         value={text}
         disabled={sending || disabled}
         onChange={(e) => setText(e.target.value)}
@@ -362,6 +378,16 @@ function TicketDetailPanel({
       ? "Guest"
       : "User";
 
+  const isDeletedByAdmin = !!ticket.deletedAt;
+  const isArchivedByUser = !!ticket.archivedByRequesterAt;
+
+  const composerDisabled = isDeletedByAdmin; // ✅ deleted tickets: no reply
+  const composerHint = isDeletedByAdmin
+    ? "Tichet șters (admin) — nu mai poți răspunde."
+    : isArchivedByUser
+    ? "Tichet șters de utilizator — poți răspunde, dar userul l-a ascuns din lista lui."
+    : undefined;
+
   return (
     <div className={styles.ticketDetail}>
       <header className={styles.detailHead}>
@@ -378,17 +404,19 @@ function TicketDetailPanel({
         <div className={styles.detailTitle}>
           <PriorityDot priority={ticket.priority} />
           <span>{ticket.subject}</span>
-          <StatusBadge status={ticket.status} />
+          <StatusBadge
+            status={ticket.status}
+            archivedByRequesterAt={ticket.archivedByRequesterAt}
+            deletedAt={ticket.deletedAt}
+          />
         </div>
 
-        {onChangeStatus && (
+        {onChangeStatus && !isDeletedByAdmin && (
           <div className={styles.statusControl}>
             <select
               className={styles.input}
               value={lc(ticket.status)}
-              onChange={(e) =>
-                onChangeStatus(ticket.id, e.target.value)
-              }
+              onChange={(e) => onChangeStatus(ticket.id, e.target.value)}
             >
               <option value="open">Deschis</option>
               <option value="pending">În lucru</option>
@@ -398,10 +426,37 @@ function TicketDetailPanel({
         )}
       </header>
 
+      {/* extra info badges */}
+      {(isArchivedByUser || isDeletedByAdmin) && (
+        <div className={styles.detailMeta}>
+          {isArchivedByUser && (
+            <div className={styles.metaRow}>
+              <span className={styles.muted}>Notă:</span>{" "}
+              <b>Șters de utilizator</b>{" "}
+              {ticket.archivedByRequesterAt ? (
+                <span className={styles.muted}>
+                  (la {fmtTime(ticket.archivedByRequesterAt)})
+                </span>
+              ) : null}
+            </div>
+          )}
+          {isDeletedByAdmin && (
+            <div className={styles.metaRow}>
+              <span className={styles.muted}>Notă:</span>{" "}
+              <b>Șters de admin</b>{" "}
+              {ticket.deletedAt ? (
+                <span className={styles.muted}>
+                  (la {fmtTime(ticket.deletedAt)})
+                </span>
+              ) : null}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className={styles.detailMeta}>
         <div className={styles.metaRow}>
-          <span className={styles.muted}>Tip tichet:</span>{" "}
-          <b>{audienceLabel}</b>
+          <span className={styles.muted}>Tip tichet:</span> <b>{audienceLabel}</b>
         </div>
 
         {ticket.requester ? (
@@ -422,8 +477,7 @@ function TicketDetailPanel({
           <div className={styles.metaRow}>
             <UserIcon size={14} />{" "}
             <span>
-              <b>{ticket.requesterName || "Guest"}</b> (
-              {ticket.requesterEmail})
+              <b>{ticket.requesterName || "Guest"}</b> ({ticket.requesterEmail})
             </span>
           </div>
         ) : null}
@@ -432,8 +486,7 @@ function TicketDetailPanel({
           <div className={styles.metaRow}>
             <StoreIcon size={14} />{" "}
             <span>
-              Vendor: <b>{ticket.vendor.displayName}</b> (ID:{" "}
-              {ticket.vendor.id})
+              Vendor: <b>{ticket.vendor.displayName}</b> (ID: {ticket.vendor.id})
             </span>
           </div>
         )}
@@ -444,9 +497,7 @@ function TicketDetailPanel({
           <div className={styles.empty}>Se încarcă discuția…</div>
         )}
         {errorMsgs && (
-          <div className={styles.error}>
-            Nu am putut încărca mesajele.
-          </div>
+          <div className={styles.error}>Nu am putut încărca mesajele.</div>
         )}
         {!loadingMsgs && !messages.length && (
           <div className={styles.empty}>
@@ -481,21 +532,24 @@ function TicketDetailPanel({
         })}
       </div>
 
-      <TicketComposer onSend={onSendReply} disabled={!ticket} />
+      <TicketComposer
+        onSend={onSendReply}
+        disabled={!ticket || composerDisabled}
+        hint={composerHint}
+      />
     </div>
   );
 }
 
 /* ==== COMPONENTA PRINCIPALĂ PENTRU ADMIN ==== */
 
-export default function AdminSupportBase({
-  supportBase = "/api/admin/support",
-}) {
+export default function AdminSupportBase({ supportBase = "/api/admin/support" }) {
   const [tickets, setTickets] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(true);
   const [errorTickets, setErrorTickets] = useState(null);
 
-  const [statusFilter, setStatusFilter] = useState("all"); // all | open | pending | closed
+  // ✅ adăugat archived + deleted
+  const [statusFilter, setStatusFilter] = useState("all"); // all | open | pending | closed | archived | deleted
 
   // 👇 audience + rol
   const [audienceFilter, setAudienceFilter] = useState("all"); // all | user | vendor | guest
@@ -532,7 +586,7 @@ export default function AdminSupportBase({
     setErrorTickets(null);
     try {
       const params = new URLSearchParams();
-      params.set("status", statusFilter);
+      params.set("status", statusFilter); // ✅ include archived/deleted
       params.set("audience", audienceFilter);
       params.set("priority", priorityFilter);
 
@@ -555,7 +609,8 @@ export default function AdminSupportBase({
 
   useEffect(() => {
     loadTickets();
-  }, [statusFilter, audienceFilter, priorityFilter, roleFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, audienceFilter, priorityFilter, roleFilter]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -623,6 +678,13 @@ export default function AdminSupportBase({
 
   async function handleSendReply(body) {
     if (!current) return;
+
+    // dacă e deleted de admin, nu mai trimitem
+    if (current.deletedAt) {
+      alert("Tichetul este șters (admin). Nu se mai pot trimite mesaje.");
+      return;
+    }
+
     const optimistic = {
       id: `local_${Date.now()}`,
       ticketId: current.id,
@@ -645,7 +707,10 @@ export default function AdminSupportBase({
     } catch (e) {
       console.error("admin send message error", e);
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      alert("Nu am putut trimite mesajul. Încearcă din nou.");
+      alert(
+        "Nu am putut trimite mesajul. Tichetul poate fi șters/indisponibil."
+      );
+      await loadTickets();
     }
   }
 
@@ -716,11 +781,16 @@ export default function AdminSupportBase({
     }
   }
 
-  /* ===== șterge tichet ===== */
+  /* ===== șterge tichet (admin soft-delete) ===== */
 
   async function handleDeleteTicket(id) {
     if (!id) return;
-    if (!window.confirm("Ești sigur că vrei să ștergi acest tichet?")) return;
+    if (
+      !window.confirm(
+        "Soft-delete: ascunzi tichetul din listă (nu se șterg mesajele). Continui?"
+      )
+    )
+      return;
     try {
       await api(`${supportBase}/tickets/${id}`, {
         method: "DELETE",
@@ -810,12 +880,15 @@ export default function AdminSupportBase({
             </div>
           </div>
 
+          {/* ✅ status tabs cu "Șterse de utilizator" + "Șterse (admin)" */}
           <div className={styles.statusTabs}>
             {[
               { value: "all", label: "Toate" },
               { value: "open", label: "Deschise" },
               { value: "pending", label: "În lucru" },
               { value: "closed", label: "Închise" },
+              { value: "archived", label: "Șterse de utilizator" },
+              { value: "deleted", label: "Șterse (admin)" },
             ].map((s) => (
               <button
                 key={s.value}
@@ -859,10 +932,7 @@ export default function AdminSupportBase({
                   className={styles.skeleton}
                   style={{ height: 48, marginBottom: 8 }}
                 />
-                <div
-                  className={styles.skeleton}
-                  style={{ height: 48 }}
-                />
+                <div className={styles.skeleton} style={{ height: 48 }} />
               </div>
             )}
             {errorTickets && (
@@ -897,12 +967,14 @@ export default function AdminSupportBase({
                       <PriorityDot priority={t.priority} />
                       {t.subject}
                     </div>
-                    <div className={styles.time}>
-                      {fmtTime(t.updatedAt)}
-                    </div>
+                    <div className={styles.time}>{fmtTime(t.updatedAt)}</div>
                   </div>
                   <div className={styles.row}>
-                    <StatusBadge status={t.status} />
+                    <StatusBadge
+                      status={t.status}
+                      archivedByRequesterAt={t.archivedByRequesterAt}
+                      deletedAt={t.deletedAt}
+                    />
                     <span className={styles.muted}>{audienceLabel}</span>
                     <ChevronRight size={16} />
                   </div>
@@ -941,10 +1013,7 @@ export default function AdminSupportBase({
                     className={styles.skeleton}
                     style={{ height: 48, marginBottom: 8 }}
                   />
-                  <div
-                    className={styles.skeleton}
-                    style={{ height: 48 }}
-                  />
+                  <div className={styles.skeleton} style={{ height: 48 }} />
                 </div>
               )}
               {errorTickets && (
@@ -977,15 +1046,15 @@ export default function AdminSupportBase({
                         <PriorityDot priority={t.priority} />
                         {t.subject}
                       </div>
-                      <div className={styles.time}>
-                        {fmtTime(t.updatedAt)}
-                      </div>
+                      <div className={styles.time}>{fmtTime(t.updatedAt)}</div>
                     </div>
                     <div className={styles.row}>
-                      <StatusBadge status={t.status} />
-                      <span className={styles.muted}>
-                        {audienceLabel}
-                      </span>
+                      <StatusBadge
+                        status={t.status}
+                        archivedByRequesterAt={t.archivedByRequesterAt}
+                        deletedAt={t.deletedAt}
+                      />
+                      <span className={styles.muted}>{audienceLabel}</span>
                       <ChevronRight size={16} />
                     </div>
                   </button>
@@ -1002,16 +1071,21 @@ export default function AdminSupportBase({
                 >
                   <ChevronLeft size={16} /> Înapoi la tichete
                 </button>
-                <button
-                  type="button"
-                  className={`${styles.iconBtn} ${styles.danger}`}
-                  style={{ float: "right" }}
-                  onClick={() => handleDeleteTicket(current.id)}
-                  title="Șterge tichet"
-                >
-                  <Trash2 size={16} />
-                </button>
+
+                {/* ✅ nu arătăm "șterge" pe taburile archived/deleted sau dacă e deja deleted */}
+                {!current.deletedAt && statusFilter !== "deleted" && (
+                  <button
+                    type="button"
+                    className={`${styles.iconBtn} ${styles.danger}`}
+                    style={{ float: "right" }}
+                    onClick={() => handleDeleteTicket(current.id)}
+                    title="Șterge tichet"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
+
               <TicketDetailPanel
                 ticket={current}
                 messages={messages}

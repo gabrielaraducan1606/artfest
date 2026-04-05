@@ -1,16 +1,22 @@
 @import "../../../styles/variables.css";
 
 /* =========================================================
-   Tokens locale (ca la vendor, fără schimbări globale)
+   Tokens locale (nu atinge globale)
 ========================================================= */
 .wrap {
   --msg-hover: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
   --msg-hover-2: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
+
   --msg-primary-soft: color-mix(in srgb, var(--color-primary) 14%, transparent);
   --msg-border-soft: color-mix(in srgb, var(--color-border) 70%, transparent);
+
   --msg-shadow: var(--shadow-md, 0 8px 18px rgba(0, 0, 0, 0.08));
   --msg-shadow-sm: var(--shadow-sm, 0 3px 10px rgba(0, 0, 0, 0.06));
   --msg-radius: var(--radius, 12px);
+
+  /* ✅ fundal mai închis în zona chat */
+  --chat-bg: color-mix(in srgb, var(--color-bg) 85%, var(--color-text, #111) 6%);
+  --chip-bg: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
 }
 
 /* ============ Layout general ============ */
@@ -18,18 +24,19 @@
   display: flex;
   max-width: 1100px;
   margin: 16px auto;
+
   background: var(--surface);
   border-radius: var(--msg-radius);
   box-shadow: var(--msg-shadow);
   border: 1px solid var(--color-border);
   overflow: hidden;
-  min-height: 520px;
 
+  min-height: 520px;
   height: 600px;
   max-height: 600px;
 }
 
-/* ============ Sidebar conversații ============ */
+/* ============ Sidebar ============ */
 .sidebar {
   width: 32%;
   min-width: 260px;
@@ -96,13 +103,9 @@
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
-.spin {
-  animation: spin 0.8s linear infinite;
-}
+.spin { animation: spin 0.8s linear infinite; }
 
 .searchBar {
   padding: 8px 12px;
@@ -125,9 +128,7 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.searchBar input::placeholder {
-  color: var(--color-muted);
-}
+.searchBar input::placeholder { color: var(--color-muted); }
 
 .searchBar input:focus {
   outline: none;
@@ -135,7 +136,6 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
-/* Toggle grupare conversații */
 .groupToggleRow {
   padding: 8px 12px;
   border-bottom: 1px solid var(--color-border);
@@ -204,10 +204,7 @@
   scrollbar-width: thin;
 }
 
-.threadList::-webkit-scrollbar {
-  width: 8px;
-}
-
+.threadList::-webkit-scrollbar { width: 8px; }
 .threadList::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--color-text, #111) 14%, transparent);
   border-radius: 999px;
@@ -226,21 +223,11 @@
   transition: background 0.15s ease;
 }
 
-.threadItem:last-child {
-  border-bottom: none;
-}
+.threadItem:last-child { border-bottom: none; }
+.threadItem:hover { background: var(--msg-hover); }
 
-.threadItem:hover {
-  background: var(--msg-hover);
-}
-
-.selected {
-  background: var(--msg-primary-soft);
-}
-
-.unread .threadName {
-  font-weight: 700;
-}
+.selected { background: var(--msg-primary-soft); }
+.unread .threadName { font-weight: 700; }
 
 .threadAvatar {
   width: 30px;
@@ -256,10 +243,7 @@
   flex: 0 0 auto;
 }
 
-.threadBody {
-  flex: 1;
-  min-width: 0;
-}
+.threadBody { flex: 1; min-width: 0; }
 
 .threadRowTop {
   display: flex;
@@ -280,7 +264,6 @@
   color: var(--color-text, inherit);
 }
 
-/* Badge număr comandă în listă + header */
 .threadOrderBadge,
 .peerOrderBadge {
   display: inline-flex;
@@ -291,7 +274,6 @@
   font-size: 11px;
   background: color-mix(in srgb, var(--color-text, #111) 8%, transparent);
   color: var(--color-text, inherit);
-  vertical-align: middle;
   border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
 }
 
@@ -317,7 +299,6 @@
   min-width: 0;
 }
 
-/* acțiuni icon în listă */
 .threadInlineActions {
   display: inline-flex;
   align-items: center;
@@ -343,9 +324,7 @@
   color: var(--color-primary);
 }
 
-.threadIconBtnDanger:hover {
-  color: var(--color-danger);
-}
+.threadIconBtnDanger:hover { color: var(--color-danger); }
 
 .unreadBadge {
   min-width: 18px;
@@ -375,17 +354,14 @@
   font-size: 12px;
   color: var(--color-muted);
 }
-
-.error {
-  color: var(--color-danger);
-}
+.error { color: var(--color-danger); }
 
 /* ============ Chat ============ */
 .chat {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg);
+  background: var(--chat-bg); /* ✅ mai închis */
   min-height: 0;
 }
 
@@ -399,13 +375,8 @@
   gap: 10px;
 }
 
-.hideDesktop {
-  display: none;
-}
-
-.hideMobile {
-  display: inline-flex;
-}
+.hideDesktop { display: none; }
+.hideMobile { display: inline-flex; }
 
 .chatPeer {
   display: flex;
@@ -437,10 +408,7 @@
   text-overflow: ellipsis;
 }
 
-.peerSub {
-  font-size: 11px;
-  color: var(--color-muted);
-}
+.peerSub { font-size: 11px; color: var(--color-muted); }
 
 .chatActions {
   display: flex;
@@ -457,118 +425,96 @@
   scrollbar-width: thin;
 }
 
-.msgList::-webkit-scrollbar {
-  width: 8px;
-}
-
+.msgList::-webkit-scrollbar { width: 8px; }
 .msgList::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--color-text, #111) 14%, transparent);
   border-radius: 999px;
 }
 
 /* ============ Bule ============ */
-.bubbleRow {
-  display: flex;
-  margin-bottom: 8px;
-  gap: 6px;
-}
+.bubbleRow { display: flex; margin-bottom: 10px; }
+.left { justify-content: flex-start; }
+.right { justify-content: flex-end; }
 
-.left {
-  justify-content: flex-start;
-}
+.bubbleWrapActive { z-index: 12001; }
 
-.right {
-  justify-content: flex-end;
-}
-
-.avatarSm {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-text, #111) 8%, transparent);
-  color: var(--color-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  margin-top: 4px;
-  flex: 0 0 auto;
-}
-
-/* ✅ wrapper pentru bulă + acțiuni */
 .bubbleWrap {
   position: relative;
-  display: inline-flex;
+  display: inline-flex;     /* ✅ shrink to content */
   align-items: flex-end;
   gap: 6px;
-  max-width: 100%;
+
+  flex: 0 0 auto;           /* ✅ NU mai shrink-ui în flex row */
+  max-width: min(72%, 560px); /* ✅ aici pui limita */
 }
 
 .bubble {
-  max-width: 68%;
-  padding: 8px 10px;
-  border-radius: 14px;
+  display: block;           /* simplu */
+  width: 100%;              /* ✅ ocupă lățimea bubbleWrap */
+
+  min-width: 72px;
+  padding: 10px 12px;
+  border-radius: 16px;
   font-size: 13px;
-  line-height: 1.35;
-  box-shadow: var(--msg-shadow-sm);
-  word-wrap: break-word;
-  color: var(--color-text, inherit);
+  line-height: 1.45;
+
+  white-space: pre-wrap;    /* păstrează \n dar nu rupe aiurea */
+  overflow-wrap: anywhere;  /* doar pt link-uri/cuvinte lungi */
+  word-break: normal;
+
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
 }
 
 .mine {
-  background: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 92%, transparent);
   color: #fff;
-  border-bottom-right-radius: 6px;
+  border: 1px solid color-mix(in srgb, #fff 18%, transparent);
 }
 
 .theirs {
   background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-bottom-left-radius: 6px;
+  color: var(--color-text, inherit);
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
 }
 
-.bodyText {
-  white-space: pre-wrap;
+.bubble[data-state="pending"] { opacity: 0.72; }
+.bubble[data-state="failed"] {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
 }
+
+/* când mesajul e DOAR atașament */
+.bubble[data-kind="att"] {
+  padding: 8px;
+  box-shadow: none;
+}
+
+.bodyText { white-space: pre-wrap; }
 
 .meta {
-  margin-top: 5px;
+  margin-top: 6px;
   font-size: 10px;
   display: flex;
   gap: 8px;
   align-items: center;
-  opacity: 0.85;
+  opacity: 0.7;
 }
-
-.meta span {
-  display: inline-flex;
-  align-items: center;
-}
+.meta span { display: inline-flex; align-items: center; }
 
 .readTick {
   font-size: 11px;
   color: color-mix(in srgb, #fff 75%, transparent);
   letter-spacing: -1px;
 }
+.readTickRead { color: color-mix(in srgb, #fff 90%, transparent); }
+.readTickPending { font-size: 11px; color: var(--color-muted); }
+.readTickFailed { font-size: 11px; color: var(--color-danger); }
 
-.readTickRead {
-  color: color-mix(in srgb, #fff 90%, transparent);
-}
-
-.readTickPending {
-  font-size: 11px;
-  color: var(--color-muted);
-}
-
-.readTickFailed {
-  font-size: 11px;
-  color: var(--color-danger);
-}
-
-/* ✅ acțiuni mesaj (download/edit/delete) */
+/* ============ Acțiuni mesaj ============ */
 .msgActions {
   display: none;
-  gap: 4px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -576,44 +522,78 @@
   display: inline-flex;
 }
 
+.msgActionsOpen {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
+  box-shadow: var(--msg-shadow-sm);
+}
+
 .msgIconBtn {
+  width: 34px;
+  height: 34px;
   border: 1px solid var(--color-border);
   background: var(--surface);
-  padding: 5px;
+  padding: 0;
   border-radius: 999px;
   cursor: pointer;
-  color: var(--color-muted);
+  color: var(--color-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  flex: 0 0 auto;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    transform 0.05s ease, box-shadow 0.15s ease;
+}
+
+.msgIconBtn svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
 }
 
 .msgIconBtn:hover {
   background: var(--msg-hover);
   color: var(--color-text, inherit);
+  box-shadow: var(--msg-shadow-sm);
+}
+
+.msgIconBtn:active {
+  transform: scale(0.96);
+}
+
+.msgIconBtnDanger {
+  color: var(--color-danger);
 }
 
 .msgIconBtnDanger:hover {
-  color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
+  color: #fff;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 .msgSaveBtn {
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
   color: #fff;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: 999px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .msgSaveBtn:hover {
   filter: brightness(0.95);
 }
-
 .editInput {
   width: 100%;
   border: 1px solid var(--color-border);
@@ -625,11 +605,21 @@
   line-height: 1.35;
   resize: none;
 }
-
 .editInput:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+/* Backdrop când acțiunile sunt deschise (mobil) */
+.msgActionsBackdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  z-index: 12000;
 }
 
 /* ============ Composer ============ */
@@ -652,21 +642,15 @@
   line-height: 1.4;
   background: var(--color-bg);
   color: var(--color-text, inherit);
-
   min-height: 40px;
   max-height: 80px;
   overflow-y: auto;
   scrollbar-width: thin;
 }
 
-.input::placeholder {
-  color: var(--color-muted);
-}
+.input::placeholder { color: var(--color-muted); }
 
-.input::-webkit-scrollbar {
-  width: 7px;
-}
-
+.input::-webkit-scrollbar { width: 7px; }
 .input::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--color-text, #111) 16%, transparent);
   border-radius: 999px;
@@ -692,14 +676,8 @@
   transition: filter 0.15s ease, opacity 0.15s ease;
 }
 
-.sendBtn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.sendBtn:not(:disabled):hover {
-  filter: brightness(0.95);
-}
+.sendBtn:disabled { opacity: 0.5; cursor: default; }
+.sendBtn:not(:disabled):hover { filter: brightness(0.95); }
 
 .chatEmpty {
   flex: 1;
@@ -723,10 +701,7 @@
   scrollbar-width: thin;
 }
 
-.orderTabs::-webkit-scrollbar {
-  height: 8px;
-}
-
+.orderTabs::-webkit-scrollbar { height: 8px; }
 .orderTabs::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--color-text, #111) 14%, transparent);
   border-radius: 999px;
@@ -746,9 +721,7 @@
   gap: 6px;
 }
 
-.orderTab:hover {
-  background: var(--msg-hover);
-}
+.orderTab:hover { background: var(--msg-hover); }
 
 .orderTabActive {
   border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
@@ -757,17 +730,185 @@
   background: var(--msg-primary-soft);
 }
 
-.orderTabDate {
-  opacity: 0.75;
+.orderTabDate { opacity: 0.75; font-size: 11px; }
+
+/* ============ Attach preview chips (composer) ============ */
+.attachPreviewRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.attachChip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--chip-bg);
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.attachChipName {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachChipSize { opacity: 0.7; font-size: 12px; }
+
+.attachChipRemove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--color-muted);
+}
+
+.attachChipRemove:hover { color: var(--color-text, inherit); }
+
+.attachUploadBtn {
+  margin-left: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  cursor: pointer;
+  color: var(--color-text, inherit);
+}
+
+.attachUploadBtn:hover { background: var(--msg-hover); }
+
+/* ============ Attachments în bubble ============ */
+.attWrap {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+
+  /* ✅ nu lăsa layout să depășească bubble */
+  max-width: 100%;
+}
+
+.attGrid {
+  display: grid;
+
+  /* ✅ auto-fit ca să nu "iasă" la ecrane mici */
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 6px;
+
+  max-width: 100%;
+}
+
+.attThumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
+  display: block;
+}
+
+.bubble.mine .attThumb {
+  border-color: color-mix(in srgb, #fff 25%, transparent);
+  background: color-mix(in srgb, #fff 12%, transparent);
+}
+
+.attThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;   /* ✅ nu mai taie */
+  display: block;
+  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent); /* să nu fie urât când e "letterboxed" */
+}
+
+.attThumbPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
   font-size: 11px;
+  color: var(--color-muted);
 }
 
-/* ============ Backdrop pentru mobil ============ */
-.mobileBackdrop {
-  display: none;
+/* Files list */
+.attFiles {
+  display: grid;
+  gap: 6px;
+  max-width: 100%;
 }
 
-/* ============ Responsive (mobil) ============ */
+.attFileCard {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  text-decoration: none;
+
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
+  background: var(--surface);
+  color: var(--color-text, inherit);
+
+  /* ✅ important: să nu depășească bubble */
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.attFileCard:hover {
+  background: color-mix(in srgb, var(--color-text, #111) 6%, var(--surface));
+}
+
+.bubble.mine .attFileCard {
+  background: color-mix(in srgb, #fff 14%, transparent);
+  border-color: color-mix(in srgb, #fff 25%, transparent);
+  color: #fff;
+}
+
+.bubble.mine .attFileCard:hover {
+  background: color-mix(in srgb, #fff 18%, transparent);
+}
+
+.attFileIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  flex: 0 0 auto;
+}
+
+.bubble.mine .attFileIcon {
+  background: color-mix(in srgb, #fff 20%, transparent);
+  color: #fff;
+}
+
+.attFileMeta {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.attFileName {
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attFileSub { font-size: 10px; opacity: 0.8; }
+
+/* ============ Mobile ============ */
+.mobileBackdrop { display: none; }
+
 @media (max-width: 768px) {
   .wrap {
     flex-direction: column;
@@ -788,17 +929,9 @@
     border-bottom: 1px solid var(--color-border);
   }
 
-  .hideDesktop {
-    display: inline-flex;
-  }
-
-  .hideMobile {
-    display: none;
-  }
-
-  .threadInlineActions {
-    display: none;
-  }
+  .hideDesktop { display: inline-flex; }
+  .hideMobile { display: none; }
+  .threadInlineActions { display: none; }
 
   .chatHead {
     flex-wrap: wrap;
@@ -806,9 +939,7 @@
     gap: 8px;
   }
 
-  .chatPeer {
-    flex: 1 1 100%;
-  }
+  .chatPeer { flex: 1 1 100%; }
 
   .chatActions {
     width: 100%;
@@ -818,7 +949,6 @@
     flex-wrap: wrap;
   }
 
-  /* CHAT ca bottom-sheet */
   .chat {
     position: fixed;
     left: 0;
@@ -827,7 +957,7 @@
     max-width: 100%;
     height: 80vh;
     max-height: 80vh;
-    background: var(--color-bg);
+    background: var(--chat-bg);
     display: flex;
     flex-direction: column;
 
@@ -840,7 +970,6 @@
     opacity: 0;
     pointer-events: none;
     transition: transform 0.2s ease-out, opacity 0.2s ease-out;
-
     z-index: 10001;
   }
 
@@ -866,355 +995,26 @@
     opacity: 1;
     pointer-events: auto;
   }
+
+  /* mobile actions: doar când sunt deschise */
+  .msgActions { display: none; }
+  .msgIconBtn { min-width: 36px; min-height: 36px; padding: 0; }
+  .msgIconBtn svg { width: 16px; height: 16px; }
+  .msgSaveBtn { min-height: 44px; padding: 0 16px; font-size: 13px; }
 }
 
-/* ============ Attach preview chips (composer) ============ */
-.attachPreviewRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+/* ✅ dacă e o singură imagine, fă-o mare */
+.attGrid[data-count="1"] {
+  grid-template-columns: 1fr;
+}
+.attGrid[data-count="1"] .attThumb {
+  width: min(140px, 100%);
+  height: auto;
+  aspect-ratio: 1 / 1; /* pătrat */
 }
 
-.attachChip {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  padding: 6px 8px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
-  max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-}
-
-.attachChipName {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.attachChipSize {
-  opacity: 0.7;
-  font-size: 12px;
-}
-
-.attachChipRemove {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  padding: 2px;
-  color: var(--color-muted);
-}
-
-.attachChipRemove:hover {
-  color: var(--color-text, inherit);
-}
-
-.attachUploadBtn {
-  margin-left: auto;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-  cursor: pointer;
-  color: var(--color-text, inherit);
-}
-
-.attachUploadBtn:hover {
-  background: var(--msg-hover);
-}
-
-/* ============ Attachments PRO (grid + file cards) ============ */
-.attWrap {
-  margin-top: 8px;
-  display: grid;
-  gap: 8px;
-}
-
-/* thumbnails imagini */
-.attGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.attThumb {
-  display: block;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
-  aspect-ratio: 1 / 1;
-}
-
+/* ✅ nu tăia poza */
 .attThumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transform: scale(1);
-  transition: transform 0.15s ease;
-}
-
-.attThumb:hover img {
-  transform: scale(1.03);
-}
-
-/* file cards */
-.attFiles {
-  display: grid;
-  gap: 6px;
-}
-
-.attFileCard {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: 12px;
-  text-decoration: none;
-  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  object-fit: contain;
   background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
-  color: inherit;
-}
-
-.bubble.mine .attFileCard {
-  background: color-mix(in srgb, #fff 16%, transparent);
-  border-color: color-mix(in srgb, #fff 28%, transparent);
-}
-
-.attFileCard:hover {
-  background: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
-}
-
-.attFileIcon {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary);
-  flex: 0 0 auto;
-}
-
-.bubble.mine .attFileIcon {
-  background: color-mix(in srgb, #fff 20%, transparent);
-  color: #fff;
-}
-
-.attFileMeta {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.attFileName {
-  font-size: 12px;
-  font-weight: 700;
-  color: inherit;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.attFileSub {
-  font-size: 10px;
-  opacity: 0.85;
-}
-
-/* ============ Backward compatibility (dacă încă folosești attachmentItem în JSX) ============ */
-.attachments {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.attachmentItem {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
-  text-decoration: none;
-  color: inherit;
-}
-
-.bubble.mine .attachmentItem {
-  background: color-mix(in srgb, #fff 16%, transparent);
-  border-color: color-mix(in srgb, #fff 28%, transparent);
-}
-
-.attachmentItem:hover {
-  background: color-mix(in srgb, var(--color-text, #111) 10%, transparent);
-}
-
-.attachmentIcon {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  color: var(--color-primary);
-}
-
-.bubble.mine .attachmentIcon {
-  background: color-mix(in srgb, #fff 20%, transparent);
-  color: #fff;
-}
-
-.attachmentMeta {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
-.attachmentName {
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-}
-
-.attachmentSub {
-  font-size: 10px;
-  opacity: 0.85;
-}
-
-.attachmentDl {
-  opacity: 0.8;
-  display: inline-flex;
-}
-.bubbleWrap {
-  position: relative;
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 6px;
-  max-width: 100%;
-}
-
-.msgActions {
-  display: none;
-  gap: 4px;
-  align-items: center;
-}
-
-/* =========================================================
-   MOBIL: butoane acțiuni mesaj mai mari (USER)
-========================================================= */
-@media (max-width: 768px) {
-  /* arată actions mereu pe mobil (la tine deja e, dar îl fixăm) */
-  .msgActions {
-    display: inline-flex;
-    gap: 10px;
-    align-items: center;
-  }
-
-  /* butoane touch-friendly */
-  .msgIconBtn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 0;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-
-    /* ca la vendor: puțin "card" */
-    border: 1px solid var(--color-border);
-    background: var(--surface);
-  }
-
-  /* iconul din buton (lucide = svg) */
-  .msgIconBtn svg {
-    width: 12px;
-    height: 12px;
-  }
-
-  /* butonul Salvează – mai mare, ușor de apăsat */
-  .msgSaveBtn {
-    min-height: 44px;
-    padding: 0 16px;
-    font-size: 13px;
-    border-radius: 999px;
-  }
-}
-/* acțiuni mesaj */
-.msgActions {
-  display: none;
-  gap: 8px;
-  align-items: center;
-}
-
-/* desktop: la hover */
-.bubbleWrap:hover .msgActions {
-  display: inline-flex;
-}
-
-/* mobil: ascunse by default */
-@media (max-width: 768px) {
-  .msgActions {
-    display: none;
-  }
-
-  /* doar când long-press a deschis */
-  .msgActionsOpen {
-    display: inline-flex;
-    gap: 10px;
-    align-items: center;
-    padding: 6px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--surface) 92%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-border) 85%, transparent);
-    box-shadow: var(--msg-shadow-sm);
-  }
-
-  .msgIconBtn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 0;
-    border-radius: 999px;
-    border: 1px solid var(--color-border);
-    background: var(--surface);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .msgIconBtn svg {
-    width: 12px;
-    height: 12px;
-  }
-
-  .msgSaveBtn {
-    min-height: 44px;
-    padding: 0 16px;
-    font-size: 13px;
-    border-radius: 999px;
-  }
-}
-
-/* Backdrop când acțiunile sunt deschise (mobil) */
-.msgActionsBackdrop {
-  position: fixed;
-  inset: 0;
-  background: transparent; /* invizibil - doar pentru tap outside */
-  border: none;
-  padding: 0;
-  margin: 0;
-  z-index: 12000;
-}
-
-/* ridicăm bubble deasupra backdrop-ului */
-.bubbleWrapActive {
-  z-index: 12001;
 }

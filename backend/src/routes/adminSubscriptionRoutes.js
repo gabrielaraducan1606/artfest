@@ -1,10 +1,12 @@
-// routes/adminVendorPlans.routes.js
+// src/routes/adminVendorPlans.routes.js
 import { Router } from "express";
+import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { z } from "zod";
 
 const router = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 const sendError = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ ok: false, error: code, message: code, ...extra });
@@ -17,18 +19,19 @@ const adminRequired = (req, res, next) => {
   return sendError(res, "forbidden_admin", 403);
 };
 
-/* ===================== helpers pt meta(Json) ===================== */
-function asObj(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
-  return v;
+function iso(d) {
+  return d ? new Date(d).toISOString() : null;
 }
-function mergeMeta(prev, patch) {
-  const base = asObj(prev);
-  const out = { ...base };
-  for (const [k, val] of Object.entries(patch || {})) {
-    out[k] = val;
-  }
-  return out;
+
+function mapStripeStatusToLocal(stripeStatus, cancelAtPeriodEnd) {
+  // adaptează dacă ai enum-uri diferite în DB
+  if (stripeStatus === "active") return cancelAtPeriodEnd ? "canceled_at_period_end" : "active";
+  if (stripeStatus === "trialing") return cancelAtPeriodEnd ? "canceled_at_period_end" : "active";
+  if (stripeStatus === "canceled") return "canceled";
+  if (stripeStatus === "past_due") return "past_due";
+  if (stripeStatus === "unpaid") return "unpaid";
+  if (stripeStatus === "incomplete" || stripeStatus === "incomplete_expired") return "pending";
+  return "pending";
 }
 
 /**
@@ -43,7 +46,7 @@ const Query = z.object({
 });
 
 router.get(
-  "/admin/vendors/plans",
+  "/vendors/plans",
   authRequired,
   adminRequired,
   asyncHandler(async (req, res) => {
@@ -109,8 +112,10 @@ router.get(
       ? await prisma.vendorSubscription.findMany({
           where: {
             vendorId: { in: vendorIds },
-            status: "active",
-            endAt: { gt: now },
+            OR: [
+              { status: "active", endAt: { gt: now } },
+              { trialEndsAt: { gt: now } },
+            ],
           },
           orderBy: [{ startAt: "desc" }],
           include: { plan: true },
@@ -140,19 +145,13 @@ router.get(
 
 /**
  * PATCH /api/admin/vendors/:vendorId/subscription/trial
- * Body: { trialDays: number } (0 => șterge trial)
- *
- * ✅ Stocăm trial-ul în subscription.meta:
- *  - meta.trialDays
- *  - meta.trialStartsAt (ISO)
- *  - meta.trialEndsAt   (ISO)
  */
 const TrialBody = z.object({
   trialDays: z.coerce.number().int().min(0).max(365).default(0),
 });
 
 router.patch(
-  "/admin/vendors/:vendorId/subscription/trial",
+  "/vendors/:vendorId/subscription/trial",
   authRequired,
   adminRequired,
   asyncHandler(async (req, res) => {
@@ -167,7 +166,10 @@ router.patch(
     const now = new Date();
 
     const current = await prisma.vendorSubscription.findFirst({
-      where: { vendorId, status: "active", endAt: { gt: now } },
+      where: {
+        vendorId,
+        OR: [{ status: "active", endAt: { gt: now } }, { trialEndsAt: { gt: now } }],
+      },
       orderBy: { startAt: "desc" },
     });
 
@@ -182,27 +184,14 @@ router.patch(
 
     const trialStartsAt = trialDays > 0 ? now : null;
     const trialEndsAt =
-      trialDays > 0
-        ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000)
-        : null;
-
-    const nextMeta = mergeMeta(target.meta, {
-      trialDays: trialDays > 0 ? trialDays : null,
-      trialStartsAt: trialStartsAt ? trialStartsAt.toISOString() : null,
-      trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
-    });
+      trialDays > 0 ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000) : null;
 
     const updated = await prisma.vendorSubscription.update({
       where: { id: target.id },
       data: {
         trialDays: trialDays > 0 ? trialDays : null,
-        trialStartsAt: trialDays > 0 ? now : null,
-        trialEndsAt:
-          trialDays > 0
-            ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000)
-            : null,
-        // dacă vrei să păstrezi meta, atunci:
-        // meta: nextMeta,
+        trialStartsAt,
+        trialEndsAt,
       },
       include: { plan: true },
     });
@@ -212,10 +201,132 @@ router.patch(
       subscription: updated,
       trial: {
         trialDays: trialDays > 0 ? trialDays : 0,
-        trialStartsAt: trialStartsAt ? trialStartsAt.toISOString() : null,
-        trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,
+        trialStartsAt: iso(trialStartsAt),
+        trialEndsAt: iso(trialEndsAt),
       },
     });
+  })
+);
+
+/**
+ * POST /api/admin/vendors/:vendorId/subscription/stripe/sync
+ */
+router.post(
+  "/vendors/:vendorId/subscription/stripe/sync",
+  authRequired,
+  adminRequired,
+  asyncHandler(async (req, res) => {
+    const vendorId = String(req.params.vendorId || "");
+    if (!vendorId) return sendError(res, "missing_vendor_id", 400);
+    if (!process.env.STRIPE_SECRET_KEY) return sendError(res, "stripe_missing_key", 500);
+
+    const sub = await prisma.vendorSubscription.findFirst({
+      where: { vendorId, stripeSubscriptionId: { not: null } },
+      orderBy: { createdAt: "desc" },
+      include: { plan: true },
+    });
+
+    if (!sub) return sendError(res, "stripe_subscription_missing", 404);
+
+    const s = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+
+    const currentPeriodEnd = s.current_period_end ? new Date(s.current_period_end * 1000) : null;
+    const trialStart = s.trial_start ? new Date(s.trial_start * 1000) : null;
+    const trialEnd = s.trial_end ? new Date(s.trial_end * 1000) : null;
+
+    const localStatus = mapStripeStatusToLocal(s.status, !!s.cancel_at_period_end);
+
+    const updated = await prisma.vendorSubscription.update({
+      where: { id: sub.id },
+      data: {
+        status: localStatus,
+        endAt: currentPeriodEnd || sub.endAt,
+        trialStartsAt: trialStart,
+        trialEndsAt: trialEnd,
+        stripeCustomerId: typeof s.customer === "string" ? s.customer : sub.stripeCustomerId,
+        meta: {
+          ...(sub.meta || {}),
+          stripeStatus: s.status,
+          cancelAtPeriodEnd: !!s.cancel_at_period_end,
+          syncedAt: new Date().toISOString(),
+        },
+      },
+      include: { plan: true },
+    });
+
+    res.json({ ok: true, subscription: updated });
+  })
+);
+
+/**
+ * POST /api/admin/vendors/:vendorId/subscription/stripe/cancel
+ * cancel_at_period_end = true
+ */
+router.post(
+  "/vendors/:vendorId/subscription/stripe/cancel",
+  authRequired,
+  adminRequired,
+  asyncHandler(async (req, res) => {
+    const vendorId = String(req.params.vendorId || "");
+    if (!vendorId) return sendError(res, "missing_vendor_id", 400);
+    if (!process.env.STRIPE_SECRET_KEY) return sendError(res, "stripe_missing_key", 500);
+
+    const sub = await prisma.vendorSubscription.findFirst({
+      where: { vendorId, stripeSubscriptionId: { not: null } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!sub) return sendError(res, "stripe_subscription_missing", 404);
+
+    const s = await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    await prisma.vendorSubscription.update({
+      where: { id: sub.id },
+      data: {
+        status: "canceled_at_period_end",
+        meta: { ...(sub.meta || {}), cancelAtPeriodEnd: true, stripeStatus: s.status },
+      },
+    });
+
+    res.json({ ok: true });
+  })
+);
+
+/**
+ * POST /api/admin/vendors/:vendorId/subscription/stripe/resume
+ * cancel_at_period_end = false
+ */
+router.post(
+  "/vendors/:vendorId/subscription/stripe/resume",
+  authRequired,
+  adminRequired,
+  asyncHandler(async (req, res) => {
+    const vendorId = String(req.params.vendorId || "");
+    if (!vendorId) return sendError(res, "missing_vendor_id", 400);
+    if (!process.env.STRIPE_SECRET_KEY) return sendError(res, "stripe_missing_key", 500);
+
+    const sub = await prisma.vendorSubscription.findFirst({
+      where: { vendorId, stripeSubscriptionId: { not: null } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!sub) return sendError(res, "stripe_subscription_missing", 404);
+
+    const s = await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+      cancel_at_period_end: false,
+    });
+
+    await prisma.vendorSubscription.update({
+      where: { id: sub.id },
+      data: {
+        status: "active",
+        meta: { ...(sub.meta || {}), cancelAtPeriodEnd: false, stripeStatus: s.status },
+      },
+    });
+
+    res.json({ ok: true });
   })
 );
 

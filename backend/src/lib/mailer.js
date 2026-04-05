@@ -14,6 +14,7 @@ import {
   emailChangeVerificationTemplate,
   invoiceIssuedEmailTemplate,
   vendorDeactivateConfirmTemplate,
+  userSupportReplyTemplate,
 } from "./emailTemplates.js";
 
 import { signUnsubToken } from "./unsubscribe.js";
@@ -1420,6 +1421,44 @@ export async function sendMarketplaceWaitlistEmail({
         ...AUTO_HEADERS,
         ...listUnsubHeaders,
       },
+    },
+  });
+}
+export async function sendUserSupportReplyEmail({
+  to,
+  name,
+  subject,
+  reply,
+  ticketId,
+}) {
+  if (!to) return;
+
+  const ticketLink =
+    APP_URL && ticketId
+      ? `${APP_URL.replace(/\/+$/, "")}/support/tickets/${encodeURIComponent(ticketId)}`
+      : null;
+
+  const { html, text, subject: emailSubject } = await withLogo(userSupportReplyTemplate, {
+    name,
+    subject,
+    reply,
+    link: ticketLink,
+  });
+
+  return sendMailLogged({
+    senderKey: "support", // sau "noreply" dacă vrei, dar reply-to să fie support
+    to,
+    subject: emailSubject,
+    template: "user_support_reply",
+    ticketId,
+    toName: name || null,
+    mailOptions: {
+      ...senderEnvelope("support"),
+      to,
+      subject: emailSubject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
     },
   });
 }

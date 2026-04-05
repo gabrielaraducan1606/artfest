@@ -84,6 +84,8 @@ import adminSubscriptions from "./src/routes/adminSubscriptionRoutes.js";
 import adminPickupsRoutes from "./src/routes/adminPickupsRoutes.js";
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
+import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
+
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -405,7 +407,7 @@ app.use("/api/public", digitalWaitlistRoutes);
 app.use("/api/admin", adminDigitalWaitlistRoutes);
 app.use("/api", marketplaceWaitlistRouter);
 app.use("/api/admin", adminMarketplaceWaitlistRouter);
-app.use("/api", adminSubscriptions);
+app.use("/api/admin", adminSubscriptions);
 app.use("/api/admin", adminPickupsRoutes);
 app.use("/api/admin", adminInvoicesRoutes);
 
@@ -481,6 +483,7 @@ app.use("/api/vendor", vendorOrdersRoutes);
 app.use("/public", publicContactRoutes);
 app.use("/api", vendorSettingsRoutes);
 
+app.use("/api/vendors/stripe/connect", vendorsStripeConnectRoutes);
 // 👇 aici folosim authRequired din ./src/api/auth.js
 app.use("/api", accountDeleteRoutes);
 

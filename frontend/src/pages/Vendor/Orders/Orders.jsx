@@ -23,8 +23,6 @@ import SubscriptionBanner from "../Onboarding/OnBoardingDetails/tabs/Subscriptio
 
 import UserOrdersPage from "../../User/Orders/UserOrders";
 import VendorManualOrderModal from "./VendorManualOrderModal.jsx";
-
-import CourierModal from "./modals/CourierModal.jsx";
 import CancelOrderModal from "./modals/CancelOrderModal.jsx";
 
 /* ----------------
@@ -50,20 +48,8 @@ function formatDate(d) {
   }
 }
 
-function isCourierAlreadyScheduled(o) {
-  return !!(o?.awb || o?.pickupScheduledAt);
-}
+const COURIER_ENABLED = false;
 
-// ✅ LOCK UI: după schedule pickup până la AWB
-function isAwaitingAwb(o) {
-  return !!o?.pickupScheduledAt && !o?.awb;
-}
-
-function lockMessage() {
-  return "Comanda este blocată deoarece ai cerut curier. Așteaptă AWB-ul de la admin, apoi poți modifica din nou comanda.";
-}
-
-// ✅ helper: tratează 409 din backend
 async function withLockHandling(promiseFn) {
   try {
     return await promiseFn();
@@ -72,7 +58,10 @@ async function withLockHandling(promiseFn) {
     const data = e?.data || e?.response?.data;
 
     if (status === 409 && data?.error === "ORDER_LOCKED_AWAITING_AWB") {
-      alert(data?.message || lockMessage());
+      alert(
+        data?.message ||
+          "Comanda este blocată temporar din backend. Verifică setările de livrare."
+      );
       return null;
     }
 
@@ -143,12 +132,10 @@ export default function VendorOrdersPage() {
   const [data, setData] = useState({ items: [], total: 0 });
 
   // modals state
-  const [courierOrder, setCourierOrder] = useState(null);
   const [cancelOrder, setCancelOrder] = useState(null);
 
   const [startingMessageOrderId, setStartingMessageOrderId] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [sseConnected, setSseConnected] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
 
@@ -202,128 +189,6 @@ export default function VendorOrdersPage() {
     };
   }, [query, isVendor, activeTab]);
 
-  // ✅ SSE
-  useEffect(() => {
-    if (!isVendor || activeTab !== "vendor") return;
-
-    let es;
-    let closed = false;
-
-    function connect() {
-      try {
-        es = new EventSource("/api/vendor/orders/stream");
-
-        es.addEventListener("open", () => {
-          if (closed) return;
-          setSseConnected(true);
-        });
-
-        es.addEventListener("ready", () => {
-          if (closed) return;
-          setSseConnected(true);
-        });
-
-        es.addEventListener("ping", () => {});
-
-        es.addEventListener("pickup_scheduled", (ev) => {
-          if (closed) return;
-          try {
-            const msg = JSON.parse(ev.data || "{}");
-
-            setData((prev) => ({
-              ...prev,
-              items: prev.items.map((x) =>
-                x.shipmentId === msg.shipmentId || x.id === msg.orderId
-                  ? {
-                      ...x,
-                      status: "confirmed",
-                      pickupScheduledAt:
-                        msg.pickupScheduledAt || x.pickupScheduledAt,
-                      pickupDate: msg.pickupDate || x.pickupDate,
-                      pickupSlotStart: msg.pickupSlotStart || x.pickupSlotStart,
-                      pickupSlotEnd: msg.pickupSlotEnd || x.pickupSlotEnd,
-                    }
-                  : x
-              ),
-            }));
-          } catch {
-            ""
-          }
-        });
-
-        es.addEventListener("awb", (ev) => {
-          if (closed) return;
-          try {
-            const msg = JSON.parse(ev.data || "{}");
-
-            setData((prev) => ({
-              ...prev,
-              items: prev.items.map((x) =>
-                x.shipmentId === msg.shipmentId || x.id === msg.orderId
-                  ? {
-                      ...x,
-                      awb: msg.awb ?? x.awb,
-                      labelUrl: msg.labelUrl ?? x.labelUrl,
-                      courierProvider: msg.courierProvider ?? x.courierProvider,
-                      courierService: msg.courierService ?? x.courierService,
-                      status: msg.status ?? x.status,
-                    }
-                  : x
-              ),
-            }));
-          } catch {
-            ""
-          }
-        });
-
-        es.addEventListener("error", () => {
-          if (closed) return;
-          setSseConnected(false);
-          try {
-            es.close();
-          } catch {
-            ""
-          }
-
-          setTimeout(() => {
-            if (!closed) connect();
-          }, 1500);
-        });
-      } catch {
-        setSseConnected(false);
-      }
-    }
-
-    connect();
-
-    return () => {
-      closed = true;
-      setSseConnected(false);
-      try {
-        es?.close();
-      } catch {
-        ""
-      }
-    };
-  }, [isVendor, activeTab]);
-
-  // ✅ fallback polling doar dacă SSE nu e conectat
-  useEffect(() => {
-    if (!isVendor || activeTab !== "vendor") return;
-    if (sseConnected) return;
-
-    const hasAwaiting = (data?.items || []).some(
-      (o) => !!o?.pickupScheduledAt && !o?.awb
-    );
-    if (!hasAwaiting) return;
-
-    const t = setInterval(() => {
-      setReloadToken((x) => x + 1);
-    }, 15000);
-
-    return () => clearInterval(t);
-  }, [isVendor, activeTab, data?.items, sseConnected]);
-
   // detect mobile
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -348,47 +213,38 @@ export default function VendorOrdersPage() {
     );
   }
 
-  function openCourierModal(orderRow) {
-    setCourierOrder(orderRow);
-  }
-  function closeCourierModal() {
-    setCourierOrder(null);
-  }
-
   function handleRowClick(order) {
     if (isMobile) setSelectedOrder(order);
     else navigate(`/vendor/orders/${order.id}`);
   }
 
   async function handleContactClient(order) {
-  // dacă există deja thread, mergem la ruta corectă pentru vendor: /mesaje
-  if (order.messageThreadId) {
-    navigate(`/mesaje?threadId=${order.messageThreadId}`);
-    return;
-  }
-
-  try {
-    setStartingMessageOrderId(order.id);
-
-    const res = await api(`/api/inbox/ensure-thread-from-order/${order.id}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-
-    if (!res?.threadId) {
-      alert("Nu am putut crea conversația cu clientul.");
+    if (order.messageThreadId) {
+      navigate(`/mesaje?threadId=${order.messageThreadId}`);
       return;
     }
 
-    // ✅ RUTA CORECTĂ (conform App.jsx)
-    navigate(`/mesaje?threadId=${res.threadId}`);
-  } catch (e) {
-    console.error("Eroare la pornirea conversației", e);
-    alert("Nu am putut porni conversația cu clientul. Încearcă din nou.");
-  } finally {
-    setStartingMessageOrderId(null);
+    try {
+      setStartingMessageOrderId(order.id);
+
+      const res = await api(`/api/inbox/ensure-thread-from-order/${order.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!res?.threadId) {
+        alert("Nu am putut crea conversația cu clientul.");
+        return;
+      }
+
+      navigate(`/mesaje?threadId=${res.threadId}`);
+    } catch (e) {
+      console.error("Eroare la pornirea conversației", e);
+      alert("Nu am putut porni conversația cu clientul. Încearcă din nou.");
+    } finally {
+      setStartingMessageOrderId(null);
+    }
   }
-}
 
   const hasActiveFilters = !!(status || from || to);
   const activeFiltersLabel = [
@@ -439,10 +295,6 @@ export default function VendorOrdersPage() {
                     "Email",
                     "Status",
                     "Total",
-                    "AWB",
-                    "Pickup",
-                    "Slot",
-                    "PickupScheduledAt",
                   ],
                   ...data.items.map((o) => [
                     o.id,
@@ -452,22 +304,6 @@ export default function VendorOrdersPage() {
                     o.customerEmail || "",
                     o.status || "",
                     String(o.total || 0).replace(".", ","),
-                    o.awb || "",
-                    o.pickupDate
-                      ? new Date(o.pickupDate).toISOString().slice(0, 10)
-                      : "",
-                    o.pickupSlotStart && o.pickupSlotEnd
-                      ? `${new Date(o.pickupSlotStart).toLocaleTimeString(
-                          "ro-RO",
-                          { hour: "2-digit", minute: "2-digit" }
-                        )}-${new Date(o.pickupSlotEnd).toLocaleTimeString(
-                          "ro-RO",
-                          { hour: "2-digit", minute: "2-digit" }
-                        )}`
-                      : "",
-                    o.pickupScheduledAt
-                      ? new Date(o.pickupScheduledAt).toISOString()
-                      : "",
                   ]),
                 ];
 
@@ -479,7 +315,9 @@ export default function VendorOrdersPage() {
                   )
                   .join("\n");
 
-                const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                const blob = new Blob([csv], {
+                  type: "text/csv;charset=utf-8",
+                });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
@@ -519,7 +357,6 @@ export default function VendorOrdersPage() {
 
       {activeTab === "vendor" && (
         <>
-          {/* Filters bar */}
           <div className={styles.filters}>
             <div className={styles.inputWrap}>
               <Search size={16} className={styles.inputIcon} />
@@ -564,9 +401,12 @@ export default function VendorOrdersPage() {
             </div>
           </div>
 
-          {/* Table */}
           <div className={styles.card}>
-            <div className={styles.tableWrap} role="region" aria-label="Tabel comenzi">
+            <div
+              className={styles.tableWrap}
+              role="region"
+              aria-label="Tabel comenzi"
+            >
               <table className={styles.table}>
                 <thead>
                   <tr>
@@ -585,7 +425,8 @@ export default function VendorOrdersPage() {
                     Array.from({ length: 6 }).map((_, i) => (
                       <tr key={`sk-${i}`} className={styles.skeletonRow}>
                         <td colSpan={7}>
-                          <Loader2 className={styles.spin} size={16} /> Se încarcă…
+                          <Loader2 className={styles.spin} size={16} /> Se
+                          încarcă…
                         </td>
                       </tr>
                     ))}
@@ -603,12 +444,14 @@ export default function VendorOrdersPage() {
                       const leadLabel = getLeadStatusLabel(o.leadStatus);
                       const cancelReasonLabel =
                         o.cancelReason &&
-                        (CANCEL_REASONS.find((r) => r.value === o.cancelReason)?.label ||
+                        (CANCEL_REASONS.find(
+                          (r) => r.value === o.cancelReason
+                        )?.label ||
                           o.cancelReason);
 
-                      const awaitingAwb = isAwaitingAwb(o);
-                      const canFinalize =
-                        !!o.awb && !awaitingAwb && ["confirmed", "preparing"].includes(o.status);
+                      const canFinalize = ["confirmed", "preparing"].includes(
+                        o.status
+                      );
 
                       return (
                         <tr
@@ -624,52 +467,22 @@ export default function VendorOrdersPage() {
 
                           <td>
                             <div className={styles.clientCol}>
-                              <div className={styles.clientName}>{o.customerName || "—"}</div>
+                              <div className={styles.clientName}>
+                                {o.customerName || "—"}
+                              </div>
                               <div className={styles.clientNote}>
                                 {o.eventName || o.address?.city || ""}
                               </div>
 
-                              {(o.awb || o.pickupDate || leadLabel || awaitingAwb) && (
+                              {!!leadLabel && (
                                 <div className={styles.inlineChips}>
-                                  {awaitingAwb && (
-                                    <span className={styles.badge}>Așteptăm AWB</span>
-                                  )}
-
-                                  {o.awb && (
-                                    <span className={`${styles.badge} ${styles.badgeConfirmed}`}>
-                                      AWB {o.awb}
-                                    </span>
-                                  )}
-
-                                  {o.pickupDate && (
-                                    <span className={styles.badge}>
-                                      Ridicare{" "}
-                                      {new Date(o.pickupDate).toLocaleDateString("ro-RO", {
-                                        weekday: "short",
-                                        day: "2-digit",
-                                        month: "short",
-                                      })}{" "}
-                                      {o.pickupSlotStart && o.pickupSlotEnd ? (
-                                        <>
-                                          {new Date(o.pickupSlotStart).toLocaleTimeString("ro-RO", {
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })}
-                                          {"–"}
-                                          {new Date(o.pickupSlotEnd).toLocaleTimeString("ro-RO", {
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                          })}
-                                        </>
-                                      ) : null}
-                                    </span>
-                                  )}
-
-                                  {leadLabel && (
-                                    <span className={`${styles.badge} ${styles.badgeLead || ""}`}>
-                                      {leadLabel}
-                                    </span>
-                                  )}
+                                  <span
+                                    className={`${styles.badge} ${
+                                      styles.badgeLead || ""
+                                    }`}
+                                  >
+                                    {leadLabel}
+                                  </span>
                                 </div>
                               )}
                             </div>
@@ -678,12 +491,18 @@ export default function VendorOrdersPage() {
                           <td className={styles.hideSm}>
                             <div className={styles.clientContact}>
                               {o.customerPhone && (
-                                <a href={`tel:${o.customerPhone}`} onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={`tel:${o.customerPhone}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
                                   {o.customerPhone}
                                 </a>
                               )}
                               {o.customerEmail && (
-                                <a href={`mailto:${o.customerEmail}`} onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={`mailto:${o.customerEmail}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
                                   {o.customerEmail}
                                 </a>
                               )}
@@ -707,21 +526,28 @@ export default function VendorOrdersPage() {
                                     : ""
                                 }`}
                               >
-                                {STATUS_OPTIONS.find((s) => s.value === o.status)?.label ||
+                                {STATUS_OPTIONS.find(
+                                  (s) => s.value === o.status
+                                )?.label ||
                                   o.status ||
                                   "—"}
                               </span>
 
                               {o.paymentMethod && (
                                 <div className={styles.clientNote}>
-                                  {o.paymentMethod === "COD" ? "Plată la livrare" : "Card online"}
+                                  {o.paymentMethod === "COD"
+                                    ? "Plată la livrare"
+                                    : "Card online"}
                                 </div>
                               )}
 
                               {cancelReasonLabel && (
                                 <div className={styles.clientNote}>
-                                  Motiv anulare: <strong>{cancelReasonLabel}</strong>
-                                  {o.cancelReasonNote && <> – {o.cancelReasonNote}</>}
+                                  Motiv anulare:{" "}
+                                  <strong>{cancelReasonLabel}</strong>
+                                  {o.cancelReasonNote && (
+                                    <> – {o.cancelReasonNote}</>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -730,7 +556,6 @@ export default function VendorOrdersPage() {
                           <td>{formatMoney(o.total)}</td>
 
                           <td className={styles.actionsCell}>
-                            {/* Mesaje */}
                             <button
                               type="button"
                               className={styles.iconActionBtn}
@@ -754,45 +579,44 @@ export default function VendorOrdersPage() {
                                 <MessageSquare size={16} />
                               )}
                               {o.messageUnreadCount > 0 && (
-                                <span className={styles.unreadDot}>{o.messageUnreadCount}</span>
+                                <span className={styles.unreadDot}>
+                                  {o.messageUnreadCount}
+                                </span>
                               )}
                             </button>
-{/* Cancel */}
-                            {["new", "preparing", "confirmed"].includes(o.status) && (
+
+                            {["new", "preparing", "confirmed"].includes(
+                              o.status
+                            ) && (
                               <button
                                 className={`${styles.iconActionBtn} ${styles.dangerBtn}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (awaitingAwb) {
-                                    alert(lockMessage());
-                                    return;
-                                  }
                                   setCancelOrder(o);
                                 }}
-                                title={awaitingAwb ? lockMessage() : "Anulează comanda"}
+                                title="Anulează comanda"
                                 aria-label="Anulează comanda"
-                                disabled={awaitingAwb}
                               >
                                 <XCircle size={16} />
                               </button>
                             )}
-                            {/* În pregătire */}
+
                             {o.status === "new" && (
                               <button
                                 className={styles.secondaryBtn}
                                 onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (awaitingAwb) {
-                                    alert(lockMessage());
-                                    return;
-                                  }
 
                                   try {
                                     const ok = await withLockHandling(() =>
                                       api(`/api/vendor/orders/${o.id}/status`, {
                                         method: "PATCH",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ status: "preparing" }),
+                                        headers: {
+                                          "Content-Type": "application/json",
+                                        },
+                                        body: JSON.stringify({
+                                          status: "preparing",
+                                        }),
                                       })
                                     );
                                     if (!ok) return;
@@ -800,62 +624,49 @@ export default function VendorOrdersPage() {
                                     setData((prev) => ({
                                       ...prev,
                                       items: prev.items.map((x) =>
-                                        x.id === o.id ? { ...x, status: "preparing" } : x
+                                        x.id === o.id
+                                          ? { ...x, status: "preparing" }
+                                          : x
                                       ),
                                     }));
                                   } catch {
                                     alert("Nu am putut marca 'În pregătire'.");
                                   }
                                 }}
-                                disabled={awaitingAwb}
-                                title={awaitingAwb ? lockMessage() : undefined}
                               >
                                 În pregătire
                               </button>
                             )}
 
-                            {/* Programează curier */}
-                            {(o.status === "preparing" || o.status === "confirmed") &&
-                              (() => {
-                                const courierScheduled = isCourierAlreadyScheduled(o);
-                                return (
-                                  <button
-                                    className={styles.primaryBtn}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openCourierModal(o);
-                                    }}
-                                    disabled={courierScheduled}
-                                    title={
-                                      courierScheduled
-                                        ? "Curierul este deja programat"
-                                        : "Programează curier"
-                                    }
-                                  >
-                                    <PackageCheck size={16} />{" "}
-                                    {courierScheduled ? "Curier programat" : "Programează curier"}
-                                  </button>
-                                );
-                              })()}
+                            {(o.status === "preparing" ||
+                              o.status === "confirmed") && (
+                              <button
+                                className={styles.primaryBtn}
+                                onClick={(e) => e.stopPropagation()}
+                                disabled={!COURIER_ENABLED}
+                                title="Funcționalitate temporar indisponibilă"
+                              >
+                                <PackageCheck size={16} /> Programează curier
+                              </button>
+                            )}
 
-                            {/* Marchează ca finalizată */}
                             {["confirmed", "preparing"].includes(o.status) && (
                               <button
                                 className={styles.secondaryBtn}
                                 disabled={!canFinalize}
-                                title={
-                                  !o.awb
-                                    ? "Așteaptă AWB-ul de la admin ca să poți finaliza."
-                                    : "Marchează drept finalizată"
-                                }
+                                title="Marchează drept finalizată"
                                 onClick={async (e) => {
                                   e.stopPropagation();
                                   try {
                                     const ok = await withLockHandling(() =>
                                       api(`/api/vendor/orders/${o.id}/status`, {
                                         method: "PATCH",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ status: "fulfilled" }),
+                                        headers: {
+                                          "Content-Type": "application/json",
+                                        },
+                                        body: JSON.stringify({
+                                          status: "fulfilled",
+                                        }),
                                       })
                                     );
                                     if (!ok) return;
@@ -863,7 +674,9 @@ export default function VendorOrdersPage() {
                                     setData((prev) => ({
                                       ...prev,
                                       items: prev.items.map((x) =>
-                                        x.id === o.id ? { ...x, status: "fulfilled" } : x
+                                        x.id === o.id
+                                          ? { ...x, status: "fulfilled" }
+                                          : x
                                       ),
                                     }));
                                   } catch {
@@ -874,8 +687,6 @@ export default function VendorOrdersPage() {
                                 Marchează ca finalizată
                               </button>
                             )}
-
-                            
                           </td>
                         </tr>
                       );
@@ -913,25 +724,6 @@ export default function VendorOrdersPage() {
             </p>
           )}
 
-          {/* MODALS */}
-          {courierOrder && (
-            <CourierModal
-              order={courierOrder}
-              onClose={closeCourierModal}
-              onDone={(patch) => {
-                if (patch && typeof patch === "object") {
-                  setData((prev) => ({
-                    ...prev,
-                    items: prev.items.map((x) =>
-                      x.id === courierOrder.id ? { ...x, ...patch } : x
-                    ),
-                  }));
-                }
-                closeCourierModal();
-              }}
-            />
-          )}
-
           {manualOrderOpen && (
             <VendorManualOrderModal
               onClose={() => setManualOrderOpen(false)}
@@ -966,9 +758,12 @@ export default function VendorOrdersPage() {
             />
           )}
 
-          {/* Filters modal */}
           {filtersOpen && (
-            <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+            <div
+              className={styles.modalBackdrop}
+              role="dialog"
+              aria-modal="true"
+            >
               <div className={styles.modal}>
                 <div className={styles.modalHead}>
                   <h3>Filtre comenzi</h3>
@@ -1047,10 +842,16 @@ export default function VendorOrdersPage() {
                 </div>
 
                 <div className={styles.modalActions}>
-                  <button className={styles.secondaryBtn} onClick={handleResetFilters}>
+                  <button
+                    className={styles.secondaryBtn}
+                    onClick={handleResetFilters}
+                  >
                     <RefreshCw size={16} /> Resetează filtrele
                   </button>
-                  <button className={styles.primaryBtn} onClick={() => setFiltersOpen(false)}>
+                  <button
+                    className={styles.primaryBtn}
+                    onClick={() => setFiltersOpen(false)}
+                  >
                     Aplică filtrele
                   </button>
                 </div>

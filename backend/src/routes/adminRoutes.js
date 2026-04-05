@@ -1,7 +1,7 @@
 // src/routes/adminRoutes.js
-
 import { Router } from "express";
 import crypto from "crypto";
+import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { authRequired, requireRole } from "../api/auth.js";
 import { sendPasswordResetEmail } from "../lib/mailer.js";
@@ -14,8 +14,11 @@ router.use(authRequired, requireRole("ADMIN"));
 // baza pentru link-urile către frontend
 const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 
+// Stripe (folosit doar în endpoint-uri admin de sync)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
+
 /**
- * SELECT comun pentru user în admin (ca să nu repetăm peste tot)
+ * SELECT comun pentru user în admin
  */
 const adminUserSelect = {
   id: true,
@@ -23,18 +26,15 @@ const adminUserSelect = {
   role: true,
   createdAt: true,
 
-  // nume
   firstName: true,
   lastName: true,
   name: true,
 
-  // status / auth de bază
   emailVerifiedAt: true,
   tokenVersion: true,
   status: true,
   lastLoginAt: true,
 
-  // inactivitate / ștergere programată
   inactiveNotifiedAt: true,
   scheduledDeletionAt: true,
 
@@ -61,8 +61,7 @@ const adminUserSelect = {
 };
 
 /**
- * SELECT comun pentru vendor în acțiuni simple (activate/deactivate etc.)
- * IMPORTANT: include și câmpurile de audit pentru entitySelfDeclared
+ * SELECT comun pentru vendor în acțiuni simple
  */
 const adminVendorSelect = {
   id: true,
@@ -79,12 +78,22 @@ const adminVendorSelect = {
   address: true,
   delivery: true,
 
-  // flag entitate juridică + audit
+  // entitate juridică + audit
   entitySelfDeclared: true,
   entitySelfDeclaredAt: true,
   entitySelfDeclaredIp: true,
   entitySelfDeclaredUa: true,
   entitySelfDeclaredMeta: true,
+
+  // Stripe Connect fields
+  stripeAccountId: true,
+  stripeChargesEnabled: true,
+  stripePayoutsEnabled: true,
+  stripeDetailsSubmitted: true,
+  stripeConnectStatus: true,
+  stripeRequirementsDue: true,
+  stripeDisabledReason: true,
+  stripeOnboardedAt: true,
 
   user: {
     select: {
@@ -111,7 +120,6 @@ const adminVendorSelect = {
       contactPerson: true,
       phone: true,
 
-      // câmpuri TVA vendor din formular
       vatStatus: true,
       vatRate: true,
       vatResponsibilityConfirmed: true,
@@ -145,9 +153,6 @@ const adminVendorSelect = {
   },
 };
 
-/**
- * Rezumat acorduri legale pentru un vendor
- */
 function buildVendorAgreementsSummary(vendor, requiredDocs) {
   const acceptances = vendor?.VendorAcceptance || [];
 
@@ -162,21 +167,13 @@ function buildVendorAgreementsSummary(vendor, requiredDocs) {
     lastAcceptedAt = latest.acceptedAt.toISOString();
   }
 
-  return {
-    allRequired,
-    acceptedDocs,
-    missingDocs,
-    lastAcceptedAt,
-  };
+  return { allRequired, acceptedDocs, missingDocs, lastAcceptedAt };
 }
 
 /* =========================================================
  *                      KPI / LISTE
  * ========================================================= */
 
-/**
- * GET /api/admin/stats
- */
 router.get("/stats", async (_req, res) => {
   try {
     const [usersCount, vendorsCount, ordersCount, productsCount] = await Promise.all([
@@ -193,16 +190,12 @@ router.get("/stats", async (_req, res) => {
   }
 });
 
-/**
- * GET /api/admin/users
- */
 router.get("/users", async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: adminUserSelect,
     });
-
     res.json({ users });
   } catch (e) {
     console.error("ADMIN /users error", e);
@@ -210,37 +203,21 @@ router.get("/users", async (_req, res) => {
   }
 });
 
-/**
- * GET /api/admin/vendors
- * include și numărul de followers (ServiceFollow) pe toate serviciile vendorului
- * include și audit entitySelfDeclared (ip/ua/meta)
- */
 router.get("/vendors", async (_req, res) => {
   try {
     const basePublicUrl = APP_URL || "https://artfest.ro";
 
-    // documentele legale obligatorii și active
     const activePolicies = await prisma.vendorPolicy.findMany({
-      where: {
-        isActive: true,
-        isRequired: true,
-      },
+      where: { isActive: true, isRequired: true },
       select: { document: true },
     });
-
     const requiredDocs = activePolicies.map((p) => p.document);
 
     const vendors = await prisma.vendor.findMany({
       orderBy: { createdAt: "desc" },
       include: {
         user: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            createdAt: true,
-            lastLoginAt: true,
-          },
+          select: { id: true, email: true, role: true, createdAt: true, lastLoginAt: true },
         },
         billing: {
           select: {
@@ -257,7 +234,6 @@ router.get("/vendors", async (_req, res) => {
             contactPerson: true,
             phone: true,
 
-            // TVA vendor
             vatStatus: true,
             vatRate: true,
             vatResponsibilityConfirmed: true,
@@ -275,33 +251,16 @@ router.get("/vendors", async (_req, res) => {
             updatedAt: true,
           },
         },
-        _count: {
-          select: {
-            services: true,
-            visitors: true,
-            supportTickets: true,
-          },
-        },
-        services: {
-          include: { profile: true },
-        },
-        VendorAcceptance: {
-          select: {
-            document: true,
-            version: true,
-            acceptedAt: true,
-          },
-        },
+        _count: { select: { services: true, visitors: true, supportTickets: true } },
+        services: { include: { profile: true } },
+        VendorAcceptance: { select: { document: true, version: true, acceptedAt: true } },
       },
     });
 
-    // followers per vendor (toate follow-urile pe serviciile lui)
     const vendorsWithFollowers = await Promise.all(
       vendors.map(async (v) => {
         const followers = await prisma.serviceFollow.count({
-          where: {
-            service: { vendorId: v.id },
-          },
+          where: { service: { vendorId: v.id } },
         });
         return { vendor: v, followers };
       })
@@ -335,7 +294,6 @@ router.get("/vendors", async (_req, res) => {
       );
 
       const onboardingStatus = profileComplete ? "done" : "profile";
-
       const agreementsSummary = buildVendorAgreementsSummary(v, requiredDocs);
 
       return {
@@ -353,19 +311,25 @@ router.get("/vendors", async (_req, res) => {
         address: v.address,
         delivery: v.delivery,
 
-        // ✅ entitate juridică + audit
         entitySelfDeclared: v.entitySelfDeclared,
         entitySelfDeclaredAt: v.entitySelfDeclaredAt ? v.entitySelfDeclaredAt.toISOString() : null,
         entitySelfDeclaredIp: v.entitySelfDeclaredIp || null,
         entitySelfDeclaredUa: v.entitySelfDeclaredUa || null,
         entitySelfDeclaredMeta: v.entitySelfDeclaredMeta ?? null,
 
+        stripeAccountId: v.stripeAccountId || null,
+        stripeConnectStatus: v.stripeConnectStatus || "not_started",
+        stripePayoutsEnabled: !!v.stripePayoutsEnabled,
+        stripeChargesEnabled: !!v.stripeChargesEnabled,
+        stripeDetailsSubmitted: !!v.stripeDetailsSubmitted,
+        stripeOnboardedAt: v.stripeOnboardedAt ? v.stripeOnboardedAt.toISOString() : null,
+        stripeDisabledReason: v.stripeDisabledReason || null,
+        stripeRequirementsDue: v.stripeRequirementsDue ?? null,
+
         slug,
         publicProfileUrl,
         profileComplete,
         onboardingStatus,
-
-        // număr total de urmăritori (followers) la magazin
         followers,
 
         user: v.user
@@ -380,34 +344,11 @@ router.get("/vendors", async (_req, res) => {
 
         billing: v.billing
           ? {
-              id: v.billing.id,
-              legalType: v.billing.legalType,
-              vendorName: v.billing.vendorName,
-              companyName: v.billing.companyName,
-              cui: v.billing.cui,
-              regCom: v.billing.regCom,
-              address: v.billing.address,
-              iban: v.billing.iban,
-              bank: v.billing.bank,
-              email: v.billing.email,
-              contactPerson: v.billing.contactPerson,
-              phone: v.billing.phone,
-
-              vatStatus: v.billing.vatStatus,
-              vatRate: v.billing.vatRate,
-              vatResponsibilityConfirmed: v.billing.vatResponsibilityConfirmed,
+              ...v.billing,
               vatLastResponsibilityConfirm: v.billing.vatLastResponsibilityConfirm
                 ? v.billing.vatLastResponsibilityConfirm.toISOString()
                 : null,
-
-              tvaActive: v.billing.tvaActive,
-              inactiv: v.billing.inactiv,
-              insolvent: v.billing.insolvent,
-              splitTva: v.billing.splitTva,
               tvaVerifiedAt: v.billing.tvaVerifiedAt ? v.billing.tvaVerifiedAt.toISOString() : null,
-              tvaSource: v.billing.tvaSource,
-              anafName: v.billing.anafName,
-              anafAddress: v.billing.anafAddress,
               createdAt: v.billing.createdAt.toISOString(),
               updatedAt: v.billing.updatedAt.toISOString(),
             }
@@ -415,7 +356,6 @@ router.get("/vendors", async (_req, res) => {
 
         hasMasterAgreement,
         masterAgreementAcceptedAt,
-
         agreementsSummary,
 
         _count: {
@@ -434,8 +374,79 @@ router.get("/vendors", async (_req, res) => {
 });
 
 /**
- * GET /api/admin/orders
+ * POST /vendors/:id/stripe/sync
+ * Re-trage statusul contului Stripe Connect și persistă în DB
  */
+router.post("/vendors/:id/stripe/sync", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(500).json({ error: "stripe_missing_key", message: "STRIPE_SECRET_KEY lipsește." });
+    }
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { id },
+      select: { id: true, stripeAccountId: true, stripeOnboardedAt: true },
+    });
+
+    if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
+    if (!vendor.stripeAccountId) {
+      return res.status(400).json({ error: "stripe_not_connected", message: "Vendorul nu are cont Stripe." });
+    }
+
+    const acct = await stripe.accounts.retrieve(vendor.stripeAccountId);
+
+    const due = [
+      ...(acct.requirements?.currently_due || []),
+      ...(acct.requirements?.past_due || []),
+    ];
+
+    const connectStatus = acct.payouts_enabled
+      ? "enabled"
+      : acct.requirements?.disabled_reason
+      ? "restricted"
+      : "pending";
+
+    const updated = await prisma.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        stripeChargesEnabled: !!acct.charges_enabled,
+        stripePayoutsEnabled: !!acct.payouts_enabled,
+        stripeDetailsSubmitted: !!acct.details_submitted,
+        stripeOnboardedAt: acct.details_submitted ? new Date() : vendor.stripeOnboardedAt,
+        stripeConnectStatus: connectStatus,
+        stripeRequirementsDue: due,
+        stripeDisabledReason: acct.requirements?.disabled_reason || null,
+      },
+      select: {
+        id: true,
+        stripeAccountId: true,
+        stripeConnectStatus: true,
+        stripePayoutsEnabled: true,
+        stripeChargesEnabled: true,
+        stripeDetailsSubmitted: true,
+        stripeOnboardedAt: true,
+        stripeDisabledReason: true,
+        stripeRequirementsDue: true,
+      },
+    });
+
+    return res.json({
+      vendor: {
+        ...updated,
+        stripeOnboardedAt: updated.stripeOnboardedAt ? updated.stripeOnboardedAt.toISOString() : null,
+      },
+    });
+  } catch (e) {
+    console.error("ADMIN /vendors/:id/stripe/sync error:", e);
+    return res.status(500).json({
+      error: "admin_vendor_stripe_sync_failed",
+      message: e?.message || "Stripe sync failed",
+    });
+  }
+});
+
 router.get("/orders", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
@@ -446,12 +457,7 @@ router.get("/orders", async (req, res) => {
       include: {
         shipments: {
           include: {
-            vendor: {
-              select: {
-                id: true,
-                displayName: true,
-              },
-            },
+            vendor: { select: { id: true, displayName: true } },
             items: true,
           },
         },
@@ -465,21 +471,14 @@ router.get("/orders", async (req, res) => {
   }
 });
 
-/**
- * GET /api/admin/products
- */
 router.get("/products", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
 
     const activePolicies = await prisma.vendorPolicy.findMany({
-      where: {
-        isActive: true,
-        isRequired: true,
-      },
+      where: { isActive: true, isRequired: true },
       select: { document: true },
     });
-
     const requiredDocs = activePolicies.map((p) => p.document);
 
     const products = await prisma.product.findMany({
@@ -497,48 +496,28 @@ router.get("/products", async (req, res) => {
               select: {
                 id: true,
                 displayName: true,
-                VendorAcceptance: {
-                  select: {
-                    document: true,
-                    version: true,
-                    acceptedAt: true,
-                  },
-                },
+                VendorAcceptance: { select: { document: true, version: true, acceptedAt: true } },
               },
             },
           },
         },
         ProductRatingStats: true,
-        _count: {
-          select: {
-            Favorite: true,
-            comments: true,
-            reviews: true,
-            cartItems: true,
-          },
-        },
+        _count: { select: { Favorite: true, comments: true, reviews: true, cartItems: true } },
       },
     });
 
     const productsWithAgreements = products.map((p) => {
-      const svc = p.service;
-      const vendor = svc?.vendor;
+      const vendor = p.service?.vendor;
+      if (!vendor) return p;
 
-      if (vendor) {
-        const agreementsSummary = buildVendorAgreementsSummary(vendor, requiredDocs);
-        return {
-          ...p,
-          service: {
-            ...svc,
-            vendor: {
-              ...vendor,
-              agreementsSummary,
-            },
-          },
-        };
-      }
-
-      return p;
+      const agreementsSummary = buildVendorAgreementsSummary(vendor, requiredDocs);
+      return {
+        ...p,
+        service: {
+          ...p.service,
+          vendor: { ...vendor, agreementsSummary },
+        },
+      };
     });
 
     res.json({ products: productsWithAgreements });
@@ -549,7 +528,7 @@ router.get("/products", async (req, res) => {
 });
 
 /* =========================================================
- *        ACȚIUNI ADMIN PE CONTUL DE USER
+ *        ACȚIUNI ADMIN PE USER
  * ========================================================= */
 
 router.post("/users/:id/suspend", async (req, res) => {
@@ -557,27 +536,18 @@ router.post("/users/:id/suspend", async (req, res) => {
 
   try {
     if (req.user?.id === id) {
-      return res.status(400).json({
-        error: "cannot_suspend_self",
-        message: "Nu îți poți suspenda propriul cont.",
-      });
+      return res.status(400).json({ error: "cannot_suspend_self", message: "Nu îți poți suspenda propriul cont." });
     }
 
     const existing = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, status: true },
+      select: { id: true },
     });
-
-    if (!existing) {
-      return res.status(404).json({ error: "user_not_found" });
-    }
+    if (!existing) return res.status(404).json({ error: "user_not_found" });
 
     const user = await prisma.user.update({
       where: { id },
-      data: {
-        status: "SUSPENDED",
-        tokenVersion: { increment: 1 },
-      },
+      data: { status: "SUSPENDED", tokenVersion: { increment: 1 } },
       select: adminUserSelect,
     });
 
@@ -592,14 +562,8 @@ router.post("/users/:id/unsuspend", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const existing = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, status: true },
-    });
-
-    if (!existing) {
-      return res.status(404).json({ error: "user_not_found" });
-    }
+    const existing = await prisma.user.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) return res.status(404).json({ error: "user_not_found" });
 
     const user = await prisma.user.update({
       where: { id },
@@ -622,18 +586,11 @@ router.post("/users/:id/verify-email", async (req, res) => {
       where: { id },
       select: { id: true, emailVerifiedAt: true },
     });
-
-    if (!existing) {
-      return res.status(404).json({ error: "user_not_found" });
-    }
-
-    const now = new Date();
+    if (!existing) return res.status(404).json({ error: "user_not_found" });
 
     const user = await prisma.user.update({
       where: { id },
-      data: {
-        emailVerifiedAt: existing.emailVerifiedAt || now,
-      },
+      data: { emailVerifiedAt: existing.emailVerifiedAt || new Date() },
       select: adminUserSelect,
     });
 
@@ -648,48 +605,26 @@ router.post("/users/:id/send-password-reset", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: { id: true, email: true },
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: "user_not_found" });
-    }
+    const user = await prisma.user.findUnique({ where: { id }, select: { id: true, email: true } });
+    if (!user) return res.status(404).json({ error: "user_not_found" });
 
     await prisma.passwordResetToken.updateMany({
-      where: {
-        userId: user.id,
-        usedAt: null,
-        expiresAt: { gt: new Date() },
-      },
+      where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
       data: { usedAt: new Date() },
     });
 
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
 
     await prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash,
-        expiresAt,
-      },
+      data: { userId: user.id, tokenHash, expiresAt },
     });
-
-    if (!APP_URL) {
-      console.warn("[ADMIN] APP_URL/FRONTEND_URL nu este setat – nu pot genera link de resetare.");
-    }
 
     const resetLink = APP_URL ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}` : undefined;
 
     if (resetLink) {
-      await sendPasswordResetEmail({
-        to: user.email,
-        link: resetLink,
-      });
+      await sendPasswordResetEmail({ to: user.email, link: resetLink });
     }
 
     res.json({ ok: true });
@@ -707,14 +642,8 @@ router.post("/vendors/:id/activate", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const existing = await prisma.vendor.findUnique({
-      where: { id },
-      select: { id: true, isActive: true },
-    });
-
-    if (!existing) {
-      return res.status(404).json({ error: "vendor_not_found" });
-    }
+    const existing = await prisma.vendor.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) return res.status(404).json({ error: "vendor_not_found" });
 
     const vendor = await prisma.vendor.update({
       where: { id },
@@ -722,7 +651,13 @@ router.post("/vendors/:id/activate", async (req, res) => {
       select: adminVendorSelect,
     });
 
-    res.json({ vendor });
+    res.json({
+      vendor: {
+        ...vendor,
+        createdAt: vendor.createdAt?.toISOString?.() || vendor.createdAt,
+        stripeOnboardedAt: vendor.stripeOnboardedAt ? vendor.stripeOnboardedAt.toISOString() : null,
+      },
+    });
   } catch (e) {
     console.error("ADMIN /vendors/:id/activate error", e);
     res.status(500).json({ error: "admin_vendor_activate_failed" });
@@ -733,14 +668,8 @@ router.post("/vendors/:id/deactivate", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const existing = await prisma.vendor.findUnique({
-      where: { id },
-      select: { id: true, isActive: true },
-    });
-
-    if (!existing) {
-      return res.status(404).json({ error: "vendor_not_found" });
-    }
+    const existing = await prisma.vendor.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) return res.status(404).json({ error: "vendor_not_found" });
 
     const vendor = await prisma.vendor.update({
       where: { id },
@@ -748,7 +677,13 @@ router.post("/vendors/:id/deactivate", async (req, res) => {
       select: adminVendorSelect,
     });
 
-    res.json({ vendor });
+    res.json({
+      vendor: {
+        ...vendor,
+        createdAt: vendor.createdAt?.toISOString?.() || vendor.createdAt,
+        stripeOnboardedAt: vendor.stripeOnboardedAt ? vendor.stripeOnboardedAt.toISOString() : null,
+      },
+    });
   } catch (e) {
     console.error("ADMIN /vendors/:id/deactivate error", e);
     res.status(500).json({ error: "admin_vendor_deactivate_failed" });
@@ -761,52 +696,28 @@ router.post("/vendors/:id/send-password-reset", async (req, res) => {
   try {
     const vendor = await prisma.vendor.findUnique({
       where: { id },
-      select: {
-        user: {
-          select: { id: true, email: true },
-        },
-      },
+      select: { user: { select: { id: true, email: true } } },
     });
 
-    if (!vendor || !vendor.user) {
-      return res.status(404).json({ error: "vendor_user_not_found" });
-    }
-
-    const user = vendor.user;
+    if (!vendor?.user) return res.status(404).json({ error: "vendor_user_not_found" });
 
     await prisma.passwordResetToken.updateMany({
-      where: {
-        userId: user.id,
-        usedAt: null,
-        expiresAt: { gt: new Date() },
-      },
+      where: { userId: vendor.user.id, usedAt: null, expiresAt: { gt: new Date() } },
       data: { usedAt: new Date() },
     });
 
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
-
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24);
 
     await prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash,
-        expiresAt,
-      },
+      data: { userId: vendor.user.id, tokenHash, expiresAt },
     });
-
-    if (!APP_URL) {
-      console.warn("[ADMIN] APP_URL/FRONTEND_URL nu este setat – nu pot genera link de resetare.");
-    }
 
     const resetLink = APP_URL ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}` : undefined;
 
     if (resetLink) {
-      await sendPasswordResetEmail({
-        to: user.email,
-        link: resetLink,
-      });
+      await sendPasswordResetEmail({ to: vendor.user.email, link: resetLink });
     }
 
     res.json({ ok: true });
@@ -816,26 +727,14 @@ router.post("/vendors/:id/send-password-reset", async (req, res) => {
   }
 });
 
-/**
- * Forțează re-acceptarea acordurilor legale pentru un vendor
- */
 router.post("/vendors/:id/reset-agreements", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const vendor = await prisma.vendor.findUnique({
-      where: { id },
-      select: { id: true },
-    });
+    const vendor = await prisma.vendor.findUnique({ where: { id }, select: { id: true } });
+    if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
 
-    if (!vendor) {
-      return res.status(404).json({ error: "vendor_not_found" });
-    }
-
-    await prisma.vendorAcceptance.deleteMany({
-      where: { vendorId: id },
-    });
-
+    await prisma.vendorAcceptance.deleteMany({ where: { vendorId: id } });
     return res.json({ ok: true });
   } catch (e) {
     console.error("ADMIN /vendors/:id/reset-agreements error", e);

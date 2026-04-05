@@ -17,6 +17,9 @@ import {
 } from "lucide-react";
 import styles from "./Orders.module.css";
 
+const COURIER_ENABLED = false;
+const INVOICE_ENABLED = false;
+
 function formatMoney(n) {
   const v = Number(n || 0);
   return new Intl.NumberFormat("ro-RO", {
@@ -157,8 +160,8 @@ export default function OrderDetailsPage() {
   const ship = order.shipment || {};
   const addr = order.shippingAddress || {};
   const items = order.items || [];
-const priceBreakdown = order.priceBreakdown || null;
-const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
+  const priceBreakdown = order.priceBreakdown || null;
+  const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
 
   const isCompany =
     order.customerType === "PJ" ||
@@ -170,6 +173,7 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
   /* ===== Handlere acțiuni ===== */
 
   function openCourierModal() {
+    if (!COURIER_ENABLED) return;
     setCourierOrder({
       id: order.id,
       shipmentId: ship.id,
@@ -177,6 +181,8 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
   }
 
   function openInvoiceModal() {
+    if (!INVOICE_ENABLED) return;
+
     if (!billingReady) {
       alert(
         "Pentru a genera facturi, te rugăm să completezi și să salvezi mai întâi datele de facturare."
@@ -201,7 +207,6 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
     try {
       setStartingMessage(true);
 
-      // putem folosi direct ensure-thread-from-order
       const res = await api(
         `/api/inbox/ensure-thread-from-order/${order.id}`,
         {
@@ -217,7 +222,6 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
         return;
       }
 
-      // ajustează ruta dacă la tine este alta decât /vendor/inbox
       nav(`/mesaje?threadId=${res.threadId}`);
     } catch (e) {
       console.error("Eroare la pornirea conversației", e);
@@ -235,9 +239,9 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
           <ArrowLeft size={16} /> Înapoi
         </button>
 
-       <h1 className={styles.h1}>
-  Comanda <code>{order.orderNumber || order.shortId || order.id}</code>
-</h1>
+        <h1 className={styles.h1}>
+          Comanda <code>{order.orderNumber || order.shortId || order.id}</code>
+        </h1>
 
         <div className={styles.headerActions}>
           {/* Mesaje client */}
@@ -259,30 +263,27 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
             )}
           </button>
 
-          {/* Confirmă & curier (doar pentru preparing/confirmed) */}
+          {/* Curier temporar indisponibil */}
           {(order.status === "preparing" || order.status === "confirmed") && (
             <button
               className={styles.primaryBtn}
               type="button"
               onClick={openCourierModal}
-              title="Confirmă & programează curierul"
+              disabled={!COURIER_ENABLED}
+              title="Funcționalitate temporar indisponibilă"
             >
               <PackageCheck size={16} /> Curier
             </button>
           )}
 
-          {/* Factură (dacă nu e anulată) */}
+          {/* Factură temporar indisponibilă */}
           {order.status !== "cancelled" && (
             <button
               className={styles.secondaryBtn}
               type="button"
               onClick={openInvoiceModal}
-              disabled={!billingReady || billingLoading || invoiceLoadingId}
-              title={
-                !billingReady
-                  ? "Completează datele de facturare pentru a genera facturi."
-                  : "Previzualizează, editează și trimite factura"
-              }
+              disabled={true}
+              title="Funcționalitate temporar indisponibilă"
             >
               {invoiceLoadingId ? (
                 <>
@@ -392,7 +393,6 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
             </div>
           </div>
 
-          {/* Notă internă lead (dacă vine din backend) */}
           {primaryThread && primaryThread.internalNote && (
             <div className={styles.kv}>
               <span>
@@ -405,7 +405,6 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
             </div>
           )}
 
-          {/* Facturare firmă */}
           {isCompany && (
             <>
               <div
@@ -525,65 +524,52 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
           </table>
         </div>
 
-     {/* 🔹 TOTAL (strict produse) */}
-<div className={styles.totalBar}>
+        <div className={styles.totalBar}>
+          <div>
+            Produsele tale: <strong>{formatMoney(order.subtotal)}</strong>
+            {priceBreakdown?.items && (
+              <div className={styles.muted}>
+                {formatMoney(priceBreakdown.items.net)} fără TVA +{" "}
+                {formatMoney(priceBreakdown.items.vat)} TVA
+              </div>
+            )}
+          </div>
 
-  {vf && (
-    <>
-     {/* 🔹 TOTAL (strict produse) */}
-<div className={styles.totalBar}>
-  <div>
-    Produsele tale: <strong>{formatMoney(order.subtotal)}</strong>
-    {priceBreakdown?.items && (
-      <div className={styles.muted}>
-        {formatMoney(priceBreakdown.items.net)} fără TVA +{" "}
-        {formatMoney(priceBreakdown.items.vat)} TVA
-      </div>
-    )}
-  </div>
+          {vf && (
+            <>
+              <div>
+                Bază comision (produse fără TVA):{" "}
+                <strong>{formatMoney(vf.itemsNet)}</strong>
+                <div className={styles.muted}>Comisionul se aplică pe NET</div>
+              </div>
 
-  {vf && (
-    <>
-      <div>
-        Bază comision (produse fără TVA):{" "}
-        <strong>{formatMoney(vf.itemsNet)}</strong>
-        <div className={styles.muted}>Comisionul se aplică pe NET</div>
-      </div>
+              <div>
+                Comision produse: <strong>{formatMoney(vf.commissionNet)}</strong>
+                <div className={styles.muted}>
+                  {((vf.commissionBps || 0) / 100).toFixed(2)}%
+                </div>
+              </div>
 
-      <div>
-        Comision produse: <strong>{formatMoney(vf.commissionNet)}</strong>
-        <div className={styles.muted}>
-          {((vf.commissionBps || 0) / 100).toFixed(2)}%
+              <div>
+                Îți rămâne (din produse):{" "}
+                <strong>{formatMoney(vf.vendorNetBeforeShipping)}</strong>
+                <div className={styles.muted}>Produse fără TVA − comision</div>
+              </div>
+            </>
+          )}
         </div>
-      </div>
 
-      <div>
-        Îți rămâne (din produse):{" "}
-        <strong>{formatMoney(vf.vendorNetBeforeShipping)}</strong>
-        <div className={styles.muted}>Produse fără TVA − comision</div>
-      </div>
-    </>
-  )}
-</div>
-
-    </>
-  )}
-</div>
-
-{/* opțional: afișezi transportul separat, fără TVA */}
-<div className={styles.totalBar} style={{ marginTop: 10 }}>
-  <div>
-    Transport: <strong>{formatMoney(order.shippingTotal)}</strong>
-  </div>
-  <div>
-    Total comandă: <strong>{formatMoney(order.total)}</strong>
-  </div>
-</div>
-
-
+        <div className={styles.totalBar} style={{ marginTop: 10 }}>
+          <div>
+            Transport: <strong>{formatMoney(order.shippingTotal)}</strong>
+          </div>
+          <div>
+            Total comandă: <strong>{formatMoney(order.total)}</strong>
+          </div>
+        </div>
       </section>
 
-      {/* Info lead din inbox (dacă există) */}
+      {/* Info lead din inbox */}
       <section className={styles.card}>
         <h3>Note interne &amp; follow-up</h3>
 
@@ -639,9 +625,9 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
         </Link>
       </div>
 
-      {/* ===== Modale re-folosite din lista de comenzi ===== */}
+      {/* ===== Modale ===== */}
 
-      {courierOrder && (
+      {courierOrder && COURIER_ENABLED && (
         <CourierModal
           order={courierOrder}
           onClose={() => setCourierOrder(null)}
@@ -651,7 +637,7 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
         />
       )}
 
-      {invoiceOrder && (
+      {invoiceOrder && INVOICE_ENABLED && (
         <InvoiceModal
           order={invoiceOrder}
           onClose={() => setInvoiceOrder(null)}
@@ -683,7 +669,7 @@ const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
   );
 }
 
-/* ====== Modal Confirmare & Curier (copiat din VendorOrdersPage) ===== */
+/* ====== Modal Confirmare & Curier ===== */
 
 function CourierModal({ order, onClose, onDone }) {
   const [consents, setConsents] = useState({
@@ -1021,7 +1007,7 @@ function InvoiceModal({ order, onClose, onSaved }) {
             issueDate: new Date().toISOString().slice(0, 10),
             dueDate: new Date().toISOString().slice(0, 10),
             currency: "RON",
-            vendor: null, // vine din billing vendor
+            vendor: null,
             customer: {
               legalType,
               name:
@@ -1179,7 +1165,8 @@ function InvoiceModal({ order, onClose, onSaved }) {
       <div className={`${styles.modal} ${styles.invoiceModal}`}>
         <div className={styles.modalHead}>
           <h3>
-            Factură pentru comanda <code>{order.orderNumber || order.shortId || order.id}</code>
+            Factură pentru comanda{" "}
+            <code>{order.orderNumber || order.shortId || order.id}</code>
           </h3>
           <button
             className={styles.iconBtn}
@@ -1428,11 +1415,7 @@ function InvoiceModal({ order, onClose, onSaved }) {
                                 min={0}
                                 value={ln.unitPrice ?? 0}
                                 onChange={(e) =>
-                                  updateLine(
-                                    idx,
-                                    "unitPrice",
-                                    e.target.value
-                                  )
+                                  updateLine(idx, "unitPrice", e.target.value)
                                 }
                               />
                             </td>
@@ -1596,7 +1579,8 @@ function CancelOrderModal({ order, onClose, onCancelled }) {
       <div className={styles.modal}>
         <div className={styles.modalHead}>
           <h3>
-            Anulează comanda <code>{order.orderNumber || order.shortId || order.id}</code>
+            Anulează comanda{" "}
+            <code>{order.orderNumber || order.shortId || order.id}</code>
           </h3>
           <button
             className={styles.iconBtn}
