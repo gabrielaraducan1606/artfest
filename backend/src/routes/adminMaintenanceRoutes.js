@@ -1537,5 +1537,21 @@ router.get("/store-review-edit-logs", async (req, res) => {
     res.status(500).json({ error: "maintenance_store_review_edit_logs_failed" });
   }
 });
-
+/**
+ * GET /api/admin/maintenance/problem-accounts
+ * -> listă conturi cu probleme (placeholder, până extinzi logica)
+ */
+router.get("/problem-accounts", async (_req, res) => {
+  try {
+    return res.json({
+      items: [],
+      issuesCount: 0,
+    });
+  } catch (e) {
+    console.error("ADMIN maintenance /problem-accounts error", e);
+    return res.status(500).json({
+      error: "maintenance_problem_accounts_failed",
+    });
+  }
+});
 export default router;

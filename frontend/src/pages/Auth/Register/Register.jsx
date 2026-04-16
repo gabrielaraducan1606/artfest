@@ -1,25 +1,3 @@
-// src/pages/Auth/Register/Register.jsx
-
-/**
- * Formular de înregistrare (creare cont).
- *
- * - Poate fi afișat ca pagină separată sau în interiorul unui modal.
- * - Permite crearea unui cont normal sau a unui cont de vendor/partener.
- * - Integrare cu backend:
- *   - POST /api/auth/signup
- *   - GET  /api/auth/exists?email=
- *   - POST /api/auth/resend-verification
- *   - GET  /api/legal?types=tos,privacy (meta pentru consimțăminte)
- *
- * UX:
- * - Sugestii anti-typo pentru email (gmail, yahoo etc.)
- * - Verificare în timp real dacă emailul există deja
- * - Password strength bar + CapsLock hint + toggle vizibilitate
- * - Vendor opt-in + confirmare entitate juridică
- * - Consimțăminte legale (TOS, Privacy, Marketing)
- * - Flow de retrimitere email de confirmare pentru conturi nevalidate
- */
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, AlertTriangle } from "lucide-react";
 import { api } from "../../../lib/api";
@@ -28,11 +6,6 @@ import styles from "./Register.module.css";
 const OB_TICKET_PARAM = "obpf";
 const OB_TICKET_PREFIX = "onboarding.ticket.";
 
-/* ===================== Utils ===================== */
-/**
- * Adaugă un "ticket" de onboarding în query-ul unui URL (ex: /onboarding?obpf=...).
- * Folosit ca fallback pentru backend-uri mai vechi care nu întorc explicit ruta de onboarding.
- */
 function appendTicket(urlLike, ticket) {
   try {
     const u = new URL(urlLike, window.location.origin);
@@ -44,24 +17,17 @@ function appendTicket(urlLike, ticket) {
   }
 }
 
-/**
- * Construiește un URL către documentele legale:
- * - dacă primește deja URL absolut (http/https) -> îl folosește
- * - altfel -> prefixează cu VITE_API_URL dacă există, sau lasă relativ
- */
 function absLegalUrl(pathname) {
   const p = pathname || "";
   if (/^https?:\/\//i.test(p)) return p;
 
   const rel = p.startsWith("/") ? p : `/${p}`;
-
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-  if (base) return `${base}${rel}`;
 
+  if (base) return `${base}${rel}`;
   return rel;
 }
 
-// Sugestii anti-typo pentru email (gmail, yahoo etc.)
 function suggestEmailTypos(value) {
   const v = value.trim().toLowerCase();
   if (!v.includes("@")) return { hint: "", suggestion: "" };
@@ -84,6 +50,7 @@ function suggestEmailTypos(value) {
     [" .ro", ".ro"],
     [".ro ", ".ro"],
   ];
+
   let dom = domRaw;
   for (const [bad, good] of fixes) {
     if (dom.endsWith(bad)) {
@@ -103,27 +70,23 @@ function suggestEmailTypos(value) {
     "yahoo.ro",
     "gmail.ro",
   ];
+
   if (!dom.includes(".")) {
     const guess =
       common.find((d) => d.startsWith(dom)) ||
       (dom === "gmail" ? "gmail.com" : "");
     if (guess) dom = guess;
   }
+
   const suggestion = `${user}@${dom}`;
   return suggestion !== v
     ? { hint: "Ai vrut să scrii:", suggestion }
     : { hint: "", suggestion: "" };
 }
 
-/* ===================== useLegalMeta (cache + backoff) ===================== */
-/**
- * Cache pe 6 ore pentru meta-informații legale (TOS, Privacy etc.)
- * - memCache: cache în memorie pe durata sesiunii
- * - localStorage: cache persistent
- */
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const LS_PREFIX = "legal:v1:";
-const memCache = new Map(); // key -> { ts, data }
+const memCache = new Map();
 
 function loadFromStorage(key) {
   try {
@@ -137,6 +100,7 @@ function loadFromStorage(key) {
     return null;
   }
 }
+
 function saveToStorage(key, data) {
   try {
     localStorage.setItem(
@@ -144,14 +108,10 @@ function saveToStorage(key, data) {
       JSON.stringify({ ts: Date.now(), data })
     );
   } catch {
-    // ignorăm erorile de storage (ex: private mode)
+    // ignore
   }
 }
 
-/**
- * Fetch cu retry + backoff pentru /api/legal.
- * Respectă eventualul header Retry-After pentru 429/503.
- */
 async function fetchWithBackoff(url, { signal, tries = 4 } = {}) {
   let delay = 500;
   for (let i = 0; i < tries; i++) {
@@ -164,8 +124,9 @@ async function fetchWithBackoff(url, { signal, tries = 4 } = {}) {
         const ra = e?.headers?.get?.("Retry-After");
         if (ra && /^\d+$/.test(ra)) retryAfterMs = parseInt(ra, 10) * 1000;
       } catch {
-        // ignorăm erorile de parsing ale headerului
+        // ignore
       }
+
       if (status === 429 || status === 503) {
         const jitter = Math.floor(Math.random() * 250);
         await new Promise((r) =>
@@ -174,19 +135,16 @@ async function fetchWithBackoff(url, { signal, tries = 4 } = {}) {
         delay *= 2;
         continue;
       }
+
       throw e;
     }
   }
+
   const err = new Error("too_many_requests");
   err.status = 429;
   throw err;
 }
 
-/**
- * Hook pentru încărcarea meta-ului legal (Termeni, Privacy etc.)
- * - acceptă o listă de "types" (ex: ["tos", "privacy"])
- * - folosește cache în memorie + localStorage
- */
 function useLegalMeta(types = []) {
   const [meta, setMeta] = useState({});
   const [loading, setLoading] = useState(!!types.length);
@@ -200,6 +158,7 @@ function useLegalMeta(types = []) {
 
   useEffect(() => {
     let active = true;
+
     if (!depKey) {
       setMeta({});
       setLoading(false);
@@ -207,7 +166,6 @@ function useLegalMeta(types = []) {
       return;
     }
 
-    // întâi încercăm să citim din cache (memorie + localStorage)
     const cached = memCache.get(depKey) || loadFromStorage(depKey);
     if (cached) {
       setMeta(cached);
@@ -218,6 +176,7 @@ function useLegalMeta(types = []) {
     (async () => {
       setLoading(true);
       setError("");
+
       try {
         abortRef.current?.abort?.();
         const ctrl = new AbortController();
@@ -227,15 +186,18 @@ function useLegalMeta(types = []) {
           `/api/legal?types=${encodeURIComponent(depKey)}`,
           { signal: ctrl.signal }
         );
+
         if (!active) return;
 
         const map = {};
         for (const d of arr || []) map[d.type] = d;
+
         setMeta(map);
         memCache.set(depKey, map);
         saveToStorage(depKey, map);
       } catch (e) {
         if (!active) return;
+
         if (!cached) {
           setError(
             e?.status === 429
@@ -257,49 +219,38 @@ function useLegalMeta(types = []) {
   return { meta, loading, error };
 }
 
-/* ===================== Component ===================== */
 export default function Register({ defaultAsVendor = false, inModal = false }) {
-  // Ce tipuri de documente legale vrem să încărcăm
   const legalTypes = useMemo(() => ["tos", "privacy"], []);
   const { meta: legal, error: legalError } = useLegalMeta(legalTypes);
 
-  // fields
   const [email, setEmail] = useState("");
   const [emailHint, setEmailHint] = useState("");
   const [emailSuggestion, setEmailSuggestion] = useState("");
   const [emailExists, setEmailExists] = useState(null);
 
   const [password, setPassword] = useState("");
-
   const [showPw, setShowPw] = useState(false);
   const [peekPw, setPeekPw] = useState(false);
-
   const [pwFocused, setPwFocused] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [asVendor, setAsVendor] = useState(defaultAsVendor);
-
-  // Vendor: confirmare că este entitate juridică
   const [vendorEntityConfirm, setVendorEntityConfirm] = useState(false);
 
-  // consents (legal & marketing)
   const [tosAccepted, setTosAccepted] = useState(false);
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const [marketingOptIn, setMarketingOptIn] = useState(false);
 
-  // ui
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(!navigator.onLine);
 
-  // UX pentru email neconfirmat (re-send verification)
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [resendBusy, setResendBusy] = useState(false);
   const [resendOk, setResendOk] = useState(false);
 
-  // Idempotency-Key pentru signup (aceeași pe toată durata formularului)
   const idemRef = useRef(
     globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)
   );
@@ -307,19 +258,17 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
   const liveRef = useRef(null);
   const pwRef = useRef(null);
 
-  // password score (0..5) pentru bara de complexitate
   const score = useMemo(() => {
     const len = password.length >= 8 ? 1 : 0;
     const lower = /[a-z]/.test(password) ? 1 : 0;
     const upper = /[A-Z]/.test(password) ? 1 : 0;
     const digit = /\d/.test(password) ? 1 : 0;
     const symbol = /[^A-Za-z0-9]/.test(password) ? 1 : 0;
-    return len + lower + upper + digit + symbol; // 0..5
+    return len + lower + upper + digit + symbol;
   }, [password]);
 
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
 
-  // Condiții pentru activarea butonului "Creează cont"
   const canSubmit =
     firstName.trim() &&
     lastName.trim() &&
@@ -329,21 +278,21 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     score >= 3 &&
     tosAccepted &&
     privacyAcknowledged &&
-    (!asVendor || vendorEntityConfirm); // ✅ vendorii trebuie să confirme că sunt entități juridice
+    (!asVendor || vendorEntityConfirm);
 
-  /* -------------------------- Online / Offline ----------------------- */
   useEffect(() => {
     const up = () => setOffline(false);
     const down = () => setOffline(true);
+
     window.addEventListener("online", up);
     window.addEventListener("offline", down);
+
     return () => {
       window.removeEventListener("online", up);
       window.removeEventListener("offline", down);
     };
   }, []);
 
-  /* ------------- Email: sugestii anti-typo + exists (debounced) ------ */
   useEffect(() => {
     const { hint, suggestion } = suggestEmailTypos(email);
     setEmailHint(hint);
@@ -352,8 +301,9 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     try {
       emailAbortRef.current?.abort?.();
     } catch {
-      // ignorăm
+      // ignore
     }
+
     const ctrl = new AbortController();
     emailAbortRef.current = ctrl;
 
@@ -386,33 +336,32 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     setEmailHint("");
   }
 
-  /* ------------------------ Key handler pentru parolă ---------------- */
   function handlePwKey(ev) {
     try {
       setCapsOn(!!ev.getModifierState?.("CapsLock"));
     } catch {
-      // ignorăm
+      // ignore
     }
-    // Alt/Option/Cmd+V -> toggle vizibilitate parolă
+
     if ((ev.altKey || ev.metaKey) && (ev.key === "v" || ev.key === "V")) {
       ev.preventDefault();
       setShowPw((v) => !v);
     }
-    // Ctrl/Cmd+Enter -> submit formular
+
     if ((ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
       try {
         (ev.target?.form || document.querySelector("form"))?.requestSubmit?.();
       } catch {
-        // ignorăm
+        // ignore
       }
     }
-    // Esc -> curăță eroarea globală
+
     if (ev.key === "Escape") setErr("");
   }
 
-  /* ------------------ Re-trimitere email de verificare ---------------- */
   async function handleResend() {
     if (!unverifiedEmail) return;
+
     try {
       setResendBusy(true);
       await api("/api/auth/resend-verification", {
@@ -421,16 +370,17 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
       });
       setResendOk(true);
     } catch {
-      // ignorăm, afișăm doar fallback general
+      // ignore
     } finally {
       setResendBusy(false);
     }
   }
 
-  /* ------------------------------ Submit ------------------------------ */
+
   async function onSubmit(e) {
     e.preventDefault();
     if (!canSubmit || loading) return;
+
     if (offline) {
       setErr("Ești offline. Verifică conexiunea la internet.");
       return;
@@ -440,56 +390,59 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     setResendOk(false);
     setUnverifiedEmail("");
     setLoading(true);
+
     try {
       const consents = [];
+
       if (tosAccepted) {
-  const v = legal?.tos?.version ?? "1.0.0";
-  const cs = legal?.tos?.checksum ?? null;
+        const v = legal?.tos?.version ?? "1.0.0";
+        const cs = legal?.tos?.checksum ?? null;
 
-  consents.push({
-    type: "tos",
-    version: String(v),
-    checksum: cs === null ? null : String(cs),
-  });
-}
+        consents.push({
+          type: "tos",
+          version: String(v),
+          checksum: cs === null ? null : String(cs),
+        });
+      }
 
-if (privacyAcknowledged) {
-  const v = legal?.privacy?.version ?? "1.0.0";
-  const cs = legal?.privacy?.checksum ?? null;
+      if (privacyAcknowledged) {
+        const v = legal?.privacy?.version ?? "1.0.0";
+        const cs = legal?.privacy?.checksum ?? null;
 
-  consents.push({
-    type: "privacy_ack",
-    version: String(v),
-    checksum: cs === null ? null : String(cs),
-  });
-}
+        consents.push({
+          type: "privacy_ack",
+          version: String(v),
+          checksum: cs === null ? null : String(cs),
+        });
+      }
 
-if (marketingOptIn) {
-  consents.push({ type: "marketing_email_optin", version: "1.0.0" });
-}
+      if (marketingOptIn) {
+        consents.push({
+          type: "marketing_email_optin",
+          version: "1.0.0",
+        });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
 
       const body = {
-  email: email.trim().toLowerCase(),
-  password,
-  firstName: firstName.trim() || undefined,
-  lastName: lastName.trim() || undefined,
-  name: fullName || undefined,
-  asVendor,
-  entitySelfDeclared: asVendor ? !!vendorEntityConfirm : false,
-
-  // ✅ NEW: context (nu timp/IP)
-  entityMeta:
-    asVendor && vendorEntityConfirm
-      ? {
-          pageUrl: window.location.href,
-          referrer: document.referrer || null,
-        }
-      : undefined,
-
-  consents,
-  noExternalLinks: true,
-};
-
+        email: normalizedEmail,
+        password,
+        firstName: firstName.trim() || undefined,
+        lastName: lastName.trim() || undefined,
+        name: fullName || undefined,
+        asVendor,
+        entitySelfDeclared: asVendor ? !!vendorEntityConfirm : false,
+        entityMeta:
+          asVendor && vendorEntityConfirm
+            ? {
+                pageUrl: window.location.href,
+                referrer: document.referrer || null,
+              }
+            : undefined,
+        consents,
+        noExternalLinks: true,
+      };
 
       const res = await api("/api/auth/signup", {
         method: "POST",
@@ -497,87 +450,85 @@ if (marketingOptIn) {
         body,
       });
 
-      // ✉️ email verification flow — backend ne spune că trebuie confirmat emailul
+
       if (res?.status === "pending_verification") {
         try {
           sessionStorage.setItem("onboarding.intent", asVendor ? "vendor" : "");
         } catch {
-          // ignorăm
+          // ignore
         }
+
         const next =
           res?.next ||
-          `/verify-email?email=${encodeURIComponent(
-            email.trim().toLowerCase()
-          )}`;
+          `/verify-email?email=${encodeURIComponent(normalizedEmail)}`;
+
         window.location.assign(next);
         return;
       }
 
-      // fallback (dacă backendul n-a fost actualizat încă pentru vendors)
       if (asVendor) {
         try {
           const ticket =
             crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
           const payload = { ts: Date.now(), intent: "vendor" };
+
           sessionStorage.setItem(
             OB_TICKET_PREFIX + ticket,
             JSON.stringify(payload)
           );
+
           const next = res?.next || "/onboarding";
           window.location.assign(appendTicket(next, ticket));
           return;
         } catch {
-          // ignorăm erorile de storage
+          // ignore
         }
       }
 
-      // utilizator obișnuit: redirect la next sau desktop
       window.location.assign(res?.next || (asVendor ? "/onboarding" : "/desktop"));
-   } catch (e2) {
-  console.error("Register error:", e2);
+    } catch (e2) {
+      console.error("Register error:", e2);
 
-  const fieldErrors = e2?.data?.details?.fieldErrors;
-  const formErrors = e2?.data?.details?.formErrors;
+      const fieldErrors = e2?.data?.details?.fieldErrors;
+      const formErrors = e2?.data?.details?.formErrors;
 
-  const nice =
-    fieldErrors
-      ? Object.entries(fieldErrors)
-          .map(([k, v]) => `${k}: ${(v || []).join(", ")}`)
-          .join(" • ")
-      : "";
+      const nice = fieldErrors
+        ? Object.entries(fieldErrors)
+            .map(([k, v]) => `${k}: ${(v || []).join(", ")}`)
+            .join(" • ")
+        : "";
 
-  const msg =
-    (e2?.status === 409 &&
-      (e2?.data?.error === "email_exists_unverified"
-        ? "Există deja un cont cu acest email, dar nu este confirmat."
-        : "Acest email este deja folosit.")) ||
-    e2?.data?.message ||
-    nice ||
-    (formErrors && formErrors.length ? formErrors.join(" • ") : "") ||
-    e2?.message ||
-    "Înregistrarea a eșuat.";
+      const msg =
+        (e2?.status === 409 &&
+          (e2?.data?.error === "email_exists_unverified"
+            ? "Există deja un cont cu acest email, dar nu este confirmat."
+            : "Acest email este deja folosit.")) ||
+        e2?.data?.message ||
+        nice ||
+        (formErrors && formErrors.length ? formErrors.join(" • ") : "") ||
+        e2?.message ||
+        "Înregistrarea a eșuat.";
 
-  setErr(msg);
+      setErr(msg);
 
-  setUnverifiedEmail(
-    e2?.data?.error === "email_exists_unverified"
-      ? email.trim().toLowerCase()
-      : ""
-  );
+      setUnverifiedEmail(
+        e2?.data?.error === "email_exists_unverified"
+          ? email.trim().toLowerCase()
+          : ""
+      );
 
-  try {
-    liveRef.current?.focus?.();
-    if (e2?.status === 409) {
-      document.getElementById("reg-email")?.focus();
-    } else {
-      pwRef.current?.focus();
-      pwRef.current?.select?.();
-    }
-  } catch {
-    // nu e critic dacă focus-ul eșuează
-  }
-}
-finally {
+      try {
+        liveRef.current?.focus?.();
+        if (e2?.status === 409) {
+          document.getElementById("reg-email")?.focus();
+        } else {
+          pwRef.current?.focus();
+          pwRef.current?.select?.();
+        }
+      } catch {
+        // ignore
+      }
+    } finally {
       setLoading(false);
     }
   }
@@ -585,7 +536,6 @@ finally {
   const pwType = showPw || peekPw ? "text" : "password";
   const showPwToggle = pwFocused || password.length > 0;
 
-  // ✅ folosim meta-ul din /api/legal dacă există, altfel fallback hardcoded
   const tosUrl =
     legal?.tos?.url && legal.tos.url !== "#"
       ? legal.tos.url
@@ -596,10 +546,8 @@ finally {
       ? legal.privacy.url
       : "/confidentialitate";
 
-  /* --------------------------- Formularul ----------------------------- */
   const form = (
     <form className={styles.body} onSubmit={onSubmit} noValidate>
-      {/* aria-live pentru erori + focusable pentru screen readers */}
       <div
         ref={liveRef}
         tabIndex={-1}
@@ -607,18 +555,19 @@ finally {
         aria-atomic="true"
         className={styles.srOnly}
       />
+
       {offline && (
         <div className={styles.error} role="status">
           Ești offline — verifică rețeaua.
         </div>
       )}
+
       {legalError && (
         <div className={styles.legalNotice} role="status">
           {legalError}
         </div>
       )}
 
-      {/* ====== Partner/Vendor opt-in box ====== */}
       <div
         role="group"
         aria-labelledby="vendor-box-title"
@@ -635,7 +584,7 @@ finally {
               try {
                 sessionStorage.setItem("onboarding.intent", checked ? "vendor" : "");
               } catch {
-                // ignorăm
+                // ignore
               }
             }}
           />
@@ -662,14 +611,12 @@ finally {
               aria-required="true"
             />
             <span className={styles.spanConfirm}>
-              Confirm că reprezint o <strong>entitate juridică</strong> (PFA /
-              SRL / II / IF) și dețin un <strong>CUI/CIF</strong> valid.
+              Confirm că reprezint o <strong>entitate juridică</strong> (PFA / SRL / II / IF) și dețin un <strong>CUI/CIF</strong> valid.
             </span>
           </label>
         )}
       </div>
 
-      {/* ====== Name ====== */}
       <div className={styles.nameRow}>
         <label className={styles.nameCol}>
           <span className={styles.srOnly}>Prenume</span>
@@ -682,6 +629,7 @@ finally {
             required
           />
         </label>
+
         <label className={styles.nameCol}>
           <span className={styles.srOnly}>Nume</span>
           <input
@@ -695,7 +643,6 @@ finally {
         </label>
       </div>
 
-      {/* ====== Email ====== */}
       <div className={styles.fieldGroup}>
         <label className={styles.srOnly} htmlFor="reg-email">
           Email
@@ -715,14 +662,21 @@ finally {
           aria-label="Email"
           aria-invalid={emailExists === true}
         />
+
         {(emailHint || emailSuggestion || emailExists === true) && (
           <div className={styles.suggestionRow}>
             {emailHint && <small className={styles.hint}>{emailHint}</small>}
+
             {emailSuggestion && (
-              <button type="button" className={styles.pill} onClick={applyEmailSuggestion}>
+              <button
+                type="button"
+                className={styles.pill}
+                onClick={applyEmailSuggestion}
+              >
                 Aplicați: <strong>{emailSuggestion}</strong>
               </button>
             )}
+
             {emailExists === true && (
               <small className={styles.error} role="alert">
                 Acest email este deja folosit.{" "}
@@ -745,9 +699,12 @@ finally {
         )}
       </div>
 
-      {/* ====== Password ====== */}
       <div>
-        <div className={`${styles.inputGroup} ${showPwToggle ? styles.hasToggle : ""}`}>
+        <div
+          className={`${styles.inputGroup} ${
+            showPwToggle ? styles.hasToggle : ""
+          }`}
+        >
           <input
             ref={pwRef}
             className={styles.field}
@@ -767,6 +724,7 @@ finally {
             autoCorrect="off"
             spellCheck={false}
           />
+
           {showPwToggle && (
             <button
               type="button"
@@ -785,7 +743,7 @@ finally {
                 try {
                   pwRef.current?.focus({ preventScroll: true });
                 } catch {
-                  // ignorăm
+                  // ignore
                 }
               }}
               onTouchEnd={() => setPeekPw(false)}
@@ -803,12 +761,17 @@ finally {
           aria-valuemax={5}
           aria-valuenow={score}
         >
-          <div className={styles.bar} style={{ width: `${(score / 5) * 100}%` }} />
+          <div
+            className={styles.bar}
+            style={{ width: `${(score / 5) * 100}%` }}
+          />
         </div>
+
         <small id="pw-hint" className={styles.hint}>
-          Recomandat: minim 8 caractere și o combinație de litere mari/mici, cifre
-          și simboluri.
+          Recomandat: minim 8 caractere și o combinație de litere mari/mici,
+          cifre și simboluri.
         </small>
+
         {capsOn && pwFocused && (
           <div className={styles.capsHint}>
             <AlertTriangle size={14} aria-hidden="true" />
@@ -817,7 +780,6 @@ finally {
         )}
       </div>
 
-      {/* ===== LEGAL ===== */}
       <div className={styles.legalGroup}>
         <label className={styles.legalRow}>
           <input
@@ -865,7 +827,6 @@ finally {
         </label>
       </div>
 
-      {/* Buton principal */}
       <button
         className={styles.primaryBtn}
         disabled={loading || !canSubmit}
@@ -874,20 +835,19 @@ finally {
         {loading ? "Se înregistrează…" : "Creează cont"}
       </button>
 
-      {/* Eroare globală */}
       {err && (
         <div className={styles.error} role="alert">
           {err}
         </div>
       )}
 
-      {/* UI pentru retrimitere email de confirmare (când email-ul există, dar e neconfirmat) */}
       {unverifiedEmail && (
         <div className={styles.info} role="status" style={{ marginTop: 8 }}>
           <div style={{ marginBottom: 8 }}>
             Nu găsești emailul de confirmare? Îl putem retrimite către{" "}
             <strong>{unverifiedEmail}</strong>.
           </div>
+
           {!resendOk ? (
             <button
               type="button"
@@ -895,7 +855,9 @@ finally {
               onClick={handleResend}
               disabled={resendBusy}
             >
-              {resendBusy ? "Se retrimite…" : "Trimite din nou emailul de confirmare"}
+              {resendBusy
+                ? "Se retrimite…"
+                : "Trimite din nou emailul de confirmare"}
             </button>
           ) : (
             <div>Gata! Verifică inboxul (și Spam/Promo).</div>
@@ -905,10 +867,8 @@ finally {
     </form>
   );
 
-  // Varianta "în modal" — doar formularul, fără header/card extra
   if (inModal) return form;
 
-  // Varianta pagină completă
   return (
     <section className={styles.wrap}>
       <header className={styles.header}>

@@ -6,7 +6,7 @@
   padding: 16px;
 }
 
-/* link-uri în toată pagina Orders (listă + detalii) */
+/* link-uri în toată pagina Orders */
 .page a,
 .page a:visited,
 .page a:hover {
@@ -14,7 +14,7 @@
   color: var(--color-primary);
 }
 
-/* header de pagină */
+/* header */
 .head {
   display: flex;
   gap: 16px;
@@ -33,21 +33,22 @@
 
 .subtle {
   color: #6b7280;
+  line-height: 1.45;
 }
 
-/* partea dreaptă din header: search + butoane filtre */
 .headRight {
   display: flex;
   gap: 8px;
   align-items: center;
 }
 
-/* vechiul search (poți să îl ștergi dacă nu îl mai folosești) */
+/* search vechi */
 .search {
   display: flex;
   gap: 8px;
   align-items: center;
 }
+
 .input {
   border: 1px solid var(--color-border);
   background: var(--surface);
@@ -57,19 +58,19 @@
   min-width: 260px;
   outline: none;
 }
+
 .input:focus {
   box-shadow: 0 0 0 3px
     color-mix(in oklab, var(--color-primary) 25%, transparent);
   border-color: var(--color-primary);
 }
 
-/* butoane pentru filtre/reset */
 .filterButtons {
   display: flex;
   gap: 8px;
 }
 
-/* tab-uri status */
+/* tabs */
 .tabs {
   display: flex;
   flex-wrap: wrap;
@@ -78,6 +79,7 @@
   padding-bottom: 8px;
   margin-bottom: 16px;
 }
+
 .tab {
   border: 1px solid var(--color-border);
   background: var(--surface);
@@ -86,33 +88,29 @@
   padding: 6px 12px;
   cursor: pointer;
 }
+
 .tabActive {
   border-color: var(--color-primary);
-  background: color-mix(
-    in oklab,
-    var(--color-primary) 18%,
-    var(--surface)
-  );
+  background: color-mix(in oklab, var(--color-primary) 18%, var(--surface));
   color: var(--color-text);
 }
 
-/* listă de carduri (comenzi sau secțiuni detalii) */
+/* listă */
 .list {
   display: grid;
   gap: 12px;
 }
 
-/* card generic */
+/* card */
 .card {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--surface);
   padding: 10px;
-  cursor: pointer;         /* 🟢 face cardul clicabil în UI */
+  cursor: pointer;
   transition: background 0.15s ease;
 }
 
-/* header card comandă din listă */
 .cardHead {
   display: flex;
   align-items: center;
@@ -121,68 +119,82 @@
   padding-bottom: 8px;
   border-bottom: 1px solid var(--color-border);
 }
+
 .orderMeta {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
+
 .orderId {
   font-weight: 700;
+  min-width: 0;
 }
+
 .date {
   color: #6b7280;
   font-size: 0.9rem;
 }
+
 .dot {
   width: 4px;
   height: 4px;
   border-radius: 999px;
   background: #c3c7cf;
+  flex-shrink: 0;
 }
 
 .total {
   font-weight: 600;
 }
 
-/* STATUS BADGES */
+/* badges */
 .badge {
   font-size: 12px;
   padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
+  white-space: nowrap;
 }
+
 .st_PENDING {
   background: #fff7ed;
   color: #9a3412;
   border-color: #fed7aa;
 }
+
 .st_PROCESSING {
   background: #eff6ff;
   color: #1d4ed8;
   border-color: #bfdbfe;
 }
+
 .st_SHIPPED {
   background: #ecfeff;
   color: #0e7490;
   border-color: #a5f3fc;
 }
+
 .st_DELIVERED {
   background: #ecfdf5;
   color: #065f46;
   border-color: #a7f3d0;
 }
+
 .st_CANCELED {
   background: #fef2f2;
   color: #991b1b;
   border-color: #fecaca;
 }
+
 .st_RETURNED {
   background: #f5f3ff;
   color: #5b21b6;
   border-color: #ddd6fe;
 }
 
-/* ITEM LIST (produse din comandă) */
+/* produse */
 .itemList {
   list-style: none;
   padding: 8px 0 0;
@@ -190,32 +202,34 @@
   display: grid;
   gap: 8px;
 }
+
 .item {
   display: flex;
   gap: 10px;
   align-items: center;
 }
 
-/* imagine + link produs */
 .itemThumbLink {
   text-decoration: none !important;
   display: block;
+  flex-shrink: 0;
 }
+
 .thumb {
   width: 56px;
   height: 56px;
-  border-radius: 8px;
+  border-radius: 10px;
   object-fit: cover;
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
-/* titlu + meta produs */
 .itemInfo {
   display: grid;
   gap: 2px;
+  min-width: 0;
 }
 
-/* link pe titlul produsului (în detalii) */
 .itemTitleLink,
 .itemTitleLink:visited,
 .itemTitleLink:hover {
@@ -225,7 +239,6 @@
   display: inline-block;
 }
 
-/* titlul produsului în listă (este chiar <Link> cu această clasă) */
 .itemTitle {
   text-decoration: none !important;
   color: var(--color-primary);
@@ -237,7 +250,7 @@
   color: #6b7280;
   font-size: 0.9rem;
 }
-/* corp card: produse + coloană dreapta */
+
 .cardBody {
   display: flex;
   justify-content: space-between;
@@ -245,10 +258,8 @@
   align-items: flex-start;
   flex-wrap: wrap;
   margin-top: 4px;
-  
 }
 
-/* coloana din dreapta (contact artizan) */
 .cardBodyRight {
   display: flex;
   flex-direction: column;
@@ -258,7 +269,7 @@
   padding-top: 1.5%;
 }
 
-/* ACTION BUTTONS */
+/* actions */
 .actionsRow {
   display: flex;
   gap: 8px;
@@ -276,6 +287,7 @@
   border-radius: 9999px;
   cursor: pointer;
 }
+
 .btnPrimary:hover {
   background: var(--color-hover);
   border-color: var(--color-hover);
@@ -290,6 +302,7 @@
   cursor: pointer;
   text-decoration: none !important;
 }
+
 .btnGhost:hover {
   border-color: var(--color-primary);
 }
@@ -302,11 +315,12 @@
   border-radius: 9999px;
   cursor: pointer;
 }
+
 .btnWarn:hover {
   background: #ffedd5;
 }
 
-/* buton icon (filtre / reset / close modal) */
+/* icon buttons */
 .iconBtn {
   display: inline-flex;
   align-items: center;
@@ -318,18 +332,21 @@
   cursor: pointer;
   font-size: 0.9rem;
 }
+
 .iconBtn svg {
   width: 20px;
   height: 20px;
 }
+
 .iconBtn:hover {
   border-color: var(--color-primary);
 }
+
 .iconBtnLabel {
   display: inline-block;
 }
 
-/* EMPTY STATE */
+/* empty */
 .empty {
   text-align: center;
   border-radius: 16px;
@@ -353,14 +370,12 @@
   font-size: 1.05rem;
 }
 
-/* butonul din empty state un pic mai sus, să nu fie lipit */
 .empty .btnPrimary {
   margin-top: 10px;
   background-color: transparent;
 }
 
-
-/* TABEL (AWB / livrare în detalii) */
+/* tabel */
 .tableWrap {
   width: 100%;
   overflow-x: auto;
@@ -372,15 +387,18 @@
   border-collapse: collapse;
   font-size: 0.9rem;
 }
+
 .table thead {
   background: #f9fafb;
 }
+
 .table th,
 .table td {
   padding: 6px 8px;
   border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
+
 .table th {
   font-weight: 600;
   white-space: nowrap;
@@ -393,7 +411,7 @@
   margin: 14px 0;
 }
 
-/* erori + spinner */
+/* feedback */
 .error {
   color: #b91c1c;
   font-size: 0.95rem;
@@ -411,7 +429,7 @@
   }
 }
 
-/* MODAL FILTRE (mobil) */
+/* modal filtre */
 .modalBackdrop {
   position: fixed;
   inset: 0;
@@ -496,7 +514,7 @@
   margin-top: 8px;
 }
 
-/* --- SEARCH BAR (cu buton icon submit) --- */
+/* search bar */
 .searchBar {
   position: relative;
   display: flex;
@@ -505,7 +523,6 @@
   max-width: 320px;
 }
 
-/* butonul cu icon – este SUBMIT */
 .searchBarIconBtn {
   position: absolute;
   left: 8px;
@@ -529,7 +546,7 @@
 .searchBarInput {
   width: 100%;
   border-radius: 9999px;
-  padding: 10px 14px 10px 40px; /* icon + spacing */
+  padding: 10px 14px 10px 40px;
   background: var(--surface);
   border: 1px solid var(--color-border);
   color: var(--color-text);
@@ -546,69 +563,319 @@
 
 /* MOBILE */
 @media (max-width: 640px) {
+  .page {
+    padding: 12px;
+  }
+
   .head {
     align-items: stretch;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .h1 {
+    font-size: 1.35rem;
+    line-height: 1.2;
+  }
+
+  .subtle {
+    font-size: 0.92rem;
   }
 
   .headRight {
     width: 100%;
     flex-direction: column;
     align-items: stretch;
+    gap: 10px;
   }
 
-  .search {
+  .searchBar {
     width: 100%;
+    max-width: 100%;
   }
 
-  .input {
-    width: 100%;
-    min-width: 0;
+  .searchBarInput {
+    min-height: 44px;
+    font-size: 0.95rem;
+    padding: 11px 14px 11px 40px;
+  }
+
+  .searchBarIconBtn {
+    left: 10px;
+    width: 26px;
+    height: 26px;
   }
 
   .filterButtons {
-    justify-content: flex-end;
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
   }
 
-  .cardHead {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-
-  .table th,
-  .table td {
-    padding: 6px 4px;
+  .iconBtn {
+    min-height: 42px;
+    padding: 8px 12px;
   }
 
   .tabs {
     display: none !important;
   }
 
-  .searchBar {
-    max-width: 100%;
+  .list {
+    gap: 12px;
   }
-    .cardBody {
+
+  .card {
+    padding: 12px;
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .cardHead {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+
+  .orderMeta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .orderId {
+    display: block;
+    width: 100%;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .date {
+    display: block;
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+
+  .total {
+    display: block;
+    width: 100%;
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
+  .badge {
+    align-self: flex-start;
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.25;
+  }
+
+  .cardBody {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-top: 10px;
   }
 
   .cardBodyRight {
-    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+    align-items: stretch;
+    padding-top: 0;
+    gap: 10px;
   }
 
+  .itemList {
+    gap: 10px;
+    padding-top: 10px;
+  }
+
+  .item {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .thumb {
+    width: 52px;
+    height: 52px;
+  }
+
+  .itemInfo {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .itemTitle,
+  .itemTitleLink {
+    display: block;
+    font-size: 0.95rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .itemMeta {
+    display: block;
+    font-size: 0.86rem;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .actionsRow {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+    margin-top: 10px;
+  }
+
+  .actionsRow > * {
+    width: 100%;
+  }
+
+  .btnPrimary,
+  .btnGhost,
+  .btnWarn {
+    width: 100%;
+    min-height: 42px;
+    text-align: center;
+    justify-content: center;
+    font-size: 0.93rem;
+  }
+
+  .table {
+    font-size: 0.84rem;
+    min-width: 560px;
+  }
+
+  .table th,
+  .table td {
+    padding: 7px 6px;
+  }
+
+  .loadMoreWrap {
+    margin: 16px 0 8px;
+  }
+
+  .loadMoreWrap .btnGhost {
+    width: 100%;
+  }
+
+  .modalBackdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 18px 18px 0 0;
+    padding: 16px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+
+  .modalTitle {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .modalBody {
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .modalBody label {
+    gap: 6px;
+    font-size: 0.92rem;
+  }
+
+  .modalBody input[type="text"] {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+  }
+
+  .modalSectionLabel {
+    margin-bottom: 6px;
+    font-size: 0.84rem;
+  }
+
+  .statusPills {
+    gap: 8px;
+  }
+
+  .statusPill {
+    min-height: 38px;
+    padding: 7px 12px;
+    font-size: 0.88rem;
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .modalActions .btnGhost,
+  .modalActions .btnPrimary {
+    width: 100%;
+  }
 }
-/* optional */
+
+/* telefoane foarte mici */
+@media (max-width: 380px) {
+  .page {
+    padding: 10px;
+  }
+
+  .h1 {
+    font-size: 1.2rem;
+  }
+
+  .subtle {
+    font-size: 0.88rem;
+  }
+
+  .card {
+    padding: 10px;
+  }
+
+  .orderId {
+    font-size: 0.94rem;
+  }
+
+  .date,
+  .itemMeta {
+    font-size: 0.8rem;
+  }
+
+  .itemTitle,
+  .itemTitleLink {
+    font-size: 0.9rem;
+  }
+
+  .btnPrimary,
+  .btnGhost,
+  .btnWarn {
+    font-size: 0.9rem;
+    padding: 9px 10px;
+  }
+
+  .searchBarInput {
+    font-size: 0.92rem;
+  }
+}
+
+/* skeleton */
 .skeleton {
   background: rgba(0, 0, 0, 0.06);
   border-radius: 12px;
   height: 120px;
   margin-bottom: 12px;
-}
-
-/* recomandat pentru imagini: evită layout shift dacă nu ai deja */
-.thumb {
-  width: 56px;       /* ajustează după design */
-  height: 56px;
-  object-fit: cover;
-  border-radius: 10px;
 }

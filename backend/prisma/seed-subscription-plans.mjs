@@ -1,114 +1,91 @@
 export async function seedSubscriptionPlans(prisma) {
   const plans = [
     {
-      code: "starter-lite",
-      name: "Starter Lite",
+      code: "basic",
+      name: "Basic",
       priceCents: 0,
       currency: "RON",
       interval: "month",
-      maxProducts: 10,
-      commissionBps: 1200, // 12%
+      maxProducts: 15,
+      commissionBps: 1200,
       features: [
-        "Profil public de vânzător",
-        "Listare produse (max. 10)",
-        "Vânzare direct în platformă",
-        "Recenzii clienți",
+        "1 magazin inclus",
+        "Max. 15 produse",
         "Chat cu clienții (mesaje simple)",
-        "Notificări comenzi",
-        "Curier: AWB + ridicare de la adresă (cost per livrare)",
-        "Facturare automată: max. 1 comandă / zi",
+        "Recenzii",
+        "Profil public",
+        "3 lead-uri / lună",
         "Suport standard",
       ],
-      // ✅ drepturi reale (folosite de requireChatEntitlement)
       entitlements: {
         chat: true,
         attachments: false,
         advancedChat: false,
       },
-      isActive: true,
-      popular: false,
-      trialDays: 30,
-    },
-
-    {
-      code: "starter", // ✅ planul 2
-      name: "Starter",
-      priceCents: 9999,
-      currency: "RON",
-      interval: "month",
-      maxProducts: 25,
-      commissionBps: 1000, // 10%
-      features: [
-        "TOT din Starter Lite",
-        "Listare produse (max. 25)",
-        "Curier: AWB + ridicare de la adresă (cost per livrare)",
-        "Facturare automată: până la 2 comenzi / zi",
-        "Notificări comenzi avansate",
-        "Chat cu atașamente", // (doar text UI, optional)
-      ],
-      entitlements: {
-        chat: true,
-        attachments: true,   // ✅ AICI ai cerința ta
-        advancedChat: false,
-      },
-      isActive: true,
-      popular: true,
-      trialDays: 30,
-    },
-
-    {
-      code: "basic",
-      name: "Basic",
-      priceCents: 14999,
-      currency: "RON",
-      interval: "month",
-      maxProducts: 40,
-      commissionBps: 800, // 8%
-      features: [
-        "TOT din Starter",
-        "Listare produse extinsă (max. 40)",
-        "Chat avansat: note interne",
-        "Status lead (nou / ofertat / confirmat / livrat)",
-        "Analytics vizitatori (zi / lună)",
-        "Facturare automată: până la 4 comenzi / zi",
-        "Eligibil pentru promovare în campaniile platformei",
-        "Suport prioritar (email)",
-      ],
-      entitlements: {
-        chat: true,
-        attachments: true,
-        advancedChat: true,
+      meta: {
+        limits: {
+          stores: 1,
+          products: 15,
+          leadsPerMonth: 3,
+          chatMessagesPerMonth: 50,
+        },
+        commissions: {
+          productsBps: 1200,
+          minFeeCentsPerOrder: 0,
+        },
+        capabilities: {
+          shareLink: true,
+          chat: true,
+          attachments: false,
+          advancedChat: false,
+          serviceSalesEnabled: false,
+        },
       },
       isActive: true,
       popular: false,
-      trialDays: 30,
+      trialDays: null,
     },
 
     {
       code: "pro",
       name: "Pro",
-      priceCents: 19999,
+      priceCents: 5900,
       currency: "RON",
       interval: "month",
-      maxProducts: null, // nelimitat
-      commissionBps: 600, // 6%
+      maxProducts: null,
+      commissionBps: 800,
       features: [
-        "TOT din Basic",
+        "2 magazine incluse",
         "Produse nelimitate",
-        "Coduri de discount",
-        "Boost în listări",
-        "SEO îmbunătățit",
-        "Analytics avansat",
-        "Facturare avansată + storno",
-        "Logo vendor pe factură",
-        "Curier avansat: alegere curier",
-        "Promovare prioritară în campaniile platformei",
+        "Chat + follow-up",
+        "Note interne",
+        "Atașamente",
+        "10 lead-uri / lună",
         "Suport prioritar",
       ],
       entitlements: {
         chat: true,
         attachments: true,
-        advancedChat: true,
+        advancedChat: false,
+      },
+      meta: {
+        limits: {
+          stores: 2,
+          products: -1,
+          leadsPerMonth: 10,
+          chatMessagesPerMonth: 300,
+        },
+        commissions: {
+          productsBps: 800,
+          minFeeCentsPerOrder: 0,
+        },
+        capabilities: {
+          shareLink: true,
+          chat: true,
+          attachments: true,
+          advancedChat: false,
+          serviceSalesEnabled: false,
+        },
       },
       isActive: true,
       popular: false,
@@ -116,51 +93,87 @@ export async function seedSubscriptionPlans(prisma) {
     },
 
     {
-      code: "business",
-      name: "Business",
-      priceCents: 0, // custom pricing / contract
+      code: "premium",
+      name: "Premium",
+      priceCents: 14900,
       currency: "RON",
       interval: "month",
       maxProducts: null,
-      commissionBps: 500, // 5% (negociabil)
+      commissionBps: 500,
       features: [
-        "TOT din Pro",
-        "Multi-brand / multi-store",
-        "Membri extinși",
-        "Export date (CSV / API)",
-        "Integrare contabilitate",
-        "Account manager dedicat",
+        "3 magazine incluse",
+        "Produse nelimitate",
+        "CRM complet (note + follow-up + atașamente)",
+        "Badge verificat",
+        "Prioritate în listări",
+        "Statistici (vizualizări, lead-uri)",
+        "Lead-uri nelimitate",
+        "Suport dedicat",
       ],
       entitlements: {
         chat: true,
         attachments: true,
         advancedChat: true,
       },
-      isActive: false,
-      popular: false,
-      trialDays: null,
+      meta: {
+        limits: {
+          stores: 3,
+          products: -1,
+          leadsPerMonth: -1,
+          chatMessagesPerMonth: -1,
+        },
+        commissions: {
+          productsBps: 500,
+          minFeeCentsPerOrder: 0,
+        },
+        capabilities: {
+          shareLink: true,
+          chat: true,
+          attachments: true,
+          advancedChat: true,
+          serviceSalesEnabled: false,
+        },
+      },
+      isActive: true,
+      popular: true,
+      trialDays: 30,
     },
   ];
 
   for (const p of plans) {
     await prisma.subscriptionPlan.upsert({
       where: { code: p.code },
-      create: p,
+      create: {
+        code: p.code,
+        name: p.name,
+        priceCents: p.priceCents,
+        currency: p.currency,
+        interval: p.interval,
+        maxProducts: p.maxProducts,
+        commissionBps: p.commissionBps,
+        features: p.features,
+        entitlements: p.entitlements ?? null,
+        meta: p.meta ?? null,
+        isActive: p.isActive,
+        popular: p.popular ?? false,
+        trialDays: p.trialDays ?? null,
+      },
       update: {
         name: p.name,
         priceCents: p.priceCents,
         currency: p.currency,
         interval: p.interval,
+        maxProducts: p.maxProducts ?? null,
+        commissionBps: p.commissionBps ?? 0,
         features: p.features,
-        entitlements: p.entitlements ?? null, // ✅ IMPORTANT
+        entitlements: p.entitlements ?? null,
+        meta: p.meta ?? null,
         isActive: p.isActive,
         popular: p.popular ?? false,
         trialDays: p.trialDays ?? null,
-        maxProducts: p.maxProducts ?? null,
-        commissionBps: p.commissionBps ?? 0,
       },
     });
   }
 
-  console.log("✅ Seeded subscription plans + entitlements.");
+  console.log("✅ Seeded subscription plans (Basic / Pro / Premium) fără magazine extra.");
 }

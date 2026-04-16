@@ -28,9 +28,6 @@ import {
 
 import { useIsMobile } from "./hooks/useIsMobile.js";
 import { ProductGallery } from "./components/ProductGallery.jsx";
-import { StoreProductsSlider } from "./components/StoreProductsSlider.jsx";
-import { SimilarProductsGrid } from "./components/SimilarProductsGrid.jsx";
-import { ImageZoom } from "./components/ImageZoom";
 import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
@@ -39,6 +36,24 @@ const ReviewsSection = lazy(() => import("./ReviewSection/ReviewSection"));
 const CommentsSection = lazy(() => import("./CommentSection/CommentSection"));
 const ProductModal = lazy(() =>
   import("../ProfilMagazin/modals/ProductModal.jsx")
+);
+
+const StoreProductsSlider = lazy(() =>
+  import("./components/StoreProductsSlider.jsx").then((m) => ({
+    default: m.StoreProductsSlider,
+  }))
+);
+
+const SimilarProductsGrid = lazy(() =>
+  import("./components/SimilarProductsGrid.jsx").then((m) => ({
+    default: m.SimilarProductsGrid,
+  }))
+);
+
+const ImageZoom = lazy(() =>
+  import("./components/ImageZoom.jsx").then((m) => ({
+    default: m.ImageZoom,
+  }))
 );
 
 const dateOnlyToISO = (yyyyMmDd) => {
@@ -75,6 +90,76 @@ const emptyProdForm = {
   careInstructions: "",
   specialNotes: "",
 };
+
+function ProductDetailsSkeleton() {
+  return (
+    <div className={styles.pageWrap}>
+      <div className={styles.breadcrumbs}>
+        <button className={styles.linkBtn} type="button" disabled>
+          <FaChevronLeft /> Înapoi
+        </button>
+      </div>
+
+      <div className={styles.grid}>
+        <div
+          style={{
+            width: "100%",
+            aspectRatio: "4 / 3",
+            borderRadius: 16,
+            background: "rgba(255,255,255,0.06)",
+          }}
+        />
+
+        <div className={styles.infoCard}>
+          <div
+            style={{
+              height: 34,
+              width: "70%",
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.06)",
+              marginBottom: 12,
+            }}
+          />
+          <div
+            style={{
+              height: 18,
+              width: "40%",
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.05)",
+              marginBottom: 18,
+            }}
+          />
+          <div
+            style={{
+              height: 28,
+              width: 120,
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.08)",
+              marginBottom: 18,
+            }}
+          />
+          <div
+            style={{
+              height: 44,
+              width: "100%",
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.05)",
+              marginBottom: 12,
+            }}
+          />
+          <div
+            style={{
+              height: 110,
+              width: "100%",
+              borderRadius: 14,
+              background: "rgba(255,255,255,0.04)",
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ProductDetails() {
   const { id } = useParams();
@@ -129,6 +214,7 @@ export default function ProductDetails() {
   const [deferredSections, setDeferredSections] = useState(false);
 
   const mountedRef = useRef(true);
+  const requestSeqRef = useRef(0);
 
   const touchStartX = useRef(null);
   const touchEndX = useRef(null);
@@ -143,6 +229,8 @@ export default function ProductDetails() {
   useEffect(() => {
     setActiveIdx(0);
     setQty(1);
+    setZoomOpen(false);
+
     setEditOpen(false);
     setEditingProduct(null);
     setProdForm(emptyProdForm);
@@ -162,11 +250,10 @@ export default function ProductDetails() {
     setDeferredSections(false);
   }, [id]);
 
-  const cacheT = useMemo(
-    () =>
-      product?.updatedAt ? new Date(product.updatedAt).getTime() : Date.now(),
-    [product?.updatedAt]
-  );
+  const cacheT = useMemo(() => {
+    if (!product?.updatedAt) return "1";
+    return String(new Date(product.updatedAt).getTime());
+  }, [product?.updatedAt]);
 
   const images = useMemo(() => {
     const list =
@@ -186,9 +273,29 @@ export default function ProductDetails() {
   );
 
   useEffect(() => {
+    if (!activeSrc) return;
+
+    const link = document.createElement("link");
+    link.rel = "preload";
+    link.as = "image";
+    link.href = activeSrc;
+    document.head.appendChild(link);
+
+    return () => {
+      try {
+        document.head.removeChild(link);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [activeSrc]);
+
+  useEffect(() => {
     const next = images[(activeIdx + 1) % images.length];
     if (!next) return;
+
     const img = new Image();
+    img.decoding = "async";
     img.src = withCache(resolveFileUrl(next), cacheT);
   }, [activeIdx, images, cacheT]);
 
@@ -541,37 +648,40 @@ export default function ProductDetails() {
   }, []);
 
   const loadAll = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
+
     setLoading(true);
     setError(null);
 
     try {
-      const p = await api(`/api/public/products/${encodeURIComponent(id)}`);
+      const [productRes, meRes, favRes] = await Promise.allSettled([
+        api(`/api/public/products/${encodeURIComponent(id)}`),
+        api("/api/auth/me"),
+        api("/api/favorites/ids"),
+      ]);
 
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || requestSeqRef.current !== seq) return;
 
+      if (productRes.status !== "fulfilled") {
+        throw productRes.reason;
+      }
+
+      const p = productRes.value;
       setProduct(p);
+
+      const user =
+        meRes.status === "fulfilled" ? meRes.value?.user || null : null;
+      setMe(user);
+
+      const favItems =
+        favRes.status === "fulfilled" && Array.isArray(favRes.value?.items)
+          ? favRes.value.items
+          : [];
+      setFavorites(new Set(favItems));
+
       setLoading(false);
-
-      api("/api/auth/me")
-        .then((meRes) => {
-          if (!mountedRef.current) return;
-
-          const user = meRes?.user || null;
-          setMe(user);
-
-          if (!user) return;
-
-          api("/api/favorites/ids")
-            .then((fav) => {
-              if (!mountedRef.current) return;
-              setFavorites(new Set(Array.isArray(fav?.items) ? fav.items : []));
-            })
-            .catch(() => {});
-        })
-        .catch(() => {});
-
     } catch (e) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || requestSeqRef.current !== seq) return;
       setError(e?.message || "Nu am putut încărca produsul.");
       setLoading(false);
     }
@@ -590,7 +700,7 @@ export default function ProductDetails() {
     };
 
     if ("requestIdleCallback" in window) {
-      const idleId = window.requestIdleCallback(run);
+      const idleId = window.requestIdleCallback(run, { timeout: 700 });
       return () => {
         if ("cancelIdleCallback" in window) {
           window.cancelIdleCallback(idleId);
@@ -598,7 +708,7 @@ export default function ProductDetails() {
       };
     }
 
-    const t = setTimeout(run, 1);
+    const t = setTimeout(run, 100);
     return () => clearTimeout(t);
   }, [product]);
 
@@ -649,7 +759,7 @@ export default function ProductDetails() {
   ]);
 
   const submitReview = useCallback(
-    async ({ rating, comment, images }) => {
+    async ({ rating, comment, images: reviewImages }) => {
       if (isOwner) return;
 
       if (!me) {
@@ -673,7 +783,7 @@ export default function ProductDetails() {
         form.append("rating", String(rating));
         form.append("comment", comment || "");
 
-        (images || []).forEach((file) => {
+        (reviewImages || []).forEach((file) => {
           form.append("images", file);
         });
 
@@ -1039,9 +1149,7 @@ export default function ProductDetails() {
           currency: prodForm.currency || "RON",
           isActive: prodForm.isActive !== false,
           isHidden: !!prodForm.isHidden,
-
           acceptsCustom: !!prodForm.acceptsCustom,
-
           color,
           materialMain,
           technique,
@@ -1125,7 +1233,7 @@ export default function ProductDetails() {
   );
 
   if (loading) {
-    return <div className={styles.pageWrap}>Se încarcă…</div>;
+    return <ProductDetailsSkeleton />;
   }
 
   if (error || !product) {
@@ -1360,9 +1468,7 @@ export default function ProductDetails() {
                   aria-label={
                     isFav ? "Elimină din favorite" : "Adaugă la favorite"
                   }
-                  title={
-                    isFav ? "Elimină din favorite" : "Adaugă la favorite"
-                  }
+                  title={isFav ? "Elimină din favorite" : "Adaugă la favorite"}
                   type="button"
                 >
                   {isFav ? <FaHeart /> : <FaRegHeart />}
@@ -1416,6 +1522,8 @@ export default function ProductDetails() {
                 }
                 className={styles.shopAvatar}
                 onError={(e) => onImgError(e, 64, 64, "Magazin")}
+                loading="lazy"
+                decoding="async"
               />
             </div>
 
@@ -1734,32 +1842,38 @@ export default function ProductDetails() {
       )}
 
       {deferredSections && (
-        <>
-          <section className={styles.relatedSec}>
-            <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
-            <StoreProductsSlider
-              products={storeProducts}
+        <Suspense fallback={null}>
+          <>
+            <section className={styles.relatedSec}>
+              <h2 className={styles.sectionTitle}>Mai multe din acest magazin</h2>
+              <StoreProductsSlider
+                products={storeProducts}
+                cacheT={cacheT}
+                navigate={navigate}
+              />
+            </section>
+
+            <SimilarProductsGrid
+              products={similarProducts}
               cacheT={cacheT}
               navigate={navigate}
             />
-          </section>
-
-          <SimilarProductsGrid
-            products={similarProducts}
-            cacheT={cacheT}
-            navigate={navigate}
-          />
-        </>
+          </>
+        </Suspense>
       )}
 
-      <ImageZoom
-        open={zoomOpen}
-        images={images}
-        activeIdx={activeIdx}
-        setActiveIdx={setActiveIdx}
-        activeSrc={activeSrc}
-        onClose={() => setZoomOpen(false)}
-      />
+      {zoomOpen && (
+        <Suspense fallback={null}>
+          <ImageZoom
+            open={zoomOpen}
+            images={images}
+            activeIdx={activeIdx}
+            setActiveIdx={setActiveIdx}
+            activeSrc={activeSrc}
+            onClose={() => setZoomOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {isOwner && editOpen && (
         <Suspense fallback={null}>

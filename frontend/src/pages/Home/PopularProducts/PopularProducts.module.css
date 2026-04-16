@@ -5,17 +5,19 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: clamp(1.1rem, 2vw, 2rem) 1rem;
-  position: relative;   /* peste promo fixed */
+  position: relative;
   z-index: 1;
   isolation: isolate;
 }
+
 .header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: .75rem;
+  margin-bottom: 0.75rem;
 }
+
 .heading {
   font-family: var(--font-title);
   font-weight: 700;
@@ -24,77 +26,115 @@
   color: var(--color-text);
 }
 
-/* ===== GRID (desktop) & LIST (mobile) ===== */
+/* ===== GRID ===== */
 .grid {
   display: grid;
-  gap: clamp(.7rem, 1.4vw, 1rem);
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); /* CARDURI pe desktop */
+  gap: clamp(0.7rem, 1.4vw, 1rem);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
 
 @media (max-width: 760px) {
-  .grid { grid-template-columns: 1fr; } /* pe mobil devine listă verticală */
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-/* ===== CARD (tile desktop / row mobil) ===== */
+/* ===== CARD ===== */
 .card {
   display: grid;
   background: var(--surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: .75rem;
-  transition: border-color .15s ease, box-shadow .15s ease, transform .12s ease;
+  padding: 0.75rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
   cursor: pointer;
   box-sizing: border-box;
-
-  /* TILE (desktop): imagine sus, text jos */
   grid-template-rows: auto 1fr;
   grid-template-columns: 1fr;
 }
+
 .card:hover {
   border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
   box-shadow: var(--shadow-ambient);
   transform: translateY(-1px);
 }
 
-/* ROW (mobil): imagine stânga, text dreapta – compact & fără overflow */
 @media (max-width: 760px) {
   .card {
-    grid-template-columns: 110px 1fr;   /* coloană stânga mai îngustă */
+    grid-template-columns: 110px 1fr;
     grid-template-rows: none;
     gap: 10px;
-    padding: .6rem .65rem;
+    padding: 0.6rem 0.65rem;
     align-items: start;
   }
 }
+
 @media (max-width: 380px) {
-  .card { grid-template-columns: 96px 1fr; gap: 8px; }
+  .card {
+    grid-template-columns: 96px 1fr;
+    gap: 8px;
+  }
 }
 
-/* imagine */
-.thumbLink { display: block; }
+/* ===== IMAGE ===== */
+.thumbLink {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid var(--color-border);
+  background: #f3f4f6;
+  position: relative;
+}
+
 .thumb {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  aspect-ratio: 4 / 3; /* pe tile desktop */
-  border-radius: calc(var(--radius) - 2px);
-  border: 1px solid var(--color-border);
-  background: var(--surface);
-}
-@media (max-width: 760px) {
-  .thumb { aspect-ratio: 1 / 1; } /* pătrat pe mobil */
+  background: #f3f4f6;
 }
 
-/* corp card */
+.noImage {
+  background: linear-gradient(180deg, #f8f8f8 0%, #f1f1f1 100%);
+}
+
+.noImage::after {
+  content: "Fără imagine";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .thumbLink {
+    aspect-ratio: 1 / 1;
+    border-radius: 12px;
+  }
+}
+
+/* ===== BODY ===== */
 .body {
   display: grid;
-  gap: .4rem;
+  gap: 0.4rem;
   align-content: start;
-  margin-top: .5rem; /* distanță sub imagine în tile */
-  min-width: 0;     /* previne overflow-ul textului în grid */
+  margin-top: 0.5rem;
+  min-width: 0;
 }
+
 @media (max-width: 760px) {
-  .body { margin-top: 0; padding-left: .1rem; }
+  .body {
+    margin-top: 0;
+    padding-left: 0.1rem;
+  }
 }
 
 .name {
@@ -106,12 +146,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 @media (max-width: 760px) {
   .name {
-    font-size: .98rem;
+    font-size: 0.98rem;
     white-space: normal;
     display: -webkit-box;
-    -webkit-line-clamp: 2;   /* max 2 linii pe mobil */
+    -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     line-clamp: 2;
   }
@@ -120,30 +161,40 @@
 .subRow {
   display: flex;
   align-items: center;
-  gap: .5rem;
+  gap: 0.5rem;
   min-height: 22px;
-  flex-wrap: wrap; /* ca să nu iasă în afară pe ecrane mici */
+  flex-wrap: wrap;
 }
+
 .shop {
   color: var(--color-primary);
   text-decoration: none;
   font-weight: 600;
-  font-size: .95rem;
+  font-size: 0.95rem;
 }
-.shop:hover { color: var(--color-hover); }
-.dot { opacity: .4; }
-.time { font-size: .88rem; color: var(--color-text-muted); }
 
-/* --- META ROW: rating + preț --- */
+.shop:hover {
+  color: var(--color-hover);
+}
+
+.dot {
+  opacity: 0.4;
+}
+
+.time {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+}
+
+/* ===== META ===== */
 .metaRow {
-  display: grid;                     /* grid = control mai bun decât flex */
-  grid-template-columns: 1fr auto;   /* rating se întinde, prețul la dreapta */
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
   column-gap: 8px;
-  margin-top: .05rem;
+  margin-top: 0.05rem;
 }
 
-/* rating: compact, fără overflow */
 .rating {
   min-width: 0;
   display: inline-flex;
@@ -151,18 +202,19 @@
   gap: 4px;
   flex-wrap: nowrap;
 }
+
 .rating svg {
   width: 16px;
   height: 16px;
 }
+
 .ratingVal {
-  font-size: .9rem;
+  font-size: 0.9rem;
   color: var(--color-text);
   margin-left: 6px;
   font-weight: 600;
 }
 
-/* preț: vizibil și pe un rând */
 .price {
   margin-left: auto;
   white-space: nowrap;
@@ -170,110 +222,169 @@
   color: var(--color-text);
 }
 
-/* ===== Breakpoint-uri mobile pentru meta row ===== */
 @media (max-width: 420px) {
-  .rating { gap: 3px; }
-  .rating svg { width: 14px; height: 14px; }
-  .price { font-size: .98rem; }
-}
-@media (max-width: 360px) {
-  .metaRow {
-    grid-template-columns: 1fr;  /* stivuim (preț pe rândul 2) */
-    row-gap: 4px;
+  .rating {
+    gap: 3px;
   }
-  .price { justify-self: start; } /* sau end, după preferință */
-  .ratingVal { display: none; }   /* ascundem numeric pentru spațiu */
+
+  .rating svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .price {
+    font-size: 0.98rem;
+  }
 }
 
-/* ===== Skeleton (loading) ===== */
-.skeleton { pointer-events: none; animation: fadein .2s ease; }
+@media (max-width: 360px) {
+  .metaRow {
+    grid-template-columns: 1fr;
+    row-gap: 4px;
+  }
+
+  .price {
+    justify-self: start;
+  }
+
+  .ratingVal {
+    display: none;
+  }
+}
+
+/* ===== Skeleton ===== */
+.skeleton {
+  pointer-events: none;
+  animation: fadein 0.2s ease;
+}
+
 .skelBox {
   border: 1px solid var(--color-border);
-  background: linear-gradient(90deg,
+  background: linear-gradient(
+    90deg,
     var(--surface) 25%,
     color-mix(in srgb, var(--color-border) 40%, var(--surface)) 37%,
-    var(--surface) 63%);
+    var(--surface) 63%
+  );
   background-size: 400% 100%;
   animation: shimmer 1.1s infinite linear;
+  aspect-ratio: 4 / 3;
+  border-radius: calc(var(--radius) - 2px);
 }
+
 .skelLine {
   height: 14px;
   border-radius: 6px;
-  background: linear-gradient(90deg,
+  background: linear-gradient(
+    90deg,
     var(--surface) 25%,
     color-mix(in srgb, var(--color-border) 40%, var(--surface)) 37%,
-    var(--surface) 63%);
+    var(--surface) 63%
+  );
   background-size: 400% 100%;
   animation: shimmer 1.1s infinite linear;
-  margin-top: .35rem;
+  margin-top: 0.35rem;
 }
+
 .skelMeta {
   height: 18px;
   width: 45%;
   border-radius: 6px;
-  background: linear-gradient(90deg,
+  background: linear-gradient(
+    90deg,
     var(--surface) 25%,
     color-mix(in srgb, var(--color-border) 40%, var(--surface)) 37%,
-    var(--surface) 63%);
+    var(--surface) 63%
+  );
   background-size: 400% 100%;
   animation: shimmer 1.1s infinite linear;
-  margin-top: .4rem;
+  margin-top: 0.4rem;
 }
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: -135% 0; } }
-@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
-/* ===== Load more („Vezi mai mult”) ===== */
+@keyframes shimmer {
+  0% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: -135% 0;
+  }
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ===== Load more ===== */
 .loadMoreWrap {
-  margin-top: .9rem;
+  margin-top: 0.9rem;
   display: flex;
   justify-content: center;
 }
+
 .loadMore {
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
   color: #fff;
-  padding: .65rem 1.05rem;
+  padding: 0.65rem 1.05rem;
   border-radius: 9999px;
   font-weight: 800;
   cursor: pointer;
-  transition: filter .15s ease, transform .08s ease;
+  transition: filter 0.15s ease, transform 0.08s ease;
 }
-.loadMore:hover { filter: brightness(1.05); }
-.loadMore:active { transform: translateY(1px); }
-.loadMore:disabled { opacity: .6; cursor: not-allowed; }
+
+.loadMore:hover {
+  filter: brightness(1.05);
+}
+
+.loadMore:active {
+  transform: translateY(1px);
+}
+
+.loadMore:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 @media (max-width: 760px) {
   .loadMoreWrap {
-    padding: 0 max(0px, env(safe-area-inset-right)) 0 max(0px, env(safe-area-inset-left));
+    padding: 0 max(0px, env(safe-area-inset-right)) 0
+      max(0px, env(safe-area-inset-left));
   }
+
   .loadMore {
     width: 100%;
-    padding: .8rem 1.1rem;
+    padding: 0.8rem 1.1rem;
   }
 }
-/* =========================
-   Mobile compact (override)
-   ========================= */
+
+/* ===== Mobile compact ===== */
 @media (max-width: 760px) {
   .section {
-    padding: 0.9rem 0.85rem;   /* mai puțin aer */
+    padding: 0.9rem 0.85rem;
   }
 
-  .header { margin-bottom: 0.55rem; }
-  .heading { font-size: 1.1rem; }
+  .header {
+    margin-bottom: 0.55rem;
+  }
 
-  .grid { gap: 0.55rem; }
+  .heading {
+    font-size: 1.1rem;
+  }
+
+  .grid {
+    gap: 0.55rem;
+  }
 
   .card {
-    grid-template-columns: 92px 1fr; /* imagine mai mică */
+    grid-template-columns: 92px 1fr;
     gap: 8px;
     padding: 0.55rem;
     border-radius: 14px;
-  }
-
-  .thumb {
-    border-radius: 12px;
-    aspect-ratio: 1 / 1;       /* pătrat, compact */
   }
 
   .body {
@@ -286,26 +397,47 @@
     line-height: 1.18;
   }
 
-  .shop { font-size: 0.88rem; }
-  .time { font-size: 0.82rem; }
+  .shop {
+    font-size: 0.88rem;
+  }
 
-  .subRow { gap: 0.4rem; min-height: 18px; }
+  .time {
+    font-size: 0.82rem;
+  }
+
+  .subRow {
+    gap: 0.4rem;
+    min-height: 18px;
+  }
 
   .metaRow {
     column-gap: 6px;
     margin-top: 0;
   }
 
-  .rating { gap: 3px; }
-  .rating svg { width: 13px; height: 13px; }
-  .ratingVal { font-size: 0.82rem; margin-left: 4px; }
+  .rating {
+    gap: 3px;
+  }
 
-  .price { font-size: 0.96rem; }
+  .rating svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .ratingVal {
+    font-size: 0.82rem;
+    margin-left: 4px;
+  }
+
+  .price {
+    font-size: 0.96rem;
+  }
 }
 
-/* Extra-small (telefoane înguste) */
 @media (max-width: 380px) {
-  .section { padding: 0.8rem 0.75rem; }
+  .section {
+    padding: 0.8rem 0.75rem;
+  }
 
   .card {
     grid-template-columns: 84px 1fr;
@@ -313,20 +445,66 @@
     padding: 0.5rem;
   }
 
-  .name { font-size: 0.92rem; }
-  .shop { font-size: 0.86rem; }
-  .time { font-size: 0.8rem; }
+  .name {
+    font-size: 0.92rem;
+  }
 
-  .rating svg { width: 12px; height: 12px; }
-  .ratingVal { display: none; }  /* câștigi spațiu */
-  .price { font-size: 0.94rem; }
+  .shop {
+    font-size: 0.86rem;
+  }
+
+  .time {
+    font-size: 0.8rem;
+  }
+
+  .rating svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .ratingVal {
+    display: none;
+  }
+
+  .price {
+    font-size: 0.94rem;
+  }
 }
 
-/* Butonul "Vezi mai mult" mai mic pe mobil */
 @media (max-width: 760px) {
   .loadMore {
-    padding: 0.7rem 1rem;   /* mai mic decât .8rem */
+    padding: 0.7rem 1rem;
     font-size: 0.95rem;
-    border-radius: 14px;    /* nu chiar "pill" enorm */
+    border-radius: 14px;
   }
+}
+.noImage {
+  background: linear-gradient(
+    180deg,
+    var(--image-placeholder-bg) 0%,
+    var(--image-placeholder-bg-2) 100%
+  );
+  color: var(--image-placeholder-text);
+  text-decoration: none;
+}
+
+.noImage::after {
+  content: "Fără imagine";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  text-align: center;
+  color: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.endMessage {
+  color: var(--color-text-muted, var(--color-muted));
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.35rem 0;
 }

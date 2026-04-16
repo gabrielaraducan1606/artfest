@@ -25,9 +25,15 @@ export default function OnBoardingDetails() {
 
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const qpTab = (params.get("tab") || "").toLowerCase();
+  const qpServiceId = (params.get("serviceId") || "").trim();
   const solo = params.get("solo") === "1";
 
-  const initialTab = ALLOWED_TABS.includes(qpTab) ? qpTab : "profil";
+  const profileOnlyMode = solo && !!qpServiceId;
+  const initialTab = profileOnlyMode
+    ? "profil"
+    : ALLOWED_TABS.includes(qpTab)
+    ? qpTab
+    : "profil";
 
   const [services, setServices] = useState([]);
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -39,26 +45,54 @@ export default function OnBoardingDetails() {
 
   // URL -> state
   useEffect(() => {
+    if (profileOnlyMode) {
+      setActiveTab("profil");
+      return;
+    }
+
     if (ALLOWED_TABS.includes(qpTab)) setActiveTab(qpTab);
     else setActiveTab("profil");
-  }, [qpTab]);
+  }, [qpTab, profileOnlyMode]);
 
   // state -> URL
   useEffect(() => {
     const curr = new URLSearchParams(location.search);
     const currTab = (curr.get("tab") || "").toLowerCase();
     const currSolo = curr.get("solo") === "1";
+    const currServiceId = (curr.get("serviceId") || "").trim();
 
-    if (currTab === activeTab && currSolo === solo) return;
+    const forcedTab = profileOnlyMode ? "profil" : activeTab;
 
-    curr.set("tab", activeTab);
+    if (
+      currTab === forcedTab &&
+      currSolo === solo &&
+      currServiceId === qpServiceId
+    ) {
+      return;
+    }
+
+    curr.set("tab", forcedTab);
+
     if (solo) curr.set("solo", "1");
     else curr.delete("solo");
 
+    if (qpServiceId) curr.set("serviceId", qpServiceId);
+    else curr.delete("serviceId");
+
     navigate({ search: `?${curr.toString()}` }, { replace: true });
-  }, [activeTab, solo, location.search, navigate]);
+  }, [activeTab, solo, qpServiceId, profileOnlyMode, location.search, navigate]);
 
   useEffect(() => {
+    if (profileOnlyMode) {
+      navigate(
+        {
+          search: `?serviceId=${encodeURIComponent(qpServiceId)}&tab=profil&solo=1`,
+        },
+        { replace: true }
+      );
+      return;
+    }
+
     if (solo && !ALLOWED_TABS.includes(qpTab)) {
       navigate({ search: "?tab=profil&solo=1" }, { replace: true });
     }
@@ -67,6 +101,7 @@ export default function OnBoardingDetails() {
 
   const fetchMyServices = useCallback(async () => {
     const d = await api("/api/vendors/me/services?includeProfile=1", { method: "GET" });
+
     if (d?.__unauth) {
       navigate("/autentificare?redirect=/onboarding/details", { replace: true });
       return [];
@@ -104,7 +139,13 @@ export default function OnBoardingDetails() {
     })();
   }, [fetchMyServices]);
 
+  const visibleServices = useMemo(() => {
+    if (!profileOnlyMode) return services;
+    return services.filter((s) => s.id === qpServiceId);
+  }, [services, profileOnlyMode, qpServiceId]);
+
   const timers = useRef({});
+
   function schedule(serviceId, fn, delay = 600) {
     if (timers.current[serviceId]) clearTimeout(timers.current[serviceId]);
     timers.current[serviceId] = setTimeout(fn, delay);
@@ -142,7 +183,10 @@ export default function OnBoardingDetails() {
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
             setSaveState((m) => ({ ...m, [serviceId]: "error" }));
-            setSaveError((m) => ({ ...m, [serviceId]: e?.message || "Eroare la salvarea profilului" }));
+            setSaveError((m) => ({
+              ...m,
+              [serviceId]: e?.message || "Eroare la salvarea profilului",
+            }));
           }
         });
       }
@@ -152,53 +196,104 @@ export default function OnBoardingDetails() {
   }, []);
 
   const updateServiceBasics = useCallback((idx, patch) => {
-    setServices((prev) => {
-      const next = [...prev];
-      const s = { ...next[idx] };
-      next[idx] = {
-        ...s,
-        ...patch,
-        attributes: { ...(s.attributes || {}), ...(patch.attributes || {}) },
-      };
+  setServices((prev) => {
+    const next = [...prev];
+    const s = { ...next[idx] };
 
-      const serviceId = s.id;
-      if (serviceId) {
-        setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
-        schedule(serviceId, async () => {
-          try {
-            const current = next[idx];
-            await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
-              method: "PATCH",
-              body: {
-                city: current?.city || "",
-                attributes: current?.attributes || {},
-              },
-            });
-            setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
-            setSaveError((m) => ({ ...m, [serviceId]: "" }));
-          } catch (e) {
-            setSaveState((m) => ({ ...m, [serviceId]: "error" }));
-            setSaveError((m) => ({ ...m, [serviceId]: e?.message || "Eroare la salvare" }));
-          }
-        });
-      }
+    next[idx] = {
+      ...s,
+      ...patch,
+      attributes: { ...(s.attributes || {}), ...(patch.attributes || {}) },
+    };
 
-      return next;
-    });
-  }, []);
+    const serviceId = s.id;
+    if (serviceId) {
+      setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+
+      schedule(serviceId, async () => {
+        try {
+          const current = next[idx];
+
+          await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
+            method: "PATCH",
+            body: {
+              title: current?.title || "",
+              description: current?.description || "",
+              basePriceCents: current?.basePriceCents ?? null,
+              currency: current?.currency || "RON",
+              city: current?.city || "",
+              coverageAreas: Array.isArray(current?.coverageAreas)
+                ? current.coverageAreas
+                : [],
+              mediaUrls: Array.isArray(current?.mediaUrls)
+                ? current.mediaUrls
+                : [],
+              attributes: current?.attributes || {},
+
+              estimatedShippingFeeCents:
+                current?.estimatedShippingFeeCents ?? null,
+              freeShippingThresholdCents:
+                current?.freeShippingThresholdCents ?? null,
+              shippingNotes: current?.shippingNotes ?? null,
+            },
+          });
+
+          setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
+          setSaveError((m) => ({ ...m, [serviceId]: "" }));
+        } catch (e) {
+          setSaveState((m) => ({ ...m, [serviceId]: "error" }));
+          setSaveError((m) => ({
+            ...m,
+            [serviceId]: e?.message || "Eroare la salvare",
+          }));
+        }
+      });
+    }
+
+    return next;
+  });
+}, []);
 
   const uploadFile = useCallback(async (file) => {
     const fd = new FormData();
     fd.append("file", file);
+
     const d = await api("/api/upload", { method: "POST", body: fd });
     if (!d?.url) throw new Error("Upload eșuat");
+
     return d.url;
   }, []);
 
-  const isSavingAny = useMemo(() => Object.values(saveState).some((s) => s === "saving"), [saveState]);
+  const isSavingAny = useMemo(
+    () => Object.values(saveState).some((s) => s === "saving"),
+    [saveState]
+  );
+
   const hasNameConflict = false;
 
-  // SOLO MODE
+  // PROFILE-ONLY MODE: magazin nou creat din dashboard/profil
+  if (profileOnlyMode) {
+    return (
+      <section className={styles.wrap}>
+        <ProfileTab
+          services={visibleServices}
+          vanityBase={VANITY_BASE}
+          saveState={saveState}
+          saveError={saveError}
+          updateProfile={updateProfile}
+          updateServiceBasics={updateServiceBasics}
+          uploadFile={uploadFile}
+          isSavingAny={isSavingAny}
+          hasNameConflict={hasNameConflict}
+          onContinue={() => {}}
+          err={err}
+          setErr={setErr}
+        />
+      </section>
+    );
+  }
+
+  // SOLO MODE generic
   if (solo) {
     return (
       <section className={styles.wrap}>
@@ -220,11 +315,15 @@ export default function OnBoardingDetails() {
         )}
 
         {activeTab === "facturare" && (
-          <BillingTab onSaved={() => {}} onStatusChange={() => {}} canContinue={false} onContinue={() => {}} />
+          <BillingTab
+            onSaved={() => {}}
+            onStatusChange={() => {}}
+            canContinue={false}
+            onContinue={() => {}}
+          />
         )}
 
         {activeTab === "incasari" && <ConnectPayoutsTab />}
-
         {activeTab === "plata" && <PaymentTab />}
       </section>
     );
@@ -302,7 +401,6 @@ export default function OnBoardingDetails() {
       )}
 
       {activeTab === "incasari" && <ConnectPayoutsTab />}
-
       {activeTab === "plata" && <PaymentTab />}
     </section>
   );

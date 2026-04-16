@@ -28,6 +28,7 @@ import Login from "../../pages/Auth/Login/Login";
 import { guestCart } from "../../lib/guestCart";
 import NotificationsPopover from "./NotificationsPopover";
 import MessagesPopover from "./MessagesPopover";
+import { useImageSearch } from "../../hooks/useImageSearch";
 
 /* ========================= Modal (cu portal & blur) ========================= */
 function Modal({ open, onClose, title, children }) {
@@ -167,7 +168,12 @@ export default function Navbar() {
 
   const location = useLocation();
   const navigate = useNavigate();
-
+const {
+  searching: uploadingImg,
+  fileInputRef: imageInputRef,
+  openPicker: openImagePicker,
+  handleFileChange,
+} = useImageSearch();
   const STORE_PAGE_PREFIX = "/magazin";
 
   const [burgerOpen, setBurgerOpen] = useState(false);
@@ -184,10 +190,6 @@ export default function Navbar() {
   const [unreadNotif, setUnreadNotif] = useState(0);
   const [onboarding, setOnboarding] = useState(null);
   const [supportUnread, setSupportUnread] = useState(0);
-
-  const [uploadingImg, setUploadingImg] = useState(false);
-  const fileInputDesktopRef = useRef(null);
-  const fileInputMobileRef = useRef(null);
 
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -649,50 +651,6 @@ useEffect(() => {
 
   const ACHIZITII_LABEL = "Achiziții";
 
-  async function handleImagePicked(file) {
-    if (!file) return;
-    try {
-      setUploadingImg(true);
-      const fd = new FormData();
-      fd.append("image", file);
-
-      const res = await api("/api/search/image", { method: "POST", body: fd });
-
-      const ids = Array.isArray(res?.ids)
-        ? res.ids.filter(Boolean)
-        : Array.isArray(res?.items)
-        ? res.items.map((x) => x?.id).filter(Boolean)
-        : [];
-
-      if (ids.length > 0) {
-        try {
-          sessionStorage.setItem(
-            `imgsearch:${res.searchId || "last"}`,
-            JSON.stringify(res)
-          );
-        } catch {
-          // ignore
-        }
-        navigate(`/produse?ids=${encodeURIComponent(ids.join(","))}&page=1`);
-        return;
-      }
-
-      navigate("/produse?by=image&page=1");
-    } catch {
-      alert("Nu am putut procesa imaginea. Încearcă din nou.");
-      navigate("/produse?by=image&error=1&page=1");
-    } finally {
-      setUploadingImg(false);
-    }
-  }
-
-  function openImagePickerDesktop() {
-    fileInputDesktopRef.current?.click();
-  }
-  function openImagePickerMobile() {
-    fileInputMobileRef.current?.click();
-  }
-
   const loginRedirect = (() => {
     try {
       const sp = new URLSearchParams(window.location.search);
@@ -1028,24 +986,23 @@ useEffect(() => {
                 autoComplete="off"
               />
 
-              <input
-                ref={fileInputDesktopRef}
-                type="file"
-                accept="image/*"
-                className={styles.hiddenFile}
-                onChange={(e) => handleImagePicked(e.target.files?.[0])}
-              />
-
-              <button
-                className={styles.cameraBtn}
-                type="button"
-                onClick={openImagePickerDesktop}
-                aria-label="Caută după imagine"
-                title="Caută după imagine"
-                disabled={uploadingImg}
-              >
-                <Camera size={18} />
-              </button>
+           <input
+  ref={imageInputRef}
+  type="file"
+  accept="image/*"
+  className={styles.hiddenFile}
+  onChange={handleFileChange}
+/>
+<button
+  className={styles.cameraBtn}
+  type="button"
+  onClick={openImagePicker}
+  aria-label="Caută după imagine"
+  title="Caută după imagine"
+  disabled={uploadingImg}
+>
+  <Camera size={18} />
+</button>
 
               {showSuggest && (
                 <div
@@ -1412,24 +1369,24 @@ useEffect(() => {
               autoComplete="off"
             />
 
-            <input
-              ref={fileInputMobileRef}
-              type="file"
-              accept="image/*"
-              className={styles.hiddenFile}
-              onChange={(e) => handleImagePicked(e.target.files?.[0])}
-            />
+           <input
+  ref={imageInputRef}
+  type="file"
+  accept="image/*"
+  className={styles.hiddenFile}
+  onChange={handleFileChange}
+/>
 
             <button
-              className={styles.cameraBtn}
-              type="button"
-              onClick={openImagePickerMobile}
-              aria-label="Caută după imagine"
-              title="Caută după imagine"
-              disabled={uploadingImg}
-            >
-              <Camera size={18} />
-            </button>
+  className={styles.cameraBtn}
+  type="button"
+  onClick={openImagePicker}
+  aria-label="Caută după imagine"
+  title="Caută după imagine"
+  disabled={uploadingImg}
+>
+  <Camera size={18} />
+</button>
 {showSuggest && (
   <div
     role="listbox"

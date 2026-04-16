@@ -1,10 +1,14 @@
-// backend/src/middleware/chatGuards.js (ESM)
+// backend/src/middleware/chatGuards.js
 import { prisma } from "../db.js";
 
 /**
- * Plan limits (fallback) mapate pe code-ul din SubscriptionPlan.
- * Dacă ai entitlements în DB (plan.entitlements), acestea au prioritate
- * pentru chat/attachments/advanced. Quota rămâne din LIMITS (fallback).
+ * Fallback limits mapate pe code-ul din SubscriptionPlan.
+ * Priorități:
+ * - entitlements: din plan.entitlements, fallback la LIMITS
+ * - quota chat: din plan.meta.limits.chatMessagesPerMonth, fallback la LIMITS
+ *
+ * Valorile de aici sunt fallback/compat.
+ * Sursa principală rămâne DB-ul.
  */
 const LIMITS = {
   "starter-lite": {
@@ -13,26 +17,37 @@ const LIMITS = {
     allowAdvanced: false,
     allowChat: true,
   },
-  starter: {
-    sentPerMonth: 300,
-    allowAttachments: true, // ✅ PLANUL 2: atașamente permise
+
+  basic: {
+    sentPerMonth: 50,
+    allowAttachments: false,
     allowAdvanced: false,
     allowChat: true,
   },
-  basic: {
-    sentPerMonth: 1500,
+
+  pro: {
+    sentPerMonth: 300,
+    allowAttachments: true,
+    allowAdvanced: false,
+    allowChat: true,
+  },
+
+  premium: {
+    sentPerMonth: null, // nelimitat
     allowAttachments: true,
     allowAdvanced: true,
     allowChat: true,
   },
-  pro: {
-    sentPerMonth: 5000,
+
+  // compat vechi, dacă mai există subscriberi pe planuri istorice
+  starter: {
+    sentPerMonth: 300,
     allowAttachments: true,
-    allowAdvanced: true,
+    allowAdvanced: false,
     allowChat: true,
   },
   business: {
-    sentPerMonth: null, // nelimitat
+    sentPerMonth: null,
     allowAttachments: true,
     allowAdvanced: true,
     allowChat: true,
@@ -47,7 +62,6 @@ function periodYYYYMM(now = new Date()) {
 
 /**
  * Helper: vendorId pentru userul logat (cached pe request)
- * - folosește req.meVendor dacă există (de ex din vendorAccessRequired)
  */
 export async function getVendorIdForUser(req) {
   if (req._vendorIdResolved !== undefined) return req._vendorIdResolved;
@@ -73,11 +87,11 @@ export async function getVendorIdForUser(req) {
 }
 
 /**
- * Atașează subscription-ul relevant în req.subscription (cached pe request).
- * - nu blochează, doar atașează dacă există
+ * Atașează subscription-ul activ în req.subscription
+ * - nu blochează
  * - consideră activ dacă:
- *    - status=active și endAt > now, SAU
- *    - trialEndsAt > now (indiferent de status)
+ *   - status=active și endAt > now
+ *   - sau trialEndsAt > now
  */
 export function attachSubscription() {
   return async (req, _res, next) => {
@@ -101,13 +115,14 @@ export function attachSubscription() {
             { trialEndsAt: { gt: now } },
           ],
         },
-        orderBy: [{ startAt: "desc" }],
+        orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
         include: {
           plan: {
             select: {
               code: true,
               name: true,
-              entitlements: true, // ✅ Json entitlements în SubscriptionPlan
+              entitlements: true,
+              meta: true,
             },
           },
         },
@@ -122,8 +137,7 @@ export function attachSubscription() {
 }
 
 /**
- * Dacă vrei să blochezi complet chat-ul fără subs/trial:
- * - rulează attachSubscription inline dacă nu a fost rulat deja
+ * Blochează complet chat-ul dacă vendorul nu are subscription/trial activ
  */
 export function requireActiveSubscriptionForChat() {
   return async (req, res, next) => {
@@ -154,22 +168,26 @@ function planCodeFromReq(req) {
 }
 
 /**
- * Citește entitlements din DB (plan.entitlements) dacă există.
+ * Citește entitlements din DB dacă există.
  * Acceptă chei:
  * - chat
  * - attachments
- * - advanced OR advancedChat (compatibil cu seed-ul tău)
+ * - advanced
+ * - advancedChat
  */
 function entitlementsFromReq(req) {
   const raw = req.subscription?.plan?.entitlements;
   if (!raw || typeof raw !== "object") return null;
 
-  // suportă ambele: advanced (vechi) sau advancedChat (din seed-ul tău)
   const advanced =
-    raw.advanced !== undefined ? raw.advanced : raw.advancedChat !== undefined ? raw.advancedChat : false;
+    raw.advanced !== undefined
+      ? raw.advanced
+      : raw.advancedChat !== undefined
+      ? raw.advancedChat
+      : false;
 
   return {
-    chat: raw.chat === undefined ? true : !!raw.chat, // dacă lipsește, default true
+    chat: raw.chat === undefined ? true : !!raw.chat,
     attachments: !!raw.attachments,
     advanced: !!advanced,
   };
@@ -194,9 +212,9 @@ function friendlyUpgrade(res, code, planCode) {
 }
 
 /**
- * Verifică entitlement pe plan (chat / attachments / advanced).
- * IMPORTANT:
- * - preferă plan.entitlements (DB); dacă nu există, folosește LIMITS (fallback).
+ * Verifică entitlement pe plan
+ * - preferă plan.entitlements din DB
+ * - fallback la LIMITS
  */
 export function requireChatEntitlement({ attachments = false, advanced = false } = {}) {
   return (req, res, next) => {
@@ -210,24 +228,44 @@ export function requireChatEntitlement({ attachments = false, advanced = false }
     const allowAdvanced = ent ? ent.advanced : cfg.allowAdvanced;
 
     if (!allowChat) return friendlyUpgrade(res, "CHAT_NOT_ALLOWED", planCode);
-    if (attachments && !allowAttachments)
+    if (attachments && !allowAttachments) {
       return friendlyUpgrade(res, "CHAT_ATTACHMENTS_NOT_ALLOWED", planCode);
-    if (advanced && !allowAdvanced)
+    }
+    if (advanced && !allowAdvanced) {
       return friendlyUpgrade(res, "CHAT_ADVANCED_NOT_ALLOWED", planCode);
+    }
 
-    next();
+    return next();
   };
 }
 
 /**
- * Quota check (mesaje trimise / lună).
+ * Quota check (mesaje trimise / lună)
+ * Prioritate:
+ * 1. subscription.plan.meta.limits.chatMessagesPerMonth
+ * 2. LIMITS fallback
+ *
  * Returnează:
  * - null dacă e ok
- * - obiect cu { ok:false, status, payload } dacă e depășit
+ * - { ok:false, status, payload } dacă e depășit
  */
-export async function assertChatQuotaOrThrow({ vendorId, planCode }) {
-  const cfg = LIMITS[planCode] || LIMITS["starter-lite"];
-  if (cfg.sentPerMonth == null) return null; // nelimitat
+export async function assertChatQuotaOrThrow({ vendorId, subscription }) {
+  const planCode = subscription?.plan?.code || "starter-lite";
+  const dbLimit = subscription?.plan?.meta?.limits?.chatMessagesPerMonth;
+
+  let limit;
+
+  if (dbLimit === -1 || dbLimit === null) {
+    return null; // nelimitat
+  }
+
+  if (typeof dbLimit === "number" && Number.isFinite(dbLimit) && dbLimit >= 0) {
+    limit = dbLimit;
+  } else {
+    const cfg = LIMITS[planCode] || LIMITS["starter-lite"];
+    if (cfg.sentPerMonth == null) return null;
+    limit = cfg.sentPerMonth;
+  }
 
   const period = periodYYYYMM(new Date());
 
@@ -238,7 +276,7 @@ export async function assertChatQuotaOrThrow({ vendorId, planCode }) {
 
   const used = usage?.sentCount || 0;
 
-  if (used >= cfg.sentPerMonth) {
+  if (used >= limit) {
     return {
       ok: false,
       status: 402,
@@ -248,7 +286,7 @@ export async function assertChatQuotaOrThrow({ vendorId, planCode }) {
           "Ai atins limita lunară de mesaje pentru planul tău. Te rog fă upgrade sau așteaptă resetarea lunară.",
         period,
         used,
-        limit: cfg.sentPerMonth,
+        limit,
         planCode,
       },
     };
@@ -258,7 +296,7 @@ export async function assertChatQuotaOrThrow({ vendorId, planCode }) {
 }
 
 /**
- * Increment usage (într-un transaction).
+ * Increment usage (într-un transaction)
  */
 export async function bumpChatUsage({ tx, vendorId, incSent = 0, incThreads = 0 }) {
   const period = periodYYYYMM(new Date());
@@ -279,7 +317,7 @@ export async function bumpChatUsage({ tx, vendorId, incSent = 0, incThreads = 0 
 }
 
 /**
- * Export helper: îți poate fi util în rute când vrei planCode rapid.
+ * Helper export
  */
 export function getPlanCode(req) {
   return planCodeFromReq(req);

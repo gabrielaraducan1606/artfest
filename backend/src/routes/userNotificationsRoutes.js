@@ -33,7 +33,6 @@ router.get("/", async (req, res) => {
     limit: limitRaw = "20",
   } = req.query;
 
-  // page & limit safe
   const page = Math.max(parseInt(pageRaw, 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 100);
   const skip = (page - 1) * limit;
@@ -60,7 +59,6 @@ router.get("/", async (req, res) => {
     };
   }
 
-  // cerem limit + 1 ca să știm dacă există pagină următoare
   const rawItems = await prisma.notification.findMany({
     where,
     orderBy: { createdAt: "desc" },
@@ -91,7 +89,6 @@ router.get("/", async (req, res) => {
 
 /**
  * GET /api/notifications/unread-count
- * (în router: GET /unread-count)
  */
 router.get("/unread-count", async (req, res) => {
   const userId = getUserId(req);
@@ -162,6 +159,28 @@ router.patch("/read-all", async (req, res) => {
   });
 
   res.json({ updated: result.count });
+});
+
+/**
+ * DELETE /api/notifications/:id
+ */
+router.delete("/:id", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: "no_user_id_in_token" });
+  }
+
+  const { id } = req.params;
+
+  const result = await prisma.notification.deleteMany({
+    where: { id, userId },
+  });
+
+  if (result.count === 0) {
+    return res.status(404).json({ error: "notification_not_found" });
+  }
+
+  res.json({ ok: true, deleted: result.count });
 });
 
 export default router;

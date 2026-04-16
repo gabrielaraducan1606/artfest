@@ -4,11 +4,15 @@ import styles from "./css/BillingTab.module.css";
 
 const DRAFT_PREFIX = "onboarding.billing.draft:";
 const LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
-
-// ✅ pentru platformă: doar 21% (cota standard)
 const PLATFORM_VAT_RATE = "21";
+const PRIVACY_POLICY_URL = "/politica-de-confidentialitate";
 
-/* ---------- Hook: detectăm mobil (pt. acordeon) ---------- */
+const BILLING_PURPOSE_SUMMARY =
+  "Cerem aceste date pentru emiterea facturilor aferente abonamentului și comisioanelor, administrarea relației contractuale cu vendorii și îndeplinirea obligațiilor legale fiscale și contabile.";
+
+const BILLING_RETENTION_NOTE =
+  "Datele salvate în cont pot fi păstrate conform obligațiilor legale fiscale, contabile și politicilor interne de retenție aplicabile.";
+
 function useIsMobile(breakpointPx = 768) {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -31,12 +35,11 @@ function useIsMobile(breakpointPx = 768) {
   return isMobile;
 }
 
-/* ---------- Componentă mică pentru nota informativă ---------- */
 function InfoNote({ children }) {
   return (
     <div
       role="note"
-      aria-label="Informații verificare și facturare"
+      aria-label="Informații facturare și confidențialitate"
       className={styles.infoNote}
     >
       <span aria-hidden="true" className={styles.infoNoteIcon}>
@@ -47,7 +50,6 @@ function InfoNote({ children }) {
   );
 }
 
-/* ---------- InfoNote în acordeon pe mobil (UI mai curat) ---------- */
 function InfoNoteResponsive({ summary, children }) {
   const isMobile = useIsMobile(768);
   const [open, setOpen] = useState(false);
@@ -57,11 +59,10 @@ function InfoNoteResponsive({ summary, children }) {
     else setOpen(false);
   }, [isMobile]);
 
-  // Desktop: afișare normală (cu titlu + rest)
   if (!isMobile) {
     return (
       <InfoNote>
-        <p style={{ margin: 0 }}>
+        <p className={styles.noMargin}>
           <strong>De ce cerem aceste date?</strong> {summary}
         </p>
         {children}
@@ -69,7 +70,6 @@ function InfoNoteResponsive({ summary, children }) {
     );
   }
 
-  // Mobile: UN SINGUR container, trigger + body (fără titlul duplicat)
   return (
     <div className={styles.infoNote}>
       <button
@@ -92,7 +92,7 @@ function InfoNoteResponsive({ summary, children }) {
 
       {open && (
         <div id="billing-info-accordion" className={styles.infoAccordionBody}>
-          <p style={{ margin: 0 }}>{summary}</p>
+          <p className={styles.noMargin}>{summary}</p>
           {children}
         </div>
       )}
@@ -100,7 +100,6 @@ function InfoNoteResponsive({ summary, children }) {
   );
 }
 
-/* ---------- Validări + normalizări ---------- */
 function validate(values) {
   const v = {
     ...values,
@@ -110,66 +109,62 @@ function validate(values) {
     cui: (values.cui || "").toUpperCase().trim(),
     regCom: (values.regCom || "").toUpperCase().trim(),
     address: (values.address || "").trim(),
-    iban: (values.iban || "").replace(/\s+/g, "").toUpperCase(),
-    bank: (values.bank || "").trim(),
     email: (values.email || "").trim(),
     contactPerson: (values.contactPerson || "").trim(),
     phone: (values.phone || "").replace(/\s+/g, "").trim(),
-    // TVA
     vatStatus: (values.vatStatus || "").trim(),
     vatRate: (values.vatRate || "").trim(),
   };
 
-  // ✅ normalizare TVA: dacă e plătitor -> forțăm 21; altfel -> gol
   if (v.vatStatus === "payer") v.vatRate = PLATFORM_VAT_RATE;
   if (v.vatStatus !== "payer") v.vatRate = "";
 
   const errors = {};
-  if (!v.legalType || !LEGAL_TYPES.includes(v.legalType))
-    errors.legalType = "Alege tipul entității (PF nu este acceptat).";
+
+  if (!v.legalType || !LEGAL_TYPES.includes(v.legalType)) {
+    errors.legalType = "Alege tipul entității.";
+  }
 
   if (!v.vendorName) errors.vendorName = "Completează numele vendorului.";
-  if (!v.companyName) errors.companyName = "Completează denumirea.";
+  if (!v.companyName) errors.companyName = "Completează denumirea entității.";
 
   if (!v.cui) errors.cui = "Completează CUI-ul.";
-  else if (!/^(RO)?\d{2,10}$/i.test(v.cui))
+  else if (!/^(RO)?\d{2,10}$/i.test(v.cui)) {
     errors.cui = "CUI invalid (ex: RO12345678).";
+  }
 
   if (!v.regCom) errors.regCom = "Completează Nr. Reg. Com.";
-  else if (!/^(J|F)\d{1,2}\/\d{1,6}\/\d{2,4}$/i.test(v.regCom))
+  else if (!/^(J|F)\d{1,2}\/\d{1,6}\/\d{2,4}$/i.test(v.regCom)) {
     errors.regCom = "Format invalid (ex: J40/123/2020).";
+  }
 
   if (!v.address) errors.address = "Completează adresa de facturare.";
 
-  if (!v.iban) errors.iban = "Completează IBAN-ul.";
-  else if (!/^RO\d{2}[A-Z]{4}[A-Z0-9]{16}$/i.test(v.iban))
-    errors.iban = "IBAN RO invalid (ex: RO49AAAA1B31007593840000).";
-
-  if (!v.bank) errors.bank = "Completează banca.";
-
-  if (!v.email) errors.email = "Completează emailul.";
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email))
+  if (!v.email) errors.email = "Completează emailul de facturare.";
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) {
     errors.email = "Email invalid.";
+  }
 
-  if (!v.contactPerson)
+  if (!v.contactPerson) {
     errors.contactPerson = "Completează persoana de contact.";
-  if (!v.phone) errors.phone = "Completează telefonul de contact.";
-  else if (!/^\+?\d{7,15}$/.test(v.phone))
-    errors.phone = "Telefon invalid (ex: +40722123456).";
+  }
 
-  // --- Validare TVA ---
+  if (!v.phone) errors.phone = "Completează telefonul de contact.";
+  else if (!/^\+?\d{7,15}$/.test(v.phone)) {
+    errors.phone = "Telefon invalid (ex: +40722123456).";
+  }
+
   if (!v.vatStatus) {
     errors.vatStatus = "Te rugăm să alegi dacă ești plătitor de TVA.";
   }
 
-  // ✅ dacă e plătitor, cota trebuie să fie 21 (și e setată automat)
   if (v.vatStatus === "payer" && v.vatRate !== PLATFORM_VAT_RATE) {
     errors.vatRate = `Cota TVA pentru platformă este ${PLATFORM_VAT_RATE}%.`;
   }
 
   if (!values.vatResponsibilityConfirmed) {
     errors.vatResponsibilityConfirmed =
-      "Trebuie să confirmi că aceste informații fiscale sunt corecte.";
+      "Trebuie să confirmi că informațiile fiscale sunt corecte.";
   }
 
   return { errors, normalized: v };
@@ -183,47 +178,19 @@ function isFormEmpty(v) {
     "cui",
     "regCom",
     "address",
-    "iban",
-    "bank",
     "email",
     "contactPerson",
     "phone",
     "vatStatus",
     "vatRate",
   ];
+
   return keys.every((k) => !String(v?.[k] ?? "").trim());
 }
 
-/**
- * Helper ca să nu pierdem valorile TVA din formular
- * dacă backend-ul încă nu le trimite sau sunt null.
- */
-function mergeBillingKeepVat(prev, incoming) {
-  if (!incoming) return prev;
-  return {
-    ...prev,
-    ...incoming,
-    vatStatus:
-      incoming.vatStatus !== undefined && incoming.vatStatus !== null
-        ? incoming.vatStatus
-        : prev.vatStatus,
-    vatRate:
-      incoming.vatRate !== undefined && incoming.vatRate !== null
-        ? incoming.vatRate
-        : prev.vatRate,
-    vatResponsibilityConfirmed:
-      typeof incoming.vatResponsibilityConfirmed === "boolean"
-        ? incoming.vatResponsibilityConfirmed
-        : prev.vatResponsibilityConfirmed,
-  };
-}
-
-/**
- * Whitelist: luăm doar câmpurile de care avem nevoie din API,
- * ca să nu ne intre id/vendorId/createdAt etc în state.
- */
 function pickBillingFromApi(b) {
   if (!b) return null;
+
   return {
     legalType: b.legalType ?? "",
     vendorName: b.vendorName ?? "",
@@ -231,26 +198,15 @@ function pickBillingFromApi(b) {
     cui: b.cui ?? "",
     regCom: b.regCom ?? "",
     address: b.address ?? "",
-    iban: b.iban ?? "",
-    bank: b.bank ?? "",
     email: b.email ?? "",
     contactPerson: b.contactPerson ?? "",
     phone: b.phone ?? "",
-
     vatStatus: b.vatStatus ?? "",
     vatRate: b.vatRate ?? "",
     vatResponsibilityConfirmed: !!b.vatResponsibilityConfirmed,
-
-    // read-only (populate din backend, dacă există)
-    tvaActive: b.tvaActive,
-    tvaVerifiedAt: b.tvaVerifiedAt,
-    tvaSource: b.tvaSource,
-    anafName: b.anafName,
-    anafAddress: b.anafAddress,
   };
 }
 
-/* ---------- Dialog simplu de confirmare ---------- */
 function ConfirmDialog({
   open,
   title,
@@ -261,6 +217,7 @@ function ConfirmDialog({
   onCancel,
 }) {
   if (!open) return null;
+
   return (
     <div
       className={styles.modalBackdrop}
@@ -286,7 +243,6 @@ function ConfirmDialog({
   );
 }
 
-/* ---------- Formularul propriu-zis ---------- */
 function BillingForm({ onSaved, onStatusChange }) {
   const draftKey = useMemo(() => `${DRAFT_PREFIX}global`, []);
 
@@ -297,27 +253,17 @@ function BillingForm({ onSaved, onStatusChange }) {
     cui: "",
     regCom: "",
     address: "",
-    iban: "",
-    bank: "",
     email: "",
     contactPerson: "",
     phone: "",
-
     vatStatus: "",
     vatRate: "",
     vatResponsibilityConfirmed: false,
-
-    // read-only (populate din backend)
-    tvaActive: undefined,
-    tvaVerifiedAt: undefined,
-    tvaSource: undefined,
-    anafName: undefined,
-    anafAddress: undefined,
   });
 
   const [initialBilling, setInitialBilling] = useState(null);
 
-  const [status, setStatus] = useState("idle"); // idle|saving|saved|error
+  const [status, setStatus] = useState("idle");
   const [err, setErr] = useState("");
   const [loadedDraft, setLoadedDraft] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
@@ -330,7 +276,6 @@ function BillingForm({ onSaved, onStatusChange }) {
 
   const [announce, setAnnounce] = useState("");
 
-  // ✅ controlăm “hidratarea” (backend + draft) + interacțiunea userului
   const [hydrated, setHydrated] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
 
@@ -338,10 +283,6 @@ function BillingForm({ onSaved, onStatusChange }) {
     onStatusChange?.(status);
   }, [status, onStatusChange]);
 
-  // Prefill corect:
-  // 1) backend
-  // 2) draft doar dacă există și NU e gol
-  // 3) abia la final setHydrated(true) -> autosave devine permis
   useEffect(() => {
     let alive = true;
 
@@ -353,14 +294,13 @@ function BillingForm({ onSaved, onStatusChange }) {
         const fromApi = pickBillingFromApi(d?.billing);
 
         if (fromApi) {
-          setBilling((prev) => mergeBillingKeepVat(prev, fromApi));
+          setBilling(fromApi);
           setInitialBilling(fromApi);
           setAnnounce("Am încărcat datele de facturare salvate în contul tău.");
         } else {
           setInitialBilling(null);
         }
 
-        // draft local (doar dacă nu e gol)
         try {
           if (typeof window !== "undefined") {
             const raw = window.localStorage.getItem(draftKey);
@@ -392,21 +332,16 @@ function BillingForm({ onSaved, onStatusChange }) {
     };
   }, [draftKey]);
 
-  // ✅ TVA platformă: când e plătitor -> setăm automat 21; altfel -> golim
   useEffect(() => {
     if (billing.vatStatus === "payer") {
       if (billing.vatRate !== PLATFORM_VAT_RATE) {
         setBilling((prev) => ({ ...prev, vatRate: PLATFORM_VAT_RATE }));
       }
-    } else {
-      if (billing.vatRate) {
-        setBilling((prev) => ({ ...prev, vatRate: "" }));
-      }
+    } else if (billing.vatRate) {
+      setBilling((prev) => ({ ...prev, vatRate: "" }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [billing.vatStatus]);
+  }, [billing.vatStatus, billing.vatRate]);
 
-  // ✅ autosave draft în localStorage doar după hydration + doar dacă userul a interacționat
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!hydrated) return;
@@ -428,11 +363,11 @@ function BillingForm({ onSaved, onStatusChange }) {
     return (e) => {
       setHasInteracted(true);
       const value = e.target.value;
+
       setBilling((prev) => {
         const next = { ...prev, [name]: value };
         if (touched[name]) {
-          const result = validate(next);
-          setErrorsState(result);
+          setErrorsState(validate(next));
         }
         return next;
       });
@@ -442,8 +377,7 @@ function BillingForm({ onSaved, onStatusChange }) {
   function onFieldBlur(name) {
     return () => {
       setTouched((t) => ({ ...t, [name]: true }));
-      const result = validate(billing);
-      setErrorsState(result);
+      setErrorsState(validate(billing));
     };
   }
 
@@ -455,8 +389,6 @@ function BillingForm({ onSaved, onStatusChange }) {
       "cui",
       "regCom",
       "address",
-      "iban",
-      "bank",
       "email",
       "contactPerson",
       "phone",
@@ -474,6 +406,7 @@ function BillingForm({ onSaved, onStatusChange }) {
 
   async function save() {
     const result = validate(billing);
+
     setErrorsState(result);
     setTouched({
       legalType: true,
@@ -482,8 +415,6 @@ function BillingForm({ onSaved, onStatusChange }) {
       cui: true,
       regCom: true,
       address: true,
-      iban: true,
-      bank: true,
       email: true,
       contactPerson: true,
       phone: true,
@@ -505,26 +436,25 @@ function BillingForm({ onSaved, onStatusChange }) {
       setAnnounce("Se salvează datele de facturare…");
 
       const payload = result.normalized;
+
       await api("/api/vendors/me/billing", {
         method: "PUT",
         body: payload,
       });
 
-      // re-fetch (source of truth)
       const fresh = await api("/api/vendors/me/billing", { method: "GET" });
-
       const fromApi = pickBillingFromApi(fresh?.billing);
+
       if (fromApi) {
-        setBilling((prev) => mergeBillingKeepVat(prev, fromApi));
+        setBilling(fromApi);
         setInitialBilling(fromApi);
       } else {
-        setInitialBilling(pickBillingFromApi(billing));
+        setInitialBilling(payload);
       }
 
       setStatus("saved");
       setAnnounce("Datele de facturare au fost salvate în contul tău.");
 
-      // ✅ curățăm draftul local după save
       try {
         if (typeof window !== "undefined") {
           window.localStorage.removeItem(draftKey);
@@ -536,7 +466,6 @@ function BillingForm({ onSaved, onStatusChange }) {
       }
 
       setHasInteracted(false);
-
       setTimeout(() => setStatus("idle"), 1200);
       onSaved?.();
     } catch (e) {
@@ -548,11 +477,13 @@ function BillingForm({ onSaved, onStatusChange }) {
 
   function clearDraftOnly() {
     try {
-      if (typeof window !== "undefined")
+      if (typeof window !== "undefined") {
         window.localStorage.removeItem(draftKey);
+      }
     } catch {
       // ignore
     }
+
     setLoadedDraft(false);
     setHasDraft(false);
     setAnnounce("Draftul local a fost șters.");
@@ -560,6 +491,7 @@ function BillingForm({ onSaved, onStatusChange }) {
 
   function resetFormHard() {
     clearDraftOnly();
+
     setBilling({
       legalType: "",
       vendorName: "",
@@ -567,20 +499,14 @@ function BillingForm({ onSaved, onStatusChange }) {
       cui: "",
       regCom: "",
       address: "",
-      iban: "",
-      bank: "",
       email: "",
       contactPerson: "",
       phone: "",
       vatStatus: "",
       vatRate: "",
       vatResponsibilityConfirmed: false,
-      tvaActive: undefined,
-      tvaVerifiedAt: undefined,
-      tvaSource: undefined,
-      anafName: undefined,
-      anafAddress: undefined,
     });
+
     setTouched({});
     setErrorsState({ errors: {} });
     setErr("");
@@ -609,8 +535,7 @@ function BillingForm({ onSaved, onStatusChange }) {
         <div className={styles.saveIndicator}>
           {status === "saving" && (
             <span className={`${styles.badge} ${styles.badgeWait}`}>
-              <span className={styles.spinner} aria-hidden="true" /> Se
-              salvează…
+              <span className={styles.spinner} aria-hidden="true" /> Se salvează…
             </span>
           )}
           {status === "saved" && (
@@ -622,41 +547,45 @@ function BillingForm({ onSaved, onStatusChange }) {
         </div>
       </header>
 
-      {/* ✅ Pe mobil: “De ce cerem aceste date?” în acordeon */}
-      <InfoNoteResponsive summary="Pentru a preveni conturile false și a emite documente fiscale corecte.">
-  <ul style={{ margin: "6px 0 0 18px" }}>
-    <li>
-      Statutul TVA este declarat de vendor; îți cerem confirmare pe propria
-      răspundere.
-    </li>
-    <li>
-      Unele informații pot fi verificate ulterior prin surse oficiale atunci
-      când acestea sunt disponibile.
-    </li>
-    <li>
-      Persoana de contact și telefonul sunt necesare pentru comunicări legate
-      de facturare.
-    </li>
-    <li>
-      Datele sunt folosite exclusiv pentru facturare și verificări anti-fraudă,
-      în conformitate cu GDPR.
-    </li>
-  </ul>
-  <p style={{ margin: "6px 0 0 0", color: "#6B7280" }}>
-    Dacă sursele oficiale sunt temporar indisponibile, vei putea continua, iar
-    verificările vor fi reluate ulterior.
-  </p>
-</InfoNoteResponsive>
+      <InfoNoteResponsive summary={BILLING_PURPOSE_SUMMARY}>
+        <ul>
+          <li>
+            Colectăm doar datele necesare pentru facturare, comunicări administrative
+            și gestionarea relației contractuale cu vendorii.
+          </li>
+          <li>
+            Persoana de contact, emailul și telefonul sunt folosite pentru comunicări
+            privind facturi, abonamentul, comisioanele și alte aspecte administrative.
+          </li>
+          <li>
+            Draftul formularului poate fi salvat local în browserul tău pentru a nu
+            pierde datele introduse înainte de salvarea în cont.
+          </li>
+          <li>
+            Datele de încasare și contul bancar se configurează separat în Stripe sau
+            în fluxurile dedicate de plată, nu în acest formular.
+          </li>
+        </ul>
 
-      {/* Toolbar (fără verificare ANAF în onboarding) */}
+        <p className={styles.infoNoteFooter}>
+          Prin completarea acestui formular, datele sunt prelucrate pentru emiterea
+          facturilor, administrarea relației contractuale și îndeplinirea obligațiilor
+          legale fiscale și contabile. Detalii complete în{" "}
+          <a href={PRIVACY_POLICY_URL} target="_blank" rel="noreferrer">
+            Politica de confidențialitate
+          </a>
+          .
+        </p>
+      </InfoNoteResponsive>
+
       <div className={styles.toolbar}>
         <div className={styles.toolbarLeft}>
           <span className={`${styles.badge} ${styles.badgeMuted}`}>
             Statut TVA declarat
           </span>
           <small className={styles.help}>
-            În onboarding nu blocăm procesul pe verificări externe. Statutul TVA
-            rămâne cel declarat de tine.
+            Statutul TVA este declarat de tine și este folosit pentru emiterea
+            corectă a facturilor pentru abonament și comision.
           </small>
         </div>
 
@@ -666,7 +595,7 @@ function BillingForm({ onSaved, onStatusChange }) {
               type="button"
               className={styles.ghostBtn}
               onClick={() => setShowDeleteDraftConfirm(true)}
-              title="Șterge doar draftul local (salvat în acest browser)"
+              title="Șterge doar draftul local salvat în acest browser"
             >
               Șterge draftul
             </button>
@@ -689,28 +618,22 @@ function BillingForm({ onSaved, onStatusChange }) {
         </div>
       </div>
 
-      <div style={{ marginBottom: 8 }}>
+      <div className={styles.draftInfo}>
         <small className={styles.help}>
-          Draftul se salvează local în acest browser și pe acest dispozitiv,
-          până îl ștergi sau resetezi formularul. Datele salvate în cont sunt
-          păstrate permanent în baza de date și se încarcă automat la
-          următoarea accesare a tab-ului.
+          Draftul se salvează local în acest browser și pe acest dispozitiv până îl
+          ștergi sau resetezi formularul. {BILLING_RETENTION_NOTE}
           {loadedDraft && <> Draft local încărcat automat.</>}
         </small>
       </div>
 
-      {/* Grid câmpuri */}
       <div className={styles.grid}>
-        {/* legalType */}
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="legalType">
             Entitate juridică
           </label>
           <select
             id="legalType"
-            className={`${styles.input} ${
-              errors.legalType ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.legalType ? styles.inputError : ""}`}
             value={billing.legalType}
             onChange={onFieldChange("legalType")}
             onBlur={onFieldBlur("legalType")}
@@ -730,40 +653,13 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* vendorName */}
-        <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="vendorName">
-            Nume vendor
-          </label>
-          <input
-            id="vendorName"
-            className={`${styles.input} ${
-              errors.vendorName ? styles.inputError : ""
-            }`}
-            value={billing.vendorName}
-            onChange={onFieldChange("vendorName")}
-            onBlur={onFieldBlur("vendorName")}
-            placeholder="Ex: Atelierul Maria"
-            aria-invalid={!!errors.vendorName}
-            aria-describedby={errors.vendorName ? "err-vendorName" : undefined}
-          />
-          {errors.vendorName && (
-            <small id="err-vendorName" className={styles.fieldError}>
-              {errors.vendorName}
-            </small>
-          )}
-        </div>
-
-        {/* companyName */}
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="companyName">
             Denumire entitate
           </label>
           <input
             id="companyName"
-            className={`${styles.input} ${
-              errors.companyName ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.companyName ? styles.inputError : ""}`}
             value={billing.companyName}
             onChange={onFieldChange("companyName")}
             onBlur={onFieldBlur("companyName")}
@@ -778,7 +674,27 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* cui */}
+        <div className={styles.fieldGroup}>
+          <label className={styles.label} htmlFor="vendorName">
+            Nume vendor
+          </label>
+          <input
+            id="vendorName"
+            className={`${styles.input} ${errors.vendorName ? styles.inputError : ""}`}
+            value={billing.vendorName}
+            onChange={onFieldChange("vendorName")}
+            onBlur={onFieldBlur("vendorName")}
+            placeholder="Ex: Atelierul Maria"
+            aria-invalid={!!errors.vendorName}
+            aria-describedby={errors.vendorName ? "err-vendorName" : undefined}
+          />
+          {errors.vendorName && (
+            <small id="err-vendorName" className={styles.fieldError}>
+              {errors.vendorName}
+            </small>
+          )}
+        </div>
+
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="cui">
             CUI
@@ -808,16 +724,13 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* regCom */}
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="regCom">
             Nr. Reg. Com.
           </label>
           <input
             id="regCom"
-            className={`${styles.input} ${
-              errors.regCom ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.regCom ? styles.inputError : ""}`}
             value={billing.regCom}
             onChange={onFieldChange("regCom")}
             onBlur={onFieldBlur("regCom")}
@@ -832,16 +745,13 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* Statut TVA */}
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="vatStatus">
             Statut TVA
           </label>
           <select
             id="vatStatus"
-            className={`${styles.input} ${
-              errors.vatStatus ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.vatStatus ? styles.inputError : ""}`}
             value={billing.vatStatus}
             onChange={onFieldChange("vatStatus")}
             onBlur={onFieldBlur("vatStatus")}
@@ -852,10 +762,11 @@ function BillingForm({ onSaved, onStatusChange }) {
             <option value="payer">Plătitor de TVA</option>
             <option value="non_payer">Neplătitor de TVA</option>
           </select>
+
           <small className={styles.help}>
-            Te rugăm să confirmi statutul real al entității tale. Dacă ești
-            plătitor de TVA, platforma aplică doar cota standard.
+            Dacă ești plătitor de TVA, platforma aplică doar cota standard.
           </small>
+
           {errors.vatStatus && (
             <small id="err-vatStatus" className={styles.fieldError}>
               {errors.vatStatus}
@@ -863,7 +774,6 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* Cotă TVA (doar afișare; valoarea reală e setată automat la 21) */}
         {billing.vatStatus === "payer" && (
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="vatRate">
@@ -890,22 +800,20 @@ function BillingForm({ onSaved, onStatusChange }) {
           </div>
         )}
 
-        {/* address */}
-        <div className={styles.fieldGroup} style={{ gridColumn: "1 / -1" }}>
+        <div className={`${styles.fieldGroup} ${styles.fieldGroupFull}`}>
           <label className={styles.label} htmlFor="address">
             Adresă facturare
           </label>
-          <input
+          <textarea
             id="address"
-            className={`${styles.input} ${
-              errors.address ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.address ? styles.inputError : ""}`}
             value={billing.address}
             onChange={onFieldChange("address")}
             onBlur={onFieldBlur("address")}
             placeholder="Str. Exemplu 10, București"
             aria-invalid={!!errors.address}
             aria-describedby={errors.address ? "err-address" : undefined}
+            rows={3}
           />
           {errors.address && (
             <small id="err-address" className={styles.fieldError}>
@@ -914,64 +822,13 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* iban */}
-        <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="iban">
-            IBAN
-          </label>
-          <input
-            id="iban"
-            className={`${styles.input} ${
-              errors.iban ? styles.inputError : ""
-            }`}
-            value={billing.iban}
-            onChange={onFieldChange("iban")}
-            onBlur={onFieldBlur("iban")}
-            placeholder="RO49AAAA1B31007593840000"
-            aria-invalid={!!errors.iban}
-            aria-describedby={errors.iban ? "err-iban" : undefined}
-          />
-          {errors.iban && (
-            <small id="err-iban" className={styles.fieldError}>
-              {errors.iban}
-            </small>
-          )}
-        </div>
-
-        {/* bank */}
-        <div className={styles.fieldGroup}>
-          <label className={styles.label} htmlFor="bank">
-            Banca
-          </label>
-          <input
-            id="bank"
-            className={`${styles.input} ${
-              errors.bank ? styles.inputError : ""
-            }`}
-            value={billing.bank}
-            onChange={onFieldChange("bank")}
-            onBlur={onFieldBlur("bank")}
-            placeholder="BCR / ING / BT"
-            aria-invalid={!!errors.bank}
-            aria-describedby={errors.bank ? "err-bank" : undefined}
-          />
-          {errors.bank && (
-            <small id="err-bank" className={styles.fieldError}>
-              {errors.bank}
-            </small>
-          )}
-        </div>
-
-        {/* email */}
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="email">
             Email facturare
           </label>
           <input
             id="email"
-            className={`${styles.input} ${
-              errors.email ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.email ? styles.inputError : ""}`}
             type="email"
             value={billing.email}
             onChange={onFieldChange("email")}
@@ -987,24 +844,19 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* contactPerson */}
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="contactPerson">
             Persoană de contact
           </label>
           <input
             id="contactPerson"
-            className={`${styles.input} ${
-              errors.contactPerson ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.contactPerson ? styles.inputError : ""}`}
             value={billing.contactPerson}
             onChange={onFieldChange("contactPerson")}
             onBlur={onFieldBlur("contactPerson")}
             placeholder="Nume Prenume"
             aria-invalid={!!errors.contactPerson}
-            aria-describedby={
-              errors.contactPerson ? "err-contactPerson" : undefined
-            }
+            aria-describedby={errors.contactPerson ? "err-contactPerson" : undefined}
           />
           {errors.contactPerson && (
             <small id="err-contactPerson" className={styles.fieldError}>
@@ -1013,16 +865,13 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* phone */}
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="phone">
             Telefon facturare
           </label>
           <input
             id="phone"
-            className={`${styles.input} ${
-              errors.phone ? styles.inputError : ""
-            }`}
+            className={`${styles.input} ${errors.phone ? styles.inputError : ""}`}
             type="tel"
             value={billing.phone}
             onChange={onFieldChange("phone")}
@@ -1038,29 +887,23 @@ function BillingForm({ onSaved, onStatusChange }) {
           )}
         </div>
 
-        {/* Confirmare responsabilitate TVA */}
         <div
-          className={styles.fieldGroup}
-          style={{ gridColumn: "1 / -1", marginTop: 4 }}
+          className={`${styles.fieldGroup} ${styles.fieldGroupFull} ${styles.checkboxGroup}`}
         >
-          <label
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-              cursor: "pointer",
-            }}
-          >
+          <label className={styles.checkboxRow}>
             <input
               type="checkbox"
+              className={styles.checkboxInput}
               checked={billing.vatResponsibilityConfirmed}
               onChange={(e) => {
                 setHasInteracted(true);
                 const checked = e.target.checked;
+
                 setBilling((prev) => ({
                   ...prev,
                   vatResponsibilityConfirmed: checked,
                 }));
+
                 if (touched.vatResponsibilityConfirmed) {
                   setErrorsState(
                     validate({
@@ -1071,14 +914,13 @@ function BillingForm({ onSaved, onStatusChange }) {
                 }
               }}
               onBlur={onFieldBlur("vatResponsibilityConfirmed")}
-              style={{ marginTop: 4 }}
             />
-            <span className={styles.help}>
-              Confirm că informațiile despre statutul TVA și cota de TVA sunt
-              reale și actualizate, și înțeleg că răspund legal pentru
-              corectitudinea lor.
+            <span className={`${styles.help} ${styles.checkboxText}`}>
+              Confirm că informațiile fiscale introduse sunt corecte și actualizate
+              și înțeleg că răspund pentru exactitatea acestora.
             </span>
           </label>
+
           {errors.vatResponsibilityConfirmed && (
             <small
               className={styles.fieldError}
@@ -1096,7 +938,7 @@ function BillingForm({ onSaved, onStatusChange }) {
         </div>
       )}
 
-      <div className={styles.toolbar} style={{ marginTop: 12 }}>
+      <div className={`${styles.toolbar} ${styles.formActions}`}>
         <div className={styles.toolbarLeft} />
         <div className={styles.toolbarRight}>
           <button
@@ -1108,8 +950,7 @@ function BillingForm({ onSaved, onStatusChange }) {
           >
             {status === "saving" ? (
               <>
-                <span className={styles.spinner} aria-hidden="true" /> Se
-                salvează…
+                <span className={styles.spinner} aria-hidden="true" /> Se salvează…
               </>
             ) : (
               "Salvează"
@@ -1118,7 +959,6 @@ function BillingForm({ onSaved, onStatusChange }) {
         </div>
       </div>
 
-      {/* Confirmări */}
       <ConfirmDialog
         open={showResetConfirm}
         title="Resetezi formularul?"
@@ -1130,6 +970,7 @@ function BillingForm({ onSaved, onStatusChange }) {
         }}
         onCancel={() => setShowResetConfirm(false)}
       />
+
       <ConfirmDialog
         open={showDeleteDraftConfirm}
         title="Ștergi draftul local?"
@@ -1145,7 +986,6 @@ function BillingForm({ onSaved, onStatusChange }) {
   );
 }
 
-/* ---------- Wrapper tab ---------- */
 export default function BillingTab({
   onSaved,
   onStatusChange,
@@ -1159,6 +999,7 @@ export default function BillingTab({
       aria-labelledby="tab-facturare"
     >
       <BillingForm onSaved={onSaved} onStatusChange={onStatusChange} />
+
       <div className={styles.wizardNav}>
         <button
           type="button"
@@ -1170,6 +1011,7 @@ export default function BillingTab({
         >
           Continuă
         </button>
+
         {!canContinue && (
           <small className={styles.help}>
             Te rugăm să salvezi formularul de facturare înainte.

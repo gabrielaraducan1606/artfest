@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FaStar } from "react-icons/fa";
 import styles from "./PopularProducts.module.css";
 import { api } from "../../../lib/api";
 
-const PAGE_SIZE = 12; // câte produse încărcăm la fiecare pas
+const PAGE_SIZE = 12;
 
 function getTimestamp(p) {
   const ts =
@@ -16,37 +16,84 @@ function getTimestamp(p) {
     p?.created ||
     p?.updatedAt ||
     null;
+
   const t = ts ? Date.parse(ts) : NaN;
   return Number.isFinite(t) ? t : 0;
 }
 
+function getImageSrc(p) {
+  if (Array.isArray(p?.images) && p.images.length > 0) {
+    const firstImage = p.images[0];
+
+    if (typeof firstImage === "string" && firstImage.trim()) {
+      return firstImage;
+    }
+
+    if (
+      firstImage &&
+      typeof firstImage === "object" &&
+      typeof firstImage.url === "string" &&
+      firstImage.url.trim()
+    ) {
+      return firstImage.url;
+    }
+  }
+
+  return null;
+}
+
+function dedupeProducts(list) {
+  const seen = new Set();
+
+  return list.filter((item) => {
+    const id = item?.id;
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
 export default function PopularProducts() {
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [firstLoad, setFirstLoad] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const navigate = useNavigate();
+  const [brokenImages, setBrokenImages] = useState({});
 
+  const navigate = useNavigate();
   const loadingRef = useRef(false);
+  const didInitRef = useRef(false);
 
   const priceFmt = (p) => {
     const cur = p?.currency || "RON";
+
     if (typeof p?.priceCents === "number") {
-      return new Intl.NumberFormat("ro-RO", { style: "currency", currency: cur })
-        .format(p.priceCents / 100);
+      return new Intl.NumberFormat("ro-RO", {
+        style: "currency",
+        currency: cur,
+      }).format(p.priceCents / 100);
     }
+
     if (typeof p?.price === "number") {
-      return new Intl.NumberFormat("ro-RO", { style: "currency", currency: cur })
-        .format(p.price);
+      return new Intl.NumberFormat("ro-RO", {
+        style: "currency",
+        currency: cur,
+      }).format(p.price);
     }
+
     return "";
   };
 
   const storeLink = (p) => {
     const slug = p?.service?.profile?.slug || null;
     const vid = p?.service?.vendor?.id || p?.service?.vendorId || null;
-    return slug ? `/magazin/${encodeURIComponent(slug)}` : vid ? `/magazin/${vid}` : "/magazine";
+
+    return slug
+      ? `/magazin/${encodeURIComponent(slug)}`
+      : vid
+      ? `/magazin/${vid}`
+      : "/magazine";
   };
 
   const storeName = (p) =>
@@ -57,8 +104,10 @@ export default function PopularProducts() {
 
   const avgRating = (p) => {
     if (typeof p?.averageRating === "number") return p.averageRating;
+
     const revs = Array.isArray(p?.reviews) ? p.reviews : [];
     if (!revs.length) return null;
+
     const sum = revs.reduce((s, r) => s + (r.rating || 0), 0);
     return Math.round((sum / revs.length) * 10) / 10;
   };
@@ -66,82 +115,117 @@ export default function PopularProducts() {
   const timeAgo = (p) => {
     const ts = getTimestamp(p);
     if (!ts) return "";
+
     const diff = Date.now() - ts;
     const m = Math.floor(diff / 60000);
+
     if (m < 1) return "tocmai acum";
     if (m < 60) return `${m} min`;
+
     const h = Math.floor(m / 60);
     if (h < 24) return `${h} h`;
+
     const d = Math.floor(h / 24);
     if (d < 30) return `${d} zile`;
+
     const mo = Math.floor(d / 30);
     if (mo < 12) return `${mo} luni`;
+
     const y = Math.floor(mo / 12);
     return `${y} ani`;
   };
 
-  async function fetchPage(nextPage = 1) {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    setLoading(true);
+  const fetchPage = useCallback(
+    async (nextPage = 1) => {
+      if (loadingRef.current) return;
+      if (nextPage > 1 && (!hasMore || loadingMore)) return;
 
-    try {
-      let list = [];
+      loadingRef.current = true;
 
-      // Prima pagină: încearcă endpoint-ul de „recommended”
       if (nextPage === 1) {
-        try {
-         const r = await api(`/api/public/products/recommended?limit=${PAGE_SIZE}&page=${nextPage}`);
-const pageItems = Array.isArray(r?.items) ? r.items : [];
-if (pageItems.length) list = pageItems;
-
-          if (Array.isArray(r?.popular) && r.popular.length) list = r.popular;
-          else if (Array.isArray(r?.recommended) && r.recommended.length) list = r.recommended;
-          else if (Array.isArray(r?.latest) && r.latest.length) list = r.latest;
-        } catch {""}
-      }
-
-      // fallback + pagina curentă
-      if (!list.length || nextPage > 1) {
-        const r2 = await api(
-          `/api/public/products?sort=new&limit=${PAGE_SIZE}&page=${nextPage}`
-        );
-        const pageItems = Array.isArray(r2?.items) ? r2.items : [];
-        list = nextPage === 1 ? (list.length ? list : pageItems) : pageItems;
-        if (pageItems.length < PAGE_SIZE) setHasMore(false);
+        setInitialLoading(true);
+        setBrokenImages({});
+        setHasMore(true);
       } else {
-        // dacă prima listă e mai mică decât PAGE_SIZE, ascundem „Vezi mai mult”
-        if (nextPage === 1) setHasMore(list.length >= PAGE_SIZE);
+        setLoadingMore(true);
       }
 
-      // Ordonăm după momentul listării/publicării/creării
-      list.sort((a, b) => getTimestamp(b) - getTimestamp(a));
+      try {
+        let list = [];
 
-      setItems((prev) => (nextPage === 1 ? list : [...prev, ...list]));
-      setPage(nextPage);
-    } catch (err) {
-      console.error("PopularProducts fetch:", err);
-      if (nextPage === 1) setItems([]);
-      setHasMore(false);
-    } finally {
-      setLoading(false);
-      loadingRef.current = false;
-      setFirstLoad(false);
-    }
-  }
+        if (nextPage === 1) {
+          try {
+            const r = await api(
+              `/api/public/products/recommended?limit=${PAGE_SIZE}&page=${nextPage}`
+            );
+
+            const pageItems = Array.isArray(r?.items) ? r.items : [];
+
+            if (pageItems.length) list = pageItems;
+            else if (Array.isArray(r?.popular) && r.popular.length) {
+              list = r.popular;
+            } else if (Array.isArray(r?.recommended) && r.recommended.length) {
+              list = r.recommended;
+            } else if (Array.isArray(r?.latest) && r.latest.length) {
+              list = r.latest;
+            }
+          } catch {
+            // fallback below
+          }
+        }
+
+        if (!list.length || nextPage > 1) {
+          const r2 = await api(
+            `/api/public/products?sort=new&limit=${PAGE_SIZE}&page=${nextPage}`
+          );
+
+          const pageItems = Array.isArray(r2?.items) ? r2.items : [];
+
+          list = nextPage === 1 ? (list.length ? list : pageItems) : pageItems;
+
+          setHasMore(pageItems.length >= PAGE_SIZE);
+        } else if (nextPage === 1) {
+          setHasMore(list.length >= PAGE_SIZE);
+        }
+
+        list.sort((a, b) => getTimestamp(b) - getTimestamp(a));
+
+        setItems((prev) => {
+          const merged = nextPage === 1 ? list : [...prev, ...list];
+          return dedupeProducts(merged);
+        });
+
+        setPage(nextPage);
+      } catch (err) {
+        console.error("PopularProducts fetch:", err);
+
+        if (nextPage === 1) setItems([]);
+        setHasMore(false);
+      } finally {
+        loadingRef.current = false;
+        setInitialLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [hasMore, loadingMore]
+  );
 
   useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
     fetchPage(1);
-  }, []);
+  }, [fetchPage]);
 
-  // Skeleton la prima încărcare
-  if (firstLoad && loading && items.length === 0) {
+  if (initialLoading && items.length === 0) {
     return (
       <section className={styles.section} aria-labelledby="pp-heading">
         <div className={styles.header}>
-          <h2 id="pp-heading" className={styles.heading}>Produse populare</h2>
+          <h2 id="pp-heading" className={styles.heading}>
+            Produse populare
+          </h2>
         </div>
-        <div className={styles.grid}>
+
+        <div className={styles.grid} aria-busy="true">
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
             <article className={`${styles.card} ${styles.skeleton}`} key={i}>
               <div className={`${styles.thumb} ${styles.skelBox}`} />
@@ -162,44 +246,64 @@ if (pageItems.length) list = pageItems;
   return (
     <section className={styles.section} aria-labelledby="pp-heading">
       <div className={styles.header}>
-        <h2 id="pp-heading" className={styles.heading}>Produse populare</h2>
+        <h2 id="pp-heading" className={styles.heading}>
+          Produse populare
+        </h2>
       </div>
 
-      {/* Desktop: grid de carduri; Mobil: listă (CSS controlează layout-ul) */}
-      <div className={styles.grid}>
-        {items.map((p) => {
+      <div className={styles.grid} aria-busy={loadingMore}>
+        {items.map((p, index) => {
           const rating = avgRating(p);
-          const img = (Array.isArray(p.images) && p.images[0]) || "/placeholder.png";
+          const img = getImageSrc(p);
           const addedAgo = timeAgo(p);
+          const hasImageError = !img || brokenImages[p.id];
+          const safeKey = p?.id ?? `${p?.title ?? "produs"}-${getTimestamp(p)}-${index}`;
 
           return (
             <article
-              key={p.id}
+              key={safeKey}
               className={styles.card}
               role="button"
               tabIndex={0}
               onClick={() => navigate(`/produs/${p.id}`)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") navigate(`/produs/${p.id}`);
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate(`/produs/${p.id}`);
+                }
               }}
             >
               <Link
                 to={`/produs/${p.id}`}
-                className={styles.thumbLink}
+                className={`${styles.thumbLink} ${hasImageError ? styles.noImage : ""}`}
                 onClick={(e) => e.stopPropagation()}
                 aria-label={`Vezi ${p.title}`}
               >
-                <img
-                  src={img}
-                  alt={p.title}
-                  className={styles.thumb}
-                  loading="lazy"
-                  onError={(e) => { e.currentTarget.src = "/placeholder.png"; }}
-                />
+                {!hasImageError && (
+                  <img
+                    src={img}
+                    alt={p.title}
+                    className={styles.thumb}
+                    loading="lazy"
+                    onError={() => {
+                      if (!p?.id) return;
+
+                      setBrokenImages((prev) => {
+                        if (prev[p.id]) return prev;
+                        return {
+                          ...prev,
+                          [p.id]: true,
+                        };
+                      });
+                    }}
+                  />
+                )}
               </Link>
 
               <div className={styles.body}>
-                <h3 className={styles.name} title={p.title}>{p.title}</h3>
+                <h3 className={styles.name} title={p.title}>
+                  {p.title}
+                </h3>
 
                 <div className={styles.subRow}>
                   <Link
@@ -211,14 +315,20 @@ if (pageItems.length) list = pageItems;
                     {storeName(p)}
                   </Link>
 
-                  {addedAgo && <span className={styles.dot} aria-hidden="true">•</span>}
+                  {addedAgo && (
+                    <span className={styles.dot} aria-hidden="true">
+                      •
+                    </span>
+                  )}
                   {addedAgo && <span className={styles.time}>{addedAgo}</span>}
                 </div>
 
                 <div className={styles.metaRow}>
                   <div
                     className={styles.rating}
-                    aria-label={rating != null ? `Rating ${rating} din 5` : "Fără recenzii"}
+                    aria-label={
+                      rating != null ? `Rating ${rating} din 5` : "Fără recenzii"
+                    }
                   >
                     {[...Array(5)].map((_, i) => (
                       <FaStar
@@ -230,7 +340,9 @@ if (pageItems.length) list = pageItems;
                         }
                       />
                     ))}
-                    {rating != null && <span className={styles.ratingVal}>{rating}</span>}
+                    {rating != null && (
+                      <span className={styles.ratingVal}>{rating}</span>
+                    )}
                   </div>
 
                   <p className={styles.price}>{priceFmt(p)}</p>
@@ -246,11 +358,22 @@ if (pageItems.length) list = pageItems;
           <button
             type="button"
             className={styles.loadMore}
-            onClick={() => fetchPage(page + 1)}
-            disabled={loading}
+            onClick={() => {
+              if (!loadingMore && hasMore) {
+                fetchPage(page + 1);
+              }
+            }}
+            disabled={loadingMore}
+            aria-busy={loadingMore}
           >
-            {loading ? "Se încarcă…" : "Vezi mai mult"}
+            {loadingMore ? "Se încarcă..." : "Vezi mai mult"}
           </button>
+        </div>
+      )}
+
+      {!hasMore && items.length > 0 && (
+        <div className={styles.loadMoreWrap}>
+          <span className={styles.endMessage}>Ai ajuns la final.</span>
         </div>
       )}
     </section>

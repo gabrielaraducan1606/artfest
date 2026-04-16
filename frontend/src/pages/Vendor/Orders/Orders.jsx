@@ -290,6 +290,7 @@ export default function VendorOrdersPage() {
                   [
                     "ID",
                     "Data",
+                    "Magazin",
                     "Client",
                     "Telefon",
                     "Email",
@@ -299,6 +300,7 @@ export default function VendorOrdersPage() {
                   ...data.items.map((o) => [
                     o.id,
                     formatDate(o.createdAt),
+                    o.storeName || "",
                     o.customerName || "",
                     o.customerPhone || "",
                     o.customerEmail || "",
@@ -470,8 +472,9 @@ export default function VendorOrdersPage() {
                               <div className={styles.clientName}>
                                 {o.customerName || "—"}
                               </div>
+
                               <div className={styles.clientNote}>
-                                {o.eventName || o.address?.city || ""}
+                                {o.storeName || o.eventName || o.address?.city || ""}
                               </div>
 
                               {!!leadLabel && (

@@ -1,19 +1,42 @@
-// ==============================
-// File: src/pages/Vendor/Invoices/InvoicePage.jsx
-// (re-purpose: Decontări / Plăți către vendor)
-// ==============================
+// src/pages/Vendor/Invoices/InvoicePage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../lib/api";
 import styles from "./InvoicePage.module.css";
 
-// URL către tab-ul de facturare din onboarding (ajustează dacă e altul)
 const BILLING_URL = "/onboarding/details?tab=facturare";
 
-const PAYOUT_STATUS_LABELS = {
-  REQUESTED: "Cerere trimisă",
-  APPROVED: "Aprobat",
+const TABS = {
+  CURRENT_PERIOD: "CURRENT_PERIOD",
+  PLATFORM_INVOICES: "PLATFORM_INVOICES",
+};
+
+const STATEMENT_STATUS_LABELS = {
+  DRAFT: "Ciornă",
+  UNPAID: "Neplătit",
+  OVERDUE: "Scadent",
   PAID: "Plătit",
-  REJECTED: "Respins",
+  CANCELLED: "Anulat",
+};
+
+const COMMISSION_INVOICE_STATUS_LABELS = {
+  DRAFT: "Ciornă",
+  UNPAID: "Neplătită",
+  OVERDUE: "Scadentă",
+  PAID: "Plătită",
+  CANCELLED: "Anulată",
+};
+
+const COMMISSION_INVOICE_TYPE_LABELS = {
+  COMMISSION: "Comision",
+  SUBSCRIPTION: "Abonament",
+  SHIPPING: "Curierat",
+  OTHER: "Altele",
+};
+
+const ENTRY_TYPE_LABELS = {
+  SALE: "Comandă",
+  ADJUSTMENT: "Ajustare",
+  REFUND: "Corecție",
 };
 
 function formatDate(d) {
@@ -44,49 +67,49 @@ function formatMoney(val, currency = "RON") {
   return `${v.toFixed(2)} ${currency}`;
 }
 
+function getEntryTypeLabel(type) {
+  return ENTRY_TYPE_LABELS[type] || type || "—";
+}
+
+function getCommissionInvoiceStatusLabel(status) {
+  return COMMISSION_INVOICE_STATUS_LABELS[status] || status || "—";
+}
+
+function getCommissionInvoiceTypeLabel(type) {
+  return COMMISSION_INVOICE_TYPE_LABELS[type] || type || "—";
+}
+
 export default function VendorInvoicesPage() {
-  // billing (ne trebuie ca să permitem cerere plată)
   const [billing, setBilling] = useState(null);
+  const [activeTab, setActiveTab] = useState(TABS.CURRENT_PERIOD);
 
-  // taburi: DECONTARI (default) + FACTURI ARTFEST (opțional)
-  const [activeTab, setActiveTab] = useState("PAYOUTS");
-
-  // summary payouts
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryErr, setSummaryErr] = useState("");
 
-  // eligible entries
   const [entries, setEntries] = useState([]);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [entriesErr, setEntriesErr] = useState("");
 
-  // payouts history
-  const [payouts, setPayouts] = useState([]);
-  const [payoutsLoading] = useState(false);
-  const [payoutsErr] = useState("");
+  const [statements, setStatements] = useState([]);
 
-  // (opțional) facturi ArtFest -> vendor (dacă le păstrezi)
-  const [platformInvoices, setPlatformInvoices] = useState([]);
-  const [platformLoading, setPlatformLoading] = useState(false);
-  const [platformErr, setPlatformErr] = useState("");
-  const [platformLoaded, setPlatformLoaded] = useState(false);
+  const [commissionInvoices, setCommissionInvoices] = useState([]);
+  const [commissionLoading, setCommissionLoading] = useState(false);
+  const [commissionErr, setCommissionErr] = useState("");
+  const [commissionLoaded, setCommissionLoaded] = useState(false);
+
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
 
-  // UI state for request payout
-  const [requesting, setRequesting] = useState(false);
-  const [requestMsg, setRequestMsg] = useState("");
-
-  // initial load: billing + payout summary + payouts history
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         setSummaryLoading(true);
         setSummaryErr("");
 
-        const [billingRes, summaryRes, payoutsRes] = await Promise.all([
+        const [billingRes, summaryRes, statementsRes] = await Promise.all([
           api("/api/vendors/me/billing").catch(() => null),
           api("/api/vendor/payouts/summary"),
           api("/api/vendor/payouts").catch(() => ({ items: [] })),
@@ -94,13 +117,12 @@ export default function VendorInvoicesPage() {
 
         if (!alive) return;
 
-        if (billingRes?.billing) setBilling(billingRes.billing);
-
+        setBilling(billingRes?.billing || null);
         setSummary(summaryRes || null);
-        setPayouts(Array.isArray(payoutsRes?.items) ? payoutsRes.items : []);
+        setStatements(Array.isArray(statementsRes?.items) ? statementsRes.items : []);
       } catch (e) {
         if (!alive) return;
-        setSummaryErr(e?.message || "Nu am putut încărca sumarul decontărilor.");
+        setSummaryErr(e?.message || "Nu am putut încărca sumarul financiar.");
       } finally {
         if (alive) setSummaryLoading(false);
       }
@@ -111,26 +133,25 @@ export default function VendorInvoicesPage() {
     };
   }, []);
 
-  // load eligible entries when tab is PAYOUTS
   useEffect(() => {
-    if (activeTab !== "PAYOUTS") return;
+    if (activeTab !== TABS.CURRENT_PERIOD) return;
 
     let alive = true;
+
     (async () => {
       try {
         setEntriesLoading(true);
         setEntriesErr("");
 
-        const res = await api("/api/vendor/payouts/entries?eligible=true").catch(
-          () => ({ items: [] })
-        );
-        if (!alive) return;
+        const res = await api("/api/vendor/payouts/entries?eligible=true").catch(() => ({
+          items: [],
+        }));
 
-        const items = Array.isArray(res?.items) ? res.items : res || [];
-        setEntries(items);
+        if (!alive) return;
+        setEntries(Array.isArray(res?.items) ? res.items : []);
       } catch (e) {
         if (!alive) return;
-        setEntriesErr(e?.message || "Nu am putut încărca intrările eligibile.");
+        setEntriesErr(e?.message || "Nu am putut încărca comenzile incluse în calcul.");
       } finally {
         if (alive) setEntriesLoading(false);
       }
@@ -141,110 +162,101 @@ export default function VendorInvoicesPage() {
     };
   }, [activeTab]);
 
-  // optional: load platform invoices lazily on tab
   useEffect(() => {
-    if (activeTab !== "ARTFEST" || platformLoaded) return;
+    if (activeTab !== TABS.PLATFORM_INVOICES || commissionLoaded) return;
 
     let alive = true;
+
     (async () => {
       try {
-        setPlatformLoading(true);
-        setPlatformErr("");
+        setCommissionLoading(true);
+        setCommissionErr("");
+
         const res = await api("/api/vendors/me/invoices").catch(() => ({
           items: [],
         }));
+
         if (!alive) return;
-        setPlatformInvoices(Array.isArray(res?.items) ? res.items : []);
-        setPlatformLoaded(true);
+
+        setCommissionInvoices(Array.isArray(res?.items) ? res.items : []);
+        setCommissionLoaded(true);
       } catch (e) {
         if (!alive) return;
-        setPlatformErr(e?.message || "Nu am putut încărca facturile ArtFest.");
+        setCommissionErr(e?.message || "Nu am putut încărca facturile platformei.");
       } finally {
-        if (alive) setPlatformLoading(false);
+        if (alive) setCommissionLoading(false);
       }
     })();
 
     return () => {
       alive = false;
     };
-  }, [activeTab, platformLoaded]);
+  }, [activeTab, commissionLoaded]);
 
-  const filteredPlatformInvoices = useMemo(() => {
-    return platformInvoices.filter((inv) => {
+  const filteredCommissionInvoices = useMemo(() => {
+    return commissionInvoices.filter((inv) => {
       if (statusFilter !== "ALL" && inv.status !== statusFilter) return false;
       if (typeFilter !== "ALL" && inv.type !== typeFilter) return false;
       return true;
     });
-  }, [platformInvoices, statusFilter, typeFilter]);
+  }, [commissionInvoices, statusFilter, typeFilter]);
 
-  const nextEligibleLabel = useMemo(() => {
-    const next = summary?.nextEligibleAt;
-    if (!next) return null;
-    const dt = new Date(next);
-    if (Number.isNaN(dt.getTime())) return null;
-    return formatDateTime(dt);
+  const currentPeriod = useMemo(() => {
+    return {
+      entryCount: Number(summary?.currentPeriod?.entryCount || 0),
+      salesNet: Number(summary?.currentPeriod?.salesNet || 0),
+      commissionNet: Number(summary?.currentPeriod?.commissionNet || 0),
+      vendorNetInformative: Number(summary?.currentPeriod?.vendorNetInformative || 0),
+      currency: summary?.currentPeriod?.currency || summary?.currency || "RON",
+    };
   }, [summary]);
 
-  const canRequestPayout = useMemo(() => {
-    // condiții minime:
-    // - billing complet
-    // - ai bani disponibili
-    // - nu e prea devreme (backend oricum blochează)
-    const amount = Number(summary?.availableAmount || 0);
-    return !!billing && amount > 0;
-  }, [billing, summary]);
+  const billingOverview = useMemo(() => {
+    return {
+      totalDue: Number(summary?.billing?.totalDue || 0),
+      totalPaid: Number(summary?.billing?.totalPaid || 0),
+      totalInvoiced: Number(summary?.billing?.totalInvoiced || 0),
+      totalOverdue: Number(summary?.billing?.totalOverdue || 0),
+      unpaidCount: Number(summary?.billing?.unpaidCount || 0),
+      nextDueAt: summary?.billing?.nextDueAt || null,
+      currency: summary?.billing?.currency || summary?.currency || "RON",
+    };
+  }, [summary]);
 
-  async function reloadSummaryAndHistory() {
-    const [summaryRes, payoutsRes] = await Promise.all([
-      api("/api/vendor/payouts/summary"),
-      api("/api/vendor/payouts").catch(() => ({ items: [] })),
-    ]);
-    setSummary(summaryRes || null);
-    setPayouts(Array.isArray(payoutsRes?.items) ? payoutsRes.items : []);
-  }
-
-  async function onRequestPayout() {
-    try {
-      setRequesting(true);
-      setRequestMsg("");
-
-      const res = await api("/api/vendor/payouts/request", {
-        method: "POST",
-        body: JSON.stringify({}),
-        headers: { "Content-Type": "application/json" },
-      });
-
-      // refresh state (summary, history, eligible entries)
-      await reloadSummaryAndHistory();
-
-      const entriesRes = await api("/api/vendor/payouts/entries?eligible=true").catch(
-        () => ({ items: [] })
-      );
-      setEntries(Array.isArray(entriesRes?.items) ? entriesRes.items : []);
-
-      if (res?.pdfUrl) {
-        setRequestMsg("Cererea a fost trimisă. Poți deschide PDF-ul decontului.");
-        // opțional: auto-open
-        // window.open(res.pdfUrl, "_blank", "noopener,noreferrer");
-      } else {
-        setRequestMsg("Cererea a fost trimisă.");
-      }
-    } catch (e) {
-      // backend poate întoarce 412 billing_required, 409 too soon etc.
-      setRequestMsg(e?.message || "Nu am putut trimite cererea de plată.");
-    } finally {
-      setRequesting(false);
+  const nextImportantMoment = useMemo(() => {
+    if (billingOverview.nextDueAt) {
+      return {
+        label: formatDateTime(billingOverview.nextDueAt),
+        hint: "Scadența următoarei facturi emise de platformă",
+      };
     }
-  }
+
+    if (summary?.nextStatementAt) {
+      return {
+        label: formatDateTime(summary.nextStatementAt),
+        hint: "Următoarea închidere / emitere de situație lunară",
+      };
+    }
+
+    return {
+      label: "—",
+      hint: "Nu există scadențe sau repere active",
+    };
+  }, [billingOverview.nextDueAt, summary]);
+
+  const lastStatementLabel = useMemo(() => {
+    if (!summary?.lastStatement?.issuedAt) return null;
+    return formatDateTime(summary.lastStatement.issuedAt);
+  }, [summary]);
 
   return (
     <main className={styles.page}>
-      {/* ===== HEADER GENERAL ===== */}
       <header className={styles.pageHeader}>
         <div>
-          <h1 className={styles.title}>Decontări</h1>
+          <h1 className={styles.title}>Facturare și comisioane</h1>
           <p className={styles.subtitle}>
-            Vezi cât ai de încasat și trimite o cerere de plată (maxim o dată la 30 de zile).
+            Vezi comisionul acumulat din comenzile tale, facturile emise de platformă și istoricul
+            situațiilor lunare.
           </p>
         </div>
 
@@ -255,43 +267,75 @@ export default function VendorInvoicesPage() {
         </div>
       </header>
 
-      {/* ===== TABURI ===== */}
+      {summaryLoading ? (
+        <p className={styles.info}>Se încarcă situația financiară…</p>
+      ) : summaryErr ? (
+        <p className={styles.error} role="alert">
+          {summaryErr}
+        </p>
+      ) : (
+        <section className={styles.summaryRow} aria-label="Imagine de ansamblu">
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Comision estimat în perioada curentă</span>
+            <span className={styles.summaryValue}>
+              {formatMoney(currentPeriod.commissionNet, currentPeriod.currency)}
+            </span>
+            <span className={styles.summaryPill}>
+              {currentPeriod.entryCount} tranzacții incluse în calcul
+            </span>
+          </div>
+
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Ai de plată către platformă</span>
+            <span className={styles.summaryValue}>
+              {formatMoney(billingOverview.totalDue, billingOverview.currency)}
+            </span>
+            <span className={styles.summaryPill}>
+              {billingOverview.unpaidCount} facturi neachitate / scadente
+            </span>
+          </div>
+
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Următorul moment important</span>
+            <span className={styles.summaryValue}>{nextImportantMoment.label}</span>
+            <span className={styles.summaryPill}>{nextImportantMoment.hint}</span>
+          </div>
+        </section>
+      )}
+
       <div className={styles.tabs} role="tablist" aria-label="Secțiuni">
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === "PAYOUTS"}
-          className={`${styles.tab} ${activeTab === "PAYOUTS" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("PAYOUTS")}
+          aria-selected={activeTab === TABS.CURRENT_PERIOD}
+          className={`${styles.tab} ${activeTab === TABS.CURRENT_PERIOD ? styles.tabActive : ""}`}
+          onClick={() => setActiveTab(TABS.CURRENT_PERIOD)}
         >
-          Decontări & plăți
+          Comision perioada curentă
         </button>
 
-        {/* opțional: păstrezi tabul vechi cu facturi ArtFest -> vendor */}
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === "ARTFEST"}
-          className={`${styles.tab} ${activeTab === "ARTFEST" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("ARTFEST")}
+          aria-selected={activeTab === TABS.PLATFORM_INVOICES}
+          className={`${styles.tab} ${
+            activeTab === TABS.PLATFORM_INVOICES ? styles.tabActive : ""
+          }`}
+          onClick={() => setActiveTab(TABS.PLATFORM_INVOICES)}
         >
-          Facturi ArtFest către mine
+          Facturi emise de platformă
         </button>
       </div>
 
-      {/* =========================
-          TAB: PAYOUTS
-         ========================= */}
-      {activeTab === "PAYOUTS" && (
-        <div role="tabpanel" aria-label="Decontări & plăți">
-          {/* Billing card */}
+      {activeTab === TABS.CURRENT_PERIOD && (
+        <div role="tabpanel" aria-label="Comision perioadă curentă">
           {billing ? (
-            <section className={styles.billingCard} aria-label="Date facturare vendor">
-              <h2 className={styles.sectionTitle}>Date facturare</h2>
+            <section className={styles.billingCard} aria-label="Date de facturare">
+              <h2 className={styles.sectionTitle}>Datele tale de facturare</h2>
               <div className={styles.billingGrid}>
                 <div>
                   <strong>{billing.companyName}</strong>
-                  <div>{billing.address}</div>
+                  <div>{billing.address || "—"}</div>
                 </div>
                 <div>
                   <div>CUI: {billing.cui || "—"}</div>
@@ -304,115 +348,68 @@ export default function VendorInvoicesPage() {
               </div>
             </section>
           ) : (
-            <section className={styles.billingCard} aria-label="Date facturare lipsă">
-              <h2 className={styles.sectionTitle}>Date facturare</h2>
+            <section className={styles.billingCard} aria-label="Date de facturare lipsă">
+              <h2 className={styles.sectionTitle}>Datele tale de facturare</h2>
               <p className={styles.info}>
                 Nu ai completat încă datele de facturare.{" "}
                 <a href={BILLING_URL} className={styles.linkInline}>
                   Completează-le acum
                 </a>{" "}
-                pentru a putea cere plata.
+                pentru emiterea corectă a facturilor și documentelor lunare.
               </p>
             </section>
           )}
 
-          {/* Summary */}
-          <section className={styles.summaryRow} aria-label="Sumar decontări">
-            {summaryLoading ? (
-              <p className={styles.info}>Se încarcă sumarul…</p>
-            ) : summaryErr ? (
-              <p className={styles.error} role="alert">
-                {summaryErr}
-              </p>
-            ) : (
-              <>
-                <div className={styles.summaryCard}>
-                  <span className={styles.summaryLabel}>Disponibil de încasat</span>
-                  <span className={styles.summaryValue}>
-                    {formatMoney(summary?.availableAmount, summary?.currency || "RON")}
-                  </span>
-                  <span className={styles.summaryPill}>
-                    {Number(summary?.eligibleCount || 0)} intrări eligibile
-                  </span>
-                </div>
-
-                <div className={styles.summaryCard}>
-                  <span className={styles.summaryLabel}>Următoarea cerere posibilă</span>
-                  <span className={styles.summaryValue}>
-                    {nextEligibleLabel || "Acum"}
-                  </span>
-                  {summary?.lastPayout?.requestedAt && (
-                    <span className={styles.summaryPill}>
-                      Ultima cerere: {formatDateTime(summary.lastPayout.requestedAt)}
-                    </span>
-                  )}
-                </div>
-              </>
-            )}
-          </section>
-
-          {/* Actions */}
-          <section className={styles.filters} aria-label="Acțiuni decontare">
-            <div className={styles.filterGroup} style={{ alignItems: "flex-start" }}>
-              <label>Plată</label>
-              <button
-                type="button"
-                className={styles.linkBtn}
-                disabled={!canRequestPayout || requesting}
-                onClick={onRequestPayout}
-              >
-                {requesting ? "Se trimite…" : "Cere plata"}
-              </button>
-              {requestMsg && <div className={styles.info} style={{ marginTop: 8 }}>{requestMsg}</div>}
-              {!billing && (
-                <div className={styles.info} style={{ marginTop: 8 }}>
-                  Completează datele de facturare ca să poți cere plata.
-                </div>
-              )}
+          <section className={styles.summaryRow} aria-label="Sumar perioadă curentă">
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Vânzări nete în calcul</span>
+              <span className={styles.summaryValue}>
+                {formatMoney(currentPeriod.salesNet, currentPeriod.currency)}
+              </span>
+              <span className={styles.summaryPill}>
+                Pe baza comenzilor livrate și ajustărilor deschise
+              </span>
             </div>
 
-            {summary?.breakdown && (
-              <div className={styles.filterGroup}>
-                <label>Detalii calcul</label>
-                <div className={styles.info}>
-                  <div>
-                    Produse net:{" "}
-                    <b>{formatMoney(summary.breakdown.itemsNet, summary.currency)}</b>
-                  </div>
-                  <div>
-                    Comision net:{" "}
-                    <b>{formatMoney(summary.breakdown.commissionNet, summary.currency)}</b>
-                  </div>
-                  <div>
-                    Îți revine:{" "}
-                    <b>{formatMoney(summary.breakdown.vendorNet, summary.currency)}</b>
-                  </div>
-                  <div style={{ marginTop: 6 }}>
-                    (Transportul nu este inclus în decont, conform regulii tale.)
-                  </div>
-                </div>
-              </div>
-            )}
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Comision calculat</span>
+              <span className={styles.summaryValue}>
+                {formatMoney(currentPeriod.commissionNet, currentPeriod.currency)}
+              </span>
+              <span className={styles.summaryPill}>
+                Această sumă va intra în următoarea factură / situație
+              </span>
+            </div>
+
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Net vendor informativ</span>
+              <span className={styles.summaryValue}>
+                {formatMoney(currentPeriod.vendorNetInformative, currentPeriod.currency)}
+              </span>
+              <span className={styles.summaryPill}>
+                Informativ, fără a reprezenta o plată procesată de platformă
+              </span>
+            </div>
           </section>
 
-          {/* Eligible entries */}
-          <section className={styles.tableWrap} aria-label="Intrări eligibile">
-            <h2 className={styles.sectionTitle}>Comenzi / intrări incluse la următoarea plată</h2>
-            <p className={styles.info}>
-              Lista de mai jos arată strict partea vendorului (vendorNet) care se va cumula în cererea
-              de plată.
-            </p>
+          <section className={styles.tableWrap} aria-label="Comenzi incluse în calcul">
+            <div className={styles.sectionHead}>
+              <div>
+                <h2 className={styles.sectionTitle}>Comenzi incluse în calculul comisionului</h2>
+                <p className={styles.info}>
+                  Aici vezi comenzile și ajustările care intră în perioada curentă de facturare.
+                </p>
+              </div>
+            </div>
 
             {entriesLoading ? (
-              <p className={styles.info}>Se încarcă intrările…</p>
+              <p className={styles.info}>Se încarcă tranzacțiile…</p>
             ) : entriesErr ? (
               <p className={styles.error} role="alert">
                 {entriesErr}
               </p>
             ) : entries.length === 0 ? (
-              <p className={styles.info}>
-                Nu există intrări eligibile momentan.
-              </p>
+              <p className={styles.info}>Nu există tranzacții deschise în perioada curentă.</p>
             ) : (
               <table className={styles.table}>
                 <thead>
@@ -420,7 +417,9 @@ export default function VendorInvoicesPage() {
                     <th>Data</th>
                     <th>Tip</th>
                     <th>Comandă</th>
-                    <th>Sumă (îți revine)</th>
+                    <th>Net produse</th>
+                    <th>Comision</th>
+                    <th>Net informativ vendor</th>
                     <th>Acțiuni</th>
                   </tr>
                 </thead>
@@ -428,13 +427,15 @@ export default function VendorInvoicesPage() {
                   {entries.map((e) => (
                     <tr key={e.id}>
                       <td>{formatDate(e.occurredAt)}</td>
-                      <td>{e.type}</td>
+                      <td>{getEntryTypeLabel(e.type)}</td>
                       <td>{e.orderNumber || e.orderId || "—"}</td>
+                      <td>{formatMoney(e.itemsNet, e.currency || "RON")}</td>
+                      <td>{formatMoney(e.commissionNet, e.currency || "RON")}</td>
                       <td>{formatMoney(e.vendorNet, e.currency || "RON")}</td>
                       <td>
                         {e.orderId && (
                           <a href={`/vendor/orders/${e.orderId}`} className={styles.linkBtn}>
-                            Vezi comandă
+                            Vezi comanda
                           </a>
                         )}
                       </td>
@@ -445,48 +446,50 @@ export default function VendorInvoicesPage() {
             )}
           </section>
 
-          {/* Payout history */}
-          <section className={styles.tableWrap} aria-label="Istoric decontări" style={{ marginTop: 18 }}>
-            <h2 className={styles.sectionTitle}>Istoric cereri de plată</h2>
+          <section className={styles.tableWrap} aria-label="Istoric situații lunare" style={{ marginTop: 18 }}>
+            <div className={styles.sectionHead}>
+              <div>
+                <h2 className={styles.sectionTitle}>Istoric situații lunare</h2>
+                <p className={styles.info}>
+                  Fiecare situație lunară agregă comenzile dintr-o perioadă și comisionul aferent.
+                </p>
+              </div>
+            </div>
 
-            {payoutsLoading ? (
-              <p className={styles.info}>Se încarcă istoricul…</p>
-            ) : payoutsErr ? (
-              <p className={styles.error} role="alert">
-                {payoutsErr}
-              </p>
-            ) : payouts.length === 0 ? (
-              <p className={styles.info}>Nu ai încă cereri de plată.</p>
+            {statements.length === 0 ? (
+              <p className={styles.info}>Nu există încă situații lunare generate.</p>
             ) : (
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>Data cererii</th>
+                    <th>Emisă la</th>
                     <th>Perioadă</th>
-                    <th>Total</th>
+                    <th>Vânzări nete</th>
+                    <th>Comision</th>
                     <th>Status</th>
-                    <th>Acțiuni</th>
+                    <th>Actiuni</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payouts.map((p) => (
-                    <tr key={p.id}>
-                      <td>{formatDateTime(p.requestedAt)}</td>
+                  {statements.map((s) => (
+                    <tr key={s.id}>
+                      <td>{formatDateTime(s.issuedAt)}</td>
                       <td>
-                        {p.periodFrom && p.periodTo
-                          ? `${formatDate(p.periodFrom)} – ${formatDate(p.periodTo)}`
+                        {s.periodFrom && s.periodTo
+                          ? `${formatDate(s.periodFrom)} – ${formatDate(s.periodTo)}`
                           : "—"}
                       </td>
-                      <td>{formatMoney(p.amountNet, p.currency || "RON")}</td>
+                      <td>{formatMoney(s.totalItemsNet, s.currency || "RON")}</td>
+                      <td>{formatMoney(s.totalCommissionNet, s.currency || "RON")}</td>
                       <td>
-                        <span className={`${styles.status} ${styles[`status_${p.status}`]}`}>
-                          {PAYOUT_STATUS_LABELS[p.status] || p.status}
+                        <span className={`${styles.status} ${styles[`status_${s.status}`]}`}>
+                          {STATEMENT_STATUS_LABELS[s.status] || s.status}
                         </span>
                       </td>
                       <td>
-                        {p.pdfUrl && (
+                        {s.pdfUrl && (
                           <a
-                            href={p.pdfUrl}
+                            href={s.pdfUrl}
                             className={styles.linkBtn}
                             target="_blank"
                             rel="noreferrer"
@@ -500,112 +503,164 @@ export default function VendorInvoicesPage() {
                 </tbody>
               </table>
             )}
+
+            {lastStatementLabel && (
+              <p className={styles.info} style={{ marginTop: 10 }}>
+                Ultima situație emisă: {lastStatementLabel}
+              </p>
+            )}
           </section>
         </div>
       )}
 
-      {/* =========================
-          TAB: ARTFEST invoices (optional)
-         ========================= */}
-      {activeTab === "ARTFEST" && (
-        <div role="tabpanel" aria-label="Facturi ArtFest către mine">
-          <h2 className={styles.sectionTitle}>Facturi ArtFest către mine</h2>
-          <p className={styles.info}>
-            (Opțional) Dacă păstrezi fluxul în care ArtFest emite facturi către vendor pentru comisioane / abonamente etc.
-          </p>
-
-          <section className={styles.filters} aria-label="Filtre facturi ArtFest">
-            <div className={styles.filterGroup}>
-              <label htmlFor="statusFilter">Status</label>
-              <select
-                id="statusFilter"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="ALL">Toate</option>
-                <option value="UNPAID">Neplătite</option>
-                <option value="OVERDUE">Scadente</option>
-                <option value="PAID">Plătite</option>
-                <option value="CANCELLED">Anulate</option>
-              </select>
+      {activeTab === TABS.PLATFORM_INVOICES && (
+        <div role="tabpanel" aria-label="Facturi emise de platformă">
+          <section className={styles.summaryRow} aria-label="Sumar facturi platformă">
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Ai de plată acum</span>
+              <span className={styles.summaryValue}>
+                {formatMoney(billingOverview.totalDue, billingOverview.currency)}
+              </span>
+              <span className={styles.summaryPill}>
+                {billingOverview.unpaidCount} facturi active
+              </span>
             </div>
 
-            <div className={styles.filterGroup}>
-              <label htmlFor="typeFilter">Tip factură</label>
-              <select
-                id="typeFilter"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="ALL">Toate</option>
-                <option value="COMMISSION">Comisioane</option>
-                <option value="SUBSCRIPTION">Abonamente</option>
-                <option value="SHIPPING">Curierat</option>
-                <option value="OTHER">Altele</option>
-              </select>
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Următoarea scadență</span>
+              <span className={styles.summaryValue}>
+                {formatDateTime(billingOverview.nextDueAt)}
+              </span>
+              <span className={styles.summaryPill}>
+                {billingOverview.totalOverdue > 0
+                  ? `Restanțe curente: ${formatMoney(
+                      billingOverview.totalOverdue,
+                      billingOverview.currency
+                    )}`
+                  : "Nu există restanțe în acest moment"}
+              </span>
+            </div>
+
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Plătit până acum</span>
+              <span className={styles.summaryValue}>
+                {formatMoney(billingOverview.totalPaid, billingOverview.currency)}
+              </span>
+              <span className={styles.summaryPill}>
+                Total facturat: {formatMoney(billingOverview.totalInvoiced, billingOverview.currency)}
+              </span>
             </div>
           </section>
 
-          {platformLoading && <p className={styles.info}>Se încarcă facturile…</p>}
-          {platformErr && !platformLoading && (
-            <p className={styles.error} role="alert">
-              {platformErr}
-            </p>
-          )}
+          <section className={styles.tableWrap} aria-label="Facturi platformă">
+            <div className={styles.sectionHead}>
+              <div>
+                <h2 className={styles.sectionTitle}>Facturi emise de platformă</h2>
+                <p className={styles.info}>
+                  Aici găsești facturile pentru comisioane, abonamente, curierat sau alte costuri
+                  asociate contului tău.
+                </p>
+              </div>
+            </div>
 
-          {!platformLoading && !platformErr && (
-            <section aria-label="Lista facturilor ArtFest" className={styles.tableWrap}>
-              {filteredPlatformInvoices.length === 0 ? (
-                <p className={styles.info}>Nu există facturi pentru criteriile selectate.</p>
-              ) : (
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Număr</th>
-                      <th>Data</th>
-                      <th>Tip</th>
-                      <th>Perioadă</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                      <th>Acțiuni</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredPlatformInvoices.map((inv) => (
-                      <tr key={inv.id}>
-                        <td>{inv.number}</td>
-                        <td>{formatDate(inv.issueDate)}</td>
-                        <td>{inv.type}</td>
-                        <td>
-                          {inv.periodFrom && inv.periodTo
-                            ? `${formatDate(inv.periodFrom)} – ${formatDate(inv.periodTo)}`
-                            : "—"}
-                        </td>
-                        <td>{formatMoney(inv.totalGross, inv.currency || "RON")}</td>
-                        <td>
-                          <span className={`${styles.status} ${styles[`status_${inv.status}`]}`}>
-                            {inv.status}
-                          </span>
-                        </td>
-                        <td>
-                          {inv.downloadUrl && (
-                            <a
-                              href={inv.downloadUrl}
-                              className={styles.linkBtn}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              PDF
-                            </a>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+            <section className={styles.filters} aria-label="Filtre facturi">
+              <div className={styles.filterGroup}>
+                <label htmlFor="statusFilter">Status</label>
+                <select
+                  id="statusFilter"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="ALL">Toate</option>
+                  <option value="DRAFT">Ciornă</option>
+                  <option value="UNPAID">Neplătite</option>
+                  <option value="OVERDUE">Scadente</option>
+                  <option value="PAID">Plătite</option>
+                  <option value="CANCELLED">Anulate</option>
+                </select>
+              </div>
+
+              <div className={styles.filterGroup}>
+                <label htmlFor="typeFilter">Tip factură</label>
+                <select
+                  id="typeFilter"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                >
+                  <option value="ALL">Toate</option>
+                  <option value="COMMISSION">Comisioane</option>
+                  <option value="SUBSCRIPTION">Abonamente</option>
+                  <option value="SHIPPING">Curierat</option>
+                  <option value="OTHER">Altele</option>
+                </select>
+              </div>
             </section>
-          )}
+
+            {commissionLoading && <p className={styles.info}>Se încarcă facturile…</p>}
+
+            {commissionErr && !commissionLoading && (
+              <p className={styles.error} role="alert">
+                {commissionErr}
+              </p>
+            )}
+
+            {!commissionLoading && !commissionErr && (
+              <>
+                {filteredCommissionInvoices.length === 0 ? (
+                  <p className={styles.info}>Nu există facturi pentru criteriile selectate.</p>
+                ) : (
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Număr</th>
+                        <th>Emisă la</th>
+                        <th>Scadență</th>
+                        <th>Tip</th>
+                        <th>Comandă</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                        <th>Actiuni</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCommissionInvoices.map((inv) => (
+                        <tr key={inv.id}>
+                          <td>
+                            <div>{inv.number}</div>
+                            <div className={styles.clientSubline}>
+                              {inv.directionLabel || "Factura platformă"}
+                            </div>
+                          </td>
+                          <td>{formatDate(inv.issueDate)}</td>
+                          <td>{formatDate(inv.dueDate)}</td>
+                          <td>{getCommissionInvoiceTypeLabel(inv.type)}</td>
+                          <td>{inv.orderNumber || inv.orderId || "—"}</td>
+                          <td>{formatMoney(inv.totalGross, inv.currency || "RON")}</td>
+                          <td>
+                            <span className={`${styles.status} ${styles[`status_${inv.status}`]}`}>
+                              {getCommissionInvoiceStatusLabel(inv.status)}
+                            </span>
+                          </td>
+                          <td>
+                            {inv.downloadUrl && (
+                              <a
+                                href={inv.downloadUrl}
+                                className={styles.linkBtn}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                PDF
+                              </a>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </section>
         </div>
       )}
     </main>

@@ -13,10 +13,6 @@ const slugify = (s = "") =>
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
-/**
- * URL absolut către backend pentru documente (dacă VITE_API_URL există),
- * altfel rămâne relativ (merge pe același origin).
- */
 function absUrl(pathname) {
   const p = pathname || "";
   if (/^https?:\/\//i.test(p)) return p;
@@ -47,7 +43,7 @@ async function uploadToR2(file) {
     throw new Error(errMsg);
   }
 
-  const data = await res.json(); // { ok, url, key }
+  const data = await res.json();
   if (!data?.ok || !data?.url) {
     throw new Error("Upload eșuat. Răspuns invalid de la server.");
   }
@@ -149,8 +145,9 @@ function useBrandAvailability(serviceId, name, slug) {
           conflict: r?.conflict || null,
         });
       } catch {
-        if (!stop)
+        if (!stop) {
           setNameState({ state: "error", available: null, conflict: null });
+        }
       }
     })();
     return () => {
@@ -178,8 +175,9 @@ function useBrandAvailability(serviceId, name, slug) {
           suggestion: r?.suggestion || null,
         });
       } catch {
-        if (!stop)
+        if (!stop) {
           setSlugState({ state: "error", available: null, suggestion: null });
+        }
       }
     })();
     return () => {
@@ -212,7 +210,7 @@ function useRoCounties() {
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "Nu am putut încărca județele.");
-        setList([{ code: "B", name: "București" }]); // fallback
+        setList([{ code: "B", name: "București" }]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -226,6 +224,7 @@ function useRoCounties() {
     () => [all.name, ...list.map((c) => c.name)],
     [list, all]
   );
+
   return { suggestions, all, loading, err };
 }
 
@@ -242,26 +241,29 @@ function makeTeaser(txt, max = 120) {
 
 const VENDOR_DOCS = {
   vendor_terms: {
+    key: "VENDOR_TERMS",
     attrAccepted: "masterAgreementAccepted",
     attrVersion: "masterAgreementVersion",
     attrAcceptedAt: "masterAgreementAcceptedAt",
     label: "Acordul Master pentru Vânzători",
     fallbackUrl: "/acord-vanzatori",
-  },
-  shipping_addendum: {
-    attrAccepted: "courierAddendumAccepted",
-    attrVersion: "courierAddendumVersion",
-    attrAcceptedAt: "courierAddendumAcceptedAt",
-    label: "Anexa de curierat Sameday",
-    fallbackUrl: "/anexa-expediere",
+    kind: "contract",
   },
   returns: {
+    key: "RETURNS_POLICY_ACK",
     attrAccepted: "returnsPolicyAccepted",
     attrVersion: "returnsPolicyVersion",
     attrAcceptedAt: "returnsPolicyAcceptedAt",
     label: "Politica de retur pentru vânzători",
-    fallbackUrl: "/politica-retur",
+    fallbackUrl: "/politica-retur-vendor",
+    kind: "ack",
   },
+};
+
+const VENDOR_PRIVACY_NOTICE = {
+  key: "VENDOR_PRIVACY_NOTICE",
+  label: "Nota de informare GDPR pentru vendori",
+  fallbackUrl: "/confidentialitate",
 };
 
 function useVendorAgreementsStatus() {
@@ -340,13 +342,18 @@ function ServiceCard({
   legalLoading,
   legalError,
   refreshLegal,
+  initiallyOpen = false,
 }) {
   const p = service.profile || {};
   const attrs = service.attributes || {};
-  const [open, setOpen] = useState(0);
+  const [open, setOpen] = useState(initiallyOpen ? 0 : -1);
 
   const sectionRefs = useRef([]);
   const hasMounted = useRef(false);
+
+  useEffect(() => {
+    setOpen(initiallyOpen ? 0 : -1);
+  }, [initiallyOpen, service.id]);
 
   useEffect(() => {
     if (!hasMounted.current) {
@@ -374,25 +381,13 @@ function ServiceCard({
     p.slug
   );
 
-  useEffect(() => {
-    const current = Array.isArray(attrs.deliveryMethods)
-      ? attrs.deliveryMethods
-      : [];
-    const patch = {};
-    if (!current.includes("Curier Sameday")) patch.deliveryMethods = ["Curier Sameday"];
-    if (!attrs.courierEnabled) patch.courierEnabled = true;
-    if (Object.keys(patch).length > 0) {
-      updateServiceBasics(idx, { attributes: { ...attrs, ...patch } });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   async function onUpload(e, key) {
     const f = e.target.files?.[0];
     if (!f) return;
     try {
-      if (!/^image\/(png|jpe?g|webp)$/i.test(f.type))
+      if (!/^image\/(png|jpe?g|webp)$/i.test(f.type)) {
         throw new Error("Acceptăm doar PNG / JPG / WebP.");
+      }
       if (f.size > 3 * 1024 * 1024) throw new Error("Maxim 3 MB.");
 
       const url = await uploadToR2(f);
@@ -409,6 +404,7 @@ function ServiceCard({
     const id = service.id;
     if (!slugTouchedMap[id]) updateProfile(idx, { slug: slugify(val) });
   }
+
   function onSlug(val) {
     const id = service.id;
     setSlugTouchedMap((m) => ({ ...m, [id]: true }));
@@ -421,14 +417,20 @@ function ServiceCard({
 
   const phoneErr = p.phone && !isPhoneRO(p.phone) ? "Număr invalid (+40 7xx…)" : "";
   const emailErr =
-    p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email) ? "Adresă de email invalidă" : "";
+    p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)
+      ? "Adresă de email invalidă"
+      : "";
 
   const setAttrs = (patch) =>
     updateServiceBasics(idx, { attributes: { ...attrs, ...patch } });
 
   const deliveryArr = Array.isArray(p.delivery) ? p.delivery : [];
-  const { suggestions: countySuggestions, all: allCountry, loading: countiesLoading, err: countiesErr } =
-    useRoCounties();
+  const {
+    suggestions: countySuggestions,
+    all: allCountry,
+    loading: countiesLoading,
+    err: countiesErr,
+  } = useRoCounties();
 
   function onCountiesChange(arr) {
     const clean = Array.isArray(arr) ? arr.filter(Boolean) : [];
@@ -441,60 +443,64 @@ function ServiceCard({
     updateProfile(idx, { delivery: uniq });
   }
 
-  const shippingDoc = legalByKey?.get?.("SHIPPING_ADDENDUM") || null;
-  const vendorTermsDoc = legalByKey?.get?.("VENDOR_TERMS") || null;
-  const returnsDoc = legalByKey?.get?.("RETURNS_POLICY_ACK") || null;
+  const vendorTermsDoc = legalByKey?.get?.(VENDOR_DOCS.vendor_terms.key) || null;
+  const returnsDoc = legalByKey?.get?.(VENDOR_DOCS.returns.key) || null;
+  const privacyDoc = legalByKey?.get?.(VENDOR_PRIVACY_NOTICE.key) || null;
 
-  const shippingAccepted = !!shippingDoc?.accepted || !!attrs.courierAddendumAccepted;
-  const vendorTermsAccepted = !!vendorTermsDoc?.accepted || !!attrs.masterAgreementAccepted;
-  const returnsAccepted = !!returnsDoc?.accepted || !!attrs.returnsPolicyAccepted;
+  const vendorTermsAccepted =
+    !!vendorTermsDoc?.accepted || !!attrs.masterAgreementAccepted;
+  const returnsAccepted =
+    !!returnsDoc?.accepted || !!attrs.returnsPolicyAccepted;
 
-  const shippingUrl = absUrl(shippingDoc?.url || VENDOR_DOCS.shipping_addendum.fallbackUrl);
-  const vendorTermsUrl = absUrl(vendorTermsDoc?.url || VENDOR_DOCS.vendor_terms.fallbackUrl);
-  const returnsUrl = absUrl(returnsDoc?.url || VENDOR_DOCS.returns.fallbackUrl);
+  const vendorTermsUrl = absUrl(
+    vendorTermsDoc?.url || VENDOR_DOCS.vendor_terms.fallbackUrl
+  );
+  const returnsUrl = absUrl(
+    returnsDoc?.url || VENDOR_DOCS.returns.fallbackUrl
+  );
+  const privacyUrl = absUrl(
+    privacyDoc?.url || VENDOR_PRIVACY_NOTICE.fallbackUrl
+  );
 
-  const shippingVersion = shippingDoc?.version || attrs.courierAddendumVersion || "?";
-  const vendorTermsVersion = vendorTermsDoc?.version || attrs.masterAgreementVersion || "?";
-  const returnsVersion = returnsDoc?.version || attrs.returnsPolicyVersion || "?";
+  const vendorTermsVersion =
+    vendorTermsDoc?.version || attrs.masterAgreementVersion || "?";
+  const returnsVersion =
+    returnsDoc?.version || attrs.returnsPolicyVersion || "?";
+  const privacyVersion =
+    privacyDoc?.version || attrs.privacyNoticeVersion || "?";
 
   async function onToggleAccept(type, checked) {
-    const nowIso = checked ? new Date().toISOString() : null;
-
-    if (type === "shipping_addendum") {
-      setAttrs({
-        courierEnabled: true,
-        courierAddendumAccepted: checked,
-        courierAddendumVersion: checked ? String(shippingVersion || "?") : null,
-        courierAddendumAcceptedAt: nowIso,
-      });
-    } else if (type === "vendor_terms") {
-      setAttrs({
-        masterAgreementAccepted: checked,
-        masterAgreementVersion: checked ? String(vendorTermsVersion || "?") : null,
-        masterAgreementAcceptedAt: nowIso,
-      });
-    } else if (type === "returns") {
-      setAttrs({
-        returnsPolicyAccepted: checked,
-        returnsPolicyVersion: checked ? String(returnsVersion || "?") : null,
-        returnsPolicyAcceptedAt: nowIso,
-      });
-    }
-
     if (!checked) return;
 
     try {
       await acceptVendorDoc(type);
       await refreshLegal?.();
-    } catch {
-      // ignore
+
+      const nowIso = new Date().toISOString();
+
+      if (type === "vendor_terms") {
+        setAttrs({
+          masterAgreementAccepted: true,
+          masterAgreementVersion: String(vendorTermsVersion || "?"),
+          masterAgreementAcceptedAt: nowIso,
+        });
+      } else if (type === "returns") {
+        setAttrs({
+          returnsPolicyAccepted: true,
+          returnsPolicyVersion: String(returnsVersion || "?"),
+          returnsPolicyAcceptedAt: nowIso,
+        });
+      }
+    } catch (e) {
+      setErr?.(e?.message || "Nu am putut salva acceptarea documentului.");
     }
   }
 
   const identBadge =
     !p.displayName?.trim() ||
     !p.slug?.trim() ||
-    !p.city?.trim() ||
+    !Array.isArray(p.delivery) ||
+    p.delivery.length === 0 ||
     (!p.logoUrl && !p.coverUrl) ||
     !p.address?.trim() ? (
       <span className={styles.badgeBad}>incomplet</span>
@@ -502,27 +508,91 @@ function ServiceCard({
       <span className={styles.badgeOk}>ok</span>
     );
 
-  const comBadge =
-    !Array.isArray(p.delivery) || p.delivery.length === 0 || !shippingAccepted ? (
+  const accBadge =
+    !vendorTermsAccepted || !returnsAccepted ? (
       <span className={styles.badgeBad}>incomplet</span>
     ) : (
       <span className={styles.badgeOk}>ok</span>
     );
 
-  const accBadge = !vendorTermsAccepted || !returnsAccepted ? (
-    <span className={styles.badgeBad}>incomplet</span>
-  ) : (
-    <span className={styles.badgeOk}>ok</span>
-  );
+  const hasEstimatedShipping =
+    service.estimatedShippingFeeCents !== null &&
+    service.estimatedShippingFeeCents !== undefined &&
+    String(service.estimatedShippingFeeCents) !== "";
+
+  const hasFreeShippingThreshold =
+    service.freeShippingThresholdCents !== null &&
+    service.freeShippingThresholdCents !== undefined &&
+    String(service.freeShippingThresholdCents) !== "";
+
+  const shippingBadge =
+    hasEstimatedShipping && hasFreeShippingThreshold ? (
+      <span className={styles.badgeOk}>ok</span>
+    ) : (
+      <span className={styles.badgeBad}>incomplet</span>
+    );
+
+  const shippingFeeError = !hasEstimatedShipping
+    ? "Completează costul estimativ de livrare."
+    : Number(service.estimatedShippingFeeCents) < 0
+    ? "Costul de livrare nu poate fi negativ."
+    : "";
+
+  const freeShippingError = !hasFreeShippingThreshold
+    ? "Completează pragul pentru transport gratuit."
+    : Number(service.freeShippingThresholdCents) < 0
+    ? "Pragul pentru transport gratuit nu poate fi negativ."
+    : "";
 
   const SHORT_MAX = 120;
   const shortLen = (p.shortDescription || "").length;
   const tooLong = shortLen > SHORT_MAX;
 
+  const storeDisplayName =
+    p.displayName?.trim() ||
+    service.title?.trim() ||
+    p.slug?.trim() ||
+    `Magazin ${idx + 1}`;
+
+  const storeStatus =
+    service.status === "ACTIVE" && service.isActive
+      ? "Activ"
+      : service.status === "ACTIVE"
+      ? "Activ"
+      : "Draft";
+
+  const shippingFeeRon =
+    service.estimatedShippingFeeCents != null
+      ? Number(service.estimatedShippingFeeCents) / 100
+      : "";
+
+  const freeShippingRon =
+    service.freeShippingThresholdCents != null
+      ? Number(service.freeShippingThresholdCents) / 100
+      : "";
+
   return (
     <div className={styles.card} key={service.id} style={{ padding: 0 }}>
-      <div className={styles.cardHead} style={{ padding: "8px 12px" }}>
-        <div className={styles.serviceName}>{service.type?.name || "Serviciu"}</div>
+      <div
+        className={styles.cardHead}
+        style={{
+          padding: "10px 12px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div className={styles.serviceName} style={{ fontWeight: 800 }}>
+            {storeDisplayName}
+          </div>
+          <div className={styles.muted} style={{ fontSize: 12, marginTop: 2 }}>
+            {service.type?.name || "Serviciu"} • {storeStatus}
+          </div>
+        </div>
+
         <div className={styles.saveIndicator}>
           {saveState === "saving"
             ? "Se salvează…"
@@ -534,11 +604,10 @@ function ServiceCard({
         </div>
       </div>
 
-      {/* 1) Identitate */}
       <div ref={(el) => (sectionRefs.current[0] = el)}>
         <SectionCard
-          title="Identitate"
-          subtitle="brand • link public • adresă"
+          title="Profil public & acoperire"
+          subtitle="brand • link public • zonă • punct de lucru / retururi"
           open={open === 0}
           onToggle={() => setOpen((o) => (o === 0 ? -1 : 0))}
           badge={identBadge}
@@ -563,18 +632,28 @@ function ServiceCard({
               </small>
             )}
             {nameState.state === "done" && nameState.available === false && (
-              <small className={styles.fieldError} id={`brand-${service.id}-hint`}>
+              <small
+                className={styles.fieldError}
+                id={`brand-${service.id}-hint`}
+              >
                 ❌ Numele este deja folosit
               </small>
             )}
             {nameState.state === "error" && (
-              <small className={styles.fieldError} id={`brand-${service.id}-hint`}>
+              <small
+                className={styles.fieldError}
+                id={`brand-${service.id}-hint`}
+              >
                 Eroare la verificare
               </small>
             )}
           </Row>
 
-          <Row id={`slug-${service.id}`} label="Link public (slug) *" help={linkPreview || "ex: atelierul-ana"}>
+          <Row
+            id={`slug-${service.id}`}
+            label="Link public (slug) *"
+            help={linkPreview || "ex: atelierul-ana"}
+          >
             <input
               id={`slug-${service.id}`}
               className={styles.input}
@@ -594,29 +673,43 @@ function ServiceCard({
               </small>
             )}
             {slugState.state === "done" && slugState.available === false && (
-              <small className={styles.fieldError} id={`slug-${service.id}-hint`}>
-                ❌ Slug ocupat{slugState.suggestion ? ` — sugestie: ${slugState.suggestion}` : ""}
+              <small
+                className={styles.fieldError}
+                id={`slug-${service.id}-hint`}
+              >
+                ❌ Slug ocupat
+                {slugState.suggestion ? ` — sugestie: ${slugState.suggestion}` : ""}
               </small>
             )}
             {slugState.state === "error" && (
-              <small className={styles.fieldError} id={`slug-${service.id}-hint`}>
+              <small
+                className={styles.fieldError}
+                id={`slug-${service.id}-hint`}
+              >
                 Eroare la verificare
               </small>
             )}
           </Row>
 
           <Row
-            id={`city-${service.id}`}
-            label="Oraș afișat public *"
-            help="Este afișat pe profilul magazinului și folosit la filtre. Dacă atelierul este într-un sat sau într-o comună, poți alege cel mai apropiat oraș mare."
+            className={styles.overlayRow}
+            id={`delivery-${service.id}`}
+            label="Zonă acoperire *"
+            help={
+              countiesLoading
+                ? "Se încarcă județele…"
+                : "Alege județele în care lucrezi sau «Toată țara» (exclusiv). Aceste informații sunt folosite pentru relevanța în căutări."
+            }
           >
-            <input
-              id={`city-${service.id}`}
-              className={styles.input}
-              value={p.city || ""}
-              onChange={(e) => updateProfile(idx, { city: e.target.value })}
-              placeholder="ex: București, Cluj-Napoca, Iași"
+            <ChipsInput
+              value={deliveryArr}
+              onChange={onCountiesChange}
+              suggestions={countySuggestions}
+              placeholder="Toată țara, București, Ilfov, Prahova…"
             />
+            {countiesErr && (
+              <small className={styles.fieldError}>{countiesErr}</small>
+            )}
           </Row>
 
           <Row
@@ -629,7 +722,11 @@ function ServiceCard({
                 id={`short-${service.id}`}
                 className={styles.input}
                 value={p.shortDescription || ""}
-                onChange={(e) => updateProfile(idx, { shortDescription: e.target.value.slice(0, SHORT_MAX) })}
+                onChange={(e) =>
+                  updateProfile(idx, {
+                    shortDescription: e.target.value.slice(0, SHORT_MAX),
+                  })
+                }
                 placeholder="ex: Magazin bijuterii handmade"
               />
               <div className={styles.counter} aria-live="polite">
@@ -642,12 +739,18 @@ function ServiceCard({
                 <button
                   type="button"
                   className={styles.link}
-                  onClick={() => updateProfile(idx, { shortDescription: makeTeaser(p.about, SHORT_MAX) })}
+                  onClick={() =>
+                    updateProfile(idx, {
+                      shortDescription: makeTeaser(p.about, SHORT_MAX),
+                    })
+                  }
                   title="Generează automat din Despre"
                 >
                   Generează din „Despre”
                 </button>
-                <small className={styles.help}>Vom tăia elegant din „Despre” dacă e mai lung.</small>
+                <small className={styles.help}>
+                  Vom tăia elegant din „Despre” dacă e mai lung.
+                </small>
               </div>
             )}
 
@@ -660,20 +763,44 @@ function ServiceCard({
 
           <div className={styles.grid2}>
             <Row id={`logo-${service.id}`} label="Logo / poză *">
-              <input type="file" accept="image/*" onChange={(e) => onUpload(e, "logoUrl")} />
-              {p.logoUrl && <img src={p.logoUrl} alt="Logo" className={styles.previewThumb} />}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => onUpload(e, "logoUrl")}
+              />
+              {p.logoUrl && (
+                <img
+                  src={p.logoUrl}
+                  alt="Logo"
+                  className={styles.previewThumb}
+                />
+              )}
             </Row>
 
-            <Row id={`cover-${service.id}`} label="Copertă (opțional)" help="recomandat 1920×600, max 3MB">
-              <input type="file" accept="image/*" onChange={(e) => onUpload(e, "coverUrl")} />
-              {p.coverUrl && <img src={p.coverUrl} alt="Cover" className={styles.previewBanner} />}
+            <Row
+              id={`cover-${service.id}`}
+              label="Copertă (opțional)"
+              help="recomandat 1920×600, max 3MB"
+            >
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => onUpload(e, "coverUrl")}
+              />
+              {p.coverUrl && (
+                <img
+                  src={p.coverUrl}
+                  alt="Cover"
+                  className={styles.previewBanner}
+                />
+              )}
             </Row>
           </div>
 
           <Row
             id={`address-${service.id}`}
-            label="Adresă sediu / atelier *"
-            help="Adresă COMPLETĂ pentru retururi și documente fiscale (nu este afișată public)."
+            label="Adresă retururi / punct de lucru (intern) *"
+            help="Folosită intern pentru retururi și operațiuni. Nu este afișată public și poate fi diferită de adresa de facturare."
           >
             <input
               id={`address-${service.id}`}
@@ -685,7 +812,11 @@ function ServiceCard({
           </Row>
 
           <div className={styles.grid2}>
-            <Row id={`phone-${service.id}`} label="Telefon public (opțional)" error={phoneErr}>
+            <Row
+              id={`phone-${service.id}`}
+              label="Telefon afișat public (opțional)"
+              error={phoneErr}
+            >
               <input
                 id={`phone-${service.id}`}
                 className={styles.input}
@@ -694,14 +825,20 @@ function ServiceCard({
                 onBlur={(e) => {
                   const raw = e.target.value.replace(/\s+/g, "");
                   if (/^0?7\d{8}$/.test(raw)) {
-                    updateProfile(idx, { phone: `+4${raw.startsWith("0") ? raw.slice(1) : raw}` });
+                    updateProfile(idx, {
+                      phone: `+4${raw.startsWith("0") ? raw.slice(1) : raw}`,
+                    });
                   }
                 }}
                 placeholder="+40 7xx xxx xxx"
               />
             </Row>
 
-            <Row id={`email-${service.id}`} label="Email public (opțional)" error={emailErr}>
+            <Row
+              id={`email-${service.id}`}
+              label="Email afișat public (opțional)"
+              error={emailErr}
+            >
               <input
                 id={`email-${service.id}`}
                 className={styles.input}
@@ -713,7 +850,11 @@ function ServiceCard({
             </Row>
           </div>
 
-          <Row id={`about-${service.id}`} label="Despre (opțional)" help="Scurtă poveste a brandului (se poate completa și ulterior)">
+          <Row
+            id={`about-${service.id}`}
+            label="Despre (opțional)"
+            help="Scurtă poveste a brandului (se poate completa și ulterior)"
+          >
             <textarea
               id={`about-${service.id}`}
               className={styles.input}
@@ -726,73 +867,94 @@ function ServiceCard({
         </SectionCard>
       </div>
 
-      {/* 2) Comercial & livrare */}
       <div ref={(el) => (sectionRefs.current[1] = el)}>
         <SectionCard
-          title="Comercial & livrare"
-          subtitle="Curier Sameday • zonă"
+          title="Livrare"
+          subtitle="cost estimativ • prag gratuitate • mențiuni"
           open={open === 1}
           onToggle={() => setOpen((o) => (o === 1 ? -1 : 1))}
-          badge={comBadge}
+          badge={shippingBadge}
         >
-          <Row id={`deliveryMethods-${service.id}`} label="Metodă de livrare pe platformă">
-            <input id={`deliveryMethods-${service.id}`} className={styles.input} value="Curier Sameday" readOnly />
-            <small className={styles.help}>
-              Livrarea comenzilor prin platformă se face prin curierul <strong>Sameday</strong>.
-            </small>
-          </Row>
-
-          <div className={`${styles.stack} ${styles.courierBox}`}>
-            <label className={styles.checkRow}>
+          <div className={styles.grid2}>
+            <Row
+              id={`shipping-fee-${service.id}`}
+              label="Cost estimativ livrare *"
+              error={shippingFeeError}
+              help="Valoare estimativă afișată clientului până la implementarea curierului."
+            >
               <input
-                type="checkbox"
-                checked={shippingAccepted}
-                onChange={(e) => onToggleAccept("shipping_addendum", !!e.target.checked)}
-                disabled={legalLoading}
+                id={`shipping-fee-${service.id}`}
+                className={styles.input}
+                type="number"
+                min="0"
+                step="0.01"
+                value={shippingFeeRon}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  updateServiceBasics(idx, {
+                    estimatedShippingFeeCents:
+                      raw === "" ? null : Math.round(Number(raw) * 100),
+                  });
+                }}
+                placeholder="25"
               />
-              <span>
-                Accept{" "}
-                <a href={shippingUrl} target="_blank" rel="noreferrer">
-                  {VENDOR_DOCS.shipping_addendum.label}
-                </a>{" "}
-                (v{shippingVersion})
-              </span>
-            </label>
+            </Row>
 
-            <small className={styles.help}>
-              Anexa de curierat reglementează modul de preluare, livrare și facturare a transportului prin Sameday.
-            </small>
-
-            {legalError && (
-              <small className={styles.fieldError}>
-                {legalError} (link-urile implicite rămân disponibile)
-              </small>
-            )}
+            <Row
+              id={`free-shipping-${service.id}`}
+              label="Transport gratuit de la *"
+              error={freeShippingError}
+              help="Pune 0 dacă oferi transport gratuit pentru orice comandă."
+            >
+              <input
+                id={`free-shipping-${service.id}`}
+                className={styles.input}
+                type="number"
+                min="0"
+                step="0.01"
+                value={freeShippingRon}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  updateServiceBasics(idx, {
+                    freeShippingThresholdCents:
+                      raw === "" ? null : Math.round(Number(raw) * 100),
+                  });
+                }}
+                placeholder="300"
+              />
+            </Row>
           </div>
 
-          {/* ✅ IMPORTANT: overlayRow ridică dropdown-ul peste următoarele acordeoane */}
           <Row
-            className={styles.overlayRow}
-            id={`delivery-${service.id}`}
-            label="Zonă acoperire *"
-            help={countiesLoading ? "Se încarcă județele…" : "Alege județe sau 'Toată țara' (exclusiv)"}
+            id={`shipping-notes-${service.id}`}
+            label="Mențiuni livrare (opțional)"
+            help="Ex: costul final poate varia în funcție de localitate, volum sau urgență."
           >
-            <ChipsInput
-              value={deliveryArr}
-              onChange={onCountiesChange}
-              suggestions={countySuggestions}
-              placeholder="Toată țara, București, Ilfov, Prahova…"
+            <textarea
+              id={`shipping-notes-${service.id}`}
+              className={styles.input}
+              rows={4}
+              value={service.shippingNotes || ""}
+              onChange={(e) =>
+                updateServiceBasics(idx, {
+                  shippingNotes: e.target.value,
+                })
+              }
+              placeholder="Ex: Livrare estimativă în 1–3 zile lucrătoare. Pentru localități izolate sau produse voluminoase, costul poate diferi."
             />
-            {countiesErr && <small className={styles.fieldError}>{countiesErr}</small>}
           </Row>
+
+          <small className={styles.help}>
+            Aceste valori sunt informative și pot fi afișate în checkout până când
+            implementezi integrarea de curierat.
+          </small>
         </SectionCard>
       </div>
 
-      {/* 3) Acorduri */}
       <div ref={(el) => (sectionRefs.current[2] = el)}>
         <SectionCard
           title="Acorduri"
-          subtitle="acceptare unică"
+          subtitle="contract • retur • confidențialitate"
           open={open === 2}
           onToggle={() => setOpen((o) => (o === 2 ? -1 : 2))}
           badge={accBadge}
@@ -802,8 +964,11 @@ function ServiceCard({
               <input
                 type="checkbox"
                 checked={vendorTermsAccepted}
-                onChange={(e) => onToggleAccept("vendor_terms", !!e.target.checked)}
-                disabled={legalLoading}
+                onChange={(e) =>
+                  !vendorTermsAccepted &&
+                  onToggleAccept("vendor_terms", !!e.target.checked)
+                }
+                disabled={legalLoading || vendorTermsAccepted}
               />
               <span>
                 Accept{" "}
@@ -814,8 +979,12 @@ function ServiceCard({
               </span>
             </label>
             <small className={styles.help}>
-              Include: Termenii pentru vânzători, reguli de listare și informații despre taxe & plăți.
+              Document contractual pentru relația ta cu platforma: reguli de
+              listare, taxe, plăți, obligații și utilizarea marketplace-ului.
             </small>
+            {vendorTermsAccepted && (
+              <small className={styles.help}>Acceptat.</small>
+            )}
           </div>
 
           <div className={styles.stack} style={{ marginTop: 12 }}>
@@ -823,8 +992,10 @@ function ServiceCard({
               <input
                 type="checkbox"
                 checked={returnsAccepted}
-                onChange={(e) => onToggleAccept("returns", !!e.target.checked)}
-                disabled={legalLoading}
+                onChange={(e) =>
+                  !returnsAccepted && onToggleAccept("returns", !!e.target.checked)
+                }
+                disabled={legalLoading || returnsAccepted}
               />
               <span>
                 Confirm că am citit și accept{" "}
@@ -835,9 +1006,36 @@ function ServiceCard({
               </span>
             </label>
             <small className={styles.help}>
-              Politica de retur definește drepturile clienților și obligațiile tale ca vânzător.
+              Politica de retur definește obligațiile tale comerciale față de
+              clienți.
+            </small>
+            {returnsAccepted && (
+              <small className={styles.help}>Confirmată.</small>
+            )}
+          </div>
+
+          <div className={styles.stack} style={{ marginTop: 12 }}>
+            <span>
+              Vezi{" "}
+              <a href={privacyUrl} target="_blank" rel="noreferrer">
+                {VENDOR_PRIVACY_NOTICE.label}
+              </a>
+              {privacyVersion !== "?" ? ` (v${privacyVersion})` : ""}
+            </span>
+            <small className={styles.help}>
+              Document informativ despre datele prelucrate pentru contul de vendor,
+              scopurile prelucrării, durata stocării și drepturile persoanei vizate.
             </small>
           </div>
+
+          {legalError && (
+            <small
+              className={styles.fieldError}
+              style={{ display: "block", marginTop: 10 }}
+            >
+              {legalError} (link-urile implicite rămân disponibile)
+            </small>
+          )}
 
           {saveState === "error" && saveError && (
             <div className={styles.error} role="alert">
@@ -866,53 +1064,78 @@ export default function ProfileTab({
 }) {
   const [slugTouchedMap, setSlugTouchedMap] = useState({});
   const [isSolo, setIsSolo] = useState(false);
+  const [qpServiceId, setQpServiceId] = useState("");
 
-  const { byKey: legalByKey, loading: legalLoading, err: legalError, refresh: refreshLegal } =
-    useVendorAgreementsStatus();
+  const {
+    byKey: legalByKey,
+    loading: legalLoading,
+    err: legalError,
+    refresh: refreshLegal,
+  } = useVendorAgreementsStatus();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
       setIsSolo(sp.get("solo") === "1");
+      setQpServiceId((sp.get("serviceId") || "").trim());
     }
   }, []);
 
   const blockers = useMemo(() => {
     const list = [];
+
     for (const s of services) {
       const p = s.profile || {};
       const a = s.attributes || {};
 
-      const shippingDoc = legalByKey?.get?.("SHIPPING_ADDENDUM") || null;
-      const vendorTermsDoc = legalByKey?.get?.("VENDOR_TERMS") || null;
-      const returnsDoc = legalByKey?.get?.("RETURNS_POLICY_ACK") || null;
+      const vendorTermsDoc = legalByKey?.get?.(VENDOR_DOCS.vendor_terms.key) || null;
+      const returnsDoc = legalByKey?.get?.(VENDOR_DOCS.returns.key) || null;
 
-      const shippingAccepted = !!shippingDoc?.accepted || !!a.courierAddendumAccepted;
-      const vendorTermsAccepted = !!vendorTermsDoc?.accepted || !!a.masterAgreementAccepted;
-      const returnsAccepted = !!returnsDoc?.accepted || !!a.returnsPolicyAccepted;
+      const vendorTermsAccepted =
+        !!vendorTermsDoc?.accepted || !!a.masterAgreementAccepted;
+      const returnsAccepted =
+        !!returnsDoc?.accepted || !!a.returnsPolicyAccepted;
 
       if (!p.displayName?.trim()) list.push("Nume brand");
       if (!p.slug?.trim()) list.push("Slug");
-      if (!p.city?.trim()) list.push("Oraș afișat public");
-      if (!p.address?.trim()) list.push("Adresă sediu / atelier");
+      if (!p.address?.trim()) list.push("Adresă retururi / punct de lucru");
       if (!p.logoUrl && !p.coverUrl) list.push("O imagine (logo sau copertă)");
+      if (!Array.isArray(p.delivery) || p.delivery.length === 0) {
+        list.push("Zonă acoperire");
+      }
 
-      if (!Array.isArray(p.delivery) || p.delivery.length === 0) list.push("Zonă acoperire");
-      if (!shippingAccepted) list.push("Acceptarea anexei de curierat Sameday");
+      const hasEstimatedShipping =
+        s.estimatedShippingFeeCents !== null &&
+        s.estimatedShippingFeeCents !== undefined &&
+        String(s.estimatedShippingFeeCents) !== "";
 
-      if (!vendorTermsAccepted) list.push("Acceptarea Acordului Master pentru Vânzători");
-      if (!returnsAccepted) list.push("Acceptarea Politicii de retur pentru vânzători");
+      const hasFreeShippingThreshold =
+        s.freeShippingThresholdCents !== null &&
+        s.freeShippingThresholdCents !== undefined &&
+        String(s.freeShippingThresholdCents) !== "";
 
-      break;
+      if (!hasEstimatedShipping) list.push("Cost estimativ livrare");
+      if (!hasFreeShippingThreshold) list.push("Prag transport gratuit");
+
+      if (!vendorTermsAccepted) {
+        list.push("Acceptarea Acordului Master pentru Vânzători");
+      }
+      if (!returnsAccepted) {
+        list.push("Acceptarea Politicii de retur pentru vânzători");
+      }
     }
-    return list;
+
+    return [...new Set(list)];
   }, [services, legalByKey]);
 
   const canContinue = !isSavingAny && !hasNameConflict && blockers.length === 0;
 
-  const firstService = Array.isArray(services) && services[0] ? services[0] : null;
+  const firstService =
+    Array.isArray(services) && services[0] ? services[0] : null;
   const firstSlug = firstService?.profile?.slug?.trim() || "";
   const backToProfileUrl = firstSlug ? `/magazin/${firstSlug}` : "/magazin";
+
+  const autoOpenSingle = isSolo && !!qpServiceId && services.length === 1;
 
   return (
     <div role="tabpanel" className={styles.tabPanel} aria-labelledby="tab-profil">
@@ -923,7 +1146,8 @@ export default function ProfileTab({
             "Datele se salvează automat atunci când editezi."
           ) : (
             <>
-              Completează profilul tău. IBAN-ul și entitatea juridică sunt în{" "}
+              Completează profilul tău public și datele operaționale. IBAN-ul,
+              entitatea juridică și adresa de facturare sunt în{" "}
               <strong>Date facturare</strong>.
             </>
           )}
@@ -956,6 +1180,7 @@ export default function ProfileTab({
               legalLoading={legalLoading}
               legalError={legalError}
               refreshLegal={refreshLegal}
+              initiallyOpen={autoOpenSingle && idx === 0}
             />
           ))
         )}
@@ -969,7 +1194,11 @@ export default function ProfileTab({
 
       <div className={styles.wizardNav}>
         {isSolo ? (
-          <a href={backToProfileUrl} className={styles.primaryBtn} title="Înapoi la pagina de profil public">
+          <a
+            href={backToProfileUrl}
+            className={styles.primaryBtn}
+            title="Înapoi la pagina de profil public"
+          >
             Înapoi la profil
           </a>
         ) : (
@@ -984,7 +1213,9 @@ export default function ProfileTab({
             >
               Continuă
             </button>
-            {!canContinue && <small className={styles.help}>Mai ai: {blockers.join(", ")}.</small>}
+            {!canContinue && (
+              <small className={styles.help}>Mai ai: {blockers.join(", ")}.</small>
+            )}
           </>
         )}
       </div>

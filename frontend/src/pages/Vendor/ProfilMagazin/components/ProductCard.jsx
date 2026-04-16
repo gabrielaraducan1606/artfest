@@ -2,8 +2,8 @@ import React, {
   useMemo,
   useCallback,
   useState,
-  useEffect,
   useRef,
+  useEffect,
 } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
@@ -20,24 +20,17 @@ import {
   productPlaceholder,
   onImgError,
 } from "../../../../components/utils/imageFallback";
-import { resolveFileUrl, withCache } from "../hooks/useProfilMagazin";
+import { resolveFileUrl} from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
 
-// Mic util pentru fallback generic din slug -> text uman
 const humanizeSlug = (slug = "", { dropPrefix = false } = {}) => {
   if (!slug || typeof slug !== "string") return "";
   let s = slug;
-  if (dropPrefix) {
-    s = s.replace(/^[^_]+_/, ""); // taie prefixul până la primul "_"
-  }
-  return s
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase());
+  if (dropPrefix) s = s.replace(/^[^_]+_/, "");
+  return s.replace(/[_-]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 };
 
-// Map local pentru culori (în română) – ca fallback dacă nu primim colorLabelMap
 const LOCAL_COLOR_LABELS = {
-  // Neutre
   white: "Alb",
   ivory: "Ivory / ivoire",
   cream: "Crem",
@@ -46,30 +39,25 @@ const LOCAL_COLOR_LABELS = {
   grey_dark: "Gri închis",
   black: "Negru",
 
-  // Maro
   brown_light: "Maro deschis",
   brown: "Maro",
   brown_dark: "Maro închis",
   taupe: "Taupe",
 
-  // Roșu / roz
   red: "Roșu",
   burgundy: "Burgundy / vișiniu",
   pink_light: "Roz deschis",
   pink_dusty: "Roz pudră",
   pink_hot: "Roz aprins",
 
-  // Mov
   lilac: "Lila",
   purple: "Mov",
 
-  // Galben / portocaliu
   yellow: "Galben",
   mustard: "Muștar",
   orange: "Portocaliu",
-  peach: "Pișcă / piersică",
+  peach: "Piersică",
 
-  // Albastru
   blue_light: "Albastru deschis",
   blue: "Albastru",
   blue_royal: "Albastru regal",
@@ -77,14 +65,12 @@ const LOCAL_COLOR_LABELS = {
   turquoise: "Turcoaz",
   teal: "Teal",
 
-  // Verde
   green_light: "Verde deschis",
   green: "Verde",
   green_olive: "Verde olive",
   green_dark: "Verde închis",
   mint: "Mentă",
 
-  // Metalice / speciale
   gold: "Auriu",
   rose_gold: "Rose gold",
   silver: "Argintiu",
@@ -93,186 +79,109 @@ const LOCAL_COLOR_LABELS = {
   multicolor: "Multicolor",
 };
 
-export default function ProductCard({
+function ProductCard({
   p,
   viewMode,
   isFav,
-  navigate, // opțional; dacă nu e dat, folosim useNavigate
-  productsCacheT,
+  navigate,
   onToggleFavorite,
   onAddToCart,
-  onEdit, // fallback
-  onDelete, // fallback
+  onEdit,
+  onDelete,
   categoryLabelMap,
-  categoryGroupLabelMap, // opțional
-  colorLabelMap, // opțional
-  onEditProduct, 
-  vendorActionsOverride,// preferat
+  categoryGroupLabelMap,
+  colorLabelMap,
+  onEditProduct,
+  vendorActionsOverride,
 }) {
   const nav = useNavigate();
   const loc = useLocation();
   const go = navigate || nav;
 
+  const [idx, setIdx] = useState(0);
   const [deleting, setDeleting] = useState(false);
+  const [favBusy, setFavBusy] = useState(false);
+  const [cartBusy, setCartBusy] = useState(false);
+  const [localFav, setLocalFav] = useState(!!isFav);
 
-  // copie locală pentru update instant
-  const [prod, setProd] = useState(() => p || {});
-  const [cacheT, setCacheT] = useState(() => Date.now());
+  const touchStartX = useRef(null);
+  const prefetchedRef = useRef(false);
+
+  const isLoggedIn = viewMode === "user" || viewMode === "vendor";
+
   useEffect(() => {
-    setProd(p || {});
+    setLocalFav(!!isFav);
+  }, [isFav]);
+
+  const safe = useMemo(() => {
+    const images = Array.isArray(p?.images) ? p.images : [];
+
+    const readyQtyRaw = p?.readyQty;
+    const readyQty =
+      readyQtyRaw === null ||
+      readyQtyRaw === undefined ||
+      readyQtyRaw === ""
+        ? null
+        : Number.isFinite(Number(readyQtyRaw))
+        ? Number(readyQtyRaw)
+        : null;
+
+    const availability =
+      typeof p?.availability === "string" ? p.availability.toUpperCase() : null;
+
+    const priceCentsRaw =
+      typeof p?.priceCents === "number"
+        ? p.priceCents
+        : Number.isFinite(Number(p?.priceCents))
+        ? Number(p.priceCents)
+        : null;
+
+    let price = null;
+    if (typeof p?.price === "number") {
+      price = p.price;
+    } else if (priceCentsRaw != null) {
+      price = priceCentsRaw / 100;
+    } else if (Number.isFinite(Number(p?.price))) {
+      price = Number(p.price);
+    }
+
+    return {
+      id: p?.id || p?._id || "",
+      title: p?.title || "Produs",
+      images,
+      price,
+      priceCents: priceCentsRaw,
+      currency: p?.currency || "RON",
+      category: p?.category || null,
+      color: p?.color || null,
+      isActive: p?.isActive !== false,
+      isHidden: !!p?.isHidden,
+      availability,
+      leadTimeDays: Number.isFinite(Number(p?.leadTimeDays))
+        ? Number(p.leadTimeDays)
+        : null,
+      readyQty,
+      acceptsCustom: !!p?.acceptsCustom,
+      nextShipDate: p?.nextShipDate || null,
+    };
   }, [p]);
-
-  // evenimente globale: update & delete
-  useEffect(() => {
-    const onUpdated = (e) => {
-      const up = e?.detail?.product;
-      const onlyId = e?.detail?.id; // fallback doar id
-      const myId = prod?.id || prod?._id || "";
-      if (!myId) return;
-
-      if (up) {
-        const upId = up.id || up._id;
-        if (upId !== myId) return;
-        setProd((prev) => ({ ...prev, ...up }));
-        setCacheT(Date.now()); // bust cache imagini
-        return;
-      }
-      if (onlyId && onlyId === myId) {
-        setCacheT(Date.now());
-      }
-    };
-
-    const onDeleted = (e) => {
-      const delId = e?.detail?.id;
-      const myId = prod?.id || prod?._id;
-      if (delId && delId === myId) {
-        setProd((prev) => ({ ...prev, _hidden: true }));
-      }
-    };
-
-    window.addEventListener("vendor:productUpdated", onUpdated);
-    window.addEventListener("vendor:productDeleted", onDeleted);
-    return () => {
-      window.removeEventListener("vendor:productUpdated", onUpdated);
-      window.removeEventListener("vendor:productDeleted", onDeleted);
-    };
-  }, [prod?.id, prod?._id]);
-
-  const isHiddenInternal = !!prod?._hidden; // intern (după delete event)
-  const isValid = !!prod && typeof prod === "object";
-
-  // availability: doar ce vine din API (nu mai „ghicim”)
-const safe = useMemo(() => {
-  const images = Array.isArray(prod?.images) ? prod.images : [];
-
-  const readyQtyRaw = prod?.readyQty;
-  const readyQty =
-    readyQtyRaw === null ||
-    readyQtyRaw === undefined ||
-    readyQtyRaw === ""
-      ? null
-      : Number.isFinite(Number(readyQtyRaw))
-      ? Number(readyQtyRaw)
-      : null;
-
-  const availability =
-    typeof prod?.availability === "string"
-      ? prod.availability.toUpperCase()
-      : null;
-
-  // 🔹 preț: exact ca în ProductDetails – încercăm price, apoi priceCents
-  const priceCentsRaw =
-    typeof prod?.priceCents === "number"
-      ? prod.priceCents
-      : Number.isFinite(Number(prod?.priceCents))
-      ? Number(prod.priceCents)
-      : null;
-
-  let price = null;
-  if (typeof prod?.price === "number") {
-    price = prod.price;
-  } else if (priceCentsRaw != null) {
-    price = priceCentsRaw / 100;
-  } else if (Number.isFinite(Number(prod?.price))) {
-    price = Number(prod.price);
-  }
-
-  return {
-    id: prod?.id || prod?._id || "",
-    title: prod?.title || "Produs",
-    images,
-    price,                 // 👈 acum e calculat corect
-    priceCents: priceCentsRaw,
-    currency: prod?.currency || "RON",
-    category: prod?.category || null,
-    color: prod?.color || null,
-    isActive: prod?.isActive !== false,
-    isHidden: !!prod?.isHidden,
-    availability,
-    leadTimeDays: Number.isFinite(Number(prod?.leadTimeDays))
-      ? Number(prod.leadTimeDays)
-      : null,
-    readyQty,
-    acceptsCustom: !!prod?.acceptsCustom,
-    nextShipDate: prod?.nextShipDate || null,
-  };
-}, [prod]);
 
   const href = safe.id ? `/produs/${safe.id}${loc.search || ""}` : null;
 
-  // Galerie
-  const [idx, setIdx] = useState(0);
-  useEffect(() => {
-    setIdx(0);
-  }, [safe.id, safe.images?.length]);
-
   const imgCount = safe.images.length;
-  const activeImg = imgCount
-    ? safe.images[Math.min(idx, imgCount - 1)]
-    : "";
+  const activeIndex = imgCount ? Math.min(idx, imgCount - 1) : 0;
+
+  const resolvedImages = useMemo(() => {
+  return safe.images.map((img) => {
+    const src = resolveFileUrl(img);
+    return src || "";
+  });
+}, [safe.images]);
+
   const imgSrc = useMemo(() => {
-    const src = activeImg ? resolveFileUrl(activeImg) : "";
-    const t = cacheT || productsCacheT;
-    return src
-      ? withCache(src, t)
-      : productPlaceholder(600, 450, "Produs");
-  }, [activeImg, cacheT, productsCacheT]);
-
-  const next = useCallback(
-    (e) => {
-      e?.stopPropagation?.();
-      if (!imgCount) return;
-      setIdx((i) => (i + 1) % imgCount);
-    },
-    [imgCount]
-  );
-
-  const prev = useCallback(
-    (e) => {
-      e?.stopPropagation?.();
-      if (!imgCount) return;
-      setIdx((i) => (i - 1 + imgCount) % imgCount);
-    },
-    [imgCount]
-  );
-
-  // swipe mobil
-  const touchStartX = useRef(null);
-  const onTouchStart = (e) => {
-    touchStartX.current =
-      e.changedTouches?.[0]?.clientX ?? null;
-  };
-  const onTouchEnd = (e) => {
-    const startX = touchStartX.current;
-    const endX = e.changedTouches?.[0]?.clientX ?? null;
-    if (startX == null || endX == null) return;
-    const dx = endX - startX;
-    if (Math.abs(dx) > 40) {
-      if (dx < 0) next();
-      else prev();
-    }
-    touchStartX.current = null;
-  };
+    const src = resolvedImages[activeIndex];
+    return src || productPlaceholder(600, 450, "Produs");
+  }, [resolvedImages, activeIndex]);
 
   const priceLabel = useMemo(() => {
     if (!Number.isFinite(safe.price)) return null;
@@ -287,66 +196,45 @@ const safe = useMemo(() => {
     }
   }, [safe.price, safe.currency]);
 
+  const nextShipDateLabel = useMemo(() => {
+    if (!safe.nextShipDate) return null;
+    try {
+      return new Date(safe.nextShipDate).toLocaleDateString("ro-RO");
+    } catch {
+      return null;
+    }
+  }, [safe.nextShipDate]);
+
   const catKey = safe.category;
+  const catGroupKey = catKey ? catKey.split("_")[0] || null : null;
 
   const catLabel = useMemo(() => {
     if (!catKey) return null;
-    if (categoryLabelMap && categoryLabelMap[catKey]) {
-      return categoryLabelMap[catKey];
-    }
-    // fallback: scoatem prefixul (decor_, papetarie_, etc.) și humanizăm
+    if (categoryLabelMap?.[catKey]) return categoryLabelMap[catKey];
     return humanizeSlug(catKey, { dropPrefix: true });
   }, [catKey, categoryLabelMap]);
 
-  const catGroupKey = useMemo(() => {
-    if (!catKey) return null;
-    return catKey.split("_")[0] || null;
-  }, [catKey]);
-
   const catGroupLabel = useMemo(() => {
     if (!catGroupKey) return null;
-    if (
-      categoryGroupLabelMap &&
-      categoryGroupLabelMap[catGroupKey]
-    ) {
+    if (categoryGroupLabelMap?.[catGroupKey]) {
       return categoryGroupLabelMap[catGroupKey];
     }
-    // fallback: capitalizăm simplu
     return humanizeSlug(catGroupKey);
   }, [catGroupKey, categoryGroupLabelMap]);
 
   const colorLabel = useMemo(() => {
     if (!safe.color) return null;
-
-    // 1) Map primit ca prop (ideal: din shared/ui/colorsUi)
-    if (colorLabelMap && colorLabelMap[safe.color]) {
-      return colorLabelMap[safe.color];
-    }
-
-    // 2) Map local, cu label-uri în română
-    if (LOCAL_COLOR_LABELS[safe.color]) {
-      return LOCAL_COLOR_LABELS[safe.color];
-    }
-
-    // 3) Ultim fallback: slug brut (nu îl mai "englezim" cu humanizeSlug)
+    if (colorLabelMap?.[safe.color]) return colorLabelMap[safe.color];
+    if (LOCAL_COLOR_LABELS[safe.color]) return LOCAL_COLOR_LABELS[safe.color];
     return safe.color;
   }, [safe.color, colorLabelMap]);
 
-  const goTo = useCallback(
-    (path) => {
-      if (path) go(path);
-    },
-    [go]
-  );
-
   const isSoldOut =
     safe.availability === "SOLD_OUT" ||
-    (safe.availability === "READY" &&
-      safe.readyQty === 0);
+    (safe.availability === "READY" && safe.readyQty === 0);
 
   const isDisabled = !safe.isActive || safe.isHidden;
 
-  // status badge (singurul care conține textul disponibilității)
   const status = useMemo(() => {
     if (safe.availability === "SOLD_OUT" || isSoldOut) {
       return { label: "Epuizat", tone: "danger" };
@@ -363,135 +251,252 @@ const safe = useMemo(() => {
     return null;
   }, [safe.availability, isSoldOut]);
 
+  const goTo = useCallback(
+    (path) => {
+      if (path) go(path);
+    },
+    [go]
+  );
+
+  const goLogin = useCallback(() => {
+    goTo(`/autentificare?redirect=${encodeURIComponent(href || "/")}`);
+  }, [goTo, href]);
+
+  const prefetchProduct = useCallback(() => {
+    if (!safe.id || prefetchedRef.current) return;
+    prefetchedRef.current = true;
+
+    api(`/api/public/products/${encodeURIComponent(safe.id)}`).catch(() => {});
+
+    if (resolvedImages[0]) {
+      const hero = new Image();
+      hero.decoding = "async";
+      hero.src = resolvedImages[0];
+    }
+
+    if (resolvedImages[1]) {
+      const second = new Image();
+      second.decoding = "async";
+      second.src = resolvedImages[1];
+    }
+  }, [safe.id, resolvedImages]);
+
+  useEffect(() => {
+    prefetchedRef.current = false;
+  }, [safe.id]);
+
   const handleOpenProduct = useCallback(
     (e) => {
       if (!href || isDisabled) return;
       e?.preventDefault?.();
       goTo(href);
     },
-    [href, goTo, isDisabled]
+    [href, isDisabled, goTo]
   );
 
   const handleFav = useCallback(
-    (e) => {
+    async (e) => {
       e?.stopPropagation?.();
-      if (!safe.id) return;
-      if (typeof onToggleFavorite === "function")
-        onToggleFavorite(safe.id, !isFav);
-      else
-        goTo(
-          `/autentificare?redirect=${encodeURIComponent(
-            href || "/"
-          )}`
-        );
+      if (!safe.id || favBusy) return;
+
+      if (!isLoggedIn) {
+        goLogin();
+        return;
+      }
+
+      if (typeof onToggleFavorite === "function") {
+        onToggleFavorite(safe.id, !localFav);
+        return;
+      }
+
+      const prev = localFav;
+      setLocalFav(!prev);
+      setFavBusy(true);
+
+      try {
+        const r = await api("/api/favorites/toggle", {
+          method: "POST",
+          body: { productId: safe.id },
+        });
+
+        if (r?.error === "cannot_favorite_own_product") {
+          setLocalFav(prev);
+          alert("Nu poți adăuga la favorite un produs care îți aparține.");
+          return;
+        }
+      } catch (err) {
+        setLocalFav(prev);
+        const msg =
+          err?.message ||
+          (err?.status === 403
+            ? "Nu poți adăuga la favorite un produs care îți aparține."
+            : "Nu am putut actualiza favoritele.");
+        alert(msg);
+      } finally {
+        setFavBusy(false);
+      }
     },
-    [safe.id, isFav, onToggleFavorite, goTo, href]
+    [safe.id, favBusy, isLoggedIn, goLogin, onToggleFavorite, localFav]
   );
 
   const handleCart = useCallback(
-    (e) => {
+    async (e) => {
       e?.stopPropagation?.();
-      if (!safe.id || isDisabled || isSoldOut) return;
-      if (typeof onAddToCart === "function")
+      if (!safe.id || isDisabled || isSoldOut || cartBusy) return;
+
+      if (!isLoggedIn) {
+        goLogin();
+        return;
+      }
+
+      if (typeof onAddToCart === "function") {
         onAddToCart(safe.id);
-      else
-        goTo(
-          `/autentificare?redirect=${encodeURIComponent(
-            href || "/"
-          )}`
-        );
+        return;
+      }
+
+      try {
+        setCartBusy(true);
+
+        const r = await api("/api/cart/add", {
+          method: "POST",
+          body: { productId: safe.id, qty: 1 },
+        });
+
+        if (r?.error === "cannot_add_own_product") {
+          alert("Nu poți adăuga în coș propriul produs.");
+          return;
+        }
+
+        try {
+          window.dispatchEvent(new CustomEvent("cart:changed"));
+        } catch {
+          /* ignore */
+        }
+
+        alert("Produs adăugat în coș.");
+      } catch (err) {
+        const msg =
+          err?.message ||
+          (err?.status === 403
+            ? "Nu poți adăuga în coș propriul produs."
+            : "Nu am putut adăuga în coș.");
+        alert(msg);
+      } finally {
+        setCartBusy(false);
+      }
     },
-    [safe.id, onAddToCart, goTo, href, isDisabled, isSoldOut]
+    [safe.id, isDisabled, isSoldOut, cartBusy, isLoggedIn, goLogin, onAddToCart]
   );
 
   const handleEdit = useCallback(
     (e) => {
       e?.stopPropagation?.();
       if (!safe.id) return;
-      if (typeof onEditProduct === "function")
-        return onEditProduct(prod);
-      if (typeof onEdit === "function") return onEdit(prod);
+      if (typeof onEditProduct === "function") {
+        onEditProduct(p);
+        return;
+      }
+      if (typeof onEdit === "function") {
+        onEdit(p);
+      }
     },
-    [safe.id, onEditProduct, onEdit, prod]
+    [safe.id, onEditProduct, onEdit, p]
   );
 
   const handleDelete = useCallback(
     async (e) => {
       e?.stopPropagation?.();
       if (!safe.id || deleting) return;
-      if (typeof onDelete === "function")
-        return onDelete(safe.id);
 
-      if (
-        !window.confirm(
-          "Sigur vrei să ștergi acest produs?"
-        )
-      )
+      if (typeof onDelete === "function") {
+        onDelete(safe.id);
         return;
+      }
+
+      if (!window.confirm("Sigur vrei să ștergi acest produs?")) return;
+
       try {
         setDeleting(true);
-        await api(
-          `/api/vendor/products/${encodeURIComponent(
-            safe.id
-          )}`,
-          { method: "DELETE" }
-        );
-        try {
-          window.dispatchEvent(
-            new CustomEvent("vendor:productDeleted", {
-              detail: { id: safe.id },
-            })
-          );
-        } catch {
-          /* noop */
-        }
+        await api(`/api/vendor/products/${encodeURIComponent(safe.id)}`, {
+          method: "DELETE",
+        });
         alert("Produs șters.");
-      } catch (e2) {
-        alert(
-          e2?.message || "Nu am putut șterge produsul."
-        );
+      } catch (err) {
+        alert(err?.message || "Nu am putut șterge produsul.");
       } finally {
         setDeleting(false);
       }
     },
-    [safe.id, onDelete, deleting]
+    [safe.id, deleting, onDelete]
   );
 
-  if (!isValid || isHiddenInternal) return null;
+  const next = useCallback(
+    (e) => {
+      e?.stopPropagation?.();
+      if (imgCount <= 1) return;
+      setIdx((i) => (i + 1) % imgCount);
+    },
+    [imgCount]
+  );
+
+  const prev = useCallback(
+    (e) => {
+      e?.stopPropagation?.();
+      if (imgCount <= 1) return;
+      setIdx((i) => (i - 1 + imgCount) % imgCount);
+    },
+    [imgCount]
+  );
+
+  const onTouchStart = useCallback((e) => {
+    touchStartX.current = e.changedTouches?.[0]?.clientX ?? null;
+  }, []);
+
+  const onTouchEnd = useCallback(
+    (e) => {
+      const startX = touchStartX.current;
+      const endX = e.changedTouches?.[0]?.clientX ?? null;
+      if (startX == null || endX == null) return;
+
+      const dx = endX - startX;
+      if (Math.abs(dx) > 40) {
+        if (dx < 0) next();
+        else prev();
+      }
+      touchStartX.current = null;
+    },
+    [next, prev]
+  );
+
+  if (!safe.id) return null;
 
   return (
     <article
-      className={`${styles.card} ${
-        isDisabled ? styles.cardInactive : ""
-      }`}
+      className={`${styles.card} ${isDisabled ? styles.cardInactive : ""}`}
       data-product-id={safe.id}
-      aria-labelledby={
-        safe.id ? `prod-title-${safe.id}` : undefined
-      }
+      aria-labelledby={`prod-title-${safe.id}`}
       role="group"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && href)
-          handleOpenProduct(e);
+        if (e.key === "Enter" && href) handleOpenProduct(e);
       }}
+      onMouseEnter={prefetchProduct}
+      onFocus={prefetchProduct}
+      onTouchStart={prefetchProduct}
     >
       <div
         className={styles.media}
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        {/* BADGES pe imagine */}
         <div className={styles.badges}>
           {!safe.isActive && (
-            <span
-              className={`${styles.badge} ${styles.badgeInactive}`}
-            >
+            <span className={`${styles.badge} ${styles.badgeInactive}`}>
               Inactiv
             </span>
           )}
-          {safe.isHidden && (
-            <span className={styles.badge}>Ascuns</span>
-          )}
+
+          {safe.isHidden && <span className={styles.badge}>Ascuns</span>}
 
           {status && (
             <span
@@ -510,27 +515,17 @@ const safe = useMemo(() => {
           )}
 
           {safe.acceptsCustom && (
-            <span
-              className={`${styles.badge} ${styles.badgeOutline}`}
-            >
+            <span className={`${styles.badge} ${styles.badgeOutline}`}>
               Personalizabil
             </span>
           )}
         </div>
 
-        {/* Overlay discret pentru epuizat */}
         {isSoldOut && (
-          <div
-            className={styles.soldOutOverlay}
-            aria-hidden="true"
-          />
+          <div className={styles.soldOutOverlay} aria-hidden="true" />
         )}
 
-        {imgCount > 1 && (
-          <span className={styles.badgeImgs}>
-            {imgCount}
-          </span>
-        )}
+        {imgCount > 1 && <span className={styles.badgeImgs}>{imgCount}</span>}
 
         {href && !isDisabled ? (
           <Link
@@ -544,10 +539,10 @@ const safe = useMemo(() => {
               className={styles.image}
               loading="lazy"
               decoding="async"
+              width={600}
+              height={450}
               sizes="(max-width: 480px) 45vw, (max-width: 1024px) 30vw, 280px"
-              onError={(e) =>
-                onImgError(e, 600, 450, "Produs")
-              }
+              onError={(e) => onImgError(e, 600, 450, "Produs")}
             />
           </Link>
         ) : (
@@ -557,9 +552,10 @@ const safe = useMemo(() => {
             className={styles.image}
             loading="lazy"
             decoding="async"
-            onError={(e) =>
-              onImgError(e, 600, 450, "Produs")
-            }
+            width={600}
+            height={450}
+            sizes="(max-width: 480px) 45vw, (max-width: 1024px) 30vw, 280px"
+            onError={(e) => onImgError(e, 600, 450, "Produs")}
             aria-disabled="true"
           />
         )}
@@ -592,16 +588,15 @@ const safe = useMemo(() => {
             aria-label="Navigare imagini produs"
           >
             {safe.images.map((_, i) => {
-              const active = i === idx;
+              const active = i === activeIndex;
               return (
                 <button
-                  key={`dot-${i}`}
+                  key={`dot-${safe.id}-${i}`}
+                  type="button"
                   role="tab"
                   aria-selected={active}
                   aria-label={`Imaginea ${i + 1} din ${imgCount}`}
-                  className={`${styles.dot} ${
-                    active ? styles.dotActive : ""
-                  }`}
+                  className={`${styles.dot} ${active ? styles.dotActive : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     setIdx(i);
@@ -615,7 +610,7 @@ const safe = useMemo(() => {
 
       <div className={styles.cardBody}>
         <h4
-          id={safe.id ? `prod-title-${safe.id}` : undefined}
+          id={`prod-title-${safe.id}`}
           className={styles.cardTitle}
           title={safe.title}
         >
@@ -623,10 +618,7 @@ const safe = useMemo(() => {
             <Link
               to={href}
               onClick={handleOpenProduct}
-              style={{
-                color: "inherit",
-                textDecoration: "none",
-              }}
+              style={{ color: "inherit", textDecoration: "none" }}
             >
               {safe.title}
             </Link>
@@ -635,65 +627,41 @@ const safe = useMemo(() => {
           )}
         </h4>
 
-        {/* Culoare (în română, folosind map-urile) */}
         {colorLabel && (
-          <p
-            className={styles.colorHint}
-            title={safe.color || ""} // slug-ul în tooltip, dacă e nevoie
-          >
-            Culoare:{" "}
-            <span className={styles.metaInline}>
-              {colorLabel}
-            </span>
+          <p className={styles.colorHint} title={safe.color || ""}>
+            Culoare: <span className={styles.metaInline}>{colorLabel}</span>
           </p>
         )}
 
         <div className={styles.cardMetaRow}>
           <div className={styles.metaLeft}>
             {priceLabel != null && (
-              <p
-                className={styles.price}
-                aria-label={`Preț ${priceLabel}`}
-              >
+              <p className={styles.price} aria-label={`Preț ${priceLabel}`}>
                 {priceLabel}
               </p>
             )}
 
-            {/* Detalii livrare / stoc (subțire, sub preț) */}
-            {safe.availability === "READY" &&
-              safe.readyQty != null && (
-                <span className={styles.metaHint}>
-                  Stoc:{" "}
-                  <span className={styles.metaInline}>
-                    {safe.readyQty} buc
-                  </span>
-                </span>
-              )}
+            {safe.availability === "READY" && safe.readyQty != null && (
+              <span className={styles.metaHint}>
+                Stoc: <span className={styles.metaInline}>{safe.readyQty} buc</span>
+              </span>
+            )}
 
-            {safe.availability === "MADE_TO_ORDER" &&
-              safe.leadTimeDays && (
-                <span className={styles.metaHint}>
-                  Timp execuție:{" "}
-                  <span className={styles.metaInline}>
-                    {safe.leadTimeDays} zile
-                  </span>
-                </span>
-              )}
+            {safe.availability === "MADE_TO_ORDER" && safe.leadTimeDays && (
+              <span className={styles.metaHint}>
+                Timp execuție:{" "}
+                <span className={styles.metaInline}>{safe.leadTimeDays} zile</span>
+              </span>
+            )}
 
-            {safe.availability === "PREORDER" &&
-              safe.nextShipDate && (
-                <span className={styles.metaHint}>
-                  Expediere:{" "}
-                  <span className={styles.metaInline}>
-                    {new Date(
-                      safe.nextShipDate
-                    ).toLocaleDateString("ro-RO")}
-                  </span>
-                </span>
-              )}
+            {safe.availability === "PREORDER" && nextShipDateLabel && (
+              <span className={styles.metaHint}>
+                Expediere:{" "}
+                <span className={styles.metaInline}>{nextShipDateLabel}</span>
+              </span>
+            )}
           </div>
 
-          {/* Categoria – label prietenos */}
           {catKey && catLabel && (
             <button
               type="button"
@@ -718,63 +686,57 @@ const safe = useMemo(() => {
         </div>
 
         <div className={styles.cardActions}>
-         {viewMode === "vendor" ? (
-  <div className={styles.ownerRow}>
-    {vendorActionsOverride ? (
-      vendorActionsOverride
-    ) : (
-      <>
-        <button
-          type="button"
-          className={`${styles.ownerIconBtn} ${styles.ownerIconTip}`}
-          data-tip="Editează"
-          onClick={handleEdit}
-          aria-label="Editează produs"
-        >
-          <FaEdit />
-          <span className={styles.srOnly}>Editează</span>
-        </button>
+          {viewMode === "vendor" ? (
+            <div className={styles.ownerRow}>
+              {vendorActionsOverride ? (
+                vendorActionsOverride
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={`${styles.ownerIconBtn} ${styles.ownerIconTip}`}
+                    data-tip="Editează"
+                    onClick={handleEdit}
+                    aria-label="Editează produs"
+                  >
+                    <FaEdit />
+                    <span className={styles.srOnly}>Editează</span>
+                  </button>
 
-        <button
-          type="button"
-          className={`${styles.ownerIconBtn} ${styles.ownerIconDanger} ${styles.ownerIconTip}`}
-          data-tip={deleting ? "Se șterge…" : "Șterge"}
-          onClick={handleDelete}
-          disabled={deleting}
-          aria-label="Șterge produs"
-        >
-          <FaTrash />
-          <span className={styles.srOnly}>{deleting ? "Se șterge…" : "Șterge"}</span>
-        </button>
-      </>
-    )}
-  </div>
+                  <button
+                    type="button"
+                    className={`${styles.ownerIconBtn} ${styles.ownerIconDanger} ${styles.ownerIconTip}`}
+                    data-tip={deleting ? "Se șterge…" : "Șterge"}
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    aria-label="Șterge produs"
+                  >
+                    <FaTrash />
+                    <span className={styles.srOnly}>
+                      {deleting ? "Se șterge…" : "Șterge"}
+                    </span>
+                  </button>
+                </>
+              )}
+            </div>
           ) : viewMode === "user" ? (
             <div className={styles.iconRow}>
               <button
                 type="button"
                 className={`${styles.iconBtnOutline} ${
-                  isFav ? styles.heartFilled : ""
+                  localFav ? styles.heartFilled : ""
                 }`}
                 onClick={handleFav}
-                title={
-                  isFav
-                    ? "Elimină din favorite"
-                    : "Adaugă la favorite"
-                }
-                aria-pressed={!!isFav}
+                title={localFav ? "Elimină din favorite" : "Adaugă la favorite"}
+                aria-pressed={!!localFav}
                 aria-label={
-                  isFav
-                    ? "Elimină din favorite"
-                    : "Adaugă la favorite"
+                  localFav ? "Elimină din favorite" : "Adaugă la favorite"
                 }
+                disabled={favBusy}
               >
-                {isFav ? (
-                  <FaHeart />
-                ) : (
-                  <FaRegHeart />
-                )}
+                {localFav ? <FaHeart /> : <FaRegHeart />}
               </button>
+
               <button
                 type="button"
                 className={styles.iconBtn}
@@ -784,6 +746,8 @@ const safe = useMemo(() => {
                     ? "Produs indisponibil"
                     : isSoldOut
                     ? "Epuizat"
+                    : cartBusy
+                    ? "Se adaugă…"
                     : "Adaugă în coș"
                 }
                 aria-label={
@@ -791,9 +755,11 @@ const safe = useMemo(() => {
                     ? "Produs indisponibil"
                     : isSoldOut
                     ? "Epuizat"
+                    : cartBusy
+                    ? "Se adaugă…"
                     : "Adaugă în coș"
                 }
-                disabled={isDisabled || isSoldOut}
+                disabled={isDisabled || isSoldOut || cartBusy}
               >
                 <FaShoppingCart />
               </button>
@@ -805,27 +771,20 @@ const safe = useMemo(() => {
                 className={styles.iconBtnOutline}
                 onClick={(e) => {
                   e.stopPropagation();
-                  goTo(
-                    `/autentificare?redirect=${encodeURIComponent(
-                      href || "/"
-                    )}`
-                  );
+                  goLogin();
                 }}
                 title="Autentifică-te pentru a salva la favorite"
                 aria-label="Autentifică-te pentru a salva la favorite"
               >
                 <FaRegHeart />
               </button>
+
               <button
                 type="button"
                 className={styles.iconBtn}
                 onClick={(e) => {
                   e.stopPropagation();
-                  goTo(
-                    `/autentificare?redirect=${encodeURIComponent(
-                      href || "/"
-                    )}`
-                  );
+                  goLogin();
                 }}
                 title="Autentifică-te pentru a adăuga în coș"
                 aria-label="Autentifică-te pentru a adăuga în coș"
@@ -839,3 +798,24 @@ const safe = useMemo(() => {
     </article>
   );
 }
+
+function areEqual(prevProps, nextProps) {
+  return (
+    prevProps.p === nextProps.p &&
+    prevProps.viewMode === nextProps.viewMode &&
+    prevProps.isFav === nextProps.isFav &&
+    prevProps.navigate === nextProps.navigate &&
+    prevProps.productsCacheT === nextProps.productsCacheT &&
+    prevProps.onToggleFavorite === nextProps.onToggleFavorite &&
+    prevProps.onAddToCart === nextProps.onAddToCart &&
+    prevProps.onEdit === nextProps.onEdit &&
+    prevProps.onDelete === nextProps.onDelete &&
+    prevProps.onEditProduct === nextProps.onEditProduct &&
+    prevProps.categoryLabelMap === nextProps.categoryLabelMap &&
+    prevProps.categoryGroupLabelMap === nextProps.categoryGroupLabelMap &&
+    prevProps.colorLabelMap === nextProps.colorLabelMap &&
+    prevProps.vendorActionsOverride === nextProps.vendorActionsOverride
+  );
+}
+
+export default React.memo(ProductCard, areEqual);

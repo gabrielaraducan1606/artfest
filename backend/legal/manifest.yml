@@ -17,6 +17,14 @@ documents:
     files:
       1: { path: "legal/docs/privacy/v1.md", vars: 1 }
 
+  cookies:
+    title: "Politica de Cookie-uri"
+    scope: "USER"
+    required: false
+    current: 1
+    files:
+      1: { path: "legal/docs/cookies/v1.md", vars: 1 }
+
   vendor_terms:
     title: "Acordul Marketplace pentru Vânzători"
     scope: "VENDOR"

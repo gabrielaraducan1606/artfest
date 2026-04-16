@@ -5,6 +5,7 @@ import {
   Archive,
   Check,
   Search as SearchIcon,
+  Trash2,
 } from "lucide-react";
 import { api } from "../../../lib/api";
 import styles from "./UserNotificationPage.module.css";
@@ -35,7 +36,6 @@ export default function UserNotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [markingAll, setMarkingAll] = useState(false);
-
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const notifyNavbar = useCallback(() => {
@@ -91,14 +91,18 @@ export default function UserNotificationsPage() {
   const markRead = async (id) => {
     try {
       await api(`/api/notifications/${id}/read`, { method: "PATCH" });
+
       setItems((prev) =>
         prev.map((n) =>
           n.id === id ? { ...n, readAt: n.readAt || new Date().toISOString() } : n
         )
       );
+
       notifyNavbar();
+      return true;
     } catch (e) {
       console.error(e);
+      return false;
     }
   };
 
@@ -117,13 +121,35 @@ export default function UserNotificationsPage() {
     }
   };
 
+  const removeNotification = async (id) => {
+    const ok = window.confirm("Sigur vrei să ștergi definitiv această notificare?");
+    if (!ok) return;
+
+    try {
+      await api(`/api/notifications/${id}`, { method: "DELETE" });
+
+      setItems((prev) => prev.filter((n) => n.id !== id));
+      setVisibleCount((prev) => Math.max(PAGE_SIZE, prev - 1));
+      notifyNavbar();
+    } catch (e) {
+      console.error(e);
+      window.alert("Nu am putut șterge notificarea.");
+    }
+  };
+
   const markAllRead = async () => {
     setMarkingAll(true);
+
     try {
       await api("/api/notifications/read-all", { method: "PATCH" });
+
       setItems((prev) =>
-        prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() }))
+        prev.map((n) => ({
+          ...n,
+          readAt: n.readAt || new Date().toISOString(),
+        }))
       );
+
       notifyNavbar();
     } catch (e) {
       console.error(e);
@@ -132,9 +158,21 @@ export default function UserNotificationsPage() {
     }
   };
 
+  const openNotification = async (notification) => {
+    const isUnread = !notification.readAt;
+
+    let ok = true;
+    if (isUnread) {
+      ok = await markRead(notification.id);
+    }
+
+    if (ok && notification.link) {
+      window.location.href = notification.link;
+    }
+  };
+
   return (
     <div className={styles.wrap}>
-      {/* ===== Header ===== */}
       <header className={styles.head}>
         <div className={styles.title}>
           <Bell size={20} />
@@ -146,19 +184,23 @@ export default function UserNotificationsPage() {
             type="button"
             className={styles.primary}
             onClick={markAllRead}
-            disabled={markingAll || loading || !items.length}
+            disabled={markingAll || loading || !items.length || scope === "archived"}
           >
             <Check size={14} />
             {markingAll ? "Se marchează…" : "Marchează tot ca citit"}
           </button>
 
-          <button type="button" className={styles.iconBtn} onClick={load} title="Reîncarcă">
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={load}
+            title="Reîncarcă"
+          >
             <RefreshCcw size={16} className={loading ? styles.spin : ""} />
           </button>
         </div>
       </header>
 
-      {/* ===== Toolbar ===== */}
       <section className={styles.toolbar}>
         <div className={styles.tabs}>
           {TABS.map((tab) => (
@@ -183,7 +225,9 @@ export default function UserNotificationsPage() {
             placeholder="Caută după titlu sau conținut…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && load()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") load();
+            }}
           />
           <button type="button" className={styles.iconBtn} onClick={load} title="Caută">
             <SearchIcon size={14} />
@@ -191,83 +235,92 @@ export default function UserNotificationsPage() {
         </div>
       </section>
 
-      {/* ===== Info / error / loading ===== */}
       {error && <div className={styles.error}>{error}</div>}
-      {loading && !items.length && <div className={styles.info}>Se încarcă notificările…</div>}
+      {loading && !items.length && (
+        <div className={styles.info}>Se încarcă notificările…</div>
+      )}
       {!loading && !items.length && !error && (
         <div className={styles.info}>Nu ai notificări în această secțiune.</div>
       )}
 
-      {/* ===== Listă ===== */}
       {visibleItems.length > 0 && (
         <ul className={styles.list}>
           {visibleItems.map((n) => {
             const isUnread = !n.readAt;
 
             return (
-              <li key={n.id} className={`${styles.item} ${isUnread ? styles.unread : ""}`}>
+              <li
+                key={n.id}
+                className={`${styles.item} ${isUnread ? styles.unread : ""}`}
+              >
                 <div className={styles.icon}>
                   <Bell size={16} />
                 </div>
 
-               {/* corp notificare */}
-<div
-  role="button"
-  tabIndex={0}
-  className={styles.body}
-  onClick={() => {
-    if (isUnread) markRead(n.id);
-    if (n.link) window.location.href = n.link;
-  }}
-  onKeyDown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      if (isUnread) markRead(n.id);
-      if (n.link) window.location.href = n.link;
-    }
-  }}
->
-  <div className={styles.row}>
-    <div className={styles.itemTitle}>{n.title}</div>
-    <div className={styles.time}>{fmt(n.createdAt)}</div>
-  </div>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className={styles.body}
+                  onClick={() => openNotification(n)}
+                  onKeyDown={async (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      await openNotification(n);
+                    }
+                  }}
+                >
+                  <div className={styles.row}>
+                    <div className={styles.itemTitle}>{n.title}</div>
+                    <div className={styles.time}>{fmt(n.createdAt)}</div>
+                  </div>
 
-  {n.body && <div className={styles.itemText}>{n.body}</div>}
+                  {n.body && <div className={styles.itemText}>{n.body}</div>}
 
-  <div className={styles.footerRow}>
-    {n.link ? <div className={styles.link}>Vezi detalii</div> : <span />}
+                  <div className={styles.footerRow}>
+                    {n.link ? <div className={styles.link}>Vezi detalii</div> : <span />}
 
-    <div className={styles.actionsInline}>
-      {isUnread && (
-        <button
-          type="button"
-          className={styles.ghostBtn}
-          title="Marchează citit"
-          onClick={(e) => {
-            e.stopPropagation();
-            markRead(n.id);
-          }}
-        >
-          <Check size={14} />
-        </button>
-      )}
+                    <div className={styles.actionsInline}>
+                      {isUnread && (
+                        <button
+                          type="button"
+                          className={styles.ghostBtn}
+                          title="Marchează citit"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            markRead(n.id);
+                          }}
+                        >
+                          <Check size={14} />
+                        </button>
+                      )}
 
-      <button
-        type="button"
-        className={styles.ghostBtn}
-        title={n.archived ? "Dezarhivează" : "Arhivează"}
-        onClick={(e) => {
-          e.stopPropagation();
-          toggleArchive(n.id, n.archived);
-        }}
-      >
-        <Archive size={14} />
-      </button>
-    </div>
-  </div>
-</div>
+                      <button
+                        type="button"
+                        className={styles.ghostBtn}
+                        title={n.archived ? "Dezarhivează" : "Arhivează"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleArchive(n.id, n.archived);
+                        }}
+                      >
+                        <Archive size={14} />
+                      </button>
 
-                {/* DESKTOP actions (coloana din dreapta) */}
+                      <button
+                        type="button"
+                        className={styles.ghostBtn}
+                        title="Șterge definitiv"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeNotification(n.id);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 <div className={styles.rowActions}>
                   {isUnread && (
                     <button
@@ -279,6 +332,7 @@ export default function UserNotificationsPage() {
                       <Check size={14} />
                     </button>
                   )}
+
                   <button
                     type="button"
                     className={styles.ghostBtn}
@@ -286,6 +340,15 @@ export default function UserNotificationsPage() {
                     onClick={() => toggleArchive(n.id, n.archived)}
                   >
                     <Archive size={14} />
+                  </button>
+
+                  <button
+                    type="button"
+                    className={styles.ghostBtn}
+                    title="Șterge definitiv"
+                    onClick={() => removeNotification(n.id)}
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </li>
@@ -295,7 +358,9 @@ export default function UserNotificationsPage() {
       )}
 
       {!loading && visibleCount < items.length && (
-        <div className={styles.info}>Derulează în jos pentru a încărca mai multe notificări…</div>
+        <div className={styles.info}>
+          Derulează în jos pentru a încărca mai multe notificări…
+        </div>
       )}
     </div>
   );

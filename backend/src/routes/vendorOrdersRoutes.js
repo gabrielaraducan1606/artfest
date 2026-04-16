@@ -62,20 +62,26 @@ async function getActivePlanForVendor(vendorId) {
   const sub = await prisma.vendorSubscription.findFirst({
     where: {
       vendorId,
-      status: "active",
-      endAt: { gt: now },
+      OR: [
+        { status: "active", endAt: { gt: now } },
+        { trialEndsAt: { gt: now } },
+      ],
     },
     include: { plan: true },
-    orderBy: { endAt: "desc" },
+    orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
   });
 
   if (sub?.plan) return sub.plan;
 
-  const starter = await prisma.subscriptionPlan.findUnique({
-    where: { code: "starter" },
+  const latest = await prisma.vendorSubscription.findFirst({
+    where: { vendorId },
+    include: { plan: true },
+    orderBy: [{ createdAt: "desc" }],
   });
 
-  return starter ?? { code: "starter", name: "Starter", commissionBps: 0 };
+  if (latest?.plan) return latest.plan;
+
+  return { code: "basic", name: "Basic", commissionBps: 0 };
 }
 
 /* ----------------------------------------------------
@@ -552,14 +558,26 @@ router.get("/orders", requireVendor, async (req, res) => {
       : {}),
   };
 
+  if (from || to) {
+    where.createdAt = {
+      ...(from ? { gte: from } : {}),
+      ...(to ? { lte: endOfDay(to) } : {}),
+    };
+  }
+
   if (q) {
     where.OR = [
       { orderId: { contains: q } },
       { order: { orderNumber: { contains: q, mode: "insensitive" } } },
+      { order: { shippingAddress: { path: ["name"], string_contains: q } } },
+      { order: { shippingAddress: { path: ["phone"], string_contains: q } } },
+      { order: { shippingAddress: { path: ["email"], string_contains: q } } },
+      { order: { shippingAddress: { path: ["city"], string_contains: q } } },
+      { order: { shippingAddress: { path: ["street"], string_contains: q } } },
     ];
   }
 
-  const [rows, total] = await Promise.all([
+  const [rows, total, billing, activePlan] = await Promise.all([
     prisma.shipment.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -582,7 +600,26 @@ router.get("/orders", requireVendor, async (req, res) => {
         deliveredAt: true,
         refusedAt: true,
         returnedAt: true,
+        cancelReason: true,
+        cancelReasonNote: true,
         items: { select: { qty: true, price: true } },
+        service: {
+          select: {
+            id: true,
+            title: true,
+            profile: {
+              select: {
+                displayName: true,
+                slug: true,
+              },
+            },
+            vendor: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
         order: {
           select: {
             orderNumber: true,
@@ -596,11 +633,25 @@ router.get("/orders", requireVendor, async (req, res) => {
       },
     }),
     prisma.shipment.count({ where }),
+    prisma.vendorBilling.findUnique({ where: { vendorId } }),
+    getActivePlanForVendor(vendorId).catch(() => null),
   ]);
+
+  const vatStatus = billing?.vatStatus || null;
+  const vatRate = vatStatus === "payer" ? Number(billing?.vatRate || 0) : 0;
+
+  let commissionBps = Number(activePlan?.commissionBps || 0);
+  if (!Number.isFinite(commissionBps) || commissionBps < 0) commissionBps = 0;
 
   let items = rows.map((s) => {
     const o = s.order || {};
     const addr = o.shippingAddress || {};
+
+    const storeName =
+      s.service?.profile?.displayName ||
+      s.service?.title ||
+      s.service?.vendor?.displayName ||
+      "Magazin";
 
     const shipmentSubtotal = (s.items || []).reduce(
       (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
@@ -608,6 +659,11 @@ router.get("/orders", requireVendor, async (req, res) => {
     );
     const shipmentShipping = Number(s.price || 0);
     const shipmentTotal = shipmentSubtotal + shipmentShipping;
+
+    const itemsNet =
+      vatRate > 0 ? shipmentSubtotal / (1 + vatRate / 100) : shipmentSubtotal;
+    const commissionNet = round2((itemsNet * commissionBps) / 10000);
+    const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
 
     return {
       id: s.orderId,
@@ -618,6 +674,9 @@ router.get("/orders", requireVendor, async (req, res) => {
       customerPhone: addr.phone || "",
       customerEmail: addr.email || "",
       address: addr,
+      storeName,
+      serviceId: s.service?.id || null,
+      serviceSlug: s.service?.profile?.slug || null,
       status: shipmentToUiStatus(s.status),
       total: shipmentTotal,
       shipmentId: s.id,
@@ -633,10 +692,24 @@ router.get("/orders", requireVendor, async (req, res) => {
       deliveredAt: s.deliveredAt || null,
       refusedAt: s.refusedAt || null,
       returnedAt: s.returnedAt || null,
+      cancelReason: s.cancelReason || null,
+      cancelReasonNote: s.cancelReasonNote || null,
       vendorNotes: o.vendorNotes || "",
       paymentMethod: o.paymentMethod || null,
       invoiceNumber: o.invoiceNumber || null,
       invoiceDate: o.invoiceDate || null,
+      vendorFinancials: {
+        planCode: activePlan?.code || null,
+        planName: activePlan?.name || null,
+        vatStatus,
+        vatRate,
+        commissionBps,
+        commissionPercent: round2(commissionBps / 100),
+        commissionRate: round2(commissionBps / 10000),
+        itemsNet: round2(itemsNet),
+        commissionNet,
+        vendorNetBeforeShipping,
+      },
       messageThreadId: null,
       messageUnreadCount: 0,
     };
@@ -722,6 +795,23 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
         },
       },
       items: true,
+      service: {
+        select: {
+          id: true,
+          title: true,
+          profile: {
+            select: {
+              displayName: true,
+              slug: true,
+            },
+          },
+          vendor: {
+            select: {
+              displayName: true,
+            },
+          },
+        },
+      },
     },
   });
 
@@ -730,8 +820,14 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
   const o = s.order;
   const addr = o?.shippingAddress || {};
 
+  const storeName =
+    s.service?.profile?.displayName ||
+    s.service?.title ||
+    s.service?.vendor?.displayName ||
+    "Magazin";
+
   const shipmentSubtotal = s.items.reduce(
-    (sum, it) => sum + Number(it.price || 0) * it.qty,
+    (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
     0
   );
   const shipmentShipping = Number(s.price || 0);
@@ -767,9 +863,11 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
   };
 
   let commissionBps = 0;
+  let activePlan = null;
+
   try {
-    const plan = await getActivePlanForVendor(vendorId);
-    commissionBps = Number(plan?.commissionBps || 0);
+    activePlan = await getActivePlanForVendor(vendorId);
+    commissionBps = Number(activePlan?.commissionBps || 0);
     if (!Number.isFinite(commissionBps) || commissionBps < 0) commissionBps = 0;
   } catch (e) {
     console.error("getActivePlanForVendor failed:", e);
@@ -781,7 +879,10 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
   const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
 
   const vendorFinancials = {
+    planCode: activePlan?.code || null,
+    planName: activePlan?.name || null,
     commissionBps,
+    commissionPercent: round2(commissionBps / 100),
     commissionRate: round2(commissionBps / 10000),
     itemsNet: round2(itemsNet),
     commissionNet,
@@ -795,6 +896,9 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
     orderNumber: o.orderNumber || null,
     shortId: s.id.slice(-6).toUpperCase(),
     createdAt: o.createdAt,
+    storeName,
+    serviceId: s.service?.id || null,
+    serviceSlug: s.service?.profile?.slug || null,
     subtotal: shipmentSubtotal,
     shippingTotal: shipmentShipping,
     total: shipmentTotal,
@@ -802,6 +906,7 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
       vatRate,
       vatStatus,
       items: itemsBreakdown,
+      shipping: shippingBreakdown,
       total: totalBreakdown,
       vendorFinancials,
     },
@@ -813,6 +918,8 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
       fulfilled: "Finalizată",
       cancelled: "Anulată",
     }[shipmentToUiStatus(s.status)],
+    cancelReason: s.cancelReason || null,
+    cancelReasonNote: s.cancelReasonNote || null,
     shippingAddress: addr,
     customerType,
     items: s.items.map((it) => ({
@@ -890,6 +997,7 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
     orderRef: orderId,
     include: { order: true },
   });
+
   if (!s) return res.status(404).json({ error: "not_found" });
 
   if (isAwaitingAwbLock(s)) {
@@ -898,7 +1006,15 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
 
   const updatedShipment = await prisma.shipment.update({
     where: { id: s.id },
-    data: { status: next },
+    data: {
+      status: next,
+      ...(nextUi === "cancelled"
+        ? {
+            cancelReason,
+            cancelReasonNote,
+          }
+        : {}),
+    },
     include: { order: true },
   });
 
@@ -922,11 +1038,20 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
 
   try {
     if (updatedShipment.status === "DELIVERED") {
-      await ensureSaleLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
+      await ensureSaleLedgerEntry({
+        vendorId,
+        shipmentId: updatedShipment.id,
+      });
     }
 
-    if (updatedShipment.status === "REFUSED" || updatedShipment.status === "RETURNED") {
-      await ensureRefundLedgerEntry({ vendorId, shipmentId: updatedShipment.id });
+    if (
+      updatedShipment.status === "REFUSED" ||
+      updatedShipment.status === "RETURNED"
+    ) {
+      await ensureRefundLedgerEntry({
+        vendorId,
+        shipmentId: updatedShipment.id,
+      });
     }
   } catch (e) {
     console.error("Ledger update failed:", e);
@@ -1482,6 +1607,18 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
       vendorNotes,
     } = payload;
 
+    const defaultService = await prisma.vendorService.findFirst({
+      where: {
+        vendorId,
+        type: { code: "products" },
+      },
+      orderBy: [
+        { isActive: "desc" },
+        { createdAt: "asc" },
+      ],
+      select: { id: true },
+    });
+
     const subtotal = items.reduce(
       (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
       0
@@ -1527,6 +1664,7 @@ router.post("/orders/manual", requireVendor, async (req, res) => {
       data: {
         vendorId,
         orderId: order.id,
+        serviceId: defaultService?.id || null,
         status: "PENDING",
         price: shippingTotal,
         items: {

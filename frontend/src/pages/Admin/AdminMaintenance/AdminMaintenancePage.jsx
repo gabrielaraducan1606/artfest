@@ -7,7 +7,8 @@ import AdminInactivityTab from "./tabs/AdminInactivityTab.jsx";
 import AdminAuthSecurityTab from "./tabs/AdminAuthSecurityTab.jsx";
 import AdminProblemAccountsTab from "./tabs/AdminSuspendCounts.jsx";
 import AdminReviewReportsTab from "./tabs/AdminReviewsReport.jsx";
-import AdminCityVariantsTab from "./tabs/AdminCityVariantsTab.jsx"; // 👈 nou
+import AdminCityVariantsTab from "./tabs/AdminCityVariantsTab.jsx";
+import AdminProductsModerationTab from "./tabs/AdminProductsModerationTab.jsx";
 import { FaQuestionCircle } from "react-icons/fa";
 
 // tab-uri din pagina de mentenanță
@@ -15,8 +16,9 @@ const TABS = [
   { id: "inactivity", label: "Inactivitate conturi" },
   { id: "authSecurity", label: "Securitate autentificare" },
   { id: "problemAccounts", label: "Conturi cu probleme" },
-  { id: "cityVariants", label: "Orașe magazine" },        // 👈 nou
-  { id: "reviewReports", label: "Raportări recenzii" },   // 👈 deja existent
+  { id: "cityVariants", label: "Orașe magazine" },
+  { id: "productsModeration", label: "Moderare produse" },
+  { id: "reviewReports", label: "Raportări recenzii" },
 ];
 
 export default function AdminMaintenance() {
@@ -41,7 +43,7 @@ export default function AdminMaintenance() {
   const [secLoading, setSecLoading] = useState(false);
   const [secError, setSecError] = useState("");
   const [secData, setSecData] = useState(null);
-  const [secIssuesCount, setSecIssuesCount] = useState(0); // pt badge pe tab
+  const [secIssuesCount, setSecIssuesCount] = useState(0);
 
   // ===================== PROBLEM ACCOUNTS STATE =====================
   const [problemLoading, setProblemLoading] = useState(false);
@@ -49,17 +51,19 @@ export default function AdminMaintenance() {
   const [problemItems, setProblemItems] = useState([]);
   const [problemIssuesCount, setProblemIssuesCount] = useState(0);
 
-  // ===================== REVIEW REPORTS META (pt badge) =====================
+  // ===================== REVIEW REPORTS META =====================
   const [reviewReportsCount, setReviewReportsCount] = useState(0);
 
-  // ===================== CITY VARIANTS META (pt badge) =====================
+  // ===================== CITY VARIANTS META =====================
   const [cityVariantsCount, setCityVariantsCount] = useState(0);
 
-  // ajutor / descriere rol pagină
+  // ===================== PRODUCTS MODERATION META =====================
+  const [productsModerationCount, setProductsModerationCount] = useState(0);
+
   const [showHelp, setShowHelp] = useState(false);
 
   // =====================================================
-  //     LOADERS (preview conturi + log emailuri)
+  // LOADERS
   // =====================================================
 
   const loadPreview = async () => {
@@ -87,12 +91,10 @@ export default function AdminMaintenance() {
       const d = await api("/api/admin/maintenance/warnings-log");
       setWarningLogs(d.logs || []);
     } catch (e) {
-      // nu blocăm pagina dacă logul nu se încarcă
       console.error("maintenance warnings-log error", e);
     }
   };
 
-  // loader pentru securitate autentificare
   const loadAuthSecurity = async () => {
     setSecLoading(true);
     setSecError("");
@@ -112,13 +114,11 @@ export default function AdminMaintenance() {
     }
   };
 
-  // loader de bază pentru conturi cu probleme
   const loadProblemAccounts = async () => {
     setProblemLoading(true);
     setProblemError("");
 
     try {
-      // baza – backend-ul o să o implementeze ulterior
       const d = await api("/api/admin/maintenance/problem-accounts");
       const items = d.items || [];
       setProblemItems(items);
@@ -134,20 +134,15 @@ export default function AdminMaintenance() {
     }
   };
 
-  // loader meta pentru raportările de recenzii (doar count pt badge)
   const loadReviewReportsMeta = async () => {
     try {
-      const d = await api(
-        "/api/admin/maintenance/review-reports?take=1&days=30"
-      );
+      const d = await api("/api/admin/maintenance/review-reports?take=1&days=30");
       setReviewReportsCount(d.total || 0);
     } catch (e) {
       console.error("maintenance review-reports meta error", e);
-      // nu blocăm pagina dacă nu merge, lăsăm badge-ul 0
     }
   };
 
-  // loader meta pentru variante orașe (doar număr de grupuri pt badge)
   const loadCityVariantsMeta = async () => {
     try {
       const d = await api("/api/admin/cities/variants");
@@ -155,7 +150,15 @@ export default function AdminMaintenance() {
       setCityVariantsCount(groups.length || 0);
     } catch (e) {
       console.error("admin cities variants meta error", e);
-      // nu blocăm pagina dacă nu merge
+    }
+  };
+
+  const loadProductsModerationMeta = async () => {
+    try {
+      const d = await api("/api/admin/products?isHidden=true&take=1");
+      setProductsModerationCount(d?.total || 0);
+    } catch (e) {
+      console.error("admin products moderation meta error", e);
     }
   };
 
@@ -167,6 +170,7 @@ export default function AdminMaintenance() {
       loadProblemAccounts(),
       loadReviewReportsMeta(),
       loadCityVariantsMeta(),
+      loadProductsModerationMeta(),
     ]);
   };
 
@@ -176,7 +180,7 @@ export default function AdminMaintenance() {
   }, []);
 
   // =====================================================
-  //                 ACȚIUNI ADMIN
+  // ACȚIUNI ADMIN
   // =====================================================
 
   const handleSendWarnings = async () => {
@@ -189,9 +193,7 @@ export default function AdminMaintenance() {
         method: "POST",
       });
 
-      setMessage(
-        `Email-uri de avertizare trimise către ${d.notified || 0} conturi.`
-      );
+      setMessage(`Email-uri de avertizare trimise către ${d.notified || 0} conturi.`);
       await loadAll();
     } catch (e) {
       const msg =
@@ -236,7 +238,7 @@ export default function AdminMaintenance() {
   };
 
   // =====================================================
-  //                     RENDER PAGE
+  // RENDER PAGE
   // =====================================================
 
   const renderTabContent = () => {
@@ -281,22 +283,26 @@ export default function AdminMaintenance() {
     }
 
     if (activeTab === "cityVariants") {
-      return <AdminCityVariantsTab />; // 👈 noul tab pentru orașe
+      return <AdminCityVariantsTab />;
+    }
+
+    if (activeTab === "productsModeration") {
+      return (
+        <AdminProductsModerationTab
+          onActionDone={loadProductsModerationMeta}
+        />
+      );
     }
 
     if (activeTab === "reviewReports") {
-      // tab-ul nostru existent – își face singur fetch detaliat
       return <AdminReviewReportsTab />;
     }
 
-    return (
-      <p className={styles.subtle}>Acest tab nu este încă implementat.</p>
-    );
+    return <p className={styles.subtle}>Acest tab nu este încă implementat.</p>;
   };
 
   return (
     <section className={styles.page}>
-      {/* HEADER */}
       <header className={styles.header}>
         <div className={styles.headerMain}>
           <div>
@@ -313,8 +319,9 @@ export default function AdminMaintenance() {
             </h1>
             <p className={styles.subtle}>
               Instrumente pentru gestionarea conturilor inactive, securitatea
-              autentificării, conturi cu probleme, curățarea datelor și
-              normalizarea datelor introduse de vendori.
+              autentificării, conturi cu probleme, curățarea datelor,
+              normalizarea datelor introduse de vendori și moderarea produselor
+              înainte de publicare.
             </p>
           </div>
         </div>
@@ -323,12 +330,12 @@ export default function AdminMaintenance() {
           <div className={styles.helpBox}>
             <p>
               <strong>Rolul acestei pagini:</strong> să centralizeze toate
-              operațiunile de &quot;curățenie&quot; și sănătate a platformei:
+              operațiunile de sănătate și control ale platformei:
             </p>
             <ul>
               <li>
-                gestionarea conturilor <strong>inactive</strong> și
-                notificarea lor înainte de ștergere;
+                gestionarea conturilor <strong>inactive</strong> și notificarea
+                lor înainte de ștergere;
               </li>
               <li>
                 verificarea și remedierea problemelor de{" "}
@@ -336,32 +343,32 @@ export default function AdminMaintenance() {
                 multe eșecuri de login etc.);
               </li>
               <li>
-                identificarea și monitorizarea <strong>conturilor cu
-                probleme</strong> (suspiciuni de abuz, fraudă, blocări
-                manuale etc.);
+                identificarea și monitorizarea <strong>conturilor cu probleme</strong>
+                {" "} (suspiciuni de abuz, fraudă, blocări manuale etc.);
               </li>
               <li>
                 analizarea și normalizarea <strong>orașelor magazinelor</strong>{" "}
-                introduse de vendori (Bacau / Bacău / BACĂU etc.).
+                introduse de vendori;
+              </li>
+              <li>
+                verificarea și moderarea <strong>produselor trimise de vendori</strong>
+                {" "} înainte ca acestea să devină vizibile în platformă.
               </li>
             </ul>
           </div>
         )}
       </header>
 
-      {/* Tabs locale pentru pagina de mentenanță */}
       <div className={styles.tabs}>
         {TABS.map((tab) => {
           const isActive = activeTab === tab.id;
 
           let badgeValue = 0;
           if (tab.id === "authSecurity") badgeValue = secIssuesCount;
-          else if (tab.id === "problemAccounts")
-            badgeValue = problemIssuesCount;
-          else if (tab.id === "reviewReports")
-            badgeValue = reviewReportsCount;
-          else if (tab.id === "cityVariants")
-            badgeValue = cityVariantsCount;
+          else if (tab.id === "problemAccounts") badgeValue = problemIssuesCount;
+          else if (tab.id === "reviewReports") badgeValue = reviewReportsCount;
+          else if (tab.id === "cityVariants") badgeValue = cityVariantsCount;
+          else if (tab.id === "productsModeration") badgeValue = productsModerationCount;
 
           const showBadge = badgeValue > 0;
 
@@ -369,9 +376,7 @@ export default function AdminMaintenance() {
             <button
               key={tab.id}
               type="button"
-              className={`${styles.tab} ${
-                isActive ? styles.tabActive : ""
-              }`}
+              className={`${styles.tab} ${isActive ? styles.tabActive : ""}`}
               onClick={() => !tab.disabled && setActiveTab(tab.id)}
               disabled={tab.disabled}
             >
@@ -386,7 +391,6 @@ export default function AdminMaintenance() {
         })}
       </div>
 
-      {/* Card conținut */}
       <div className={styles.card}>
         <div className={styles.cardHead}>
           <h2 className={styles.cardTitle}>

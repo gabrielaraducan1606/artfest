@@ -1,4 +1,3 @@
-// backend/src/routes/adminMarketingRoutes.js
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -38,7 +37,7 @@ function adminOnly(req, res, next) {
     });
 }
 
-// ========= Zod schema pentru payload (campanie manuală) =========
+// ========= Zod schema pentru payload =========
 
 const AudienceEnum = z.enum(["ALL", "USERS", "VENDORS"]);
 
@@ -50,35 +49,34 @@ const SendCampaignSchema = z.object({
   testEmail: z.string().email().optional(),
 });
 
-// ========= GET /api/admin/marketing/stats =========
-router.get("/stats", authRequired, adminOnly, async (req, res) => {
-  try {
-    const [total, users, vendors] = await Promise.all([
-      prisma.user.count({ where: { marketingOptIn: true } }),
-      prisma.user.count({
-        where: { marketingOptIn: true, role: "USER" },
-      }),
-      prisma.user.count({
-        where: { marketingOptIn: true, role: "VENDOR" },
-      }),
-    ]);
-
-    return res.json({
-      subscribersTotal: total,
-      subscribersUsers: users,
-      subscribersVendors: vendors,
-    });
-  } catch (e) {
-    console.error("GET /api/admin/marketing/stats error:", e);
-    return res.status(500).json({ error: "stats_failed" });
-  }
+const UpdateNewsletterSubscriberSchema = z.object({
+  status: z.enum(["SUBSCRIBED", "UNSUBSCRIBED"]),
+  notes: z.string().optional(),
 });
 
-// ========= helper simplu pentru templating (campanie manuală) =========
+const CreateNewsletterSubscriberSchema = z.object({
+  email: z.string().email(),
+  source: z
+    .enum(["FOOTER", "ADMIN", "IMPORT", "CHECKOUT", "CONTACT", "OTHER"])
+    .default("ADMIN"),
+  sourceLabel: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+// ========= helpers =========
 
 const APP_URL = process.env.APP_URL || "https://artfest.ro";
 const R2_PUBLIC_BASE_URL =
   process.env.R2_PUBLIC_BASE_URL || "https://media.artfest.ro";
+
+const ALLOWED_NEWSLETTER_SOURCES = [
+  "FOOTER",
+  "ADMIN",
+  "IMPORT",
+  "CHECKOUT",
+  "CONTACT",
+  "OTHER",
+];
 
 function renderBodyTemplate(bodyHtml, user) {
   let out = bodyHtml;
@@ -96,16 +94,11 @@ function renderBodyTemplate(bodyHtml, user) {
   return out;
 }
 
-// ========= helper pentru trimis emailuri =========
-// adaptează la sistemul tău (SendGrid, Nodemailer etc.)
+// adaptează la sistemul tău real (SendGrid, Nodemailer etc.)
 async function sendMarketingEmail({ to, subject, html, preheader }) {
   console.log("TRIMIT EMAIL marketing către", to, { subject, preheader });
-  // TODO: înlocuiește cu implementarea reală (nodemailer / sendgrid etc.)
+  // TODO: înlocuiește cu implementarea reală
 }
-
-/* ===========================
-   DIGEST: FOLLOWED STORES
-=========================== */
 
 function toAbsoluteMediaUrl(u) {
   if (!u) return null;
@@ -116,8 +109,7 @@ function toAbsoluteMediaUrl(u) {
 }
 
 /**
- * ⚠️ Ajustează aici dacă ruta reală e altfel.
- * Exemplu: /product/:id sau /produs/:id etc.
+ * Ajustează dacă ruta ta publică este alta.
  */
 function productUrl(productId) {
   return `${APP_URL}/products/${encodeURIComponent(productId)}`;
@@ -125,7 +117,6 @@ function productUrl(productId) {
 
 function storeUrl(storeSlug) {
   if (!storeSlug) return `${APP_URL}/stores`;
-  // conform rutei tale publice: GET /api/public/store/:slug
   return `${APP_URL}/store/${encodeURIComponent(storeSlug)}`;
 }
 
@@ -223,8 +214,50 @@ function renderFollowedStoresDigestHtml({ user, grouped, days }) {
   `;
 }
 
+// ========= GET /api/admin/marketing/stats =========
+
+router.get("/stats", authRequired, adminOnly, async (req, res) => {
+  try {
+    const [
+      subscribersTotal,
+      subscribersUsers,
+      subscribersVendors,
+      unsubscribedTotal,
+    ] = await Promise.all([
+      prisma.newsletterSubscriber.count({
+        where: { status: "SUBSCRIBED" },
+      }),
+      prisma.newsletterSubscriber.count({
+        where: {
+          status: "SUBSCRIBED",
+          user: { role: "USER" },
+        },
+      }),
+      prisma.newsletterSubscriber.count({
+        where: {
+          status: "SUBSCRIBED",
+          user: { role: "VENDOR" },
+        },
+      }),
+      prisma.newsletterSubscriber.count({
+        where: { status: "UNSUBSCRIBED" },
+      }),
+    ]);
+
+    return res.json({
+      subscribersTotal,
+      subscribersUsers,
+      subscribersVendors,
+      unsubscribedTotal,
+    });
+  } catch (e) {
+    console.error("GET /api/admin/marketing/stats error:", e);
+    return res.status(500).json({ error: "stats_failed" });
+  }
+});
+
 // ========= GET /api/admin/marketing/preview-followed-stores =========
-// Exemplu: /preview-followed-stores?userId=...&days=7&maxPerStore=4&maxStores=6
+
 router.get(
   "/preview-followed-stores",
   authRequired,
@@ -246,9 +279,7 @@ router.get(
       );
 
       if (!userId) {
-        return res
-          .status(400)
-          .json({ ok: false, error: "userId_required" });
+        return res.status(400).json({ ok: false, error: "userId_required" });
       }
 
       const user = await prisma.user.findUnique({
@@ -257,9 +288,7 @@ router.get(
       });
 
       if (!user?.email) {
-        return res
-          .status(404)
-          .json({ ok: false, error: "user_not_found" });
+        return res.status(404).json({ ok: false, error: "user_not_found" });
       }
 
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -361,7 +390,8 @@ router.get(
   }
 );
 
-// ========= POST /api/admin/marketing/send ========= (campanie manuală)
+// ========= POST /api/admin/marketing/send =========
+
 router.post("/send", authRequired, adminOnly, async (req, res) => {
   try {
     const parsed = SendCampaignSchema.safeParse(req.body || {});
@@ -374,7 +404,7 @@ router.post("/send", authRequired, adminOnly, async (req, res) => {
 
     const { subject, preheader, bodyHtml, audience, testEmail } = parsed.data;
 
-    // Dacă e mod test -> trimitem DOAR la adresa de test
+    // test mode
     if (testEmail) {
       await sendMarketingEmail({
         to: testEmail,
@@ -401,20 +431,45 @@ router.post("/send", authRequired, adminOnly, async (req, res) => {
       return res.json({ ok: true, sentCount: 1, testMode: true });
     }
 
-    // -------- Campanie reală --------
-    const baseWhere = { marketingOptIn: true, email: { not: null } };
+    const baseWhere = {
+      status: "SUBSCRIBED",
+      email: { not: null },
+    };
 
     let where = baseWhere;
     if (audience === "USERS") {
-      where = { ...baseWhere, role: "USER" };
+      where = {
+        ...baseWhere,
+        user: { role: "USER" },
+      };
     } else if (audience === "VENDORS") {
-      where = { ...baseWhere, role: "VENDOR" };
+      where = {
+        ...baseWhere,
+        user: { role: "VENDOR" },
+      };
     }
 
-    const recipients = await prisma.user.findMany({
+    const recipientsRaw = await prisma.newsletterSubscriber.findMany({
       where,
-      select: { id: true, email: true, name: true, firstName: true },
+      select: {
+        id: true,
+        email: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            firstName: true,
+          },
+        },
+      },
     });
+
+    const recipients = recipientsRaw.map((row) => ({
+      id: row.user?.id || row.id,
+      email: row.email,
+      name: row.user?.name || null,
+      firstName: row.user?.firstName || null,
+    }));
 
     if (!recipients.length) {
       return res.json({
@@ -446,7 +501,13 @@ router.post("/send", authRequired, adminOnly, async (req, res) => {
           html,
           preheader,
         });
+
         sentCount += 1;
+
+        await prisma.newsletterSubscriber.updateMany({
+          where: { email: user.email },
+          data: { lastSentAt: new Date() },
+        });
       } catch (e) {
         console.error(
           `Eroare trimitere email către ${user.email} în campania ${campaign.id}:`,
@@ -482,8 +543,6 @@ const SendFollowedDigestSchema = z.object({
   days: z.number().int().min(1).max(60).default(7),
   maxPerStore: z.number().int().min(1).max(20).default(4),
   maxStores: z.number().int().min(1).max(50).default(6),
-
-  // test mode
   testEmail: z.string().email().optional(),
   testUserId: z.string().optional(),
 });
@@ -503,8 +562,15 @@ router.post(
         });
       }
 
-      const { subject, preheader, days, maxPerStore, maxStores, testEmail, testUserId } =
-        parsed.data;
+      const {
+        subject,
+        preheader,
+        days,
+        maxPerStore,
+        maxStores,
+        testEmail,
+        testUserId,
+      } = parsed.data;
 
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
@@ -588,7 +654,7 @@ router.post(
         });
       }
 
-      // ========== TEST MODE ==========
+      // test mode
       if (testEmail) {
         let user = null;
 
@@ -639,8 +705,7 @@ router.post(
         return res.json({ ok: true, testMode: true, sentCount: 1 });
       }
 
-      // ========== REAL SEND ==========
-      // eligibili: marketingOptIn true + email + ACTIVE + emailEnabled (sau prefs inexistente)
+      // real send
       const recipients = await prisma.user.findMany({
         where: {
           marketingOptIn: true,
@@ -652,7 +717,7 @@ router.post(
           ],
         },
         select: { id: true, email: true, name: true, firstName: true },
-        take: 5000, // limit inițial (safe). crești când ai queue.
+        take: 5000,
         orderBy: { createdAt: "desc" },
       });
 
@@ -677,7 +742,7 @@ router.post(
       for (const u of recipients) {
         try {
           const html = await buildHtmlForUser(u);
-          if (!html) continue; // nu trimitem dacă nu are noutăți
+          if (!html) continue;
 
           await sendMarketingEmail({
             to: u.email,
@@ -864,5 +929,250 @@ router.get("/user/:userId", authRequired, adminOnly, async (req, res) => {
     return res.status(500).json({ error: "user_prefs_fetch_failed" });
   }
 });
+
+/**
+ * GET /api/admin/marketing/newsletter-subscribers
+ */
+router.get(
+  "/newsletter-subscribers",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const page = Math.max(parseInt(req.query.page ?? "1", 10) || 1, 1);
+      const pageSizeRaw = parseInt(req.query.pageSize ?? "25", 10) || 25;
+      const pageSize = Math.min(Math.max(pageSizeRaw, 1), 200);
+
+      const q = String(req.query.q || "").trim();
+      const status = String(req.query.status || "").trim();
+      const source = String(req.query.source || "").trim();
+
+      const where = {
+        email: q
+          ? {
+              contains: q,
+              mode: "insensitive",
+            }
+          : undefined,
+        status:
+          status === "SUBSCRIBED" || status === "UNSUBSCRIBED"
+            ? status
+            : undefined,
+        source: ALLOWED_NEWSLETTER_SOURCES.includes(source)
+          ? source
+          : undefined,
+      };
+
+      const [items, total] = await Promise.all([
+        prisma.newsletterSubscriber.findMany({
+          where,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                role: true,
+                name: true,
+                firstName: true,
+                lastName: true,
+                marketingOptIn: true,
+                createdAt: true,
+              },
+            },
+          },
+        }),
+        prisma.newsletterSubscriber.count({ where }),
+      ]);
+
+      const rows = items.map((row) => ({
+        id: row.id,
+        email: row.email,
+        status: row.status,
+        source: row.source,
+        sourceLabel: row.sourceLabel || null,
+        notes: row.notes || null,
+        subscribedAt: row.subscribedAt,
+        unsubscribedAt: row.unsubscribedAt,
+        lastSentAt: row.lastSentAt || null,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        user: row.user
+          ? {
+              id: row.user.id,
+              email: row.user.email,
+              role: row.user.role,
+              name:
+                row.user.name ||
+                `${row.user.firstName ?? ""} ${row.user.lastName ?? ""}`.trim() ||
+                null,
+              marketingOptIn: row.user.marketingOptIn,
+              createdAt: row.user.createdAt,
+            }
+          : null,
+      }));
+
+      return res.json({
+        ok: true,
+        items: rows,
+        total,
+        page,
+        pageSize,
+      });
+    } catch (e) {
+      console.error(
+        "GET /api/admin/marketing/newsletter-subscribers error:",
+        e
+      );
+      return res
+        .status(500)
+        .json({ ok: false, error: "newsletter_list_failed" });
+    }
+  }
+);
+
+/**
+ * POST /api/admin/marketing/newsletter-subscribers
+ */
+router.post(
+  "/newsletter-subscribers",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const parsed = CreateNewsletterSubscriberSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid_payload",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const email = parsed.data.email.trim().toLowerCase();
+
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+
+      const item = await prisma.newsletterSubscriber.upsert({
+        where: { email },
+        update: {
+          status: "SUBSCRIBED",
+          unsubscribedAt: null,
+          source: parsed.data.source,
+          sourceLabel: parsed.data.sourceLabel || null,
+          notes: parsed.data.notes || null,
+          userId: existingUser?.id ?? null,
+        },
+        create: {
+          email,
+          status: "SUBSCRIBED",
+          source: parsed.data.source,
+          sourceLabel: parsed.data.sourceLabel || null,
+          notes: parsed.data.notes || null,
+          userId: existingUser?.id ?? null,
+        },
+      });
+
+      if (existingUser?.id) {
+        await prisma.user.update({
+          where: { id: existingUser.id },
+          data: { marketingOptIn: true },
+        });
+      }
+
+      return res.json({
+        ok: true,
+        item,
+      });
+    } catch (e) {
+      console.error(
+        "POST /api/admin/marketing/newsletter-subscribers error:",
+        e
+      );
+      return res
+        .status(500)
+        .json({ ok: false, error: "newsletter_create_failed" });
+    }
+  }
+);
+
+/**
+ * PATCH /api/admin/marketing/newsletter-subscribers/:id
+ */
+router.patch(
+  "/newsletter-subscribers/:id",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const parsed = UpdateNewsletterSubscriberSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid_payload",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const existing = await prisma.newsletterSubscriber.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          userId: true,
+        },
+      });
+
+      if (!existing) {
+        return res.status(404).json({
+          ok: false,
+          error: "newsletter_subscriber_not_found",
+        });
+      }
+
+      const { status, notes } = parsed.data;
+
+      const updated = await prisma.newsletterSubscriber.update({
+        where: { id: req.params.id },
+        data: {
+          status,
+          notes: notes ?? undefined,
+          unsubscribedAt: status === "UNSUBSCRIBED" ? new Date() : null,
+        },
+        include: {
+          user: {
+            select: { id: true },
+          },
+        },
+      });
+
+      if (updated.user?.id) {
+        await prisma.user.update({
+          where: { id: updated.user.id },
+          data: {
+            marketingOptIn: status === "SUBSCRIBED",
+          },
+        });
+      }
+
+      return res.json({
+        ok: true,
+        item: updated,
+      });
+    } catch (e) {
+      console.error(
+        "PATCH /api/admin/marketing/newsletter-subscribers/:id error:",
+        e
+      );
+      return res
+        .status(500)
+        .json({ ok: false, error: "newsletter_update_failed" });
+    }
+  }
+);
 
 export default router;

@@ -3,6 +3,7 @@ import { api } from "../../../lib/api";
 import styles from "./AdminMarketingPage.module.css";
 import AdminDigitalWaitlistTab from "./AdminDigitalWaitListTab";
 import AdminMarketplaceWaitlistTab from "./AdminMarketplaceWaitlistTab";
+import AdminNewsletterSubscribersTab from "./AdminNewsletterTab";
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -13,6 +14,7 @@ export default function AdminMarketingTab() {
     subscribersTotal: 0,
     subscribersUsers: 0,
     subscribersVendors: 0,
+    unsubscribedTotal: 0,
   });
 
   // campanie manuală
@@ -27,7 +29,7 @@ export default function AdminMarketingTab() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // 🔹 Tab intern: "campaign" | "prefs" | "digitalWaitlist" | "marketplaceWaitlist"
+  // 🔹 Tab intern: "campaign" | "prefs" | "newsletter" | "digitalWaitlist" | "marketplaceWaitlist"
   const [tab, setTab] = useState("campaign");
 
   // 🔹 stare pentru tabelul cu preferințe
@@ -60,22 +62,25 @@ export default function AdminMarketingTab() {
     [prefsTotal, prefsPageSize]
   );
 
-  // citește statistici despre abonați (o singură dată)
+  // citește statistici despre abonați
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const d = await api("/api/admin/marketing/stats").catch(() => null);
         if (!alive || !d) return;
+
         setStats({
           subscribersTotal: d.subscribersTotal ?? 0,
           subscribersUsers: d.subscribersUsers ?? 0,
           subscribersVendors: d.subscribersVendors ?? 0,
+          unsubscribedTotal: d.unsubscribedTotal ?? 0,
         });
       } catch {
         // nu blocăm UI
       }
     })();
+
     return () => {
       alive = false;
     };
@@ -85,15 +90,18 @@ export default function AdminMarketingTab() {
   async function loadPrefs(page = 1, q = prefsQuery) {
     setPrefsLoading(true);
     setPrefsError("");
+
     try {
       const params = new URLSearchParams();
       params.set("page", String(page));
       params.set("pageSize", String(prefsPageSize));
+
       if (q && q.trim()) {
         params.set("q", q.trim());
       }
 
       const d = await api(`/api/admin/marketing/prefs?${params.toString()}`);
+
       if (!d?.ok) {
         setPrefsError(
           d?.error || "Nu am putut încărca preferințele de marketing."
@@ -164,7 +172,7 @@ export default function AdminMarketingTab() {
         setMessage(
           testMode
             ? "Emailul de test a fost trimis."
-            : `Campania a fost lansată către ${res.sentCount ?? "abonati"} abonați.`
+            : `Campania a fost lansată către ${res.sentCount ?? "abonați"} abonați.`
         );
       } else {
         setError(
@@ -238,16 +246,25 @@ export default function AdminMarketingTab() {
               {stats.subscribersTotal}
             </span>
           </div>
+
           <div className={styles.marketingStatItem}>
             <span className={styles.marketingStatLabel}>Useri (clienți)</span>
             <span className={styles.marketingStatVal}>
               {stats.subscribersUsers}
             </span>
           </div>
+
           <div className={styles.marketingStatItem}>
             <span className={styles.marketingStatLabel}>Vendori</span>
             <span className={styles.marketingStatVal}>
               {stats.subscribersVendors}
+            </span>
+          </div>
+
+          <div className={styles.marketingStatItem}>
+            <span className={styles.marketingStatLabel}>Dezabonați</span>
+            <span className={styles.marketingStatVal}>
+              {stats.unsubscribedTotal}
             </span>
           </div>
         </div>
@@ -277,6 +294,17 @@ export default function AdminMarketingTab() {
             type="button"
             className={cx(
               styles.tabBtn,
+              tab === "newsletter" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("newsletter")}
+          >
+            Abonați newsletter
+          </button>
+
+          <button
+            type="button"
+            className={cx(
+              styles.tabBtn,
               tab === "digitalWaitlist" && styles.tabBtnActive
             )}
             onClick={() => setTab("digitalWaitlist")}
@@ -295,6 +323,9 @@ export default function AdminMarketingTab() {
             Waitlist marketplace
           </button>
         </div>
+
+        {/* TAB: Newsletter subscribers */}
+        {tab === "newsletter" && <AdminNewsletterSubscribersTab />}
 
         {/* TAB: Waitlist servicii digitale */}
         {tab === "digitalWaitlist" && <AdminDigitalWaitlistTab />}
@@ -409,8 +440,8 @@ export default function AdminMarketingTab() {
                         ? "Se trimite digest-ul de test…"
                         : "Se trimite digest-ul…"
                       : digestTestMode
-                      ? "Trimite digest de test"
-                      : "Trimite digest către abonați"}
+                        ? "Trimite digest de test"
+                        : "Trimite digest către abonați"}
                   </button>
                 </div>
               </form>
@@ -422,7 +453,8 @@ export default function AdminMarketingTab() {
                 <h3>Campanie rapidă email</h3>
                 <p className={styles.subtle}>
                   Trimite un email către utilizatorii care au acceptat marketing-ul
-                  (marketingOptIn = true). Ai grijă să incluzi link de dezabonare.
+                  și către abonații existenți din lista de newsletter. Ai grijă să
+                  incluzi link de dezabonare.
                 </p>
               </div>
 
@@ -512,8 +544,8 @@ export default function AdminMarketingTab() {
                       ? "Se trimite emailul de test…"
                       : "Se lansează campania…"
                     : testMode
-                    ? "Trimite email de test"
-                    : "Trimite campania"}
+                      ? "Trimite email de test"
+                      : "Trimite campania"}
                 </button>
               </div>
             </form>
@@ -521,8 +553,8 @@ export default function AdminMarketingTab() {
             <div className={styles.cardMuted}>
               <h4>Istoric campanii (de implementat ulterior)</h4>
               <p className={styles.subtle}>
-                Aici poți lista campaniile salvate în DB (subiect, dată, audiență,
-                număr destinatari, etc.).
+                Aici poți lista campaniile salvate în DB: subiect, dată, audiență,
+                număr destinatari, număr trimise etc.
               </p>
             </div>
           </>
@@ -539,6 +571,7 @@ export default function AdminMarketingTab() {
                   (din <code>UserMarketingPrefs</code>).
                 </p>
               </div>
+
               <div className={styles.prefsFilters}>
                 <input
                   type="search"
@@ -552,6 +585,7 @@ export default function AdminMarketingTab() {
                     }
                   }}
                 />
+
                 <button
                   type="button"
                   onClick={() => loadPrefs(1)}
@@ -625,6 +659,7 @@ export default function AdminMarketingTab() {
                   <span>
                     Pagina {prefsPage} din {totalPages} (total {prefsTotal} rânduri)
                   </span>
+
                   <div className={styles.prefsPaginationBtns}>
                     <button
                       type="button"
@@ -633,6 +668,7 @@ export default function AdminMarketingTab() {
                     >
                       &larr; Anterioară
                     </button>
+
                     <button
                       type="button"
                       disabled={prefsPage >= totalPages}

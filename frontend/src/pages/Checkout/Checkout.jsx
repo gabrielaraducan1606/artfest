@@ -6,8 +6,6 @@ import styles from "./Checkout.module.css";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
-const SHIPPING_PER_VENDOR = 15;
-
 const isHttp = (u = "") => /^https?:\/\//i.test(u);
 const isDataOrBlob = (u = "") => /^(data|blob):/i.test(u);
 
@@ -66,6 +64,38 @@ function buildFullName(address) {
   return `${normalizeText(address.lastName)} ${normalizeText(
     address.firstName
   )}`.trim();
+}
+
+function getGroupSubtotal(group) {
+  return round2(
+    (group?.items || []).reduce(
+      (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
+      0
+    )
+  );
+}
+
+function getGroupShipping(group) {
+  const subtotal = getGroupSubtotal(group);
+
+  const estimated = Number(group?.estimatedShippingFee ?? 0);
+  const freeThreshold =
+    group?.freeShippingThreshold !== null &&
+    group?.freeShippingThreshold !== undefined
+      ? Number(group.freeShippingThreshold)
+      : null;
+
+  const qualifiesFreeShipping =
+    freeThreshold !== null && subtotal >= freeThreshold;
+
+  return {
+    subtotal,
+    estimatedShippingFee: round2(estimated),
+    freeShippingThreshold:
+      freeThreshold !== null ? round2(freeThreshold) : null,
+    qualifiesFreeShipping,
+    finalShipping: qualifiesFreeShipping ? 0 : round2(estimated),
+  };
 }
 
 function validateCheckoutForm({
@@ -131,7 +161,8 @@ function validateCheckoutForm({
     if (!normalizeText(billingCompany.companyCui)) {
       errors.companyCui = "Completează CUI-ul firmei.";
     } else if (!isValidCui(billingCompany.companyCui)) {
-      errors.companyCui = "CUI-ul trebuie să fie de forma 12345678 sau RO12345678.";
+      errors.companyCui =
+        "CUI-ul trebuie să fie de forma 12345678 sau RO12345678.";
     }
 
     if (!billingCompany.county) {
@@ -436,6 +467,7 @@ export default function Checkout() {
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [currency, setCurrency] = useState("RON");
 
   const [shippingAddress, setShippingAddress] = useState({
@@ -573,25 +605,39 @@ export default function Checkout() {
       .sort((a, b) => a.name.localeCompare(b.name, "ro"));
   }, [counties, companyCountyInput]);
 
-  const vendors = useMemo(() => {
+  const serviceGroups = useMemo(() => {
+    if (Array.isArray(groups) && groups.length > 0) return groups;
+
     const map = new Map();
 
     for (const it of items) {
-      const vendorKey = String(it.vendorId || "unknown");
-      if (!map.has(vendorKey)) map.set(vendorKey, []);
-      map.get(vendorKey).push(it);
+      const serviceKey = String(it.serviceId || "unknown");
+
+      if (!map.has(serviceKey)) {
+        map.set(serviceKey, {
+          serviceId: it.serviceId || null,
+          vendorId: it.vendorId || null,
+          serviceTitle: "Magazin",
+          estimatedShippingFee:
+            it.estimatedShippingFee !== null &&
+            it.estimatedShippingFee !== undefined
+              ? Number(it.estimatedShippingFee)
+              : 0,
+          freeShippingThreshold:
+            it.freeShippingThreshold !== null &&
+            it.freeShippingThreshold !== undefined
+              ? Number(it.freeShippingThreshold)
+              : null,
+          shippingNotes: it.shippingNotes || null,
+          items: [],
+        });
+      }
+
+      map.get(serviceKey).items.push(it);
     }
 
-    return Array.from(map.entries()).map(([vendorId, vendorItems]) => ({
-      vendorId,
-      items: vendorItems,
-    }));
-  }, [items]);
-
-  const shippingTotal = useMemo(
-    () => vendors.length * SHIPPING_PER_VENDOR,
-    [vendors.length]
-  );
+    return Array.from(map.values());
+  }, [groups, items]);
 
   const vatTotals = useMemo(() => {
     let totalNet = 0;
@@ -626,6 +672,15 @@ export default function Checkout() {
       totalGross: round2(totalGross),
     };
   }, [items]);
+
+  const shippingTotal = useMemo(() => {
+    return round2(
+      serviceGroups.reduce(
+        (sum, group) => sum + getGroupShipping(group).finalShipping,
+        0
+      )
+    );
+  }, [serviceGroups]);
 
   const grandTotal = useMemo(
     () => round2(vatTotals.totalGross + shippingTotal),
@@ -818,6 +873,7 @@ export default function Checkout() {
         if (cancelled) return;
 
         setItems(Array.isArray(summary?.items) ? summary.items : []);
+        setGroups(Array.isArray(summary?.groups) ? summary.groups : []);
         setCurrency(summary?.currency || "RON");
 
         try {
@@ -1139,9 +1195,9 @@ export default function Checkout() {
 
       alert("Comanda a fost înregistrată.");
       nav("/comenzile-mele");
-   } catch (e) {
-  setError(getReadableApiError(e));
-} finally {
+    } catch (e) {
+      setError(getReadableApiError(e));
+    } finally {
       setPlacing(false);
     }
   }
@@ -2119,28 +2175,62 @@ export default function Checkout() {
             <section className={styles.card}>
               <h3 className={styles.cardTitle}>Metodă de livrare</h3>
               <p className={styles.muted}>
-                Livrare standard prin curier: <strong>15 lei / magazin</strong>.
-                Dacă ai produse de la mai mulți artizani, costul de transport se
-                calculează separat pentru fiecare.
+                Costul de transport se calculează separat pentru fiecare
+                magazin, pe baza tarifelor configurate de vendor.
               </p>
 
               <div className={styles.shipGrid}>
-                {vendors.map((g) => {
-                  const key = String(g.vendorId);
-                  const vendorLabel =
-                    key === "unknown" ? "Magazin" : `Magazin #${key.slice(0, 6)}…`;
+                {serviceGroups.map((group) => {
+                  const shipping = getGroupShipping(group);
+                  const key = String(group.serviceId || group.vendorId || "unknown");
+                  const label =
+                    group.serviceTitle?.trim() ||
+                    (group.serviceId
+                      ? `Magazin #${String(group.serviceId).slice(0, 6)}…`
+                      : "Magazin");
 
                   return (
                     <div key={key} className={styles.vendorBox}>
                       <div className={styles.vendorHead}>
-                        <strong>{vendorLabel}</strong>
-                        <span>{g.items.length} produse</span>
+                        <strong>{label}</strong>
+                        <span>{group.items?.length || 0} produse</span>
                       </div>
 
                       <div className={styles.summaryRow}>
-                        <span>Curier standard</span>
-                        <strong>{money(SHIPPING_PER_VENDOR, currency)}</strong>
+                        <span>Subtotal magazin</span>
+                        <strong>{money(shipping.subtotal, currency)}</strong>
                       </div>
+
+                      <div className={styles.summaryRow}>
+                        <span>Transport estimativ</span>
+                        <strong>
+                          {money(shipping.estimatedShippingFee, currency)}
+                        </strong>
+                      </div>
+
+                      {shipping.freeShippingThreshold !== null && (
+                        <div className={styles.summaryRow}>
+                          <span>Transport gratuit de la</span>
+                          <strong>
+                            {money(shipping.freeShippingThreshold, currency)}
+                          </strong>
+                        </div>
+                      )}
+
+                      <div className={styles.summaryRow}>
+                        <span>Transport aplicat</span>
+                        <strong>
+                          {shipping.qualifiesFreeShipping
+                            ? "Gratuit"
+                            : money(shipping.finalShipping, currency)}
+                        </strong>
+                      </div>
+
+                      {group.shippingNotes && (
+                        <p className={styles.muted} style={{ marginTop: 8 }}>
+                          {group.shippingNotes}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -2159,8 +2249,8 @@ export default function Checkout() {
               <h3 className={styles.cardTitle}>Sumar comandă</h3>
 
               <p className={styles.muted}>
-                Ai produse de la <strong>{vendors.length}</strong>{" "}
-                {vendors.length === 1
+                Ai produse de la <strong>{serviceGroups.length}</strong>{" "}
+                {serviceGroups.length === 1
                   ? "magazin (artizan)."
                   : "magazine (artizani)."}{" "}
                 Fiecare pregătește și trimite produsele separat.

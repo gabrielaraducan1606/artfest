@@ -85,7 +85,8 @@ import adminPickupsRoutes from "./src/routes/adminPickupsRoutes.js";
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
-
+import adminProductsRoutes from "./src/routes/adminProducts.js";
+import newsletterRoutes from "./src/routes/newsletterRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -410,6 +411,7 @@ app.use("/api/admin", adminMarketplaceWaitlistRouter);
 app.use("/api/admin", adminSubscriptions);
 app.use("/api/admin", adminPickupsRoutes);
 app.use("/api/admin", adminInvoicesRoutes);
+app.use("/api/admin", adminProductsRoutes);
 
 app.use("/api", platformBillingRouter);
 
@@ -419,7 +421,7 @@ app.use("/api/admin", adminPolicyNotificationsRoutes);
 /* ---------------- RUTE GUEST ---------------- */
 app.use("/api/upload", uploadRoutes);
 app.use("/api/guest", GuestSupportRoutes);
-
+app.use("/api/newsletter", newsletterRoutes);
 /* ---------------- RUTE USER ---------------- */
 app.use("/api/support", UserSupportRoutes);
 app.post("/api/account/change-password", authRequired, changePassword);

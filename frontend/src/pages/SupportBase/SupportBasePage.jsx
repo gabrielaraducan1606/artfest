@@ -175,7 +175,19 @@ const DEFAULT_FAQ_ITEMS = [
 /* ========= Utils ========= */
 const nowIso = () => new Date().toISOString();
 const isImg = (v = "") => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(v);
+function formatBytes(bytes) {
+  if (!bytes || Number.isNaN(Number(bytes))) return "";
+  const n = Number(bytes);
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
+function getFileExt(name = "") {
+  const clean = String(name).split("?")[0];
+  const parts = clean.split(".");
+  return parts.length > 1 ? parts.pop().toUpperCase() : "FILE";
+}
 function fmtTime(ts) {
   if (!ts) return "";
   const d = new Date(ts);
@@ -2045,21 +2057,50 @@ function MessageBubble({ m, onEdit, onDelete }) {
 
          {m.attachments?.length ? (
   <div className={styles.attachList}>
+    {m.attachments?.length ? (
+  <div className={styles.attachGrid}>
     {m.attachments.map((a, i) => {
       const title = a.name || a.filename || `Atașament ${i + 1}`;
+      const isImage = isImg(title || a.url || "");
+      const ext = getFileExt(title);
+      const sizeLabel = formatBytes(a.size);
+
       return (
         <button
           key={i}
           type="button"
           onClick={() => setPreview({ ...a, name: title })}
-          className={styles.attachLine}
+          className={styles.attachCard}
           title={title}
         >
-          <Paperclip size={14} />
-          <span className={styles.attachTitle}>{title}</span>
+          {isImage ? (
+            <div className={styles.attachThumbWrap}>
+              <img
+                src={a.url}
+                alt={title}
+                className={styles.attachThumb}
+                loading="lazy"
+              />
+            </div>
+          ) : (
+            <div className={styles.attachIconBox}>
+              <Paperclip size={16} />
+              <span className={styles.attachExt}>{ext}</span>
+            </div>
+          )}
+
+          <div className={styles.attachMeta}>
+            <div className={styles.attachName}>{title}</div>
+            <div className={styles.attachSub}>
+              <span>{ext}</span>
+              {sizeLabel ? <span>• {sizeLabel}</span> : null}
+            </div>
+          </div>
         </button>
       );
     })}
+  </div>
+) : null}
   </div>
 ) : null}
 

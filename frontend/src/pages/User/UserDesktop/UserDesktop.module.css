@@ -883,3 +883,313 @@ a:active,
     font-size: 0.82rem;
   }
 }
+@media (max-width: 640px) {
+  .page {
+    padding: 12px;
+  }
+
+  .head {
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .h1 {
+    font-size: 1.35rem;
+    line-height: 1.2;
+  }
+
+  .subtle {
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+
+  .headRight {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .searchBar {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .searchBarInput {
+    min-height: 44px;
+    font-size: 0.95rem;
+    padding: 11px 14px 11px 40px;
+  }
+
+  .searchBarIconBtn {
+    left: 10px;
+    width: 26px;
+    height: 26px;
+  }
+
+  .filterButtons {
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .iconBtn {
+    min-height: 42px;
+    padding: 8px 12px;
+  }
+
+  .tabs {
+    display: none !important;
+  }
+
+  .list {
+    gap: 10px;
+  }
+
+  .card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .cardHead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+
+  .orderMeta {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .orderId {
+    font-size: 0.98rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .date {
+    font-size: 0.85rem;
+  }
+
+  .total {
+    font-size: 0.96rem;
+  }
+
+  .badge {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+
+  .cardBody {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .cardBodyRight {
+    align-items: stretch;
+    min-width: 0;
+    width: 100%;
+    padding-top: 0;
+    gap: 10px;
+  }
+
+  .itemList {
+    gap: 10px;
+    padding-top: 10px;
+  }
+
+  .item {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .thumb {
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .itemInfo {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .itemTitle,
+  .itemTitleLink {
+    font-size: 0.94rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .itemMeta {
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
+
+  .actionsRow {
+    gap: 8px;
+    padding-top: 12px;
+    margin-top: 10px;
+  }
+
+  .actionsRow > * {
+    flex: 1 1 100%;
+  }
+
+  .btnPrimary,
+  .btnGhost,
+  .btnWarn {
+    width: 100%;
+    min-height: 42px;
+    padding: 10px 12px;
+    text-align: center;
+    justify-content: center;
+    font-size: 0.93rem;
+  }
+
+  .empty {
+    margin: 22px auto;
+    padding: 22px 16px;
+    border-radius: 14px;
+  }
+
+  .emptyTitle {
+    font-size: 1rem;
+  }
+
+  .tableWrap {
+    margin-top: 10px;
+    border-radius: 12px;
+  }
+
+  .table {
+    font-size: 0.84rem;
+    min-width: 560px;
+  }
+
+  .table th,
+  .table td {
+    padding: 7px 6px;
+  }
+
+  .loadMoreWrap {
+    margin: 16px 0 8px;
+  }
+
+  .loadMoreWrap .btnGhost {
+    width: 100%;
+    max-width: none;
+  }
+
+  .modalBackdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    border-radius: 18px 18px 0 0;
+    padding: 16px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+
+  .modalHead {
+    margin-bottom: 10px;
+  }
+
+  .modalTitle {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .modalBody {
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .modalBody label {
+    gap: 6px;
+    font-size: 0.92rem;
+  }
+
+  .modalBody input[type="text"] {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+  }
+
+  .modalSectionLabel {
+    margin-bottom: 6px;
+    font-size: 0.84rem;
+  }
+
+  .statusPills {
+    gap: 8px;
+  }
+
+  .statusPill {
+    min-height: 38px;
+    padding: 7px 12px;
+    font-size: 0.88rem;
+  }
+
+  .modalActions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .modalActions .btnGhost,
+  .modalActions .btnPrimary {
+    width: 100%;
+  }
+}@media (max-width: 380px) {
+  .page {
+    padding: 10px;
+  }
+
+  .h1 {
+    font-size: 1.2rem;
+  }
+
+  .subtle {
+    font-size: 0.88rem;
+  }
+
+  .card {
+    padding: 10px;
+  }
+
+  .orderId {
+    font-size: 0.94rem;
+  }
+
+  .date,
+  .itemMeta {
+    font-size: 0.8rem;
+  }
+
+  .itemTitle,
+  .itemTitleLink {
+    font-size: 0.9rem;
+  }
+
+  .btnPrimary,
+  .btnGhost,
+  .btnWarn {
+    font-size: 0.9rem;
+    padding: 9px 10px;
+  }
+
+  .searchBarInput {
+    font-size: 0.92rem;
+  }
+}

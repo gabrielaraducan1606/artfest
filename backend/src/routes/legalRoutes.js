@@ -20,6 +20,7 @@ router.get("/legal/:type/v/:version.html", getLegalHtml);
 // Slug-uri frumoase -> redirect către HTML (latest)
 router.get("/termenii-si-conditiile", (req, res) => res.redirect("/legal/tos.html"));
 router.get("/confidentialitate", (req, res) => res.redirect("/legal/privacy.html"));
+router.get("/cookies", (req, res) => res.redirect("/legal/cookies.html"));
 router.get("/acord-vanzatori", (req, res) => res.redirect("/legal/vendor_terms.html"));
 router.get("/politica-retur", (req, res) => res.redirect("/legal/returns_policy_ack.html"));
 router.get("/anexa-expediere", (req, res) => res.redirect("/legal/shipping_addendum.html"));

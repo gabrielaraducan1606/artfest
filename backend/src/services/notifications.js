@@ -70,6 +70,7 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
     select: {
       id: true,
       vendorId: true,
+      serviceId: true,
       rating: true,
       comment: true,
       createdAt: true,
@@ -80,12 +81,16 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
         select: {
           id: true,
           displayName: true,
-          services: {
-            where: { status: "ACTIVE" },
-            take: 1,
+        },
+      },
+      service: {
+        select: {
+          id: true,
+          title: true,
+          profile: {
             select: {
-              id: true,
-              profile: { select: { slug: true } },
+              slug: true,
+              displayName: true,
             },
           },
         },
@@ -93,18 +98,23 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
     },
   });
 
-  if (!review || !review.vendorId) return null;
+  if (!review || !review.vendorId || !review.serviceId) return null;
 
   const vendorId = review.vendorId;
-
   const rating = Number(review.rating || 0);
   const ratingStr = rating ? `${rating}/5` : "recenzie nouă";
-  const storeName = review.vendor?.displayName || "magazinul tău";
+
+  const storeName =
+    review.service?.profile?.displayName ||
+    review.service?.title ||
+    review.vendor?.displayName ||
+    "magazinul tău";
 
   const authorName =
-    (review.user?.name ||
-      [review.user?.firstName, review.user?.lastName].filter(Boolean).join(" "))?.trim() ||
-    "";
+    (
+      review.user?.name ||
+      [review.user?.firstName, review.user?.lastName].filter(Boolean).join(" ")
+    )?.trim() || "";
 
   const author = authorName ? ` de la ${authorName}` : "";
   const preview = trimPreview(review.comment);
@@ -113,13 +123,12 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
   let body = `Ai primit o recenzie nouă pentru ${storeName}${author}.`;
   if (preview) body += `\n\n„${preview}”`;
 
-  const storeSlug = review.vendor?.services?.[0]?.profile?.slug;
+  const storeSlug = review.service?.profile?.slug || null;
 
   const link = storeSlug
     ? `/magazin/${storeSlug}#review-${review.id}`
-    : `/magazin/${vendorId}#review-${review.id}`;
+    : `/magazin/${review.serviceId}#review-${review.id}`;
 
-  // ✅ dedupe atomic (fără race condition)
   const dedupeKey = `store_review_created:${vendorId}:${review.id}`;
 
   return createVendorNotification(vendorId, {
@@ -132,7 +141,8 @@ export async function notifyVendorOnStoreReviewCreated(reviewId) {
       kind: "store_review_created",
       reviewId: review.id,
       vendorId,
-      storeSlug: storeSlug || null,
+      serviceId: review.serviceId,
+      storeSlug,
     },
   });
 }
@@ -146,41 +156,53 @@ export async function notifyUserOnStoreReviewReply(reviewId) {
       id: true,
       userId: true,
       vendorId: true,
+      serviceId: true,
       vendor: {
         select: {
           id: true,
           displayName: true,
-          services: {
-            where: { status: "ACTIVE" },
-            take: 1,
+        },
+      },
+      service: {
+        select: {
+          id: true,
+          title: true,
+          profile: {
             select: {
-              id: true,
-              profile: { select: { slug: true } },
+              slug: true,
+              displayName: true,
             },
           },
         },
       },
-      reply: { select: { text: true, updatedAt: true, createdAt: true } },
+      reply: {
+        select: { text: true, updatedAt: true, createdAt: true },
+      },
     },
   });
 
   if (!review?.userId) return null;
-  if (!review.reply?.text) return null;
+  if (!review?.reply?.text) return null;
 
-  const vendorName = review.vendor?.displayName || "Magazin";
+  const vendorName =
+    review.service?.profile?.displayName ||
+    review.service?.title ||
+    review.vendor?.displayName ||
+    "Magazin";
+
   const text = String(review.reply.text || "").trim();
-  const preview = text.length > 140 ? text.slice(0, 137).trimEnd() + "..." : text;
+  const preview =
+    text.length > 140 ? text.slice(0, 137).trimEnd() + "..." : text;
 
   const title = `${vendorName} ți-a răspuns la recenzie`;
   const body = preview || "Ai primit un răspuns la recenzia ta.";
 
-  const storeSlug = review.vendor?.services?.[0]?.profile?.slug;
+  const storeSlug = review.service?.profile?.slug || null;
 
   const link = storeSlug
     ? `/magazin/${storeSlug}#review-${review.id}`
-    : `/magazin/${review.vendorId}#review-${review.id}`;
+    : `/magazin/${review.serviceId}#review-${review.id}`;
 
-  // ✅ dedupe atomic (un răspuns per review)
   const dedupeKey = `store_review_reply:${review.userId}:${review.id}`;
 
   return createUserNotification(review.userId, {
@@ -192,7 +214,8 @@ export async function notifyUserOnStoreReviewReply(reviewId) {
     meta: {
       reviewId: review.id,
       vendorId: review.vendorId,
-      storeSlug: storeSlug || null,
+      serviceId: review.serviceId,
+      storeSlug,
       kind: "store_review_reply",
     },
   });

@@ -9,10 +9,83 @@ import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
 const router = Router();
 
 /* -----------------------------------------
+   Micro cache in-memory pentru browsing public
+------------------------------------------*/
+
+const LIST_CACHE_TTL_MS = 60_000;
+const LIST_CACHE_TTL_DEFAULT_FIRST_PAGE_MS = 180_000;
+const SUGGEST_CACHE_TTL_MS = 60_000;
+
+const PUBLIC_LIST_CACHE = new Map();
+const SUGGEST_CACHE = new Map();
+
+function getCache(map, key) {
+  const entry = map.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    map.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCache(map, key, value, ttlMs) {
+  map.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs,
+  });
+
+  if (map.size > 500) {
+    const firstKey = map.keys().next().value;
+    if (firstKey) map.delete(firstKey);
+  }
+}
+
+function buildListCacheKey(req) {
+  const qp = new URLSearchParams();
+
+  const keys = [
+    "page",
+    "limit",
+    "ids",
+    "q",
+    "category",
+    "categorie",
+    "serviceType",
+    "type",
+    "city",
+    "sort",
+    "minPrice",
+    "min",
+    "maxPrice",
+    "max",
+    "color",
+    "materialMain",
+    "material",
+    "technique",
+    "styleTag",
+    "style",
+    "occasionTag",
+    "occasion",
+    "availability",
+    "acceptsCustom",
+    "leadTimeMax",
+  ];
+
+  for (const key of keys) {
+    const val = req.query[key];
+    if (val !== undefined && val !== null && String(val).trim() !== "") {
+      qp.set(key, String(val).trim());
+    }
+  }
+
+  return qp.toString();
+}
+
+/* -----------------------------------------
    Utils
 ------------------------------------------*/
 
-// doar câmpurile de care are nevoie front-ul pentru textul de TVA
 function mapPublicBilling(billing) {
   if (!billing) return null;
   return {
@@ -36,19 +109,18 @@ function buildOrderBy(sort) {
   }
 }
 
-// select pentru produsele folosite în listă
+// select ultra-light pentru grid / listă publică
 const baseProductSelect = {
   id: true,
   title: true,
-  description: true,
   priceCents: true,
   currency: true,
   images: true,
+
   isActive: true,
   isHidden: true,
   category: true,
   color: true,
-  colorVariants: true,
 
   availability: true,
   leadTimeDays: true,
@@ -56,81 +128,27 @@ const baseProductSelect = {
   nextShipDate: true,
   acceptsCustom: true,
 
-  materialMain: true,
-  technique: true,
-  styleTags: true,
-  occasionTags: true,
-  dimensions: true,
-  careInstructions: true,
-  specialNotes: true,
-
-  popularityScore: true,
   createdAt: true,
 
   service: {
     select: {
       id: true,
-      profile: { select: { displayName: true, slug: true } },
+      profile: {
+        select: {
+          displayName: true,
+          slug: true,
+        },
+      },
       vendor: {
         select: {
           userId: true,
           displayName: true,
-          billing: {
-            select: { tvaActive: true, vatRate: true, vatStatus: true },
-          },
         },
       },
     },
   },
 };
 
-/**
- * Atașează averageRating + reviewsCount (din productRatingStats) la produsele din listă.
- * - Dacă modelul/tabela nu există încă în Prisma, NU crăpăm => punem 0.
- */
-async function attachRatingStatsToProducts(productsRaw) {
-  const list = Array.isArray(productsRaw) ? productsRaw : [];
-  const ids = list.map((p) => p?.id).filter(Boolean);
-  if (!ids.length) return list;
-
-  // ✅ fallback safe dacă modelul nu există
-  if (!prisma.productRatingStats) {
-    return list.map((p) => ({ ...p, averageRating: 0, reviewsCount: 0 }));
-  }
-
-  const statsRows = await prisma.productRatingStats.findMany({
-    where: { productId: { in: ids } },
-    select: {
-      productId: true,
-      avg: true,
-      c1: true,
-      c2: true,
-      c3: true,
-      c4: true,
-      c5: true,
-    },
-  });
-
-  const statsMap = new Map(
-    statsRows.map((s) => {
-      const count =
-        (s.c1 || 0) + (s.c2 || 0) + (s.c3 || 0) + (s.c4 || 0) + (s.c5 || 0);
-      const avg = Number(s.avg || 0);
-      return [String(s.productId), { averageRating: avg, reviewsCount: count }];
-    })
-  );
-
-  return list.map((p) => {
-    const st = statsMap.get(String(p.id));
-    return {
-      ...p,
-      averageRating: st?.averageRating ?? 0,
-      reviewsCount: st?.reviewsCount ?? 0,
-    };
-  });
-}
-
-// mic “stemmer” tolerant pt. text liber
 function expandTokenForSearch(t) {
   const token = String(t || "").toLowerCase();
   const out = new Set();
@@ -177,9 +195,6 @@ const buildTextWhereFromTokens = (tokensRaw) => {
     makeFieldCond("color"),
     makeFieldCond("materialMain"),
     makeFieldCond("technique"),
-    makeFieldCond("dimensions"),
-    makeFieldCond("careInstructions"),
-    makeFieldCond("specialNotes"),
   ];
 
   if (tokens.length === 1) {
@@ -191,69 +206,62 @@ const buildTextWhereFromTokens = (tokensRaw) => {
   return { OR: or };
 };
 
-// helper pt. listă: scurtează descrierea ca să fie payload mic
-function shortText(s, max = 180) {
+function shortText(s, max = 140) {
   const t = String(s || "").trim();
   if (!t) return "";
   return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
 }
 
-// Helper pentru maparea produsului spre front (inclusiv storeName + storeSlug)
 function mapPublicProduct(p) {
   const storeName =
-    p?.service?.profile?.displayName || p?.service?.vendor?.displayName || "Magazin";
+    p?.service?.profile?.displayName ||
+    p?.service?.vendor?.displayName ||
+    "Magazin";
+
   const storeSlug = p?.service?.profile?.slug || null;
-
-  const serviceSafe = p.service
-    ? {
-        ...p.service,
-        vendor: p.service.vendor
-          ? {
-              ...p.service.vendor,
-              billing: mapPublicBilling(p.service.vendor.billing),
-            }
-          : null,
-      }
-    : null;
-
   const unitPrice = p.priceCents != null ? p.priceCents / 100 : 0;
 
   return {
     id: p.id,
     title: p.title,
-    // ✅ OPT: descriere scurtă în LISTĂ (detaliile rămân full în /products/:id)
-    description: shortText(p.description || "", 180),
 
     images: Array.isArray(p.images) ? p.images : [],
     priceCents: p.priceCents ?? 0,
     price: unitPrice,
     currency: p.currency || "RON",
+
     isActive: p.isActive,
     isHidden: !!p.isHidden,
     category: p.category || null,
     color: p.color || null,
-    colorVariants: Array.isArray(p.colorVariants) ? p.colorVariants : [],
 
-    availability: typeof p.availability === "string" ? p.availability.toUpperCase() : null,
+    availability:
+      typeof p.availability === "string" ? p.availability.toUpperCase() : null,
     leadTimeDays: p.leadTimeDays ?? null,
     readyQty: p.readyQty ?? null,
     nextShipDate: p.nextShipDate ?? null,
     acceptsCustom: !!p.acceptsCustom,
 
-    materialMain: p.materialMain || null,
-    technique: p.technique || null,
-    styleTags: Array.isArray(p.styleTags) ? p.styleTags : [],
-    occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
-    dimensions: p.dimensions || null,
-    careInstructions: p.careInstructions || null,
-    specialNotes: p.specialNotes || null,
+    service: p.service
+      ? {
+          id: p.service.id,
+          profile: p.service.profile
+            ? {
+                displayName: p.service.profile.displayName,
+                slug: p.service.profile.slug,
+              }
+            : null,
+          vendor: p.service.vendor
+            ? {
+                userId: p.service.vendor.userId,
+                displayName: p.service.vendor.displayName,
+              }
+            : null,
+        }
+      : null,
 
-    service: serviceSafe,
     storeName,
     storeSlug,
-
-    averageRating: typeof p.averageRating === "number" ? p.averageRating : 0,
-    reviewsCount: typeof p.reviewsCount === "number" ? p.reviewsCount : 0,
   };
 }
 
@@ -271,21 +279,38 @@ router.post("/products/search-by-image", uploadSearchImage, async (req, res) => 
     }
 
     const emb = await imageToEmbedding(file.buffer);
-    const pgVec = toPgVectorLiteral(emb);
 
+    let allZero = true;
+    for (let i = 0; i < emb.length; i++) {
+      if (emb[i] !== 0) {
+        allZero = false;
+        break;
+      }
+    }
+
+    if (allZero) {
+      return res.status(500).json({
+        error: "EMBEDDING_FAILED",
+        message: "Nu am putut calcula embedding pentru imagine.",
+      });
+    }
+
+    const pgVec = toPgVectorLiteral(emb);
     const k = 100;
+
     const rows = await prisma.$queryRawUnsafe(
       `
-      SELECT product_id, (embedding <=> CAST($1 AS vector)) AS score
-      FROM product_image_embeddings
-      ORDER BY embedding <=> CAST($1 AS vector)
+      SELECT "productId", MIN(embedding <=> CAST($1 AS vector)) AS score
+      FROM public.product_image_embeddings
+      GROUP BY "productId"
+      ORDER BY score ASC
       LIMIT $2
-    `,
+      `,
       pgVec,
       k
     );
 
-    const ids = rows.map((r) => String(r.product_id));
+    const ids = (rows || []).map((r) => String(r.productId));
 
     return res.json({
       ids,
@@ -305,20 +330,12 @@ router.post("/products/search-by-image", uploadSearchImage, async (req, res) => 
 
 /* -----------------------------------------
    LISTĂ PRODUSE + SEARCH
-   OPT:
-   - nu mai facem count() pe paginile >1
-   - trimitem hasMore din server (take=limit+1)
 ------------------------------------------*/
 router.get("/products", async (req, res, next) => {
   try {
-    // cache mic pt. browsing (opțional, safe)
-    res.set("Cache-Control", "public, max-age=5, stale-while-revalidate=20");
-
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(60, Math.max(1, parseInt(req.query.limit || "24", 10)));
+    const limit = Math.min(60, Math.max(1, parseInt(req.query.limit || "12", 10)));
     const skip = (page - 1) * limit;
-
-    // take+1 pentru a calcula hasMore fără count()
     const takePlus = limit + 1;
 
     const idsParam = String(req.query.ids || "").trim();
@@ -358,6 +375,41 @@ router.get("/products", async (req, res, next) => {
       acceptsCustomRaw === "1" || acceptsCustomRaw.toLowerCase() === "true";
     const leadTimeMaxParam = parseInt(req.query.leadTimeMax || "", 10);
 
+    const isDefaultBrowseFirstPage =
+      page === 1 &&
+      !idsList.length &&
+      !qRaw &&
+      !categoryParam &&
+      !city &&
+      !colorParam &&
+      !materialParam &&
+      !techniqueParam &&
+      !styleTagParam &&
+      !occasionTagParamRaw &&
+      !availabilityParam &&
+      !acceptsCustomParam &&
+      Number.isNaN(minPrice) &&
+      Number.isNaN(maxPrice) &&
+      Number.isNaN(leadTimeMaxParam) &&
+      (sort === "new" || !sort);
+
+    const responseCacheTtl = isDefaultBrowseFirstPage
+      ? LIST_CACHE_TTL_DEFAULT_FIRST_PAGE_MS
+      : LIST_CACHE_TTL_MS;
+
+    res.set(
+      "Cache-Control",
+      isDefaultBrowseFirstPage
+        ? "public, max-age=60, stale-while-revalidate=300"
+        : "public, max-age=30, stale-while-revalidate=120"
+    );
+
+    const cacheKey = buildListCacheKey(req);
+    const cached = getCache(PUBLIC_LIST_CACHE, cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const smart = smartSearchFromQueryBackend(qRaw);
 
     const effectiveCategory = categoryParam || "";
@@ -394,22 +446,40 @@ router.get("/products", async (req, res, next) => {
     };
 
     const applyExtraFilters = (whereObj) => {
-      if (materialParam) whereObj.materialMain = { equals: materialParam, mode: "insensitive" };
-      if (techniqueParam) whereObj.technique = { equals: techniqueParam, mode: "insensitive" };
+      if (materialParam) {
+        whereObj.materialMain = { equals: materialParam, mode: "insensitive" };
+      }
+      if (techniqueParam) {
+        whereObj.technique = { equals: techniqueParam, mode: "insensitive" };
+      }
       if (styleTagParam) whereObj.styleTags = { has: styleTagParam };
       if (effectiveOccasionTag) whereObj.occasionTags = { has: effectiveOccasionTag };
       if (availabilityParam) whereObj.availability = availabilityParam;
-      if (!Number.isNaN(leadTimeMaxParam)) whereObj.leadTimeDays = { lte: leadTimeMaxParam };
+      if (!Number.isNaN(leadTimeMaxParam)) {
+        whereObj.leadTimeDays = { lte: leadTimeMaxParam };
+      }
       if (acceptsCustomParam) whereObj.acceptsCustom = true;
     };
 
-    // helper: taie +1 și calculează hasMore
-    const finalizePaged = async (rows) => {
+    const finalizePaged = (rows) => {
       const hasMore = rows.length > limit;
       const slice = hasMore ? rows.slice(0, limit) : rows;
-      const withStats = await attachRatingStatsToProducts(slice);
-      return { items: withStats.map(mapPublicProduct), hasMore };
+      return { items: slice.map(mapPublicProduct), hasMore };
     };
+
+    const buildAppliedFilters = () => ({
+      category: effectiveCategory || null,
+      color: effectiveColors?.length ? effectiveColors[0] : null,
+      material: materialParam || null,
+      technique: techniqueParam || null,
+      styleTag: styleTagParam || null,
+      occasionTag: effectiveOccasionTag || null,
+      availability: availabilityParam || null,
+      acceptsCustom: acceptsCustomParam || false,
+      leadTimeMax: Number.isNaN(leadTimeMaxParam) ? null : leadTimeMaxParam,
+      priceMin: !Number.isNaN(minPrice) ? minPrice : null,
+      priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
+    });
 
     /* ========= 1) Caz special: ids ========= */
     if (idsList.length > 0) {
@@ -439,31 +509,21 @@ router.get("/products", async (req, res, next) => {
       );
 
       const total = ordered.length;
-
       const pageSlice = ordered.slice(skip, skip + takePlus);
-      const { items, hasMore } = await finalizePaged(pageSlice);
+      const { items, hasMore } = finalizePaged(pageSlice);
 
-      return res.json({
+      const payload = {
         total,
         items,
         page,
         limit,
         hasMore,
         smart,
-        appliedFilters: {
-          category: effectiveCategory || null,
-          color: effectiveColors?.length ? effectiveColors[0] : null,
-          material: materialParam || null,
-          technique: techniqueParam || null,
-          styleTag: styleTagParam || null,
-          occasionTag: effectiveOccasionTag || null,
-          availability: availabilityParam || null,
-          acceptsCustom: acceptsCustomParam || false,
-          leadTimeMax: Number.isNaN(leadTimeMaxParam) ? null : leadTimeMaxParam,
-          priceMin: !Number.isNaN(minPrice) ? minPrice : null,
-          priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
-        },
-      });
+        appliedFilters: buildAppliedFilters(),
+      };
+
+      setCache(PUBLIC_LIST_CACHE, cacheKey, payload, responseCacheTtl);
+      return res.json(payload);
     }
 
     /* ========= 2) Caz general ========= */
@@ -483,7 +543,7 @@ router.get("/products", async (req, res, next) => {
     applyPriceFilter(whereMain);
 
     if (qRaw) {
-      let baseTokens =
+      const baseTokens =
         (smart.mustTextTokens?.length
           ? smart.mustTextTokens
           : smart.looseTextTokens?.length
@@ -492,7 +552,9 @@ router.get("/products", async (req, res, next) => {
         ).map((t) => t.toLowerCase());
 
       const onlyColorToken =
-        Array.isArray(smart.inferredColors) && smart.inferredColors.length > 0 && baseTokens.length === 1;
+        Array.isArray(smart.inferredColors) &&
+        smart.inferredColors.length > 0 &&
+        baseTokens.length === 1;
 
       if (!onlyColorToken && baseTokens.length) {
         const textWhere = buildTextWhereFromTokens(baseTokens);
@@ -500,66 +562,47 @@ router.get("/products", async (req, res, next) => {
       }
     }
 
-    // ✅ OPT: count doar pe page 1
-    const shouldCount = page === 1;
+    const rowsMain = await prisma.product.findMany({
+      where: whereMain,
+      skip,
+      take: takePlus,
+      orderBy: buildOrderBy(sort),
+      select: baseProductSelect,
+    });
 
-    const [totalMain, rowsMain] = await Promise.all([
-      shouldCount ? prisma.product.count({ where: whereMain }) : Promise.resolve(null),
-      prisma.product.findMany({
-        where: whereMain,
-        skip,
-        take: takePlus,
-        orderBy: buildOrderBy(sort),
-        select: baseProductSelect,
-      }),
-    ]);
+    if (rowsMain.length > 0 || !qRaw) {
+      const { items, hasMore } = finalizePaged(rowsMain);
 
-    if ((totalMain && totalMain > 0) || (!shouldCount && rowsMain.length > 0) || !qRaw) {
-      const { items, hasMore } = await finalizePaged(rowsMain);
-
-      return res.json({
-        // dacă nu am făcut count, trimitem null (clientul folosește hasMore)
-        total: totalMain,
+      const payload = {
+        total: null,
         items,
         page,
         limit,
         hasMore,
         smart,
-        appliedFilters: {
-          category: effectiveCategory || null,
-          color: effectiveColors?.length ? effectiveColors[0] : null,
-          material: materialParam || null,
-          technique: techniqueParam || null,
-          styleTag: styleTagParam || null,
-          occasionTag: effectiveOccasionTag || null,
-          availability: availabilityParam || null,
-          acceptsCustom: acceptsCustomParam || false,
-          leadTimeMax: Number.isNaN(leadTimeMaxParam) ? null : leadTimeMaxParam,
-          priceMin: !Number.isNaN(minPrice) ? minPrice : null,
-          priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
-        },
-      });
+        appliedFilters: buildAppliedFilters(),
+      };
+
+      setCache(PUBLIC_LIST_CACHE, cacheKey, payload, responseCacheTtl);
+      return res.json(payload);
     }
 
     /* ========= 3) Fallback generic ========= */
     const whereFallback = { ...baseWhere };
     applyPriceFilter(whereFallback);
 
-    const [totalFallback, rowsFallback] = await Promise.all([
-      shouldCount ? prisma.product.count({ where: whereFallback }) : Promise.resolve(null),
-      prisma.product.findMany({
-        where: whereFallback,
-        skip,
-        take: takePlus,
-        orderBy: buildOrderBy(sort),
-        select: baseProductSelect,
-      }),
-    ]);
+    const rowsFallback = await prisma.product.findMany({
+      where: whereFallback,
+      skip,
+      take: takePlus,
+      orderBy: buildOrderBy(sort),
+      select: baseProductSelect,
+    });
 
-    const { items, hasMore } = await finalizePaged(rowsFallback);
+    const { items, hasMore } = finalizePaged(rowsFallback);
 
-    return res.json({
-      total: totalFallback,
+    const payload = {
+      total: null,
       items,
       page,
       limit,
@@ -579,7 +622,10 @@ router.get("/products", async (req, res, next) => {
         priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
         fallback: "generic_after_zero_results",
       },
-    });
+    };
+
+    setCache(PUBLIC_LIST_CACHE, cacheKey, payload, responseCacheTtl);
+    return res.json(payload);
   } catch (e) {
     console.error("ERROR /api/public/products", e);
     next(e);
@@ -588,12 +634,10 @@ router.get("/products", async (req, res, next) => {
 
 /* -----------------------------------------
    RECOMANDĂRI / POPULARE / NOUTĂȚI
-   GET /api/public/products/recommended
-   OPT: cache 60 sec
 ------------------------------------------*/
 router.get("/products/recommended", async (_req, res, next) => {
   try {
-    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=180");
 
     const baseWhere = {
       isActive: true,
@@ -608,7 +652,6 @@ router.get("/products/recommended", async (_req, res, next) => {
       },
     };
 
-    // 1) Latest
     const latestRaw = await prisma.product.findMany({
       where: baseWhere,
       take: 12,
@@ -616,10 +659,8 @@ router.get("/products/recommended", async (_req, res, next) => {
       select: baseProductSelect,
     });
 
-    const latestWithStats = await attachRatingStatsToProducts(latestRaw);
-    const latest = latestWithStats.map(mapPublicProduct);
+    const latest = latestRaw.map(mapPublicProduct);
 
-    // 2) Popular (visitor last 30 days)
     const since = new Date();
     since.setDate(since.getDate() - 30);
 
@@ -641,13 +682,10 @@ router.get("/products/recommended", async (_req, res, next) => {
         })
       : [];
 
-    const popularWithStats = await attachRatingStatsToProducts(popularRaw);
-
-    const popular = popularWithStats
+    const popular = popularRaw
       .map(mapPublicProduct)
       .sort((a, b) => (pos.get(a.id) ?? 9999) - (pos.get(b.id) ?? 9999));
 
-    // 3) Recommended (Favorite count desc)
     const recommendedRaw = await prisma.product.findMany({
       where: baseWhere,
       take: 12,
@@ -655,8 +693,7 @@ router.get("/products/recommended", async (_req, res, next) => {
       select: baseProductSelect,
     });
 
-    const recommendedWithStats = await attachRatingStatsToProducts(recommendedRaw);
-    const recommended = recommendedWithStats.map(mapPublicProduct);
+    const recommended = recommendedRaw.map(mapPublicProduct);
 
     res.json({ latest, popular, recommended });
   } catch (e) {
@@ -669,12 +706,20 @@ router.get("/products/recommended", async (_req, res, next) => {
 ------------------------------------------*/
 router.get("/products/suggest", async (req, res, next) => {
   try {
+    res.set("Cache-Control", "public, max-age=20, stale-while-revalidate=60");
+
     let qRaw = req.query.q;
     if (Array.isArray(qRaw)) qRaw = qRaw[0];
     const q = (qRaw || "").toString().trim();
 
+    const cacheKey = q.toLowerCase();
+    const cached = getCache(SUGGEST_CACHE, cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     if (!q) {
-      return res.json({
+      const emptyPayload = {
         products: [],
         categories: [],
         smart: {
@@ -691,7 +736,9 @@ router.get("/products/suggest", async (req, res, next) => {
           mustTextTokens: [],
           looseTextTokens: [],
         },
-      });
+      };
+      setCache(SUGGEST_CACHE, cacheKey, emptyPayload, SUGGEST_CACHE_TTL_MS);
+      return res.json(emptyPayload);
     }
 
     const smart = smartSearchFromQueryBackend(q);
@@ -711,6 +758,14 @@ router.get("/products/suggest", async (req, res, next) => {
         isActive: true,
         isHidden: false,
         title: { contains: mainToken, mode: "insensitive" },
+        service: {
+          is: {
+            isActive: true,
+            status: "ACTIVE",
+            vendor: { is: { isActive: true } },
+            type: { is: { code: "products" } },
+          },
+        },
       },
       take: 6,
       orderBy: { createdAt: "desc" },
@@ -735,7 +790,10 @@ router.get("/products/suggest", async (req, res, next) => {
       .slice(0, 6)
       .map((c) => ({ key: c.key, label: c.label, group: c.group || null }));
 
-    return res.json({ products, categories, smart });
+    const payload = { products, categories, smart };
+    setCache(SUGGEST_CACHE, cacheKey, payload, SUGGEST_CACHE_TTL_MS);
+
+    return res.json(payload);
   } catch (e) {
     console.error("ERROR /api/public/products/suggest", e);
     next(e);
@@ -831,7 +889,7 @@ router.get("/products/:id", async (req, res, next) => {
 });
 
 /* -----------------------------------------
-   STORE PROFILE + PRODUCTS + REVIEWS (exact cum le aveai)
+   STORE PROFILE + PRODUCTS + REVIEWS
 ------------------------------------------*/
 router.get("/store/:slug", async (req, res) => {
   const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -850,12 +908,6 @@ router.get("/store/:slug", async (req, res) => {
   const vendor = svc.vendor;
   const isActive = svc.status === "ACTIVE" && svc.isActive && vendor.isActive;
 
-  const makeShort = (s = "", max = 160) => {
-    const t = String(s || "").trim();
-    if (!t) return "";
-    return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
-  };
-
   res.json({
     _id: svc.id,
     id: svc.id,
@@ -867,7 +919,7 @@ router.get("/store/:slug", async (req, res) => {
     shortDescription:
       profile.shortDescription ||
       profile.tagline ||
-      makeShort(profile.about || vendor.about || "", 160),
+      shortText(profile.about || vendor.about || "", 160),
     brandStory: profile.about || null,
     city: profile.city || vendor.city || "",
     country: "",
@@ -920,7 +972,8 @@ router.get("/store/:slug/products", async (req, res) => {
         category: p.category || null,
         color: p.color || null,
         colorVariants: Array.isArray(p.colorVariants) ? p.colorVariants : [],
-        availability: typeof p.availability === "string" ? p.availability.toUpperCase() : null,
+        availability:
+          typeof p.availability === "string" ? p.availability.toUpperCase() : null,
         leadTimeDays: p.leadTimeDays ?? null,
         readyQty: p.readyQty ?? null,
         nextShipDate: p.nextShipDate ?? null,
@@ -939,7 +992,6 @@ router.get("/store/:slug/products", async (req, res) => {
   );
 });
 
-// listă recenzii pentru profilul magazinului
 router.get("/store/:slug/reviews", async (req, res, next) => {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -1037,7 +1089,6 @@ router.get("/store/:slug/reviews", async (req, res, next) => {
   }
 });
 
-// media rating-ului pe magazin
 router.get("/store/:slug/reviews/average", async (req, res, next) => {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();

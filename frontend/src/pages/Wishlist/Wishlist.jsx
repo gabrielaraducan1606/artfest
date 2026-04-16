@@ -1,4 +1,4 @@
-// ==============================
+/// ==============================
 // File: src/pages/Wishlist/Wishlist.jsx
 // ==============================
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
@@ -52,23 +52,104 @@ const PAGE_SIZE =
     ? 12
     : 24;
 
+/* ===================== Simple in-memory cache ===================== */
+const wishlistPageCache = new Map();
+const wishlistCountCache = new Map();
+
+const getPageCacheKey = ({ sort, limit }) => `wishlist:first:${sort}:${limit}`;
+const getCountCacheKey = () => `wishlist:count`;
+
+/* ===================== Helpers erori auth ===================== */
+const isUnauthorizedError = (e) => {
+  const status =
+    e?.status ??
+    e?.statusCode ??
+    e?.response?.status ??
+    e?.cause?.status ??
+    null;
+
+  if (status === 401 || status === 403) return true;
+
+  const msg = String(e?.message || "").toLowerCase();
+  return (
+    msg.includes("401") ||
+    msg.includes("403") ||
+    msg.includes("unauthorized") ||
+    msg.includes("forbidden") ||
+    msg.includes("neautorizat")
+  );
+};
+
 /* ===================== UI bits ===================== */
 function SkeletonCard() {
   return (
     <article className={styles.card} aria-hidden="true">
       <div className={styles.cardTop} style={{ opacity: 0.6 }}>
-        <span style={{ width: 120, height: 14, display: "inline-block", background: "#eee", borderRadius: 6 }} />
+        <span
+          style={{
+            width: 120,
+            height: 14,
+            display: "inline-block",
+            background: "#eee",
+            borderRadius: 6,
+          }}
+        />
       </div>
       <div className={styles.thumbBtn} style={{ cursor: "default" }}>
-        <div style={{ width: "100%", aspectRatio: "4/3", background: "#eee", borderRadius: 12 }} />
+        <div
+          style={{
+            width: "100%",
+            aspectRatio: "4/3",
+            background: "#eee",
+            borderRadius: 12,
+          }}
+        />
       </div>
       <div className={styles.cardBody}>
-        <div style={{ width: "70%", height: 14, background: "#eee", borderRadius: 6, marginBottom: 10 }} />
-        <div style={{ width: "40%", height: 14, background: "#eee", borderRadius: 6, marginBottom: 10 }} />
-        <div style={{ width: "55%", height: 14, background: "#eee", borderRadius: 6, marginBottom: 12 }} />
+        <div
+          style={{
+            width: "70%",
+            height: 14,
+            background: "#eee",
+            borderRadius: 6,
+            marginBottom: 10,
+          }}
+        />
+        <div
+          style={{
+            width: "40%",
+            height: 14,
+            background: "#eee",
+            borderRadius: 6,
+            marginBottom: 10,
+          }}
+        />
+        <div
+          style={{
+            width: "55%",
+            height: 14,
+            background: "#eee",
+            borderRadius: 6,
+            marginBottom: 12,
+          }}
+        />
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ width: 40, height: 36, background: "#eee", borderRadius: 10 }} />
-          <div style={{ width: 40, height: 36, background: "#eee", borderRadius: 10 }} />
+          <div
+            style={{
+              width: 40,
+              height: 36,
+              background: "#eee",
+              borderRadius: 10,
+            }}
+          />
+          <div
+            style={{
+              width: 40,
+              height: 36,
+              background: "#eee",
+              borderRadius: 10,
+            }}
+          />
         </div>
       </div>
     </article>
@@ -80,25 +161,47 @@ export default function Wishlist() {
   const nav = useNavigate();
 
   // auth
-  const [me, setMe] = useState(undefined); // undefined = încă nu știm
-  const [authLoading, setAuthLoading] = useState(true);
+  const [me, setMe] = useState(undefined); // undefined = încă nu știm; null = nelogat
+  const [authResolved, setAuthResolved] = useState(false);
   const myVendorId = me?.vendor?.id || null;
 
   // data
-  const [sort, setSort] = useState("newest"); // "newest" | "oldest"
-  const [pages, setPages] = useState([]); // [{ items, nextCursor, hasMore }]
-  const [cursor, setCursor] = useState(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [sort, setSort] = useState("newest");
+  const [pages, setPages] = useState(() => {
+    const cached = wishlistPageCache.get(getPageCacheKey({ sort: "newest", limit: PAGE_SIZE }));
+    if (!cached) return [];
+    return [
+      {
+        items: cached.items || [],
+        nextCursor: cached.nextCursor || null,
+        hasMore: !!cached.hasMore,
+      },
+    ];
+  });
+  const [cursor, setCursor] = useState(() => {
+    const cached = wishlistPageCache.get(getPageCacheKey({ sort: "newest", limit: PAGE_SIZE }));
+    return cached?.nextCursor || null;
+  });
+  const [hasMore, setHasMore] = useState(() => {
+    const cached = wishlistPageCache.get(getPageCacheKey({ sort: "newest", limit: PAGE_SIZE }));
+    return !!cached?.hasMore;
+  });
   const [error, setError] = useState("");
-  const [totalCount, setTotalCount] = useState(null);
+  const [totalCount, setTotalCount] = useState(() => {
+    const cached = wishlistCountCache.get(getCountCacheKey());
+    return typeof cached === "number" ? cached : null;
+  });
 
-  // loading states (separate ca UI-ul să nu se blocheze)
-  const [initialLoading, setInitialLoading] = useState(false);
+  // loading states
+  const [initialLoading, setInitialLoading] = useState(() => {
+    const cached = wishlistPageCache.get(getPageCacheKey({ sort: "newest", limit: PAGE_SIZE }));
+    return !cached;
+  });
   const [loadingMore, setLoadingMore] = useState(false);
 
   // guards
   const loadingMoreRef = useRef(false);
-  const inflightKeyRef = useRef(""); // de-dupe pentru first fetch
+  const inflightKeyRef = useRef("");
   const prefetchRef = useRef({ key: "", promise: null, data: null });
 
   // referință la ultima stare de pages pentru rollback sigur
@@ -136,23 +239,7 @@ export default function Wishlist() {
     };
   }, []);
 
-  /* ===================== fetch me (non-blocking UI) ===================== */
-  useEffect(() => {
-    const ac = new AbortController();
-    (async () => {
-      try {
-        const d = await api("/api/auth/me", { signal: ac.signal });
-        setMe(d?.user || null);
-      } catch (e) {
-        if (e?.name !== "AbortError") setMe(null);
-      } finally {
-        setAuthLoading(false);
-      }
-    })();
-    return () => ac.abort();
-  }, []);
-
-  /* ===================== helpers fetch favorites ===================== */
+  /* ===================== API helpers ===================== */
   const fetchFavoritesPage = useCallback(async ({ limit, sort, cursor, signal }) => {
     const q = new URLSearchParams({
       limit: String(limit),
@@ -162,31 +249,63 @@ export default function Wishlist() {
     return api(`/api/favorites?${q.toString()}`, { signal });
   }, []);
 
-  /* ===================== first page ===================== */
-  useEffect(() => {
-    if (authLoading) return;
+  const fetchFavoritesCount = useCallback(async ({ signal }) => {
+    return api("/api/favorites/count", { signal });
+  }, []);
 
+  const fetchMe = useCallback(async ({ signal }) => {
+    return api("/api/auth/me", { signal });
+  }, []);
+
+  /* ===================== fetch me (separat de wishlist) ===================== */
+  useEffect(() => {
     const ac = new AbortController();
 
     (async () => {
-      if (!me) {
-        setPages([]);
-        setCursor(null);
-        setHasMore(false);
-        setTotalCount(0);
-        setInitialLoading(false);
-        setSelectedIds(new Set());
-        setError("");
-        return;
+      try {
+        const d = await fetchMe({ signal: ac.signal });
+        setMe(d?.user || null);
+      } catch (e) {
+        if (e?.name !== "AbortError") {
+          setMe(null);
+        }
+      } finally {
+        setAuthResolved(true);
       }
+    })();
 
+    return () => ac.abort();
+  }, [fetchMe]);
+
+  /* ===================== first page (nu mai așteaptă auth) ===================== */
+  useEffect(() => {
+    const ac = new AbortController();
+    const cacheKey = getPageCacheKey({ sort, limit: PAGE_SIZE });
+    const cached = wishlistPageCache.get(cacheKey);
+
+    (async () => {
       const key = `first:${sort}:${PAGE_SIZE}`;
       if (inflightKeyRef.current === key) return;
       inflightKeyRef.current = key;
 
-      setInitialLoading(true);
       setError("");
       setSelectedIds(new Set());
+
+      // hydrate instant din cache dacă există
+      if (cached) {
+        setPages([
+          {
+            items: cached.items || [],
+            nextCursor: cached.nextCursor || null,
+            hasMore: !!cached.hasMore,
+          },
+        ]);
+        setCursor(cached.nextCursor || null);
+        setHasMore(!!cached.hasMore);
+        setInitialLoading(false);
+      } else {
+        setInitialLoading(true);
+      }
 
       try {
         const res = await fetchFavoritesPage({
@@ -201,31 +320,79 @@ export default function Wishlist() {
         const nextCursorRes = res?.nextCursor || null;
 
         setPages([
-          { items: firstItems, nextCursor: nextCursorRes, hasMore: hasMoreRes },
+          {
+            items: firstItems,
+            nextCursor: nextCursorRes,
+            hasMore: hasMoreRes,
+          },
         ]);
         setCursor(nextCursorRes);
         setHasMore(hasMoreRes);
+        setError("");
+        setInitialLoading(false);
 
-        if (typeof res?.totalCount === "number") setTotalCount(res.totalCount);
-        else setTotalCount(firstItems.length);
+        wishlistPageCache.set(cacheKey, {
+          items: firstItems,
+          nextCursor: nextCursorRes,
+          hasMore: hasMoreRes,
+        });
 
-        // pregătește prefetch imediat dacă există next cursor
         prefetchRef.current = { key: "", promise: null, data: null };
       } catch (e) {
         if (e?.name === "AbortError") return;
+
+        if (isUnauthorizedError(e)) {
+          setMe(null);
+          setAuthResolved(true);
+          setPages([]);
+          setCursor(null);
+          setHasMore(false);
+          setTotalCount(0);
+          setInitialLoading(false);
+          setError("");
+          return;
+        }
+
         setError(e?.message || "Nu am putut încărca wishlist-ul.");
-      } finally {
         setInitialLoading(false);
+      } finally {
         inflightKeyRef.current = "";
       }
     })();
 
     return () => ac.abort();
-  }, [authLoading, me, sort, fetchFavoritesPage]);
+  }, [sort, fetchFavoritesPage]);
 
-  /* ===================== prefetch next page (smooth scroll) ===================== */
+  /* ===================== count separat (nu blochează first paint) ===================== */
   useEffect(() => {
-    if (!me) return;
+    const ac = new AbortController();
+    const cached = wishlistCountCache.get(getCountCacheKey());
+
+    if (typeof cached === "number") {
+      setTotalCount(cached);
+    }
+
+    (async () => {
+      try {
+        const res = await fetchFavoritesCount({ signal: ac.signal });
+        const count = typeof res?.count === "number" ? res.count : null;
+        if (typeof count === "number") {
+          wishlistCountCache.set(getCountCacheKey(), count);
+          setTotalCount(count);
+        }
+      } catch (e) {
+        if (e?.name === "AbortError") return;
+        if (isUnauthorizedError(e)) {
+          setTotalCount(0);
+        }
+      }
+    })();
+
+    return () => ac.abort();
+  }, [fetchFavoritesCount, sort]);
+
+  /* ===================== prefetch next page ===================== */
+  useEffect(() => {
     if (!hasMore || !cursor) return;
 
     const key = `prefetch:${sort}:${PAGE_SIZE}:${cursor}`;
@@ -250,9 +417,9 @@ export default function Wishlist() {
     })();
 
     return () => ac.abort();
-  }, [me, hasMore, cursor, sort, fetchFavoritesPage]);
+  }, [hasMore, cursor, sort, fetchFavoritesPage]);
 
-  /* ===================== infinite scroll (consumes prefetch first) ===================== */
+  /* ===================== infinite scroll ===================== */
   useEffect(() => {
     if (!hasMore || !cursor) return;
 
@@ -271,19 +438,16 @@ export default function Wishlist() {
           setLoadingMore(true);
 
           try {
-            // 1) dacă avem prefetch gata pentru cursor curent, îl folosim
             const preKey = `prefetch:${sort}:${PAGE_SIZE}:${cursor}`;
             let res = null;
 
             if (prefetchRef.current.key === preKey) {
-              // așteaptă puțin dacă încă rulează
               if (prefetchRef.current.promise) {
                 await prefetchRef.current.promise;
               }
               res = prefetchRef.current.data;
             }
 
-            // 2) fallback: fetch direct
             if (!res) {
               res = await fetchFavoritesPage({
                 limit: PAGE_SIZE,
@@ -310,7 +474,6 @@ export default function Wishlist() {
             setCursor(nextCursorRes);
             setHasMore(hasMoreRes);
 
-            // consumăm prefetch-ul
             prefetchRef.current = { key: "", promise: null, data: null };
           } catch (e) {
             console.error("Wishlist infinite scroll failed:", e);
@@ -320,7 +483,7 @@ export default function Wishlist() {
           }
         }
       },
-      { rootMargin: "600px" } // ✅ mai devreme => pare instant
+      { rootMargin: "600px" }
     );
 
     io.observe(el);
@@ -353,109 +516,146 @@ export default function Wishlist() {
     });
   }, [allIds]);
 
-  const allSelected = selectedIds.size && selectedIds.size === allIds.length;
-  const someSelected = selectedIds.size && selectedIds.size < allIds.length;
+  const allSelected = selectedIds.size > 0 && selectedIds.size === allIds.length;
+  const someSelected = selectedIds.size > 0 && selectedIds.size < allIds.length;
 
   useEffect(() => {
-    if (selectAllRef.current) selectAllRef.current.indeterminate = !!someSelected;
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = !!someSelected;
+    }
   }, [someSelected]);
 
   /* ===================== mutations ===================== */
+  const syncFirstPageCacheFromPages = useCallback(
+    (nextPages) => {
+      const firstPage = nextPages?.[0];
+      wishlistPageCache.set(getPageCacheKey({ sort, limit: PAGE_SIZE }), {
+        items: firstPage?.items || [],
+        nextCursor: firstPage?.nextCursor || null,
+        hasMore: !!firstPage?.hasMore,
+      });
+    },
+    [sort]
+  );
+
   const removeOne = useCallback(
     async (productId) => {
       if (!window.confirm("Sigur vrei să elimini produsul din wishlist?")) return;
 
       const prevPages = pagesRef.current;
 
-      setPages((p) =>
-        p.map((pg) => ({
-          ...pg,
-          items: pg.items.filter((it) => it.card.id !== productId),
-        }))
-      );
+      const nextPages = prevPages.map((pg) => ({
+        ...pg,
+        items: pg.items.filter((it) => it.card.id !== productId),
+      }));
+
+      setPages(nextPages);
+      syncFirstPageCacheFromPages(nextPages);
 
       try {
         await api(`/api/favorites/${encodeURIComponent(productId)}`, { method: "DELETE" });
-        setTotalCount((prevCount) =>
-          typeof prevCount === "number" ? Math.max(prevCount - 1, 0) : prevCount
-        );
+
+        setTotalCount((prevCount) => {
+          const nextCount =
+            typeof prevCount === "number" ? Math.max(prevCount - 1, 0) : prevCount;
+          if (typeof nextCount === "number") {
+            wishlistCountCache.set(getCountCacheKey(), nextCount);
+          }
+          return nextCount;
+        });
+
         showInfo("Produs eliminat din wishlist.");
       } catch (e) {
         console.error("removeOne failed:", e);
         setPages(prevPages);
+        syncFirstPageCacheFromPages(prevPages);
         alert("Nu am putut elimina produsul din wishlist.");
       }
     },
-    [showInfo]
+    [showInfo, syncFirstPageCacheFromPages]
   );
 
-  const removeSelected = useCallback(
-    async () => {
-      const ids = Array.from(selectedIds);
-      if (!ids.length) return;
+  const removeSelected = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
 
-      if (!window.confirm(`Sigur vrei să elimini ${ids.length} produs(e) din wishlist?`)) return;
+    if (!window.confirm(`Sigur vrei să elimini ${ids.length} produs(e) din wishlist?`)) return;
 
-      const idsSet = new Set(ids);
-      const prevPages = pagesRef.current;
-      const prevSelection = new Set(selectedIds);
+    const idsSet = new Set(ids);
+    const prevPages = pagesRef.current;
+    const prevSelection = new Set(selectedIds);
 
-      setPages((p) =>
-        p.map((pg) => ({
-          ...pg,
-          items: pg.items.filter((it) => !idsSet.has(it.card.id)),
-        }))
-      );
-      clearSelection();
+    const nextPages = prevPages.map((pg) => ({
+      ...pg,
+      items: pg.items.filter((it) => !idsSet.has(it.card.id)),
+    }));
 
-      try {
-        await api("/api/favorites/bulk", {
-          method: "POST",
-          body: { remove: ids, add: [] },
-        });
-        setTotalCount((prevCount) =>
-          typeof prevCount === "number" ? Math.max(prevCount - ids.length, 0) : prevCount
-        );
-        showInfo("Selecția a fost eliminată din wishlist.");
-      } catch (e) {
-        console.error("removeSelected failed:", e);
-        setPages(prevPages);
-        setSelectedIds(prevSelection);
-        alert("Nu am putut elimina selecția.");
-      }
-    },
-    [clearSelection, selectedIds, showInfo]
-  );
+    setPages(nextPages);
+    syncFirstPageCacheFromPages(nextPages);
+    clearSelection();
 
-  const clearAll = useCallback(
-    async () => {
-      if (!items.length || !window.confirm("Sigur vrei să golești complet wishlist-ul?")) return;
+    try {
+      await api("/api/favorites/bulk", {
+        method: "POST",
+        body: { remove: ids, add: [] },
+      });
 
-      const prevPages = pagesRef.current;
+      setTotalCount((prevCount) => {
+        const nextCount =
+          typeof prevCount === "number" ? Math.max(prevCount - ids.length, 0) : prevCount;
+        if (typeof nextCount === "number") {
+          wishlistCountCache.set(getCountCacheKey(), nextCount);
+        }
+        return nextCount;
+      });
 
-      setPages([]);
-      setSelectedIds(new Set());
-      setTotalCount(0);
+      showInfo("Selecția a fost eliminată din wishlist.");
+    } catch (e) {
+      console.error("removeSelected failed:", e);
+      setPages(prevPages);
+      syncFirstPageCacheFromPages(prevPages);
+      setSelectedIds(prevSelection);
+      alert("Nu am putut elimina selecția.");
+    }
+  }, [clearSelection, selectedIds, showInfo, syncFirstPageCacheFromPages]);
 
-      try {
-        await api("/api/favorites", { method: "DELETE" });
-        showInfo("Ai golit wishlist-ul.");
-      } catch (e) {
-        console.error("clearAll failed:", e);
-        setPages(prevPages);
-        alert("Nu am putut goli wishlist-ul.");
-      }
-    },
-    [items, showInfo]
-  );
+  const clearAll = useCallback(async () => {
+    if (!items.length || !window.confirm("Sigur vrei să golești complet wishlist-ul?")) return;
+
+    const prevPages = pagesRef.current;
+
+    setPages([]);
+    setSelectedIds(new Set());
+    setTotalCount(0);
+    wishlistPageCache.set(getPageCacheKey({ sort, limit: PAGE_SIZE }), {
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+    wishlistCountCache.set(getCountCacheKey(), 0);
+
+    try {
+      await api("/api/favorites", { method: "DELETE" });
+      showInfo("Ai golit wishlist-ul.");
+    } catch (e) {
+      console.error("clearAll failed:", e);
+      setPages(prevPages);
+      syncFirstPageCacheFromPages(prevPages);
+      alert("Nu am putut goli wishlist-ul.");
+    }
+  }, [items.length, showInfo, sort, syncFirstPageCacheFromPages]);
 
   const addToCart = useCallback(
     async (row) => {
       const isOwner = !!myVendorId && !!row.card.vendorId && myVendorId === row.card.vendorId;
-      if (isOwner) return alert("Nu poți adăuga în coș un produs care îți aparține.");
+      if (isOwner) {
+        alert("Nu poți adăuga în coș un produs care îți aparține.");
+        return;
+      }
 
       if (row.card.isActive === false || row.card.stock === 0) {
-        return alert("Acest produs nu este disponibil pentru comandă.");
+        alert("Acest produs nu este disponibil pentru comandă.");
+        return;
       }
 
       try {
@@ -482,109 +682,94 @@ export default function Wishlist() {
     [myVendorId, showInfo]
   );
 
-  // ✅ bulk add: încearcă /api/cart/merge (1 request). fallback loop.
-  const addSelectedToCart = useCallback(
-    async () => {
-      const ids = Array.from(selectedIds);
-      if (!ids.length) return;
+  const addSelectedToCart = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
 
-      if (!window.confirm(`Adaugi în coș ${ids.length} produs(e) selectate?`)) return;
+    if (!window.confirm(`Adaugi în coș ${ids.length} produs(e) selectate?`)) return;
 
-      const idsSet = new Set(ids);
-      const targetItems = items.filter((row) => idsSet.has(row.card.id));
+    const idsSet = new Set(ids);
+    const targetItems = items.filter((row) => idsSet.has(row.card.id));
 
-      const valid = [];
-      let skipped = 0;
+    const valid = [];
+    let skipped = 0;
 
-      for (const row of targetItems) {
-        const isOwner = !!myVendorId && !!row.card.vendorId && myVendorId === row.card.vendorId;
-        if (isOwner || row.card.isActive === false || row.card.stock === 0) {
-          skipped++;
+    for (const row of targetItems) {
+      const isOwner = !!myVendorId && !!row.card.vendorId && myVendorId === row.card.vendorId;
+      if (isOwner || row.card.isActive === false || row.card.stock === 0) {
+        skipped++;
+        continue;
+      }
+      valid.push({ productId: row.card.id, qty: 1 });
+    }
+
+    if (!valid.length) {
+      alert("Nu am putut adăuga niciun produs în coș (pot fi indisponibile sau îți aparțin).");
+      return;
+    }
+
+    try {
+      const res = await api("/api/cart/merge", {
+        method: "POST",
+        body: { items: valid },
+      });
+
+      try {
+        window.dispatchEvent(new CustomEvent("cart:changed"));
+      } catch {""}
+
+      const merged = typeof res?.merged === "number" ? res.merged : valid.length;
+      const skippedRes = typeof res?.skipped === "number" ? res.skipped : skipped;
+
+      if (merged && !skippedRes) {
+        showInfo(`Am adăugat ${merged} produs(e) în coș.`);
+      } else {
+        showInfo(`Am adăugat ${merged} produs(e) în coș. ${skippedRes} au fost sărite.`);
+      }
+      return;
+    } catch {
+      // fallback mai jos
+    }
+
+    let success = 0;
+    let failed = skipped;
+
+    for (const it of valid) {
+      try {
+        const res = await api("/api/cart/add", {
+          method: "POST",
+          body: { productId: it.productId, qty: 1 },
+        });
+        if (res?.error === "cannot_add_own_product") {
+          failed++;
           continue;
         }
-        valid.push({ productId: row.card.id, qty: 1 });
-      }
-
-      if (!valid.length) {
-        alert("Nu am putut adăuga niciun produs în coș (pot fi indisponibile sau îți aparțin).");
-        return;
-      }
-
-      // 1) merge (rapid)
-      try {
-        const res = await api("/api/cart/merge", { method: "POST", body: { items: valid } });
-        // dacă route există, aici e super rapid
-        try {
-          window.dispatchEvent(new CustomEvent("cart:changed"));
-        } catch {""}
-        const merged = typeof res?.merged === "number" ? res.merged : valid.length;
-        const skippedRes = typeof res?.skipped === "number" ? res.skipped : skipped;
-
-        if (merged && !skippedRes) showInfo(`Am adăugat ${merged} produs(e) în coș.`);
-        else showInfo(`Am adăugat ${merged} produs(e) în coș. ${skippedRes} au fost sărite.`);
-        return;
+        success++;
       } catch {
-        // 2) fallback loop
+        failed++;
       }
+    }
 
-      let success = 0;
-      let failed = skipped;
+    if (success > 0) {
+      try {
+        window.dispatchEvent(new CustomEvent("cart:changed"));
+      } catch {""}
+    }
 
-      for (const it of valid) {
-        try {
-          const res = await api("/api/cart/add", {
-            method: "POST",
-            body: { productId: it.productId, qty: 1 },
-          });
-          if (res?.error === "cannot_add_own_product") {
-            failed++;
-            continue;
-          }
-          success++;
-        } catch {
-          failed++;
-        }
-      }
-
-      if (success > 0) {
-        try {
-          window.dispatchEvent(new CustomEvent("cart:changed"));
-        } catch {""}
-      }
-
-      if (success && !failed) showInfo(`Am adăugat ${success} produs(e) în coș.`);
-      else if (success && failed)
-        showInfo(
-          `Am adăugat ${success} produs(e) în coș. ${failed} au fost sărite (indisponibile sau produse proprii).`
-        );
-      else alert("Nu am putut adăuga niciun produs în coș (pot fi indisponibile sau îți aparțin).");
-    },
-    [items, myVendorId, selectedIds, showInfo]
-  );
+    if (success && !failed) {
+      showInfo(`Am adăugat ${success} produs(e) în coș.`);
+    } else if (success && failed) {
+      showInfo(
+        `Am adăugat ${success} produs(e) în coș. ${failed} au fost sărite (indisponibile sau produse proprii).`
+      );
+    } else {
+      alert("Nu am putut adăuga niciun produs în coș (pot fi indisponibile sau îți aparțin).");
+    }
+  }, [items, myVendorId, selectedIds, showInfo]);
 
   /* ===================== RENDER ===================== */
 
-  // ✅ nu mai blocăm cu "Se încarcă…" full screen
-  if (authLoading) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.head}>
-          <div>
-            <h2 className={styles.title}>Wishlist</h2>
-            <p className={styles.muted}>Se pregătește…</p>
-          </div>
-        </div>
-
-        <div className={styles.grid}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (!me) {
+  if (authResolved && me === null && !initialLoading && items.length === 0) {
     return (
       <div className={styles.container}>
         <h2 className={styles.title}>Wishlist</h2>
@@ -614,7 +799,11 @@ export default function Wishlist() {
         <div className={styles.controls}>
           <label className={styles.muted}>
             Sortare:&nbsp;
-            <select className={styles.select} value={sort} onChange={(e) => setSort(e.target.value)}>
+            <select
+              className={styles.select}
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+            >
               <option value="newest">Cele mai noi</option>
               <option value="oldest">Cele mai vechi</option>
             </select>
@@ -641,11 +830,19 @@ export default function Wishlist() {
             Adaugă selecția în coș
           </button>
 
-          <button className={`${styles.btn} ${styles.btnDanger}`} onClick={removeSelected} disabled={!selectedCount}>
+          <button
+            className={`${styles.btn} ${styles.btnDanger}`}
+            onClick={removeSelected}
+            disabled={!selectedCount}
+          >
             Elimină selecția
           </button>
 
-          <button className={`${styles.btn} ${styles.btnGhost || ""}`} onClick={clearAll} disabled={!items.length}>
+          <button
+            className={`${styles.btn} ${styles.btnGhost || ""}`}
+            onClick={clearAll}
+            disabled={!items.length}
+          >
             Golește tot
           </button>
         </div>
@@ -674,7 +871,11 @@ export default function Wishlist() {
           <div className={styles.controlsMobileRow}>
             <label className={styles.muted}>
               Sortare:&nbsp;
-              <select className={styles.select} value={sort} onChange={(e) => setSort(e.target.value)}>
+              <select
+                className={styles.select}
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+              >
                 <option value="newest">Cele mai noi</option>
                 <option value="oldest">Cele mai vechi</option>
               </select>
@@ -683,23 +884,39 @@ export default function Wishlist() {
 
           <div className={styles.controlsMobileRow}>
             <label className={styles.muted}>
-              <input type="checkbox" checked={!!allSelected} onChange={() => (allSelected ? clearSelection() : selectAll())} />
+              <input
+                type="checkbox"
+                checked={!!allSelected}
+                onChange={() => (allSelected ? clearSelection() : selectAll())}
+              />
               &nbsp;Selectează tot (vizibil)
             </label>
             <span className={styles.muted}>Selectate: {selectedCount}</span>
           </div>
 
           <div className={styles.controlsMobileActions}>
-            <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={addSelectedToCart} disabled={!selectedCount}>
+            <button
+              className={`${styles.btn} ${styles.btnPrimary}`}
+              onClick={addSelectedToCart}
+              disabled={!selectedCount}
+            >
               <FaShoppingCart style={{ marginRight: 6 }} />
               În coș (selecția)
             </button>
 
-            <button className={`${styles.btn} ${styles.btnDanger}`} onClick={removeSelected} disabled={!selectedCount}>
+            <button
+              className={`${styles.btn} ${styles.btnDanger}`}
+              onClick={removeSelected}
+              disabled={!selectedCount}
+            >
               Elimină selecția
             </button>
 
-            <button className={`${styles.btn} ${styles.btnGhost || ""}`} onClick={clearAll} disabled={!items.length}>
+            <button
+              className={`${styles.btn} ${styles.btnGhost || ""}`}
+              onClick={clearAll}
+              disabled={!items.length}
+            >
               Golește tot
             </button>
           </div>
@@ -718,7 +935,6 @@ export default function Wishlist() {
         </div>
       )}
 
-      {/* ✅ skeleton în timp ce vine first page (fără flicker) */}
       {initialLoading && items.length === 0 ? (
         <div className={styles.grid}>
           {Array.from({ length: 8 }).map((_, i) => (
@@ -735,7 +951,7 @@ export default function Wishlist() {
         </div>
       ) : (
         <div className={styles.grid}>
-          {items.map((it) => {
+          {items.map((it, index) => {
             const img = resolveImg(it.card.images?.[0]);
             const isOwner = !!myVendorId && !!it.card.vendorId && myVendorId === it.card.vendorId;
             const checked = selectedIds.has(it.card.id);
@@ -768,7 +984,8 @@ export default function Wishlist() {
                     src={img}
                     alt={it.card.title || "Produs"}
                     decoding="async"
-                    loading="lazy"
+                    loading={index < 6 ? "eager" : "lazy"}
+                    fetchPriority={index < 3 ? "high" : "auto"}
                     onError={(e) => onImgError(e, 480, 360, "Produs")}
                   />
                 </button>
@@ -785,7 +1002,10 @@ export default function Wishlist() {
                   <div className={styles.cardMeta}>
                     Magazin:{" "}
                     {it.card.vendorSlug ? (
-                      <Link to={`/magazin/${it.card.vendorSlug}`} className={styles.linkPrimary}>
+                      <Link
+                        to={`/magazin/${it.card.vendorSlug}`}
+                        className={styles.linkPrimary}
+                      >
                         {it.card.vendorName}
                       </Link>
                     ) : (
@@ -803,8 +1023,8 @@ export default function Wishlist() {
                           it.card.isActive === false
                             ? "Produsul nu mai este activ."
                             : it.card.stock === 0
-                            ? "Stoc epuizat."
-                            : "Adaugă în coș"
+                              ? "Stoc epuizat."
+                              : "Adaugă în coș"
                         }
                         aria-label="Adaugă în coș"
                       >

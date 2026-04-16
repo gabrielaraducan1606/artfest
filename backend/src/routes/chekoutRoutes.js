@@ -304,6 +304,51 @@ function validateContactPerson(contactPerson) {
 }
 
 /**
+ * Construiește grupurile de checkout pe service (magazin)
+ */
+function buildCheckoutGroups(cart) {
+  const map = new Map();
+
+  for (const it of cart) {
+    const service = it.product?.service;
+    const serviceId = service?.id || null;
+    const vendorId = service?.vendorId || null;
+
+    if (!serviceId || !vendorId) continue;
+
+    if (!map.has(serviceId)) {
+      map.set(serviceId, {
+        serviceId,
+        vendorId,
+        serviceTitle: service?.title || "",
+        estimatedShippingFeeCents:
+          service?.estimatedShippingFeeCents != null
+            ? Number(service.estimatedShippingFeeCents)
+            : null,
+        freeShippingThresholdCents:
+          service?.freeShippingThresholdCents != null
+            ? Number(service.freeShippingThresholdCents)
+            : null,
+        shippingNotes: service?.shippingNotes || null,
+        items: [],
+      });
+    }
+
+    map.get(serviceId).items.push({
+      productId: it.productId,
+      title: it.product.title,
+      qty: Number(it.qty || 0),
+      price: Math.round(Number(it.product.priceCents || 0)) / 100,
+      currency: it.product.currency || "RON",
+      vendorId,
+      serviceId,
+    });
+  }
+
+  return Array.from(map.values());
+}
+
+/**
  * SUMMARY
  */
 router.get("/checkout/summary", authRequired, async (req, res) => {
@@ -319,7 +364,12 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
           currency: true,
           service: {
             select: {
+              id: true,
+              title: true,
               vendorId: true,
+              estimatedShippingFeeCents: true,
+              freeShippingThresholdCents: true,
+              shippingNotes: true,
               vendor: {
                 select: {
                   billing: true,
@@ -334,7 +384,12 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
   });
 
   if (!items.length) {
-    return res.json({ items: [], currency: "RON", subtotal: 0 });
+    return res.json({
+      items: [],
+      groups: [],
+      currency: "RON",
+      subtotal: 0,
+    });
   }
 
   const currency = items[0]?.product?.currency || "RON";
@@ -342,12 +397,15 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
   const mapped = items.map((i) => {
     const service = i.product.service;
     const vendorId = service?.vendorId || null;
+    const serviceId = service?.id || null;
     const vendorBilling = service?.vendor?.billing
       ? mapPublicBilling(service.vendor.billing)
       : null;
 
     return {
       productId: i.productId,
+      serviceId,
+      vendorId,
       title: i.product.title,
       image:
         Array.isArray(i.product.images) && i.product.images[0]
@@ -356,13 +414,49 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
       qty: i.qty,
       price: Math.round(i.product.priceCents) / 100,
       currency: i.product.currency || currency,
-      vendorId,
       vendorBilling,
+      estimatedShippingFee:
+        service?.estimatedShippingFeeCents != null
+          ? dec(Number(service.estimatedShippingFeeCents) / 100)
+          : null,
+      freeShippingThreshold:
+        service?.freeShippingThresholdCents != null
+          ? dec(Number(service.freeShippingThresholdCents) / 100)
+          : null,
+      shippingNotes: service?.shippingNotes || null,
     };
   });
 
+  const groups = buildCheckoutGroups(items).map((g) => ({
+    serviceId: g.serviceId,
+    vendorId: g.vendorId,
+    serviceTitle: g.serviceTitle,
+    estimatedShippingFee:
+      g.estimatedShippingFeeCents != null
+        ? dec(g.estimatedShippingFeeCents / 100)
+        : null,
+    freeShippingThreshold:
+      g.freeShippingThresholdCents != null
+        ? dec(g.freeShippingThresholdCents / 100)
+        : null,
+    shippingNotes: g.shippingNotes || null,
+    subtotal: dec(
+      g.items.reduce(
+        (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
+        0
+      )
+    ),
+    items: g.items,
+  }));
+
   const subtotal = dec(mapped.reduce((s, it) => s + it.price * it.qty, 0));
-  res.json({ items: mapped, currency, subtotal });
+
+  res.json({
+    items: mapped,
+    groups,
+    currency,
+    subtotal,
+  });
 });
 
 /**
@@ -370,19 +464,54 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
  */
 async function quoteShipping({ groups, selections }) {
   const shipments = groups.map((g) => {
-    const key = String(g.vendorId);
+    const key = String(g.serviceId);
     const sel = selections?.[key] || { method: "COURIER" };
     const method = sel.method === "LOCKER" ? "LOCKER" : "COURIER";
 
+    const estimatedShippingFeeCents =
+      g.estimatedShippingFeeCents != null
+        ? Number(g.estimatedShippingFeeCents)
+        : 0;
+
+    const freeShippingThresholdCents =
+      g.freeShippingThresholdCents != null
+        ? Number(g.freeShippingThresholdCents)
+        : null;
+
+    const vendorSubtotalCents = g.items.reduce(
+      (sum, it) =>
+        sum + Math.round(Number(it.price || 0) * 100) * Number(it.qty || 0),
+      0
+    );
+
+    const qualifiesFreeShipping =
+      freeShippingThresholdCents != null &&
+      vendorSubtotalCents >= freeShippingThresholdCents;
+
+    const finalShippingCents = qualifiesFreeShipping
+      ? 0
+      : estimatedShippingFeeCents;
+
     return {
+      serviceId: g.serviceId,
       vendorId: g.vendorId,
       method,
       lockerId: method === "LOCKER" ? sel.lockerId || null : null,
-      price: 15,
+      price: dec(finalShippingCents / 100),
+      estimatedShippingFee: dec(estimatedShippingFeeCents / 100),
+      freeShippingThreshold:
+        freeShippingThresholdCents != null
+          ? dec(freeShippingThresholdCents / 100)
+          : null,
+      shippingNotes: g.shippingNotes || null,
+      qualifiesFreeShipping,
+      vendorSubtotal: dec(vendorSubtotalCents / 100),
     };
   });
 
-  const totalShipping = dec(shipments.reduce((s, x) => s + x.price, 0));
+  const totalShipping = dec(
+    shipments.reduce((s, x) => s + Number(x.price || 0), 0)
+  );
 
   return {
     shipments,
@@ -412,7 +541,16 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
           title: true,
           priceCents: true,
           currency: true,
-          service: { select: { vendorId: true } },
+          service: {
+            select: {
+              id: true,
+              title: true,
+              vendorId: true,
+              estimatedShippingFeeCents: true,
+              freeShippingThresholdCents: true,
+              shippingNotes: true,
+            },
+          },
         },
       },
     },
@@ -425,25 +563,7 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
     });
   }
 
-  const byVendor = new Map();
-  for (const it of cart) {
-    const vId = it.product.service?.vendorId;
-    if (!vId) continue;
-    if (!byVendor.has(vId)) byVendor.set(vId, []);
-    byVendor.get(vId).push({
-      productId: it.productId,
-      title: it.product.title,
-      qty: it.qty,
-      price: Math.round(it.product.priceCents) / 100,
-      currency: it.product.currency || "RON",
-    });
-  }
-
-  const groups = Array.from(byVendor.entries()).map(([vendorId, items]) => ({
-    vendorId,
-    items,
-  }));
-
+  const groups = buildCheckoutGroups(cart);
   const q = await quoteShipping({ groups, selections });
 
   const quoteId = `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -502,7 +622,16 @@ router.post("/checkout/place", authRequired, async (req, res) => {
           title: true,
           priceCents: true,
           currency: true,
-          service: { select: { vendorId: true } },
+          service: {
+            select: {
+              id: true,
+              title: true,
+              vendorId: true,
+              estimatedShippingFeeCents: true,
+              freeShippingThresholdCents: true,
+              shippingNotes: true,
+            },
+          },
         },
       },
     },
@@ -523,27 +652,17 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     qty: i.qty,
     price: Math.round(i.product.priceCents) / 100,
     vendorId: i.product.service?.vendorId || null,
+    serviceId: i.product.service?.id || null,
   }));
 
   const subtotal = dec(items.reduce((s, it) => s + it.price * it.qty, 0));
 
-  const groupsMap = new Map();
-  for (const it of items) {
-    if (!it.vendorId) continue;
-    if (!groupsMap.has(it.vendorId)) groupsMap.set(it.vendorId, []);
-    groupsMap.get(it.vendorId).push(it);
-  }
-
-  const groups = Array.from(groupsMap.entries()).map(([vendorId, its]) => ({
-    vendorId,
-    items: its,
-  }));
-
-  const quote = await quoteShipping({ groups, selections });
+  const groups = buildCheckoutGroups(cart);
+  const quote = await quoteShipping({ groups, selections: selections || {} });
   const shippingTotal = dec(quote.totalShipping);
   const total = dec(subtotal + shippingTotal);
 
-  const vendorIds = Array.from(groupsMap.keys()).map(String);
+  const vendorIds = [...new Set(groups.map((g) => String(g.vendorId)).filter(Boolean))];
 
   const vendors = await prisma.vendor.findMany({
     where: { id: { in: vendorIds } },
@@ -598,7 +717,8 @@ router.post("/checkout/place", authRequired, async (req, res) => {
         shippingAddress: shippingAddressForOrder,
         billingAddress: ct === "PJ" ? normalizedBillingAddress : null,
         contactPerson: ct === "PJ" ? normalizedContactPerson : null,
-        shipToDifferentAddress: ct === "PJ" ? Boolean(shipToDifferentAddress) : false,
+        shipToDifferentAddress:
+          ct === "PJ" ? Boolean(shipToDifferentAddress) : false,
         customerType: ct,
       },
     });
@@ -610,6 +730,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
         data: {
           orderId: order.id,
           vendorId: String(s.vendorId),
+          serviceId: s.serviceId ? String(s.serviceId) : null,
           method: s.method === "LOCKER" ? "LOCKER" : "COURIER",
           lockerId: s.lockerId || null,
           price: dec(s.price),
@@ -618,7 +739,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       });
 
       const its =
-        groups.find((g) => String(g.vendorId) === String(s.vendorId))?.items ||
+        groups.find((g) => String(g.serviceId) === String(s.serviceId))?.items ||
         [];
 
       if (its.length) {

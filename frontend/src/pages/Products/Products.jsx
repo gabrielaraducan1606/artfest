@@ -29,7 +29,7 @@ const SORTS = [
   { v: "price_desc", label: "Preț descrescător" },
 ];
 
-const LIMIT = 24;
+const LIMIT = 12;
 
 const humanizeSlug = (slug = "") =>
   slug.replace(/[_-]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
@@ -91,6 +91,77 @@ function mergeUniqueById(prev, next) {
   return Array.from(map.values());
 }
 
+function normalizeProducts(items = []) {
+  return items.map((pRaw) => ({
+    ...pRaw,
+    price:
+      typeof pRaw.price === "number"
+        ? pRaw.price
+        : (pRaw.priceCents || 0) / 100,
+  }));
+}
+
+function extractFacetsFromItems(itemsList = []) {
+  const cats = new Set();
+  const colors = new Set();
+  const materials = new Set();
+  const techniques = new Set();
+  const styleTags = new Set();
+  const occasionTags = new Set();
+
+  let priceMin = Number.POSITIVE_INFINITY;
+  let priceMax = 0;
+
+  for (const raw of itemsList) {
+    const price =
+      typeof raw.price === "number"
+        ? raw.price
+        : (raw.priceCents || 0) / 100;
+
+    if (Number.isFinite(price)) {
+      if (price < priceMin) priceMin = price;
+      if (price > priceMax) priceMax = price;
+    }
+
+    if (raw?.category) cats.add(raw.category);
+    if (raw?.color) colors.add(raw.color);
+    if (raw?.materialMain) materials.add(raw.materialMain);
+    if (raw?.technique) techniques.add(raw.technique);
+
+    if (Array.isArray(raw?.styleTags)) {
+      raw.styleTags.forEach((t) => t && styleTags.add(String(t)));
+    } else if (typeof raw?.styleTags === "string") {
+      raw.styleTags
+        .split(/[,\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .forEach((t) => styleTags.add(t));
+    }
+
+    if (Array.isArray(raw?.occasionTags)) {
+      raw.occasionTags.forEach((t) => t && occasionTags.add(String(t)));
+    } else if (typeof raw?.occasionTags === "string") {
+      raw.occasionTags
+        .split(/[,\s]+/)
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .forEach((t) => occasionTags.add(t));
+    }
+  }
+
+  return {
+    categories: Array.from(cats),
+    colors: Array.from(colors),
+    materials: Array.from(materials),
+    techniques: Array.from(techniques),
+    styleTags: Array.from(styleTags),
+    occasionTags: Array.from(occasionTags),
+    priceMin:
+      Number.isFinite(priceMin) && priceMin !== Infinity ? priceMin : "",
+    priceMax: Number.isFinite(priceMax) && priceMax !== 0 ? priceMax : "",
+  };
+}
+
 export default function ProductsPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -147,6 +218,17 @@ export default function ProductsPage() {
 
   const [smartInfo, setSmartInfo] = useState(null);
   const [appliedFiltersInfo, setAppliedFiltersInfo] = useState(null);
+
+  const [facets, setFacets] = useState({
+    categories: [],
+    colors: [],
+    materials: [],
+    techniques: [],
+    styleTags: [],
+    occasionTags: [],
+    priceMin: "",
+    priceMax: "",
+  });
 
   const [localFilters, setLocalFilters] = useState({
     q: qParam,
@@ -255,17 +337,22 @@ export default function ProductsPage() {
 
         if (requestId !== productsRequestIdRef.current) return;
 
-        const newItems = Array.isArray(res?.items) ? res.items : [];
+        const rawItems = Array.isArray(res?.items) ? res.items : [];
+        const normalizedItems = normalizeProducts(rawItems);
         const serverHasMore = !!res?.hasMore;
 
         setItems((prev) => {
-          if (!append) return newItems;
-          return mergeUniqueById(prev, newItems);
+          if (!append) return normalizedItems;
+          return mergeUniqueById(prev, normalizedItems);
         });
+
+        if (!append) {
+          setFacets(extractFacetsFromItems(normalizedItems));
+        }
 
         if (res?.total !== null && res?.total !== undefined) {
           setTotal(res.total);
-        } else if (!append && newItems.length === 0) {
+        } else if (!append && normalizedItems.length === 0) {
           setTotal(0);
         }
 
@@ -282,15 +369,25 @@ export default function ProductsPage() {
           if (!initialLoadDoneRef.current) {
             setItems([]);
             setTotal(0);
+            setFacets({
+              categories: [],
+              colors: [],
+              materials: [],
+              techniques: [],
+              styleTags: [],
+              occasionTags: [],
+              priceMin: "",
+              priceMax: "",
+            });
           }
         }
       } finally {
-  if (requestId === productsRequestIdRef.current) {
-    if (firstLoad) setLoading(false);
-    else if (refetchLoad) setRefreshing(false);
-    else setIsLoadingMore(false);
-  }
-}
+        if (requestId === productsRequestIdRef.current) {
+          if (firstLoad) setLoading(false);
+          else if (refetchLoad) setRefreshing(false);
+          else setIsLoadingMore(false);
+        }
+      }
     },
     [
       ids,
@@ -365,14 +462,6 @@ export default function ProductsPage() {
         }
 
         setMe(meData?.user || null);
-
-        if (meData?.user) {
-          const fav = await api("/api/favorites/ids").catch(() => ({ items: [] }));
-          if (!alive) return;
-          setFavorites(
-            new Set(Array.isArray(fav?.items) ? fav.items : [])
-          );
-        }
       } catch {
         if (!alive) return;
         setMe(null);
@@ -384,6 +473,27 @@ export default function ProductsPage() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    if (!me) return;
+
+    (async () => {
+      try {
+        const fav = await api("/api/favorites/ids").catch(() => ({ items: [] }));
+        if (!alive) return;
+        setFavorites(new Set(Array.isArray(fav?.items) ? fav.items : []));
+      } catch {
+        if (!alive) return;
+        setFavorites(new Set());
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [me]);
 
   useEffect(() => {
     loadProducts(1, false);
@@ -580,67 +690,6 @@ export default function ProductsPage() {
     }
   }, [me]);
 
-  const facets = useMemo(() => {
-    const cats = new Set();
-    const colors = new Set();
-    const materials = new Set();
-    const techniques = new Set();
-    const styleTags = new Set();
-    const occasionTags = new Set();
-
-    let priceMin = Number.POSITIVE_INFINITY;
-    let priceMax = 0;
-
-    for (const raw of items) {
-      const price =
-        typeof raw.price === "number"
-          ? raw.price
-          : (raw.priceCents || 0) / 100;
-
-      if (Number.isFinite(price)) {
-        if (price < priceMin) priceMin = price;
-        if (price > priceMax) priceMax = price;
-      }
-
-      if (raw?.category) cats.add(raw.category);
-      if (raw?.color) colors.add(raw.color);
-      if (raw?.materialMain) materials.add(raw.materialMain);
-      if (raw?.technique) techniques.add(raw.technique);
-
-      if (Array.isArray(raw?.styleTags)) {
-        raw.styleTags.forEach((t) => t && styleTags.add(String(t)));
-      } else if (typeof raw?.styleTags === "string") {
-        raw.styleTags
-          .split(/[,\s]+/)
-          .map((t) => t.trim())
-          .filter(Boolean)
-          .forEach((t) => styleTags.add(t));
-      }
-
-      if (Array.isArray(raw?.occasionTags)) {
-        raw.occasionTags.forEach((t) => t && occasionTags.add(String(t)));
-      } else if (typeof raw?.occasionTags === "string") {
-        raw.occasionTags
-          .split(/[,\s]+/)
-          .map((t) => t.trim())
-          .filter(Boolean)
-          .forEach((t) => occasionTags.add(t));
-      }
-    }
-
-    return {
-      categories: Array.from(cats),
-      colors: Array.from(colors),
-      materials: Array.from(materials),
-      techniques: Array.from(techniques),
-      styleTags: Array.from(styleTags),
-      occasionTags: Array.from(occasionTags),
-      priceMin:
-        Number.isFinite(priceMin) && priceMin !== Infinity ? priceMin : "",
-      priceMax: Number.isFinite(priceMax) && priceMax !== 0 ? priceMax : "",
-    };
-  }, [items]);
-
   const categoryLabelMap = useMemo(() => {
     const map = {};
     for (const p of items) {
@@ -741,15 +790,58 @@ export default function ProductsPage() {
     [navigate, params]
   );
 
-  const itemsNormalized = useMemo(() => {
-    return items.map((pRaw) => ({
-      ...pRaw,
-      price:
-        typeof pRaw.price === "number"
-          ? pRaw.price
-          : (pRaw.priceCents || 0) / 100,
-    }));
-  }, [items]);
+  const productCards = useMemo(() => {
+    return items.map((p) => {
+      const ownerUserId = p?.service?.vendor?.userId;
+      const isOwner =
+        !!me &&
+        !!ownerUserId &&
+        (me.id === ownerUserId || me.sub === ownerUserId);
+
+      const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
+      const isFav = favorites.has(p.id);
+
+      return (
+        <ProductCard
+          key={p.id}
+          p={p}
+          viewMode={viewMode}
+          isFav={isFav}
+          onAddToCart={doAddToCart}
+          onToggleFavorite={toggleFavorite}
+          categoryLabelMap={categoryLabelMap}
+          vendorActionsOverride={
+            isOwner ? (
+              <div className={styles.ownerOverrideRow}>
+                <span className={styles.ownerBadge}>
+                  Produsul tău
+                </span>
+
+                <button
+                  type="button"
+                  className={styles.ownerManageBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate("/vendor/store");
+                  }}
+                >
+                  Gestionează
+                </button>
+              </div>
+            ) : null
+          }
+        />
+      );
+    });
+  }, [
+    items,
+    me,
+    favorites,
+    doAddToCart,
+    toggleFavorite,
+    categoryLabelMap,
+    navigate,
+  ]);
 
   return (
     <section className={styles.page}>
@@ -1231,57 +1323,14 @@ export default function ProductsPage() {
         <ProductsSkeleton />
       ) : (
         <>
-          {refreshing && itemsNormalized.length > 0 && (
+          {refreshing && items.length > 0 && (
             <div className={styles.loading}>Actualizăm rezultatele…</div>
           )}
 
-          {itemsNormalized.length === 0 ? (
+          {items.length === 0 ? (
             <EmptyState />
           ) : (
-            <div className={styles.grid}>
-              {itemsNormalized.map((p) => {
-                const ownerUserId = p?.service?.vendor?.userId;
-                const isOwner =
-                  !!me &&
-                  !!ownerUserId &&
-                  (me.id === ownerUserId || me.sub === ownerUserId);
-
-                const viewMode = isOwner ? "vendor" : me ? "user" : "guest";
-                const isFav = favorites.has(p.id);
-
-                return (
-                  <ProductCard
-                    key={p.id}
-                    p={p}
-                    viewMode={viewMode}
-                    isFav={isFav}
-                    onAddToCart={doAddToCart}
-                    onToggleFavorite={toggleFavorite}
-                    categoryLabelMap={categoryLabelMap}
-                    vendorActionsOverride={
-                      isOwner ? (
-                        <div className={styles.ownerOverrideRow}>
-                          <span className={styles.ownerBadge}>
-                            Produsul tău
-                          </span>
-
-                          <button
-                            type="button"
-                            className={styles.ownerManageBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate("/vendor/store");
-                            }}
-                          >
-                            Gestionează
-                          </button>
-                        </div>
-                      ) : null
-                    }
-                  />
-                );
-              })}
-            </div>
+            <div className={styles.grid}>{productCards}</div>
           )}
 
           <div ref={sentinelRef} style={{ height: 1 }} />

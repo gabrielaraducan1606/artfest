@@ -68,17 +68,13 @@ function renderTemplate(str, vars) {
     let cur = vars;
     for (const p of parts) {
       if (cur && Object.prototype.hasOwnProperty.call(cur, p)) cur = cur[p];
-      else return ""; // dacă lipsește, gol
+      else return "";
     }
     return cur == null ? "" : String(cur);
   });
 }
 
 function resolveDocPath(docRelPath) {
-  // docRelPath e relativ față de root (ex: legal/docs/tos/v1.md)
-  // îl transformăm în absolut: <backendRoot>/legal/docs/...
-  // deoarece LEGAL_DIR e deja <backendRoot>/legal
-  // dacă docRelPath începe cu "legal/" îl tăiem
   const rel = docRelPath.startsWith("legal/")
     ? docRelPath.slice("legal/".length)
     : docRelPath;
@@ -123,20 +119,16 @@ export function loadLegalDoc(key, opts = {}) {
   const varsVersion = fileMeta.vars ?? 1;
   const vars = loadVars(varsVersion);
 
-  // Aplicăm templating pe titlu + content
   const title = renderTemplate(parsed.data?.title || doc.title || "", vars);
   const valid_from = renderTemplate(parsed.data?.valid_from || "", vars);
-
   const content = renderTemplate(parsed.content || "", vars);
-
-  // HTML: punem H1 din title + restul markdown-ului
- const html = marked.parse(String(content || "").trim());
+  const html = marked.parse(String(content || "").trim());
 
   return {
     type: key,
     key,
     title,
-    version: parsed.data?.version ?? version, // dacă în frontmatter e numeric, păstrăm
+    version: parsed.data?.version ?? version,
     semver: parsed.data?.semver || null,
     valid_from,
     checksum: checksumSHA256(raw),
@@ -153,12 +145,11 @@ export function loadMany(types) {
 
 /**
  * Helper: URL public “pretty” pentru un doc.
- * Dacă vrei, îl poți folosi în meta.
  */
 export function defaultPublicUrlForType(type) {
-  // slug frumos (păstrăm ce aveai)
   if (type === "tos") return "/termenii-si-conditiile";
   if (type === "privacy") return "/confidentialitate";
+  if (type === "cookies") return "/cookies";
   if (type === "vendor_terms") return "/acord-vanzatori";
   if (type === "shipping_addendum") return "/anexa-expediere";
   if (type === "returns_policy_ack") return "/politica-retur";

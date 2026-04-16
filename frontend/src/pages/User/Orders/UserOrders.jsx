@@ -1,4 +1,3 @@
-// frontend/src/pages/User/Orders/OrdersPage.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Filter, RotateCcw, Search as SearchIcon } from "lucide-react";
 import { api } from "../../../lib/api";
@@ -8,7 +7,6 @@ import ReturnRequestModal from "./ReturnRequestModal/ReturnRequestModal";
 import OrderCard from "./components/OrderCard";
 import EmptyState from "./components/EmptyState";
 import SkeletonOrderCard from "./components/SkeletonOrderCard";
-import OrdersVirtualList from "./components/OrdersVirtualList";
 
 /**
  * Status UI trimis de backend (computeUiStatus):
@@ -16,7 +14,7 @@ import OrdersVirtualList from "./components/OrdersVirtualList";
  */
 const STATUS_TABS = [
   { key: "all", label: "Toate" },
-  { key: "active", label: "Active" }, // PENDING, PROCESSING, SHIPPED
+  { key: "active", label: "Active" },
   { key: "DELIVERED", label: "Livrate" },
   { key: "CANCELED", label: "Anulate" },
   { key: "RETURNED", label: "Returnate" },
@@ -42,20 +40,20 @@ export default function OrdersPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  // split loading: instant feeling
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const [busyId, setBusyId] = useState(null);
 
-  // mobile filters
   const [isMobile, setIsMobile] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // ReturnRequestModal
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnOrderId, setReturnOrderId] = useState(null);
+
+  const cacheRef = useRef(new Map());
+  const abortRef = useRef(null);
 
   const openReturnModal = useCallback((order) => {
     setReturnOrderId(order?.id || null);
@@ -67,33 +65,30 @@ export default function OrdersPage() {
     setReturnOrderId(null);
   }, []);
 
-  // detect viewport for filters button on mobile
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") return undefined;
+
     const check = () => setIsMobile(window.innerWidth <= 640);
     check();
+
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // what statuses we send to backend in query
   const statusParam = useMemo(() => {
     if (tab === "all") return "";
     if (tab === "active") return "PENDING,PROCESSING,SHIPPED";
-    return tab; // DELIVERED / CANCELED / RETURNED
+    return tab;
   }, [tab]);
-
-  // in-memory cache per (status + q)
-  const cacheRef = useRef(new Map());
-  const abortRef = useRef(null);
 
   const load = useCallback(
     async (opts = { reset: false, pageOverride: null, silent: false }) => {
-      // cancel previous in-flight (prevents race conditions when switching tabs fast)
       try {
         abortRef.current?.abort?.();
       } catch {""}
-      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+
+      const controller =
+        typeof AbortController !== "undefined" ? new AbortController() : null;
       abortRef.current = controller;
 
       const limit = 10;
@@ -106,8 +101,8 @@ export default function OrdersPage() {
       if (statusParam) params.set("status", statusParam);
 
       const cacheKey = makeCacheKey({ statusParam, q });
-
       const noItemsYet = items.length === 0 && nextPage === 1;
+
       if (!opts.silent) {
         if (nextPage > 1) setLoadingMore(true);
         else if (noItemsYet) setLoadingInitial(true);
@@ -123,17 +118,17 @@ export default function OrdersPage() {
 
         setItems((prev) => (opts.reset ? newItems : [...prev, ...newItems]));
 
-        // IMPORTANT:
-        // dacă backend-ul trimite hasMore, îl preferăm (mai corect decât total)
+        let computedHasMore = false;
         if (typeof res?.hasMore === "boolean") {
+          computedHasMore = res.hasMore;
           setHasMore(res.hasMore);
         } else {
           const total = Number(res?.total || 0);
           const totalPages = Math.ceil(total / limit) || 1;
-          setHasMore(nextPage < totalPages);
+          computedHasMore = nextPage < totalPages;
+          setHasMore(computedHasMore);
         }
 
-        // update cache snapshot (so switching back feels instant)
         const merged =
           opts.reset || nextPage === 1
             ? newItems
@@ -142,7 +137,7 @@ export default function OrdersPage() {
         cacheRef.current.set(cacheKey, {
           items: merged,
           page: nextPage,
-          hasMore: typeof res?.hasMore === "boolean" ? res.hasMore : hasMore,
+          hasMore: computedHasMore,
           ts: Date.now(),
         });
       } catch (e) {
@@ -165,31 +160,28 @@ export default function OrdersPage() {
         }
       }
     },
-    [page, q, statusParam, items.length, hasMore]
+    [page, q, statusParam, items.length]
   );
 
-  // Auth (in parallel)
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         const { user } = await api("/api/auth/me");
-        if (!alive) return;
-        setMe(user || null);
+        if (alive) setMe(user || null);
       } catch {
-        if (!alive) return;
-        setMe(null);
+        if (alive) setMe(null);
       } finally {
-        if (!alive) ;
-        setAuthChecked(true);
+        if (alive) setAuthChecked(true);
       }
     })();
+
     return () => {
       alive = false;
     };
   }, []);
 
-  // On mount + when tab changes: show cache instantly then refresh
   useEffect(() => {
     const cacheKey = makeCacheKey({ statusParam, q });
     const cached = cacheRef.current.get(cacheKey);
@@ -200,14 +192,15 @@ export default function OrdersPage() {
       setHasMore(!!cached.hasMore);
       setLoadingInitial(false);
     } else {
+      setItems([]);
       setPage(1);
+      setHasMore(true);
     }
 
     load({ reset: true, pageOverride: 1, silent: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Load more on page change
   useEffect(() => {
     if (page === 1) return;
     load({ reset: false, pageOverride: page, silent: false });
@@ -219,6 +212,7 @@ export default function OrdersPage() {
 
       const cacheKey = makeCacheKey({ statusParam, q });
       const cached = cacheRef.current.get(cacheKey);
+
       if (cached?.items?.length) {
         setItems(cached.items);
         setHasMore(!!cached.hasMore);
@@ -235,6 +229,8 @@ export default function OrdersPage() {
     setQ("");
     setTab("all");
     setPage(1);
+    setItems([]);
+    setHasMore(true);
   }, []);
 
   const openFiltersModal = useCallback(() => setFiltersOpen(true), []);
@@ -246,6 +242,7 @@ export default function OrdersPage() {
 
     const cacheKey = makeCacheKey({ statusParam, q });
     const cached = cacheRef.current.get(cacheKey);
+
     if (cached?.items?.length) {
       setItems(cached.items);
       setHasMore(!!cached.hasMore);
@@ -258,13 +255,15 @@ export default function OrdersPage() {
   const cancelOrder = useCallback(
     async (id) => {
       if (
-        !confirm(
+        !window.confirm(
           "Sigur vrei să anulezi această comandă? La confirmare, artizanii vor primi automat o notificare cu anularea comenzii."
         )
-      )
+      ) {
         return;
+      }
 
       setBusyId(id);
+
       try {
         await api(`/api/user/orders/${id}/cancel`, { method: "POST" });
         setPage(1);
@@ -280,9 +279,10 @@ export default function OrdersPage() {
 
   const reorder = useCallback(async (id) => {
     setBusyId(id);
+
     try {
       await api(`/api/user/orders/${id}/reorder`, { method: "POST" });
-      if (confirm("Produsele au fost adăugate în coș. Deschizi coșul?")) {
+      if (window.confirm("Produsele au fost adăugate în coș. Deschizi coșul?")) {
         window.location.assign("/cos");
       }
     } catch (e) {
@@ -319,7 +319,9 @@ export default function OrdersPage() {
       const threadId = res?.threadId;
       if (!threadId) throw new Error("Nu am primit ID-ul conversației.");
 
-      window.location.assign(`/cont/mesaje?thread=${encodeURIComponent(threadId)}`);
+      window.location.assign(
+        `/cont/mesaje?thread=${encodeURIComponent(threadId)}`
+      );
     } catch (e) {
       console.error(e);
       alert(
@@ -329,9 +331,12 @@ export default function OrdersPage() {
     }
   }, []);
 
-  // If auth is checked and user is not logged in, show login message.
   if (!me && authChecked) {
-    return <div className={styles.page}>Trebuie să te autentifici pentru a vedea comenzile.</div>;
+    return (
+      <div className={styles.page}>
+        Trebuie să te autentifici pentru a vedea comenzile.
+      </div>
+    );
   }
 
   return (
@@ -341,7 +346,8 @@ export default function OrdersPage() {
           <div>
             <h1 className={styles.h1}>Comenzile mele</h1>
             <p className={styles.subtle}>
-              Vizualizezi statusul comenzii tale așa cum este actualizat de artizani și curier.
+              Vizualizezi statusul comenzii tale așa cum este actualizat de
+              artizani și curier.
             </p>
             {refreshing && (
               <p className={styles.subtle} style={{ marginTop: 6 }}>
@@ -351,11 +357,15 @@ export default function OrdersPage() {
           </div>
 
           <div className={styles.headRight}>
-            {/* SearchBar */}
             <form className={styles.searchBar} onSubmit={onSearch}>
-              <button type="submit" className={styles.searchBarIconBtn} aria-label="Caută">
+              <button
+                type="submit"
+                className={styles.searchBarIconBtn}
+                aria-label="Caută"
+              >
                 <SearchIcon size={18} />
               </button>
+
               <input
                 className={styles.searchBarInput}
                 placeholder="Caută după produs sau număr comandă…"
@@ -389,7 +399,6 @@ export default function OrdersPage() {
           </div>
         </header>
 
-        {/* Tabs */}
         <div className={styles.tabs}>
           {STATUS_TABS.map((t) => (
             <button
@@ -403,43 +412,38 @@ export default function OrdersPage() {
           ))}
         </div>
 
-       <div className={styles.list}>
-  {loadingInitial && items.length === 0 && (
-    <>
-      <SkeletonOrderCard />
-      <SkeletonOrderCard />
-      <SkeletonOrderCard />
-    </>
-  )}
+        <div className={styles.list}>
+          {loadingInitial && items.length === 0 && (
+            <>
+              <SkeletonOrderCard />
+              <SkeletonOrderCard />
+              <SkeletonOrderCard />
+            </>
+          )}
 
-  {items.length === 0 && !loadingInitial && !refreshing && (
-    <EmptyState
-      title="Nu ai comenzi în această listă."
-      subtitle="Explorează catalogul și adaugă produse în coș."
-      ctaText="Vezi Produse"
-      href="/produse"
-    />
-  )}
+          {items.length === 0 && !loadingInitial && !refreshing && (
+            <EmptyState
+              title="Nu ai comenzi în această listă."
+              subtitle="Explorează catalogul și adaugă produse în coș."
+              ctaText="Vezi Produse"
+              href="/produse"
+            />
+          )}
 
-  {items.length > 0 && (
-    <OrdersVirtualList
-      items={items}
-      renderRow={(o) => (
-        <OrderCard
-          key={o.id}
-          order={o}
-          busy={busyId === o.id}
-          onCancel={cancelOrder}
-          onReorder={reorder}
-          onContact={contactVendorForOrder}
-          onReturn={openReturnModal}
-        />
-      )}
-    />
-  )}
-</div>
+          {items.length > 0 &&
+            items.map((o) => (
+              <OrderCard
+                key={o.id}
+                order={o}
+                busy={busyId === o.id}
+                onCancel={cancelOrder}
+                onReorder={reorder}
+                onContact={contactVendorForOrder}
+                onReturn={openReturnModal}
+              />
+            ))}
+        </div>
 
-        {/* Pagination */}
         {hasMore && (
           <div className={styles.loadMoreWrap}>
             <button
@@ -453,13 +457,22 @@ export default function OrdersPage() {
         )}
       </section>
 
-      {/* Filters modal – mobile */}
       {filtersOpen && (
-        <div className={styles.modalBackdrop} role="dialog" aria-modal="true" aria-label="Filtre comenzi">
+        <div
+          className={styles.modalBackdrop}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Filtre comenzi"
+        >
           <div className={styles.modal}>
             <div className={styles.modalHead}>
               <div className={styles.modalTitle}>Filtre comenzi</div>
-              <button type="button" className={styles.iconBtn} onClick={closeFiltersModal} aria-label="Închide">
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={closeFiltersModal}
+                aria-label="Închide"
+              >
                 ×
               </button>
             </div>
@@ -482,7 +495,9 @@ export default function OrdersPage() {
                     <button
                       key={t.key}
                       type="button"
-                      className={`${styles.statusPill} ${tab === t.key ? styles.statusPillActive : ""}`}
+                      className={`${styles.statusPill} ${
+                        tab === t.key ? styles.statusPillActive : ""
+                      }`}
                       onClick={() => setTab(t.key)}
                     >
                       {t.label}
@@ -493,10 +508,18 @@ export default function OrdersPage() {
             </div>
 
             <div className={styles.modalActions}>
-              <button type="button" className={styles.btnGhost} onClick={closeFiltersModal}>
+              <button
+                type="button"
+                className={styles.btnGhost}
+                onClick={closeFiltersModal}
+              >
                 Anulează
               </button>
-              <button type="button" className={styles.btnPrimary} onClick={applyFiltersFromModal}>
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={applyFiltersFromModal}
+              >
                 Aplică filtre
               </button>
             </div>
@@ -504,7 +527,11 @@ export default function OrdersPage() {
         </div>
       )}
 
-      <ReturnRequestModal open={returnOpen} onClose={closeReturnModal} orderId={returnOrderId} />
+      <ReturnRequestModal
+        open={returnOpen}
+        onClose={closeReturnModal}
+        orderId={returnOrderId}
+      />
     </>
   );
 }

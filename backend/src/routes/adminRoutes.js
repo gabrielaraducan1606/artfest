@@ -17,9 +17,93 @@ const APP_URL = (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(
 // Stripe (folosit doar în endpoint-uri admin de sync)
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
-/**
- * SELECT comun pentru user în admin
- */
+/* =========================================================
+ *                      Helpers
+ * ========================================================= */
+
+function toIso(v) {
+  return v ? new Date(v).toISOString() : null;
+}
+
+function buildUserConsentsSummary(user) {
+  const consents = user?.UserConsent || [];
+
+  const acceptedDocs = consents.map((c) => c.document);
+  const latestByDocument = {};
+
+  for (const c of consents) {
+    const prev = latestByDocument[c.document];
+    if (!prev || new Date(c.givenAt) > new Date(prev.givenAt)) {
+      latestByDocument[c.document] = c;
+    }
+  }
+
+  return {
+    acceptedDocs,
+    tosAccepted: acceptedDocs.includes("TOS"),
+    privacyAccepted: acceptedDocs.includes("PRIVACY_ACK"),
+    marketingOptIn: acceptedDocs.includes("MARKETING_EMAIL_OPTIN"),
+    latestByDocument: Object.fromEntries(
+      Object.entries(latestByDocument).map(([key, value]) => [
+        key,
+        {
+          document: value.document,
+          version: value.version || null,
+          checksum: value.checksum || null,
+          givenAt: toIso(value.givenAt),
+        },
+      ])
+    ),
+  };
+}
+
+function buildVendorAgreementsSummary(vendor, requiredDocs) {
+  const acceptances = vendor?.VendorAcceptance || [];
+
+  const acceptedDocs = acceptances.map((a) => a.document);
+  const missingDocs = requiredDocs.filter((doc) => !acceptedDocs.includes(doc));
+
+  const allRequired = requiredDocs.length > 0 && missingDocs.length === 0;
+
+  let lastAcceptedAt = null;
+  if (acceptances.length) {
+    const latest = acceptances.reduce((acc, cur) =>
+      !acc || cur.acceptedAt > acc.acceptedAt ? cur : acc
+    );
+    lastAcceptedAt = latest.acceptedAt.toISOString();
+  }
+
+  return { allRequired, acceptedDocs, missingDocs, lastAcceptedAt };
+}
+
+function mapUserConsentList(consents = []) {
+  return consents.map((c) => ({
+    document: c.document,
+    version: c.version || null,
+    checksum: c.checksum || null,
+    givenAt: toIso(c.givenAt),
+  }));
+}
+
+function mapMarketingPrefs(prefs) {
+  if (!prefs) return null;
+  return {
+    userId: prefs.userId,
+    marketingOptIn: !!prefs.marketingOptIn,
+    sourcePreference: prefs.sourcePreference,
+    topics: Array.isArray(prefs.topics) ? prefs.topics : [],
+    emailEnabled: !!prefs.emailEnabled,
+    smsEnabled: !!prefs.smsEnabled,
+    pushEnabled: !!prefs.pushEnabled,
+    createdAt: toIso(prefs.createdAt),
+    updatedAt: toIso(prefs.updatedAt),
+  };
+}
+
+/* =========================================================
+ *                      SELECTS
+ * ========================================================= */
+
 const adminUserSelect = {
   id: true,
   email: true,
@@ -30,6 +114,8 @@ const adminUserSelect = {
   lastName: true,
   name: true,
 
+  marketingOptIn: true,
+
   emailVerifiedAt: true,
   tokenVersion: true,
   status: true,
@@ -38,12 +124,37 @@ const adminUserSelect = {
   inactiveNotifiedAt: true,
   scheduledDeletionAt: true,
 
+  UserConsent: {
+    select: {
+      document: true,
+      version: true,
+      checksum: true,
+      givenAt: true,
+    },
+    orderBy: { givenAt: "desc" },
+  },
+
+  marketingPrefs: {
+    select: {
+      userId: true,
+      marketingOptIn: true,
+      sourcePreference: true,
+      topics: true,
+      emailEnabled: true,
+      smsEnabled: true,
+      pushEnabled: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+
   vendor: {
     select: {
       id: true,
       displayName: true,
       isActive: true,
       createdAt: true,
+      city: true,
     },
   },
 
@@ -56,13 +167,11 @@ const adminUserSelect = {
       supportTickets: true,
       Notification: true,
       MessageThread: true,
+      orders: true,
     },
   },
 };
 
-/**
- * SELECT comun pentru vendor în acțiuni simple
- */
 const adminVendorSelect = {
   id: true,
   displayName: true,
@@ -77,15 +186,14 @@ const adminVendorSelect = {
   socials: true,
   address: true,
   delivery: true,
+  city: true,
 
-  // entitate juridică + audit
   entitySelfDeclared: true,
   entitySelfDeclaredAt: true,
   entitySelfDeclaredIp: true,
   entitySelfDeclaredUa: true,
   entitySelfDeclaredMeta: true,
 
-  // Stripe Connect fields
   stripeAccountId: true,
   stripeChargesEnabled: true,
   stripePayoutsEnabled: true,
@@ -102,6 +210,31 @@ const adminVendorSelect = {
       role: true,
       createdAt: true,
       lastLoginAt: true,
+      marketingOptIn: true,
+
+      UserConsent: {
+        select: {
+          document: true,
+          version: true,
+          checksum: true,
+          givenAt: true,
+        },
+        orderBy: { givenAt: "desc" },
+      },
+
+      marketingPrefs: {
+        select: {
+          userId: true,
+          marketingOptIn: true,
+          sourcePreference: true,
+          topics: true,
+          emailEnabled: true,
+          smsEnabled: true,
+          pushEnabled: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
     },
   },
 
@@ -153,23 +286,6 @@ const adminVendorSelect = {
   },
 };
 
-function buildVendorAgreementsSummary(vendor, requiredDocs) {
-  const acceptances = vendor?.VendorAcceptance || [];
-
-  const acceptedDocs = acceptances.map((a) => a.document);
-  const missingDocs = requiredDocs.filter((doc) => !acceptedDocs.includes(doc));
-
-  const allRequired = requiredDocs.length > 0 && missingDocs.length === 0;
-
-  let lastAcceptedAt = null;
-  if (acceptances.length) {
-    const latest = acceptances.reduce((acc, cur) => (!acc || cur.acceptedAt > acc.acceptedAt ? cur : acc));
-    lastAcceptedAt = latest.acceptedAt.toISOString();
-  }
-
-  return { allRequired, acceptedDocs, missingDocs, lastAcceptedAt };
-}
-
 /* =========================================================
  *                      KPI / LISTE
  * ========================================================= */
@@ -196,7 +312,29 @@ router.get("/users", async (_req, res) => {
       orderBy: { createdAt: "desc" },
       select: adminUserSelect,
     });
-    res.json({ users });
+
+    const dto = users.map((u) => ({
+      ...u,
+      createdAt: toIso(u.createdAt),
+      emailVerifiedAt: toIso(u.emailVerifiedAt),
+      lastLoginAt: toIso(u.lastLoginAt),
+      inactiveNotifiedAt: toIso(u.inactiveNotifiedAt),
+      scheduledDeletionAt: toIso(u.scheduledDeletionAt),
+
+      UserConsent: mapUserConsentList(u.UserConsent),
+      marketingPrefs: mapMarketingPrefs(u.marketingPrefs),
+
+      consentSummary: buildUserConsentsSummary(u),
+
+      vendor: u.vendor
+        ? {
+            ...u.vendor,
+            createdAt: toIso(u.vendor.createdAt),
+          }
+        : null,
+    }));
+
+    res.json({ users: dto });
   } catch (e) {
     console.error("ADMIN /users error", e);
     res.status(500).json({ error: "admin_users_failed" });
@@ -217,7 +355,38 @@ router.get("/vendors", async (_req, res) => {
       orderBy: { createdAt: "desc" },
       include: {
         user: {
-          select: { id: true, email: true, role: true, createdAt: true, lastLoginAt: true },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            createdAt: true,
+            lastLoginAt: true,
+            marketingOptIn: true,
+
+            UserConsent: {
+              select: {
+                document: true,
+                version: true,
+                checksum: true,
+                givenAt: true,
+              },
+              orderBy: { givenAt: "desc" },
+            },
+
+            marketingPrefs: {
+              select: {
+                userId: true,
+                marketingOptIn: true,
+                sourcePreference: true,
+                topics: true,
+                emailEnabled: true,
+                smsEnabled: true,
+                pushEnabled: true,
+                createdAt: true,
+                updatedAt: true,
+              },
+            },
+          },
         },
         billing: {
           select: {
@@ -272,36 +441,49 @@ router.get("/vendors", async (_req, res) => {
       const profile = mainService?.profile || null;
 
       const slug = profile?.slug || null;
-      const publicProfileUrl = slug ? `${basePublicUrl.replace(/\/+$/, "")}/magazin/${slug}` : null;
+      const publicProfileUrl = slug
+        ? `${basePublicUrl.replace(/\/+$/, "")}/magazin/${slug}`
+        : null;
 
-      const hasMasterAgreement = services.some((s) => s.attributes?.masterAgreementAccepted === true);
+      const agreementsSummary = buildVendorAgreementsSummary(v, requiredDocs);
 
-      const acceptedDates = services
+      const hasMasterAgreement =
+        agreementsSummary.acceptedDocs.includes("VENDOR_TERMS") ||
+        services.some((s) => s.attributes?.masterAgreementAccepted === true);
+
+      const acceptedDatesLegacy = services
         .map((s) => s.attributes?.masterAgreementAcceptedAt)
         .filter(Boolean)
         .sort();
 
-      const masterAgreementAcceptedAt = acceptedDates.length > 0 ? acceptedDates[0] : null;
+      const masterAgreementAcceptedAt =
+        agreementsSummary.lastAcceptedAt ||
+        (acceptedDatesLegacy.length > 0 ? acceptedDatesLegacy[0] : null);
+
+      const deliveryList =
+        Array.isArray(profile?.delivery) && profile.delivery.length > 0
+          ? profile.delivery
+          : Array.isArray(v.delivery) && v.delivery.length > 0
+          ? v.delivery
+          : [];
 
       const profileComplete = Boolean(
         (v.displayName || profile?.displayName) &&
           slug &&
           (v.logoUrl || v.coverUrl || profile?.logoUrl || profile?.coverUrl) &&
           (v.address || profile?.address) &&
-          Array.isArray(v.delivery) &&
-          v.delivery.length > 0 &&
+          deliveryList.length > 0 &&
           hasMasterAgreement
       );
 
       const onboardingStatus = profileComplete ? "done" : "profile";
-      const agreementsSummary = buildVendorAgreementsSummary(v, requiredDocs);
 
       return {
         id: v.id,
         displayName: v.displayName,
         about: v.about,
         isActive: v.isActive,
-        createdAt: v.createdAt.toISOString(),
+        createdAt: toIso(v.createdAt),
         logoUrl: v.logoUrl,
         coverUrl: v.coverUrl,
         phone: v.phone,
@@ -310,9 +492,10 @@ router.get("/vendors", async (_req, res) => {
         socials: v.socials,
         address: v.address,
         delivery: v.delivery,
+        city: v.city || null,
 
         entitySelfDeclared: v.entitySelfDeclared,
-        entitySelfDeclaredAt: v.entitySelfDeclaredAt ? v.entitySelfDeclaredAt.toISOString() : null,
+        entitySelfDeclaredAt: toIso(v.entitySelfDeclaredAt),
         entitySelfDeclaredIp: v.entitySelfDeclaredIp || null,
         entitySelfDeclaredUa: v.entitySelfDeclaredUa || null,
         entitySelfDeclaredMeta: v.entitySelfDeclaredMeta ?? null,
@@ -322,7 +505,7 @@ router.get("/vendors", async (_req, res) => {
         stripePayoutsEnabled: !!v.stripePayoutsEnabled,
         stripeChargesEnabled: !!v.stripeChargesEnabled,
         stripeDetailsSubmitted: !!v.stripeDetailsSubmitted,
-        stripeOnboardedAt: v.stripeOnboardedAt ? v.stripeOnboardedAt.toISOString() : null,
+        stripeOnboardedAt: toIso(v.stripeOnboardedAt),
         stripeDisabledReason: v.stripeDisabledReason || null,
         stripeRequirementsDue: v.stripeRequirementsDue ?? null,
 
@@ -337,20 +520,22 @@ router.get("/vendors", async (_req, res) => {
               id: v.user.id,
               email: v.user.email,
               role: v.user.role,
-              createdAt: v.user.createdAt.toISOString(),
-              lastLoginAt: v.user.lastLoginAt ? v.user.lastLoginAt.toISOString() : null,
+              createdAt: toIso(v.user.createdAt),
+              lastLoginAt: toIso(v.user.lastLoginAt),
+              marketingOptIn: !!v.user.marketingOptIn,
+              UserConsent: mapUserConsentList(v.user.UserConsent),
+              marketingPrefs: mapMarketingPrefs(v.user.marketingPrefs),
+              consentSummary: buildUserConsentsSummary(v.user),
             }
           : null,
 
         billing: v.billing
           ? {
               ...v.billing,
-              vatLastResponsibilityConfirm: v.billing.vatLastResponsibilityConfirm
-                ? v.billing.vatLastResponsibilityConfirm.toISOString()
-                : null,
-              tvaVerifiedAt: v.billing.tvaVerifiedAt ? v.billing.tvaVerifiedAt.toISOString() : null,
-              createdAt: v.billing.createdAt.toISOString(),
-              updatedAt: v.billing.updatedAt.toISOString(),
+              vatLastResponsibilityConfirm: toIso(v.billing.vatLastResponsibilityConfirm),
+              tvaVerifiedAt: toIso(v.billing.tvaVerifiedAt),
+              createdAt: toIso(v.billing.createdAt),
+              updatedAt: toIso(v.billing.updatedAt),
             }
           : null,
 
@@ -374,6 +559,53 @@ router.get("/vendors", async (_req, res) => {
 });
 
 /**
+ * GET /user-consents
+ * pentru tabul Politici / consimțăminte
+ */
+router.get("/user-consents", async (_req, res) => {
+  try {
+    const items = await prisma.userConsent.findMany({
+      orderBy: { givenAt: "desc" },
+      take: 500,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            name: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    const consents = items.map((c) => ({
+      id: c.id,
+      userId: c.userId,
+      userEmail: c.user?.email || null,
+      userName:
+        c.user?.name ||
+        [c.user?.firstName, c.user?.lastName].filter(Boolean).join(" ") ||
+        null,
+      userRole: c.user?.role || null,
+      document: c.document,
+      version: c.version || null,
+      checksum: c.checksum || null,
+      givenAt: toIso(c.givenAt),
+      ip: c.ip || null,
+      ua: c.ua || null,
+    }));
+
+    res.json({ consents });
+  } catch (e) {
+    console.error("ADMIN /user-consents error", e);
+    res.status(500).json({ error: "admin_user_consents_failed" });
+  }
+});
+
+/**
  * POST /vendors/:id/stripe/sync
  * Re-trage statusul contului Stripe Connect și persistă în DB
  */
@@ -382,7 +614,10 @@ router.post("/vendors/:id/stripe/sync", async (req, res) => {
 
   try {
     if (!process.env.STRIPE_SECRET_KEY) {
-      return res.status(500).json({ error: "stripe_missing_key", message: "STRIPE_SECRET_KEY lipsește." });
+      return res.status(500).json({
+        error: "stripe_missing_key",
+        message: "STRIPE_SECRET_KEY lipsește.",
+      });
     }
 
     const vendor = await prisma.vendor.findUnique({
@@ -392,7 +627,10 @@ router.post("/vendors/:id/stripe/sync", async (req, res) => {
 
     if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
     if (!vendor.stripeAccountId) {
-      return res.status(400).json({ error: "stripe_not_connected", message: "Vendorul nu are cont Stripe." });
+      return res.status(400).json({
+        error: "stripe_not_connected",
+        message: "Vendorul nu are cont Stripe.",
+      });
     }
 
     const acct = await stripe.accounts.retrieve(vendor.stripeAccountId);
@@ -435,7 +673,7 @@ router.post("/vendors/:id/stripe/sync", async (req, res) => {
     return res.json({
       vendor: {
         ...updated,
-        stripeOnboardedAt: updated.stripeOnboardedAt ? updated.stripeOnboardedAt.toISOString() : null,
+        stripeOnboardedAt: toIso(updated.stripeOnboardedAt),
       },
     });
   } catch (e) {
@@ -496,7 +734,9 @@ router.get("/products", async (req, res) => {
               select: {
                 id: true,
                 displayName: true,
-                VendorAcceptance: { select: { document: true, version: true, acceptedAt: true } },
+                VendorAcceptance: {
+                  select: { document: true, version: true, acceptedAt: true },
+                },
               },
             },
           },
@@ -536,7 +776,10 @@ router.post("/users/:id/suspend", async (req, res) => {
 
   try {
     if (req.user?.id === id) {
-      return res.status(400).json({ error: "cannot_suspend_self", message: "Nu îți poți suspenda propriul cont." });
+      return res.status(400).json({
+        error: "cannot_suspend_self",
+        message: "Nu îți poți suspenda propriul cont.",
+      });
     }
 
     const existing = await prisma.user.findUnique({
@@ -551,7 +794,25 @@ router.post("/users/:id/suspend", async (req, res) => {
       select: adminUserSelect,
     });
 
-    res.json({ user });
+    res.json({
+      user: {
+        ...user,
+        createdAt: toIso(user.createdAt),
+        emailVerifiedAt: toIso(user.emailVerifiedAt),
+        lastLoginAt: toIso(user.lastLoginAt),
+        inactiveNotifiedAt: toIso(user.inactiveNotifiedAt),
+        scheduledDeletionAt: toIso(user.scheduledDeletionAt),
+        UserConsent: mapUserConsentList(user.UserConsent),
+        marketingPrefs: mapMarketingPrefs(user.marketingPrefs),
+        consentSummary: buildUserConsentsSummary(user),
+        vendor: user.vendor
+          ? {
+              ...user.vendor,
+              createdAt: toIso(user.vendor.createdAt),
+            }
+          : null,
+      },
+    });
   } catch (e) {
     console.error("ADMIN /users/:id/suspend error", e);
     res.status(500).json({ error: "admin_user_suspend_failed" });
@@ -562,7 +823,10 @@ router.post("/users/:id/unsuspend", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const existing = await prisma.user.findUnique({ where: { id }, select: { id: true } });
+    const existing = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
     if (!existing) return res.status(404).json({ error: "user_not_found" });
 
     const user = await prisma.user.update({
@@ -571,7 +835,25 @@ router.post("/users/:id/unsuspend", async (req, res) => {
       select: adminUserSelect,
     });
 
-    res.json({ user });
+    res.json({
+      user: {
+        ...user,
+        createdAt: toIso(user.createdAt),
+        emailVerifiedAt: toIso(user.emailVerifiedAt),
+        lastLoginAt: toIso(user.lastLoginAt),
+        inactiveNotifiedAt: toIso(user.inactiveNotifiedAt),
+        scheduledDeletionAt: toIso(user.scheduledDeletionAt),
+        UserConsent: mapUserConsentList(user.UserConsent),
+        marketingPrefs: mapMarketingPrefs(user.marketingPrefs),
+        consentSummary: buildUserConsentsSummary(user),
+        vendor: user.vendor
+          ? {
+              ...user.vendor,
+              createdAt: toIso(user.vendor.createdAt),
+            }
+          : null,
+      },
+    });
   } catch (e) {
     console.error("ADMIN /users/:id/unsuspend error", e);
     res.status(500).json({ error: "admin_user_unsuspend_failed" });
@@ -594,7 +876,25 @@ router.post("/users/:id/verify-email", async (req, res) => {
       select: adminUserSelect,
     });
 
-    res.json({ user });
+    res.json({
+      user: {
+        ...user,
+        createdAt: toIso(user.createdAt),
+        emailVerifiedAt: toIso(user.emailVerifiedAt),
+        lastLoginAt: toIso(user.lastLoginAt),
+        inactiveNotifiedAt: toIso(user.inactiveNotifiedAt),
+        scheduledDeletionAt: toIso(user.scheduledDeletionAt),
+        UserConsent: mapUserConsentList(user.UserConsent),
+        marketingPrefs: mapMarketingPrefs(user.marketingPrefs),
+        consentSummary: buildUserConsentsSummary(user),
+        vendor: user.vendor
+          ? {
+              ...user.vendor,
+              createdAt: toIso(user.vendor.createdAt),
+            }
+          : null,
+      },
+    });
   } catch (e) {
     console.error("ADMIN /users/:id/verify-email error", e);
     res.status(500).json({ error: "admin_user_verify_email_failed" });
@@ -605,7 +905,10 @@ router.post("/users/:id/send-password-reset", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const user = await prisma.user.findUnique({ where: { id }, select: { id: true, email: true } });
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true },
+    });
     if (!user) return res.status(404).json({ error: "user_not_found" });
 
     await prisma.passwordResetToken.updateMany({
@@ -621,7 +924,9 @@ router.post("/users/:id/send-password-reset", async (req, res) => {
       data: { userId: user.id, tokenHash, expiresAt },
     });
 
-    const resetLink = APP_URL ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}` : undefined;
+    const resetLink = APP_URL
+      ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}`
+      : undefined;
 
     if (resetLink) {
       await sendPasswordResetEmail({ to: user.email, link: resetLink });
@@ -642,7 +947,10 @@ router.post("/vendors/:id/activate", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const existing = await prisma.vendor.findUnique({ where: { id }, select: { id: true } });
+    const existing = await prisma.vendor.findUnique({
+      where: { id },
+      select: { id: true },
+    });
     if (!existing) return res.status(404).json({ error: "vendor_not_found" });
 
     const vendor = await prisma.vendor.update({
@@ -654,8 +962,27 @@ router.post("/vendors/:id/activate", async (req, res) => {
     res.json({
       vendor: {
         ...vendor,
-        createdAt: vendor.createdAt?.toISOString?.() || vendor.createdAt,
-        stripeOnboardedAt: vendor.stripeOnboardedAt ? vendor.stripeOnboardedAt.toISOString() : null,
+        createdAt: toIso(vendor.createdAt),
+        stripeOnboardedAt: toIso(vendor.stripeOnboardedAt),
+        user: vendor.user
+          ? {
+              ...vendor.user,
+              createdAt: toIso(vendor.user.createdAt),
+              lastLoginAt: toIso(vendor.user.lastLoginAt),
+              UserConsent: mapUserConsentList(vendor.user.UserConsent),
+              marketingPrefs: mapMarketingPrefs(vendor.user.marketingPrefs),
+              consentSummary: buildUserConsentsSummary(vendor.user),
+            }
+          : null,
+        billing: vendor.billing
+          ? {
+              ...vendor.billing,
+              vatLastResponsibilityConfirm: toIso(vendor.billing.vatLastResponsibilityConfirm),
+              tvaVerifiedAt: toIso(vendor.billing.tvaVerifiedAt),
+              createdAt: toIso(vendor.billing.createdAt),
+              updatedAt: toIso(vendor.billing.updatedAt),
+            }
+          : null,
       },
     });
   } catch (e) {
@@ -668,7 +995,10 @@ router.post("/vendors/:id/deactivate", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const existing = await prisma.vendor.findUnique({ where: { id }, select: { id: true } });
+    const existing = await prisma.vendor.findUnique({
+      where: { id },
+      select: { id: true },
+    });
     if (!existing) return res.status(404).json({ error: "vendor_not_found" });
 
     const vendor = await prisma.vendor.update({
@@ -680,8 +1010,27 @@ router.post("/vendors/:id/deactivate", async (req, res) => {
     res.json({
       vendor: {
         ...vendor,
-        createdAt: vendor.createdAt?.toISOString?.() || vendor.createdAt,
-        stripeOnboardedAt: vendor.stripeOnboardedAt ? vendor.stripeOnboardedAt.toISOString() : null,
+        createdAt: toIso(vendor.createdAt),
+        stripeOnboardedAt: toIso(vendor.stripeOnboardedAt),
+        user: vendor.user
+          ? {
+              ...vendor.user,
+              createdAt: toIso(vendor.user.createdAt),
+              lastLoginAt: toIso(vendor.user.lastLoginAt),
+              UserConsent: mapUserConsentList(vendor.user.UserConsent),
+              marketingPrefs: mapMarketingPrefs(vendor.user.marketingPrefs),
+              consentSummary: buildUserConsentsSummary(vendor.user),
+            }
+          : null,
+        billing: vendor.billing
+          ? {
+              ...vendor.billing,
+              vatLastResponsibilityConfirm: toIso(vendor.billing.vatLastResponsibilityConfirm),
+              tvaVerifiedAt: toIso(vendor.billing.tvaVerifiedAt),
+              createdAt: toIso(vendor.billing.createdAt),
+              updatedAt: toIso(vendor.billing.updatedAt),
+            }
+          : null,
       },
     });
   } catch (e) {
@@ -714,7 +1063,9 @@ router.post("/vendors/:id/send-password-reset", async (req, res) => {
       data: { userId: vendor.user.id, tokenHash, expiresAt },
     });
 
-    const resetLink = APP_URL ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}` : undefined;
+    const resetLink = APP_URL
+      ? `${APP_URL}/reset-password?token=${encodeURIComponent(rawToken)}`
+      : undefined;
 
     if (resetLink) {
       await sendPasswordResetEmail({ to: vendor.user.email, link: resetLink });
@@ -731,7 +1082,10 @@ router.post("/vendors/:id/reset-agreements", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const vendor = await prisma.vendor.findUnique({ where: { id }, select: { id: true } });
+    const vendor = await prisma.vendor.findUnique({
+      where: { id },
+      select: { id: true },
+    });
     if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
 
     await prisma.vendorAcceptance.deleteMany({ where: { vendorId: id } });

@@ -111,7 +111,22 @@ function humanizeActivateError(e) {
   }
   return e?.message || "Nu am putut activa serviciul.";
 }
+function humanizeAddStoreError(e) {
+  const data = e?.data || e?.response?.data || {};
 
+  const code = data?.error || e?.error || e?.code || "";
+  const title = data?.title || "";
+  const message = data?.message || "";
+  const hint = data?.hint || "";
+
+  if (code === "store_limit_reached") {
+    return [title, message, hint]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  return message || e?.message || "Nu am putut crea un magazin nou.";
+}
 /* ============================ Subscriptions hook ============================ */
 /**
  * Așteaptă ca backend-ul să întoarcă:
@@ -252,7 +267,6 @@ export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  // citește cache o singură dată
   const cached = useMemo(() => readDashCache(), []);
 
   const [services, setServices] = useState(() => cached?.services ?? []);
@@ -261,12 +275,9 @@ export default function DesktopV3() {
   const [stats, setStats] = useState(() => cached?.stats ?? { visitors: 0, followers: 0 });
   const [reviewCounts] = useState(() => cached?.reviewCounts ?? { product: 0, store: 0 });
 
-  // flag intern, dar NU afișăm text
   const [loading, setLoading] = useState(false);
-
   const [busy, setBusy] = useState({});
   const [error, setError] = useState("");
-
   const [vendor, setVendor] = useState(() => cached?.vendor ?? null);
 
   const sub = useSubscriptionStatus();
@@ -308,7 +319,6 @@ export default function DesktopV3() {
     supportUnread,
   ]);
 
-  // dacă auth context-ul aduce deja vendor, îl sincronizăm
   useEffect(() => {
     if (me?.vendor) setVendor(me.vendor);
   }, [me]);
@@ -347,7 +357,6 @@ export default function DesktopV3() {
         .then((v) => v?.vendor && setVendor(v.vendor))
         .catch(() => {});
 
-      // ✅ KPI visitors din rutele tale
       const { from, to } = lastNDaysRange(7);
       api(`/api/vendors/me/visitors/kpi?from=${from}&to=${to}`)
         .then((r) => {
@@ -468,7 +477,6 @@ export default function DesktopV3() {
   const guardSubscriptionOrRedirect = useCallback(async () => {
     if (sub.loading) await sub.refetch();
 
-    // ok = true și la trial (dacă backend-ul întoarce ok:true pentru trial)
     if (!sub.ok) {
       sub.startShortPolling?.();
       navigate("/onboarding/details?tab=plata&solo=1");
@@ -529,8 +537,9 @@ export default function DesktopV3() {
         !confirm(
           "Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată."
         )
-      )
+      ) {
         return;
+      }
 
       setBusy((prev) => ({ ...prev, [serviceId]: "delete" }));
       await api(`/api/vendors/me/services/${serviceId}`, { method: "DELETE" });
@@ -548,11 +557,49 @@ export default function DesktopV3() {
     }
   }, []);
 
+const onAddStore = useCallback(async () => {
+  try {
+    setError("");
+    setLoading(true);
+
+    const r = await api("/api/vendors/me/services/products/new", {
+      method: "POST",
+    });
+
+    const newId = r?.item?.id || null;
+
+    const d = await api("/api/vendors/me/services?includeProfile=1");
+    setServices(d.items || []);
+
+    if (newId) {
+      navigate(`/onboarding/details?serviceId=${encodeURIComponent(newId)}`);
+    } else {
+      navigate("/onboarding/details");
+    }
+  } catch (e) {
+    const data = e?.data || e?.response?.data || {};
+    const code = data?.error || e?.error || e?.code || "";
+    const ctaUrl = data?.cta?.url || "";
+
+    const msg = humanizeAddStoreError(e);
+    alert(msg);
+
+    if (code === "store_limit_reached" && ctaUrl) {
+      navigate(ctaUrl);
+    }
+  } finally {
+    setLoading(false);
+  }
+}, [navigate]);
+
   const onPreview = useCallback(
     (service) => {
       const slug = service?.profile?.slug;
-      if (slug) window.open(`/magazin/${slug}`, "_blank", "noopener,noreferrer");
-      else navigate("/onboarding/details");
+      if (slug) {
+        window.open(`/magazin/${slug}`, "_blank", "noopener,noreferrer");
+      } else {
+        navigate(`/onboarding/details?serviceId=${encodeURIComponent(service.id)}`);
+      }
     },
     [navigate]
   );
@@ -586,7 +633,9 @@ export default function DesktopV3() {
     );
   }
 
-  if (!me || me.role !== "VENDOR") return <div className={styles.page}>Acces doar pentru vendori.</div>;
+  if (!me || me.role !== "VENDOR") {
+    return <div className={styles.page}>Acces doar pentru vendori.</div>;
+  }
 
   return (
     <section className={styles.page}>
@@ -597,10 +646,7 @@ export default function DesktopV3() {
       <IdentityCard me={me} roleLabel={roleLabel} />
       <QuickCard quick={quick} />
 
-      {/* ✅ banner clar pentru trial */}
       <TrialBanner sub={sub} />
-
-      {/* abonament necesar (nu apare când ok=true, inclusiv trial) */}
       <SubscriptionAlert sub={sub} />
 
       <div className={styles.kpiRow}>
@@ -621,6 +667,7 @@ export default function DesktopV3() {
             onDeactivate={onDeactivate}
             onDelete={onDelete}
             onPreview={onPreview}
+            onAddStore={onAddStore}
             loading={loading}
           />
         </div>
@@ -811,7 +858,6 @@ function QuickCard({ quick }) {
 }
 
 function SubscriptionAlert({ sub }) {
-  // ok=true și pentru trial => alert nu apare în trial
   if (sub.loading || sub.ok) return null;
   return (
     <div className={`${styles.card} ${styles.cardWarning}`}>
@@ -823,7 +869,7 @@ function SubscriptionAlert({ sub }) {
       </p>
       <div className={styles.actionsRow}>
         <Link className={`${styles.btn} ${styles.btnPrimary}`} to="/onboarding/details?tab=plata&solo=1">
-          Activează abonamentul
+          Activează abonament
         </Link>
         <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
           Reîncarcă status
@@ -854,16 +900,37 @@ function OnboardingCard({ nextStep }) {
   );
 }
 
-function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPreview, loading }) {
+function ServicesCard({
+  services,
+  busy,
+  onActivate,
+  onDeactivate,
+  onDelete,
+  onPreview,
+  onAddStore,
+  loading,
+}) {
   const activeCount = services.filter((s) => s.isActive && s.status === "ACTIVE").length;
 
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
-        <h3>Serviciile mele</h3>
-        <div className={styles.subtle}>
-          Active: <b>{activeCount}</b> / Total: <b>{services.length}</b>
+        <div>
+          <h3>Serviciile mele</h3>
+          <div className={styles.subtle}>
+            Active: <b>{activeCount}</b> / Total: <b>{services.length}</b>
+          </div>
         </div>
+
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.btnPrimary}`}
+          onClick={onAddStore}
+          disabled={loading}
+          title="Adaugă magazin nou"
+        >
+          + Adaugă magazin
+        </button>
       </div>
 
       {services.length === 0 && loading ? (
@@ -898,13 +965,17 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
               <li key={s.id} className={styles.serviceItem}>
                 <div className={styles.serviceMain}>
                   <div className={styles.serviceTitle}>
-                    {s.type?.name || s.typeName}
-                    {s.title ? ` — ${s.title}` : ""}
+                    {s.profile?.displayName || s.title || s.type?.name || s.typeName || "Serviciu"}
                   </div>
 
                   <div className={styles.serviceMeta}>
                     {hasFull ? (
                       <>
+                        <span>
+                          Tip: <b>{s.type?.name || s.typeName}</b>
+                        </span>
+
+                        {" · "}
                         <span>
                           Status: <b>{s.status}</b>
                           {isAct ? " (activ)" : ""}
@@ -941,7 +1012,10 @@ function ServicesCard({ services, busy, onActivate, onDeactivate, onDelete, onPr
                 <div className={styles.actionsRow}>
                   {hasFull ? (
                     <>
-                      <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details">
+                      <Link
+                        className={`${styles.btn} ${styles.btnGhost}`}
+                        to={`/onboarding/details?serviceId=${encodeURIComponent(s.id)}`}
+                      >
                         Editează
                       </Link>
 

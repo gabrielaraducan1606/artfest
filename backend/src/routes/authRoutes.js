@@ -167,8 +167,6 @@ async function logLoginAttempt(req, { userId, email, success }) {
   }
 }
 
-/* =================================================================== */
-/** POST /api/auth/signup */
 router.post("/signup", async (req, res) => {
   try {
     const parsed = SignupSchema.safeParse(req.body || {});
@@ -191,6 +189,10 @@ router.post("/signup", async (req, res) => {
       consents = [],
       noExternalLinks,
     } = parsed.data;
+
+    const hasMarketingOptIn = Array.isArray(consents)
+      ? consents.some((c) => c?.type === "marketing_email_optin")
+      : false;
 
     const idemKey = getIdemKey(req);
     const prev = await idemFind(idemKey);
@@ -219,25 +221,33 @@ router.post("/signup", async (req, res) => {
         data: {
           email,
           passwordHash,
-          name: name ?? ([firstName, lastName].filter(Boolean).join(" ").trim() || null),
+          name:
+            name ??
+            ([firstName, lastName].filter(Boolean).join(" ").trim() || null),
           firstName: firstName || null,
           lastName: lastName || null,
           role: asVendor ? "VENDOR" : "USER",
           emailVerifiedAt: null,
           lastPasswordChangeAt: new Date(),
+          marketingOptIn: hasMarketingOptIn,
         },
         select: { id: true, email: true, role: true, name: true },
       });
 
       if (Array.isArray(consents) && consents.length > 0) {
         const ip =
-          (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() ||
-          req.socket.remoteAddress ||
-          "";
+          (req.headers["x-forwarded-for"] || "")
+            .toString()
+            .split(",")[0]
+            .trim() || req.socket.remoteAddress || "";
         const ua = req.get("user-agent") || "";
 
         const mapDoc = (t) =>
-          t === "tos" ? "TOS" : t === "privacy_ack" ? "PRIVACY_ACK" : "MARKETING_EMAIL_OPTIN";
+          t === "tos"
+            ? "TOS"
+            : t === "privacy_ack"
+            ? "PRIVACY_ACK"
+            : "MARKETING_EMAIL_OPTIN";
 
         for (const c of consents) {
           await tx.userConsent.create({
@@ -251,6 +261,28 @@ router.post("/signup", async (req, res) => {
             },
           });
         }
+      }
+
+      if (hasMarketingOptIn) {
+        await tx.newsletterSubscriber.upsert({
+          where: { email },
+          update: {
+            status: "SUBSCRIBED",
+            unsubscribedAt: null,
+            userId: user.id,
+            source: "OTHER",
+            sourceLabel: "Register form opt-in",
+            notes: "Created automatically from signup marketing opt-in",
+          },
+          create: {
+            email,
+            status: "SUBSCRIBED",
+            userId: user.id,
+            source: "OTHER",
+            sourceLabel: "Register form opt-in",
+            notes: "Created automatically from signup marketing opt-in",
+          },
+        });
       }
 
       if (asVendor) {

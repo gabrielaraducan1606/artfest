@@ -42,6 +42,42 @@
   justify-content: flex-end;
 }
 
+.overviewGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.heroCard {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--color-bg) 100%);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.heroEyebrow {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+}
+
+.heroValue {
+  font-size: 1.45rem;
+  line-height: 1.15;
+  color: var(--color-text);
+}
+
+.heroMeta {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
 /* ================== Link button ================== */
 
 .linkBtn {
@@ -67,6 +103,13 @@
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
   filter: brightness(1.01);
+}
+
+.linkBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .linkBtn:active {
@@ -187,7 +230,7 @@
 
 .summaryRow {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -234,6 +277,42 @@
   margin-bottom: 12px;
 }
 
+.actionPanel {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.actionBlock {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.panelLabel {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+}
+
+.detailList {
+  display: grid;
+  gap: 8px;
+  font-size: 0.92rem;
+  color: var(--color-text);
+}
+
+.summaryHint {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
 .filterGroup {
   display: flex;
   flex-direction: column;
@@ -276,6 +355,10 @@
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+}
+
+.sectionHead {
+  padding: 14px 16px 0;
 }
 
 /* ================== Table ================== */
@@ -359,6 +442,24 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) {
   border-color: rgba(239, 68, 68, 0.35);
 }
 
+.status_REQUESTED {
+  color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.status_APPROVED {
+  color: var(--color-primary);
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.status_REJECTED {
+  color: var(--color-danger);
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
 /* ================== Actions cell ================== */
 
 .actionsCell {
@@ -402,6 +503,15 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) {
 /* ================== Responsive ================== */
 
 @media (max-width: 900px) {
+  .overviewGrid,
+  .summaryRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .actionPanel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .billingGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -427,6 +537,10 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) {
   }
 
   .summaryRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .overviewGrid {
     grid-template-columns: minmax(0, 1fr);
   }
 

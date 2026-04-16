@@ -1441,42 +1441,150 @@ svg {
     font-size: 12px;
   }
 }
-/* ===== Attachments (simple: icon + title) ===== */
-.attachList {
-  margin-top: 8px;
+
+/* ===== Attachments: polished cards ===== */
+.attachGrid {
+  margin-top: 10px;
   display: grid;
-  gap: 6px;
-}
-
-.attachLine {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-  width: fit-content;
-  max-width: 100%;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
+}
+
+.attachCard {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
   color: inherit;
-  padding: 0;
+  cursor: pointer;
   text-align: left;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
-.attachLine:hover {
-  text-decoration: underline;
+.attachCard:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
-.attachTitle {
+.attachThumbWrap,
+.attachIconBox {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.attachThumbWrap {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.attachThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.attachIconBox {
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.attachExt {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  opacity: 0.9;
+}
+
+.attachMeta {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.attachName {
   font-size: 12px;
-  font-weight: 600;
-  max-width: 420px;
-
-  /* permite wrap pe 2 rânduri */
-  white-space: normal;
+  font-weight: 700;
+  line-height: 1.3;
   word-break: break-word;
-  line-height: 1.25;
 
-  display: -webkit-box;     /* max 2 rânduri */
+  display: -webkit-box;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.attachSub {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* pentru mesajele suportului */
+.theirs .attachCard {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.theirs .attachCard:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.14);
+}
+
+.theirs .attachIconBox,
+.theirs .attachThumbWrap {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* pentru mesajele mele */
+.mine .attachCard {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.mine .attachCard:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.mine .attachIconBox,
+.mine .attachThumbWrap {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+@media (max-width: 768px) {
+  .attachCard {
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 9px;
+    padding: 7px;
+    border-radius: 12px;
+  }
+
+  .attachThumbWrap,
+  .attachIconBox {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+  }
+
+  .attachName {
+    font-size: 11.5px;
+  }
+
+  .attachSub {
+    font-size: 10px;
+  }
 }

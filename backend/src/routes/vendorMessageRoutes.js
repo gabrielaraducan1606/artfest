@@ -10,6 +10,7 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import {
   attachSubscription,
+  requireActiveSubscriptionForChat,
   requireChatEntitlement,
   assertChatQuotaOrThrow,
   bumpChatUsage,
@@ -280,7 +281,6 @@ router.get("/threads", async (req, res) => {
     },
   });
 
-  // unreadCount in 1 query pentru toate thread-urile returnate
   const threadIds = threads.map((t) => t.id);
   const unreadByThreadId = new Map();
 
@@ -313,7 +313,6 @@ router.get("/threads", async (req, res) => {
       ? threadsWithUnread.filter((t) => (t.unreadCount || 0) > 0)
       : threadsWithUnread;
 
-  // ============ MOD NORMAL ============
   if (groupBy !== "user") {
     const items = filteredByScope.map((t) => {
       const userName = t.user
@@ -355,7 +354,6 @@ router.get("/threads", async (req, res) => {
     return res.json({ items });
   }
 
-  // ============ MOD GROUP BY USER ============
   const grouped = new Map();
 
   for (const t of filteredByScope) {
@@ -514,7 +512,7 @@ router.get("/threads", async (req, res) => {
 /**
  * GET /api/inbox/threads/:id/messages
  * ✅ include attachments
- * ✅ include placeholder pentru mesaje șterse de user (nu sunt filtrate aici)
+ * ✅ include placeholder pentru mesaje șterse de user
  */
 router.get("/threads/:id/messages", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
@@ -529,9 +527,6 @@ router.get("/threads/:id/messages", async (req, res) => {
   if (!thread) return res.status(404).json({ error: "Thread not found" });
 
   const msgs = await prisma.message.findMany({
-    // IMPORTANT:
-    // - NU filtrăm pe deletedByUserAt, ca vendor să poată vedea placeholder
-    // - filtrăm doar deletedByVendorAt (ce a șters vendor)
     where: { threadId: id, deletedByVendorAt: null },
     orderBy: { createdAt: "asc" },
     select: {
@@ -540,7 +535,7 @@ router.get("/threads/:id/messages", async (req, res) => {
       createdAt: true,
       authorType: true,
       authorName: true,
-      deletedByUserAt: true, // ✅
+      deletedByUserAt: true,
       authorUser: { select: { firstName: true, lastName: true } },
       attachments: {
         select: { id: true, filename: true, url: true, size: true, mime: true },
@@ -569,13 +564,9 @@ router.get("/threads/:id/messages", async (req, res) => {
       threadId: id,
       from,
       authorName: isVendor ? undefined : authorName,
-
-      // ✅ placeholder dacă user a șters
       body: isDeletedByUser ? "🚫 Mesaj șters de utilizator" : m.body,
       createdAt: m.createdAt,
       readByPeer,
-
-      // ✅ dacă e șters de user, nu expunem attachments în listă
       attachments: isDeletedByUser
         ? []
         : (m.attachments || []).map((a) => ({
@@ -585,8 +576,6 @@ router.get("/threads/:id/messages", async (req, res) => {
             size: a.size,
             mime: a.mime,
           })),
-
-      // (opțional) flag util în UI
       deletedByUserAt: m.deletedByUserAt,
     };
   });
@@ -619,8 +608,6 @@ router.get("/user-conversations/:userId/messages", async (req, res) => {
   const threadIds = threads.map((t) => t.id);
 
   const msgs = await prisma.message.findMany({
-    // IMPORTANT:
-    // - NU filtrăm pe deletedByUserAt, ca vendor să poată vedea placeholder
     where: { threadId: { in: threadIds }, deletedByVendorAt: null },
     orderBy: { createdAt: "asc" },
     select: {
@@ -630,7 +617,7 @@ router.get("/user-conversations/:userId/messages", async (req, res) => {
       createdAt: true,
       authorType: true,
       authorName: true,
-      deletedByUserAt: true, // ✅
+      deletedByUserAt: true,
       authorUser: { select: { firstName: true, lastName: true } },
       attachments: {
         select: { id: true, filename: true, url: true, size: true, mime: true },
@@ -714,76 +701,82 @@ router.patch("/threads/:id/read", async (req, res) => {
 /**
  * POST /api/inbox/threads/:id/messages
  */
-router.post("/threads/:id/messages", requireChatEntitlement(), async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+router.post(
+  "/threads/:id/messages",
+  requireActiveSubscriptionForChat(),
+  requireChatEntitlement(),
+  async (req, res) => {
+    const vendorId = await getVendorIdForUser(req);
+    if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
-  const { id } = req.params;
-  const { body } = req.body || {};
-  if (!body || !String(body).trim()) {
-    return res.status(400).json({ error: "Mesajul nu poate fi gol" });
-  }
-
-  const planCode = req.subscription?.plan?.code || "starter-lite";
-  const quotaErr = await assertChatQuotaOrThrow({ vendorId, planCode });
-  if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
-
-  try {
-    const out = await prisma.$transaction(async (tx) => {
-      const thread = await tx.messageThread.findFirst({
-        where: { id, vendorId, deletedByVendorAt: null },
-        select: { id: true, userId: true, vendor: { select: { displayName: true } } },
-      });
-      if (!thread) {
-        return { error: { status: 404, payload: { error: "Thread not found" } } };
-      }
-
-      const msg = await tx.message.create({
-        data: {
-          threadId: id,
-          vendorId,
-          body: String(body).trim(),
-          authorType: "VENDOR",
-        },
-        select: { id: true, body: true, createdAt: true },
-      });
-
-      await tx.messageThread.update({
-        where: { id },
-        data: { lastMsg: msg.body, lastAt: msg.createdAt, vendorLastReadAt: new Date() },
-      });
-
-      await bumpChatUsage({ tx, vendorId, incSent: 1 });
-
-      return { thread, msg };
-    });
-
-    if (out?.error) return res.status(out.error.status).json(out.error.payload);
-
-    // notificare user (în afara tranzacției)
-    try {
-      if (out.thread.userId) {
-        await createUserNotification(out.thread.userId, {
-          type: "message",
-          title: `Mesaj nou de la ${out.thread.vendor?.displayName || "vendor"}`,
-          body: out.msg.body.slice(0, 140),
-          link: `/cont/mesaje?threadId=${out.thread.id}`,
-        });
-      }
-    } catch (e) {
-      console.error("Nu am putut crea notificarea pentru user (mesaj nou):", e);
+    const { id } = req.params;
+    const { body } = req.body || {};
+    if (!body || !String(body).trim()) {
+      return res.status(400).json({ error: "Mesajul nu poate fi gol" });
     }
 
-    return res.status(201).json({ ok: true, id: out.msg.id, createdAt: out.msg.createdAt });
-  } catch (e) {
-    console.error("vendor send message error:", e);
-    return res.status(500).json({
-      error: "server_error",
-      message:
-        "Ups… a apărut o problemă tehnică. Te rog încearcă din nou în câteva secunde.",
+    const quotaErr = await assertChatQuotaOrThrow({
+      vendorId,
+      subscription: req.subscription,
     });
+    if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
+
+    try {
+      const out = await prisma.$transaction(async (tx) => {
+        const thread = await tx.messageThread.findFirst({
+          where: { id, vendorId, deletedByVendorAt: null },
+          select: { id: true, userId: true, vendor: { select: { displayName: true } } },
+        });
+        if (!thread) {
+          return { error: { status: 404, payload: { error: "Thread not found" } } };
+        }
+
+        const msg = await tx.message.create({
+          data: {
+            threadId: id,
+            vendorId,
+            body: String(body).trim(),
+            authorType: "VENDOR",
+          },
+          select: { id: true, body: true, createdAt: true },
+        });
+
+        await tx.messageThread.update({
+          where: { id },
+          data: { lastMsg: msg.body, lastAt: msg.createdAt, vendorLastReadAt: new Date() },
+        });
+
+        await bumpChatUsage({ tx, vendorId, incSent: 1 });
+
+        return { thread, msg };
+      });
+
+      if (out?.error) return res.status(out.error.status).json(out.error.payload);
+
+      try {
+        if (out.thread.userId) {
+          await createUserNotification(out.thread.userId, {
+            type: "message",
+            title: `Mesaj nou de la ${out.thread.vendor?.displayName || "vendor"}`,
+            body: out.msg.body.slice(0, 140),
+            link: `/cont/mesaje?threadId=${out.thread.id}`,
+          });
+        }
+      } catch (e) {
+        console.error("Nu am putut crea notificarea pentru user (mesaj nou):", e);
+      }
+
+      return res.status(201).json({ ok: true, id: out.msg.id, createdAt: out.msg.createdAt });
+    } catch (e) {
+      console.error("vendor send message error:", e);
+      return res.status(500).json({
+        error: "server_error",
+        message:
+          "Ups… a apărut o problemă tehnică. Te rog încearcă din nou în câteva secunde.",
+      });
+    }
   }
-});
+);
 
 /**
  * PATCH /api/inbox/threads/:id/messages/:mid (edit)
@@ -862,7 +855,6 @@ router.delete("/threads/:id/messages/:mid", async (req, res) => {
         data: { deletedByVendorAt: now },
       });
 
-      // ✅ last GLOBAL (nu doar ce vede vendor)
       const lastGlobal = await tx.message.findFirst({
         where: { threadId },
         orderBy: { createdAt: "desc" },
@@ -870,7 +862,7 @@ router.delete("/threads/:id/messages/:mid", async (req, res) => {
       });
 
       let lastMsgLabel = lastGlobal?.body || null;
-      if (lastGlobal?.deletedByVendorAt) lastMsgLabel = null; // teoretic nu ar trebui să fie "last" șters pt vendor, dar safe
+      if (lastGlobal?.deletedByVendorAt) lastMsgLabel = null;
       if (lastGlobal?.deletedByUserAt) lastMsgLabel = "🚫 Mesaj șters de utilizator";
 
       await tx.messageThread.update({
@@ -916,91 +908,96 @@ router.patch("/threads/:id/archive", async (req, res) => {
 /**
  * GET /api/inbox/planning/leads?from=YYYY-MM-DD&to=YYYY-MM-DD
  */
-router.get("/planning/leads", requireChatEntitlement(), async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+router.get(
+  "/planning/leads",
+  requireActiveSubscriptionForChat(),
+  requireChatEntitlement(),
+  async (req, res) => {
+    const vendorId = await getVendorIdForUser(req);
+    if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
-  const raw = req.subscription?.plan?.entitlements;
-  const hasAdvanced = raw ? !!(raw.advancedChat ?? raw.advanced) : false;
+    const raw = req.subscription?.plan?.entitlements || {};
+    const hasAdvanced = !!(raw.advancedChat ?? raw.advanced ?? false);
 
-  if (!hasAdvanced) {
-    return res.json({ items: [], locked: true });
-  }
+    if (!hasAdvanced) {
+      return res.json({ items: [], locked: true });
+    }
 
-  const { from, to } = req.query;
-  const now = new Date();
-  const defaultFrom = now;
-  const defaultTo = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const { from, to } = req.query;
+    const now = new Date();
+    const defaultFrom = now;
+    const defaultTo = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
-  const fromDate = from ? new Date(from) : defaultFrom;
-  const toDate = to ? new Date(to) : defaultTo;
+    const fromDate = from ? new Date(from) : defaultFrom;
+    const toDate = to ? new Date(to) : defaultTo;
 
-  const threads = await prisma.messageThread.findMany({
-    where: {
-      vendorId,
-      deletedByVendorAt: null,
-      eventDate: { gte: fromDate, lte: toDate },
-      archived: false,
-    },
-    orderBy: [{ eventDate: "asc" }, { lastAt: "desc" }],
-    select: {
-      id: true,
-      eventDate: true,
-      eventType: true,
-      eventLocation: true,
-      budgetMin: true,
-      budgetMax: true,
-      leadStatus: true,
-      contactName: true,
-      contactPhone: true,
-      user: { select: { firstName: true, lastName: true } },
-      order: {
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          shipments: {
-            select: {
-              id: true,
-              status: true,
-              pickupDate: true,
-              pickupSlotStart: true,
-              pickupSlotEnd: true,
+    const threads = await prisma.messageThread.findMany({
+      where: {
+        vendorId,
+        deletedByVendorAt: null,
+        eventDate: { gte: fromDate, lte: toDate },
+        archived: false,
+      },
+      orderBy: [{ eventDate: "asc" }, { lastAt: "desc" }],
+      select: {
+        id: true,
+        eventDate: true,
+        eventType: true,
+        eventLocation: true,
+        budgetMin: true,
+        budgetMax: true,
+        leadStatus: true,
+        contactName: true,
+        contactPhone: true,
+        user: { select: { firstName: true, lastName: true } },
+        order: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            shipments: {
+              select: {
+                id: true,
+                status: true,
+                pickupDate: true,
+                pickupSlotStart: true,
+                pickupSlotEnd: true,
+              },
             },
           },
         },
       },
-    },
-  });
+    });
 
-  const items = threads.map((t) => {
-    const userName = t.user
-      ? [t.user.firstName, t.user.lastName].filter(Boolean).join(" ")
-      : null;
+    const items = threads.map((t) => {
+      const userName = t.user
+        ? [t.user.firstName, t.user.lastName].filter(Boolean).join(" ")
+        : null;
 
-    return {
-      id: t.id,
-      name: userName || t.contactName || "Vizitator",
-      phone: t.contactPhone || null,
-      eventDate: t.eventDate,
-      eventType: t.eventType,
-      eventLocation: t.eventLocation,
-      budgetMin: t.budgetMin,
-      budgetMax: t.budgetMax,
-      status: leadEnumToUi(t.leadStatus),
-      order: t.order
-        ? {
-            id: t.order.id,
-            status: t.order.status,
-            createdAt: t.order.createdAt,
-            shipments: t.order.shipments,
-          }
-        : null,
-    };
-  });
+      return {
+        id: t.id,
+        name: userName || t.contactName || "Vizitator",
+        phone: t.contactPhone || null,
+        eventDate: t.eventDate,
+        eventType: t.eventType,
+        eventLocation: t.eventLocation,
+        budgetMin: t.budgetMin,
+        budgetMax: t.budgetMax,
+        status: leadEnumToUi(t.leadStatus),
+        order: t.order
+          ? {
+              id: t.order.id,
+              status: t.order.status,
+              createdAt: t.order.createdAt,
+              shipments: t.order.shipments,
+            }
+          : null,
+      };
+    });
 
-  return res.json({ items });
-});
+    return res.json({ items });
+  }
+);
 
 /**
  * POST /api/inbox/ensure-thread-from-order/:orderId
@@ -1029,7 +1026,6 @@ router.post("/ensure-thread-from-order/:orderId", async (req, res) => {
     where: { vendorId, orderId: order.id, userId, deletedByVendorAt: null },
   });
 
-  // dacă vendor a “șters conversația” (soft-delete), o “re-activăm”
   if (!thread) {
     const deletedThread = await prisma.messageThread.findFirst({
       where: { vendorId, orderId: order.id, userId, deletedByVendorAt: { not: null } },
@@ -1068,14 +1064,17 @@ router.post("/ensure-thread-from-order/:orderId", async (req, res) => {
  */
 router.post(
   "/threads/:id/attachments",
+  requireActiveSubscriptionForChat(),
   requireChatEntitlement({ attachments: true }),
   upload.array("files", 10),
   async (req, res) => {
     const vendorId = await getVendorIdForUser(req);
     if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
-    const planCode = req.subscription?.plan?.code || "starter-lite";
-    const quotaErr = await assertChatQuotaOrThrow({ vendorId, planCode });
+    const quotaErr = await assertChatQuotaOrThrow({
+      vendorId,
+      subscription: req.subscription,
+    });
     if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
 
     const threadId = String(req.params.id || "");
@@ -1156,7 +1155,6 @@ router.post(
         return { msg, createdAttachments };
       });
 
-      // notificare user (opțional, dacă vrei și la attachments)
       try {
         if (thread.userId) {
           await createUserNotification(thread.userId, {
@@ -1194,10 +1192,6 @@ router.post(
 
 /**
  * GET /api/inbox/attachments/:attId/download
- * ✅ blocăm dacă:
- *  - mesajul e șters pt vendor OR
- *  - mesajul e șters de user (deletedByUserAt) => nu mai permitem download la vendor
- *  - thread nu aparține vendorului
  */
 router.get("/attachments/:attId/download", async (req, res) => {
   try {
@@ -1217,7 +1211,7 @@ router.get("/attachments/:attId/download", async (req, res) => {
         message: {
           select: {
             deletedByVendorAt: true,
-            deletedByUserAt: true, // ✅
+            deletedByUserAt: true,
             thread: { select: { vendorId: true } },
           },
         },
@@ -1230,7 +1224,6 @@ router.get("/attachments/:attId/download", async (req, res) => {
       return res.status(403).json({ error: "forbidden" });
     }
 
-    // ✅ dacă mesajul e șters pt vendor OR user => nu expunem download
     if (att.message?.deletedByVendorAt || att.message?.deletedByUserAt) {
       return res.status(404).json({ error: "not_found" });
     }
@@ -1264,46 +1257,52 @@ router.get("/attachments/:attId/download", async (req, res) => {
   }
 });
 
-router.patch("/threads/:id/meta-basic", requireChatEntitlement(), async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+router.patch(
+  "/threads/:id/meta-basic",
+  requireActiveSubscriptionForChat(),
+  requireChatEntitlement(),
+  async (req, res) => {
+    const vendorId = await getVendorIdForUser(req);
+    if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
-  const { id } = req.params;
-  const { tags, eventDate, eventType, eventLocation, budgetMin, budgetMax } = req.body || {};
+    const { id } = req.params;
+    const { tags, eventDate, eventType, eventLocation, budgetMin, budgetMax } = req.body || {};
 
-  const thread = await prisma.messageThread.findFirst({
-    where: { id, vendorId, deletedByVendorAt: null },
-    select: { id: true },
-  });
-  if (!thread) return res.status(404).json({ error: "Thread not found" });
+    const thread = await prisma.messageThread.findFirst({
+      where: { id, vendorId, deletedByVendorAt: null },
+      select: { id: true },
+    });
+    if (!thread) return res.status(404).json({ error: "Thread not found" });
 
-  const data = {};
-  if (Array.isArray(tags)) data.tags = tags.map((t) => String(t).trim()).filter(Boolean);
+    const data = {};
+    if (Array.isArray(tags)) data.tags = tags.map((t) => String(t).trim()).filter(Boolean);
 
-  if (eventDate === null) data.eventDate = null;
-  else if (eventDate) {
-    const d = new Date(eventDate);
-    if (!isNaN(d)) data.eventDate = d;
+    if (eventDate === null) data.eventDate = null;
+    else if (eventDate) {
+      const d = new Date(eventDate);
+      if (!isNaN(d)) data.eventDate = d;
+    }
+
+    if (typeof eventType === "string") data.eventType = eventType || null;
+    if (typeof eventLocation === "string") data.eventLocation = eventLocation || null;
+
+    if (budgetMin !== undefined) {
+      const v = Number(budgetMin);
+      data.budgetMin = Number.isFinite(v) ? v : null;
+    }
+    if (budgetMax !== undefined) {
+      const v = Number(budgetMax);
+      data.budgetMax = Number.isFinite(v) ? v : null;
+    }
+
+    await prisma.messageThread.update({ where: { id }, data });
+    return res.json({ ok: true });
   }
-
-  if (typeof eventType === "string") data.eventType = eventType || null;
-  if (typeof eventLocation === "string") data.eventLocation = eventLocation || null;
-
-  if (budgetMin !== undefined) {
-    const v = Number(budgetMin);
-    data.budgetMin = Number.isFinite(v) ? v : null;
-  }
-  if (budgetMax !== undefined) {
-    const v = Number(budgetMax);
-    data.budgetMax = Number.isFinite(v) ? v : null;
-  }
-
-  await prisma.messageThread.update({ where: { id }, data });
-  return res.json({ ok: true });
-});
+);
 
 router.patch(
   "/threads/:id/meta-advanced",
+  requireActiveSubscriptionForChat(),
   requireChatEntitlement({ advanced: true }),
   async (req, res) => {
     const vendorId = await getVendorIdForUser(req);
@@ -1325,7 +1324,6 @@ router.patch(
       if (enumVal) data.leadStatus = enumVal;
     }
 
-    // followUpAt + anti-spam reset
     if (followUpAt === null) {
       const oldTs = thread.followUpAt ? new Date(thread.followUpAt).getTime() : null;
       data.followUpAt = null;

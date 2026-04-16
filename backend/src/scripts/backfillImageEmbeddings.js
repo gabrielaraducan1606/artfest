@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { prisma } from "../db.js";
 import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
 import fetch from "node-fetch";
@@ -13,35 +14,52 @@ function isDataUrl(value) {
 function normalizeImageUrl(img) {
   if (!img) return null;
   if (typeof img === "string") return img;
-  if (typeof img === "object") return img.url || img.src || img.href || img.path || null;
+  if (typeof img === "object") {
+    return img.url || img.src || img.href || img.path || null;
+  }
   return null;
 }
 
 async function fetchImageBuffer(raw) {
   const rawUrl = normalizeImageUrl(raw);
-  if (!rawUrl) throw new Error("URL imagine lipsă sau format necunoscut");
+  if (!rawUrl) {
+    throw new Error("URL imagine lipsă sau format necunoscut");
+  }
 
   const url = String(rawUrl).trim();
-  if (!url) throw new Error("URL imagine gol");
+  if (!url) {
+    throw new Error("URL imagine gol");
+  }
 
   if (isDataUrl(url)) {
     const commaIndex = url.indexOf(",");
-    if (commaIndex === -1) throw new Error("data URL invalid (nu conține ,)");
+    if (commaIndex === -1) {
+      throw new Error("data URL invalid (nu conține ,)");
+    }
+
     const base64Part = url.slice(commaIndex + 1);
-    if (!base64Part) throw new Error("data URL invalid (nu are conținut base64)");
+    if (!base64Part) {
+      throw new Error("data URL invalid (nu are conținut base64)");
+    }
+
     return Buffer.from(base64Part, "base64");
   }
 
   let finalUrl = url;
+
   if (!/^https?:\/\//i.test(url)) {
     if (!IMAGE_BASE_URL) {
-      throw new Error(`URL relativ (${url}) dar IMAGE_BASE_URL nu este setat în env`);
+      throw new Error(
+        `URL relativ (${url}) dar IMAGE_BASE_URL nu este setat în env`
+      );
     }
-    finalUrl = IMAGE_BASE_URL.replace(/\/+$/, "") + "/" + url.replace(/^\/+/, "");
+
+    finalUrl =
+      IMAGE_BASE_URL.replace(/\/+$/, "") + "/" + url.replace(/^\/+/, "");
   }
 
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   let res;
   try {
@@ -49,11 +67,13 @@ async function fetchImageBuffer(raw) {
   } catch (e) {
     throw new Error(`Fetch a eșuat pentru ${finalUrl}: ${e?.message || e}`);
   } finally {
-    clearTimeout(t);
+    clearTimeout(timeout);
   }
 
   if (!res.ok) {
-    throw new Error(`Nu am putut descărca imaginea: ${finalUrl} (status ${res.status})`);
+    throw new Error(
+      `Nu am putut descărca imaginea: ${finalUrl} (status ${res.status})`
+    );
   }
 
   const ab = await res.arrayBuffer();
@@ -61,19 +81,18 @@ async function fetchImageBuffer(raw) {
 }
 
 function isAllZeroEmbedding(arr) {
-  for (let i = 0; i < arr.length; i++) if (arr[i] !== 0) return false;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] !== 0) return false;
+  }
   return true;
 }
 
 function quoteIdent(ident) {
-  // quote SQL identifier safely ("productId")
-  // We only call this on identifiers we discovered from information_schema.
   const safe = String(ident).replace(/"/g, '""');
   return `"${safe}"`;
 }
 
 async function detectEmbeddingTableShape() {
-  // confirm table exists + fetch columns (in the SAME DB Prisma uses)
   const cols = await prisma.$queryRaw`
     SELECT column_name
     FROM information_schema.columns
@@ -87,40 +106,46 @@ async function detectEmbeddingTableShape() {
 
   if (!colNames.length) {
     throw new Error(
-      "Nu găsesc tabela public.product_image_embeddings în DB-ul curent (sau nu ai permisiuni)."
+      "Nu găsesc tabela public.product_image_embeddings în DB-ul curent."
     );
   }
 
-  // pick product id column
   const productIdCandidates = ["product_id", "productId", "productid", "productID"];
   const imageIndexCandidates = ["image_index", "imageIndex", "imageindex", "imageIDX"];
   const embeddingCandidates = ["embedding"];
+  const idCandidates = ["id"];
 
   const productIdCol = productIdCandidates.find((c) => colNames.includes(c));
   const imageIndexCol = imageIndexCandidates.find((c) => colNames.includes(c));
   const embeddingCol = embeddingCandidates.find((c) => colNames.includes(c));
+  const idCol = idCandidates.find((c) => colNames.includes(c));
 
   if (!productIdCol) {
     throw new Error(
-      `Nu găsesc coloana de product id. Am căutat: ${productIdCandidates.join(
-        ", "
-      )}. Coloane existente: ${colNames.join(", ")}`
+      `Nu găsesc coloana de product id. Coloane existente: ${colNames.join(", ")}`
     );
   }
+
   if (!imageIndexCol) {
     throw new Error(
-      `Nu găsesc coloana de image index. Am căutat: ${imageIndexCandidates.join(
-        ", "
-      )}. Coloane existente: ${colNames.join(", ")}`
+      `Nu găsesc coloana de image index. Coloane existente: ${colNames.join(", ")}`
     );
   }
+
   if (!embeddingCol) {
     throw new Error(
       `Nu găsesc coloana embedding. Coloane existente: ${colNames.join(", ")}`
     );
   }
 
+  if (!idCol) {
+    throw new Error(
+      `Nu găsesc coloana id. Coloane existente: ${colNames.join(", ")}`
+    );
+  }
+
   return {
+    idCol,
     productIdCol,
     imageIndexCol,
     embeddingCol,
@@ -128,29 +153,32 @@ async function detectEmbeddingTableShape() {
 }
 
 async function processProduct(p, shape) {
-  const firstImage = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null;
+  const firstImage =
+    Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null;
 
   if (!firstImage) {
     console.log(`- [SKIP] Produs ${p.id} nu are imagini.`);
     return false;
   }
 
-  // Build SQL with detected identifiers (safe; identifiers come from information_schema)
+  const idCol = quoteIdent(shape.idCol);
   const pid = quoteIdent(shape.productIdCol);
   const idx = quoteIdent(shape.imageIndexCol);
-  const emb = quoteIdent(shape.embeddingCol);
+  const embCol = quoteIdent(shape.embeddingCol);
 
-  // 1) check existing
   const existsSql = `
-    SELECT id
+    SELECT ${idCol} AS id
     FROM public.product_image_embeddings
     WHERE ${pid} = $1 AND ${idx} = 0
     LIMIT 1
   `;
+
   const existing = await prisma.$queryRawUnsafe(existsSql, p.id);
 
   if (Array.isArray(existing) && existing.length > 0) {
-    console.log(`- [SKIP] Produs ${p.id} are deja embedding (id=${existing[0].id})`);
+    console.log(
+      `- [SKIP] Produs ${p.id} are deja embedding (id=${existing[0].id})`
+    );
     return false;
   }
 
@@ -158,32 +186,27 @@ async function processProduct(p, shape) {
     console.log(`- Procesez produs ${p.id}...`);
 
     const imgBuffer = await fetchImageBuffer(firstImage);
-
     const vecArr = await imageToEmbedding(imgBuffer);
+
     if (!vecArr || vecArr.length !== 512) {
       throw new Error(`Embedding invalid (len=${vecArr?.length})`);
     }
+
     if (isAllZeroEmbedding(vecArr)) {
       throw new Error("Embedding all-zero (fallback / eșec CLIP).");
     }
 
-   const vecLiteral = toPgVectorLiteral(vecArr);
+    const vecLiteral = toPgVectorLiteral(vecArr);
+    const newId = crypto.randomUUID();
 
-await prisma.$executeRaw`
-  INSERT INTO public.product_image_embeddings (product_id, image_index, embedding)
-  VALUES (${p.id}, 0, CAST(${vecLiteral} AS vector))
-  ON CONFLICT (product_id, image_index)
-  DO UPDATE SET embedding = EXCLUDED.embedding
-`;
-const rows = await prisma.$queryRaw`
-  SELECT product_id, MIN(embedding <=> CAST(${pgVec} AS vector)) AS score
-  FROM public.product_image_embeddings
-  GROUP BY product_id
-  ORDER BY score
-  LIMIT ${k}
-`;
+    const insertSql = `
+      INSERT INTO public.product_image_embeddings (${idCol}, ${pid}, ${idx}, ${embCol})
+      VALUES ($1, $2, $3, CAST($4 AS vector))
+      ON CONFLICT (${pid}, ${idx})
+      DO UPDATE SET ${embCol} = EXCLUDED.${embCol}
+    `;
 
-await prisma.$executeRawUnsafe(insertSql, p.id, 0, vecLiteral);
+    await prisma.$executeRawUnsafe(insertSql, newId, p.id, 0, vecLiteral);
 
     console.log(`  ✓ OK produs ${p.id}`);
     return true;
@@ -196,22 +219,21 @@ await prisma.$executeRawUnsafe(insertSql, p.id, 0, vecLiteral);
 async function main() {
   console.log("Încep backfill embeddings...");
 
-  // DEBUG: confirm DB
   const info = await prisma.$queryRaw`
     SELECT current_database() AS db,
            current_user AS user,
            current_schema() AS schema,
-           current_setting('search_path') AS search_path,
-           inet_server_addr() AS server_ip,
-           inet_server_port() AS server_port,
-           version() AS version;
+           current_setting('search_path') AS search_path
   `;
+
   console.log("DB INFO:", info);
 
-  // Detect table columns in THIS DB
   const shape = await detectEmbeddingTableShape();
 
-  const total = await prisma.product.count({ where: { isActive: true } });
+  const total = await prisma.product.count({
+    where: { isActive: true },
+  });
+
   console.log(`Total produse active: ${total}`);
 
   let skip = 0;
