@@ -13,12 +13,25 @@ const slugify = (s = "") =>
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
-function absUrl(pathname) {
-  const p = pathname || "";
+function legalHref(pathname) {
+  const p = (pathname || "").trim();
+  if (!p) return "#";
+
   if (/^https?:\/\//i.test(p)) return p;
+
   const rel = p.startsWith("/") ? p : `/${p}`;
-  const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-  return base ? `${base}${rel}` : rel;
+
+  const map = {
+    "/legal/tos.html": "/termenii-si-conditiile",
+    "/legal/privacy.html": "/confidentialitate",
+    "/legal/cookies.html": "/cookies",
+    "/legal/vendor_terms.html": "/acord-vanzatori",
+    "/legal/returns_policy_ack.html": "/politica-retur",
+    "/legal/shipping_addendum.html": "/anexa-expediere",
+    "/legal/products_addendum.html": "/anexa-produse",
+  };
+
+  return map[rel] || rel;
 }
 
 function readDocVersion(doc, fallback = null) {
@@ -522,18 +535,18 @@ function ServiceCard({
   const returnsAccepted =
     !!returnsDoc?.accepted || !!attrs.returnsPolicyAccepted;
 
-  const vendorTermsUrl = absUrl(
-    vendorTermsDoc?.url || VENDOR_DOCS.vendor_terms.fallbackUrl
-  );
-  const returnsUrl = absUrl(
-    returnsDoc?.url || VENDOR_DOCS.returns.fallbackUrl
-  );
-  const deliveryPolicyUrl = absUrl(
-    deliveryPolicyDoc?.url || VENDOR_DELIVERY_POLICY.fallbackUrl
-  );
-  const privacyUrl = absUrl(
-    privacyDoc?.url || VENDOR_PRIVACY_NOTICE.fallbackUrl
-  );
+  const vendorTermsUrl = legalHref(
+  vendorTermsDoc?.url || VENDOR_DOCS.vendor_terms.fallbackUrl
+);
+const returnsUrl = legalHref(
+  returnsDoc?.url || VENDOR_DOCS.returns.fallbackUrl
+);
+const deliveryPolicyUrl = legalHref(
+  deliveryPolicyDoc?.url || VENDOR_DELIVERY_POLICY.fallbackUrl
+);
+const privacyUrl = legalHref(
+  privacyDoc?.url || VENDOR_PRIVACY_NOTICE.fallbackUrl
+);
 
   const vendorTermsVersion =
     readDocVersion(vendorTermsDoc, null) ||

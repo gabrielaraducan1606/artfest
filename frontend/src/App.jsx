@@ -249,11 +249,11 @@ export default function App() {
 />
 
 <Route
-  path="/cookies"
+  path="/acord-vanzatori"
   element={
     <LegalHtmlRoute
-      path="/legal/cookies.html"
-      title="politica cookies"
+      path="/legal/vendor_terms.html"
+      title="acordul pentru vânzători"
     />
   }
 />
@@ -269,21 +269,31 @@ export default function App() {
 />
 
 <Route
-  path="/acord-vanzatori"
+  path="/anexa-expediere"
   element={
     <LegalHtmlRoute
-      path="/legal/vendor_terms.html"
-      title="acord vânzători"
+      path="/legal/shipping_addendum.html"
+      title="anexa de expediere"
     />
   }
 />
 
 <Route
-  path="/anexa-expediere"
+  path="/anexa-produse"
   element={
     <LegalHtmlRoute
-      path="/legal/shipping_addendum.html"
-      title="anexa expediere"
+      path="/legal/products_addendum.html"
+      title="anexa produse"
+    />
+  }
+/>
+
+<Route
+  path="/cookies"
+  element={
+    <LegalHtmlRoute
+      path="/legal/cookies.html"
+      title="politica cookies"
     />
   }
 />
