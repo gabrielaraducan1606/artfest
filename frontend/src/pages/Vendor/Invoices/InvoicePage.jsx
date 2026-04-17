@@ -1,6 +1,5 @@
 // src/pages/Vendor/Invoices/InvoicePage.jsx
-import { useEffect, useMemo, useState } from "react";
-import { api } from "../../../lib/api";
+import { useMemo, useState } from "react";
 import styles from "./InvoicePage.module.css";
 
 const BILLING_URL = "/onboarding/details?tab=facturare";
@@ -79,119 +78,166 @@ function getCommissionInvoiceTypeLabel(type) {
   return COMMISSION_INVOICE_TYPE_LABELS[type] || type || "—";
 }
 
+// MOCK DATA
+const MOCK_BILLING = {
+  companyName: "SC Demo Vendor SRL",
+  address: "Str. Exemplu 10, București",
+  cui: "RO12345678",
+  regCom: "J40/1234/2020",
+  iban: "RO49AAAA1B31007593840000",
+  bank: "Banca Demo",
+};
+
+const MOCK_SUMMARY = {
+  currency: "RON",
+  currentPeriod: {
+    entryCount: 3,
+    salesNet: 2450,
+    commissionNet: 245,
+    vendorNetInformative: 2205,
+    currency: "RON",
+  },
+  billing: {
+    totalDue: 420,
+    totalPaid: 1800,
+    totalInvoiced: 2220,
+    totalOverdue: 120,
+    unpaidCount: 2,
+    nextDueAt: "2026-04-25T12:00:00",
+    currency: "RON",
+  },
+  nextStatementAt: "2026-05-01T09:00:00",
+  lastStatement: {
+    issuedAt: "2026-04-01T10:30:00",
+  },
+};
+
+const MOCK_ENTRIES = [
+  {
+    id: "e1",
+    occurredAt: "2026-04-10T14:20:00",
+    type: "SALE",
+    orderNumber: "CMD-1001",
+    orderId: "1001",
+    itemsNet: 1200,
+    commissionNet: 120,
+    vendorNet: 1080,
+    currency: "RON",
+  },
+  {
+    id: "e2",
+    occurredAt: "2026-04-12T11:00:00",
+    type: "SALE",
+    orderNumber: "CMD-1002",
+    orderId: "1002",
+    itemsNet: 950,
+    commissionNet: 95,
+    vendorNet: 855,
+    currency: "RON",
+  },
+  {
+    id: "e3",
+    occurredAt: "2026-04-13T16:45:00",
+    type: "ADJUSTMENT",
+    orderNumber: "CMD-1003",
+    orderId: "1003",
+    itemsNet: 300,
+    commissionNet: 30,
+    vendorNet: 270,
+    currency: "RON",
+  },
+];
+
+const MOCK_STATEMENTS = [
+  {
+    id: "s1",
+    issuedAt: "2026-04-01T10:30:00",
+    periodFrom: "2026-03-01",
+    periodTo: "2026-03-31",
+    totalItemsNet: 8500,
+    totalCommissionNet: 850,
+    currency: "RON",
+    status: "PAID",
+    pdfUrl: "#",
+  },
+  {
+    id: "s2",
+    issuedAt: "2026-03-01T10:00:00",
+    periodFrom: "2026-02-01",
+    periodTo: "2026-02-28",
+    totalItemsNet: 7200,
+    totalCommissionNet: 720,
+    currency: "RON",
+    status: "UNPAID",
+    pdfUrl: "#",
+  },
+];
+
+const MOCK_COMMISSION_INVOICES = [
+  {
+    id: "i1",
+    number: "FAC-2026-001",
+    issueDate: "2026-04-05",
+    dueDate: "2026-04-20",
+    type: "COMMISSION",
+    orderNumber: "CMD-1001",
+    orderId: "1001",
+    totalGross: 120,
+    currency: "RON",
+    status: "UNPAID",
+    directionLabel: "Factura platformă",
+    downloadUrl: "#",
+  },
+  {
+    id: "i2",
+    number: "FAC-2026-002",
+    issueDate: "2026-04-06",
+    dueDate: "2026-04-22",
+    type: "SUBSCRIPTION",
+    orderNumber: null,
+    orderId: null,
+    totalGross: 99,
+    currency: "RON",
+    status: "PAID",
+    directionLabel: "Factura platformă",
+    downloadUrl: "#",
+  },
+  {
+    id: "i3",
+    number: "FAC-2026-003",
+    issueDate: "2026-04-07",
+    dueDate: "2026-04-18",
+    type: "SHIPPING",
+    orderNumber: "CMD-1002",
+    orderId: "1002",
+    totalGross: 201,
+    currency: "RON",
+    status: "OVERDUE",
+    directionLabel: "Factura platformă",
+    downloadUrl: "#",
+  },
+];
+
 export default function VendorInvoicesPage() {
-  const [billing, setBilling] = useState(null);
+  const [billing] = useState(MOCK_BILLING);
   const [activeTab, setActiveTab] = useState(TABS.CURRENT_PERIOD);
 
-  const [summary, setSummary] = useState(null);
-  const [summaryLoading, setSummaryLoading] = useState(true);
-  const [summaryErr, setSummaryErr] = useState("");
+  const [summary] = useState(MOCK_SUMMARY);
+  const [summaryLoading] = useState(false);
+  const [summaryErr] = useState("");
 
-  const [entries, setEntries] = useState([]);
-  const [entriesLoading, setEntriesLoading] = useState(false);
-  const [entriesErr, setEntriesErr] = useState("");
+  const [entries] = useState(MOCK_ENTRIES);
+  const [entriesLoading] = useState(false);
+  const [entriesErr] = useState("");
 
-  const [statements, setStatements] = useState([]);
+  const [statements] = useState(MOCK_STATEMENTS);
 
-  const [commissionInvoices, setCommissionInvoices] = useState([]);
-  const [commissionLoading, setCommissionLoading] = useState(false);
-  const [commissionErr, setCommissionErr] = useState("");
-  const [commissionLoaded, setCommissionLoaded] = useState(false);
+  const [commissionInvoices] = useState(MOCK_COMMISSION_INVOICES);
+  const [commissionLoading] = useState(false);
+  const [commissionErr] = useState("");
 
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
-
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        setSummaryLoading(true);
-        setSummaryErr("");
-
-        const [billingRes, summaryRes, statementsRes] = await Promise.all([
-          api("/api/vendors/me/billing").catch(() => null),
-          api("/api/vendor/payouts/summary"),
-          api("/api/vendor/payouts").catch(() => ({ items: [] })),
-        ]);
-
-        if (!alive) return;
-
-        setBilling(billingRes?.billing || null);
-        setSummary(summaryRes || null);
-        setStatements(Array.isArray(statementsRes?.items) ? statementsRes.items : []);
-      } catch (e) {
-        if (!alive) return;
-        setSummaryErr(e?.message || "Nu am putut încărca sumarul financiar.");
-      } finally {
-        if (alive) setSummaryLoading(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (activeTab !== TABS.CURRENT_PERIOD) return;
-
-    let alive = true;
-
-    (async () => {
-      try {
-        setEntriesLoading(true);
-        setEntriesErr("");
-
-        const res = await api("/api/vendor/payouts/entries?eligible=true").catch(() => ({
-          items: [],
-        }));
-
-        if (!alive) return;
-        setEntries(Array.isArray(res?.items) ? res.items : []);
-      } catch (e) {
-        if (!alive) return;
-        setEntriesErr(e?.message || "Nu am putut încărca comenzile incluse în calcul.");
-      } finally {
-        if (alive) setEntriesLoading(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (activeTab !== TABS.PLATFORM_INVOICES || commissionLoaded) return;
-
-    let alive = true;
-
-    (async () => {
-      try {
-        setCommissionLoading(true);
-        setCommissionErr("");
-
-        const res = await api("/api/vendors/me/invoices").catch(() => ({
-          items: [],
-        }));
-
-        if (!alive) return;
-
-        setCommissionInvoices(Array.isArray(res?.items) ? res.items : []);
-        setCommissionLoaded(true);
-      } catch (e) {
-        if (!alive) return;
-        setCommissionErr(e?.message || "Nu am putut încărca facturile platformei.");
-      } finally {
-        if (alive) setCommissionLoading(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [activeTab, commissionLoaded]);
 
   const filteredCommissionInvoices = useMemo(() => {
     return commissionInvoices.filter((inv) => {

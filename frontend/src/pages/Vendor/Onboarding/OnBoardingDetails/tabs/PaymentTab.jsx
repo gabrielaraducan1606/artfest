@@ -30,7 +30,7 @@ const PAYMENT_PROCESSOR_NOTE =
   "Comisioanele procesatorului de plăți nu sunt incluse în prețurile de mai sus și pot fi percepute separat de procesator, conform propriilor condiții.";
 
 const BILLING_LOCKED_NOTE =
-  "Până pe 17 mai 2026, toate planurile pot fi activate gratuit în perioada de probă. Plățile și facturarea vor deveni active după această dată, conform regulilor aplicabile.";
+  "Până pe 17 mai 2026 poți activa gratuit orice plan eligibil. Prețurile și beneficiile planurilor rămân aceleași, iar facturarea efectivă devine activă după această dată, conform regulilor aplicabile.";
 
 const FEES = {
   basic: { productsBps: 1200, minFeeCentsPerOrder: 0 },
@@ -488,10 +488,6 @@ function SubscriptionPayment({ obSessionId }) {
   function displayPrice(p) {
     const base = p.priceCents || 0;
 
-    if (billingLocked && base > 0) {
-      return "Gratuit în perioada de probă";
-    }
-
     if (base === 0) return "Gratuit";
 
     if (period === "year") {
@@ -844,7 +840,6 @@ function SubscriptionPayment({ obSessionId }) {
           </small>
 
           <small className={styles.help} style={{ display: "block", marginTop: 8 }}>
-            
             <a href={getLegalUrl(LEGAL_LINKS.privacy)} target="_blank" rel="noreferrer">
               Politica de confidențialitate
             </a>
