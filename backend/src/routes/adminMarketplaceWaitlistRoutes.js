@@ -3,7 +3,7 @@ import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-import { makeTransport } from "../lib/mailer.js";
+import { makeTransport, sendMarketplaceWaitlistEmail } from "../lib/mailer.js";
 
 const router = Router();
 
@@ -66,7 +66,7 @@ function makeUnsubscribeUrl(email) {
 }
 
 /* ============================================================
-   Email wrappers (separate, ca să NU se amestece Digital vs Marketplace)
+   Email wrappers (SMTP direct pentru DIGITAL)
 ============================================================ */
 function wrapWaitlistHtml({ html, preheader, unsubscribeUrl, footerText }) {
   return `
@@ -128,8 +128,7 @@ async function sendWaitlistEmail({ to, subject, html, preheader, senderKey = WAI
 }
 
 /* ============================================================
-   DIGITAL WAITLIST (existing behavior, but normalize enum casing)
-   Prisma enum: NEW, CONTACTED, CONVERTED, SPAM
+   DIGITAL WAITLIST
 ============================================================ */
 
 /**
@@ -340,7 +339,9 @@ router.post("/digital-waitlist/send", authRequired, requireAdmin, async (req, re
 });
 
 /* ============================================================
-   MARKETPLACE WAITLIST (separat de digital)
+   MARKETPLACE WAITLIST
+   Acum trimite prin sendMarketplaceWaitlistEmail()
+   => folosește providerul din mailer.js (SMTP sau Resend)
 ============================================================ */
 
 /**
@@ -441,13 +442,12 @@ router.post("/marketplace-waitlist/test", authRequired, requireAdmin, async (req
     if (!subject) return res.status(400).json({ ok: false, error: "missing_subject" });
     if (!bodyHtml) return res.status(400).json({ ok: false, error: "missing_body" });
 
-    await sendWaitlistEmail({
+    await sendMarketplaceWaitlistEmail({
       to,
       subject,
       html: bodyHtml,
       preheader,
       senderKey,
-      footerText: `Primești acest email pentru că te-ai înscris pe lista de așteptare Marketplace ${BRAND_NAME}.`,
     });
 
     return res.json({ ok: true, sentCount: 1, test: true, senderKey });
@@ -474,45 +474,36 @@ router.post("/marketplace-waitlist/send", authRequired, requireAdmin, async (req
 
     const where = onlyNew ? { status: "NEW" } : {};
 
-    const recipients = await prisma.marketplaceWaitlistSubscriber.findMany({
+    const recipientsRaw = await prisma.marketplaceWaitlistSubscriber.findMany({
       where,
       select: { email: true },
       orderBy: { createdAt: "desc" },
       take: 5000,
     });
 
-    const BATCH = 30;
+    const uniqueEmails = [...new Set(recipientsRaw.map((r) => normalizeEmail(r.email)).filter(Boolean))];
+
     const failed = [];
     let sentCount = 0;
 
-    for (let i = 0; i < recipients.length; i += BATCH) {
-      const batch = recipients.slice(i, i + BATCH);
-
-      const results = await Promise.allSettled(
-        batch.map((r) =>
-          sendWaitlistEmail({
-            to: normalizeEmail(r.email),
-            subject,
-            html: bodyHtml,
-            preheader,
-            senderKey,
-            footerText: `Primești acest email pentru că te-ai înscris pe lista de așteptare Marketplace ${BRAND_NAME}.`,
-          })
-        )
-      );
-
-      results.forEach((r, idx) => {
-        const email = batch[idx].email;
-        if (r.status === "fulfilled") sentCount++;
-        else {
-          failed.push(email);
-          console.error("send fail:", email, r.reason?.message || r.reason);
-        }
-      });
+    for (const email of uniqueEmails) {
+      try {
+        await sendMarketplaceWaitlistEmail({
+          to: email,
+          subject,
+          html: bodyHtml,
+          preheader,
+          senderKey,
+        });
+        sentCount++;
+      } catch (err) {
+        failed.push(email);
+        console.error("send fail:", email, err?.message || err);
+      }
     }
 
     if (sentCount > 0) {
-      const okEmails = recipients.map((r) => r.email).filter((e) => !failed.includes(e));
+      const okEmails = uniqueEmails.filter((e) => !failed.includes(e));
 
       await prisma.marketplaceWaitlistSubscriber.updateMany({
         where: { email: { in: okEmails } },
@@ -523,6 +514,7 @@ router.post("/marketplace-waitlist/send", authRequired, requireAdmin, async (req
     return res.json({
       ok: true,
       senderKey,
+      recipientCount: uniqueEmails.length,
       sentCount,
       failedCount: failed.length,
       failedPreview: failed.slice(0, 10),
