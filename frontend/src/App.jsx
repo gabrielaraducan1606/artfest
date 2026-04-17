@@ -22,6 +22,8 @@ import CookiesPolicy from "./pages/CookieBanner/CookiePolicy";
 import ReturnPolicy from "./pages/CookieBanner/ReturnPolicy";
 import CookiePreferences from "./pages/CookieBanner/CookiePreferences";
 import CookieBanner from "./pages/CookieBanner/CookieBanner";
+import PrivacyPolicy from "./pages/CookieBanner/Confidentialitate.jsx";
+import TermsAndConditions from "./pages/CookieBanner/TOS.jsx";
 
 import Login from "./pages/Auth/Login/Login";
 import Register from "./pages/Auth/Register/Register";
@@ -176,7 +178,8 @@ export default function App() {
             <Route path="/politica-de-retur" element={<ReturnPolicy />} />
             <Route path="/cookie-banner" element={<CookieBanner />} />
             <Route path="/preferinte-cookie" element={<CookiePreferences />} />
-
+<Route path="/confidentialitate" element={<PrivacyPolicy />} />
+<Route path="/termenii-si-conditiile" element={<TermsAndConditions />} />
             {/* Servicii digitale */}
             <Route path="/servicii-digitale" element={<ServiciiDigitale />} />
 
