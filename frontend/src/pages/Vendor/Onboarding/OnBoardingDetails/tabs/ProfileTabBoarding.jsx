@@ -1128,7 +1128,7 @@ const privacyUrl = legalHref(
               <a href={deliveryPolicyUrl} target="_blank" rel="noreferrer">
                 {VENDOR_DELIVERY_POLICY.label}
               </a>
-              {deliveryPolicyVersion !== "?" ? ` (v${deliveryPolicyVersion})` : ""}
+              {deliveryPolicyVersion !== "1" ? ` (v${deliveryPolicyVersion})` : ""}
             </span>
             <small className={styles.help}>
               Document public privind regulile de livrare aplicabile în Platformă,
@@ -1143,7 +1143,7 @@ const privacyUrl = legalHref(
               <a href={privacyUrl} target="_blank" rel="noreferrer">
                 {VENDOR_PRIVACY_NOTICE.label}
               </a>
-              {privacyVersion !== "?" ? ` (v${privacyVersion})` : ""}
+              {privacyVersion !== "1" ? ` (v${privacyVersion})` : ""}
             </span>
             <small className={styles.help}>
               Document informativ despre datele prelucrate pentru contul de vendor,

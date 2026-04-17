@@ -98,15 +98,15 @@
 
     <!-- 🌗 Tema light/dark -->
     <script>
-      (function () {
-        try {
-          var t = localStorage.getItem("theme");
-          var d = document.documentElement;
-          if (t === "light" || t === "dark") d.setAttribute("data-theme", t);
-          else d.removeAttribute("data-theme");
-        } catch (e) {}
-      })();
-    </script>
+  (function () {
+    try {
+      var t = localStorage.getItem("theme");
+      var d = document.documentElement;
+      if (t === "light" || t === "dark") d.setAttribute("data-theme", t);
+      else d.removeAttribute("data-theme");
+    } catch (e) {}
+  })();
+</script>
 
     <!-- (opțional) fonturi -->
     <!--

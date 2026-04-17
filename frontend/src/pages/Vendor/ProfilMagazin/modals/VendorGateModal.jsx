@@ -5,15 +5,28 @@ import Modal from "../ui/Modal";
 import styles from "../ProfilMagazin.module.css";
 
 /**
- * Construiește URL absolut către backend (dacă VITE_API_URL e setat),
- * altfel păstrează link relativ (same-origin).
+ * Normalizează linkurile legale către slugurile frontend.
+ * Astfel evităm problemele de routing live când backend-ul servește HTML-ul,
+ * iar frontend-ul are rute dedicate care îl încarcă.
  */
-function absUrl(pathname) {
-  const p = pathname || "";
+function legalHref(pathname) {
+  const p = (pathname || "").trim();
+  if (!p) return "#";
   if (/^https?:\/\//i.test(p)) return p;
+
   const rel = p.startsWith("/") ? p : `/${p}`;
-  const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-  return base ? `${base}${rel}` : rel;
+
+  const map = {
+    "/legal/tos.html": "/termenii-si-conditiile",
+    "/legal/privacy.html": "/confidentialitate",
+    "/legal/cookies.html": "/cookies",
+    "/legal/vendor_terms.html": "/acord-vanzatori",
+    "/legal/returns_policy_ack.html": "/politica-retur",
+    "/legal/shipping_addendum.html": "/anexa-expediere",
+    "/legal/products_addendum.html": "/anexa-produse",
+  };
+
+  return map[rel] || rel;
 }
 
 export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
@@ -32,12 +45,7 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
   };
 
   /**
-   * ✅ Declarație PRODUSE – variantă defensivă juridic
-   * - legalitate
-   * - IP
-   * - acuratețe
-   * - răspundere + despăgubire
-   * - drept de delistare / suspendare
+   * Declarație PRODUSE
    */
   const declarationText =
     "Declar pe propria răspundere că toate produsele pe care le listez pe platforma Artfest: " +
@@ -49,12 +57,14 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
     "Sunt de acord că Artfest poate delista produse și/sau suspenda contul meu în caz de încălcări sau suspiciuni rezonabile, pentru protecția clienților și a platformei.";
 
   /**
-   * ✅ LINK-URI CANONICE (conform backend/src/server/routes/legal.js):
-   *  - /acord-vanzatori  -> /legal/vendor_terms.html
-   *  - /anexa-produse    -> /legal/products_addendum.html
+   * Linkuri canonice frontend
    */
-  const vendorTermsUrl = absUrl("/acord-vanzatori");
-  const productsAddendumUrl = absUrl("/anexa-produse");
+  const vendorTermsUrl = legalHref(
+    gateDocs?.vendor_terms?.url || "/acord-vanzatori"
+  );
+  const productsAddendumUrl = legalHref(
+    gateDocs?.products_addendum?.url || "/anexa-produse"
+  );
 
   // versiuni – doar pentru afișare / audit
   const vendorTermsVersion = gateDocs?.vendor_terms?.version || "";
@@ -86,8 +96,7 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
         throw new Error(data?.error || "server_error");
       }
 
-      // 2) ✅ Marchează acceptarea "Anexa Produse" în VendorAcceptance
-      // (prin adaptorul legacy care ia automat latest isActive din VendorPolicy)
+      // 2) Marchează acceptarea "Anexa Produse" în VendorAcceptance
       const res2 = await fetch("/api/legal/vendor-accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -97,11 +106,9 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
         }),
       });
 
-      // Nu blocăm flow-ul dacă adaptorul pică, dar logăm și arătăm un mesaj util
       if (!res2.ok) {
         const data2 = await res2.json().catch(() => ({}));
         console.warn("products_addendum accept failed:", data2);
-        // dacă vrei STRICT, poți înlocui warn cu throw ca să nu continue
       }
 
       if (typeof onAccept === "function") {
@@ -159,7 +166,6 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
               .
             </p>
 
-            {/* Declarație PRODUSE – OBLIGATORIE */}
             <label style={{ display: "block", margin: "10px 0" }}>
               <input
                 type="checkbox"
@@ -190,8 +196,9 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
               </ul>
             </label>
 
-            {/* Reminder – opțional */}
-            <label style={{ display: "block", margin: "14px 0 10px", fontSize: 14 }}>
+            <label
+              style={{ display: "block", margin: "14px 0 10px", fontSize: 14 }}
+            >
               <input
                 type="checkbox"
                 checked={!!gateChecks.vendorTermsRead}
