@@ -6,26 +6,101 @@ import { COLOR_SET } from "../constants/colors.js";
 
 const router = Router();
 
-/* ================= Guards ================= */
+/* ================= Helpers comune ================= */
 
+// Guard tolerant: permite VENDOR/ADMIN sau user care are deja Vendor în DB
+async function vendorAccessRequired(req, res, next) {
+  try {
+    if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") return next();
+
+    const v = await prisma.vendor.findUnique({
+      where: { userId: req.user.sub },
+    });
+
+    if (v) {
+      req.meVendor = v;
+      return next();
+    }
+
+    return res.status(403).json({ error: "forbidden" });
+  } catch (e) {
+    console.error("vendorAccessRequired error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+// guard strict pentru admin
 function adminRequired(req, res, next) {
   if (req.user?.role === "ADMIN") return next();
   return res.status(403).json({ error: "forbidden" });
 }
 
-/* ================= Helpers ================= */
+// verifică dacă slug-ul aparține vendorului curent și este serviciu de tip "products"
+async function getOwnedProductsServiceBySlug(slug, userSub) {
+  const profile = await prisma.serviceProfile.findUnique({
+    where: { slug },
+    include: {
+      service: {
+        include: {
+          type: true,
+          vendor: true,
+          profile: true,
+        },
+      },
+    },
+  });
 
-function mapAdminProduct(p) {
+  if (!profile) return { error: "store_not_found", status: 404 };
+
+  const svc = profile.service;
+
+  if (!svc || svc.type?.code !== "products") {
+    return { error: "not_a_products_store", status: 404 };
+  }
+
+  if (!svc.vendor || svc.vendor.userId !== userSub) {
+    return { error: "forbidden", status: 403 };
+  }
+
+  return { service: svc, profile };
+}
+
+// pentru admin: găsește store-ul products după slug, fără ownership check
+async function getProductsServiceBySlugForAdmin(slug) {
+  const profile = await prisma.serviceProfile.findUnique({
+    where: { slug },
+    include: {
+      service: {
+        include: {
+          type: true,
+          vendor: true,
+          profile: true,
+        },
+      },
+    },
+  });
+
+  if (!profile) return { error: "store_not_found", status: 404 };
+
+  const svc = profile.service;
+
+  if (!svc || svc.type?.code !== "products") {
+    return { error: "not_a_products_store", status: 404 };
+  }
+
+  return { service: svc, profile };
+}
+
+// mapare la payloadul așteptat pe front
+function mapProduct(p) {
   return {
     id: p.id,
     title: p.title,
     description: p.description || "",
-    price: (p.priceCents ?? 0) / 100,
-    priceCents: p.priceCents ?? 0,
+    price: Math.round(p.priceCents) / 100,
     images: Array.isArray(p.images) ? p.images : [],
     currency: p.currency || "RON",
-
-    isActive: !!p.isActive,
+    isActive: p.isActive,
     isHidden: !!p.isHidden,
     category: p.category || null,
     color: p.color || null,
@@ -45,71 +120,12 @@ function mapAdminProduct(p) {
     careInstructions: p.careInstructions || null,
     specialNotes: p.specialNotes || null,
 
-    moderationStatus: p.moderationStatus || null,
-    moderationMessage: p.moderationMessage || null,
-    submittedAt: p.submittedAt ?? null,
-    reviewedAt: p.reviewedAt ?? null,
-    reviewedByUserId: p.reviewedByUserId ?? null,
-    approvedAt: p.approvedAt ?? null,
-
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
-
-    service: p.service
-      ? {
-          id: p.service.id,
-          isActive: !!p.service.isActive,
-          status: p.service.status || null,
-          typeCode: p.service.type?.code || null,
-          profile: p.service.profile
-            ? {
-                slug: p.service.profile.slug || null,
-                displayName: p.service.profile.displayName || "",
-                city: p.service.profile.city || "",
-              }
-            : null,
-        }
-      : null,
-
-    vendor: p.service?.vendor
-      ? {
-          id: p.service.vendor.id,
-          userId: p.service.vendor.userId,
-          displayName: p.service.vendor.displayName || "",
-          email: p.service.vendor.email || "",
-          city: p.service.vendor.city || "",
-          isActive: !!p.service.vendor.isActive,
-        }
-      : null,
   };
 }
 
-function buildAdminOrderBy(sort) {
-  switch (String(sort || "new")) {
-    case "price_asc":
-      return [{ priceCents: "asc" }, { createdAt: "desc" }];
-    case "price_desc":
-      return [{ priceCents: "desc" }, { createdAt: "desc" }];
-    case "old":
-      return [{ createdAt: "asc" }];
-    case "title_asc":
-      return [{ title: "asc" }];
-    case "title_desc":
-      return [{ title: "desc" }];
-    case "new":
-    default:
-      return [{ createdAt: "desc" }];
-  }
-}
-
-function parseBooleanQuery(v) {
-  if (v === undefined) return undefined;
-  const s = String(v).trim().toLowerCase();
-  if (s === "true" || s === "1") return true;
-  if (s === "false" || s === "0") return false;
-  return undefined;
-}
-
+// validare + normalizare availability payload
 function normalizeAvailabilityPayload(body, currentProduct = null) {
   let availabilityRaw = null;
 
@@ -176,44 +192,268 @@ function normalizeAvailabilityPayload(body, currentProduct = null) {
   return { ok: true, ...out };
 }
 
-/* ================= GET all admin products ================= */
+// normalizare tag-uri
+function normalizeTags(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => String(v || "").trim())
+      .filter(Boolean)
+      .slice(0, 20);
+  }
 
-/**
- * GET /admin/products
- * Listă globală pentru admin
- */
-router.get("/products", authRequired, adminRequired, async (req, res) => {
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .slice(0, 20);
+  }
+
+  return [];
+}
+
+/* ================= Subscription / plan helpers ================= */
+
+// ia planul activ al vendorului; fallback la basic
+async function getActivePlanForVendor(vendorId) {
+  const now = new Date();
+
+  const sub = await prisma.vendorSubscription.findFirst({
+    where: {
+      vendorId,
+      OR: [
+        { status: "active", endAt: { gt: now } },
+        { trialEndsAt: { gt: now } },
+      ],
+    },
+    include: { plan: true },
+    orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
+  });
+
+  if (sub?.plan) return sub.plan;
+
+  const basic = await prisma.subscriptionPlan.findUnique({
+    where: { code: "basic" },
+  });
+
+  return (
+    basic ?? {
+      code: "basic",
+      name: "Basic",
+      maxProducts: 15,
+      commissionBps: 1200,
+    }
+  );
+}
+
+// calculează limita finală ținând cont de override
+async function resolveProductLimitForVendor({ vendorId }) {
+  const [plan, vendor] = await Promise.all([
+    getActivePlanForVendor(vendorId),
+    prisma.vendor.findUnique({
+      where: { id: vendorId },
+      select: { productLimitOverride: true },
+    }),
+  ]);
+
+  let limit;
+
+  if (vendor?.productLimitOverride === -1) {
+    limit = null; // nelimitat
+  } else if (typeof vendor?.productLimitOverride === "number") {
+    limit = vendor.productLimitOverride;
+  } else {
+    limit = plan?.maxProducts ?? null;
+  }
+
+  return {
+    plan,
+    limit,
+    override: vendor?.productLimitOverride ?? null,
+  };
+}
+
+// limită PER STORE/SERVICE
+async function checkProductLimitForService({ serviceId, vendorId }) {
+  const { plan, limit, override } = await resolveProductLimitForVendor({ vendorId });
+
+  const current = await prisma.product.count({
+    where: { serviceId },
+  });
+
+  if (limit == null) {
+    return {
+      ok: true,
+      plan: { code: plan.code, name: plan.name },
+      limit: null,
+      current,
+      override,
+    };
+  }
+
+  if (current >= limit) {
+    return {
+      ok: false,
+      error: "upgrade_required",
+      reason: "products_limit_reached",
+      plan: { code: plan.code, name: plan.name },
+      limit,
+      current,
+      override,
+    };
+  }
+
+  return {
+    ok: true,
+    plan: { code: plan.code, name: plan.name },
+    limit,
+    current,
+    override,
+  };
+}
+
+/* ============== Handlere publice & vendor ============== */
+
+/** PUBLIC: lista produselor unui magazin */
+async function publicListProducts(req, res) {
   try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+
+    const profile = await prisma.serviceProfile.findUnique({
+      where: { slug },
+      include: { service: { include: { type: true } } },
+    });
+
+    if (!profile || profile.service?.type?.code !== "products") {
+      return res.status(404).json({ error: "not_found" });
+    }
+
     const {
       q = "",
       category = "",
-      color = "",
       availability = "",
-      moderationStatus = "",
+      pmin = "",
+      pmax = "",
+      color = "",
+      sort = "new",
+      cursor,
+      take = "24",
+    } = req.query || {};
+
+    const where = {
+      serviceId: profile.serviceId,
+      isActive: true,
+      isHidden: false,
+    };
+
+    if (category) where.category = String(category);
+    if (color) where.color = String(color).trim();
+
+    const av = String(availability || "").toUpperCase();
+    if (av) {
+      if (av === "READY") {
+        where.AND = [
+          { availability: "READY" },
+          { OR: [{ readyQty: null }, { readyQty: { gt: 0 } }] },
+        ];
+      } else if (av === "SOLD_OUT") {
+        where.OR = [
+          { availability: "SOLD_OUT" },
+          { AND: [{ availability: "READY" }, { readyQty: { lte: 0 } }] },
+        ];
+      } else if (["MADE_TO_ORDER", "PREORDER"].includes(av)) {
+        where.availability = av;
+      }
+    }
+
+    const priceMin = Number(pmin);
+    const priceMax = Number(pmax);
+
+    if (Number.isFinite(priceMin) || Number.isFinite(priceMax)) {
+      where.priceCents = {};
+      if (Number.isFinite(priceMin)) where.priceCents.gte = Math.round(priceMin * 100);
+      if (Number.isFinite(priceMax)) where.priceCents.lte = Math.round(priceMax * 100);
+    }
+
+    const qstr = String(q || "").trim();
+    if (qstr) {
+      where.OR = (where.OR || []).concat([
+        { title: { contains: qstr, mode: "insensitive" } },
+        { description: { contains: qstr, mode: "insensitive" } },
+        { category: { contains: qstr, mode: "insensitive" } },
+        { color: { contains: qstr, mode: "insensitive" } },
+        { styleTags: { has: qstr } },
+        { occasionTags: { has: qstr } },
+      ]);
+    }
+
+    let orderBy;
+    switch (sort) {
+      case "price_asc":
+        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
+        break;
+      case "price_desc":
+        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
+        break;
+      case "old":
+        orderBy = [{ createdAt: "asc" }];
+        break;
+      case "new":
+      default:
+        orderBy = [{ createdAt: "desc" }];
+    }
+
+    const pageSize = Math.max(1, Math.min(48, Number(take) || 24));
+    const cursorObj = cursor ? { id: String(cursor) } : undefined;
+
+    const items = await prisma.product.findMany({
+      where,
+      orderBy,
+      take: pageSize + 1,
+      ...(cursorObj ? { cursor: cursorObj, skip: 1 } : {}),
+    });
+
+    const hasMore = items.length > pageSize;
+    const slice = hasMore ? items.slice(0, pageSize) : items;
+
+    res.set("Cache-Control", "public, max-age=0, must-revalidate");
+
+    return res.json({
+      items: slice.map(mapProduct),
+      nextCursor: hasMore ? slice[slice.length - 1].id : null,
+    });
+  } catch (e) {
+    console.error("GET /public/store/:slug/products error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/** GET /vendors/store/:slug/products
+ *  Listă privată pentru vendor/admin dashboard
+ */
+async function listVendorProducts(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
+
+    if (error) return res.status(status).json({ error });
+
+    const {
+      q = "",
+      category = "",
+      availability = "",
       isActive,
       isHidden,
-      vendorId = "",
-      vendorUserId = "",
-      storeSlug = "",
-      serviceId = "",
       sort = "new",
       take = "100",
     } = req.query || {};
 
     const where = {
-      service: {
-        is: {
-          type: { is: { code: "products" } },
-        },
-      },
+      serviceId: service.id,
     };
 
     if (category) {
       where.category = String(category).trim();
-    }
-
-    if (color) {
-      where.color = String(color).trim();
     }
 
     const av = String(availability || "").trim().toUpperCase();
@@ -221,175 +461,17 @@ router.get("/products", authRequired, adminRequired, async (req, res) => {
       where.availability = av;
     }
 
-    const mod = String(moderationStatus || "").trim().toUpperCase();
-    if (mod) {
-      where.moderationStatus = mod;
+    if (isActive !== undefined) {
+      const activeVal = String(isActive).trim().toLowerCase();
+      if (activeVal === "true" || activeVal === "1") where.isActive = true;
+      if (activeVal === "false" || activeVal === "0") where.isActive = false;
     }
 
-    const activeVal = parseBooleanQuery(isActive);
-    if (typeof activeVal === "boolean") {
-      where.isActive = activeVal;
+    if (isHidden !== undefined) {
+      const hiddenVal = String(isHidden).trim().toLowerCase();
+      if (hiddenVal === "true" || hiddenVal === "1") where.isHidden = true;
+      if (hiddenVal === "false" || hiddenVal === "0") where.isHidden = false;
     }
-
-    const hiddenVal = parseBooleanQuery(isHidden);
-    if (typeof hiddenVal === "boolean") {
-      where.isHidden = hiddenVal;
-    }
-
-    if (serviceId) {
-      where.serviceId = String(serviceId).trim();
-    }
-
-    if (storeSlug) {
-      where.service = {
-        is: {
-          ...(where.service?.is || {}),
-          profile: { is: { slug: String(storeSlug).trim().toLowerCase() } },
-        },
-      };
-    }
-
-    if (vendorId) {
-      where.service = {
-        is: {
-          ...(where.service?.is || {}),
-          vendorId: String(vendorId).trim(),
-        },
-      };
-    }
-
-    if (vendorUserId) {
-      where.service = {
-        is: {
-          ...(where.service?.is || {}),
-          vendor: { is: { userId: String(vendorUserId).trim() } },
-        },
-      };
-    }
-
-    const qstr = String(q || "").trim();
-    if (qstr) {
-      where.OR = [
-        { title: { contains: qstr, mode: "insensitive" } },
-        { description: { contains: qstr, mode: "insensitive" } },
-        { category: { contains: qstr, mode: "insensitive" } },
-        { color: { contains: qstr, mode: "insensitive" } },
-        { materialMain: { contains: qstr, mode: "insensitive" } },
-        { technique: { contains: qstr, mode: "insensitive" } },
-        { styleTags: { has: qstr } },
-        { occasionTags: { has: qstr } },
-        {
-          service: {
-            is: {
-              profile: {
-                is: {
-                  displayName: { contains: qstr, mode: "insensitive" },
-                },
-              },
-            },
-          },
-        },
-        {
-          service: {
-            is: {
-              vendor: {
-                is: {
-                  displayName: { contains: qstr, mode: "insensitive" },
-                },
-              },
-            },
-          },
-        },
-      ];
-    }
-
-    const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
-
-    const [total, items] = await Promise.all([
-      prisma.product.count({ where }),
-      prisma.product.findMany({
-        where,
-        orderBy: buildAdminOrderBy(sort),
-        take: pageSize,
-        include: {
-          service: {
-            include: {
-              type: true,
-              profile: true,
-              vendor: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    return res.json({
-      items: items.map(mapAdminProduct),
-      total,
-    });
-  } catch (e) {
-    console.error("GET /admin/products error:", e);
-    return res.status(500).json({ error: "server_error" });
-  }
-});
-
-/* ================= GET products by store ================= */
-
-/**
- * GET /admin/store/:slug/products
- * Toate produsele dintr-un store
- */
-router.get("/store/:slug/products", authRequired, adminRequired, async (req, res) => {
-  try {
-    const slug = String(req.params.slug || "").trim().toLowerCase();
-    if (!slug) return res.status(400).json({ error: "invalid_slug" });
-
-    const profile = await prisma.serviceProfile.findUnique({
-      where: { slug },
-      include: {
-        service: {
-          include: {
-            type: true,
-            vendor: true,
-            profile: true,
-          },
-        },
-      },
-    });
-
-    if (!profile) return res.status(404).json({ error: "store_not_found" });
-    if (!profile.service || profile.service.type?.code !== "products") {
-      return res.status(404).json({ error: "not_a_products_store" });
-    }
-
-    const {
-      q = "",
-      category = "",
-      availability = "",
-      moderationStatus = "",
-      isActive,
-      isHidden,
-      sort = "new",
-      take = "100",
-    } = req.query || {};
-
-    const where = {
-      serviceId: profile.serviceId,
-    };
-
-    if (category) where.category = String(category).trim();
-
-    const av = String(availability || "").trim().toUpperCase();
-    if (av) where.availability = av;
-
-    const mod = String(moderationStatus || "").trim().toUpperCase();
-    if (mod) where.moderationStatus = mod;
-
-    const activeVal = parseBooleanQuery(isActive);
-    if (typeof activeVal === "boolean") where.isActive = activeVal;
-
-    const hiddenVal = parseBooleanQuery(isHidden);
-    if (typeof hiddenVal === "boolean") where.isHidden = hiddenVal;
 
     const qstr = String(q || "").trim();
     if (qstr) {
@@ -405,188 +487,295 @@ router.get("/store/:slug/products", authRequired, adminRequired, async (req, res
       ];
     }
 
+    let orderBy;
+    switch (String(sort || "new")) {
+      case "price_asc":
+        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
+        break;
+      case "price_desc":
+        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
+        break;
+      case "old":
+        orderBy = [{ createdAt: "asc" }];
+        break;
+      case "title_asc":
+        orderBy = [{ title: "asc" }];
+        break;
+      case "title_desc":
+        orderBy = [{ title: "desc" }];
+        break;
+      case "new":
+      default:
+        orderBy = [{ createdAt: "desc" }];
+    }
+
     const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
 
-    const [total, items] = await Promise.all([
-      prisma.product.count({ where }),
-      prisma.product.findMany({
-        where,
-        orderBy: buildAdminOrderBy(sort),
-        take: pageSize,
-        include: {
-          service: {
-            include: {
-              type: true,
-              profile: true,
-              vendor: true,
-            },
-          },
-        },
-      }),
-    ]);
+    const items = await prisma.product.findMany({
+      where,
+      orderBy,
+      take: pageSize,
+    });
 
     return res.json({
       store: {
-        id: profile.service.id,
-        slug: profile.slug,
-        displayName: profile.displayName || profile.service.vendor?.displayName || "",
-        vendorId: profile.service.vendorId,
+        id: service.id,
+        vendorId: service.vendorId,
+        slug,
       },
-      items: items.map(mapAdminProduct),
-      total,
+      items: items.map(mapProduct),
+      total: items.length,
     });
   } catch (e) {
-    console.error("GET /admin/store/:slug/products error:", e);
+    console.error("GET /vendors/store/:slug/products error:", e);
     return res.status(500).json({ error: "server_error" });
   }
-});
+}
 
-/* ================= GET one admin product ================= */
-
-/**
- * GET /admin/products/:id
- */
-router.get("/products/:id", authRequired, adminRequired, async (req, res) => {
+/** GET /vendors/products/:id */
+async function getProduct(req, res) {
   try {
-    const id = String(req.params.id || "").trim();
+    const id = String(req.params.id);
 
-    const product = await prisma.product.findUnique({
+    const p = await prisma.product.findUnique({
       where: { id },
       include: {
         service: {
           include: {
+            vendor: true,
             type: true,
             profile: true,
-            vendor: true,
           },
         },
       },
     });
 
-    if (!product) return res.status(404).json({ error: "not_found" });
+    if (!p) return res.status(404).json({ error: "not_found" });
 
-    return res.json(mapAdminProduct(product));
-  } catch (e) {
-    console.error("GET /admin/products/:id error:", e);
-    return res.status(500).json({ error: "server_error" });
-  }
-});
+    if (p.service?.vendor?.userId !== req.user.sub) {
+      return res.status(403).json({ error: "forbidden" });
+    }
 
-/* ================= PATCH moderation ================= */
+    if (p.service?.type?.code !== "products") {
+      return res.status(400).json({ error: "not_a_products_store" });
+    }
 
-/**
- * PATCH /admin/products/:id/moderation
- * Approve / reject / request changes / hide / deactivate
- */
-router.patch("/products/:id/moderation", authRequired, adminRequired, async (req, res) => {
-  try {
-    const id = String(req.params.id || "").trim();
-
-    const product = await prisma.product.findUnique({
-      where: { id },
-      include: {
-        service: {
-          include: {
-            type: true,
-            profile: true,
-            vendor: true,
-          },
-        },
+    return res.json({
+      ...mapProduct(p),
+      ownerVendorId: p.service.vendorId,
+      vendor: {
+        id: p.service.vendor.id,
+        displayName: p.service.profile?.displayName || p.service.vendor.displayName || "",
+        slug: p.service.profile?.slug || null,
+        city: p.service.profile?.city || p.service.vendor.city || "",
       },
     });
+  } catch (e) {
+    console.error("GET /vendors/products/:id error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
 
-    if (!product) return res.status(404).json({ error: "not_found" });
+/** GET /vendors/store/:slug/products/limits */
+async function getProductLimits(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
 
-    const patch = {};
-    const now = new Date();
+    if (error) return res.status(status).json({ error });
 
-    if (typeof req.body.isHidden === "boolean") {
-      patch.isHidden = req.body.isHidden;
+    const limitCheck = await checkProductLimitForService({
+      serviceId: service.id,
+      vendorId: service.vendorId,
+    });
+
+    return res.json({
+      plan: limitCheck.plan,
+      maxProducts: limitCheck.limit,
+      currentProducts: limitCheck.current,
+      canAdd: limitCheck.ok,
+      override: limitCheck.override,
+    });
+  } catch (e) {
+    console.error("GET /vendors/store/:slug/products/limits error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/** GET /vendors/store/:slug/products/pricing */
+async function getProductPricing(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
+
+    if (error) return res.status(status).json({ error });
+
+    const plan = await getActivePlanForVendor(service.vendorId);
+    const commissionBps = plan?.commissionBps != null ? Number(plan.commissionBps) : 0;
+
+    return res.json({
+      plan: {
+        code: plan?.code || "basic",
+        name: plan?.name || "Basic",
+      },
+      commissionBps: Number.isFinite(commissionBps) ? commissionBps : 0,
+    });
+  } catch (e) {
+    console.error("GET /vendors/store/:slug/products/pricing error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/** POST /vendors/store/:slug/products */
+async function createProduct(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { service, error, status } = await getOwnedProductsServiceBySlug(slug, req.user.sub);
+
+    if (error) return res.status(status).json({ error });
+
+    const limitCheck = await checkProductLimitForService({
+      serviceId: service.id,
+      vendorId: service.vendorId,
+    });
+
+    if (!limitCheck.ok) {
+      return res.status(402).json(limitCheck);
     }
 
-    if (typeof req.body.isActive === "boolean") {
-      patch.isActive = req.body.isActive;
+    const {
+      title,
+      description = "",
+      price,
+      images = [],
+      currency = "RON",
+      category = null,
+      color = null,
+
+      availability,
+      leadTimeDays,
+      readyQty,
+      nextShipDate,
+      acceptsCustom = false,
+      isHidden = false,
+      isActive = true,
+
+      materialMain,
+      technique,
+      styleTags,
+      occasionTags,
+      dimensions,
+      careInstructions,
+      specialNotes,
+    } = req.body || {};
+
+    if (!title || typeof title !== "string" || !title.trim()) {
+      return res.status(400).json({ error: "invalid_title" });
     }
 
-    if (req.body.moderationMessage !== undefined) {
-      patch.moderationMessage =
-        req.body.moderationMessage == null || String(req.body.moderationMessage).trim() === ""
-          ? null
-          : String(req.body.moderationMessage).trim();
+    const priceNum = Number(price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      return res.status(400).json({ error: "invalid_price" });
     }
 
-    if (req.body.moderationStatus !== undefined) {
-      const nextStatus = String(req.body.moderationStatus).trim().toUpperCase();
+    const priceCents = Math.round(priceNum * 100);
 
-      if (!["PENDING", "APPROVED", "REJECTED", "CHANGES_REQUESTED"].includes(nextStatus)) {
-        return res.status(400).json({ error: "invalid_moderation_status" });
+    const imgs = Array.isArray(images) ? images.slice(0, 12).map((s) => String(s)) : [];
+
+    let cat = null;
+    if (category != null && String(category).trim() !== "") {
+      const c = String(category).trim();
+      if (!CATEGORY_SET.has(c)) {
+        return res.status(400).json({ error: "invalid_category" });
       }
+      cat = c;
+    }
 
-      patch.moderationStatus = nextStatus;
-      patch.reviewedAt = now;
-      patch.reviewedByUserId = req.user.sub;
-
-      if (nextStatus === "APPROVED") {
-        patch.isHidden = false;
-        patch.isActive = true;
-        patch.approvedAt = now;
-        if (patch.moderationMessage === undefined) patch.moderationMessage = null;
-      } else if (nextStatus === "REJECTED") {
-        patch.isHidden = true;
-        patch.isActive = false;
-        patch.approvedAt = null;
-      } else if (nextStatus === "CHANGES_REQUESTED") {
-        patch.isHidden = true;
-        patch.isActive = false;
-        patch.approvedAt = null;
-      } else if (nextStatus === "PENDING") {
-        patch.isHidden = true;
-        patch.approvedAt = null;
-        patch.reviewedAt = null;
-        patch.reviewedByUserId = null;
+    let colorCode = null;
+    if (color != null && String(color).trim() !== "") {
+      const c = String(color).trim();
+      if (COLOR_SET.has(c)) {
+        colorCode = c;
+      } else {
+        console.warn("Unknown color code from payload:", c);
+        colorCode = null;
       }
     }
 
-    if (!Object.keys(patch).length) {
-      return res.status(400).json({ error: "nothing_to_update" });
+    const availNorm = normalizeAvailabilityPayload(
+      { availability, leadTimeDays, readyQty, nextShipDate },
+      null
+    );
+
+    if (availNorm.error) {
+      return res.status(400).json({ error: availNorm.error });
     }
 
-    const updated = await prisma.product.update({
+    const styleTagsNorm = normalizeTags(styleTags);
+    const occasionTagsNorm = normalizeTags(occasionTags);
+
+    const created = await prisma.product.create({
+      data: {
+        serviceId: service.id,
+        title: title.trim(),
+        description: String(description || ""),
+        priceCents,
+        currency: String(currency || "RON"),
+        images: imgs,
+        isActive: !!isActive,
+        isHidden: !!isHidden,
+        category: cat,
+        color: colorCode,
+
+        availability: availNorm.availability,
+        leadTimeDays: availNorm.leadTimeDays,
+        readyQty: availNorm.readyQty,
+        nextShipDate: availNorm.nextShipDate,
+        acceptsCustom: !!acceptsCustom,
+
+        materialMain: materialMain ? String(materialMain).trim() : null,
+        technique: technique ? String(technique).trim() : null,
+        styleTags: styleTagsNorm,
+        occasionTags: occasionTagsNorm,
+        dimensions: dimensions ? String(dimensions).trim() : null,
+        careInstructions: careInstructions ? String(careInstructions) : null,
+        specialNotes: specialNotes ? String(specialNotes) : null,
+      },
+    });
+
+    return res.status(201).json(mapProduct(created));
+  } catch (e) {
+    console.error("POST /vendors/store/:slug/products error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/** PUT /vendors/products/:id */
+async function updateProduct(req, res) {
+  try {
+    const id = String(req.params.id);
+
+    const product = await prisma.product.findUnique({
       where: { id },
-      data: patch,
       include: {
         service: {
           include: {
-            type: true,
-            profile: true,
             vendor: true,
+            type: true,
           },
         },
       },
     });
 
-    return res.json(mapAdminProduct(updated));
-  } catch (e) {
-    console.error("PATCH /admin/products/:id/moderation error:", e);
-    return res.status(500).json({ error: "server_error" });
-  }
-});
-
-/* ================= Optional full admin edit ================= */
-
-/**
- * PUT /admin/products/:id
- * Dacă vrei ca adminul să poată edita complet produsul
- */
-router.put("/products/:id", authRequired, adminRequired, async (req, res) => {
-  try {
-    const id = String(req.params.id || "").trim();
-
-    const product = await prisma.product.findUnique({
-      where: { id },
-    });
-
     if (!product) return res.status(404).json({ error: "not_found" });
+
+    if (product.service?.vendor?.userId !== req.user.sub) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (product.service?.type?.code !== "products") {
+      return res.status(400).json({ error: "not_a_products_store" });
+    }
 
     const patch = {};
 
@@ -635,10 +824,12 @@ router.put("/products/:id", authRequired, adminRequired, async (req, res) => {
         patch.color = null;
       } else {
         const c = String(v).trim();
-        if (!COLOR_SET.has(c)) {
-          return res.status(400).json({ error: "invalid_color" });
+        if (COLOR_SET.has(c)) {
+          patch.color = c;
+        } else {
+          console.warn("Unknown color code on update:", c);
+          patch.color = null;
         }
-        patch.color = c;
       }
     }
 
@@ -653,15 +844,11 @@ router.put("/products/:id", authRequired, adminRequired, async (req, res) => {
     }
 
     if (req.body.styleTags !== undefined) {
-      patch.styleTags = Array.isArray(req.body.styleTags)
-        ? req.body.styleTags.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 20)
-        : [];
+      patch.styleTags = normalizeTags(req.body.styleTags);
     }
 
     if (req.body.occasionTags !== undefined) {
-      patch.occasionTags = Array.isArray(req.body.occasionTags)
-        ? req.body.occasionTags.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 20)
-        : [];
+      patch.occasionTags = normalizeTags(req.body.occasionTags);
     }
 
     if (req.body.dimensions !== undefined) {
@@ -679,64 +866,399 @@ router.put("/products/:id", authRequired, adminRequired, async (req, res) => {
       patch.specialNotes = v == null || String(v).trim() === "" ? null : String(v);
     }
 
-    const needsAvailabilityUpdate =
-      req.body.availability !== undefined ||
-      req.body.leadTimeDays !== undefined ||
-      req.body.readyQty !== undefined ||
-      req.body.nextShipDate !== undefined;
-
-    if (needsAvailabilityUpdate) {
-      const availNorm = normalizeAvailabilityPayload(req.body, product);
-      if (availNorm.error) {
-        return res.status(400).json({ error: availNorm.error });
-      }
-
-      patch.availability = availNorm.availability;
-      patch.leadTimeDays = availNorm.leadTimeDays;
-      patch.readyQty = availNorm.readyQty;
-      patch.nextShipDate = availNorm.nextShipDate;
+    const availNorm = normalizeAvailabilityPayload(req.body, product);
+    if (availNorm.error) {
+      return res.status(400).json({ error: availNorm.error });
     }
+
+    patch.availability = availNorm.availability;
+    patch.leadTimeDays = availNorm.leadTimeDays;
+    patch.readyQty = availNorm.readyQty;
+    patch.nextShipDate = availNorm.nextShipDate;
 
     if (typeof req.body.acceptsCustom === "boolean") {
       patch.acceptsCustom = req.body.acceptsCustom;
     }
 
-    if (req.body.moderationStatus !== undefined) {
-      const nextStatus = String(req.body.moderationStatus).trim().toUpperCase();
-
-      if (!["PENDING", "APPROVED", "REJECTED", "CHANGES_REQUESTED"].includes(nextStatus)) {
-        return res.status(400).json({ error: "invalid_moderation_status" });
-      }
-
-      patch.moderationStatus = nextStatus;
-    }
-
-    if (req.body.moderationMessage !== undefined) {
-      patch.moderationMessage =
-        req.body.moderationMessage == null || String(req.body.moderationMessage).trim() === ""
-          ? null
-          : String(req.body.moderationMessage).trim();
-    }
-
     const updated = await prisma.product.update({
       where: { id },
       data: patch,
+    });
+
+    return res.json(mapProduct(updated));
+  } catch (e) {
+    console.error("PUT /vendors/products/:id error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/** DELETE /vendors/products/:id */
+async function deleteProduct(req, res) {
+  try {
+    const id = String(req.params.id);
+
+    const product = await prisma.product.findUnique({
+      where: { id },
       include: {
         service: {
           include: {
-            type: true,
-            profile: true,
             vendor: true,
+            type: true,
           },
         },
       },
     });
 
-    return res.json(mapAdminProduct(updated));
+    if (!product) return res.status(404).json({ error: "not_found" });
+
+    if (product.service?.vendor?.userId !== req.user.sub) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (product.service?.type?.code !== "products") {
+      return res.status(400).json({ error: "not_a_products_store" });
+    }
+
+    await prisma.product.delete({ where: { id } });
+
+    return res.json({ ok: true, deletedId: id });
   } catch (e) {
-    console.error("PUT /admin/products/:id error:", e);
+    console.error("DELETE /vendors/products/:id error:", e);
     return res.status(500).json({ error: "server_error" });
   }
-});
+}
+
+/* ================= Admin handlers ================= */
+
+/** GET /admin/products
+ *  Listă globală pentru admin
+ */
+async function adminListProducts(req, res) {
+  try {
+    const {
+      q = "",
+      category = "",
+      availability = "",
+      vendorId = "",
+      serviceId = "",
+      isActive,
+      isHidden,
+      sort = "new",
+      take = "100",
+    } = req.query || {};
+
+    const where = {};
+
+    if (category) where.category = String(category).trim();
+
+    const av = String(availability || "").trim().toUpperCase();
+    if (av) where.availability = av;
+
+    if (serviceId) where.serviceId = String(serviceId).trim();
+
+    if (vendorId) {
+      where.service = {
+        vendorId: String(vendorId).trim(),
+      };
+    }
+
+    if (isActive !== undefined) {
+      const activeVal = String(isActive).trim().toLowerCase();
+      if (activeVal === "true" || activeVal === "1") where.isActive = true;
+      if (activeVal === "false" || activeVal === "0") where.isActive = false;
+    }
+
+    if (isHidden !== undefined) {
+      const hiddenVal = String(isHidden).trim().toLowerCase();
+      if (hiddenVal === "true" || hiddenVal === "1") where.isHidden = true;
+      if (hiddenVal === "false" || hiddenVal === "0") where.isHidden = false;
+    }
+
+    const qstr = String(q || "").trim();
+    if (qstr) {
+      where.OR = [
+        { title: { contains: qstr, mode: "insensitive" } },
+        { description: { contains: qstr, mode: "insensitive" } },
+        { category: { contains: qstr, mode: "insensitive" } },
+        { color: { contains: qstr, mode: "insensitive" } },
+        { materialMain: { contains: qstr, mode: "insensitive" } },
+        { technique: { contains: qstr, mode: "insensitive" } },
+        { styleTags: { has: qstr } },
+        { occasionTags: { has: qstr } },
+        {
+          service: {
+            OR: [
+              { vendor: { displayName: { contains: qstr, mode: "insensitive" } } },
+              { profile: { displayName: { contains: qstr, mode: "insensitive" } } },
+              { profile: { slug: { contains: qstr, mode: "insensitive" } } },
+            ],
+          },
+        },
+      ];
+    }
+
+    let orderBy;
+    switch (String(sort || "new")) {
+      case "price_asc":
+        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
+        break;
+      case "price_desc":
+        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
+        break;
+      case "old":
+        orderBy = [{ createdAt: "asc" }];
+        break;
+      case "title_asc":
+        orderBy = [{ title: "asc" }];
+        break;
+      case "title_desc":
+        orderBy = [{ title: "desc" }];
+        break;
+      case "new":
+      default:
+        orderBy = [{ createdAt: "desc" }];
+    }
+
+    const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
+
+    const items = await prisma.product.findMany({
+      where,
+      orderBy,
+      take: pageSize,
+      include: {
+        service: {
+          include: {
+            vendor: true,
+            profile: true,
+            type: true,
+          },
+        },
+      },
+    });
+
+    return res.json({
+      items: items.map((p) => ({
+        ...mapProduct(p),
+        service: {
+          id: p.service?.id || null,
+          vendorId: p.service?.vendorId || null,
+          type: p.service?.type?.code || null,
+          slug: p.service?.profile?.slug || null,
+          displayName:
+            p.service?.profile?.displayName ||
+            p.service?.vendor?.displayName ||
+            "",
+        },
+        vendor: {
+          id: p.service?.vendor?.id || null,
+          userId: p.service?.vendor?.userId || null,
+          displayName: p.service?.vendor?.displayName || "",
+          city: p.service?.vendor?.city || "",
+        },
+      })),
+      total: items.length,
+    });
+  } catch (e) {
+    console.error("GET /admin/products error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/** GET /admin/store/:slug/products
+ *  Listă produse dintr-un store pentru admin
+ */
+async function adminListStoreProducts(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    const { service, error, status } = await getProductsServiceBySlugForAdmin(slug);
+
+    if (error) return res.status(status).json({ error });
+
+    const {
+      q = "",
+      category = "",
+      availability = "",
+      isActive,
+      isHidden,
+      sort = "new",
+      take = "100",
+    } = req.query || {};
+
+    const where = {
+      serviceId: service.id,
+    };
+
+    if (category) where.category = String(category).trim();
+
+    const av = String(availability || "").trim().toUpperCase();
+    if (av) where.availability = av;
+
+    if (isActive !== undefined) {
+      const activeVal = String(isActive).trim().toLowerCase();
+      if (activeVal === "true" || activeVal === "1") where.isActive = true;
+      if (activeVal === "false" || activeVal === "0") where.isActive = false;
+    }
+
+    if (isHidden !== undefined) {
+      const hiddenVal = String(isHidden).trim().toLowerCase();
+      if (hiddenVal === "true" || hiddenVal === "1") where.isHidden = true;
+      if (hiddenVal === "false" || hiddenVal === "0") where.isHidden = false;
+    }
+
+    const qstr = String(q || "").trim();
+    if (qstr) {
+      where.OR = [
+        { title: { contains: qstr, mode: "insensitive" } },
+        { description: { contains: qstr, mode: "insensitive" } },
+        { category: { contains: qstr, mode: "insensitive" } },
+        { color: { contains: qstr, mode: "insensitive" } },
+        { materialMain: { contains: qstr, mode: "insensitive" } },
+        { technique: { contains: qstr, mode: "insensitive" } },
+        { styleTags: { has: qstr } },
+        { occasionTags: { has: qstr } },
+      ];
+    }
+
+    let orderBy;
+    switch (String(sort || "new")) {
+      case "price_asc":
+        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
+        break;
+      case "price_desc":
+        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
+        break;
+      case "old":
+        orderBy = [{ createdAt: "asc" }];
+        break;
+      case "title_asc":
+        orderBy = [{ title: "asc" }];
+        break;
+      case "title_desc":
+        orderBy = [{ title: "desc" }];
+        break;
+      case "new":
+      default:
+        orderBy = [{ createdAt: "desc" }];
+    }
+
+    const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
+
+    const items = await prisma.product.findMany({
+      where,
+      orderBy,
+      take: pageSize,
+    });
+
+    return res.json({
+      store: {
+        id: service.id,
+        vendorId: service.vendorId,
+        slug,
+        displayName:
+          service.profile?.displayName ||
+          service.vendor?.displayName ||
+          "",
+      },
+      items: items.map(mapProduct),
+      total: items.length,
+    });
+  } catch (e) {
+    console.error("GET /admin/store/:slug/products error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/** GET /admin/products/:id */
+async function adminGetProduct(req, res) {
+  try {
+    const id = String(req.params.id);
+
+    const p = await prisma.product.findUnique({
+      where: { id },
+      include: {
+        service: {
+          include: {
+            vendor: true,
+            type: true,
+            profile: true,
+          },
+        },
+      },
+    });
+
+    if (!p) return res.status(404).json({ error: "not_found" });
+
+    if (p.service?.type?.code !== "products") {
+      return res.status(400).json({ error: "not_a_products_store" });
+    }
+
+    return res.json({
+      ...mapProduct(p),
+      ownerVendorId: p.service.vendorId,
+      vendor: {
+        id: p.service.vendor?.id || null,
+        userId: p.service.vendor?.userId || null,
+        displayName: p.service.profile?.displayName || p.service.vendor?.displayName || "",
+        slug: p.service.profile?.slug || null,
+        city: p.service.profile?.city || p.service.vendor?.city || "",
+      },
+      service: {
+        id: p.service?.id || null,
+        type: p.service?.type?.code || null,
+      },
+    });
+  } catch (e) {
+    console.error("GET /admin/products/:id error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+/* ================= Mount routes ================= */
+
+// PUBLIC
+router.get("/public/store/:slug/products", publicListProducts);
+
+// Helper: înregistrează același set de rute sub un prefix
+function registerProductRoutes(prefix) {
+  router.get(
+    `/${prefix}/store/:slug/products`,
+    authRequired,
+    vendorAccessRequired,
+    listVendorProducts
+  );
+
+  router.get(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, getProduct);
+
+  router.post(`/${prefix}/store/:slug/products`, authRequired, vendorAccessRequired, createProduct);
+
+  router.get(
+    `/${prefix}/store/:slug/products/limits`,
+    authRequired,
+    vendorAccessRequired,
+    getProductLimits
+  );
+
+  router.get(
+    `/${prefix}/store/:slug/products/pricing`,
+    authRequired,
+    vendorAccessRequired,
+    getProductPricing
+  );
+
+  router.put(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, updateProduct);
+
+  router.delete(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, deleteProduct);
+}
+
+registerProductRoutes("vendors");
+registerProductRoutes("vendor");
+
+// alias simplu
+router.get("/products/:id", authRequired, vendorAccessRequired, getProduct);
+
+// ADMIN
+router.get("/admin/products", authRequired, adminRequired, adminListProducts);
+router.get("/admin/products/:id", authRequired, adminRequired, adminGetProduct);
+router.get("/admin/store/:slug/products", authRequired, adminRequired, adminListStoreProducts);
 
 export default router;

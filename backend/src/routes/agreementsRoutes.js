@@ -7,40 +7,28 @@ const router = Router();
 
 /**
  * GET /api/vendor/agreements/required
- * Scop:
- *  - întoarce lista cu cele mai noi versiuni de documente din VendorPolicy
- *    (ex: Termeni vânzători, Anexă expedieri, Politică retur),
- *    care sunt marcate ca active (isActive=true).
- *  - front-end-ul poate afișa ce documente sunt obligatorii pentru vendor.
  */
 router.get(
   "/vendor/agreements/required",
-  authRequired,          // trebuie să fie logat
-  vendorAccessRequired,  // și să aibă acces de vendor
+  authRequired,
+  vendorAccessRequired,
   async (req, res) => {
     try {
       const all = await prisma.vendorPolicy.findMany({
-        where: { isActive: true }, // doar versiunile active
-        orderBy: [
-          { document: "asc" },       // ordonăm întâi pe tip de document
-          { publishedAt: "desc" },   // apoi descrescător după dată
-        ],
+        where: { isActive: true },
+        orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
       });
 
-      // reținem doar ultima versiune pentru fiecare tip de document
       const latest = new Map();
       for (const p of all) {
-        if (!latest.has(p.document)) {
-          latest.set(p.document, p);
-        }
+        if (!latest.has(p.document)) latest.set(p.document, p);
       }
 
-      // transformăm în array gata de trimis la frontend
       const docs = Array.from(latest.values()).map((d) => ({
-        doc_key: d.document, // ex: "VENDOR_TERMS" | "SHIPPING_ADDENDUM" | "RETURNS_POLICY_ACK"
+        doc_key: d.document,
         title: d.title,
         url: d.url,
-        version: d.version,  // string
+        version: d.version,
         is_required: d.isRequired,
       }));
 
@@ -56,9 +44,6 @@ router.get(
  * POST /api/vendor/agreements/accept
  * Body:
  *  { items: [ { doc_key: "VENDOR_TERMS", version: "1.0.0" }, ... ] }
- *
- * Scop:
- *  - salvează acceptările în VendorAcceptance pentru vendorul curent.
  */
 router.post(
   "/vendor/agreements/accept",
@@ -80,11 +65,11 @@ router.post(
       const items = Array.isArray(req.body?.items)
         ? req.body.items.slice(0, 10)
         : [];
+
       if (!items.length) {
         return res.status(400).json({ error: "no_items" });
       }
 
-      // 1) validăm că doc_key + version există în VendorPolicy (anti-spoof)
       const policies = await prisma.vendorPolicy.findMany({
         where: {
           OR: items.map((i) => ({
@@ -94,9 +79,7 @@ router.post(
         },
       });
 
-      const valid = new Set(
-        policies.map((p) => `${p.document}::${p.version}`)
-      );
+      const valid = new Set(policies.map((p) => `${p.document}::${p.version}`));
 
       const toInsert = items
         .map((i) => ({
@@ -109,11 +92,13 @@ router.post(
         return res.status(400).json({ error: "invalid_versions" });
       }
 
-      // 2) inserăm/actualizăm acceptările în VendorAcceptance
-      // folosim upsert ca să nu dublăm aceeași pereche (vendor + doc + version)
       const now = new Date();
 
       for (const it of toInsert) {
+        const matchedPolicy = policies.find(
+          (p) => p.document === it.document && p.version === it.version
+        );
+
         await prisma.vendorAcceptance.upsert({
           where: {
             vendorId_document_version: {
@@ -123,18 +108,23 @@ router.post(
             },
           },
           create: {
-            vendorId: meVendor.id,
+            vendor: {
+              connect: { id: meVendor.id },
+            },
+            user: {
+              connect: { id: req.user.sub },
+            },
             document: it.document,
             version: it.version,
             acceptedAt: now,
-            checksum:
-              policies.find(
-                (p) => p.document === it.document && p.version === it.version
-              )?.checksum || null,
+            checksum: matchedPolicy?.checksum || null,
+            ip: req.ip || null,
+            ua: req.headers["user-agent"] || null,
           },
           update: {
-            // dacă vrei să actualizezi data la reacceptare:
-            // acceptedAt: now,
+            checksum: matchedPolicy?.checksum || null,
+            ip: req.ip || null,
+            ua: req.headers["user-agent"] || null,
           },
         });
       }
@@ -149,10 +139,6 @@ router.post(
 
 /**
  * GET /api/vendor/agreements/status
- * Scop:
- *  - combină (1) ultimele versiuni active din VendorPolicy
- *           (2) acceptările din VendorAcceptance
- *  - întoarce status per document + allOK
  */
 router.get(
   "/vendor/agreements/status",
@@ -166,23 +152,19 @@ router.get(
           where: { userId: req.user.sub },
           select: { id: true },
         }));
+
       if (!meVendor) {
         return res.status(403).json({ error: "forbidden" });
       }
 
       const active = await prisma.vendorPolicy.findMany({
         where: { isActive: true },
-        orderBy: [
-          { document: "asc" },
-          { publishedAt: "desc" },
-        ],
+        orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
       });
 
       const latest = new Map();
       for (const p of active) {
-        if (!latest.has(p.document)) {
-          latest.set(p.document, p);
-        }
+        if (!latest.has(p.document)) latest.set(p.document, p);
       }
 
       const accepts = await prisma.vendorAcceptance.findMany({
@@ -210,8 +192,6 @@ router.get(
         });
       }
 
-      // allOK = toate documentele required sunt acceptate,
-      // dar doar dacă există cel puțin un document required
       const requiredDocs = docs.filter((d) => d.is_required);
       const allOK =
         requiredDocs.length > 0 &&
@@ -226,38 +206,19 @@ router.get(
 );
 
 /* ------------------------------------------------------------------ */
-/* 👇 AICI: adaptor pentru checkbox-ul din ProfileTab ("Acord Master") */
+/* adaptor pentru checkbox-urile legacy din frontend                   */
 /* ------------------------------------------------------------------ */
 
-/**
- * Map între tipurile trimise din frontend și enum-ul VendorDoc din Prisma
- *
- * frontend:
- *   - vendor_terms
- *   - shipping_addendum
- *   - returns (legacy)
- *   - returns_policy_ack (nou)
- *   - products_addendum (opțional)
- *
- * Prisma enum VendorDoc:
- *   - VENDOR_TERMS
- *   - SHIPPING_ADDENDUM
- *   - RETURNS_POLICY_ACK
- *   - PRODUCTS_ADDENDUM (dacă există)
- */
 const typeToVendorDoc = {
   vendor_terms: "VENDOR_TERMS",
   shipping_addendum: "SHIPPING_ADDENDUM",
   returns: "RETURNS_POLICY_ACK",
   returns_policy_ack: "RETURNS_POLICY_ACK",
-
-  // ✅ dacă ai în Prisma enum-ul:
   products_addendum: "PRODUCTS_ADDENDUM",
 };
 
 /**
  * POST /api/legal/vendor-accept
- *
  * Body:
  * {
  *   accept: [
@@ -266,14 +227,6 @@ const typeToVendorDoc = {
  *     { type: "returns" }
  *   ]
  * }
- *
- * Scop:
- *  - ia din VendorPolicy ultimele versiuni ACTIVE pentru documentele cerute
- *  - scrie în VendorAcceptance (upsert)
- *
- * ATENȚIE:
- *  - ruta asta există doar ca adaptor pentru checkbox-uri legacy.
- *  - nu primește versiunea din frontend, o ia singură din VendorPolicy.
  */
 router.post(
   "/legal/vendor-accept",
@@ -292,9 +245,7 @@ router.post(
         return res.status(403).json({ error: "forbidden" });
       }
 
-      const accept = Array.isArray(req.body?.accept)
-        ? req.body.accept
-        : [];
+      const accept = Array.isArray(req.body?.accept) ? req.body.accept : [];
 
       const docsRequested = Array.from(
         new Set(
@@ -313,16 +264,12 @@ router.post(
         });
       }
 
-      // 1) Luăm cea mai recentă versiune activă per document din VendorPolicy
       const policies = await prisma.vendorPolicy.findMany({
         where: {
           isActive: true,
           document: { in: docsRequested },
         },
-        orderBy: [
-          { document: "asc" },
-          { publishedAt: "desc" }, // latest first
-        ],
+        orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
       });
 
       const latestByDoc = new Map();
@@ -335,11 +282,13 @@ router.post(
 
       for (const docKey of docsRequested) {
         const p = latestByDoc.get(docKey);
+
         if (!p) {
           results.push({
             doc_key: docKey,
             ok: false,
             code: "no_active_policy",
+            message: `Nu există o versiune activă pentru documentul ${docKey}.`,
           });
           continue;
         }
@@ -353,15 +302,24 @@ router.post(
             },
           },
           create: {
-            vendorId: meVendor.id,
+            vendor: {
+              connect: { id: meVendor.id },
+            },
+            user: {
+              connect: { id: req.user.sub },
+            },
             document: docKey,
             version: String(p.version),
             checksum: p.checksum || null,
             acceptedAt: now,
+            ip: req.ip || null,
+            ua: req.headers["user-agent"] || null,
           },
           update: {
-            // dacă vrei să actualizezi data la reacceptare:
-            // acceptedAt: now,
+            acceptedAt: now,
+            checksum: p.checksum || null,
+            ip: req.ip || null,
+            ua: req.headers["user-agent"] || null,
           },
         });
 
@@ -372,11 +330,32 @@ router.post(
         });
       }
 
+      const failed = results.filter((r) => !r.ok);
+
+      if (failed.length > 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "accept_failed",
+          message: failed[0]?.message || "Nu am putut salva acceptarea.",
+          results,
+        });
+      }
+
       return res.json({ ok: true, results });
-    } catch (e) {
-      console.error("POST /api/legal/vendor-accept error:", e);
-      return res.status(500).json({ error: "server_error" });
-    }
+    }  catch (e) {
+  console.error("POST /api/legal/vendor-accept error:");
+  console.error("message:", e?.message);
+  console.error("code:", e?.code);
+  console.error("meta:", e?.meta);
+  console.error("stack:", e?.stack);
+
+  return res.status(500).json({
+    error: "server_error",
+    message: e?.message || "Unknown server error",
+    code: e?.code || null,
+    meta: e?.meta || null,
+  });
+}
   }
 );
 

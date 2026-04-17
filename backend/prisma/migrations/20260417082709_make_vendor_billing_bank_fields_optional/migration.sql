@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "VendorBilling" ALTER COLUMN "iban" DROP NOT NULL,
+ALTER COLUMN "bank" DROP NOT NULL;

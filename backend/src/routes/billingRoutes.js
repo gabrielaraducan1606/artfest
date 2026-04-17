@@ -13,10 +13,10 @@ const router = Router();
 const ALLOWED_LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
 const ALLOWED_VAT_STATUS = ["payer", "non_payer"];
 
-// ✅ platforma folosește doar cota standard
+// platforma folosește doar cota standard
 const PLATFORM_VAT_RATE = "21";
 
-// ✅ aliniat cu UI (30s)
+// aliniat cu UI (30s)
 const MIN_VERIFY_INTERVAL_MS = 30 * 1000;
 
 /* -----------------------------------------------------------
@@ -26,11 +26,11 @@ const sendError = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ ok: false, error: code, message: code, ...extra });
 
 const normalizeCui = (raw = "") => raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-const normalizeIban = (raw = "") => raw.replace(/\s+/g, "").toUpperCase();
 
 /* -----------------------------------------------------------
    VALIDARE PAYLOAD (ZOD)
    - nu mai acceptăm vatRate arbitrar; backend îl forțează la 21 când e payer
+   - NU mai cerem iban/bank în acest formular
 ----------------------------------------------------------- */
 const BillingSchema = z
   .object({
@@ -40,15 +40,13 @@ const BillingSchema = z
     cui: z.string().trim().min(2),
     regCom: z.string().trim().min(1),
     address: z.string().trim().min(1),
-    iban: z.string().trim().min(1),
-    bank: z.string().trim().min(1),
     email: z.string().trim().email(),
     contactPerson: z.string().trim().min(1),
     phone: z.string().trim().min(1),
 
     vatStatus: z.enum(ALLOWED_VAT_STATUS),
 
-    // ✅ optional doar pentru back-compat (ignorăm valoarea primită)
+    // optional doar pentru back-compat (ignorăm valoarea primită)
     vatRate: z.string().optional(),
 
     vatResponsibilityConfirmed: z.boolean(),
@@ -71,6 +69,8 @@ router.get(
   authRequired,
   vendorAccessRequired,
   async (req, res) => {
+    console.log("HIT PUT /api/vendors/me/billing");
+    console.log("BODY:", req.body);
     const meVendor =
       req.meVendor ||
       (await prisma.vendor.findUnique({
@@ -83,9 +83,15 @@ router.get(
       where: { vendorId: meVendor.id },
     });
 
-    if (!billing) return res.json({ billing: null });
+    if (!billing) {
+      return res.json({
+        vendorId: meVendor.id,
+        billing: null,
+      });
+    }
 
-    res.json({
+    return res.json({
+      vendorId: meVendor.id,
       billing: {
         ...billing,
         registeredName: billing.anafName || null,
@@ -130,13 +136,6 @@ router.put(
       });
     }
 
-    const ibanNorm = normalizeIban(input.iban);
-    if (!/^RO\d{2}[A-Z]{4}[A-Z0-9]{16}$/i.test(ibanNorm)) {
-      return sendError(res, "invalid_iban", 400, {
-        message: "IBAN invalid.",
-      });
-    }
-
     const now = new Date();
 
     const payload = {
@@ -146,15 +145,13 @@ router.put(
       cui: `RO${cuiDigits}`.replace(/^RORO/, "RO"),
       regCom: input.regCom,
       address: input.address,
-      iban: ibanNorm,
-      bank: input.bank,
       email: input.email.toLowerCase(),
       contactPerson: input.contactPerson,
       phone: input.phone,
 
       vatStatus: input.vatStatus,
 
-      // ✅ BACKEND = source of truth:
+      // BACKEND = source of truth:
       // - payer => 21
       // - non_payer => null
       vatRate: input.vatStatus === "payer" ? PLATFORM_VAT_RATE : null,
@@ -181,9 +178,6 @@ router.put(
             tvaSource: ver ? ver.source : "anaf",
             anafName: ver ? ver.name : null,
             anafAddress: ver ? ver.address : null,
-
-            // ❗ NU salvăm tvaCode dacă nu există coloana în DB
-            // tvaCode: ver?.tvaCode || saved.cui || null,
           },
         });
       } catch (e) {
@@ -191,7 +185,7 @@ router.put(
       }
     })();
 
-    res.json({ ok: true, billing: saved });
+    return res.json({ ok: true, billing: saved });
   }
 );
 
@@ -209,11 +203,13 @@ router.post(
         (await prisma.vendor.findUnique({
           where: { userId: req.user.sub },
         }));
+
       if (!meVendor) return sendError(res, "vendor_profile_missing", 404);
 
       const billing = await prisma.vendorBilling.findUnique({
         where: { vendorId: meVendor.id },
       });
+
       if (!billing) return sendError(res, "billing_not_found", 400);
 
       if (
@@ -253,9 +249,6 @@ router.post(
           tvaSource: result.source,
           anafName: result.name,
           anafAddress: result.address,
-
-          // ❗ NU salvăm tvaCode dacă nu există coloana în DB
-          // tvaCode: result.tvaCode || null,
         },
       });
 

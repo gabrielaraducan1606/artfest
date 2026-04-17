@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import styles from "./ProfilMagazin.module.css";
 import { SEO } from "../../../components/Seo/SeoProvider.jsx";
@@ -13,7 +13,6 @@ import useStoreMediaUpload from "./hooks/useStoreMediaUpload";
 import useStoreTabs from "./hooks/useStoreTabs";
 
 import ProfilMagazinSkeleton from "./components/ProfilMagazinSkeleton";
-import OwnerWarningBanner from "./components/OwnerWarningBanner";
 import StoreHero from "./components/StoreHero";
 import StoreSections from "./components/StoreSections";
 import StoreModals from "./modals/StoreModals";
@@ -67,6 +66,8 @@ export default function ProfilMagazinPage() {
   const [profilePatch, setProfilePatch] = useState({});
   const [editingOverride, setEditingOverride] = useState(null);
 
+  const saveProductLockRef = useRef(false);
+
   const sellerData = useMemo(
     () => ({ ...(_sellerData || {}), ...profilePatch }),
     [_sellerData, profilePatch]
@@ -106,7 +107,6 @@ export default function ProfilMagazinPage() {
     profile,
   } = sellerData || {};
 
-  // IMPORTANT: calcul mai complet pentru ID-uri
   const vendorId =
     sellerData?.vendorId ||
     sellerData?.profile?.vendorId ||
@@ -483,12 +483,16 @@ export default function ProfilMagazinPage() {
   }
 
   function closeProductModal() {
+    saveProductLockRef.current = false;
     setProdModalOpen(false);
     setEditingOverride(null);
   }
 
   async function handleSaveProduct(e) {
     e?.preventDefault?.();
+
+    if (saveProductLockRef.current) return;
+    saveProductLockRef.current = true;
 
     try {
       const payload = buildProductPayload(prodForm);
@@ -548,6 +552,8 @@ export default function ProfilMagazinPage() {
       }
 
       alert(er?.message || "Nu am putut salva produsul.");
+    } finally {
+      saveProductLockRef.current = false;
     }
   }
 
@@ -636,14 +642,6 @@ export default function ProfilMagazinPage() {
       />
 
       <div className={styles.wrapper}>
-        {isOwner && !owner.ownerChecks.loading && (
-          <OwnerWarningBanner
-            missingProfile={owner.missingProfile}
-            missingBilling={owner.ownerChecks.missingBilling}
-            noSub={owner.ownerChecks.hasActiveSub === false}
-          />
-        )}
-
         <StoreHero
           isOwner={isOwner}
           isUser={isUser}
@@ -661,13 +659,7 @@ export default function ProfilMagazinPage() {
           ownerStoresLoading={owner.ownerStoresLoading}
           handleGoToOwnerStore={owner.handleGoToOwnerStore}
           handleCreateNewStoreFromProfile={owner.handleCreateNewStoreFromProfile}
-          serviceIsActive={owner.serviceIsActive}
-          activationBusy={owner.activationBusy}
-          ownerChecksLoading={owner.ownerChecks.loading}
           serviceId={serviceId}
-          handleToggleActive={() =>
-            owner.handleToggleActive(() => tabs.onJump("informatii"))
-          }
           followersCount={follow.followersCount}
           canAddProduct={owner.canAddProduct}
           prodLimits={owner.prodLimits}
@@ -676,7 +668,6 @@ export default function ProfilMagazinPage() {
           following={follow.following}
           followLoading={follow.followLoading}
           toggleFollow={follow.toggleFollow}
-          activationError={owner.activationError}
           trackCTA={trackCTA}
         />
 

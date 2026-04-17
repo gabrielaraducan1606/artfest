@@ -1,0 +1,221 @@
+/* src/pages/Admin/AdminDesktop/tabs/AdminProductsTab.module.css */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(180px, 220px));
+  gap: 12px;
+  align-items: center;
+}
+
+.search,
+.select {
+  width: 100%;
+  border: 1px solid #d8dbe2;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  font-size: 14px;
+  outline: none;
+}
+
+.search:focus,
+.select:focus {
+  border-color: #7a5af8;
+  box-shadow: 0 0 0 3px rgba(122, 90, 248, 0.12);
+}
+
+.metaRow {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.metaText {
+  margin: 0;
+  color: #5f6b7a;
+  font-size: 14px;
+}
+
+.tableWrap {
+  overflow: auto;
+  border: 1px solid #eceef3;
+  border-radius: 16px;
+}
+
+.table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.table thead th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  color: #4e5968;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eceef3;
+  background: #fafbfc;
+}
+
+.table tbody td {
+  vertical-align: top;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f3f7;
+  font-size: 14px;
+  color: #243041;
+}
+
+.productCell {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.thumbWrap {
+  flex: 0 0 64px;
+}
+
+.thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid #eceef3;
+  display: block;
+}
+
+.thumbPlaceholder {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  border: 1px dashed #d0d7e2;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: #7b8794;
+  text-align: center;
+  padding: 4px;
+  background: #fafbfc;
+}
+
+.productInfo {
+  min-width: 0;
+}
+
+.productTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: #17212f;
+  margin-bottom: 4px;
+}
+
+.productId {
+  font-size: 12px;
+  color: #7b8794;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+.productDesc {
+  font-size: 13px;
+  color: #566273;
+  line-height: 1.45;
+}
+
+.vendorBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vendorName {
+  font-weight: 700;
+  color: #17212f;
+}
+
+.vendorMeta,
+.subtleLine,
+.inlineMeta {
+  font-size: 12px;
+  color: #6b7787;
+}
+
+.badgesCol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.badge_neutral {
+  background: #f3f5f8;
+  color: #465467;
+  border-color: #e1e6ef;
+}
+
+.badge_info {
+  background: #eef4ff;
+  color: #2457c5;
+  border-color: #d7e5ff;
+}
+
+.badge_success {
+  background: #edf9f0;
+  color: #1f7a39;
+  border-color: #d1efd9;
+}
+
+.badge_danger {
+  background: #fff0f0;
+  color: #b42318;
+  border-color: #ffd6d6;
+}
+
+.badge_warn {
+  background: #fff7eb;
+  color: #b54708;
+  border-color: #ffe2b8;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 18px;
+  border: 1px dashed #d8dbe2;
+  border-radius: 14px;
+  color: #5f6b7a;
+  background: #fafbfc;
+}
+
+@media (max-width: 1200px) {
+  .toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+}

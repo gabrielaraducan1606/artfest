@@ -318,8 +318,8 @@ model VendorBilling {
   cui                          String
   regCom                       String
   address                      String
-  iban                         String
-  bank                         String
+  iban                         String?
+  bank                         String?
   email                        String
   contactPerson                String
   phone                        String

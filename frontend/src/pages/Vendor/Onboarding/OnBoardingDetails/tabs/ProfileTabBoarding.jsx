@@ -21,6 +21,20 @@ function absUrl(pathname) {
   return base ? `${base}${rel}` : rel;
 }
 
+function readDocVersion(doc, fallback = null) {
+  if (!doc) return fallback;
+  return doc.semver || doc.version || doc.version_label || fallback;
+}
+
+function findLegalDoc(legalByKey, ...keys) {
+  if (!legalByKey?.get) return null;
+  for (const key of keys) {
+    const hit = legalByKey.get(key);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /* ===== helper upload direct în R2 via /api/upload ===== */
 async function uploadToR2(file) {
   const form = new FormData();
@@ -242,6 +256,7 @@ function makeTeaser(txt, max = 120) {
 const VENDOR_DOCS = {
   vendor_terms: {
     key: "VENDOR_TERMS",
+    metaKey: "vendor_terms",
     attrAccepted: "masterAgreementAccepted",
     attrVersion: "masterAgreementVersion",
     attrAcceptedAt: "masterAgreementAcceptedAt",
@@ -251,17 +266,26 @@ const VENDOR_DOCS = {
   },
   returns: {
     key: "RETURNS_POLICY_ACK",
+    metaKey: "returns_policy_ack",
     attrAccepted: "returnsPolicyAccepted",
     attrVersion: "returnsPolicyVersion",
     attrAcceptedAt: "returnsPolicyAcceptedAt",
     label: "Politica de retur pentru vânzători",
-    fallbackUrl: "/politica-retur-vendor",
+    fallbackUrl: "/politica-retur",
     kind: "ack",
   },
 };
 
+const VENDOR_DELIVERY_POLICY = {
+  key: "DELIVERY_POLICY_INFO",
+  metaKey: "delivery_policy_info",
+  label: "Politica de livrare",
+  fallbackUrl: "/anexa-expediere",
+};
+
 const VENDOR_PRIVACY_NOTICE = {
   key: "VENDOR_PRIVACY_NOTICE",
+  metaKey: "vendor_privacy_notice",
   label: "Nota de informare GDPR pentru vendori",
   fallbackUrl: "/confidentialitate",
 };
@@ -312,7 +336,11 @@ function useVendorAgreementsStatus() {
 
   const byKey = useMemo(() => {
     const m = new Map();
-    for (const d of docs || []) m.set(d.doc_key, d);
+    for (const d of docs || []) {
+      if (d?.doc_key) m.set(d.doc_key, d);
+      if (d?.key) m.set(d.key, d);
+      if (d?.type) m.set(d.type, d);
+    }
     return m;
   }, [docs]);
 
@@ -320,10 +348,27 @@ function useVendorAgreementsStatus() {
 }
 
 async function acceptVendorDoc(type) {
-  await api("/api/legal/vendor-accept", {
+  const r = await api("/api/legal/vendor-accept", {
     method: "POST",
     body: { accept: [{ type }] },
   });
+
+  const failed = Array.isArray(r?.results)
+    ? r.results.find((x) => !x.ok)
+    : null;
+
+  if (failed) {
+    throw new Error(
+      failed.message ||
+        "Nu am putut salva acceptarea documentului."
+    );
+  }
+
+  if (r?.ok === false) {
+    throw new Error(r?.message || "Nu am putut salva acceptarea documentului.");
+  }
+
+  return r;
 }
 
 /* ================= ServiceCard ================= */
@@ -443,9 +488,34 @@ function ServiceCard({
     updateProfile(idx, { delivery: uniq });
   }
 
-  const vendorTermsDoc = legalByKey?.get?.(VENDOR_DOCS.vendor_terms.key) || null;
-  const returnsDoc = legalByKey?.get?.(VENDOR_DOCS.returns.key) || null;
-  const privacyDoc = legalByKey?.get?.(VENDOR_PRIVACY_NOTICE.key) || null;
+  const vendorTermsDoc = findLegalDoc(
+    legalByKey,
+    VENDOR_DOCS.vendor_terms.key,
+    VENDOR_DOCS.vendor_terms.metaKey
+  );
+
+  const returnsDoc = findLegalDoc(
+    legalByKey,
+    VENDOR_DOCS.returns.key,
+    VENDOR_DOCS.returns.metaKey,
+    "returns"
+  );
+
+  const deliveryPolicyDoc = findLegalDoc(
+    legalByKey,
+    VENDOR_DELIVERY_POLICY.key,
+    VENDOR_DELIVERY_POLICY.metaKey,
+    "delivery_policy",
+    "delivery"
+  );
+
+  const privacyDoc = findLegalDoc(
+    legalByKey,
+    VENDOR_PRIVACY_NOTICE.key,
+    VENDOR_PRIVACY_NOTICE.metaKey,
+    "privacy",
+    "vendor_privacy"
+  );
 
   const vendorTermsAccepted =
     !!vendorTermsDoc?.accepted || !!attrs.masterAgreementAccepted;
@@ -458,43 +528,68 @@ function ServiceCard({
   const returnsUrl = absUrl(
     returnsDoc?.url || VENDOR_DOCS.returns.fallbackUrl
   );
+  const deliveryPolicyUrl = absUrl(
+    deliveryPolicyDoc?.url || VENDOR_DELIVERY_POLICY.fallbackUrl
+  );
   const privacyUrl = absUrl(
     privacyDoc?.url || VENDOR_PRIVACY_NOTICE.fallbackUrl
   );
 
   const vendorTermsVersion =
-    vendorTermsDoc?.version || attrs.masterAgreementVersion || "?";
+    readDocVersion(vendorTermsDoc, null) ||
+    attrs.masterAgreementVersion ||
+    "1";
+
   const returnsVersion =
-    returnsDoc?.version || attrs.returnsPolicyVersion || "?";
+    readDocVersion(returnsDoc, null) ||
+    attrs.returnsPolicyVersion ||
+    "1";
+
+  const deliveryPolicyVersion =
+    readDocVersion(deliveryPolicyDoc, null) ||
+    attrs.deliveryPolicyVersion ||
+    "1";
+
   const privacyVersion =
-    privacyDoc?.version || attrs.privacyNoticeVersion || "?";
+    readDocVersion(privacyDoc, null) ||
+    attrs.privacyNoticeVersion ||
+    "1";
 
   async function onToggleAccept(type, checked) {
-    if (!checked) return;
+  if (!checked) return;
 
-    try {
-      await acceptVendorDoc(type);
-      await refreshLegal?.();
+  try {
+    // 🔥 1. UPDATE LOCAL IMEDIAT
+    const nowIso = new Date().toISOString();
 
-      const nowIso = new Date().toISOString();
-
-      if (type === "vendor_terms") {
-        setAttrs({
-          masterAgreementAccepted: true,
-          masterAgreementVersion: String(vendorTermsVersion || "?"),
-          masterAgreementAcceptedAt: nowIso,
-        });
-      } else if (type === "returns") {
-        setAttrs({
-          returnsPolicyAccepted: true,
-          returnsPolicyVersion: String(returnsVersion || "?"),
-          returnsPolicyAcceptedAt: nowIso,
-        });
-      }
-    } catch (e) {
-      setErr?.(e?.message || "Nu am putut salva acceptarea documentului.");
+    if (type === "vendor_terms") {
+      setAttrs({
+        masterAgreementAccepted: true,
+        masterAgreementAcceptedAt: nowIso,
+      });
+    } else if (type === "returns") {
+      setAttrs({
+        returnsPolicyAccepted: true,
+        returnsPolicyAcceptedAt: nowIso,
+      });
     }
+
+    // 🔥 2. TRIMITE LA SERVER (background)
+    await acceptVendorDoc(type);
+
+    // 🔥 3. (opțional) refresh mai târziu
+    refreshLegal?.();
+  } catch (e) {
+    // ❗ dacă eșuează, rollback
+    if (type === "vendor_terms") {
+      setAttrs({ masterAgreementAccepted: false });
+    } else if (type === "returns") {
+      setAttrs({ returnsPolicyAccepted: false });
+    }
+
+    setErr?.(e?.message || "Nu am putut salva acceptarea.");
   }
+}
 
   const identBadge =
     !p.displayName?.trim() ||
@@ -954,7 +1049,7 @@ function ServiceCard({
       <div ref={(el) => (sectionRefs.current[2] = el)}>
         <SectionCard
           title="Acorduri"
-          subtitle="contract • retur • confidențialitate"
+          subtitle="contract • retur • livrare • confidențialitate"
           open={open === 2}
           onToggle={() => setOpen((o) => (o === 2 ? -1 : 2))}
           badge={accBadge}
@@ -1012,6 +1107,21 @@ function ServiceCard({
             {returnsAccepted && (
               <small className={styles.help}>Confirmată.</small>
             )}
+          </div>
+
+          <div className={styles.stack} style={{ marginTop: 12 }}>
+            <span>
+              Vezi{" "}
+              <a href={deliveryPolicyUrl} target="_blank" rel="noreferrer">
+                {VENDOR_DELIVERY_POLICY.label}
+              </a>
+              {deliveryPolicyVersion !== "?" ? ` (v${deliveryPolicyVersion})` : ""}
+            </span>
+            <small className={styles.help}>
+              Document public privind regulile de livrare aplicabile în Platformă,
+              inclusiv costurile, condițiile generale și informațiile afișate
+              Clienților.
+            </small>
           </div>
 
           <div className={styles.stack} style={{ marginTop: 12 }}>
@@ -1088,8 +1198,18 @@ export default function ProfileTab({
       const p = s.profile || {};
       const a = s.attributes || {};
 
-      const vendorTermsDoc = legalByKey?.get?.(VENDOR_DOCS.vendor_terms.key) || null;
-      const returnsDoc = legalByKey?.get?.(VENDOR_DOCS.returns.key) || null;
+      const vendorTermsDoc = findLegalDoc(
+        legalByKey,
+        VENDOR_DOCS.vendor_terms.key,
+        VENDOR_DOCS.vendor_terms.metaKey
+      );
+
+      const returnsDoc = findLegalDoc(
+        legalByKey,
+        VENDOR_DOCS.returns.key,
+        VENDOR_DOCS.returns.metaKey,
+        "returns"
+      );
 
       const vendorTermsAccepted =
         !!vendorTermsDoc?.accepted || !!a.masterAgreementAccepted;

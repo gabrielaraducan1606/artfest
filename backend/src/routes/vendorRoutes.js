@@ -51,6 +51,14 @@ const VENDOR_DOC_LABELS = {
   VENDOR_PRIVACY_NOTICE: "Nota de informare GDPR pentru vendori",
 };
 
+const BILLING_ACTIVATION_AT = new Date(
+  process.env.BILLING_ACTIVATION_AT || "2026-05-17T00:00:00.000Z"
+);
+
+function isBillingLocked(now = new Date()) {
+  return now < BILLING_ACTIVATION_AT;
+}
+
 function getRequestIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {
@@ -472,15 +480,34 @@ router.get("/me/onboarding-status", authRequired, async (req, res) => {
     where: { userId: req.user.sub },
   });
 
-  if (!vendor) return res.json({ exists: false, nextStep: "createVendor" });
+  const billingLocked = isBillingLocked();
+
+  if (!vendor) {
+    return res.json({
+      exists: false,
+      nextStep: "createVendor",
+      billing: {
+        locked: billingLocked,
+        activationAt: BILLING_ACTIVATION_AT.toISOString(),
+      },
+    });
+  }
 
   const onboarding = await computeOnboardingStatus(vendor);
-  res.json(onboarding);
+
+  return res.json({
+    ...onboarding,
+    billing: {
+      locked: billingLocked,
+      activationAt: BILLING_ACTIVATION_AT.toISOString(),
+    },
+  });
 });
 
 router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
+    const billingLocked = isBillingLocked();
 
     const meVendor =
       req.meVendor ??
@@ -517,6 +544,13 @@ router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res)
           storeReviewsTotal: 0,
         },
         serviceStats: [],
+        billing: {
+          locked: billingLocked,
+          activationAt: BILLING_ACTIVATION_AT.toISOString(),
+          notice: billingLocked
+            ? "Perioada de probă gratuită este activă. Facturarea și plățile online vor începe după data de activare."
+            : null,
+        },
       });
     }
 
@@ -625,6 +659,13 @@ router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res)
         isActive: !!svc.isActive,
         status: svc.status,
       })),
+      billing: {
+        locked: billingLocked,
+        activationAt: BILLING_ACTIVATION_AT.toISOString(),
+        notice: billingLocked
+          ? "Perioada de probă gratuită este activă. Facturarea și plățile online vor începe după data de activare."
+          : null,
+      },
     });
   } catch (e) {
     console.error("GET /api/vendors/me/dashboard error:", e);
@@ -643,7 +684,13 @@ router.get("/me/subscription", authRequired, vendorAccessRequired, async (req, r
       }));
 
     if (!meVendor) {
-      return res.json({ subscription: null });
+      return res.json({
+        subscription: null,
+        billing: {
+          locked: isBillingLocked(),
+          activationAt: BILLING_ACTIVATION_AT.toISOString(),
+        },
+      });
     }
 
     const now = new Date();
@@ -668,7 +715,13 @@ router.get("/me/subscription", authRequired, vendorAccessRequired, async (req, r
         include: { plan: true },
       }));
 
-    return res.json({ subscription: latest || null });
+    return res.json({
+      subscription: latest || null,
+      billing: {
+        locked: isBillingLocked(),
+        activationAt: BILLING_ACTIVATION_AT.toISOString(),
+      },
+    });
   } catch (e) {
     console.error("GET /api/vendors/me/subscription error:", e);
     return res.status(500).json({
@@ -695,6 +748,8 @@ router.get(
           ok: false,
           code: "vendor_missing",
           upgradeUrl: "/abonament",
+          billingLocked: isBillingLocked(),
+          billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
         });
       }
 
@@ -737,6 +792,8 @@ router.get(
                 name: trialPlan.name,
               }
             : null,
+          billingLocked: isBillingLocked(),
+          billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
         });
       }
 
@@ -752,6 +809,8 @@ router.get(
         status: sub.status,
         endAt: sub.endAt ? sub.endAt.toISOString() : null,
         trialEndsAt: sub.trialEndsAt ? sub.trialEndsAt.toISOString() : null,
+        billingLocked: isBillingLocked(),
+        billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
       });
     } catch (e) {
       console.error("GET /api/vendors/me/subscription/status error:", e);
@@ -763,7 +822,6 @@ router.get(
     }
   }
 );
-
 /* ===================== Onboarding ===================== */
 
 router.post("/me/onboarding/reset", authRequired, vendorAccessRequired, async (req, res) => {
@@ -1481,55 +1539,61 @@ router.post(
       return error(res, "service_not_found", 404);
     }
 
-    const billing = await prisma.vendorBilling.findUnique({
-      where: { vendorId: meVendor.id },
-    });
+    const billingLocked = isBillingLocked();
 
-    const missingBilling = [];
-    const isEmpty = (v) => !v || !String(v).trim();
-
-    if (!billing) {
-      missingBilling.push('datele de facturare (tab "Plată & facturare")');
-    } else {
-      if (isEmpty(billing.legalType)) {
-        missingBilling.push("tip entitate (SRL / PFA / II / IF)");
-      }
-      if (isEmpty(billing.companyName)) {
-        missingBilling.push("denumirea entității (facturare)");
-      }
-      if (isEmpty(billing.cui)) {
-        missingBilling.push("CUI-ul pentru facturare");
-      }
-      if (isEmpty(billing.regCom)) {
-        missingBilling.push("Nr. Registrul Comerțului");
-      }
-      if (isEmpty(billing.address)) {
-        missingBilling.push("adresa de facturare");
-      }
-      if (isEmpty(billing.email)) {
-        missingBilling.push("emailul de facturare");
-      }
-      if (isEmpty(billing.contactPerson)) {
-        missingBilling.push("persoana de contact (facturare)");
-      }
-      if (isEmpty(billing.phone)) {
-        missingBilling.push("telefonul de contact (facturare)");
-      }
-      if (isEmpty(billing.vatStatus)) {
-        missingBilling.push("status TVA (plătitor / neplătitor)");
-      }
-      if (billing.vatStatus === "payer" && isEmpty(billing.vatRate)) {
-        missingBilling.push("cota de TVA aplicată");
-      }
-      if (!billing.vatResponsibilityConfirmed) {
-        missingBilling.push("confirmarea responsabilității pentru informațiile TVA");
-      }
-    }
-
-    if (missingBilling.length) {
-      return error(res, "missing_required_fields_billing", 400, {
-        missing: missingBilling,
+    if (!billingLocked) {
+      const billing = await prisma.vendorBilling.findUnique({
+        where: { vendorId: meVendor.id },
       });
+
+      const missingBilling = [];
+      const isEmpty = (v) => !v || !String(v).trim();
+
+      if (!billing) {
+        missingBilling.push('datele de facturare (tab "Plată & facturare")');
+      } else {
+        if (isEmpty(billing.legalType)) {
+          missingBilling.push("tip entitate (SRL / PFA / II / IF)");
+        }
+        if (isEmpty(billing.companyName)) {
+          missingBilling.push("denumirea entității (facturare)");
+        }
+        if (isEmpty(billing.cui)) {
+          missingBilling.push("CUI-ul pentru facturare");
+        }
+        if (isEmpty(billing.regCom)) {
+          missingBilling.push("Nr. Registrul Comerțului");
+        }
+        if (isEmpty(billing.address)) {
+          missingBilling.push("adresa de facturare");
+        }
+        if (isEmpty(billing.email)) {
+          missingBilling.push("emailul de facturare");
+        }
+        if (isEmpty(billing.contactPerson)) {
+          missingBilling.push("persoana de contact (facturare)");
+        }
+        if (isEmpty(billing.phone)) {
+          missingBilling.push("telefonul de contact (facturare)");
+        }
+        if (isEmpty(billing.vatStatus)) {
+          missingBilling.push("status TVA (plătitor / neplătitor)");
+        }
+        if (billing.vatStatus === "payer" && isEmpty(billing.vatRate)) {
+          missingBilling.push("cota de TVA aplicată");
+        }
+        if (!billing.vatResponsibilityConfirmed) {
+          missingBilling.push("confirmarea responsabilității pentru informațiile TVA");
+        }
+      }
+
+      if (missingBilling.length) {
+        return error(res, "missing_required_fields_billing", 400, {
+          missing: missingBilling,
+          billingLocked: false,
+          billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
+        });
+      }
     }
 
     const p = svc.profile || {};
@@ -1582,7 +1646,11 @@ router.post(
     }
 
     if (missing.length) {
-      return error(res, "missing_required_fields_profile", 400, { missing });
+      return error(res, "missing_required_fields_profile", 400, {
+        missing,
+        billingLocked,
+        billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
+      });
     }
 
     const activated = await prisma.$transaction(async (tx) => {
@@ -1612,6 +1680,8 @@ router.post(
 
     res.json({
       ...activated,
+      billingLocked,
+      billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
       storeName:
         activated.profile?.displayName ||
         activated.title ||
@@ -1785,7 +1855,13 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
 
   if (!v) return error(res, "vendor_profile_missing", 404);
 
-  res.json({ vendor: v });
+  res.json({
+    vendor: v,
+    billing: {
+      locked: isBillingLocked(),
+      activationAt: BILLING_ACTIVATION_AT.toISOString(),
+    },
+  });
 });
 
 router.patch("/me", authRequired, vendorAccessRequired, async (req, res) => {

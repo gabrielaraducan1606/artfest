@@ -1,4 +1,3 @@
-// AdminPoliciesTab.jsx
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import styles from "../AdminDesktop.module.css";
@@ -15,7 +14,7 @@ const PAGE_SIZE = 50;
 function createDefaultUserFilters() {
   return {
     q: "",
-    hasTos: "ALL", // ALL | YES | NO
+    hasTos: "ALL",
     hasPrivacy: "ALL",
     hasMarketing: "ALL",
   };
@@ -24,45 +23,135 @@ function createDefaultUserFilters() {
 function createDefaultVendorFilters() {
   return {
     q: "",
-    hasVendorTerms: "ALL", // ALL | YES | NO
+    hasVendorTerms: "ALL",
     hasShipping: "ALL",
     hasReturns: "ALL",
-
-    // ✅ NOU: Anexa Produse
     hasProductsAddendum: "ALL",
-
     hasProductDecl: "ALL",
   };
 }
 
-// ✅ Tab keys
 const TABS = {
   USERS: "USERS",
   VENDORS: "VENDORS",
   NOTIFY: "NOTIFY",
 };
 
+const DOC_LABELS = {
+  TOS: "Termeni și condiții",
+  PRIVACY: "Politica de confidențialitate",
+  MARKETING: "Preferințe marketing",
+
+  VENDOR_TERMS: "Acord master vânzători",
+  SHIPPING_ADDENDUM: "Anexă livrare (shipping)",
+  RETURNS_POLICY_ACK: "Politică retur",
+  PRODUCTS_ADDENDUM: "Anexa Produse",
+  PRODUCT_DECLARATION: "Declarație produse",
+};
+
+const DOC_URLS = {
+  TOS: "/legal/tos",
+  PRIVACY: "/legal/privacy",
+  MARKETING: "/legal/marketing",
+
+  VENDOR_TERMS: "/vendor/legal/vendor-terms",
+  SHIPPING_ADDENDUM: "/vendor/legal/shipping-addendum",
+  RETURNS_POLICY_ACK: "/vendor/legal/returns-policy",
+  PRODUCTS_ADDENDUM: "/vendor/legal/products-addendum",
+  PRODUCT_DECLARATION: "/vendor/legal/product-declaration",
+};
+
+function normalizeUserConsents(userConsents = []) {
+  const grouped = new Map();
+
+  for (const item of userConsents || []) {
+    const key = item?.userEmail || item?.email || item?.userId;
+    if (!key) continue;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        userId: item?.userId || "",
+        email: item?.userEmail || item?.email || "",
+        createdAt: item?.givenAt || item?.createdAt || null,
+
+        tosAccepted: false,
+        tosVersion: null,
+        tosGivenAt: null,
+
+        privacyAccepted: false,
+        privacyVersion: null,
+        privacyGivenAt: null,
+
+        marketingOptIn: false,
+        marketingVersion: null,
+        marketingGivenAt: null,
+      });
+    }
+
+    const row = grouped.get(key);
+
+    if (!row.userId && item?.userId) row.userId = item.userId;
+    if (!row.email && (item?.userEmail || item?.email)) {
+      row.email = item.userEmail || item.email;
+    }
+
+    const candidateDate = item?.givenAt || item?.createdAt || null;
+    if (
+      candidateDate &&
+      (!row.createdAt || new Date(candidateDate) > new Date(row.createdAt))
+    ) {
+      row.createdAt = candidateDate;
+    }
+
+    switch (item?.document) {
+      case "TOS":
+        row.tosAccepted = true;
+        row.tosVersion = item?.version || null;
+        row.tosGivenAt = item?.givenAt || null;
+        break;
+
+      case "PRIVACY_ACK":
+      case "PRIVACY":
+        row.privacyAccepted = true;
+        row.privacyVersion = item?.version || null;
+        row.privacyGivenAt = item?.givenAt || null;
+        break;
+
+      case "MARKETING_EMAIL_OPTIN":
+      case "MARKETING":
+        row.marketingOptIn = true;
+        row.marketingVersion = item?.version || null;
+        row.marketingGivenAt = item?.givenAt || null;
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  return Array.from(grouped.values());
+}
+
 export default function AdminPoliciesTab({
   userConsents = [],
   vendorAgreements = [],
 }) {
-  // ✅ NEW: active tab
   const [activeTab, setActiveTab] = useState(TABS.USERS);
 
-  // user filters + paginație
   const [userFilters, setUserFilters] = useState(createDefaultUserFilters);
   const [userPage, setUserPage] = useState(1);
 
-  // vendor filters + paginație
   const [vendorFilters, setVendorFilters] = useState(
     createDefaultVendorFilters
   );
   const [vendorPage, setVendorPage] = useState(1);
 
-  // vendor selectat pentru drawer
   const [selectedVendor, setSelectedVendor] = useState(null);
 
-  /* ========== USERS ========== */
+  const normalizedUserRows = useMemo(
+    () => normalizeUserConsents(userConsents),
+    [userConsents]
+  );
 
   const handleUserFilterChange = (updater) => {
     setUserFilters((prev) => {
@@ -78,7 +167,7 @@ export default function AdminPoliciesTab({
   };
 
   const filteredUserRows = useMemo(() => {
-    let list = [...(userConsents || [])];
+    let list = [...normalizedUserRows];
 
     const q = userFilters.q.trim().toLowerCase();
     if (q) {
@@ -109,7 +198,7 @@ export default function AdminPoliciesTab({
 
     list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     return list;
-  }, [userConsents, userFilters]);
+  }, [normalizedUserRows, userFilters]);
 
   const userTotalItems = filteredUserRows.length;
   const userTotalPages = userTotalItems
@@ -119,8 +208,6 @@ export default function AdminPoliciesTab({
   const userStartIndex = (userCurrentPage - 1) * PAGE_SIZE;
   const userEndIndex = userStartIndex + PAGE_SIZE;
   const userPaginatedRows = filteredUserRows.slice(userStartIndex, userEndIndex);
-
-  /* ========== VENDORS ========== */
 
   const handleVendorFilterChange = (updater) => {
     setVendorFilters((prev) => {
@@ -172,7 +259,6 @@ export default function AdminPoliciesTab({
       list = list.filter((r) => !r.returnsAccepted);
     }
 
-    // ✅ NOU: Anexa Produse
     if (vendorFilters.hasProductsAddendum === "YES") {
       list = list.filter((r) => r.productsAddendumAccepted);
     } else if (vendorFilters.hasProductsAddendum === "NO") {
@@ -203,7 +289,6 @@ export default function AdminPoliciesTab({
 
   return (
     <>
-      {/* ✅ NEW: Tabs header */}
       <div
         className={styles.filtersRow}
         style={{ alignItems: "flex-end", marginBottom: 14 }}
@@ -241,7 +326,6 @@ export default function AdminPoliciesTab({
         </div>
       </div>
 
-      {/* ====== User consents ====== */}
       {activeTab === TABS.USERS && (
         <section style={{ marginBottom: 32 }}>
           <h3 className={styles.sectionTitle}>Consimțăminte user</h3>
@@ -327,7 +411,10 @@ export default function AdminPoliciesTab({
             </div>
           </div>
 
-          <UserConsentsTable rows={userPaginatedRows} totalItems={userTotalItems} />
+          <UserConsentsTable
+            rows={userPaginatedRows}
+            totalItems={userTotalItems}
+          />
 
           <Pagination
             page={userCurrentPage}
@@ -338,7 +425,6 @@ export default function AdminPoliciesTab({
         </section>
       )}
 
-      {/* ====== Vendor agreements ====== */}
       {activeTab === TABS.VENDORS && (
         <section>
           <h3 className={styles.sectionTitle}>Acorduri vendori</h3>
@@ -410,7 +496,6 @@ export default function AdminPoliciesTab({
               </select>
             </label>
 
-            {/* ✅ NOU: Anexa Produse */}
             <label>
               <span>Anexa Produse</span>
               <select
@@ -481,7 +566,6 @@ export default function AdminPoliciesTab({
         </section>
       )}
 
-      {/* ✅ NEW: Notify tab */}
       {activeTab === TABS.NOTIFY && (
         <section>
           <h3 className={styles.sectionTitle}>Informare versiuni</h3>
@@ -495,35 +579,9 @@ export default function AdminPoliciesTab({
     </>
   );
 }
-const DOC_LABELS = {
-    // users
-    TOS: "Termeni și condiții",
-    PRIVACY: "Politica de confidențialitate",
-    MARKETING: "Preferințe marketing",
 
-    // vendors
-    VENDOR_TERMS: "Acord master vânzători",
-    SHIPPING_ADDENDUM: "Anexă livrare (shipping)",
-    RETURNS_POLICY_ACK: "Politică retur",
-    PRODUCTS_ADDENDUM: "Anexa Produse",
-    PRODUCT_DECLARATION: "Declarație produse",
-  };
-
-  const DOC_URLS = {
-    // placeholders (poți ajusta după rutele tale reale)
-    TOS: "/legal/tos",
-    PRIVACY: "/legal/privacy",
-    MARKETING: "/legal/marketing",
-
-    VENDOR_TERMS: "/vendor/legal/vendor-terms",
-    SHIPPING_ADDENDUM: "/vendor/legal/shipping-addendum",
-    RETURNS_POLICY_ACK: "/vendor/legal/returns-policy",
-    PRODUCTS_ADDENDUM: "/vendor/legal/products-addendum",
-    PRODUCT_DECLARATION: "/vendor/legal/product-declaration",
-  };
-/* ===================== NEW COMPONENT ===================== */
 function PolicyNotificationsTab() {
-  const [scope, setScope] = useState("VENDORS"); // VENDORS | USERS
+  const [scope, setScope] = useState("VENDORS");
 
   const DOCS_BY_SCOPE = {
     VENDORS: {
@@ -540,10 +598,7 @@ function PolicyNotificationsTab() {
     },
   };
 
-  // bifezi documentele vizate (dinamic după scope)
   const [documents, setDocuments] = useState(DOCS_BY_SCOPE.VENDORS);
-
-  // ✅ NEW: preview modal state
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const handleScopeChange = (nextScope) => {
@@ -559,7 +614,9 @@ function PolicyNotificationsTab() {
     "Am actualizat versiunea unuia sau mai multor documente. Te rugăm să le consulți și să le accepți pentru a continua."
   );
 
-  const [emailSubject, setEmailSubject] = useState("Actualizare documente legale");
+  const [emailSubject, setEmailSubject] = useState(
+    "Actualizare documente legale"
+  );
   const [emailBody, setEmailBody] = useState(
     "Salut! Am actualizat documentele legale. Te rugăm să intri în cont și să le accepți pentru a continua."
   );
@@ -580,10 +637,10 @@ function PolicyNotificationsTab() {
     const docs = selectedDocs.map((k) => ({
       key: k,
       title: DOC_LABELS[k] || k,
-      version: "X.Y.Z", // placeholder; real vine din backend
+      version: "X.Y.Z",
       url: DOC_URLS[k] || null,
       required: true,
-      alreadyAccepted: false, // preview
+      alreadyAccepted: false,
     }));
 
     return {
@@ -603,10 +660,12 @@ function PolicyNotificationsTab() {
       setErrMsg("Completează titlul și mesajul pentru notificare.");
       return;
     }
+
     if (!selectedDocs.length) {
       setErrMsg("Selectează cel puțin un document.");
       return;
     }
+
     if (sendEmail && (!emailSubject.trim() || !emailBody.trim())) {
       setErrMsg("Completează subiectul și corpul emailului.");
       return;
@@ -661,7 +720,10 @@ function PolicyNotificationsTab() {
       <div className={styles.filtersRow}>
         <label>
           <span>Audiență</span>
-          <select value={scope} onChange={(e) => handleScopeChange(e.target.value)}>
+          <select
+            value={scope}
+            onChange={(e) => handleScopeChange(e.target.value)}
+          >
             <option value="VENDORS">Vendori</option>
             <option value="USERS">Useri</option>
           </select>
@@ -687,11 +749,20 @@ function PolicyNotificationsTab() {
       </div>
 
       <div style={{ marginTop: 10 }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>Documente vizate</div>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>
+          Documente vizate
+        </div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           {docKeys.map((k) => (
-            <label key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="checkbox" checked={!!documents[k]} onChange={() => toggleDoc(k)} />
+            <label
+              key={k}
+              style={{ display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <input
+                type="checkbox"
+                checked={!!documents[k]}
+                onChange={() => toggleDoc(k)}
+              />
               <span style={{ margin: 0 }}>{k}</span>
             </label>
           ))}
@@ -714,7 +785,10 @@ function PolicyNotificationsTab() {
         <div className={styles.filtersRow} style={{ marginTop: 14 }}>
           <label style={{ flex: 1, minWidth: 260 }}>
             <span>Subiect email</span>
-            <input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+            <input
+              value={emailSubject}
+              onChange={(e) => setEmailSubject(e.target.value)}
+            />
           </label>
 
           <label style={{ flex: 1, minWidth: 260 }}>
@@ -736,8 +810,15 @@ function PolicyNotificationsTab() {
       )}
       {okMsg && <div style={{ marginTop: 10, opacity: 0.9 }}>{okMsg}</div>}
 
-      <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" className={styles.primaryBtn} onClick={handleSubmit} disabled={loading}>
+      <div
+        style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}
+      >
+        <button
+          type="button"
+          className={styles.primaryBtn}
+          onClick={handleSubmit}
+          disabled={loading}
+        >
           {loading ? "Se trimite…" : "Trimite informarea"}
         </button>
 
@@ -764,24 +845,22 @@ function PolicyNotificationsTab() {
   );
 }
 
-/* ===================== PREVIEW MODAL ===================== */
 function PolicyGatePreviewModal({ open, onClose, preview }) {
   if (!open) return null;
   if (typeof document === "undefined") return null;
 
-  const {
-    scope,
-    requiresAction,
-    title,
-    message,
-    documents = [],
-  } = preview || {};
+  const { scope, requiresAction, title, message, documents = [] } =
+    preview || {};
 
   const blocked =
     !!requiresAction && documents.some((d) => d.required && !d.alreadyAccepted);
 
   const node = (
-    <div className={styles.drawerOverlay} onClick={onClose} style={{ zIndex: 9999 }}>
+    <div
+      className={styles.drawerOverlay}
+      onClick={onClose}
+      style={{ zIndex: 9999 }}
+    >
       <aside
         className={styles.drawer}
         onClick={(e) => e.stopPropagation()}
@@ -792,17 +871,25 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
           <div>
             <h3 className={styles.drawerTitle}>Preview gate (modal)</h3>
             <p className={styles.drawerSub}>
-              Scope: <code>{scope}</code> · {blocked ? "Blochează acțiunile" : "Nu blochează"}
+              Scope: <code>{scope}</code> ·{" "}
+              {blocked ? "Blochează acțiunile" : "Nu blochează"}
             </p>
           </div>
-          <button type="button" className={styles.drawerClose} onClick={onClose} aria-label="Închide">
+          <button
+            type="button"
+            className={styles.drawerClose}
+            onClick={onClose}
+            aria-label="Închide"
+          >
             ×
           </button>
         </header>
 
         <div className={styles.drawerBody}>
           <div className={styles.card} style={{ padding: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <div
+              style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
+            >
               <div>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>
                   {title || "—"}
@@ -819,7 +906,8 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
                     padding: "6px 10px",
                     borderRadius: 999,
                     border: "1px solid var(--color-border)",
-                    background: "color-mix(in srgb, var(--color-warning) 18%, transparent)",
+                    background:
+                      "color-mix(in srgb, var(--color-warning) 18%, transparent)",
                     whiteSpace: "nowrap",
                     height: "fit-content",
                   }}
@@ -829,9 +917,18 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
               )}
             </div>
 
-            <div style={{ marginTop: 12, fontWeight: 700 }}>Documente vizate</div>
+            <div style={{ marginTop: 12, fontWeight: 700 }}>
+              Documente vizate
+            </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                marginTop: 10,
+              }}
+            >
               {documents.length ? (
                 documents.map((d) => (
                   <div
@@ -846,9 +943,19 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
                     }}
                   >
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{ fontWeight: 800 }}>{d.title || d.key}</span>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span style={{ fontWeight: 800 }}>
+                          {d.title || d.key}
+                        </span>
                         <span className={styles.subtle}>v{d.version || "?"}</span>
+
                         {d.required ? (
                           <span
                             style={{
@@ -861,14 +968,17 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
                             Obligatoriu
                           </span>
                         ) : null}
+
                         {d.alreadyAccepted ? (
                           <span
                             style={{
                               fontSize: 11,
                               padding: "2px 8px",
                               borderRadius: 999,
-                              border: "1px solid color-mix(in srgb, var(--color-success) 30%, transparent)",
-                              background: "color-mix(in srgb, var(--color-success) 12%, transparent)",
+                              border:
+                                "1px solid color-mix(in srgb, var(--color-success) 30%, transparent)",
+                              background:
+                                "color-mix(in srgb, var(--color-success) 12%, transparent)",
                             }}
                           >
                             Acceptat
@@ -893,8 +1003,10 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
                           fontSize: 12,
                           padding: "4px 10px",
                           borderRadius: 999,
-                          border: "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
-                          background: "color-mix(in srgb, var(--color-danger) 10%, transparent)",
+                          border:
+                            "1px solid color-mix(in srgb, var(--color-danger) 30%, transparent)",
+                          background:
+                            "color-mix(in srgb, var(--color-danger) 10%, transparent)",
                           whiteSpace: "nowrap",
                         }}
                       >
@@ -910,8 +1022,14 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
               )}
             </div>
 
-            <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
-              <button type="button" className={styles.primaryBtn} disabled={!blocked}>
+            <div
+              style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}
+            >
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                disabled={!blocked}
+              >
                 Acceptă și continuă
               </button>
               <button type="button" className={styles.resetBtn}>
@@ -921,14 +1039,19 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
 
             {blocked ? (
               <p className={styles.subtle} style={{ marginTop: 10 }}>
-                * În preview, butoanele sunt “mock”. În gate-ul real, acceptarea va face POST și va debloca.
+                * În preview, butoanele sunt mock. În gate-ul real, acceptarea va
+                face POST și va debloca.
               </p>
             ) : null}
           </div>
         </div>
 
         <footer className={styles.drawerFooter}>
-          <button type="button" className={styles.drawerBtnSecondary} onClick={onClose}>
+          <button
+            type="button"
+            className={styles.drawerBtnSecondary}
+            onClick={onClose}
+          >
             Închide preview
           </button>
         </footer>
@@ -938,8 +1061,6 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
 
   return createPortal(node, document.body);
 }
-
-/* ========== User table ========== */
 
 function UserConsentsTable({ rows, totalItems }) {
   if (!rows?.length) {
@@ -957,8 +1078,7 @@ function UserConsentsTable({ rows, totalItems }) {
       <table className={styles.table}>
         <thead>
           <tr>
-            <th>User ID</th>
-            <th>Email</th>
+            <th>Utilizator</th>
             <th>Creat la</th>
             <th>TOS</th>
             <th>Privacy</th>
@@ -967,25 +1087,38 @@ function UserConsentsTable({ rows, totalItems }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.userId}>
+            <tr key={r.email || r.userId}>
               <td>
-                <code>{r.userId}</code>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{r.email || "—"}</div>
+                  <div
+                    style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}
+                    title={r.userId || ""}
+                  >
+                    {r.userId ? `ID: ${r.userId}` : "Fără ID"}
+                  </div>
+                </div>
               </td>
-              <td>{r.email}</td>
+
               <td>{formatDate(r.createdAt)}</td>
+
               <td>
                 {r.tosAccepted
                   ? `Da (v${r.tosVersion || "?"}, ${formatDate(r.tosGivenAt)})`
                   : "Nu"}
               </td>
+
               <td>
                 {r.privacyAccepted
                   ? `Da (v${r.privacyVersion || "?"}, ${formatDate(r.privacyGivenAt)})`
                   : "Nu"}
               </td>
+
               <td>
                 {r.marketingOptIn
-                  ? `Da (v${r.marketingVersion || "?"}, ${formatDate(r.marketingGivenAt)})`
+                  ? `Da (v${r.marketingVersion || "?"}, ${formatDate(
+                      r.marketingGivenAt
+                    )})`
                   : "Nu"}
               </td>
             </tr>
@@ -995,8 +1128,6 @@ function UserConsentsTable({ rows, totalItems }) {
     </div>
   );
 }
-
-/* ========== Vendor table ========== */
 
 function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
   if (!rows?.length) {
@@ -1040,31 +1171,41 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
 
               <td>
                 {r.vendorTermsAccepted
-                  ? `Da (v${r.vendorTermsVersion || "?"}, ${formatDate(r.vendorTermsAcceptedAt)})`
+                  ? `Da (v${r.vendorTermsVersion || "?"}, ${formatDate(
+                      r.vendorTermsAcceptedAt
+                    )})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.shippingAccepted
-                  ? `Da (v${r.shippingVersion || "?"}, ${formatDate(r.shippingAcceptedAt)})`
+                  ? `Da (v${r.shippingVersion || "?"}, ${formatDate(
+                      r.shippingAcceptedAt
+                    )})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.returnsAccepted
-                  ? `Da (v${r.returnsVersion || "?"}, ${formatDate(r.returnsAcceptedAt)})`
+                  ? `Da (v${r.returnsVersion || "?"}, ${formatDate(
+                      r.returnsAcceptedAt
+                    )})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.productsAddendumAccepted
-                  ? `Da (v${r.productsAddendumVersion || "?"}, ${formatDate(r.productsAddendumAcceptedAt)})`
+                  ? `Da (v${r.productsAddendumVersion || "?"}, ${formatDate(
+                      r.productsAddendumAcceptedAt
+                    )})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.productDeclarationAccepted
-                  ? `Da (v${r.productDeclarationVersion || "?"}, ${formatDate(r.productDeclarationAcceptedAt)})`
+                  ? `Da (v${r.productDeclarationVersion || "?"}, ${formatDate(
+                      r.productDeclarationAcceptedAt
+                    )})`
                   : "Nu"}
               </td>
 
@@ -1084,8 +1225,6 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
     </div>
   );
 }
-
-/* ========== Pagination ========== */
 
 function Pagination({ page, totalPages, totalItems, onPageChange }) {
   if (!totalItems || totalPages <= 1) return null;
@@ -1146,8 +1285,6 @@ function Pagination({ page, totalPages, totalItems, onPageChange }) {
     </div>
   );
 }
-
-/* ========== VendorDetailsDrawer ========== */
 
 function VendorDetailsDrawer({ vendor, onClose }) {
   if (!vendor) return null;
@@ -1289,7 +1426,9 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Acord Master vânzători</span>
               <span>
                 {vendorTermsAccepted
-                  ? `Da (v${vendorTermsVersion || "?"}, ${formatDate(vendorTermsAcceptedAt)})`
+                  ? `Da (v${vendorTermsVersion || "?"}, ${formatDate(
+                      vendorTermsAcceptedAt
+                    )})`
                   : "Nu"}
               </span>
             </div>
@@ -1298,7 +1437,9 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Shipping addendum</span>
               <span>
                 {shippingAccepted
-                  ? `Da (v${shippingVersion || "?"}, ${formatDate(shippingAcceptedAt)})`
+                  ? `Da (v${shippingVersion || "?"}, ${formatDate(
+                      shippingAcceptedAt
+                    )})`
                   : "Nu"}
               </span>
             </div>
@@ -1307,7 +1448,9 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Politică retur</span>
               <span>
                 {returnsAccepted
-                  ? `Da (v${returnsVersion || "?"}, ${formatDate(returnsAcceptedAt)})`
+                  ? `Da (v${returnsVersion || "?"}, ${formatDate(
+                      returnsAcceptedAt
+                    )})`
                   : "Nu"}
               </span>
             </div>
@@ -1316,7 +1459,9 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Anexa Produse</span>
               <span>
                 {productsAddendumAccepted
-                  ? `Da (v${productsAddendumVersion || "?"}, ${formatDate(productsAddendumAcceptedAt)})`
+                  ? `Da (v${productsAddendumVersion || "?"}, ${formatDate(
+                      productsAddendumAcceptedAt
+                    )})`
                   : "Nu"}
               </span>
             </div>
@@ -1325,7 +1470,9 @@ function VendorDetailsDrawer({ vendor, onClose }) {
               <span>Declarație produse</span>
               <span>
                 {productDeclarationAccepted
-                  ? `Da (v${productDeclarationVersion || "?"}, ${formatDate(productDeclarationAcceptedAt)})`
+                  ? `Da (v${productDeclarationVersion || "?"}, ${formatDate(
+                      productDeclarationAcceptedAt
+                    )})`
                   : "Nu"}
               </span>
             </div>

@@ -169,23 +169,43 @@ export async function postVendorAccept(req, res) {
         }
 
         try {
-          const acceptance = await tx.vendorAcceptance.create({
-            data: {
-              vendorId: vendor.id,
-              document: docEnum,
-              version: String(doc.version),
-              checksum: doc.checksum || null,
-              acceptedAt: now,
-            },
-          });
+         const acceptance = await tx.vendorAcceptance.upsert({
+  where: {
+    vendorId_document_version: {
+      vendorId: vendor.id,
+      document: docEnum,
+      version: String(doc.version),
+    },
+  },
+  create: {
+    vendor: {
+      connect: { id: vendor.id },
+    },
+    user: {
+      connect: { id: userId },
+    },
+    document: docEnum,
+    version: String(doc.version),
+    checksum: doc.checksum || null,
+    acceptedAt: now,
+    ip: req.ip || null,
+    ua: req.headers["user-agent"] || null,
+  },
+  update: {
+    acceptedAt: now,
+    checksum: doc.checksum || null,
+    ip: req.ip || null,
+    ua: req.headers["user-agent"] || null,
+  },
+});
 
-          results.push({
-            type: rawType,
-            ok: true,
-            document: docEnum,
-            version: String(doc.version),
-            acceptanceId: acceptance.id,
-          });
+results.push({
+  type: rawType,
+  ok: true,
+  document: docEnum,
+  version: String(doc.version),
+  acceptanceId: acceptance.id,
+});
         } catch (e) {
           // unique constraint -> deja acceptat
           if (e?.code === "P2002") {

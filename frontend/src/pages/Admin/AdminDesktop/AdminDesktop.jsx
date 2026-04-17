@@ -112,9 +112,9 @@ export default function AdminDesktop() {
   }, []);
 
   const loadProducts = useCallback(async () => {
-    const d = await api("/api/admin/products?limit=50");
-    setProducts(d.products || []);
-  }, []);
+  const d = await api("/api/admin/products?take=50");
+  setProducts(d.items || []);
+}, []);
 
   const loadPolicies = useCallback(async () => {
     const [uc, va] = await Promise.all([

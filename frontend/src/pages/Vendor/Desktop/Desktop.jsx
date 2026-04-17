@@ -1,4 +1,3 @@
-// DesktopV3.jsx
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../lib/api";
@@ -60,57 +59,6 @@ function lastNDaysRange(n) {
   return { from: toISODate(from), to: toISODate(to) };
 }
 
-/* ---------- helpers mute în afara componentei (fără deps) ---------- */
-function extractMissing(e) {
-  try {
-    return (
-      e?.missing ||
-      e?.data?.missing ||
-      e?.response?.data?.missing ||
-      e?.body?.missing ||
-      null
-    );
-  } catch {
-    return null;
-  }
-}
-function extractCode(e) {
-  try {
-    return (
-      e?.error ||
-      e?.code ||
-      e?.data?.error ||
-      e?.response?.data?.error ||
-      null
-    );
-  } catch {
-    return null;
-  }
-}
-function humanizeActivateError(e) {
-  const code = extractCode(e);
-  const missing = extractMissing(e);
-
-  if (code === "missing_required_fields_billing") {
-    if (Array.isArray(missing) && missing.length) {
-      return `Completează datele de facturare: ${missing.join(
-        ", "
-      )} (tab „Plată & facturare”).`;
-    }
-    return "Completează datele de facturare în tab-ul „Plată & facturare”, apoi încearcă din nou.";
-  }
-
-  if (Array.isArray(missing) && missing.length) {
-    return `Completează câmpurile obligatorii: ${missing.join(", ")}`;
-  }
-  if (code === "missing_required_fields_core") {
-    return "Completează câmpurile esențiale ale serviciului și profilului, apoi încearcă din nou.";
-  }
-  if (code === "missing_required_fields_profile") {
-    return "Completează profilul magazinului (brand, adresă, zonă acoperire, imagine și acord Master), apoi încearcă din nou.";
-  }
-  return e?.message || "Nu am putut activa serviciul.";
-}
 function humanizeAddStoreError(e) {
   const data = e?.data || e?.response?.data || {};
 
@@ -140,7 +88,7 @@ function humanizeAddStoreError(e) {
 function useSubscriptionStatus({ auto = true } = {}) {
   const [state, setState] = useState({
     ok: null,
-    kind: null, // "trial" | "paid" | null
+    kind: null,
     plan: null,
     endAt: null,
     trialEndsAt: null,
@@ -254,7 +202,6 @@ function daysLeftFromISO(iso) {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-/* ✅ robust: trial chiar dacă backend-ul nu trimite kind */
 function isTrialSub(sub) {
   if (!sub?.ok) return false;
   if (sub.kind === "trial") return true;
@@ -288,7 +235,6 @@ export default function DesktopV3() {
   const [favCount, setFavCount] = useState(() => cached?.counts?.favCount ?? 0);
   const [supportUnread, setSupportUnread] = useState(() => cached?.counts?.supportUnread ?? 0);
 
-  /* ===================== 1) Cache write DEBOUNCED ===================== */
   const cacheTimerRef = useRef(null);
   useEffect(() => {
     if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
@@ -323,7 +269,6 @@ export default function DesktopV3() {
     if (me?.vendor) setVendor(me.vendor);
   }, [me]);
 
-  /* ===================== 2) Fetch programat ===================== */
   const loadAllVendor = useCallback(() => {
     setError("");
     setLoading(true);
@@ -332,9 +277,7 @@ export default function DesktopV3() {
       try {
         const lite = await api("/api/vendors/me/services").catch(() => ({ items: [] }));
         setServices(lite?.items || []);
-      } catch {
-        // ignore
-      }
+      } catch {""}
     };
 
     const fetchFull = async () => {
@@ -345,9 +288,7 @@ export default function DesktopV3() {
         ]);
         setServices(svc?.items || []);
         setOnboarding(ob || null);
-      } catch {
-        // ignore
-      } finally {
+      } catch {""} finally {
         setLoading(false);
       }
     };
@@ -378,7 +319,6 @@ export default function DesktopV3() {
     setTimeout(fetchNonCritical, 1200);
   }, []);
 
-  /* ===================== 3) Counts polling ===================== */
   useEffect(() => {
     if (!me) return;
 
@@ -406,9 +346,7 @@ export default function DesktopV3() {
         setCartCount(cart?.count || 0);
         setFavCount(fav?.count || 0);
         setSupportUnread(sup?.count || 0);
-      } catch {
-        // ignore
-      }
+      } catch {""}
     };
 
     const startInterval = () => {
@@ -440,7 +378,6 @@ export default function DesktopV3() {
     };
   }, [me]);
 
-  /* ===================== init load ===================== */
   useEffect(() => {
     if (authLoading) return;
 
@@ -472,42 +409,6 @@ export default function DesktopV3() {
     };
     return map[onboarding?.nextStep] || { label: "Continuă", href: "/onboarding" };
   }, [onboarding]);
-
-  /* ---------------------------- Actions ---------------------------- */
-  const guardSubscriptionOrRedirect = useCallback(async () => {
-    if (sub.loading) await sub.refetch();
-
-    if (!sub.ok) {
-      sub.startShortPolling?.();
-      navigate("/onboarding/details?tab=plata&solo=1");
-      return false;
-    }
-    return true;
-  }, [sub, navigate]);
-
-  const onActivate = useCallback(
-    async (serviceId) => {
-      try {
-        const ok = await guardSubscriptionOrRedirect();
-        if (!ok) return;
-
-        setBusy((prev) => ({ ...prev, [serviceId]: "activate" }));
-        await api(`/api/vendors/me/services/${serviceId}/activate`, { method: "POST" });
-
-        const d = await api("/api/vendors/me/services?includeProfile=1");
-        setServices(d.items || []);
-      } catch (e) {
-        alert(humanizeActivateError(e));
-      } finally {
-        setBusy((prev) => {
-          const n = { ...prev };
-          delete n[serviceId];
-          return n;
-        });
-      }
-    },
-    [guardSubscriptionOrRedirect]
-  );
 
   const onDeactivate = useCallback(async (serviceId) => {
     try {
@@ -557,40 +458,40 @@ export default function DesktopV3() {
     }
   }, []);
 
-const onAddStore = useCallback(async () => {
-  try {
-    setError("");
-    setLoading(true);
+  const onAddStore = useCallback(async () => {
+    try {
+      setError("");
+      setLoading(true);
 
-    const r = await api("/api/vendors/me/services/products/new", {
-      method: "POST",
-    });
+      const r = await api("/api/vendors/me/services/products/new", {
+        method: "POST",
+      });
 
-    const newId = r?.item?.id || null;
+      const newId = r?.item?.id || null;
 
-    const d = await api("/api/vendors/me/services?includeProfile=1");
-    setServices(d.items || []);
+      const d = await api("/api/vendors/me/services?includeProfile=1");
+      setServices(d.items || []);
 
-    if (newId) {
-      navigate(`/onboarding/details?serviceId=${encodeURIComponent(newId)}`);
-    } else {
-      navigate("/onboarding/details");
+      if (newId) {
+        navigate(`/onboarding/details?serviceId=${encodeURIComponent(newId)}`);
+      } else {
+        navigate("/onboarding/details");
+      }
+    } catch (e) {
+      const data = e?.data || e?.response?.data || {};
+      const code = data?.error || e?.error || e?.code || "";
+      const ctaUrl = data?.cta?.url || "";
+
+      const msg = humanizeAddStoreError(e);
+      alert(msg);
+
+      if (code === "store_limit_reached" && ctaUrl) {
+        navigate(ctaUrl);
+      }
+    } finally {
+      setLoading(false);
     }
-  } catch (e) {
-    const data = e?.data || e?.response?.data || {};
-    const code = data?.error || e?.error || e?.code || "";
-    const ctaUrl = data?.cta?.url || "";
-
-    const msg = humanizeAddStoreError(e);
-    alert(msg);
-
-    if (code === "store_limit_reached" && ctaUrl) {
-      navigate(ctaUrl);
-    }
-  } finally {
-    setLoading(false);
-  }
-}, [navigate]);
+  }, [navigate]);
 
   const onPreview = useCallback(
     (service) => {
@@ -604,7 +505,6 @@ const onAddStore = useCallback(async () => {
     [navigate]
   );
 
-  /* ---------------------------- Render gating ---------------------------- */
   const isVendor = me?.role === "VENDOR";
   const isAdmin = me?.role === "ADMIN";
   const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
@@ -663,7 +563,6 @@ const onAddStore = useCallback(async () => {
           <ServicesCard
             services={services}
             busy={busy}
-            onActivate={onActivate}
             onDeactivate={onDeactivate}
             onDelete={onDelete}
             onPreview={onPreview}
@@ -903,7 +802,6 @@ function OnboardingCard({ nextStep }) {
 function ServicesCard({
   services,
   busy,
-  onActivate,
   onDeactivate,
   onDelete,
   onPreview,
@@ -946,20 +844,8 @@ function ServicesCard({
         <ul className={styles.serviceList}>
           {services.map((s) => {
             const hasFull = !!(s.status || s.profile?.displayName || typeof s.isActive === "boolean");
-
             const isAct = !!(s.isActive && s.status === "ACTIVE");
             const isBusy = !!busy[s.id];
-            const actLabel = isAct ? "Dezactivează" : "Activează";
-            const actTitle = isAct ? "Dezactivează" : "Activează";
-
-            const brandVal = (s.profile?.displayName && s.profile.displayName.trim()) || "";
-            const titleVal = (s.title && s.title.trim()) || "";
-
-            const missingFields = [];
-            if (!titleVal) missingFields.push("titlul");
-            if (!brandVal) missingFields.push("numele de brand");
-
-            const missingCore = missingFields.length > 0;
 
             return (
               <li key={s.id} className={styles.serviceItem}>
@@ -1001,12 +887,6 @@ function ServicesCard({
                       </div>
                     )}
                   </div>
-
-                  {hasFull && missingCore && !isAct && (
-                    <div className={styles.serviceWarning}>
-                      Pentru a putea activa serviciul, completează {missingFields.join(", ")}.
-                    </div>
-                  )}
                 </div>
 
                 <div className={styles.actionsRow}>
@@ -1029,25 +909,15 @@ function ServicesCard({
                         Previzualizează
                       </button>
 
-                      {isAct ? (
+                      {isAct && (
                         <button
                           className={`${styles.btn} ${styles.btnWarn}`}
                           onClick={() => onDeactivate(s.id)}
                           disabled={isBusy}
                           type="button"
-                          title={actTitle}
+                          title="Dezactivează"
                         >
-                          {busy[s.id] === "deactivate" ? "Se dezactivează…" : actLabel}
-                        </button>
-                      ) : (
-                        <button
-                          className={`${styles.btn} ${styles.btnPrimary}`}
-                          onClick={() => onActivate(s.id)}
-                          disabled={isBusy}
-                          type="button"
-                          title={actTitle}
-                        >
-                          {busy[s.id] === "activate" ? "Se activează…" : actLabel}
+                          {busy[s.id] === "deactivate" ? "Se dezactivează…" : "Dezactivează"}
                         </button>
                       )}
 
@@ -1257,9 +1127,7 @@ function LogoutCard({ onLogout }) {
     e.preventDefault();
     try {
       await api("/api/auth/logout", { method: "POST" });
-    } catch {
-      // ignore
-    }
+    } catch {""}
     onLogout?.();
   }
 
@@ -1277,7 +1145,6 @@ function LogoutCard({ onLogout }) {
   );
 }
 
-/* ===== micro-componente ===== */
 function KPI({ label, value }) {
   return (
     <div className={styles.kpi}>
@@ -1299,7 +1166,6 @@ function EmptyState({ title, subtitle, ctaText, to }) {
   );
 }
 
-/* ===== Skeletons (fără text) ===== */
 function HeaderSkeleton() {
   return (
     <div className={styles.card}>

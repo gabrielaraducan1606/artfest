@@ -680,7 +680,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
             {emailExists === true && (
               <small className={styles.error} role="alert">
                 Acest email este deja folosit.{" "}
-                <a href="/login" className={styles.inlineLink}>
+                <a href="/autentificare" className={styles.inlineLink}>
                   Autentifică-te
                 </a>{" "}
                 sau{" "}

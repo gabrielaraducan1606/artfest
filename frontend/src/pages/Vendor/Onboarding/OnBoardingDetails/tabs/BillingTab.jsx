@@ -244,7 +244,11 @@ function ConfirmDialog({
 }
 
 function BillingForm({ onSaved, onStatusChange }) {
-  const draftKey = useMemo(() => `${DRAFT_PREFIX}global`, []);
+ const [vendorId, setVendorId] = useState("");
+const draftKey = useMemo(
+  () => (vendorId ? `${DRAFT_PREFIX}${vendorId}` : ""),
+  [vendorId]
+);
 
   const [billing, setBilling] = useState({
     legalType: "",
@@ -284,53 +288,37 @@ function BillingForm({ onSaved, onStatusChange }) {
   }, [status, onStatusChange]);
 
   useEffect(() => {
-    let alive = true;
+  let alive = true;
 
-    (async () => {
-      try {
-        const d = await api("/api/vendors/me/billing", { method: "GET" });
-        if (!alive) return;
+  (async () => {
+    try {
+      const d = await api("/api/vendors/me/billing", { method: "GET" });
+      if (!alive) return;
 
-        const fromApi = pickBillingFromApi(d?.billing);
-
-        if (fromApi) {
-          setBilling(fromApi);
-          setInitialBilling(fromApi);
-          setAnnounce("Am încărcat datele de facturare salvate în contul tău.");
-        } else {
-          setInitialBilling(null);
-        }
-
-        try {
-          if (typeof window !== "undefined") {
-            const raw = window.localStorage.getItem(draftKey);
-            setHasDraft(!!raw);
-
-            if (raw) {
-              const draft = JSON.parse(raw);
-              if (!isFormEmpty(draft)) {
-                setBilling((prev) => ({ ...prev, ...draft }));
-                setLoadedDraft(true);
-                setAnnounce(
-                  "S-a încărcat un draft salvat local în acest browser pentru acest formular."
-                );
-              }
-            }
-          }
-        } catch {
-          // ignore
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (alive) setHydrated(true);
+      if (d?.vendorId) {
+        setVendorId(d.vendorId);
       }
-    })();
 
-    return () => {
-      alive = false;
-    };
-  }, [draftKey]);
+      const fromApi = pickBillingFromApi(d?.billing);
+
+      if (fromApi) {
+        setBilling(fromApi);
+        setInitialBilling(fromApi);
+        setAnnounce("Am încărcat datele de facturare salvate în contul tău.");
+      } else {
+        setInitialBilling(null);
+      }
+    } catch {
+      // ignore
+    } finally {
+      if (alive) setHydrated(true);
+    }
+  })();
+
+  return () => {
+    alive = false;
+  };
+}, []);
 
   useEffect(() => {
     if (billing.vatStatus === "payer") {
@@ -343,21 +331,45 @@ function BillingForm({ onSaved, onStatusChange }) {
   }, [billing.vatStatus, billing.vatRate]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!hydrated) return;
-    if (!hasInteracted) return;
+  if (typeof window === "undefined") return;
+  if (!hydrated) return;
+  if (!hasInteracted) return;
+  if (!vendorId || !draftKey) return;
 
-    const t = setTimeout(() => {
-      try {
-        window.localStorage.setItem(draftKey, JSON.stringify(billing));
-        setHasDraft(true);
-      } catch {
-        // ignore
+  const t = setTimeout(() => {
+    try {
+      window.localStorage.setItem(draftKey, JSON.stringify(billing));
+      setHasDraft(true);
+    } catch {
+      // ignore
+    }
+  }, 300);
+
+  return () => clearTimeout(t);
+}, [billing, draftKey, hydrated, hasInteracted, vendorId]);
+
+  useEffect(() => {
+  if (typeof window === "undefined") return;
+  if (!vendorId || !draftKey) return;
+
+  try {
+    const raw = window.localStorage.getItem(draftKey);
+    setHasDraft(!!raw);
+
+    if (raw) {
+      const draft = JSON.parse(raw);
+      if (!isFormEmpty(draft)) {
+        setBilling((prev) => ({ ...prev, ...draft }));
+        setLoadedDraft(true);
+        setAnnounce(
+          "S-a încărcat un draft salvat local în acest browser pentru acest cont."
+        );
       }
-    }, 300);
-
-    return () => clearTimeout(t);
-  }, [billing, draftKey, hydrated, hasInteracted]);
+    }
+  } catch {
+    // ignore
+  }
+}, [vendorId, draftKey]);
 
   function onFieldChange(name) {
     return (e) => {
