@@ -8,10 +8,11 @@ import {
   useSearchParams,
   useParams,
 } from "react-router-dom";
+import { useEffect, useState } from "react";
 
 import ScrollToTop from "./components/ScrollToTop.jsx";
 import AppLayout from "./components/Navbar/AppLayout.jsx";
-import Navbar from "./components/Navbar/Navbar.jsx"; // folosit în AdminLayout (opțional)
+import Navbar from "./components/Navbar/Navbar.jsx";
 
 import Home from "./pages/Home";
 
@@ -22,8 +23,6 @@ import CookiesPolicy from "./pages/CookieBanner/CookiePolicy";
 import ReturnPolicy from "./pages/CookieBanner/ReturnPolicy";
 import CookiePreferences from "./pages/CookieBanner/CookiePreferences";
 import CookieBanner from "./pages/CookieBanner/CookieBanner";
-import PrivacyPolicy from "./pages/CookieBanner/Confidentialitate.jsx";
-import TermsAndConditions from "./pages/CookieBanner/TOS.jsx";
 
 import Login from "./pages/Auth/Login/Login";
 import Register from "./pages/Auth/Register/Register";
@@ -101,6 +100,58 @@ function AtSlugRedirect() {
   return <Navigate to={`/magazin/${slug}`} replace />;
 }
 
+function getLegalBase() {
+  return (import.meta.env.VITE_API_URL || window.location.origin)
+    .replace(/\/+$/, "")
+    .replace(/\/api$/i, "");
+}
+
+function LegalHtmlRoute({ path, title }) {
+  const [html, setHtml] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+
+    async function load() {
+      try {
+        setLoading(true);
+        setErr("");
+
+        const res = await fetch(`${getLegalBase()}${path}`, {
+          signal: ctrl.signal,
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const text = await res.text();
+        setHtml(text);
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        setErr(`Nu am putut încărca ${title}.`);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => ctrl.abort();
+  }, [path, title]);
+
+  if (loading) return <div style={{ padding: 24 }}>Se încarcă…</div>;
+  if (err) return <div style={{ padding: 24 }}>{err}</div>;
+
+  return (
+    <section style={{ maxWidth: 900, margin: "40px auto", padding: "0 16px" }}>
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    </section>
+  );
+}
+
 /* ================= Guards ================= */
 function RequireUser({ children }) {
   const { me, loading } = useAuth();
@@ -126,10 +177,7 @@ function RequireAdmin({ children }) {
   return children;
 }
 
-/* ================= Admin layout =================
-   - îl poți lăsa fără Footer (de obicei așa e mai ok pentru admin)
-   - Navbar știe singur să arate “admin navbar” pe /admin/*
-*/
+/* ================= Admin layout ================= */
 function AdminLayout() {
   return (
     <>
@@ -164,7 +212,7 @@ export default function App() {
         }}
       >
         <Routes>
-          {/* ================= PUBLIC / USER / VENDOR (cu Navbar+Footer) ================= */}
+          {/* ================= PUBLIC / USER / VENDOR ================= */}
           <Route element={<AppLayout />}>
             {/* Public */}
             <Route path="/" element={<Home />} />
@@ -174,12 +222,82 @@ export default function App() {
             <Route path="/multumim" element={<ThankYou />} />
 
             {/* Legal */}
-            <Route path="/politica-cookie" element={<CookiesPolicy />} />
-            <Route path="/politica-de-retur" element={<ReturnPolicy />} />
-            <Route path="/cookie-banner" element={<CookieBanner />} />
-            <Route path="/preferinte-cookie" element={<CookiePreferences />} />
-<Route path="/confidentialitate" element={<PrivacyPolicy />} />
-<Route path="/termenii-si-conditiile" element={<TermsAndConditions />} />
+
+<Route path="/politica-cookie" element={<CookiesPolicy />} />
+<Route path="/politica-de-retur" element={<ReturnPolicy />} />
+<Route path="/cookie-banner" element={<CookieBanner />} />
+<Route path="/preferinte-cookie" element={<CookiePreferences />} />
+
+<Route
+  path="/confidentialitate"
+  element={
+    <LegalHtmlRoute
+      path="/legal/privacy.html"
+      title="politica de confidențialitate"
+    />
+  }
+/>
+
+<Route
+  path="/termenii-si-conditiile"
+  element={
+    <LegalHtmlRoute
+      path="/legal/tos.html"
+      title="termenii și condițiile"
+    />
+  }
+/>
+
+<Route
+  path="/cookies"
+  element={
+    <LegalHtmlRoute
+      path="/legal/cookies.html"
+      title="politica cookies"
+    />
+  }
+/>
+
+<Route
+  path="/politica-retur"
+  element={
+    <LegalHtmlRoute
+      path="/legal/returns_policy_ack.html"
+      title="politica de retur"
+    />
+  }
+/>
+
+<Route
+  path="/acord-vanzatori"
+  element={
+    <LegalHtmlRoute
+      path="/legal/vendor_terms.html"
+      title="acord vânzători"
+    />
+  }
+/>
+
+<Route
+  path="/anexa-expediere"
+  element={
+    <LegalHtmlRoute
+      path="/legal/shipping_addendum.html"
+      title="anexa expediere"
+    />
+  }
+/>
+
+<Route
+  path="/anexa-produse"
+  element={
+    <LegalHtmlRoute
+      path="/legal/products_addendum.html"
+      title="anexa produse"
+    />
+  }
+/>
+
             {/* Servicii digitale */}
             <Route path="/servicii-digitale" element={<ServiciiDigitale />} />
 
@@ -189,26 +307,25 @@ export default function App() {
             <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/reset-parola" element={<ResetOrForgot />} />
 
-            {/* User (unele sunt publice la tine, păstrez exact ca ai scris) */}
+            {/* User */}
             <Route path="/wishlist" element={<WishlistPage />} />
             <Route path="/cos" element={<CartPage />} />
             <Route
-  path="/comenzile-mele"
-  element={
-    <RequireUser>
-      <OrdersPage />
-    </RequireUser>
-  }
-/>
-
-<Route
-  path="/comanda/:id"
-  element={
-    <RequireUser>
-      <MyOrderDetailsPage />
-    </RequireUser>
-  }
-/>
+              path="/comenzile-mele"
+              element={
+                <RequireUser>
+                  <OrdersPage />
+                </RequireUser>
+              }
+            />
+            <Route
+              path="/comanda/:id"
+              element={
+                <RequireUser>
+                  <MyOrderDetailsPage />
+                </RequireUser>
+              }
+            />
 
             <Route path="/cont" element={<AccountPage />} />
             <Route path="/cont/setari" element={<UserSettingsPage />} />
@@ -379,7 +496,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
 
-          {/* ================= ADMIN (layout separat) ================= */}
+          {/* ================= ADMIN ================= */}
           <Route
             path="/admin"
             element={
@@ -393,10 +510,9 @@ export default function App() {
             <Route path="support" element={<AdminSupportPage />} />
             <Route path="maintenance" element={<AdminMaintenance />} />
             <Route path="incidents" element={<RouteIncidentsPage />} />
-            <Route path="/admin/vendor-plans" element={<AdminVendorPlansPage />} />
-<Route path="/admin/pickups" element={<AdminPickupsPage />} />
-<Route path="billing" element={<AdminBillingToClientPage />} />
-
+            <Route path="vendor-plans" element={<AdminVendorPlansPage />} />
+            <Route path="pickups" element={<AdminPickupsPage />} />
+            <Route path="billing" element={<AdminBillingToClientPage />} />
           </Route>
         </Routes>
       </SEOProvider>
