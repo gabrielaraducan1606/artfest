@@ -23,9 +23,10 @@ function absLegalUrl(pathname) {
   if (/^https?:\/\//i.test(p)) return p;
 
   const rel = p.startsWith("/") ? p : `/${p}`;
-  const base = (import.meta.env.VITE_API_URL || window.location.origin)
-    .replace(/\/+$/, "")
-    .replace(/\/api$/i, "");
+  const base = (
+    import.meta.env.VITE_LEGAL_BASE_URL ||
+    (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/api$/i, "")
+  ).replace(/\/+$/, "");
 
   return `${base}${rel}`;
 }
