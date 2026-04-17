@@ -176,8 +176,7 @@ export default function App() {
             <Route path="/politica-de-retur" element={<ReturnPolicy />} />
             <Route path="/cookie-banner" element={<CookieBanner />} />
             <Route path="/preferinte-cookie" element={<CookiePreferences />} />
-<Route path="/confidentialitate" element={<CookiesPolicy />} />
-<Route path="/termenii-si-conditiile" element={<ReturnPolicy />} />
+
             {/* Servicii digitale */}
             <Route path="/servicii-digitale" element={<ServiciiDigitale />} />
 

@@ -20,16 +20,14 @@ function appendTicket(urlLike, ticket) {
 function absLegalUrl(pathname) {
   const p = (pathname || "").trim();
   if (!p) return "#";
-
   if (/^https?:\/\//i.test(p)) return p;
 
   const rel = p.startsWith("/") ? p : `/${p}`;
-
-  const apiBase = (import.meta.env.VITE_API_URL || window.location.origin)
+  const base = (import.meta.env.VITE_API_URL || window.location.origin)
     .replace(/\/+$/, "")
     .replace(/\/api$/i, "");
 
-  return `${apiBase}${rel}`;
+  return `${base}${rel}`;
 }
 
 function suggestEmailTypos(value) {
