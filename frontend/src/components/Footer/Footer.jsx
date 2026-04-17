@@ -11,14 +11,28 @@ import { FaTiktok } from "react-icons/fa";
 import styles from "./Footer.module.css";
 
 function absLegalUrl(pathname) {
-  const p = pathname || "";
+  const p = (pathname || "").trim();
+  if (!p) return "#";
+
   if (/^https?:\/\//i.test(p)) return p;
 
   const rel = p.startsWith("/") ? p : `/${p}`;
+
+  const map = {
+    "/legal/tos.html": "/termenii-si-conditiile",
+    "/legal/privacy.html": "/confidentialitate",
+    "/legal/cookies.html": "/cookies",
+    "/legal/vendor_terms.html": "/acord-vanzatori",
+    "/legal/returns_policy_ack.html": "/politica-retur",
+    "/legal/shipping_addendum.html": "/anexa-expediere",
+    "/legal/products_addendum.html": "/anexa-produse",
+  };
+
+  const normalized = map[rel] || rel;
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
-  if (base) return `${base}${rel}`;
-  return rel;
+  if (base) return `${base}${normalized}`;
+  return normalized;
 }
 
 function getApiBase() {
