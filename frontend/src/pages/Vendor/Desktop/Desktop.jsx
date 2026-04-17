@@ -23,6 +23,9 @@ import {
   Receipt,
   ScrollText,
   Paperclip,
+  ArrowLeft,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 /* ===================== UI cache (instant render) ===================== */
@@ -68,13 +71,12 @@ function humanizeAddStoreError(e) {
   const hint = data?.hint || "";
 
   if (code === "store_limit_reached") {
-    return [title, message, hint]
-      .filter(Boolean)
-      .join("\n\n");
+    return [title, message, hint].filter(Boolean).join("\n\n");
   }
 
   return message || e?.message || "Nu am putut crea un magazin nou.";
 }
+
 /* ============================ Subscriptions hook ============================ */
 /**
  * Așteaptă ca backend-ul să întoarcă:
@@ -214,6 +216,20 @@ export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
+  const [theme, setTheme] = useState(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("theme") : null;
+    return saved === "dark" ? "dark" : "light";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("theme", theme);
+    } catch {
+      /* ignore */
+    }
+  }, [theme]);
+
   const cached = useMemo(() => readDashCache(), []);
 
   const [services, setServices] = useState(() => cached?.services ?? []);
@@ -277,7 +293,9 @@ export default function DesktopV3() {
       try {
         const lite = await api("/api/vendors/me/services").catch(() => ({ items: [] }));
         setServices(lite?.items || []);
-      } catch {""}
+      } catch {
+        /* ignore */
+      }
     };
 
     const fetchFull = async () => {
@@ -288,7 +306,9 @@ export default function DesktopV3() {
         ]);
         setServices(svc?.items || []);
         setOnboarding(ob || null);
-      } catch {""} finally {
+      } catch {
+        /* ignore */
+      } finally {
         setLoading(false);
       }
     };
@@ -346,7 +366,9 @@ export default function DesktopV3() {
         setCartCount(cart?.count || 0);
         setFavCount(fav?.count || 0);
         setSupportUnread(sup?.count || 0);
-      } catch {""}
+      } catch {
+        /* ignore */
+      }
     };
 
     const startInterval = () => {
@@ -435,9 +457,7 @@ export default function DesktopV3() {
         return;
       }
       if (
-        !confirm(
-          "Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată."
-        )
+        !confirm("Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată.")
       ) {
         return;
       }
@@ -539,7 +559,14 @@ export default function DesktopV3() {
 
   return (
     <section className={styles.page}>
-      <Topbar me={me} completeness={completeness} sub={sub} nextStep={nextStep} />
+      <Topbar
+        me={me}
+        completeness={completeness}
+        sub={sub}
+        nextStep={nextStep}
+        theme={theme}
+        setTheme={setTheme}
+      />
 
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 
@@ -587,7 +614,7 @@ export default function DesktopV3() {
 
 /* ============================= Sub-componente ============================= */
 
-function Topbar({ me, completeness, sub, nextStep }) {
+function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
   const subBadge = (() => {
     if (sub.loading) return <span className={styles.badgeWait} aria-label="loading" />;
 
@@ -628,6 +655,28 @@ function Topbar({ me, completeness, sub, nextStep }) {
 
   return (
     <div className={styles.topbar}>
+      <div className={styles.topbarActions}>
+        <button
+          type="button"
+          className={styles.iconBtn}
+          aria-label="Înapoi"
+          title="Înapoi"
+          onClick={() => history.back()}
+        >
+          <ArrowLeft size={18} />
+        </button>
+
+        <button
+          type="button"
+          className={styles.iconBtn}
+          aria-label="Comută tema"
+          title="Comută tema"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        >
+          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+      </div>
+
       <div>
         <h1 className={styles.h1}>Bun venit, {me.name || me.email}!</h1>
         <div className={styles.meta}>
@@ -1127,7 +1176,9 @@ function LogoutCard({ onLogout }) {
     e.preventDefault();
     try {
       await api("/api/auth/logout", { method: "POST" });
-    } catch {""}
+    } catch {
+      /* ignore */
+    }
     onLogout?.();
   }
 

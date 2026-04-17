@@ -758,3 +758,28 @@
   border: 1px solid rgba(34, 197, 94, 0.35);
   background: rgba(34, 197, 94, 0.06);
 }
+.topbarActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.iconBtn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--card, #fff);
+  color: var(--text, inherit);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.iconBtn:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}

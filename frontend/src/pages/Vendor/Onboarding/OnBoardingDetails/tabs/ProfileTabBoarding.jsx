@@ -34,9 +34,26 @@ function legalHref(pathname) {
   return map[rel] || rel;
 }
 
-function readDocVersion(doc, fallback = null) {
+function normalizeDocVersion(v, fallback = "") {
+  const s = String(v || "").trim();
+  if (
+    !s ||
+    s === "?" ||
+    s === "-" ||
+    s.toLowerCase() === "null" ||
+    s.toLowerCase() === "undefined"
+  ) {
+    return fallback;
+  }
+  return s;
+}
+
+function readDocVersion(doc, fallback = "") {
   if (!doc) return fallback;
-  return doc.semver || doc.version || doc.version_label || fallback;
+  return normalizeDocVersion(
+    doc.semver || doc.version || doc.version_label,
+    fallback
+  );
 }
 
 function findLegalDoc(legalByKey, ...keys) {
@@ -548,25 +565,25 @@ const privacyUrl = legalHref(
   privacyDoc?.url || VENDOR_PRIVACY_NOTICE.fallbackUrl
 );
 
-  const vendorTermsVersion =
-    readDocVersion(vendorTermsDoc, null) ||
-    attrs.masterAgreementVersion ||
-    "1";
+   const vendorTermsVersion = normalizeDocVersion(
+    readDocVersion(vendorTermsDoc, "") || attrs.masterAgreementVersion,
+    ""
+  );
 
-  const returnsVersion =
-    readDocVersion(returnsDoc, null) ||
-    attrs.returnsPolicyVersion ||
-    "1";
+  const returnsVersion = normalizeDocVersion(
+    readDocVersion(returnsDoc, "") || attrs.returnsPolicyVersion,
+    ""
+  );
 
-  const deliveryPolicyVersion =
-    readDocVersion(deliveryPolicyDoc, null) ||
-    attrs.deliveryPolicyVersion ||
-    "1";
+  const deliveryPolicyVersion = normalizeDocVersion(
+    readDocVersion(deliveryPolicyDoc, "") || attrs.deliveryPolicyVersion,
+    ""
+  );
 
-  const privacyVersion =
-    readDocVersion(privacyDoc, null) ||
-    attrs.privacyNoticeVersion ||
-    "1";
+  const privacyVersion = normalizeDocVersion(
+    readDocVersion(privacyDoc, "") || attrs.privacyNoticeVersion,
+    ""
+  );
 
   async function onToggleAccept(type, checked) {
   if (!checked) return;
@@ -1078,12 +1095,12 @@ const privacyUrl = legalHref(
                 }
                 disabled={legalLoading || vendorTermsAccepted}
               />
-              <span>
+                            <span>
                 Accept{" "}
                 <a href={vendorTermsUrl} target="_blank" rel="noreferrer">
                   {VENDOR_DOCS.vendor_terms.label}
-                </a>{" "}
-                (v{vendorTermsVersion})
+                </a>
+                {vendorTermsVersion ? ` (v${vendorTermsVersion})` : ""}
               </span>
             </label>
             <small className={styles.help}>
@@ -1105,12 +1122,12 @@ const privacyUrl = legalHref(
                 }
                 disabled={legalLoading || returnsAccepted}
               />
-              <span>
+                            <span>
                 Confirm că am citit și accept{" "}
                 <a href={returnsUrl} target="_blank" rel="noreferrer">
                   {VENDOR_DOCS.returns.label}
-                </a>{" "}
-                (v{returnsVersion})
+                </a>
+                {returnsVersion ? ` (v${returnsVersion})` : ""}
               </span>
             </label>
             <small className={styles.help}>
@@ -1125,10 +1142,10 @@ const privacyUrl = legalHref(
           <div className={styles.stack} style={{ marginTop: 12 }}>
             <span>
               Vezi{" "}
-              <a href={deliveryPolicyUrl} target="_blank" rel="noreferrer">
+                            <a href={deliveryPolicyUrl} target="_blank" rel="noreferrer">
                 {VENDOR_DELIVERY_POLICY.label}
               </a>
-              {deliveryPolicyVersion !== "1" ? ` (v${deliveryPolicyVersion})` : ""}
+              {deliveryPolicyVersion ? ` (v${deliveryPolicyVersion})` : ""}
             </span>
             <small className={styles.help}>
               Document public privind regulile de livrare aplicabile în Platformă,
@@ -1140,10 +1157,10 @@ const privacyUrl = legalHref(
           <div className={styles.stack} style={{ marginTop: 12 }}>
             <span>
               Vezi{" "}
-              <a href={privacyUrl} target="_blank" rel="noreferrer">
+                           <a href={privacyUrl} target="_blank" rel="noreferrer">
                 {VENDOR_PRIVACY_NOTICE.label}
               </a>
-              {privacyVersion !== "1" ? ` (v${privacyVersion})` : ""}
+              {privacyVersion ? ` (v${privacyVersion})` : ""}
             </span>
             <small className={styles.help}>
               Document informativ despre datele prelucrate pentru contul de vendor,
