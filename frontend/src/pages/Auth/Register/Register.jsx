@@ -18,14 +18,18 @@ function appendTicket(urlLike, ticket) {
 }
 
 function absLegalUrl(pathname) {
-  const p = pathname || "";
+  const p = (pathname || "").trim();
+  if (!p) return "#";
+
   if (/^https?:\/\//i.test(p)) return p;
 
   const rel = p.startsWith("/") ? p : `/${p}`;
-  const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
-  if (base) return `${base}${rel}`;
-  return rel;
+  const apiBase = (import.meta.env.VITE_API_URL || window.location.origin)
+    .replace(/\/+$/, "")
+    .replace(/\/api$/i, "");
+
+  return `${apiBase}${rel}`;
 }
 
 function suggestEmailTypos(value) {
