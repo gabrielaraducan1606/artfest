@@ -347,7 +347,7 @@ function useVendorAgreementsStatus() {
     let alive = true;
     (async () => {
       try {
-        const r = await api("/api/vendor/agreements/status", { method: "GET" });
+        const r = await api("/api/vendors/agreements/status", { method: "GET" });
         if (!alive) return;
         const list = Array.isArray(r?.docs) ? r.docs : [];
         setDocs(list);
@@ -389,8 +389,7 @@ async function acceptVendorDoc(type) {
 
   if (failed) {
     throw new Error(
-      failed.message ||
-        "Nu am putut salva acceptarea documentului."
+      failed.message || "Nu am putut salva acceptarea documentului."
     );
   }
 
