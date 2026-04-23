@@ -4,11 +4,6 @@ import { useState } from "react";
 import Modal from "../ui/Modal";
 import styles from "../ProfilMagazin.module.css";
 
-/**
- * Normalizează linkurile legale către slugurile frontend.
- * Astfel evităm problemele de routing live când backend-ul servește HTML-ul,
- * iar frontend-ul are rute dedicate care îl încarcă.
- */
 function legalHref(pathname) {
   const p = (pathname || "").trim();
   if (!p) return "#";
@@ -20,7 +15,6 @@ function legalHref(pathname) {
     "/legal/tos.html": "/termenii-si-conditiile",
     "/legal/privacy.html": "/confidentialitate",
     "/legal/cookies.html": "/cookies",
-    "/legal/vendor_terms.html": "/acord-vanzatori",
     "/legal/returns_policy_ack.html": "/politica-retur",
     "/legal/shipping_addendum.html": "/anexa-expediere",
     "/legal/products_addendum.html": "/anexa-produse",
@@ -32,7 +26,6 @@ function legalHref(pathname) {
 export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
   const [gateChecks, setGateChecks] = useState({
     declaration: false,
-    vendorTermsRead: false,
   });
 
   const [localLoading, setLocalLoading] = useState(false);
@@ -52,22 +45,18 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
     "(1) respectă legislația aplicabilă și nu sunt produse interzise sau periculoase; " +
     "(2) nu încalcă drepturi de autor, mărci sau alte drepturi de proprietate intelectuală și dețin toate drepturile/licențele necesare; " +
     "(3) sunt descrise corect și complet (titlu, descriere, imagini, preț, stoc, termene de livrare); " +
-    "(4) sunt realizate, ambalate și livrate cu bună-credință, conform Acordului Marketplace pentru Vânzători și Anexei Produse. " +
+    "(4) sunt realizate, ambalate și livrate cu bună-credință, conform Anexei Produse. " +
     "Înțeleg și accept că răspund integral pentru orice prejudiciu, sancțiune, reclamație sau cost rezultat din încălcarea celor declarate și că voi despăgubi Artfest pentru orice sume sau costuri suportate din această cauză. " +
     "Sunt de acord că Artfest poate delista produse și/sau suspenda contul meu în caz de încălcări sau suspiciuni rezonabile, pentru protecția clienților și a platformei.";
 
   /**
-   * Linkuri canonice frontend
+   * Link canonic frontend
    */
-  const vendorTermsUrl = legalHref(
-    gateDocs?.vendor_terms?.url || "/acord-vanzatori"
-  );
   const productsAddendumUrl = legalHref(
     gateDocs?.products_addendum?.url || "/anexa-produse"
   );
 
   // versiuni – doar pentru afișare / audit
-  const vendorTermsVersion = gateDocs?.vendor_terms?.version || "";
   const productsAddendumVersion = gateDocs?.products_addendum?.version || "";
   const productDeclVersion = gateDocs?.product_declaration?.version || "1.0.0";
 
@@ -154,11 +143,6 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
 
             <p style={{ marginBottom: 16, fontSize: 14, opacity: 0.85 }}>
               Declarația de mai jos este complementară{" "}
-              <a href={vendorTermsUrl} target="_blank" rel="noreferrer">
-                Acordului Marketplace pentru Vânzători
-                {vendorTermsVersion ? ` (v${vendorTermsVersion})` : ""}
-              </a>{" "}
-              și{" "}
               <a href={productsAddendumUrl} target="_blank" rel="noreferrer">
                 Anexei Produse
                 {productsAddendumVersion ? ` (v${productsAddendumVersion})` : ""}
@@ -171,10 +155,9 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
                 type="checkbox"
                 checked={!!gateChecks.declaration}
                 onChange={(e) =>
-                  setGateChecks((s) => ({
-                    ...s,
+                  setGateChecks({
                     declaration: e.target.checked,
-                  }))
+                  })
                 }
                 required
               />{" "}
@@ -190,34 +173,10 @@ export default function VendorGateModal({ open, onClose, gateDocs, onAccept }) {
                   termene de livrare);
                 </li>
                 <li>
-                  sunt realizate și livrate cu bună-credință, conform Acordului
-                  Marketplace și Anexei Produse.
+                  sunt realizate și livrate cu bună-credință, conform Anexei
+                  Produse.
                 </li>
               </ul>
-            </label>
-
-            <label
-              style={{ display: "block", margin: "14px 0 10px", fontSize: 14 }}
-            >
-              <input
-                type="checkbox"
-                checked={!!gateChecks.vendorTermsRead}
-                onChange={(e) =>
-                  setGateChecks((s) => ({
-                    ...s,
-                    vendorTermsRead: e.target.checked,
-                  }))
-                }
-              />{" "}
-              Confirm că am citit{" "}
-              <a href={vendorTermsUrl} target="_blank" rel="noreferrer">
-                Acordul Marketplace pentru Vânzători
-              </a>{" "}
-              și{" "}
-              <a href={productsAddendumUrl} target="_blank" rel="noreferrer">
-                Anexa Produse
-              </a>
-              . <span style={{ opacity: 0.7 }}>(opțional)</span>
             </label>
 
             {localErr && (

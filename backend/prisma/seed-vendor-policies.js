@@ -10,7 +10,6 @@ const VENDOR_DOC_TO_LEGAL_TYPE = {
   SHIPPING_ADDENDUM: "shipping_addendum",
   RETURNS_POLICY_ACK: "returns_policy_ack",
   PRODUCTS_ADDENDUM: "products_addendum",
-  VENDOR_PRIVACY_NOTICE: "privacy",
 };
 
 async function upsertPolicy({

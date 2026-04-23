@@ -4,18 +4,28 @@ import { authRequired, enforceTokenVersion } from "../api/auth.js";
 
 const router = Router();
 
+const ACCEPTED_VENDOR_DOCS = [
+  "VENDOR_TERMS",
+  "RETURNS_POLICY_ACK",
+];
+
+const INFO_VENDOR_DOCS = [
+  "SHIPPING_ADDENDUM",
+  "VENDOR_PRIVACY_NOTICE",
+];
+
 /**
  * GET /api/admin/vendor-acceptances
  *
  * Returnează, per vendor:
- * - acceptări documente (VendorAcceptance):
+ * - acceptări reale:
  *   - VENDOR_TERMS
- *   - SHIPPING_ADDENDUM
  *   - RETURNS_POLICY_ACK
- *   - PRODUCTS_ADDENDUM (✅ nou)
+ * - documente informative active:
+ *   - SHIPPING_ADDENDUM
+ *   - VENDOR_PRIVACY_NOTICE
  * - declarație produse:
  *   - VendorProductDeclaration
- * - Info de curierat din VendorService.attributes (informativ)
  *
  * ⚠️ Protejat: doar ADMIN.
  */
@@ -29,55 +39,83 @@ router.get(
         return res.status(403).json({ error: "forbidden" });
       }
 
-      const vendors = await prisma.vendor.findMany({
-        select: {
-          id: true,
-          displayName: true,
-          email: true,
-          createdAt: true,
-          user: {
-            select: {
-              id: true,
-              email: true,
+      const [vendors, activePolicies] = await Promise.all([
+        prisma.vendor.findMany({
+          select: {
+            id: true,
+            displayName: true,
+            email: true,
+            createdAt: true,
+            user: {
+              select: {
+                id: true,
+                email: true,
+              },
+            },
+            VendorAcceptance: {
+              where: {
+                document: { in: ACCEPTED_VENDOR_DOCS },
+              },
+              select: {
+                document: true,
+                version: true,
+                acceptedAt: true,
+              },
+            },
+            productDeclaration: {
+              select: {
+                version: true,
+                acceptedAt: true,
+              },
+            },
+            services: {
+              select: {
+                id: true,
+                attributes: true,
+              },
             },
           },
-          VendorAcceptance: {
-            select: {
-              document: true,
-              version: true,
-              acceptedAt: true,
-            },
+          orderBy: { createdAt: "desc" },
+          take: 500,
+        }),
+
+        prisma.vendorPolicy.findMany({
+          where: {
+            isActive: true,
+            document: { in: [...ACCEPTED_VENDOR_DOCS, ...INFO_VENDOR_DOCS] },
           },
-          productDeclaration: {
-            select: {
-              version: true,
-              acceptedAt: true,
-            },
+          orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
+          select: {
+            document: true,
+            title: true,
+            url: true,
+            version: true,
+            isRequired: true,
+            publishedAt: true,
           },
-          services: {
-            select: {
-              id: true,
-              attributes: true,
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 500,
-      });
+        }),
+      ]);
+
+      const latestPolicyByDoc = new Map();
+      for (const p of activePolicies) {
+        if (!latestPolicyByDoc.has(p.document)) {
+          latestPolicyByDoc.set(p.document, p);
+        }
+      }
 
       const rows = vendors.map((v) => {
-        const getLast = (doc) =>
+        const getLastAcceptance = (doc) =>
           v.VendorAcceptance
             .filter((a) => a.document === doc)
             .sort((a, b) => b.acceptedAt.getTime() - a.acceptedAt.getTime())[0] ||
           null;
 
-        const vendorTerms = getLast("VENDOR_TERMS");
-        const shipping = getLast("SHIPPING_ADDENDUM");
-        const returns = getLast("RETURNS_POLICY_ACK");
+        const vendorTerms = getLastAcceptance("VENDOR_TERMS");
+        const returns = getLastAcceptance("RETURNS_POLICY_ACK");
 
-        // ✅ NOU: Anexa Produse
-        const productsAddendum = getLast("PRODUCTS_ADDENDUM");
+        const shippingPolicy = latestPolicyByDoc.get("SHIPPING_ADDENDUM") || null;
+        const privacyPolicy =
+          latestPolicyByDoc.get("VENDOR_PRIVACY_NOTICE") || null;
 
         const prodDecl = v.productDeclaration || null;
 
@@ -113,21 +151,31 @@ router.get(
           createdAt: v.createdAt,
 
           vendorTermsAccepted: !!vendorTerms,
-          vendorTermsVersion: vendorTerms?.version ?? null,
+          vendorTermsVersion:
+            vendorTerms?.version ??
+            latestPolicyByDoc.get("VENDOR_TERMS")?.version ??
+            null,
           vendorTermsAcceptedAt: vendorTerms?.acceptedAt ?? null,
 
-          shippingAccepted: !!shipping,
-          shippingVersion: shipping?.version ?? null,
-          shippingAcceptedAt: shipping?.acceptedAt ?? null,
-
           returnsAccepted: !!returns,
-          returnsVersion: returns?.version ?? null,
+          returnsVersion:
+            returns?.version ??
+            latestPolicyByDoc.get("RETURNS_POLICY_ACK")?.version ??
+            null,
           returnsAcceptedAt: returns?.acceptedAt ?? null,
 
-          // ✅ NOU: Anexa Produse
-          productsAddendumAccepted: !!productsAddendum,
-          productsAddendumVersion: productsAddendum?.version ?? null,
-          productsAddendumAcceptedAt: productsAddendum?.acceptedAt ?? null,
+          shippingPolicyTitle: shippingPolicy?.title ?? "Politica de livrare",
+          shippingPolicyUrl: shippingPolicy?.url ?? null,
+          shippingPolicyVersion: shippingPolicy?.version ?? null,
+          shippingPolicyRequired: !!shippingPolicy?.isRequired,
+          shippingPolicyPublishedAt: shippingPolicy?.publishedAt ?? null,
+
+          privacyPolicyTitle:
+            privacyPolicy?.title ?? "Nota de informare GDPR pentru vendori",
+          privacyPolicyUrl: privacyPolicy?.url ?? null,
+          privacyPolicyVersion: privacyPolicy?.version ?? null,
+          privacyPolicyRequired: !!privacyPolicy?.isRequired,
+          privacyPolicyPublishedAt: privacyPolicy?.publishedAt ?? null,
 
           productDeclarationAccepted: !!prodDecl,
           productDeclarationVersion: prodDecl?.version ?? null,

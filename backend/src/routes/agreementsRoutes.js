@@ -5,6 +5,67 @@ import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 
 const router = Router();
 
+const ONBOARDING_VENDOR_DOCS = [
+  "VENDOR_TERMS",
+  "RETURNS_POLICY_ACK",
+];
+
+const typeToVendorDoc = {
+  vendor_terms: "VENDOR_TERMS",
+  returns: "RETURNS_POLICY_ACK",
+  returns_policy_ack: "RETURNS_POLICY_ACK",
+};
+
+function getRequestIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.ip || null;
+}
+
+async function getMeVendorId(req) {
+  const meVendor =
+    req.meVendor ??
+    (await prisma.vendor.findUnique({
+      where: { userId: req.user.sub },
+      select: { id: true },
+    }));
+
+  return meVendor?.id || null;
+}
+
+async function getLatestPolicies(documents = ONBOARDING_VENDOR_DOCS) {
+  const allPolicies = await prisma.vendorPolicy.findMany({
+    orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
+  });
+
+  console.log("[getLatestPolicies] requested documents:", documents);
+  console.log("[getLatestPolicies] all policies in DB:", allPolicies);
+
+  const all = await prisma.vendorPolicy.findMany({
+    where: {
+      isActive: true,
+      document: { in: documents },
+    },
+    orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
+  });
+
+  console.log("[getLatestPolicies] matched active policies:", all);
+
+  const latest = new Map();
+  for (const p of all) {
+    if (!latest.has(p.document)) latest.set(p.document, p);
+  }
+
+  console.log(
+    "[getLatestPolicies] latest keys:",
+    Array.from(latest.keys())
+  );
+
+  return latest;
+}
+
 /**
  * GET /api/vendor/agreements/required
  */
@@ -14,28 +75,25 @@ router.get(
   vendorAccessRequired,
   async (req, res) => {
     try {
-      const all = await prisma.vendorPolicy.findMany({
-        where: { isActive: true },
-        orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
-      });
+      console.log("[agreements.required] hit");
 
-      const latest = new Map();
-      for (const p of all) {
-        if (!latest.has(p.document)) latest.set(p.document, p);
-      }
+      const latest = await getLatestPolicies();
 
       const docs = Array.from(latest.values()).map((d) => ({
         doc_key: d.document,
         title: d.title,
         url: d.url,
         version: d.version,
+        checksum: d.checksum || null,
         is_required: d.isRequired,
       }));
 
-      res.json({ docs });
+      console.log("[agreements.required] docs:", docs);
+
+      return res.json({ docs });
     } catch (e) {
       console.error("GET /vendor/agreements/required error:", e);
-      res.status(500).json({ error: "server_error" });
+      return res.status(500).json({ error: "server_error" });
     }
   }
 );
@@ -43,7 +101,7 @@ router.get(
 /**
  * POST /api/vendor/agreements/accept
  * Body:
- *  { items: [ { doc_key: "VENDOR_TERMS", version: "1.0.0" }, ... ] }
+ * { items: [ { doc_key: "VENDOR_TERMS", version: "1.0.0" }, ... ] }
  */
 router.post(
   "/vendor/agreements/accept",
@@ -51,14 +109,12 @@ router.post(
   vendorAccessRequired,
   async (req, res) => {
     try {
-      const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({
-          where: { userId: req.user.sub },
-          select: { id: true },
-        }));
+      console.log("[agreements.accept] hit");
+      console.log("[agreements.accept] body:", req.body);
 
-      if (!meVendor) {
+      const vendorId = await getMeVendorId(req);
+
+      if (!vendorId) {
         return res.status(403).json({ error: "forbidden" });
       }
 
@@ -66,73 +122,104 @@ router.post(
         ? req.body.items.slice(0, 10)
         : [];
 
+      console.log("[agreements.accept] vendorId:", vendorId);
+      console.log("[agreements.accept] items:", items);
+
       if (!items.length) {
         return res.status(400).json({ error: "no_items" });
       }
 
+      const normalizedItems = items
+        .map((i) => ({
+          document: String(i?.doc_key || "").trim(),
+          version: String(i?.version || "").trim(),
+        }))
+        .filter(
+          (i) =>
+            i.document &&
+            i.version &&
+            ONBOARDING_VENDOR_DOCS.includes(i.document)
+        );
+
+      console.log("[agreements.accept] normalizedItems:", normalizedItems);
+
+      if (!normalizedItems.length) {
+        return res.status(400).json({ error: "invalid_versions" });
+      }
+
       const policies = await prisma.vendorPolicy.findMany({
         where: {
-          OR: items.map((i) => ({
-            document: i.doc_key,
-            version: String(i.version),
+          OR: normalizedItems.map((i) => ({
+            document: i.document,
+            version: i.version,
+            isActive: true,
           })),
         },
       });
 
-      const valid = new Set(policies.map((p) => `${p.document}::${p.version}`));
+      console.log("[agreements.accept] matched policies:", policies);
 
-      const toInsert = items
-        .map((i) => ({
-          document: i.doc_key,
-          version: String(i.version),
-        }))
-        .filter((i) => valid.has(`${i.document}::${i.version}`));
+      const valid = new Map(
+        policies.map((p) => [`${p.document}::${p.version}`, p])
+      );
+
+      const toInsert = normalizedItems.filter((i) =>
+        valid.has(`${i.document}::${i.version}`)
+      );
+
+      console.log("[agreements.accept] toInsert:", toInsert);
 
       if (!toInsert.length) {
         return res.status(400).json({ error: "invalid_versions" });
       }
 
       const now = new Date();
+      const ip = getRequestIp(req);
+      const ua = req.headers["user-agent"] || null;
 
       for (const it of toInsert) {
-        const matchedPolicy = policies.find(
-          (p) => p.document === it.document && p.version === it.version
-        );
+        const matchedPolicy = valid.get(`${it.document}::${it.version}`);
 
         await prisma.vendorAcceptance.upsert({
           where: {
             vendorId_document_version: {
-              vendorId: meVendor.id,
+              vendorId,
               document: it.document,
               version: it.version,
             },
           },
           create: {
-            vendor: {
-              connect: { id: meVendor.id },
-            },
-            user: {
-              connect: { id: req.user.sub },
-            },
+            vendorId,
+            userId: req.user.sub,
             document: it.document,
             version: it.version,
             acceptedAt: now,
             checksum: matchedPolicy?.checksum || null,
-            ip: req.ip || null,
-            ua: req.headers["user-agent"] || null,
+            ip,
+            ua,
+            source: "vendor_onboarding",
           },
           update: {
+            userId: req.user.sub,
+            acceptedAt: now,
             checksum: matchedPolicy?.checksum || null,
-            ip: req.ip || null,
-            ua: req.headers["user-agent"] || null,
+            ip,
+            ua,
+            source: "vendor_onboarding",
           },
+        });
+
+        console.log("[agreements.accept] ACCEPT SAVED", {
+          vendorId,
+          document: it.document,
+          version: it.version,
         });
       }
 
-      res.json({ ok: true });
+      return res.json({ ok: true, inserted: toInsert });
     } catch (e) {
       console.error("POST /vendor/agreements/accept error:", e);
-      res.status(500).json({ error: "server_error" });
+      return res.status(500).json({ error: "server_error" });
     }
   }
 );
@@ -146,30 +233,26 @@ router.get(
   vendorAccessRequired,
   async (req, res) => {
     try {
-      const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({
-          where: { userId: req.user.sub },
-          select: { id: true },
-        }));
+      console.log("[agreements.status] hit");
 
-      if (!meVendor) {
+      const vendorId = await getMeVendorId(req);
+
+      if (!vendorId) {
         return res.status(403).json({ error: "forbidden" });
       }
 
-      const active = await prisma.vendorPolicy.findMany({
-        where: { isActive: true },
-        orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
-      });
-
-      const latest = new Map();
-      for (const p of active) {
-        if (!latest.has(p.document)) latest.set(p.document, p);
-      }
+      const latest = await getLatestPolicies();
 
       const accepts = await prisma.vendorAcceptance.findMany({
-        where: { vendorId: meVendor.id },
-        select: { document: true, version: true, acceptedAt: true },
+        where: {
+          vendorId,
+          document: { in: ONBOARDING_VENDOR_DOCS },
+        },
+        select: {
+          document: true,
+          version: true,
+          acceptedAt: true,
+        },
         orderBy: { acceptedAt: "desc" },
       });
 
@@ -187,6 +270,7 @@ router.get(
           title: p.title,
           url: p.url,
           version: p.version,
+          checksum: p.checksum || null,
           is_required: p.isRequired,
           accepted: isAccepted,
         });
@@ -194,28 +278,26 @@ router.get(
 
       const requiredDocs = docs.filter((d) => d.is_required);
       const allOK =
+        docs.length > 0 &&
         requiredDocs.length > 0 &&
         requiredDocs.every((d) => d.accepted === true);
 
-      res.json({ docs, allOK });
+      console.log("[agreements.status] accepts:", accepts);
+      console.log("[agreements.status] acceptedSet:", Array.from(acceptedSet));
+      console.log("[agreements.status] docs:", docs);
+      console.log("[agreements.status] allOK:", allOK);
+
+      return res.json({ docs, allOK });
     } catch (e) {
       console.error("GET /vendor/agreements/status error:", e);
-      res.status(500).json({ error: "server_error" });
+      return res.status(500).json({ error: "server_error" });
     }
   }
 );
 
 /* ------------------------------------------------------------------ */
-/* adaptor pentru checkbox-urile legacy din frontend                   */
+/* adaptor pentru checkbox-urile legacy din frontend                  */
 /* ------------------------------------------------------------------ */
-
-const typeToVendorDoc = {
-  vendor_terms: "VENDOR_TERMS",
-  shipping_addendum: "SHIPPING_ADDENDUM",
-  returns: "RETURNS_POLICY_ACK",
-  returns_policy_ack: "RETURNS_POLICY_ACK",
-  products_addendum: "PRODUCTS_ADDENDUM",
-};
 
 /**
  * POST /api/legal/vendor-accept
@@ -223,7 +305,6 @@ const typeToVendorDoc = {
  * {
  *   accept: [
  *     { type: "vendor_terms" },
- *     { type: "shipping_addendum" },
  *     { type: "returns" }
  *   ]
  * }
@@ -234,18 +315,19 @@ router.post(
   vendorAccessRequired,
   async (req, res) => {
     try {
-      const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({
-          where: { userId: req.user.sub },
-          select: { id: true },
-        }));
+      console.log("[legal.vendor-accept] hit");
+      console.log("[legal.vendor-accept] body:", req.body);
 
-      if (!meVendor) {
+      const vendorId = await getMeVendorId(req);
+
+      if (!vendorId) {
         return res.status(403).json({ error: "forbidden" });
       }
 
       const accept = Array.isArray(req.body?.accept) ? req.body.accept : [];
+
+      console.log("[legal.vendor-accept] vendorId:", vendorId);
+      console.log("[legal.vendor-accept] accept:", accept);
 
       const docsRequested = Array.from(
         new Set(
@@ -257,6 +339,8 @@ router.post(
         )
       );
 
+      console.log("[legal.vendor-accept] docsRequested:", docsRequested);
+
       if (!docsRequested.length) {
         return res.status(400).json({
           error: "invalid_types",
@@ -264,24 +348,27 @@ router.post(
         });
       }
 
-      const policies = await prisma.vendorPolicy.findMany({
-        where: {
-          isActive: true,
-          document: { in: docsRequested },
-        },
-        orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
-      });
+      const latestByDoc = await getLatestPolicies(docsRequested);
 
-      const latestByDoc = new Map();
-      for (const p of policies) {
-        if (!latestByDoc.has(p.document)) latestByDoc.set(p.document, p);
-      }
+      console.log(
+        "[legal.vendor-accept] latestByDoc keys:",
+        Array.from(latestByDoc.keys())
+      );
 
       const now = new Date();
+      const ip = getRequestIp(req);
+      const ua = req.headers["user-agent"] || null;
       const results = [];
 
       for (const docKey of docsRequested) {
         const p = latestByDoc.get(docKey);
+
+        console.log(
+          "[legal.vendor-accept] checking docKey:",
+          docKey,
+          "policy:",
+          p
+        );
 
         if (!p) {
           results.push({
@@ -296,31 +383,36 @@ router.post(
         await prisma.vendorAcceptance.upsert({
           where: {
             vendorId_document_version: {
-              vendorId: meVendor.id,
+              vendorId,
               document: docKey,
               version: String(p.version),
             },
           },
           create: {
-            vendor: {
-              connect: { id: meVendor.id },
-            },
-            user: {
-              connect: { id: req.user.sub },
-            },
+            vendorId,
+            userId: req.user.sub,
             document: docKey,
             version: String(p.version),
             checksum: p.checksum || null,
             acceptedAt: now,
-            ip: req.ip || null,
-            ua: req.headers["user-agent"] || null,
+            ip,
+            ua,
+            source: "vendor_onboarding",
           },
           update: {
+            userId: req.user.sub,
             acceptedAt: now,
             checksum: p.checksum || null,
-            ip: req.ip || null,
-            ua: req.headers["user-agent"] || null,
+            ip,
+            ua,
+            source: "vendor_onboarding",
           },
+        });
+
+        console.log("[legal.vendor-accept] ACCEPT SAVED", {
+          vendorId,
+          docKey,
+          version: String(p.version),
         });
 
         results.push({
@@ -342,20 +434,20 @@ router.post(
       }
 
       return res.json({ ok: true, results });
-    }  catch (e) {
-  console.error("POST /api/legal/vendor-accept error:");
-  console.error("message:", e?.message);
-  console.error("code:", e?.code);
-  console.error("meta:", e?.meta);
-  console.error("stack:", e?.stack);
+    } catch (e) {
+      console.error("POST /api/legal/vendor-accept error:");
+      console.error("message:", e?.message);
+      console.error("code:", e?.code);
+      console.error("meta:", e?.meta);
+      console.error("stack:", e?.stack);
 
-  return res.status(500).json({
-    error: "server_error",
-    message: e?.message || "Unknown server error",
-    code: e?.code || null,
-    meta: e?.meta || null,
-  });
-}
+      return res.status(500).json({
+        error: "server_error",
+        message: e?.message || "Unknown server error",
+        code: e?.code || null,
+        meta: e?.meta || null,
+      });
+    }
   }
 );
 
@@ -366,19 +458,14 @@ router.get(
   vendorAccessRequired,
   async (req, res) => {
     try {
-      const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({
-          where: { userId: req.user.sub },
-          select: { id: true },
-        }));
+      const vendorId = await getMeVendorId(req);
 
-      if (!meVendor) {
+      if (!vendorId) {
         return res.status(403).json({ error: "forbidden" });
       }
 
       const decl = await prisma.vendorProductDeclaration.findUnique({
-        where: { vendorId: meVendor.id },
+        where: { vendorId },
       });
 
       if (!decl) {
@@ -407,14 +494,9 @@ router.post(
   vendorAccessRequired,
   async (req, res) => {
     try {
-      const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({
-          where: { userId: req.user.sub },
-          select: { id: true },
-        }));
+      const vendorId = await getMeVendorId(req);
 
-      if (!meVendor) {
+      if (!vendorId) {
         return res.status(403).json({ error: "forbidden" });
       }
 
@@ -424,7 +506,7 @@ router.post(
         typeof body.textSnapshot === "string" ? body.textSnapshot : null;
 
       const existing = await prisma.vendorProductDeclaration.findUnique({
-        where: { vendorId: meVendor.id },
+        where: { vendorId },
       });
 
       if (existing) {
@@ -438,10 +520,10 @@ router.post(
 
       const created = await prisma.vendorProductDeclaration.create({
         data: {
-          vendorId: meVendor.id,
+          vendorId,
           version,
           text: textSnapshot,
-          ip: req.ip || null,
+          ip: getRequestIp(req),
           ua: req.headers["user-agent"] || null,
         },
       });

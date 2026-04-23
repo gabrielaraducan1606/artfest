@@ -5,7 +5,7 @@ import styles from "./css/BillingTab.module.css";
 const DRAFT_PREFIX = "onboarding.billing.draft:";
 const LEGAL_TYPES = ["SRL", "PFA", "II", "IF"];
 const PLATFORM_VAT_RATE = "21";
-const PRIVACY_POLICY_URL = "/politica-de-confidentialitate";
+const PRIVACY_POLICY_URL = "/confidentialitate";
 
 const BILLING_PURPOSE_SUMMARY =
   "Cerem aceste date pentru emiterea facturilor aferente abonamentului și comisioanelor, administrarea relației contractuale cu vendorii și îndeplinirea obligațiilor legale fiscale și contabile.";
@@ -128,14 +128,12 @@ function validate(values) {
   if (!v.vendorName) errors.vendorName = "Completează numele vendorului.";
   if (!v.companyName) errors.companyName = "Completează denumirea entității.";
 
-  if (!v.cui) errors.cui = "Completează CUI-ul.";
-  else if (!/^(RO)?\d{2,10}$/i.test(v.cui)) {
-    errors.cui = "CUI invalid (ex: RO12345678).";
+  if (!v.cui) {
+    errors.cui = "Completează codul fiscal / Tax ID.";
   }
 
-  if (!v.regCom) errors.regCom = "Completează Nr. Reg. Com.";
-  else if (!/^(J|F)\d{1,2}\/\d{1,6}\/\d{2,4}$/i.test(v.regCom)) {
-    errors.regCom = "Format invalid (ex: J40/123/2020).";
+  if (!v.regCom) {
+    errors.regCom = "Completează numărul de registru / identificare.";
   }
 
   if (!v.address) errors.address = "Completează adresa de facturare.";
@@ -244,11 +242,11 @@ function ConfirmDialog({
 }
 
 function BillingForm({ onSaved, onStatusChange }) {
- const [vendorId, setVendorId] = useState("");
-const draftKey = useMemo(
-  () => (vendorId ? `${DRAFT_PREFIX}${vendorId}` : ""),
-  [vendorId]
-);
+  const [vendorId, setVendorId] = useState("");
+  const draftKey = useMemo(
+    () => (vendorId ? `${DRAFT_PREFIX}${vendorId}` : ""),
+    [vendorId]
+  );
 
   const [billing, setBilling] = useState({
     legalType: "",
@@ -288,37 +286,37 @@ const draftKey = useMemo(
   }, [status, onStatusChange]);
 
   useEffect(() => {
-  let alive = true;
+    let alive = true;
 
-  (async () => {
-    try {
-      const d = await api("/api/vendors/me/billing", { method: "GET" });
-      if (!alive) return;
+    (async () => {
+      try {
+        const d = await api("/api/vendors/me/billing", { method: "GET" });
+        if (!alive) return;
 
-      if (d?.vendorId) {
-        setVendorId(d.vendorId);
+        if (d?.vendorId) {
+          setVendorId(d.vendorId);
+        }
+
+        const fromApi = pickBillingFromApi(d?.billing);
+
+        if (fromApi) {
+          setBilling(fromApi);
+          setInitialBilling(fromApi);
+          setAnnounce("Am încărcat datele de facturare salvate în contul tău.");
+        } else {
+          setInitialBilling(null);
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (alive) setHydrated(true);
       }
+    })();
 
-      const fromApi = pickBillingFromApi(d?.billing);
-
-      if (fromApi) {
-        setBilling(fromApi);
-        setInitialBilling(fromApi);
-        setAnnounce("Am încărcat datele de facturare salvate în contul tău.");
-      } else {
-        setInitialBilling(null);
-      }
-    } catch {
-      // ignore
-    } finally {
-      if (alive) setHydrated(true);
-    }
-  })();
-
-  return () => {
-    alive = false;
-  };
-}, []);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (billing.vatStatus === "payer") {
@@ -331,45 +329,45 @@ const draftKey = useMemo(
   }, [billing.vatStatus, billing.vatRate]);
 
   useEffect(() => {
-  if (typeof window === "undefined") return;
-  if (!hydrated) return;
-  if (!hasInteracted) return;
-  if (!vendorId || !draftKey) return;
+    if (typeof window === "undefined") return;
+    if (!hydrated) return;
+    if (!hasInteracted) return;
+    if (!vendorId || !draftKey) return;
 
-  const t = setTimeout(() => {
+    const t = setTimeout(() => {
+      try {
+        window.localStorage.setItem(draftKey, JSON.stringify(billing));
+        setHasDraft(true);
+      } catch {
+        // ignore
+      }
+    }, 300);
+
+    return () => clearTimeout(t);
+  }, [billing, draftKey, hydrated, hasInteracted, vendorId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!vendorId || !draftKey) return;
+
     try {
-      window.localStorage.setItem(draftKey, JSON.stringify(billing));
-      setHasDraft(true);
+      const raw = window.localStorage.getItem(draftKey);
+      setHasDraft(!!raw);
+
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (!isFormEmpty(draft)) {
+          setBilling((prev) => ({ ...prev, ...draft }));
+          setLoadedDraft(true);
+          setAnnounce(
+            "S-a încărcat un draft salvat local în acest browser pentru acest cont."
+          );
+        }
+      }
     } catch {
       // ignore
     }
-  }, 300);
-
-  return () => clearTimeout(t);
-}, [billing, draftKey, hydrated, hasInteracted, vendorId]);
-
-  useEffect(() => {
-  if (typeof window === "undefined") return;
-  if (!vendorId || !draftKey) return;
-
-  try {
-    const raw = window.localStorage.getItem(draftKey);
-    setHasDraft(!!raw);
-
-    if (raw) {
-      const draft = JSON.parse(raw);
-      if (!isFormEmpty(draft)) {
-        setBilling((prev) => ({ ...prev, ...draft }));
-        setLoadedDraft(true);
-        setAnnounce(
-          "S-a încărcat un draft salvat local în acest browser pentru acest cont."
-        );
-      }
-    }
-  } catch {
-    // ignore
-  }
-}, [vendorId, draftKey]);
+  }, [vendorId, draftKey]);
 
   function onFieldChange(name) {
     return (e) => {
@@ -709,23 +707,21 @@ const draftKey = useMemo(
 
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="cui">
-            CUI
+            CUI / Cod fiscal
           </label>
           <input
             id="cui"
             className={`${styles.input} ${errors.cui ? styles.inputError : ""}`}
             value={billing.cui}
-            inputMode="numeric"
             onChange={onFieldChange("cui")}
             onBlur={() => {
               onFieldBlur("cui")();
-              setBilling((prev) => {
-                let val = (prev.cui || "").toUpperCase().trim();
-                if (/^\d{2,10}$/.test(val)) val = `RO${val}`;
-                return { ...prev, cui: val };
-              });
+              setBilling((prev) => ({
+                ...prev,
+                cui: (prev.cui || "").toUpperCase().trim(),
+              }));
             }}
-            placeholder="RO12345678"
+            placeholder="Ex: RO12345678 / VAT123456 / TAX-ID"
             aria-invalid={!!errors.cui}
             aria-describedby={errors.cui ? "err-cui" : undefined}
           />
@@ -738,15 +734,21 @@ const draftKey = useMemo(
 
         <div className={styles.fieldGroup}>
           <label className={styles.label} htmlFor="regCom">
-            Nr. Reg. Com.
+            Nr. registru / identificare
           </label>
           <input
             id="regCom"
             className={`${styles.input} ${errors.regCom ? styles.inputError : ""}`}
             value={billing.regCom}
             onChange={onFieldChange("regCom")}
-            onBlur={onFieldBlur("regCom")}
-            placeholder="J40/123/2020"
+            onBlur={() => {
+              onFieldBlur("regCom")();
+              setBilling((prev) => ({
+                ...prev,
+                regCom: (prev.regCom || "").toUpperCase().trim(),
+              }));
+            }}
+            placeholder="Ex: J40/123/2020 / HRB 12345 / Company No."
             aria-invalid={!!errors.regCom}
             aria-describedby={errors.regCom ? "err-regCom" : undefined}
           />

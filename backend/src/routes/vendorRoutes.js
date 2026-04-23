@@ -33,22 +33,14 @@ const MULTI_INSTANCE_SERVICE_CODES = new Set(["products"]);
 
 /* ===================== Legal constants ===================== */
 
-const ACCEPT_TYPE_TO_VENDOR_DOC = {
-  vendor_terms: "VENDOR_TERMS",
-  returns: "RETURNS_POLICY_ACK",
-  privacy_vendor: "VENDOR_PRIVACY_NOTICE",
-};
-
 const REQUIRED_VENDOR_DOCS = [
   "VENDOR_TERMS",
   "RETURNS_POLICY_ACK",
-  "VENDOR_PRIVACY_NOTICE",
 ];
 
 const VENDOR_DOC_LABELS = {
   VENDOR_TERMS: "Acordul Master pentru Vânzători",
   RETURNS_POLICY_ACK: "Politica de retur pentru vânzători",
-  VENDOR_PRIVACY_NOTICE: "Nota de informare GDPR pentru vendori",
 };
 
 const BILLING_ACTIVATION_AT = new Date(
@@ -57,14 +49,6 @@ const BILLING_ACTIVATION_AT = new Date(
 
 function isBillingLocked(now = new Date()) {
   return now < BILLING_ACTIVATION_AT;
-}
-
-function getRequestIp(req) {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string" && forwarded.trim()) {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.ip || null;
 }
 
 /* ===================== Inline middleware ===================== */
@@ -236,131 +220,6 @@ async function getVendorAcceptanceStatus(vendorId, documents = REQUIRED_VENDOR_D
     allOK,
   };
 }
-
-/* ===================== Legal / Agreements ===================== */
-
-router.get(
-  "/agreements/status",
-  authRequired,
-  vendorAccessRequired,
-  async (req, res) => {
-    try {
-      const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({
-          where: { userId: req.user.sub },
-          select: { id: true },
-        }));
-
-      if (!meVendor) {
-        return res.json({ docs: [], allOK: false });
-      }
-
-      const status = await getVendorAcceptanceStatus(meVendor.id);
-      return res.json(status);
-    } catch (e) {
-      console.error("GET /api/vendors/agreements/status error:", e);
-      return res.status(500).json({
-        error: "vendor_agreements_status_failed",
-        message: "Nu am putut încărca statusul acordurilor.",
-      });
-    }
-  }
-);
-
-router.post(
-  "/agreements/accept",
-  authRequired,
-  vendorAccessRequired,
-  async (req, res) => {
-    try {
-      const meVendor =
-        req.meVendor ??
-        (await prisma.vendor.findUnique({
-          where: { userId: req.user.sub },
-          select: { id: true },
-        }));
-
-      if (!meVendor) {
-        return error(res, "vendor_profile_missing", 404);
-      }
-
-      const items = Array.isArray(req.body?.accept) ? req.body.accept : [];
-      if (!items.length) {
-        return error(res, "invalid_input", 400, {
-          hint: "Trimite body: { accept: [{ type: 'vendor_terms' }] }",
-        });
-      }
-
-      const accepted = [];
-      const ip = getRequestIp(req);
-      const ua = req.get("user-agent") || null;
-
-      for (const item of items) {
-        const type = String(item?.type || "").trim();
-        const document = ACCEPT_TYPE_TO_VENDOR_DOC[type];
-
-        if (!document) {
-          return error(res, "invalid_document_type", 400, { type });
-        }
-
-        const policy = await prisma.vendorPolicy.findFirst({
-          where: {
-            document,
-            isActive: true,
-            isRequired: true,
-          },
-          orderBy: [{ publishedAt: "desc" }],
-        });
-
-        if (!policy) {
-          return error(res, "policy_not_found", 404, { document });
-        }
-
-        const saved = await prisma.vendorAcceptance.upsert({
-          where: {
-            vendorId_document_version: {
-              vendorId: meVendor.id,
-              document: policy.document,
-              version: policy.version,
-            },
-          },
-          update: {
-            acceptedAt: new Date(),
-            checksum: policy.checksum || null,
-          },
-          create: {
-            vendorId: meVendor.id,
-            userId: req.user.sub,
-            document: policy.document,
-            version: policy.version,
-            checksum: policy.checksum || null,
-            ip,
-            ua,
-            source: "vendor_onboarding",
-          },
-        });
-
-        accepted.push(saved);
-      }
-
-      const status = await getVendorAcceptanceStatus(meVendor.id);
-
-      return res.json({
-        ok: true,
-        accepted,
-        docs: status.docs,
-        allOK: status.allOK,
-      });
-    } catch (e) {
-      console.error("POST /api/vendors/agreements/accept error:", e);
-      return res.status(500).json({
-        error: "vendor_accept_failed",
-        message: "Nu am putut salva acceptarea documentului.",
-      });
-    }
-  }
-);
 
 /* ===================== Brand checks (public) ===================== */
 
@@ -822,6 +681,7 @@ router.get(
     }
   }
 );
+
 /* ===================== Onboarding ===================== */
 
 router.post("/me/onboarding/reset", authRequired, vendorAccessRequired, async (req, res) => {
@@ -1597,7 +1457,6 @@ router.post(
     }
 
     const p = svc.profile || {};
-    const attrs = svc.attributes || {};
     const missing = [];
 
     if (!p.displayName?.trim()) missing.push("Nume brand");
@@ -1627,22 +1486,12 @@ router.post(
     const { docs: legalDocs } = await getVendorAcceptanceStatus(meVendor.id);
     const legalByKey = new Map(legalDocs.map((d) => [d.doc_key, d]));
 
-    if (!legalByKey.get("VENDOR_TERMS")?.accepted && !attrs.masterAgreementAccepted) {
+    if (!legalByKey.get("VENDOR_TERMS")?.accepted) {
       missing.push("Acceptarea Acordului Master pentru Vânzători");
     }
 
-    if (
-      !legalByKey.get("RETURNS_POLICY_ACK")?.accepted &&
-      !attrs.returnsPolicyAccepted
-    ) {
+    if (!legalByKey.get("RETURNS_POLICY_ACK")?.accepted) {
       missing.push("Acceptarea Politicii de retur pentru vânzători");
-    }
-
-    if (
-      !legalByKey.get("VENDOR_PRIVACY_NOTICE")?.accepted &&
-      !attrs.privacyNoticeSeen
-    ) {
-      missing.push("Confirmarea notei de informare GDPR pentru vendori");
     }
 
     if (missing.length) {

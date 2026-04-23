@@ -24,9 +24,7 @@ function createDefaultVendorFilters() {
   return {
     q: "",
     hasVendorTerms: "ALL",
-    hasShipping: "ALL",
     hasReturns: "ALL",
-    hasProductsAddendum: "ALL",
     hasProductDecl: "ALL",
   };
 }
@@ -43,9 +41,9 @@ const DOC_LABELS = {
   MARKETING: "Preferințe marketing",
 
   VENDOR_TERMS: "Acord master vânzători",
-  SHIPPING_ADDENDUM: "Anexă livrare (shipping)",
   RETURNS_POLICY_ACK: "Politică retur",
-  PRODUCTS_ADDENDUM: "Anexa Produse",
+  VENDOR_PRIVACY_NOTICE: "Notă GDPR vendori",
+  SHIPPING_ADDENDUM: "Politica de livrare",
   PRODUCT_DECLARATION: "Declarație produse",
 };
 
@@ -54,10 +52,10 @@ const DOC_URLS = {
   PRIVACY: "/legal/privacy",
   MARKETING: "/legal/marketing",
 
-  VENDOR_TERMS: "/vendor/legal/vendor-terms",
-  SHIPPING_ADDENDUM: "/vendor/legal/shipping-addendum",
-  RETURNS_POLICY_ACK: "/vendor/legal/returns-policy",
-  PRODUCTS_ADDENDUM: "/vendor/legal/products-addendum",
+  VENDOR_TERMS: "/acord-vanzatori",
+  RETURNS_POLICY_ACK: "/politica-retur",
+  VENDOR_PRIVACY_NOTICE: "/confidentialitate",
+  SHIPPING_ADDENDUM: "/anexa-expediere",
   PRODUCT_DECLARATION: "/vendor/legal/product-declaration",
 };
 
@@ -247,22 +245,10 @@ export default function AdminPoliciesTab({
       list = list.filter((r) => !r.vendorTermsAccepted);
     }
 
-    if (vendorFilters.hasShipping === "YES") {
-      list = list.filter((r) => r.shippingAccepted);
-    } else if (vendorFilters.hasShipping === "NO") {
-      list = list.filter((r) => !r.shippingAccepted);
-    }
-
     if (vendorFilters.hasReturns === "YES") {
       list = list.filter((r) => r.returnsAccepted);
     } else if (vendorFilters.hasReturns === "NO") {
       list = list.filter((r) => !r.returnsAccepted);
-    }
-
-    if (vendorFilters.hasProductsAddendum === "YES") {
-      list = list.filter((r) => r.productsAddendumAccepted);
-    } else if (vendorFilters.hasProductsAddendum === "NO") {
-      list = list.filter((r) => !r.productsAddendumAccepted);
     }
 
     if (vendorFilters.hasProductDecl === "YES") {
@@ -463,23 +449,6 @@ export default function AdminPoliciesTab({
             </label>
 
             <label>
-              <span>Shipping addendum</span>
-              <select
-                value={vendorFilters.hasShipping}
-                onChange={(e) =>
-                  handleVendorFilterChange((f) => ({
-                    ...f,
-                    hasShipping: e.target.value,
-                  }))
-                }
-              >
-                <option value="ALL">Toți</option>
-                <option value="YES">Doar cu acceptare</option>
-                <option value="NO">Fără</option>
-              </select>
-            </label>
-
-            <label>
               <span>Politică retur</span>
               <select
                 value={vendorFilters.hasReturns}
@@ -487,23 +456,6 @@ export default function AdminPoliciesTab({
                   handleVendorFilterChange((f) => ({
                     ...f,
                     hasReturns: e.target.value,
-                  }))
-                }
-              >
-                <option value="ALL">Toți</option>
-                <option value="YES">Doar cu acceptare</option>
-                <option value="NO">Fără</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Anexa Produse</span>
-              <select
-                value={vendorFilters.hasProductsAddendum}
-                onChange={(e) =>
-                  handleVendorFilterChange((f) => ({
-                    ...f,
-                    hasProductsAddendum: e.target.value,
                   }))
                 }
               >
@@ -586,9 +538,9 @@ function PolicyNotificationsTab() {
   const DOCS_BY_SCOPE = {
     VENDORS: {
       VENDOR_TERMS: true,
+      RETURNS_POLICY_ACK: true,
       SHIPPING_ADDENDUM: false,
-      RETURNS_POLICY_ACK: false,
-      PRODUCTS_ADDENDUM: false,
+      VENDOR_PRIVACY_NOTICE: false,
       PRODUCT_DECLARATION: false,
     },
     USERS: {
@@ -639,7 +591,10 @@ function PolicyNotificationsTab() {
       title: DOC_LABELS[k] || k,
       version: "X.Y.Z",
       url: DOC_URLS[k] || null,
-      required: true,
+      required:
+        k === "VENDOR_TERMS" ||
+        k === "RETURNS_POLICY_ACK" ||
+        k === "TOS",
       alreadyAccepted: false,
     }));
 
@@ -763,7 +718,7 @@ function PolicyNotificationsTab() {
                 checked={!!documents[k]}
                 onChange={() => toggleDoc(k)}
               />
-              <span style={{ margin: 0 }}>{k}</span>
+              <span style={{ margin: 0 }}>{DOC_LABELS[k] || k}</span>
             </label>
           ))}
         </div>
@@ -1151,10 +1106,10 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
             <th>Email user</th>
             <th>Creat la</th>
             <th>Acord Master</th>
-            <th>Shipping addendum</th>
             <th>Politică retur</th>
-            <th>Anexa Produse</th>
             <th>Declarație produse</th>
+            <th>Politică livrare</th>
+            <th>Notă GDPR</th>
             <th>Detalii</th>
           </tr>
         </thead>
@@ -1178,25 +1133,9 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
               </td>
 
               <td>
-                {r.shippingAccepted
-                  ? `Da (v${r.shippingVersion || "?"}, ${formatDate(
-                      r.shippingAcceptedAt
-                    )})`
-                  : "Nu"}
-              </td>
-
-              <td>
                 {r.returnsAccepted
                   ? `Da (v${r.returnsVersion || "?"}, ${formatDate(
                       r.returnsAcceptedAt
-                    )})`
-                  : "Nu"}
-              </td>
-
-              <td>
-                {r.productsAddendumAccepted
-                  ? `Da (v${r.productsAddendumVersion || "?"}, ${formatDate(
-                      r.productsAddendumAcceptedAt
                     )})`
                   : "Nu"}
               </td>
@@ -1207,6 +1146,18 @@ function VendorAgreementsTable({ rows, totalItems, onShowVendorDetails }) {
                       r.productDeclarationAcceptedAt
                     )})`
                   : "Nu"}
+              </td>
+
+              <td>
+                {r.shippingPolicyVersion
+                  ? `v${r.shippingPolicyVersion}`
+                  : "—"}
+              </td>
+
+              <td>
+                {r.privacyPolicyVersion
+                  ? `v${r.privacyPolicyVersion}`
+                  : "—"}
               </td>
 
               <td>
@@ -1306,17 +1257,21 @@ function VendorDetailsDrawer({ vendor, onClose }) {
     vendorTermsVersion,
     vendorTermsAcceptedAt,
 
-    shippingAccepted,
-    shippingVersion,
-    shippingAcceptedAt,
-
     returnsAccepted,
     returnsVersion,
     returnsAcceptedAt,
 
-    productsAddendumAccepted,
-    productsAddendumVersion,
-    productsAddendumAcceptedAt,
+    shippingPolicyTitle,
+    shippingPolicyUrl,
+    shippingPolicyVersion,
+    shippingPolicyRequired,
+    shippingPolicyPublishedAt,
+
+    privacyPolicyTitle,
+    privacyPolicyUrl,
+    privacyPolicyVersion,
+    privacyPolicyRequired,
+    privacyPolicyPublishedAt,
 
     productDeclarationAccepted,
     productDeclarationVersion,
@@ -1414,13 +1369,12 @@ function VendorDetailsDrawer({ vendor, onClose }) {
 
             <p className={styles.subtle}>
               * Valorile de mai sus vin din <code>VendorService.attributes</code>{" "}
-              (checkbox-urile din onboarding), nu din istoricul legal (
-              <code>VendorAcceptance</code>).
+              și sunt informative pentru setup-ul de curier.
             </p>
           </section>
 
           <section className={styles.drawerSection}>
-            <h4>Acorduri legale (VendorAcceptance)</h4>
+            <h4>Acorduri legale acceptate</h4>
 
             <div className={styles.drawerField}>
               <span>Acord Master vânzători</span>
@@ -1428,17 +1382,6 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                 {vendorTermsAccepted
                   ? `Da (v${vendorTermsVersion || "?"}, ${formatDate(
                       vendorTermsAcceptedAt
-                    )})`
-                  : "Nu"}
-              </span>
-            </div>
-
-            <div className={styles.drawerField}>
-              <span>Shipping addendum</span>
-              <span>
-                {shippingAccepted
-                  ? `Da (v${shippingVersion || "?"}, ${formatDate(
-                      shippingAcceptedAt
                     )})`
                   : "Nu"}
               </span>
@@ -1456,17 +1399,6 @@ function VendorDetailsDrawer({ vendor, onClose }) {
             </div>
 
             <div className={styles.drawerField}>
-              <span>Anexa Produse</span>
-              <span>
-                {productsAddendumAccepted
-                  ? `Da (v${productsAddendumVersion || "?"}, ${formatDate(
-                      productsAddendumAcceptedAt
-                    )})`
-                  : "Nu"}
-              </span>
-            </div>
-
-            <div className={styles.drawerField}>
               <span>Declarație produse</span>
               <span>
                 {productDeclarationAccepted
@@ -1476,6 +1408,61 @@ function VendorDetailsDrawer({ vendor, onClose }) {
                   : "Nu"}
               </span>
             </div>
+          </section>
+
+          <section className={styles.drawerSection}>
+            <h4>Documente informative active</h4>
+
+            <div className={styles.drawerField}>
+              <span>{shippingPolicyTitle || "Politica de livrare"}</span>
+              <span>
+                Versiune: {shippingPolicyVersion || "—"}
+                <br />
+                Obligatoriu: {shippingPolicyRequired ? "Da" : "Nu"}
+                <br />
+                Publicat la: {formatDate(shippingPolicyPublishedAt)}
+                <br />
+                {shippingPolicyUrl ? (
+                  <a
+                    href={shippingPolicyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Deschide documentul
+                  </a>
+                ) : (
+                  "Link lipsă"
+                )}
+              </span>
+            </div>
+
+            <div className={styles.drawerField}>
+              <span>{privacyPolicyTitle || "Nota GDPR pentru vendori"}</span>
+              <span>
+                Versiune: {privacyPolicyVersion || "—"}
+                <br />
+                Obligatoriu: {privacyPolicyRequired ? "Da" : "Nu"}
+                <br />
+                Publicat la: {formatDate(privacyPolicyPublishedAt)}
+                <br />
+                {privacyPolicyUrl ? (
+                  <a
+                    href={privacyPolicyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Deschide documentul
+                  </a>
+                ) : (
+                  "Link lipsă"
+                )}
+              </span>
+            </div>
+
+            <p className={styles.subtle}>
+              * Aceste documente sunt afișate informativ în onboarding și nu mai
+              sunt tratate ca acceptări separate în admin.
+            </p>
           </section>
         </div>
 

@@ -4,18 +4,20 @@ import { createPortal } from "react-dom";
 import styles from "../ProfilMagazin.module.css";
 
 export default function Modal({ open, onClose, children, maxWidth = 640 }) {
-  // lock scroll când modalul e deschis
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, [open]);
 
-  // Escape pentru închidere
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === "Escape") onClose?.(); };
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose?.();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
@@ -25,13 +27,13 @@ export default function Modal({ open, onClose, children, maxWidth = 640 }) {
   return createPortal(
     <div
       className={styles.modalBackdrop}
-      onMouseDown={() => onClose?.()}
+      onClick={() => onClose?.()}
       role="presentation"
     >
       <div
         className={styles.modalContent}
         style={{ ["--modal-w"]: `${maxWidth}px` }}
-        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
       >

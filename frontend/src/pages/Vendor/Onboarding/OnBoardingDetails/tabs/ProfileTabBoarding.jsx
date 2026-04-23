@@ -4,7 +4,8 @@ import ChipsInput from "../../fields/ChipsInput.jsx";
 import { api } from "../../../../../lib/api";
 
 /* utils */
-const isPhoneRO = (v) => /^(\+4)?0?7\d{8}$/.test((v || "").replace(/\s+/g, ""));
+const isPhoneIntl = (v) => /^\+[1-9]\d{7,14}$/.test((v || "").replace(/\s+/g, ""));
+
 const slugify = (s = "") =>
   String(s)
     .toLowerCase()
@@ -292,7 +293,6 @@ const VENDOR_DOCS = {
     attrAcceptedAt: "masterAgreementAcceptedAt",
     label: "Acordul Master pentru Vânzători",
     fallbackUrl: "/acord-vanzatori",
-    kind: "contract",
   },
   returns: {
     key: "RETURNS_POLICY_ACK",
@@ -302,22 +302,18 @@ const VENDOR_DOCS = {
     attrAcceptedAt: "returnsPolicyAcceptedAt",
     label: "Politica de retur pentru vânzători",
     fallbackUrl: "/politica-retur",
-    kind: "ack",
   },
 };
 
-const VENDOR_DELIVERY_POLICY = {
-  key: "DELIVERY_POLICY_INFO",
-  metaKey: "delivery_policy_info",
-  label: "Politica de livrare",
-  fallbackUrl: "/anexa-expediere",
-};
-
-const VENDOR_PRIVACY_NOTICE = {
-  key: "VENDOR_PRIVACY_NOTICE",
-  metaKey: "vendor_privacy_notice",
-  label: "Nota de informare GDPR pentru vendori",
-  fallbackUrl: "/confidentialitate",
+const INFO_DOCS = {
+  delivery: {
+    label: "Politica de livrare",
+    url: "/anexa-expediere",
+  },
+  privacy: {
+    label: "Politica de confidențialitate",
+    url: "/confidentialitate",
+  },
 };
 
 function useVendorAgreementsStatus() {
@@ -326,7 +322,7 @@ function useVendorAgreementsStatus() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  const refresh = useCallback(async () => {
+  const fetchStatus = useCallback(async () => {
     setLoading(true);
     setErr("");
     try {
@@ -347,7 +343,7 @@ function useVendorAgreementsStatus() {
     let alive = true;
     (async () => {
       try {
-        const r = await api("/api/vendors/agreements/status", { method: "GET" });
+        const r = await api("/api/vendor/agreements/status", { method: "GET" });
         if (!alive) return;
         const list = Array.isArray(r?.docs) ? r.docs : [];
         setDocs(list);
@@ -374,7 +370,7 @@ function useVendorAgreementsStatus() {
     return m;
   }, [docs]);
 
-  return { docs, byKey, allOK, loading, err, refresh };
+  return { docs, byKey, allOK, loading, err, refresh: fetchStatus };
 }
 
 async function acceptVendorDoc(type) {
@@ -400,6 +396,177 @@ async function acceptVendorDoc(type) {
   return r;
 }
 
+/* ================= VendorAgreementsCard ================= */
+function VendorAgreementsCard({
+  legalByKey,
+  legalLoading,
+  legalError,
+  refreshLegal,
+  setErr,
+}) {
+  const [open, setOpen] = useState(false);
+  const [accepting, setAccepting] = useState("");
+
+  const vendorTermsDoc = findLegalDoc(
+    legalByKey,
+    VENDOR_DOCS.vendor_terms.key,
+    VENDOR_DOCS.vendor_terms.metaKey
+  );
+
+  const returnsDoc = findLegalDoc(
+    legalByKey,
+    VENDOR_DOCS.returns.key,
+    VENDOR_DOCS.returns.metaKey,
+    "returns"
+  );
+
+  const vendorTermsAccepted = !!vendorTermsDoc?.accepted;
+  const returnsAccepted = !!returnsDoc?.accepted;
+
+  const vendorTermsUrl = legalHref(
+    vendorTermsDoc?.url || VENDOR_DOCS.vendor_terms.fallbackUrl
+  );
+  const returnsUrl = legalHref(
+    returnsDoc?.url || VENDOR_DOCS.returns.fallbackUrl
+  );
+  const deliveryPolicyUrl = legalHref(INFO_DOCS.delivery.url);
+  const privacyUrl = legalHref(INFO_DOCS.privacy.url);
+
+  const vendorTermsVersion = normalizeDocVersion(
+    readDocVersion(vendorTermsDoc, ""),
+    ""
+  );
+
+  const returnsVersion = normalizeDocVersion(
+    readDocVersion(returnsDoc, ""),
+    ""
+  );
+
+  async function onToggleAccept(type, checked) {
+    if (!checked) return;
+
+    try {
+      setAccepting(type);
+      await acceptVendorDoc(type);
+      await refreshLegal?.();
+    } catch (e) {
+      setErr?.(e?.message || "Nu am putut salva acceptarea.");
+    } finally {
+      setAccepting("");
+    }
+  }
+
+  const accBadge =
+    !vendorTermsAccepted || !returnsAccepted ? (
+      <span className={styles.badgeBad}>incomplet</span>
+    ) : (
+      <span className={styles.badgeOk}>ok</span>
+    );
+
+  return (
+    <div className={styles.card} style={{ padding: 0, marginTop: 16 }}>
+      <SectionCard
+        title="Acorduri vendor"
+        subtitle="contract • retur • documente informative"
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        badge={accBadge}
+      >
+        <div className={styles.stack}>
+          <label className={styles.checkRow}>
+            <input
+              type="checkbox"
+              checked={vendorTermsAccepted}
+              onChange={(e) =>
+                !vendorTermsAccepted &&
+                onToggleAccept("vendor_terms", !!e.target.checked)
+              }
+              disabled={legalLoading || accepting === "vendor_terms" || vendorTermsAccepted}
+            />
+            <span>
+              Accept{" "}
+              <a href={vendorTermsUrl} target="_blank" rel="noreferrer">
+                {VENDOR_DOCS.vendor_terms.label}
+              </a>
+              {vendorTermsVersion ? ` (v${vendorTermsVersion})` : ""}
+            </span>
+          </label>
+          <small className={styles.help}>
+            Document contractual pentru relația ta cu platforma: reguli de
+            listare, taxe, plăți, obligații și utilizarea marketplace-ului.
+          </small>
+          {vendorTermsAccepted && (
+            <small className={styles.help}>Acceptat.</small>
+          )}
+        </div>
+
+        <div className={styles.stack} style={{ marginTop: 12 }}>
+          <label className={styles.checkRow}>
+            <input
+              type="checkbox"
+              checked={returnsAccepted}
+              onChange={(e) =>
+                !returnsAccepted && onToggleAccept("returns", !!e.target.checked)
+              }
+              disabled={legalLoading || accepting === "returns" || returnsAccepted}
+            />
+            <span>
+              Confirm că am citit și accept{" "}
+              <a href={returnsUrl} target="_blank" rel="noreferrer">
+                {VENDOR_DOCS.returns.label}
+              </a>
+              {returnsVersion ? ` (v${returnsVersion})` : ""}
+            </span>
+          </label>
+          <small className={styles.help}>
+            Politica de retur definește obligațiile tale comerciale față de
+            clienți.
+          </small>
+          {returnsAccepted && (
+            <small className={styles.help}>Confirmată.</small>
+          )}
+        </div>
+
+        <div className={styles.stack} style={{ marginTop: 12 }}>
+          <span>
+            Vezi{" "}
+            <a href={deliveryPolicyUrl} target="_blank" rel="noreferrer">
+              {INFO_DOCS.delivery.label}
+            </a>
+          </span>
+          <small className={styles.help}>
+            Document informativ privind regulile de livrare aplicabile în
+            platformă, inclusiv costurile, condițiile generale și informațiile
+            afișate clienților.
+          </small>
+        </div>
+
+        <div className={styles.stack} style={{ marginTop: 12 }}>
+          <span>
+            Vezi{" "}
+            <a href={privacyUrl} target="_blank" rel="noreferrer">
+              {INFO_DOCS.privacy.label}
+            </a>
+          </span>
+          <small className={styles.help}>
+            Document informativ privind prelucrarea datelor și drepturile
+            persoanei vizate.
+          </small>
+        </div>
+
+        {legalError && (
+          <small
+            className={styles.fieldError}
+            style={{ display: "block", marginTop: 10 }}
+          >
+            {legalError} (link-urile implicite rămân disponibile)
+          </small>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
 /* ================= ServiceCard ================= */
 function ServiceCard({
   service,
@@ -412,14 +579,9 @@ function ServiceCard({
   slugTouchedMap,
   setSlugTouchedMap,
   setErr,
-  legalByKey,
-  legalLoading,
-  legalError,
-  refreshLegal,
   initiallyOpen = false,
 }) {
   const p = service.profile || {};
-  const attrs = service.attributes || {};
   const [open, setOpen] = useState(initiallyOpen ? 0 : -1);
 
   const sectionRefs = useRef([]);
@@ -489,14 +651,15 @@ function ServiceCard({
     ? `https://${vanityBase.replace(/\/+$/, "")}/magazin/${p.slug.trim()}`
     : "";
 
-  const phoneErr = p.phone && !isPhoneRO(p.phone) ? "Număr invalid (+40 7xx…)" : "";
+  const phoneErr =
+    p.phone && !isPhoneIntl(p.phone)
+      ? "Număr invalid. Folosește format internațional, ex: +40712345678"
+      : "";
+
   const emailErr =
     p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)
       ? "Adresă de email invalidă"
       : "";
-
-  const setAttrs = (patch) =>
-    updateServiceBasics(idx, { attributes: { ...attrs, ...patch } });
 
   const deliveryArr = Array.isArray(p.delivery) ? p.delivery : [];
   const {
@@ -517,109 +680,6 @@ function ServiceCard({
     updateProfile(idx, { delivery: uniq });
   }
 
-  const vendorTermsDoc = findLegalDoc(
-    legalByKey,
-    VENDOR_DOCS.vendor_terms.key,
-    VENDOR_DOCS.vendor_terms.metaKey
-  );
-
-  const returnsDoc = findLegalDoc(
-    legalByKey,
-    VENDOR_DOCS.returns.key,
-    VENDOR_DOCS.returns.metaKey,
-    "returns"
-  );
-
-  const deliveryPolicyDoc = findLegalDoc(
-    legalByKey,
-    VENDOR_DELIVERY_POLICY.key,
-    VENDOR_DELIVERY_POLICY.metaKey,
-    "delivery_policy",
-    "delivery"
-  );
-
-  const privacyDoc = findLegalDoc(
-    legalByKey,
-    VENDOR_PRIVACY_NOTICE.key,
-    VENDOR_PRIVACY_NOTICE.metaKey,
-    "privacy",
-    "vendor_privacy"
-  );
-
-  const vendorTermsAccepted =
-    !!vendorTermsDoc?.accepted || !!attrs.masterAgreementAccepted;
-  const returnsAccepted =
-    !!returnsDoc?.accepted || !!attrs.returnsPolicyAccepted;
-
-  const vendorTermsUrl = legalHref(
-  vendorTermsDoc?.url || VENDOR_DOCS.vendor_terms.fallbackUrl
-);
-const returnsUrl = legalHref(
-  returnsDoc?.url || VENDOR_DOCS.returns.fallbackUrl
-);
-const deliveryPolicyUrl = legalHref(
-  deliveryPolicyDoc?.url || VENDOR_DELIVERY_POLICY.fallbackUrl
-);
-const privacyUrl = legalHref(
-  privacyDoc?.url || VENDOR_PRIVACY_NOTICE.fallbackUrl
-);
-
-   const vendorTermsVersion = normalizeDocVersion(
-    readDocVersion(vendorTermsDoc, "") || attrs.masterAgreementVersion,
-    ""
-  );
-
-  const returnsVersion = normalizeDocVersion(
-    readDocVersion(returnsDoc, "") || attrs.returnsPolicyVersion,
-    ""
-  );
-
-  const deliveryPolicyVersion = normalizeDocVersion(
-    readDocVersion(deliveryPolicyDoc, "") || attrs.deliveryPolicyVersion,
-    ""
-  );
-
-  const privacyVersion = normalizeDocVersion(
-    readDocVersion(privacyDoc, "") || attrs.privacyNoticeVersion,
-    ""
-  );
-
-  async function onToggleAccept(type, checked) {
-  if (!checked) return;
-
-  try {
-    // 🔥 1. UPDATE LOCAL IMEDIAT
-    const nowIso = new Date().toISOString();
-
-    if (type === "vendor_terms") {
-      setAttrs({
-        masterAgreementAccepted: true,
-        masterAgreementAcceptedAt: nowIso,
-      });
-    } else if (type === "returns") {
-      setAttrs({
-        returnsPolicyAccepted: true,
-        returnsPolicyAcceptedAt: nowIso,
-      });
-    }
-
-    // 🔥 2. TRIMITE LA SERVER (background)
-    await acceptVendorDoc(type);
-
-    // 🔥 3. (opțional) refresh mai târziu
-    refreshLegal?.();
-  } catch (e) {
-    // ❗ dacă eșuează, rollback
-    if (type === "vendor_terms") {
-      setAttrs({ masterAgreementAccepted: false });
-    } else if (type === "returns") {
-      setAttrs({ returnsPolicyAccepted: false });
-    }
-
-    setErr?.(e?.message || "Nu am putut salva acceptarea.");
-  }
-}
-
   const identBadge =
     !p.displayName?.trim() ||
     !p.slug?.trim() ||
@@ -627,13 +687,6 @@ const privacyUrl = legalHref(
     p.delivery.length === 0 ||
     (!p.logoUrl && !p.coverUrl) ||
     !p.address?.trim() ? (
-      <span className={styles.badgeBad}>incomplet</span>
-    ) : (
-      <span className={styles.badgeOk}>ok</span>
-    );
-
-  const accBadge =
-    !vendorTermsAccepted || !returnsAccepted ? (
       <span className={styles.badgeBad}>incomplet</span>
     ) : (
       <span className={styles.badgeOk}>ok</span>
@@ -669,8 +722,7 @@ const privacyUrl = legalHref(
     : "";
 
   const SHORT_MAX = 120;
-  const shortLen = (p.shortDescription || "").length;
-  const tooLong = shortLen > SHORT_MAX;
+  const tooLong = (p.shortDescription || "").length > SHORT_MAX;
 
   const storeDisplayName =
     p.displayName?.trim() ||
@@ -940,6 +992,7 @@ const privacyUrl = legalHref(
               id={`phone-${service.id}`}
               label="Telefon afișat public (opțional)"
               error={phoneErr}
+              help="Folosește format internațional, ex: +40712345678"
             >
               <input
                 id={`phone-${service.id}`}
@@ -948,13 +1001,11 @@ const privacyUrl = legalHref(
                 onChange={(e) => updateProfile(idx, { phone: e.target.value })}
                 onBlur={(e) => {
                   const raw = e.target.value.replace(/\s+/g, "");
-                  if (/^0?7\d{8}$/.test(raw)) {
-                    updateProfile(idx, {
-                      phone: `+4${raw.startsWith("0") ? raw.slice(1) : raw}`,
-                    });
-                  }
+                  updateProfile(idx, { phone: raw });
                 }}
-                placeholder="+40 7xx xxx xxx"
+                placeholder="ex: +40712345678"
+                inputMode="tel"
+                autoComplete="tel"
               />
             </Row>
 
@@ -1074,115 +1125,6 @@ const privacyUrl = legalHref(
           </small>
         </SectionCard>
       </div>
-
-      <div ref={(el) => (sectionRefs.current[2] = el)}>
-        <SectionCard
-          title="Acorduri"
-          subtitle="contract • retur • livrare • confidențialitate"
-          open={open === 2}
-          onToggle={() => setOpen((o) => (o === 2 ? -1 : 2))}
-          badge={accBadge}
-        >
-          <div className={styles.stack}>
-            <label className={styles.checkRow}>
-              <input
-                type="checkbox"
-                checked={vendorTermsAccepted}
-                onChange={(e) =>
-                  !vendorTermsAccepted &&
-                  onToggleAccept("vendor_terms", !!e.target.checked)
-                }
-                disabled={legalLoading || vendorTermsAccepted}
-              />
-                            <span>
-                Accept{" "}
-                <a href={vendorTermsUrl} target="_blank" rel="noreferrer">
-                  {VENDOR_DOCS.vendor_terms.label}
-                </a>
-                {vendorTermsVersion ? ` (v${vendorTermsVersion})` : ""}
-              </span>
-            </label>
-            <small className={styles.help}>
-              Document contractual pentru relația ta cu platforma: reguli de
-              listare, taxe, plăți, obligații și utilizarea marketplace-ului.
-            </small>
-            {vendorTermsAccepted && (
-              <small className={styles.help}>Acceptat.</small>
-            )}
-          </div>
-
-          <div className={styles.stack} style={{ marginTop: 12 }}>
-            <label className={styles.checkRow}>
-              <input
-                type="checkbox"
-                checked={returnsAccepted}
-                onChange={(e) =>
-                  !returnsAccepted && onToggleAccept("returns", !!e.target.checked)
-                }
-                disabled={legalLoading || returnsAccepted}
-              />
-                            <span>
-                Confirm că am citit și accept{" "}
-                <a href={returnsUrl} target="_blank" rel="noreferrer">
-                  {VENDOR_DOCS.returns.label}
-                </a>
-                {returnsVersion ? ` (v${returnsVersion})` : ""}
-              </span>
-            </label>
-            <small className={styles.help}>
-              Politica de retur definește obligațiile tale comerciale față de
-              clienți.
-            </small>
-            {returnsAccepted && (
-              <small className={styles.help}>Confirmată.</small>
-            )}
-          </div>
-
-          <div className={styles.stack} style={{ marginTop: 12 }}>
-            <span>
-              Vezi{" "}
-                            <a href={deliveryPolicyUrl} target="_blank" rel="noreferrer">
-                {VENDOR_DELIVERY_POLICY.label}
-              </a>
-              {deliveryPolicyVersion ? ` (v${deliveryPolicyVersion})` : ""}
-            </span>
-            <small className={styles.help}>
-              Document public privind regulile de livrare aplicabile în Platformă,
-              inclusiv costurile, condițiile generale și informațiile afișate
-              Clienților.
-            </small>
-          </div>
-
-          <div className={styles.stack} style={{ marginTop: 12 }}>
-            <span>
-              Vezi{" "}
-                           <a href={privacyUrl} target="_blank" rel="noreferrer">
-                {VENDOR_PRIVACY_NOTICE.label}
-              </a>
-              {privacyVersion ? ` (v${privacyVersion})` : ""}
-            </span>
-            <small className={styles.help}>
-              Document informativ despre datele prelucrate pentru contul de vendor,
-              scopurile prelucrării, durata stocării și drepturile persoanei vizate.
-            </small>
-          </div>
-
-          {legalError && (
-            <small
-              className={styles.fieldError}
-              style={{ display: "block", marginTop: 10 }}
-            >
-              {legalError} (link-urile implicite rămân disponibile)
-            </small>
-          )}
-
-          {saveState === "error" && saveError && (
-            <div className={styles.error} role="alert">
-              {saveError}
-            </div>
-          )}
-        </SectionCard>
-      </div>
     </div>
   );
 }
@@ -1223,27 +1165,24 @@ export default function ProfileTab({
   const blockers = useMemo(() => {
     const list = [];
 
+    const vendorTermsDoc = findLegalDoc(
+      legalByKey,
+      VENDOR_DOCS.vendor_terms.key,
+      VENDOR_DOCS.vendor_terms.metaKey
+    );
+
+    const returnsDoc = findLegalDoc(
+      legalByKey,
+      VENDOR_DOCS.returns.key,
+      VENDOR_DOCS.returns.metaKey,
+      "returns"
+    );
+
+    const vendorTermsAccepted = !!vendorTermsDoc?.accepted;
+    const returnsAccepted = !!returnsDoc?.accepted;
+
     for (const s of services) {
       const p = s.profile || {};
-      const a = s.attributes || {};
-
-      const vendorTermsDoc = findLegalDoc(
-        legalByKey,
-        VENDOR_DOCS.vendor_terms.key,
-        VENDOR_DOCS.vendor_terms.metaKey
-      );
-
-      const returnsDoc = findLegalDoc(
-        legalByKey,
-        VENDOR_DOCS.returns.key,
-        VENDOR_DOCS.returns.metaKey,
-        "returns"
-      );
-
-      const vendorTermsAccepted =
-        !!vendorTermsDoc?.accepted || !!a.masterAgreementAccepted;
-      const returnsAccepted =
-        !!returnsDoc?.accepted || !!a.returnsPolicyAccepted;
 
       if (!p.displayName?.trim()) list.push("Nume brand");
       if (!p.slug?.trim()) list.push("Slug");
@@ -1265,13 +1204,13 @@ export default function ProfileTab({
 
       if (!hasEstimatedShipping) list.push("Cost estimativ livrare");
       if (!hasFreeShippingThreshold) list.push("Prag transport gratuit");
+    }
 
-      if (!vendorTermsAccepted) {
-        list.push("Acceptarea Acordului Master pentru Vânzători");
-      }
-      if (!returnsAccepted) {
-        list.push("Acceptarea Politicii de retur pentru vânzători");
-      }
+    if (!vendorTermsAccepted) {
+      list.push("Acceptarea Acordului Master pentru Vânzători");
+    }
+    if (!returnsAccepted) {
+      list.push("Acceptarea Politicii de retur pentru vânzători");
     }
 
     return [...new Set(list)];
@@ -1325,15 +1264,21 @@ export default function ProfileTab({
               slugTouchedMap={slugTouchedMap}
               setSlugTouchedMap={setSlugTouchedMap}
               setErr={setErr}
-              legalByKey={legalByKey}
-              legalLoading={legalLoading}
-              legalError={legalError}
-              refreshLegal={refreshLegal}
               initiallyOpen={autoOpenSingle && idx === 0}
             />
           ))
         )}
       </form>
+
+      {services.length > 0 && (
+        <VendorAgreementsCard
+          legalByKey={legalByKey}
+          legalLoading={legalLoading}
+          legalError={legalError}
+          refreshLegal={refreshLegal}
+          setErr={setErr}
+        />
+      )}
 
       {err && (
         <div className={styles.error} role="alert" style={{ marginTop: 12 }}>

@@ -17,6 +17,8 @@ import {
   LayoutGrid,
   Camera,
   LifeBuoy,
+  Store,
+  Package,
 } from "lucide-react";
 
 import { api } from "../../lib/api";
@@ -88,6 +90,8 @@ function Modal({ open, onClose, title, children }) {
    Mobile bottom bar (portal în document.body)
 ========================================== */
 function MobileBar({ me, unreadNotif, cartCount, onOpenAuth }) {
+  const isVendor = me?.role === "VENDOR";
+
   const node = (
     <nav className={styles.mobileBar} aria-label="Navigație secundară">
       <NavLink to="/" className={styles.mobileItem} aria-label="Acasă">
@@ -104,39 +108,47 @@ function MobileBar({ me, unreadNotif, cartCount, onOpenAuth }) {
         <span>Categorii</span>
       </NavLink>
 
-      {/* CONT: dacă nu e logat -> deschide modalul */}
-{me ? (
-  <NavLink
-    to={
-      me.role === "USER"
-        ? "/desktop-user"
-        : me.role === "VENDOR"
-        ? "/desktop"
-        : "/desktop" // fallback (poți pune "/admin" pt ADMIN)
-    }
-    className={styles.mobileItem}
-    aria-label="Contul meu"
-  >
-    <UserIcon size={22} />
-    <span>Cont</span>
+      {me ? (
+        <NavLink
+          to={
+            me.role === "USER"
+              ? "/desktop-user"
+              : me.role === "VENDOR"
+              ? "/desktop"
+              : "/desktop"
+          }
+          className={styles.mobileItem}
+          aria-label="Contul meu"
+        >
+          <UserIcon size={22} />
+          <span>Cont</span>
 
-    {unreadNotif > 0 && (
-      <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
-    )}
-  </NavLink>
-) : (
-  <button
-    type="button"
-    className={styles.mobileItem}
-    aria-label="Autentificare"
-    onClick={() => onOpenAuth?.("login")}
-  >
-    <UserIcon size={22} />
-    <span>Cont</span>
-  </button>
-)}
+          {unreadNotif > 0 && (
+            <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
+          )}
+        </NavLink>
+      ) : (
+        <button
+          type="button"
+          className={styles.mobileItem}
+          aria-label="Autentificare"
+          onClick={() => onOpenAuth?.("login")}
+        >
+          <UserIcon size={22} />
+          <span>Cont</span>
+        </button>
+      )}
 
-      {me && (
+      {me && isVendor ? (
+        <NavLink
+          to="/vendor/store"
+          className={styles.mobileItem}
+          aria-label="Magazinul meu"
+        >
+          <Store size={22} />
+          <span>Magazin</span>
+        </NavLink>
+      ) : me ? (
         <NavLink
           to="/wishlist"
           className={styles.mobileItem}
@@ -145,7 +157,7 @@ function MobileBar({ me, unreadNotif, cartCount, onOpenAuth }) {
           <Heart size={22} />
           <span>Dorințe</span>
         </NavLink>
-      )}
+      ) : null}
 
       <NavLink to="/cos" className={styles.mobileItem} aria-label="Coș">
         <ShoppingCart size={22} />
@@ -162,18 +174,18 @@ function MobileBar({ me, unreadNotif, cartCount, onOpenAuth }) {
 
 /* ===================== Navbar principal ===================== */
 export default function Navbar() {
-  // ✅ IMPORTANT: ajustează dacă funcția ta are alt nume
-  // ideal în context să ai { me, loading, refresh }
   const { me, refresh } = useAuth();
 
   const location = useLocation();
   const navigate = useNavigate();
-const {
-  searching: uploadingImg,
-  fileInputRef: imageInputRef,
-  openPicker: openImagePicker,
-  handleFileChange,
-} = useImageSearch();
+
+  const {
+    searching: uploadingImg,
+    fileInputRef: imageInputRef,
+    openPicker: openImagePicker,
+    handleFileChange,
+  } = useImageSearch();
+
   const STORE_PAGE_PREFIX = "/magazin";
 
   const [burgerOpen, setBurgerOpen] = useState(false);
@@ -202,19 +214,22 @@ const {
       typeof window !== "undefined" ? localStorage.getItem("theme") : null;
     return saved === "light" || saved === "dark" ? saved : "light";
   });
-const [notifOpen, setNotifOpen] = useState(false);
-const notifBtnDesktopRef = useRef(null);
-const notifBtnMobileRef = useRef(null);
-useEffect(() => {
-  setNotifOpen(false);
-}, [location.pathname]);
-const [msgOpen, setMsgOpen] = useState(false);
-const msgBtnDesktopRef = useRef(null);
-const msgBtnMobileRef = useRef(null);
 
-useEffect(() => {
-  setMsgOpen(false);
-}, [location.pathname]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifBtnDesktopRef = useRef(null);
+  const notifBtnMobileRef = useRef(null);
+
+  useEffect(() => {
+    setNotifOpen(false);
+  }, [location.pathname]);
+
+  const [msgOpen, setMsgOpen] = useState(false);
+  const msgBtnDesktopRef = useRef(null);
+  const msgBtnMobileRef = useRef(null);
+
+  useEffect(() => {
+    setMsgOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -462,6 +477,7 @@ useEffect(() => {
     setAuthOpen(false);
     clearAuthParams();
   };
+
   const closePartner = () => {
     setPartnerOpen(false);
     clearAuthParams();
@@ -523,6 +539,7 @@ useEffect(() => {
 
         const hasAny =
           merged.products.length || merged.categories.length || merged.stores.length;
+
         setSuggestions(hasAny ? merged : { products: [], categories: [], stores: [] });
       } catch {
         if (ctrl.signal.aborted) return;
@@ -545,8 +562,10 @@ useEffect(() => {
       const inMobile = searchMobileRef.current?.contains(e.target);
       if (!inDesktop && !inMobile) setSuggestions(null);
     };
+
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("touchstart", handleClickOutside);
+
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
@@ -603,6 +622,7 @@ useEffect(() => {
     if (!me?.name && !me?.firstName && !me?.lastName) return "U";
     const display =
       me?.name || `${me?.firstName || ""} ${me?.lastName || ""}`.trim();
+
     return display
       .split(" ")
       .map((p) => p[0])
@@ -625,6 +645,7 @@ useEffect(() => {
     const items = [];
     const has = (code) =>
       vServices.some((s) => (s?.type?.code || s?.typeCode) === code);
+
     if (has("photography")) items.push(["/vendor/photography", "Profil Fotograf"]);
     if (has("products")) items.push(["/vendor/store", "Profil Magazin / Produse"]);
     if (has("restaurant")) items.push(["/vendor/restaurant", "Profil Restaurant / Catering"]);
@@ -633,6 +654,7 @@ useEffect(() => {
     if (has("special_fx")) items.push(["/vendor/special-fx", "Profil Efecte speciale"]);
     if (has("florist")) items.push(["/vendor/florist", "Profil Florărie"]);
     if (has("bakery")) items.push(["/vendor/bakery", "Profil Cofetărie"]);
+
     return items;
   }, [vServices]);
 
@@ -642,10 +664,13 @@ useEffect(() => {
 
     if (!onboarding?.exists)
       return hasServices ? null : { label: "Începe setup", href: "/onboarding" };
+
     if (onboarding.nextStep === "selectServices")
       return hasServices ? null : { label: "Alege servicii", href: "/onboarding" };
+
     if (onboarding.nextStep === "profile")
       return { label: "Publică profilul", href: "/onboarding/details" };
+
     return null;
   }, [onboarding, isVendor, vServices]);
 
@@ -717,9 +742,7 @@ useEffect(() => {
             >
               <LifeBuoy size={22} />
               {supportUnread > 0 && (
-                <span className={styles.badge}>
-                  {Math.min(supportUnread, 99)}
-                </span>
+                <span className={styles.badge}>{Math.min(supportUnread, 99)}</span>
               )}
             </Link>
 
@@ -799,7 +822,6 @@ useEffect(() => {
   return (
     <header className={styles.header}>
       <div className={styles.container}>
-        {/* Stânga: burger + logo */}
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <button
             type="button"
@@ -816,7 +838,6 @@ useEffect(() => {
           </Link>
         </div>
 
-        {/* Centru: nav contextual */}
         <nav
           className={`${styles.nav} ${burgerOpen ? styles["nav--open"] : ""}`}
           aria-label="Meniu principal"
@@ -826,7 +847,6 @@ useEffect(() => {
         >
           {isVendor ? (
             <>
-              {/* ===== Achiziții ===== */}
               <div className={styles.dropdown} tabIndex={0}>
                 <button
                   type="button"
@@ -892,7 +912,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* ===== Profiluri ===== */}
               {profileLinks.length <= 1 ? (
                 <NavLink
                   className={styles.navLink}
@@ -963,7 +982,6 @@ useEffect(() => {
             </>
           )}
 
-          {/* Search – desktop (doar pentru non-vendor) */}
           {me?.role !== "VENDOR" && (
             <form
               ref={searchDesktopRef}
@@ -986,23 +1004,24 @@ useEffect(() => {
                 autoComplete="off"
               />
 
-           <input
-  ref={imageInputRef}
-  type="file"
-  accept="image/*"
-  className={styles.hiddenFile}
-  onChange={handleFileChange}
-/>
-<button
-  className={styles.cameraBtn}
-  type="button"
-  onClick={openImagePicker}
-  aria-label="Caută după imagine"
-  title="Caută după imagine"
-  disabled={uploadingImg}
->
-  <Camera size={18} />
-</button>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className={styles.hiddenFile}
+                onChange={handleFileChange}
+              />
+
+              <button
+                className={styles.cameraBtn}
+                type="button"
+                onClick={openImagePicker}
+                aria-label="Caută după imagine"
+                title="Caută după imagine"
+                disabled={uploadingImg}
+              >
+                <Camera size={18} />
+              </button>
 
               {showSuggest && (
                 <div
@@ -1126,7 +1145,6 @@ useEffect(() => {
           )}
         </nav>
 
-        {/* overlay pentru off-canvas (mobil) */}
         {burgerOpen && (
           <button
             type="button"
@@ -1136,7 +1154,6 @@ useEffect(() => {
           />
         )}
 
-        {/* Dreapta: acțiuni + cont + asistență */}
         <div className={styles.actionsRight}>
           <button
             className={styles.themeBtn}
@@ -1173,37 +1190,38 @@ useEffect(() => {
           </NavLink>
 
           {me && (
-  <button
-    ref={notifBtnDesktopRef}
-    type="button"
-    className={styles.iconWrapper}
-    title="Notificări"
-    aria-label="Notificări"
-    aria-haspopup="dialog"
-    aria-expanded={notifOpen ? "true" : "false"}
-    onClick={() => setNotifOpen((v) => !v)}
-  >
-    <Bell size={22} />
-    {unreadNotif > 0 && (
-      <span className={styles.badge}>{Math.min(unreadNotif, 99)}</span>
-    )}
-  </button>
-)}
-{me && (
-  <button
-    ref={msgBtnDesktopRef}
-    type="button"
-    className={styles.iconWrapper}
-    title="Mesaje"
-    aria-label="Mesaje"
-    aria-haspopup="dialog"
-    aria-expanded={msgOpen ? "true" : "false"}
-    onClick={() => setMsgOpen((v) => !v)}
-  >
-    <MessageSquare size={22} />
-    {unreadMsgs > 0 && <span className={styles.badge}>{Math.min(unreadMsgs, 99)}</span>}
-  </button>
-)}
+            <button
+              ref={notifBtnDesktopRef}
+              type="button"
+              className={styles.iconWrapper}
+              title="Notificări"
+              aria-label="Notificări"
+              aria-haspopup="dialog"
+              aria-expanded={notifOpen ? "true" : "false"}
+              onClick={() => setNotifOpen((v) => !v)}
+            >
+              <Bell size={22} />
+              {unreadNotif > 0 && (
+                <span className={styles.badge}>{Math.min(unreadNotif, 99)}</span>
+              )}
+            </button>
+          )}
+
+          {me && (
+            <button
+              ref={msgBtnDesktopRef}
+              type="button"
+              className={styles.iconWrapper}
+              title="Mesaje"
+              aria-label="Mesaje"
+              aria-haspopup="dialog"
+              aria-expanded={msgOpen ? "true" : "false"}
+              onClick={() => setMsgOpen((v) => !v)}
+            >
+              <MessageSquare size={22} />
+              {unreadMsgs > 0 && <span className={styles.badge}>{Math.min(unreadMsgs, 99)}</span>}
+            </button>
+          )}
 
           {me && (
             <NavLink className={styles.iconWrapper} to="/wishlist" title="Lista de dorințe" aria-label="Lista de dorințe">
@@ -1266,7 +1284,6 @@ useEffect(() => {
 
               <div className={styles.dropdownContent} style={{ padding: 10, minWidth: 240 }}>
                 <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
-                 
                   {isVendor ? (
                     <>
                       <li><NavLink to="/vendor/orders">Comenzile mele</NavLink></li>
@@ -1306,46 +1323,55 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* Mobile: top row cu mesaje/notif + search + asistență */}
       <div className={styles.mobileSearch}>
         <div className={styles.mobileSearchRow}>
           <div className={styles.mobileSearchLeft}>
+            {isVendor && (
+              <NavLink
+                className={styles.iconWrapper}
+                to="/vendor/orders"
+                title="Comenzile mele"
+                aria-label="Comenzile mele"
+              >
+                <Package size={22} />
+              </NavLink>
+            )}
+
             {me && (
-  <button
-    ref={msgBtnMobileRef}
-    type="button"
-    className={styles.iconWrapper}
-    title="Mesaje"
-    aria-label="Mesaje"
-    aria-haspopup="dialog"
-    aria-expanded={msgOpen ? "true" : "false"}
-    onClick={() => setMsgOpen((v) => !v)}
-  >
-    <MessageSquare size={22} />
-    {unreadMsgs > 0 && (
-      <span className={styles.badgeMini}>{Math.min(unreadMsgs, 99)}</span>
-    )}
-  </button>
-)}
+              <button
+                ref={msgBtnMobileRef}
+                type="button"
+                className={styles.iconWrapper}
+                title="Mesaje"
+                aria-label="Mesaje"
+                aria-haspopup="dialog"
+                aria-expanded={msgOpen ? "true" : "false"}
+                onClick={() => setMsgOpen((v) => !v)}
+              >
+                <MessageSquare size={22} />
+                {unreadMsgs > 0 && (
+                  <span className={styles.badgeMini}>{Math.min(unreadMsgs, 99)}</span>
+                )}
+              </button>
+            )}
 
-           {me && (
-  <button
-    ref={notifBtnMobileRef}
-    type="button"
-    className={styles.iconWrapper}
-    title="Notificări"
-    aria-label="Notificări"
-    aria-haspopup="dialog"
-    aria-expanded={notifOpen ? "true" : "false"}
-    onClick={() => setNotifOpen((v) => !v)}
-  >
-    <Bell size={22} />
-    {unreadNotif > 0 && (
-      <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
-    )}
-  </button>
-)}
-
+            {me && (
+              <button
+                ref={notifBtnMobileRef}
+                type="button"
+                className={styles.iconWrapper}
+                title="Notificări"
+                aria-label="Notificări"
+                aria-haspopup="dialog"
+                aria-expanded={notifOpen ? "true" : "false"}
+                onClick={() => setNotifOpen((v) => !v)}
+              >
+                <Bell size={22} />
+                {unreadNotif > 0 && (
+                  <span className={styles.badgeMini}>{Math.min(unreadNotif, 99)}</span>
+                )}
+              </button>
+            )}
           </div>
 
           <form
@@ -1369,138 +1395,136 @@ useEffect(() => {
               autoComplete="off"
             />
 
-           <input
-  ref={imageInputRef}
-  type="file"
-  accept="image/*"
-  className={styles.hiddenFile}
-  onChange={handleFileChange}
-/>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className={styles.hiddenFile}
+              onChange={handleFileChange}
+            />
 
             <button
-  className={styles.cameraBtn}
-  type="button"
-  onClick={openImagePicker}
-  aria-label="Caută după imagine"
-  title="Caută după imagine"
-  disabled={uploadingImg}
->
-  <Camera size={18} />
-</button>
-{showSuggest && (
-  <div
-    role="listbox"
-    aria-label="Sugestii de căutare"
-    className={styles.suggestDropdown}
-  >
-    {suggestLoading && (
-      <div className={styles.suggestLoading}>Se încarcă sugestiile…</div>
-    )}
+              className={styles.cameraBtn}
+              type="button"
+              onClick={openImagePicker}
+              aria-label="Caută după imagine"
+              title="Caută după imagine"
+              disabled={uploadingImg}
+            >
+              <Camera size={18} />
+            </button>
 
-    {!suggestLoading && suggestions && (
-      <>
-        {!suggestions.products?.length &&
-          !suggestions.categories?.length &&
-          !suggestions.stores?.length && (
-            <div className={styles.suggestEmpty}>
-              Nu avem sugestii exacte pentru <strong>{q}</strong>.
-            </div>
-          )}
-
-        {suggestions.categories?.length > 0 && (
-          <div className={styles.suggestSection}>
-            <div className={styles.suggestSectionTitle}>Categorii sugerate</div>
-            {suggestions.categories.map((c) => (
-              <button
-                key={c.key}
-                type="button"
-                role="option"
-                className={styles.suggestCategoryBtn}
-                onClick={() => handleSuggestionCategoryClick(c.key)}
+            {showSuggest && (
+              <div
+                role="listbox"
+                aria-label="Sugestii de căutare"
+                className={styles.suggestDropdown}
               >
-                {c.label}
-              </button>
-            ))}
-          </div>
-        )}
+                {suggestLoading && (
+                  <div className={styles.suggestLoading}>Se încarcă sugestiile…</div>
+                )}
 
-        {suggestions.stores?.length > 0 && (
-          <div className={styles.suggestSection}>
-            <div className={styles.suggestSectionTitle}>Magazine sugerate</div>
+                {!suggestLoading && suggestions && (
+                  <>
+                    {!suggestions.products?.length &&
+                      !suggestions.categories?.length &&
+                      !suggestions.stores?.length && (
+                        <div className={styles.suggestEmpty}>
+                          Nu avem sugestii exacte pentru <strong>{q}</strong>.
+                        </div>
+                      )}
 
-            <div className={styles.suggestStoresList}>
-              {suggestions.stores.map((s) => (
-                <button
-                  key={s.id || s.profileSlug}
-                  type="button"
-                  role="option"
-                  className={styles.suggestStoreBtn}
-                  onClick={() => handleSuggestionStoreClick(s.profileSlug)}
-                >
-                  {s.logoUrl ? (
-                    <img
-                      src={s.logoUrl}
-                      alt={s.displayName || s.storeName || "Magazin"}
-                      className={styles.suggestStoreThumb}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  ) : (
-                    <div
-                      className={styles.suggestStoreThumbFallback}
-                      aria-hidden="true"
-                    />
-                  )}
+                    {suggestions.categories?.length > 0 && (
+                      <div className={styles.suggestSection}>
+                        <div className={styles.suggestSectionTitle}>Categorii sugerate</div>
+                        {suggestions.categories.map((c) => (
+                          <button
+                            key={c.key}
+                            type="button"
+                            role="option"
+                            className={styles.suggestCategoryBtn}
+                            onClick={() => handleSuggestionCategoryClick(c.key)}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                  <div className={styles.suggestStoreMeta}>
-                    <div className={styles.suggestStoreTitle}>
-                      {s.displayName || s.storeName || "Magazin"}
-                    </div>
-                    <div className={styles.suggestStoreSub}>{s.city ? s.city : "—"}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+                    {suggestions.stores?.length > 0 && (
+                      <div className={styles.suggestSection}>
+                        <div className={styles.suggestSectionTitle}>Magazine sugerate</div>
 
-        {suggestions.products?.length > 0 && (
-          <div className={styles.suggestSection}>
-            <div className={styles.suggestSectionTitle}>Produse sugerate</div>
-            <div className={styles.suggestProductsList}>
-              {suggestions.products.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  role="option"
-                  className={styles.suggestProductBtn}
-                  onClick={() => handleSuggestionProductClick(p.id)}
-                >
-                  {p.images?.[0] && (
-                    <img
-                      src={p.images[0]}
-                      alt={p.title}
-                      className={styles.suggestProductThumb}
-                    />
-                  )}
-                  <div className={styles.suggestProductMeta}>
-                    <div className={styles.suggestProductTitle}>{p.title}</div>
-                    <div className={styles.suggestProductPrice}>
-                      {(Number(p.priceCents || 0) / 100).toFixed(2)} {p.currency || "RON"}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </>
-    )}
-  </div>
-)}
+                        <div className={styles.suggestStoresList}>
+                          {suggestions.stores.map((s) => (
+                            <button
+                              key={s.id || s.profileSlug}
+                              type="button"
+                              role="option"
+                              className={styles.suggestStoreBtn}
+                              onClick={() => handleSuggestionStoreClick(s.profileSlug)}
+                            >
+                              {s.logoUrl ? (
+                                <img
+                                  src={s.logoUrl}
+                                  alt={s.displayName || s.storeName || "Magazin"}
+                                  className={styles.suggestStoreThumb}
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              ) : (
+                                <div
+                                  className={styles.suggestStoreThumbFallback}
+                                  aria-hidden="true"
+                                />
+                              )}
 
-            {/* Dacă vrei complet și aici, copiază același dropdown ca la desktop.
-               (ai deja CSS/structură) */}
+                              <div className={styles.suggestStoreMeta}>
+                                <div className={styles.suggestStoreTitle}>
+                                  {s.displayName || s.storeName || "Magazin"}
+                                </div>
+                                <div className={styles.suggestStoreSub}>{s.city ? s.city : "—"}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {suggestions.products?.length > 0 && (
+                      <div className={styles.suggestSection}>
+                        <div className={styles.suggestSectionTitle}>Produse sugerate</div>
+                        <div className={styles.suggestProductsList}>
+                          {suggestions.products.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              role="option"
+                              className={styles.suggestProductBtn}
+                              onClick={() => handleSuggestionProductClick(p.id)}
+                            >
+                              {p.images?.[0] && (
+                                <img
+                                  src={p.images[0]}
+                                  alt={p.title}
+                                  className={styles.suggestProductThumb}
+                                />
+                              )}
+                              <div className={styles.suggestProductMeta}>
+                                <div className={styles.suggestProductTitle}>{p.title}</div>
+                                <div className={styles.suggestProductPrice}>
+                                  {(Number(p.priceCents || 0) / 100).toFixed(2)} {p.currency || "RON"}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </form>
 
           <div className={styles.mobileSearchRight}>
@@ -1519,7 +1543,6 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* Modale */}
       <Modal open={authOpen} onClose={closeAuth} title="Conectează-te sau creează cont">
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <button
@@ -1566,7 +1589,6 @@ useEffect(() => {
         <Register defaultAsVendor={true} inModal />
       </Modal>
 
-      {/* Mobile bottom navigation */}
       <MobileBar
         me={me}
         unreadNotif={unreadNotif}
@@ -1577,25 +1599,26 @@ useEffect(() => {
           setPartnerOpen(false);
         }}
       />
-      <NotificationsPopover
-  open={notifOpen}
-  onClose={() => setNotifOpen(false)}
-  me={me}
-  anchorRef={notifBtnDesktopRef.current ? notifBtnDesktopRef : notifBtnMobileRef}
-  navigate={navigate}
-  fullPageHref="/notificari"
-  limit={8}
-/>
-<MessagesPopover
-  open={msgOpen}
-  onClose={() => setMsgOpen(false)}
-  me={me}
-  anchorRef={msgBtnDesktopRef.current ? msgBtnDesktopRef : msgBtnMobileRef}
-  navigate={navigate}
-  fullPageHref={isVendor ? "/mesaje" : "/cont/mesaje"}
-  limit={8}
-/>
 
+      <NotificationsPopover
+        open={notifOpen}
+        onClose={() => setNotifOpen(false)}
+        me={me}
+        anchorRef={notifBtnDesktopRef.current ? notifBtnDesktopRef : notifBtnMobileRef}
+        navigate={navigate}
+        fullPageHref="/notificari"
+        limit={8}
+      />
+
+      <MessagesPopover
+        open={msgOpen}
+        onClose={() => setMsgOpen(false)}
+        me={me}
+        anchorRef={msgBtnDesktopRef.current ? msgBtnDesktopRef : msgBtnMobileRef}
+        navigate={navigate}
+        fullPageHref={isVendor ? "/mesaje" : "/cont/mesaje"}
+        limit={8}
+      />
     </header>
   );
 }

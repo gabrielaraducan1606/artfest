@@ -18,10 +18,9 @@ export function getLegalMeta(req, res) {
     const out = loadMany(types).map((d) => ({
       type: d.type,
       title: d.title,
-      version: d.version,
+      version: d.semver || d.version,
       checksum: d.checksum,
       url: defaultPublicUrlForType(d.type),
-      // bonus: link direct către html latest (util pt iframe)
       htmlUrl: `/legal/${d.type}.html`,
     }));
 
@@ -42,6 +41,7 @@ export function getLegalHtml(req, res) {
     const version = req.params.version ? Number(req.params.version) : undefined;
 
     const d = loadLegalDoc(type, { version });
+    const shownVersion = d.semver || d.version;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(`<!doctype html>
@@ -68,7 +68,7 @@ export function getLegalHtml(req, res) {
   <body>
     <h1>${escapeHtml(d.title)}</h1>
     <p class="meta">
-      Versiune: v${escapeHtml(String(d.version))}${
+      Versiune: v${escapeHtml(String(shownVersion))}${
         d.valid_from ? ` • valabil din ${escapeHtml(String(d.valid_from))}` : ""
       }
     </p>
@@ -92,7 +92,6 @@ const TYPE_TO_VENDOR_DOC = {
   vendor_terms: "VENDOR_TERMS",
   shipping_addendum: "SHIPPING_ADDENDUM",
 
-  // ✅ legacy + nou
   returns: "RETURNS_POLICY_ACK",
   returns_policy_ack: "RETURNS_POLICY_ACK",
 
@@ -101,15 +100,11 @@ const TYPE_TO_VENDOR_DOC = {
 
 /**
  * Mapare tip frontend -> tipul real din loader-ul de legal docs
- *
- * loadLegalDoc() caută fișierele după "type" (ex: returns_policy_ack),
- * deci când primim "returns" trebuie să încărcăm returns_policy_ack.
  */
 const TYPE_TO_LEGAL_TYPE = {
   vendor_terms: "vendor_terms",
   shipping_addendum: "shipping_addendum",
 
-  // ✅ legacy -> doc real
   returns: "returns_policy_ack",
   returns_policy_ack: "returns_policy_ack",
 
@@ -147,7 +142,6 @@ export async function postVendorAccept(req, res) {
 
     await prisma.$transaction(async (tx) => {
       for (const item of items) {
-        // ✅ normalizare ca să evităm "Returns" / " RETURNS " etc.
         const rawType = String(item?.type || "").trim().toLowerCase();
 
         const docEnum = TYPE_TO_VENDOR_DOC[rawType];
@@ -158,71 +152,107 @@ export async function postVendorAccept(req, res) {
           continue;
         }
 
-        // ✅ încărcăm documentul corect din sistemul legal
         let doc;
         try {
-          doc = loadLegalDoc(legalType); // latest
+          doc = loadLegalDoc(legalType);
         } catch (e) {
           console.error("loadLegalDoc failed for", legalType, e);
           results.push({ type: rawType, ok: false, code: "doc_not_found" });
           continue;
         }
 
-        try {
-         const acceptance = await tx.vendorAcceptance.upsert({
-  where: {
-    vendorId_document_version: {
-      vendorId: vendor.id,
-      document: docEnum,
-      version: String(doc.version),
-    },
-  },
-  create: {
-    vendor: {
-      connect: { id: vendor.id },
-    },
-    user: {
-      connect: { id: userId },
-    },
-    document: docEnum,
-    version: String(doc.version),
-    checksum: doc.checksum || null,
-    acceptedAt: now,
-    ip: req.ip || null,
-    ua: req.headers["user-agent"] || null,
-  },
-  update: {
-    acceptedAt: now,
-    checksum: doc.checksum || null,
-    ip: req.ip || null,
-    ua: req.headers["user-agent"] || null,
-  },
-});
+        const activePolicy = await tx.vendorPolicy.findFirst({
+          where: {
+            document: docEnum,
+            isActive: true,
+          },
+          orderBy: [{ publishedAt: "desc" }],
+        });
 
-results.push({
-  type: rawType,
-  ok: true,
-  document: docEnum,
-  version: String(doc.version),
-  acceptanceId: acceptance.id,
-});
+        if (!activePolicy) {
+          results.push({
+            type: rawType,
+            ok: false,
+            code: "no_active_policy",
+            document: docEnum,
+          });
+          continue;
+        }
+
+        const policyVersion = String(activePolicy.version);
+
+        try {
+          const acceptance = await tx.vendorAcceptance.upsert({
+            where: {
+              vendorId_document_version: {
+                vendorId: vendor.id,
+                document: docEnum,
+                version: policyVersion,
+              },
+            },
+            create: {
+              vendor: {
+                connect: { id: vendor.id },
+              },
+              user: {
+                connect: { id: userId },
+              },
+              document: docEnum,
+              version: policyVersion,
+              checksum: activePolicy.checksum || doc.checksum || null,
+              acceptedAt: now,
+              ip: req.ip || null,
+              ua: req.headers["user-agent"] || null,
+              source: "vendor_onboarding",
+            },
+            update: {
+              acceptedAt: now,
+              checksum: activePolicy.checksum || doc.checksum || null,
+              ip: req.ip || null,
+              ua: req.headers["user-agent"] || null,
+              source: "vendor_onboarding",
+            },
+          });
+
+          console.log("[api/legal postVendorAccept] ACCEPT SAVED", {
+            vendorId: vendor.id,
+            document: docEnum,
+            version: policyVersion,
+          });
+
+          results.push({
+            type: rawType,
+            ok: true,
+            document: docEnum,
+            version: policyVersion,
+            acceptanceId: acceptance.id,
+          });
         } catch (e) {
-          // unique constraint -> deja acceptat
           if (e?.code === "P2002") {
             results.push({
               type: rawType,
               ok: true,
               code: "already_accepted",
               document: docEnum,
-              version: String(doc.version),
+              version: policyVersion,
             });
           } else {
-            console.error("vendorAcceptance.create error:", e);
+            console.error("vendorAcceptance.upsert error:", e);
             throw e;
           }
         }
       }
     });
+
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length) {
+      return res.status(400).json({
+        ok: false,
+        error: "vendor_accept_partial_failed",
+        message: failed[0]?.code || "Nu am putut salva acceptările.",
+        results,
+      });
+    }
 
     return res.json({ ok: true, vendorId: vendor.id, results });
   } catch (e) {
