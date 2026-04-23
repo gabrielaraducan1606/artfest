@@ -1,4 +1,3 @@
-// backend/src/api/legal.js
 import { loadLegalDoc, loadMany, defaultPublicUrlForType } from "../lib/legal.js";
 import { prisma } from "../db.js";
 
@@ -82,39 +81,44 @@ export function getLegalHtml(req, res) {
 }
 
 /**
- * Mapare tip din frontend -> enum VendorDoc din Prisma
- *
- * IMPORTANT:
- * - frontend trimite uneori "returns" (legacy)
- * - în DB trebuie salvat ca RETURNS_POLICY_ACK
+ * frontend type -> Prisma VendorDoc
  */
 const TYPE_TO_VENDOR_DOC = {
   vendor_terms: "VENDOR_TERMS",
   shipping_addendum: "SHIPPING_ADDENDUM",
-
   returns: "RETURNS_POLICY_ACK",
   returns_policy_ack: "RETURNS_POLICY_ACK",
-
   products_addendum: "PRODUCTS_ADDENDUM",
 };
 
 /**
- * Mapare tip frontend -> tipul real din loader-ul de legal docs
+ * frontend type -> legal loader type
  */
 const TYPE_TO_LEGAL_TYPE = {
   vendor_terms: "vendor_terms",
   shipping_addendum: "shipping_addendum",
-
   returns: "returns_policy_ack",
   returns_policy_ack: "returns_policy_ack",
-
   products_addendum: "products_addendum",
 };
 
+function getRequestIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.ip || null;
+}
+
 export async function postVendorAccept(req, res) {
   try {
+    console.log("[postVendorAccept] HIT");
+    console.log("[postVendorAccept] body:", JSON.stringify(req.body, null, 2));
+    console.log("[postVendorAccept] user:", req.user);
+
     const userId = req.user?.sub;
     if (!userId) {
+      console.log("[postVendorAccept] unauthorized");
       return res.status(401).json({ error: "unauthorized" });
     }
 
@@ -122,7 +126,10 @@ export async function postVendorAccept(req, res) {
       where: { userId },
     });
 
+    console.log("[postVendorAccept] vendor:", vendor);
+
     if (!vendor) {
+      console.log("[postVendorAccept] vendor_profile_missing");
       return res.status(404).json({
         error: "vendor_profile_missing",
         message: "Nu există un profil de vendor pentru acest utilizator.",
@@ -130,7 +137,10 @@ export async function postVendorAccept(req, res) {
     }
 
     const items = Array.isArray(req.body?.accept) ? req.body.accept : [];
+    console.log("[postVendorAccept] items:", items);
+
     if (!items.length) {
+      console.log("[postVendorAccept] invalid_input: empty accept");
       return res.status(400).json({
         error: "invalid_input",
         message: "Trimite accept: [{ type }] în body.",
@@ -138,26 +148,49 @@ export async function postVendorAccept(req, res) {
     }
 
     const now = new Date();
+    const ip = getRequestIp(req);
+    const ua = req.headers["user-agent"] || null;
     const results = [];
 
     await prisma.$transaction(async (tx) => {
       for (const item of items) {
         const rawType = String(item?.type || "").trim().toLowerCase();
 
+        console.log("[postVendorAccept] rawType:", rawType);
+
         const docEnum = TYPE_TO_VENDOR_DOC[rawType];
         const legalType = TYPE_TO_LEGAL_TYPE[rawType];
 
+        console.log("[postVendorAccept] mapped:", {
+          rawType,
+          docEnum,
+          legalType,
+        });
+
         if (!docEnum || !legalType) {
-          results.push({ type: rawType, ok: false, code: "unknown_type" });
+          results.push({
+            type: rawType,
+            ok: false,
+            code: "unknown_type",
+          });
           continue;
         }
 
         let doc;
         try {
           doc = loadLegalDoc(legalType);
+          console.log("[postVendorAccept] loaded doc:", {
+            legalType,
+            version: doc?.semver || doc?.version,
+            checksum: doc?.checksum || null,
+          });
         } catch (e) {
-          console.error("loadLegalDoc failed for", legalType, e);
-          results.push({ type: rawType, ok: false, code: "doc_not_found" });
+          console.error("[postVendorAccept] loadLegalDoc failed for", legalType, e);
+          results.push({
+            type: rawType,
+            ok: false,
+            code: "doc_not_found",
+          });
           continue;
         }
 
@@ -168,6 +201,8 @@ export async function postVendorAccept(req, res) {
           },
           orderBy: [{ publishedAt: "desc" }],
         });
+
+        console.log("[postVendorAccept] activePolicy:", activePolicy);
 
         if (!activePolicy) {
           results.push({
@@ -191,33 +226,30 @@ export async function postVendorAccept(req, res) {
               },
             },
             create: {
-              vendor: {
-                connect: { id: vendor.id },
-              },
-              user: {
-                connect: { id: userId },
-              },
+              vendorId: vendor.id,
+              userId,
               document: docEnum,
               version: policyVersion,
               checksum: activePolicy.checksum || doc.checksum || null,
               acceptedAt: now,
-              ip: req.ip || null,
-              ua: req.headers["user-agent"] || null,
+              ip,
+              ua,
               source: "vendor_onboarding",
             },
             update: {
               acceptedAt: now,
               checksum: activePolicy.checksum || doc.checksum || null,
-              ip: req.ip || null,
-              ua: req.headers["user-agent"] || null,
+              ip,
+              ua,
               source: "vendor_onboarding",
             },
           });
 
-          console.log("[api/legal postVendorAccept] ACCEPT SAVED", {
+          console.log("[postVendorAccept] ACCEPT SAVED", {
             vendorId: vendor.id,
             document: docEnum,
             version: policyVersion,
+            acceptanceId: acceptance.id,
           });
 
           results.push({
@@ -237,15 +269,18 @@ export async function postVendorAccept(req, res) {
               version: policyVersion,
             });
           } else {
-            console.error("vendorAcceptance.upsert error:", e);
+            console.error("[postVendorAccept] vendorAcceptance.upsert error:", e);
             throw e;
           }
         }
       }
     });
 
+    console.log("[postVendorAccept] results:", results);
+
     const failed = results.filter((r) => !r.ok);
     if (failed.length) {
+      console.log("[postVendorAccept] returning 400:", failed[0]);
       return res.status(400).json({
         ok: false,
         error: "vendor_accept_partial_failed",
@@ -254,9 +289,13 @@ export async function postVendorAccept(req, res) {
       });
     }
 
-    return res.json({ ok: true, vendorId: vendor.id, results });
+    return res.json({
+      ok: true,
+      vendorId: vendor.id,
+      results,
+    });
   } catch (e) {
-    console.error("postVendorAccept error:", e);
+    console.error("[postVendorAccept] fatal error:", e);
     return res.status(500).json({
       error: "vendor_accept_failed",
       message: "Nu am putut salva acceptările.",
