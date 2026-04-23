@@ -190,9 +190,19 @@ router.get(
 
       return res.json({ agreements: rows });
     } catch (e) {
-      console.error("admin vendor-acceptances error:", e);
-      return res.status(500).json({ error: "internal_error" });
-    }
+  console.error("admin vendor-acceptances error:");
+  console.error("message:", e?.message);
+  console.error("code:", e?.code);
+  console.error("meta:", e?.meta);
+  console.error("stack:", e?.stack);
+
+  return res.status(500).json({
+    error: "internal_error",
+    message: e?.message || "Unknown server error",
+    code: e?.code || null,
+    meta: e?.meta || null,
+  });
+}
   }
 );
 
