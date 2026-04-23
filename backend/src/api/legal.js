@@ -237,6 +237,7 @@ export async function postVendorAccept(req, res) {
               source: "vendor_onboarding",
             },
             update: {
+              userId,
               acceptedAt: now,
               checksum: activePolicy.checksum || doc.checksum || null,
               ip,
@@ -270,6 +271,10 @@ export async function postVendorAccept(req, res) {
             });
           } else {
             console.error("[postVendorAccept] vendorAcceptance.upsert error:", e);
+            console.error("[postVendorAccept] upsert message:", e?.message);
+            console.error("[postVendorAccept] upsert code:", e?.code);
+            console.error("[postVendorAccept] upsert meta:", e?.meta);
+            console.error("[postVendorAccept] upsert stack:", e?.stack);
             throw e;
           }
         }
@@ -296,9 +301,16 @@ export async function postVendorAccept(req, res) {
     });
   } catch (e) {
     console.error("[postVendorAccept] fatal error:", e);
+    console.error("[postVendorAccept] fatal message:", e?.message);
+    console.error("[postVendorAccept] fatal code:", e?.code);
+    console.error("[postVendorAccept] fatal meta:", e?.meta);
+    console.error("[postVendorAccept] fatal stack:", e?.stack);
+
     return res.status(500).json({
       error: "vendor_accept_failed",
-      message: "Nu am putut salva acceptările.",
+      message: e?.message || "Nu am putut salva acceptările.",
+      code: e?.code || null,
+      meta: e?.meta || null,
     });
   }
 }
