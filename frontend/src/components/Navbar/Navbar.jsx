@@ -694,29 +694,12 @@ export default function Navbar() {
       <header className={styles.header}>
         <div className={styles.container}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-  <button
-    type="button"
-    className={styles.burger}
-    onClick={() => setBurgerOpen((v) => !v)}
-    aria-label="Meniu admin"
-    aria-expanded={burgerOpen ? "true" : "false"}
-  >
-    <Menu size={22} />
-  </button>
-
-  <Link to="/" aria-label="Artfest – Acasă" title="Pagina principală">
+            <Link to="/" aria-label="Artfest – Acasă" title="Pagina principală">
               <img src={logo} alt="Artfest" className={styles.logo} />
             </Link>
           </div>
 
-          <nav
-  className={`${styles.nav} ${burgerOpen ? styles["nav--open"] : ""}`}
-  aria-label="Meniu admin"
-  onClick={(e) => {
-    if (e.target.closest("a")) setBurgerOpen(false);
-  }}
->
- 
+          <nav className={styles.nav} aria-label="Meniu admin">
             <NavLink className={styles.navLink} to="/admin" end>
               Dashboard
             </NavLink>
@@ -735,18 +718,11 @@ export default function Navbar() {
             <NavLink className={styles.navLink} to="/admin/pickups" end>
               Colete
             </NavLink>
-            <NavLink className={styles.navLink} to="/admin/billing" end>
+            <NavLink className={styles.navLink} to="billing" end>
               Facturare
             </NavLink>
           </nav>
- {burgerOpen && (
-  <button
-    type="button"
-    className={styles.navBackdrop}
-    aria-label="Închide meniul"
-    onClick={() => setBurgerOpen(false)}
-  />
-)}
+
           <div className={styles.actionsRight}>
             <button
               className={styles.themeBtn}
