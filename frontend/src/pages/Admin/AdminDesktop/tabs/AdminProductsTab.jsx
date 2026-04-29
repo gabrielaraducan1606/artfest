@@ -395,7 +395,14 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                 const isApproved = moderationStatus === "APPROVED";
 
                 return (
-                  <tr key={p.id}>
+                  <tr
+  key={p.id}
+  className={styles.clickableRow}
+  onClick={() => {
+    setSelectedProduct(p);
+    setModerationMessage("");
+  }}
+>
                     <td>
                       <div className={styles.productCell}>
                         <div className={styles.thumbWrap}>
@@ -519,28 +526,32 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                     <td>
                       <div className={styles.badgesCol}>
                         <button
-                          type="button"
-                          className={styles.actionBtn}
-                          onClick={() => {
-                            setSelectedProduct(p);
-                            setModerationMessage("");
-                          }}
-                        >
-                          Verifică
-                        </button>
+  type="button"
+  className={styles.actionBtn}
+  onClick={(e) => {
+    e.stopPropagation();
+    setSelectedProduct(p);
+    setModerationMessage("");
+  }}
+>
+  Verifică
+</button>
 
-                        <button
-                          type="button"
-                          className={styles.approveBtn}
-                          disabled={isApproved || workingProductId === p.id}
-                          onClick={() => approveProduct(p.id)}
-                        >
-                          {isApproved
-                            ? "Aprobat"
-                            : workingProductId === p.id
-                            ? "Se procesează..."
-                            : "Aprobă"}
-                        </button>
+<button
+  type="button"
+  className={styles.approveBtn}
+  disabled={isApproved || workingProductId === p.id}
+  onClick={(e) => {
+    e.stopPropagation();
+    approveProduct(p.id);
+  }}
+>
+  {isApproved
+    ? "Aprobat"
+    : workingProductId === p.id
+    ? "Se procesează..."
+    : "Aprobă"}
+</button>
                       </div>
                     </td>
                   </tr>

@@ -6,6 +6,12 @@ export const CATEGORIES = [
   // Decor pentru evenimente
   "decor_aranjamente-florale-naturale",
   "decor_aranjamente-florale-artificiale",
+  "decor_flori-plusate",
+  "decor_aranjamente-flori-plusate",
+  "decor_flori-ceara",
+  "decor_flori-sapun",
+  "decor_aranjamente-ceara",
+  "decor_aranjamente-sapun",
   "decor_baloane",
   "decor_lumanari-decor",
   "decor_lumini-decorative",
@@ -52,6 +58,7 @@ export const CATEGORIES = [
   "ceremonie_trusou-botez",
   "ceremonie_cutie-amintiri-botez",
   "ceremonie_cruciulite-botez",
+  "ceremonie_tavita-mot",
 
   // Home & lifestyle handmade
   "home_lumanari-parfumate",
@@ -121,6 +128,8 @@ export const CATEGORIES = [
   "textile_hainute-tematice",
   "textile_paturi-personalizate",
   "textile_seturi-bebe",
+  "textile_halate-personalizate",
+  "textile_prosoape-personalizate",
   "textile_personalizare-broderie",
   "textile_personalizare-imprimare",
 
@@ -145,6 +154,12 @@ export const CATEGORY_LABELS = {
   // Decor
   "decor_aranjamente-florale-naturale": "Aranjamente florale naturale",
   "decor_aranjamente-florale-artificiale": "Aranjamente florale artificiale",
+  "decor_flori-plusate": "Flori plușate",
+  "decor_aranjamente-flori-plusate": "Aranjamente flori plușate",
+  "decor_flori-ceara": "Flori din ceară",
+  "decor_flori-sapun": "Flori din săpun",
+  "decor_aranjamente-ceara": "Aranjamente din ceară",
+  "decor_aranjamente-sapun": "Aranjamente din săpun",
   "decor_baloane": "Decor din baloane",
   "decor_lumanari-decor": "Lumânări & suporturi",
   "decor_lumini-decorative": "Lămpi & lumini decorative",
@@ -191,6 +206,7 @@ export const CATEGORY_LABELS = {
   "ceremonie_trusou-botez": "Trusou botez",
   "ceremonie_cutie-amintiri-botez": "Cutie amintiri botez",
   "ceremonie_cruciulite-botez": "Cruciuțe/broșe botez",
+  "ceremonie_tavita-mot": "Tăviță moț",
 
   // Home
   "home_lumanari-parfumate": "Lumânări parfumate",
@@ -261,6 +277,8 @@ export const CATEGORY_LABELS = {
   "textile_hainute-tematice": "Hăinuțe tematice",
   "textile_paturi-personalizate": "Pături personalizate",
   "textile_seturi-bebe": "Seturi bebe personalizate",
+  "textile_halate-personalizate": "Halate personalizate",
+  "textile_prosoape-personalizate": "Prosoape personalizate",
   "textile_personalizare-broderie": "Personalizare textile – broderie",
   "textile_personalizare-imprimare": "Personalizare textile – imprimare",
 
@@ -280,7 +298,6 @@ export const CATEGORY_LABELS = {
   "alte": "Altele"
 };
 
-// Grupuri pentru UI (prima parte a cheii până la "_")
 export const CATEGORY_GROUP_LABELS = {
   decor: "Decor pentru evenimente",
   papetarie: "Papetărie & personalizări",
@@ -295,9 +312,9 @@ export const CATEGORY_GROUP_LABELS = {
   alte: "Altele"
 };
 
-// Derivăm o structură detaliată utilă pentru UI/API
 export const CATEGORIES_DETAILED = Object.entries(CATEGORY_LABELS).map(([key, label]) => {
   const group = key.split("_")[0] || "alte";
+
   return {
     key,
     label,
@@ -306,5 +323,4 @@ export const CATEGORIES_DETAILED = Object.entries(CATEGORY_LABELS).map(([key, la
   };
 });
 
-// Set pentru validare rapidă
 export const CATEGORY_SET = new Set(CATEGORIES);

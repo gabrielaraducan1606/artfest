@@ -533,57 +533,102 @@
 }
 
 /* ===== Mobile layout rules ===== */
+/* ===== Mobile layout rules ===== */
 @media (max-width: 768px) {
-  .container { display: none; }
+  .container {
+    height: 64px;
+    display: flex;
+  }
 
-  .burger { display: block; }
+  .burger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .nav {
     position: fixed;
     top: 64px;
     left: 0;
-    right: 0;
+    right: auto;
+    width: min(320px, 86vw);
+    height: calc(100vh - 64px);
     background: var(--color-bg);
-    border-bottom: 1px solid var(--color-border);
-    display: grid;
+    border-right: 1px solid var(--color-border);
+    border-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
     gap: .6rem;
     padding: 1rem;
-    transform: translateY(-8px);
-    opacity: 0;
+    transform: translateX(-105%);
+    opacity: 1;
     pointer-events: none;
-    transition: transform .18s ease, opacity .18s ease;
+    transition: transform .18s ease;
+    z-index: 1002;
   }
-  .nav--open { transform: translateY(0); opacity: 1; pointer-events: auto; }
-  .nav .search { display: none; }
-  .mobileSearch { display: block; }
-  .actionsRight { gap: 6px; }
-  .sellBtn { display: none; }
 
-  .mobileBar { display: grid; }
+  .nav--open {
+    transform: translateX(0);
+    pointer-events: auto;
+  }
 
-  :root { --mobile-bottom-bar-h: calc(56px + env(safe-area-inset-bottom)); }
-  body { padding-bottom: var(--mobile-bottom-bar-h); }
+  .nav .search {
+    display: none;
+  }
 
-  .nav, .nav--open, .navBackdrop { display: none !important; }
+  .navBackdrop {
+    display: block;
+    position: fixed;
+    inset: 64px 0 0 0;
+    background: rgba(0,0,0,.35);
+    border: 0;
+    padding: 0;
+    margin: 0;
+    z-index: 1001;
+  }
 
-.badgeMini {
-  position: absolute;
-  top: -1px;
-  right: 18%;
-  background: var(--color-primary);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  min-width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  line-height: 1;
-  padding: 2 2px;
+  .mobileSearch {
+    display: block;
+  }
+
+  .actionsRight {
+    gap: 6px;
+  }
+
+  .sellBtn {
+    display: none;
+  }
+
+  .mobileBar {
+    display: grid;
+  }
+
+  :root {
+    --mobile-bottom-bar-h: calc(56px + env(safe-area-inset-bottom));
+  }
+
+  body {
+    padding-bottom: var(--mobile-bottom-bar-h);
+  }
+
+  .badgeMini {
+    position: absolute;
+    top: -1px;
+    right: 18%;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    min-width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    line-height: 1;
+    padding: 2px;
+  }
 }
-
-}
-
 /* ---- Compact & flexibil pentru mobil ---- */
 .search {
   width: clamp(var(--search-min, 14rem), var(--search-ideal, 45vw), var(--search-max, 20rem));
