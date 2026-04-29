@@ -377,7 +377,9 @@ model VendorService {
   estimatedShippingFeeCents  Int?
   freeShippingThresholdCents Int?
   shippingNotes              String?
-
+  
+searches Search[] // dacă ai pus relație Search -> VendorService
+  events Event[] // ✅ adaugă
   products           Product[]
   shipments          Shipment[]
   ServiceFollow      ServiceFollow[]
@@ -820,6 +822,7 @@ model Visitor {
 model Event {
   id        String    @id @default(cuid())
   vendorId  String
+  serviceId String?   // ✅ adaugă
   type      EventType
   createdAt DateTime  @default(now())
   pageUrl   String?
@@ -829,9 +832,12 @@ model Event {
   userAgent String?
   viewId    String?
 
-  Vendor Vendor @relation(fields: [vendorId], references: [id])
+  Vendor  Vendor         @relation(fields: [vendorId], references: [id])
+  service VendorService? @relation(fields: [serviceId], references: [id], onDelete: SetNull) // ✅ adaugă
 
   @@index([vendorId, createdAt])
+  @@index([serviceId, createdAt]) // ✅ adaugă
+  @@index([vendorId, serviceId, createdAt]) // ✅ adaugă
   @@index([vendorId, type, createdAt])
   @@index([vendorId, pageUrl, createdAt])
   @@index([vendorId, sessionId, viewId, createdAt])
@@ -840,6 +846,7 @@ model Event {
 model Search {
   id        String   @id @default(cuid())
   vendorId  String
+  serviceId String?  // ✅ adaugă
   query     String
   hits      Int      @default(1)
   createdAt DateTime @default(now())
@@ -848,9 +855,11 @@ model Search {
   filters   Json?
   results   Int?
 
-  Vendor Vendor @relation(fields: [vendorId], references: [id])
+  Vendor  Vendor         @relation(fields: [vendorId], references: [id])
+  service VendorService? @relation(fields: [serviceId], references: [id], onDelete: SetNull) // ✅ adaugă
 
   @@index([vendorId, createdAt])
+  @@index([serviceId, createdAt]) // ✅ adaugă
 }
 
 model UserConsent {

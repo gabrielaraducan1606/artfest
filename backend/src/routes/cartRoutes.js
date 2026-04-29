@@ -7,12 +7,32 @@ import { authRequired } from "../api/auth.js";
 
 const router = Router();
 
-// helper
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
+function productIsPublicAvailable(p) {
+  return (
+    p &&
+    p.isActive !== false &&
+    p.isHidden !== true &&
+    String(p.moderationStatus || "PENDING").toUpperCase() === "APPROVED" &&
+    String(p.availability || "READY").toUpperCase() !== "SOLD_OUT"
+  );
+}
+
+function getStockLimit(p) {
+  const availability = String(p?.availability || "READY").toUpperCase();
+
+  // Doar produsele READY cu readyQty numeric au stoc limitat.
+  // readyQty null = stoc negestionat / nelimitat.
+  if (availability !== "READY") return null;
+  if (p.readyQty === null || p.readyQty === undefined) return null;
+
+  const stock = Number(p.readyQty);
+  return Number.isFinite(stock) ? Math.max(0, stock) : 0;
+}
+
 /**
- * Returnează cart items în formatul așteptat de frontend,
- * făcând 2 query-uri rapide (cartItems + products IN ids).
+ * Returnează cart items în formatul așteptat de frontend.
  */
 async function getCartForUser(userId) {
   const t0 = Date.now();
@@ -41,6 +61,13 @@ async function getCartForUser(userId) {
       images: true,
       priceCents: true,
       currency: true,
+
+      isActive: true,
+      isHidden: true,
+      moderationStatus: true,
+      availability: true,
+      readyQty: true,
+
       service: {
         select: {
           vendorId: true,
@@ -58,7 +85,6 @@ async function getCartForUser(userId) {
   const mapped = cartItems.map((ci) => {
     const p = byId.get(ci.productId);
 
-    // Dacă produsul a fost șters / indisponibil
     if (!p) {
       return {
         productId: ci.productId,
@@ -68,6 +94,8 @@ async function getCartForUser(userId) {
     }
 
     const service = p.service;
+    const stockLimit = getStockLimit(p);
+
     return {
       productId: ci.productId,
       qty: ci.qty,
@@ -77,6 +105,15 @@ async function getCartForUser(userId) {
         images: p.images,
         price: (p.priceCents ?? 0) / 100,
         currency: p.currency || "RON",
+
+        isActive: p.isActive,
+        isHidden: !!p.isHidden,
+        moderationStatus: p.moderationStatus || "PENDING",
+        availability: p.availability ? String(p.availability).toUpperCase() : null,
+        readyQty: p.readyQty ?? null,
+        stockLimit,
+        isAvailable: productIsPublicAvailable(p),
+
         vendorId: service?.vendorId ?? null,
         storeName:
           service?.profile?.displayName ||
@@ -101,14 +138,22 @@ async function getCartForUser(userId) {
 ============================================================ */
 router.post("/cart/add", authRequired, async (req, res) => {
   const { productId, qty = 1 } = req.body || {};
+
   if (!productId) {
     return res.status(400).json({ error: "productId_required" });
   }
+
+  const safeQty = clamp(parseInt(qty, 10) || 1, 1, 99);
 
   const prod = await prisma.product.findUnique({
     where: { id: productId },
     select: {
       id: true,
+      availability: true,
+      readyQty: true,
+      isActive: true,
+      isHidden: true,
+      moderationStatus: true,
       service: {
         select: {
           vendorId: true,
@@ -122,16 +167,44 @@ router.post("/cart/add", authRequired, async (req, res) => {
     return res.status(404).json({ error: "product_not_found" });
   }
 
-  // Nu permite adăugarea propriilor produse (comparăm direct userId)
   if (prod.service?.vendor?.userId === req.user.sub) {
     return res.status(403).json({ error: "cannot_add_own_product" });
   }
 
-  const safeQty = clamp(parseInt(qty, 10) || 1, 1, 99);
+  if (!productIsPublicAvailable(prod)) {
+    return res.status(409).json({
+      error:
+        String(prod.availability || "").toUpperCase() === "SOLD_OUT"
+          ? "product_sold_out"
+          : "product_unavailable",
+      message:
+        String(prod.availability || "").toUpperCase() === "SOLD_OUT"
+          ? "Produsul este epuizat."
+          : "Produsul nu mai este disponibil.",
+    });
+  }
+
+  const existing = await prisma.cartItem.findUnique({
+    where: { userId_productId: { userId: req.user.sub, productId } },
+    select: { qty: true },
+  });
+
+  const currentQty = Number(existing?.qty || 0);
+  const nextQty = currentQty + safeQty;
+
+  const stockLimit = getStockLimit(prod);
+  if (stockLimit !== null && nextQty > stockLimit) {
+    return res.status(409).json({
+      error: "insufficient_stock",
+      message: `Poți adăuga maximum ${stockLimit} buc. în coș.`,
+      stock: stockLimit,
+      currentQty,
+    });
+  }
 
   const item = await prisma.cartItem.upsert({
     where: { userId_productId: { userId: req.user.sub, productId } },
-    update: { qty: { increment: safeQty } },
+    update: { qty: nextQty },
     create: { userId: req.user.sub, productId, qty: safeQty },
   });
 
@@ -143,6 +216,7 @@ router.post("/cart/add", authRequired, async (req, res) => {
 ============================================================ */
 router.post("/cart/update", authRequired, async (req, res) => {
   const { productId, qty } = req.body || {};
+
   if (!productId) {
     return res.status(400).json({ error: "productId_required" });
   }
@@ -154,6 +228,11 @@ router.post("/cart/update", authRequired, async (req, res) => {
       qty: true,
       product: {
         select: {
+          availability: true,
+          readyQty: true,
+          isActive: true,
+          isHidden: true,
+          moderationStatus: true,
           service: {
             select: {
               vendor: { select: { userId: true } },
@@ -168,12 +247,33 @@ router.post("/cart/update", authRequired, async (req, res) => {
     return res.status(404).json({ error: "cart_item_not_found" });
   }
 
-  // Blocare owner: produsul aparține userului logat
   if (item.product?.service?.vendor?.userId === req.user.sub) {
     return res.status(403).json({ error: "cannot_update_own_product" });
   }
 
+  if (!productIsPublicAvailable(item.product)) {
+    return res.status(409).json({
+      error:
+        String(item.product?.availability || "").toUpperCase() === "SOLD_OUT"
+          ? "product_sold_out"
+          : "product_unavailable",
+      message:
+        String(item.product?.availability || "").toUpperCase() === "SOLD_OUT"
+          ? "Produsul este epuizat."
+          : "Produsul nu mai este disponibil.",
+    });
+  }
+
   const safeQty = clamp(parseInt(qty, 10) || 1, 1, 99);
+
+  const stockLimit = getStockLimit(item.product);
+  if (stockLimit !== null && safeQty > stockLimit) {
+    return res.status(409).json({
+      error: "insufficient_stock",
+      message: `Poți avea maximum ${stockLimit} buc. în coș.`,
+      stock: stockLimit,
+    });
+  }
 
   const updated = await prisma.cartItem.update({
     where: { userId_productId: { userId: req.user.sub, productId } },
@@ -188,6 +288,7 @@ router.post("/cart/update", authRequired, async (req, res) => {
 ============================================================ */
 router.delete("/cart/remove", authRequired, async (req, res) => {
   const { productId } = req.body || {};
+
   if (!productId) {
     return res.status(400).json({ error: "productId_required" });
   }
@@ -203,7 +304,6 @@ router.delete("/cart/remove", authRequired, async (req, res) => {
 
 /* ============================================================
    POST /api/cart/remove-batch
-   body: { productIds: [] }
 ============================================================ */
 router.post("/cart/remove-batch", authRequired, async (req, res) => {
   const arr = Array.isArray(req.body?.productIds) ? req.body.productIds : [];
@@ -233,34 +333,45 @@ router.post("/cart/clear", authRequired, async (req, res) => {
 /* ============================================================
    POST /api/cart/merge
    body: { items: [{ productId, qty }] }
-   OPTIMIZAT: 1 singur INSERT ... ON CONFLICT (Postgres)
 ============================================================ */
 router.post("/cart/merge", authRequired, async (req, res) => {
   const arr = Array.isArray(req.body?.items) ? req.body.items : [];
+
   if (!arr.length) {
     return res.json({ ok: true, merged: 0, skipped: 0, items: [] });
   }
 
   const userId = req.user.sub;
 
-  // dedupe ids
   const ids = Array.from(
     new Set(arr.map((x) => String(x.productId || "").trim()).filter(Boolean))
   );
 
-  // luăm minim pentru filtrare "own product"
   const prods = await prisma.product.findMany({
     where: { id: { in: ids } },
     select: {
       id: true,
+      availability: true,
+      readyQty: true,
+      isActive: true,
+      isHidden: true,
+      moderationStatus: true,
       service: { select: { vendor: { select: { userId: true } } } },
     },
   });
 
+  const existingItems = await prisma.cartItem.findMany({
+    where: { userId, productId: { in: ids } },
+    select: { productId: true, qty: true },
+  });
+
   const prodById = new Map(prods.map((p) => [p.id, p]));
+  const existingQtyById = new Map(
+    existingItems.map((x) => [x.productId, Number(x.qty || 0)])
+  );
 
   let skipped = 0;
-  const rows = [];
+  const rowsByProductId = new Map();
 
   for (const x of arr) {
     const pid = String(x.productId || "").trim();
@@ -274,22 +385,40 @@ router.post("/cart/merge", authRequired, async (req, res) => {
       continue;
     }
 
-    // nu lăsăm utilizatorul să-și adauge propriile produse
     if (p.service?.vendor?.userId === userId) {
       skipped++;
       continue;
     }
 
-    rows.push({ userId, productId: pid, qty });
+    if (!productIsPublicAvailable(p)) {
+      skipped++;
+      continue;
+    }
+
+    const alreadyPreparedQty = Number(rowsByProductId.get(pid)?.qty || 0);
+    const existingQty = Number(existingQtyById.get(pid) || 0);
+    const requestedTotal = existingQty + alreadyPreparedQty + qty;
+
+    const stockLimit = getStockLimit(p);
+    if (stockLimit !== null && requestedTotal > stockLimit) {
+      skipped++;
+      continue;
+    }
+
+    rowsByProductId.set(pid, {
+      userId,
+      productId: pid,
+      qty: alreadyPreparedQty + qty,
+    });
   }
+
+  const rows = Array.from(rowsByProductId.values());
 
   if (!rows.length) {
     const { items } = await getCartForUser(userId);
     return res.json({ ok: true, merged: 0, skipped, items });
   }
 
-  // 1 singur statement SQL: INSERT ... ON CONFLICT
-  // IMPORTANT: nu interpolăm valori direct în SQL, doar placeholders ($1, $2, ...)
   const valuesSql = rows
     .map(
       (_, i) =>
@@ -311,7 +440,6 @@ router.post("/cart/merge", authRequired, async (req, res) => {
     ...params
   );
 
-  // returnăm coșul complet în format FE
   const { items } = await getCartForUser(userId);
 
   res.json({
@@ -336,14 +464,12 @@ router.get("/cart/count", authRequired, async (req, res) => {
 
 /* ============================================================
    GET /api/cart
-   OPTIMIZAT: 2 query-uri + map
 ============================================================ */
 router.get("/cart", authRequired, async (req, res) => {
   const userId = req.user.sub;
 
   const { items, timing } = await getCartForUser(userId);
 
-  // util pentru debugging/profiling (îl poți lăsa și în prod)
   res.setHeader(
     "Server-Timing",
     `cart;dur=${timing.cartMs},products;dur=${timing.productsMs},map;dur=${timing.mapMs}`

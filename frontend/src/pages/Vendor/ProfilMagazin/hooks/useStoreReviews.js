@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api";
 
-export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
+export default function useStoreReviews({
+  slug,
+  storeSlug,
+  rating,
+  serviceId,
+}) {
   const baseReviewsData = useMemo(
     () => ({
       items: [],
@@ -44,30 +49,48 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
       total: baseReviewsData.total,
       stats: baseReviewsData.stats,
     });
-  }, [baseReviewsData]);
+    setReviewsLoaded(false);
+  }, [baseReviewsData, serviceId, storeSlug, slug]);
 
-  async function fetchReviews(q) {
-    const effectiveSlug = storeSlug || slug;
-    if (!effectiveSlug) return;
-
+  async function fetchReviews(q = query) {
     const params = new URLSearchParams();
+
     params.set("sort", q.sort);
     params.set("skip", String(q.skip));
     params.set("take", String(q.take));
 
+    if (serviceId) {
+      params.set("serviceId", serviceId);
+    }
+
     if (q.filter?.verified) params.set("verified", "1");
+
     if (q.filter?.star >= 1 && q.filter?.star <= 5) {
       params.set("star", String(q.filter.star));
     }
+
     if (q.filter?.noReply) params.set("noReply", "1");
     if (q.filter?.lowRatingOnly) params.set("lowRatingOnly", "1");
 
-    const res = await fetch(
-      `/api/public/store/${encodeURIComponent(
-        effectiveSlug
-      )}/reviews?${params.toString()}`
-    );
-    const data = await res.json();
+    let data;
+
+    if (serviceId) {
+      data = await api(`/api/store-reviews?${params.toString()}`, {
+        method: "GET",
+      });
+    } else {
+      const effectiveSlug = storeSlug || slug;
+
+      if (!effectiveSlug) return;
+
+      const res = await fetch(
+        `/api/public/store/${encodeURIComponent(
+          effectiveSlug
+        )}/reviews?${params.toString()}`
+      );
+
+      data = await res.json();
+    }
 
     let items = [];
     let total = 0;
@@ -90,6 +113,7 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
 
         for (const r of data) {
           const s = Number(r.rating || 0);
+
           if (s >= 1 && s <= 5) {
             counts[s] = (counts[s] || 0) + 1;
             sum += s;
@@ -117,9 +141,12 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
 
   async function ensureReviewsLoaded() {
     if (reviewsLoaded) return;
+
     try {
       await fetchReviews(query);
-    } catch {""}
+    } catch {
+      // noop
+    }
   }
 
   function changeQueryFromUI(patch) {
@@ -127,9 +154,13 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
       const next = {
         ...prev,
         ...patch,
-        filter: { ...prev.filter, ...(patch?.filter || {}) },
+        filter: {
+          ...prev.filter,
+          ...(patch?.filter || {}),
+        },
         skip: 0,
       };
+
       fetchReviews(next).catch(() => {});
       return next;
     });
@@ -140,6 +171,7 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
       await api(`/api/store-reviews/${reviewId}/helpful`, {
         method: "POST",
       });
+
       fetchReviews(query).catch(() => {});
     } catch {
       alert("Nu am putut marca recenzia ca utilă.");
@@ -155,6 +187,7 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
         method: "POST",
         body: { reason },
       });
+
       alert("Mulțumim! Am înregistrat raportarea.");
     } catch {
       alert("Nu am putut raporta recenzia.");
@@ -163,6 +196,7 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
 
   const onDeleteUserReview = async (reviewId) => {
     if (!reviewId) return;
+
     const ok = window.confirm("Sigur vrei să ștergi această recenzie?");
     if (!ok) return;
 
@@ -170,14 +204,21 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
       await api(`/api/store-reviews/${reviewId}`, {
         method: "DELETE",
       });
+
       fetchReviews(query).catch(() => {});
     } catch (e) {
       alert(e?.message || "Nu am putut șterge recenzia.");
     }
   };
 
-  const onSubmitUserReview = async ({ rating: r, comment: c }) => {
-    if (!vendorId) {
+  const onSubmitUserReview = async ({
+    serviceId: passedServiceId,
+    rating: r,
+    comment: c,
+  }) => {
+    const sid = passedServiceId || serviceId;
+
+    if (!sid) {
       alert(
         "Nu am putut identifica magazinul pentru recenzie. Reîncarcă pagina și încearcă din nou."
       );
@@ -196,7 +237,7 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
       await api("/api/store-reviews", {
         method: "POST",
         body: {
-          vendorId,
+          serviceId: sid,
           rating: ratingVal,
           comment,
         },
@@ -214,6 +255,7 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
       method: "POST",
       body: { text },
     });
+
     fetchReviews(query).catch(() => {});
   };
 
@@ -221,6 +263,7 @@ export default function useStoreReviews({ slug, storeSlug, rating, vendorId }) {
     await api(`/api/vendor/store-reviews/${reviewId}/reply`, {
       method: "DELETE",
     });
+
     fetchReviews(query).catch(() => {});
   };
 

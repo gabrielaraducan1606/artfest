@@ -24,14 +24,15 @@ import {
 
 function useDebouncedValue(value, delay = 200) {
   const [v, setV] = React.useState(value);
+
   React.useEffect(() => {
     const t = setTimeout(() => setV(value), delay);
     return () => clearTimeout(t);
   }, [value, delay]);
+
   return v;
 }
 
-// Mic util pentru label-uri mai umane din slug-uri (pentru materiale, tehnici, stil, ocazii)
 const humanizeSlug = (slug = "") => {
   if (!slug || typeof slug !== "string") return "";
   return slug
@@ -39,19 +40,52 @@ const humanizeSlug = (slug = "") => {
     .replace(/\b\w/g, (m) => m.toUpperCase());
 };
 
+const getProductId = (p) => p?.id || p?._id;
+
+const getProductShopId = (p, detail = {}) =>
+  p?.shopId ||
+  p?.storeId ||
+  p?.vendorStoreId ||
+  p?.shop?._id ||
+  p?.shop?.id ||
+  p?.store?._id ||
+  p?.store?.id ||
+  detail?.shopId ||
+  detail?.storeId ||
+  detail?.vendorStoreId;
+const buildDefaultFilters = (fromUrl = {}) => ({
+  q: fromUrl.q || "",
+  category: fromUrl.category || "",
+  color: fromUrl.color || "",
+  material: fromUrl.material || "",
+  technique: fromUrl.technique || "",
+  styleTag: fromUrl.styleTag || "",
+  occasionTag: fromUrl.occasionTag || "",
+  onlyFav: !!fromUrl.onlyFav,
+  pmin: fromUrl.pmin ?? "",
+pmax: fromUrl.pmax ?? "",
+  sort: fromUrl.sort || "relevant",
+  status: fromUrl.status || "",
+  moderationStatus: fromUrl.moderationStatus || "",
+  hidden: !!fromUrl.hidden,
+  availability: fromUrl.availability || "",
+  leadTimeMax: fromUrl.leadTimeMax ?? "",
+  acceptsCustom: !!fromUrl.acceptsCustom,
+});
 export default function ProductList({
   products = [],
+  isLoading = false,
+  shopId,
   isOwner,
   viewMode,
-  favorites, // Set sau array cu productId-uri
+  favorites,
   navigate,
-  onAddFirstProduct, // handler -> openNewProduct()
-  productsCacheT, // cache-buster venit din părinte (opțional)
-  onEditProduct, // p => deschide ProductModal în modul edit
-  categories = [], // lista de categorii (detailed) din hook / API
-  colorLabelMap, // 🆕 map slug culoare -> label în RO (opțional)
+  onAddFirstProduct,
+  productsCacheT,
+  onEditProduct,
+  categories = [],
+  colorLabelMap,
 }) {
-  /* ================= Normalizare + cache ================= */
   const location = useLocation();
   const nav = useNavigate();
 
@@ -62,6 +96,7 @@ export default function ProductList({
       ),
     [products]
   );
+
   const [list, setList] = React.useState(normalized);
   const [imgCacheNonce, setImgCacheNonce] = React.useState(
     () => productsCacheT || Date.now()
@@ -69,7 +104,7 @@ export default function ProductList({
 
   React.useEffect(() => {
     setList(normalized);
-  }, [normalized]);
+  }, [normalized, shopId]);
 
   React.useEffect(() => {
     if (productsCacheT) setImgCacheNonce(productsCacheT);
@@ -78,48 +113,84 @@ export default function ProductList({
   const sameImages = (a = [], b = []) => {
     if (!Array.isArray(a) || !Array.isArray(b)) return false;
     if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
     return true;
   };
 
-  // 🔥 aici gestionăm update / delete / create produse
   React.useEffect(() => {
+    const belongsToCurrentShop = (product, detail = {}) => {
+      if (!shopId) return true;
+
+      const productShopId = getProductShopId(product, detail);
+
+      if (!productShopId) return true;
+
+      return String(productShopId) === String(shopId);
+    };
+
     const onUpdated = (e) => {
-      const up = e?.detail?.product;
-      const upId = up?.id || up?._id || e?.detail?.id;
+      const detail = e?.detail || {};
+      const up = detail?.product;
+      const upId = getProductId(up) || detail?.id;
+
       if (!upId) return;
+      if (!belongsToCurrentShop(up, detail)) return;
 
       setList((prev) => {
         if (!Array.isArray(prev)) return prev;
+
         let changed = false;
+
         const next = prev.map((p) => {
-          const pid = p?.id || p?._id;
+          const pid = getProductId(p);
           if (pid !== upId) return p;
+
           const merged = up ? { ...p, ...up } : { ...p };
-          if (!up || !sameImages(p.images, merged.images))
+
+          if (!up || !sameImages(p.images, merged.images)) {
             setImgCacheNonce(Date.now());
+          }
+
           changed = true;
           return merged;
         });
+
         return changed ? next : prev;
       });
     };
 
     const onDeleted = (e) => {
-      const delId = e?.detail?.id;
+      const detail = e?.detail || {};
+      const delId = detail?.id;
+
       if (!delId) return;
+
+      if (shopId) {
+        const eventShopId =
+          detail?.shopId || detail?.storeId || detail?.vendorStoreId;
+
+        if (eventShopId && String(eventShopId) !== String(shopId)) {
+          return;
+        }
+      }
+
       setList((prev) =>
         Array.isArray(prev)
-          ? prev.filter((p) => (p?.id || p?._id) !== delId)
+          ? prev.filter((p) => getProductId(p) !== delId)
           : prev
       );
     };
 
-    // 🆕 PRODUS NOU – îl adăugăm în listă fără refresh
     const onCreated = (e) => {
-      const p = e?.detail?.product;
+      const detail = e?.detail || {};
+      const p = detail?.product;
+
       if (!p) return;
-      const pid = p.id || p._id;
+      if (!belongsToCurrentShop(p, detail)) return;
+
+      const pid = getProductId(p);
       if (!pid) return;
 
       setList((prev) => {
@@ -128,13 +199,11 @@ export default function ProductList({
           return [p];
         }
 
-        const exists = prev.some(
-          (x) => (x?.id || x?._id) === pid
-        );
+        const exists = prev.some((x) => getProductId(x) === pid);
         if (exists) return prev;
 
         setImgCacheNonce(Date.now());
-        return [p, ...prev]; // noul produs la începutul listei
+        return [p, ...prev];
       });
     };
 
@@ -147,7 +216,7 @@ export default function ProductList({
       window.removeEventListener("vendor:productDeleted", onDeleted);
       window.removeEventListener("vendor:productCreated", onCreated);
     };
-  }, []);
+  }, [shopId]);
 
   const hasFav = React.useCallback(
     (pid) => {
@@ -159,26 +228,27 @@ export default function ProductList({
     [favorites]
   );
 
-  /* ================= Map de categorii (key -> label frumos) ================= */
   const categoryLabelMap = React.useMemo(() => {
     const map = {};
+
     if (Array.isArray(categories)) {
       for (const c of categories) {
         if (!c) continue;
+
         if (typeof c === "string") {
           map[c] = c;
         } else if (typeof c === "object") {
           const key = c.key || c.value || "";
           if (!key) continue;
-          const label = c.label || c.name || key;
-          map[key] = label;
+
+          map[key] = c.label || c.name || key;
         }
       }
     }
+
     return map;
   }, [categories]);
 
-  /* ================= Filtre disponibile (din listă) ================= */
   const computed = React.useMemo(() => {
     const cats = new Set();
     const statuses = new Set();
@@ -193,18 +263,22 @@ export default function ProductList({
 
     const base = isOwner
       ? list
-      : list.filter((p) => p?.isActive !== false && !p?.isHidden);
+      : list.filter(
+          (p) =>
+            p?.isActive !== false &&
+            !p?.isHidden &&
+            String(p?.moderationStatus || "APPROVED").toUpperCase() ===
+              "APPROVED"
+        );
+
     for (const p of base) {
       if (p?.category) cats.add(p.category);
       if (p?.color) colors.add(p.color);
       if (p?.materialMain) materials.add(p.materialMain);
       if (p?.technique) techniques.add(p.technique);
 
-      // styleTags poate fi array sau string comma-separated
       if (Array.isArray(p?.styleTags)) {
-        for (const t of p.styleTags) {
-          if (t) styleTags.add(String(t));
-        }
+        p.styleTags.forEach((t) => t && styleTags.add(String(t)));
       } else if (typeof p?.styleTags === "string") {
         p.styleTags
           .split(/[,\s]+/)
@@ -213,11 +287,8 @@ export default function ProductList({
           .forEach((t) => styleTags.add(t));
       }
 
-      // occasionTags poate fi array sau string comma-separated
       if (Array.isArray(p?.occasionTags)) {
-        for (const t of p.occasionTags) {
-          if (t) occasionTags.add(String(t));
-        }
+        p.occasionTags.forEach((t) => t && occasionTags.add(String(t)));
       } else if (typeof p?.occasionTags === "string") {
         p.occasionTags
           .split(/[,\s]+/)
@@ -227,11 +298,15 @@ export default function ProductList({
       }
 
       const price = Number(p?.price);
+
       if (Number.isFinite(price)) {
         if (price < min) min = price;
         if (price > max) max = price;
       }
-      if (isOwner) statuses.add(p?.isActive !== false ? "active" : "inactive");
+
+      if (isOwner) {
+        statuses.add(p?.isActive !== false ? "active" : "inactive");
+      }
     }
 
     return {
@@ -247,9 +322,7 @@ export default function ProductList({
     };
   }, [list, isOwner]);
 
-  // Opțiuni de categorie pentru dropdown (folosim label-urile frumoase)
   const categoryOptions = React.useMemo(() => {
-    // dacă nu avem categories din props, folosim ce avem în listă
     if (!Array.isArray(categories) || categories.length === 0) {
       return computed.categories.map((key) => ({
         key,
@@ -257,111 +330,105 @@ export default function ProductList({
       }));
     }
 
-    // altfel păstrăm ordinea din categories, dar arătăm doar pe cele care apar în produse
     const setFromProducts = new Set(computed.categories);
-    const opts = [];
-    for (const c of categories) {
-      if (!c) continue;
-      if (typeof c === "string") {
-        if (!setFromProducts.has(c)) continue;
-        opts.push({ key: c, label: categoryLabelMap[c] || c });
-      } else if (typeof c === "object") {
-        const key = c.key || c.value || "";
-        if (!key || !setFromProducts.has(key)) continue;
-        const label = c.label || c.name || key;
-        opts.push({ key, label });
-      }
-    }
-    return opts;
+
+    return categories
+      .map((c) => {
+        if (!c) return null;
+
+        if (typeof c === "string") {
+          if (!setFromProducts.has(c)) return null;
+          return { key: c, label: categoryLabelMap[c] || c };
+        }
+
+        if (typeof c === "object") {
+          const key = c.key || c.value || "";
+          if (!key || !setFromProducts.has(key)) return null;
+          return { key, label: c.label || c.name || key };
+        }
+
+        return null;
+      })
+      .filter(Boolean);
   }, [categories, computed.categories, categoryLabelMap]);
 
-  /* ================= State filtre cu sincronizare URL ================= */
   const [filters, setFilters] = React.useState(() => {
-    const fromUrl = readFiltersFromSearch(location.search);
-    const base = {
-      q: fromUrl.q || "",
-      category: fromUrl.category || "",
-      color: fromUrl.color || "",
-      material: fromUrl.material || "",
-      technique: fromUrl.technique || "",
-      styleTag: fromUrl.styleTag || "",
-      occasionTag: fromUrl.occasionTag || "",
-      onlyFav: !!fromUrl.onlyFav,
-      pmin: 0,
-      pmax: 0,
-      sort: fromUrl.sort || "relevant",
-      status: fromUrl.status || "",
-      hidden: !!fromUrl.hidden,
-      availability: fromUrl.availability || "",
-      leadTimeMax: fromUrl.leadTimeMax ?? "",
-      acceptsCustom: !!fromUrl.acceptsCustom,
-    };
+  const fromUrl = readFiltersFromSearch(location.search);
+  const base = buildDefaultFilters(fromUrl);
 
-    // ❗ DOAR vendorul folosește fallback-ul din localStorage.
-    // Pentru user/guest nu citim filtre salvate de vendor, ca să nu le ascundă toate produsele.
-    if (!location.search && isOwner) {
-      const ls = loadFiltersFromLS();
-      return ls ? { ...base, ...ls } : base;
-    }
+  if (!location.search && isOwner) {
+    const ls = loadFiltersFromLS(shopId);
+    return ls ? { ...base, ...ls } : base;
+  }
 
-    return base;
-  });
+  return base;
+});
 
-  // aliniază pmin/pmax cu domeniul din computed
-  React.useEffect(() => {
-    setFilters((f) => ({
-      ...f,
-      pmin: f.pmin === 0 || f.pmin === "" ? computed.priceMin : f.pmin,
-      pmax: f.pmax === 0 || f.pmax === "" ? computed.priceMax : f.pmax,
-    }));
-  }, [computed.priceMin, computed.priceMax]);
+React.useEffect(() => {
+  const fromUrl = readFiltersFromSearch(location.search);
+  const base = buildDefaultFilters(fromUrl);
 
-  const panelOpenState = React.useState(false);
-  const [panelOpen, setPanelOpen] = panelOpenState;
+  if (!location.search && isOwner) {
+    const ls = loadFiltersFromLS(shopId);
+    setFilters(ls ? { ...base, ...ls } : base);
+    return;
+  }
+
+  setFilters(base);
+}, [shopId, location.search, isOwner]);
+
+  const [panelOpen, setPanelOpen] = React.useState(false);
   const debouncedQ = useDebouncedValue(filters.q, 200);
   const debouncedFilters = useDebouncedValue(filters, 250);
 
-  // Lock scroll pentru panou
   React.useEffect(() => {
-    if (panelOpen) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = prev;
-      };
-    }
+    if (!panelOpen) return;
+
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, [panelOpen]);
 
-  // Scrie filtrele în URL + LS la schimbare
   React.useEffect(() => {
     const nextSearch = writeFiltersToSearch(
       debouncedFilters,
       location.search
     );
+
     if (nextSearch !== location.search) {
       nav(
-        { pathname: location.pathname, search: nextSearch },
+        {
+          pathname: location.pathname,
+          search: nextSearch,
+        },
         { replace: true }
       );
     }
 
-    // ❗ doar vendorul persistă filtrele în localStorage
     if (isOwner) {
-      saveFiltersToLS(debouncedFilters);
+      saveFiltersToLS(debouncedFilters, shopId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedFilters, isOwner]);
+  }, [debouncedFilters, isOwner, shopId]);
 
-  /* ================= Aplicare filtre + sort ================= */
   const filteredSorted = React.useMemo(() => {
     let arr = list.slice();
 
-    // USER/GUEST: ascunde din start produse inactive/ascunse
     if (!isOwner) {
-      arr = arr.filter((p) => p?.isActive !== false && !p?.isHidden);
+      arr = arr.filter(
+        (p) =>
+          p?.isActive !== false &&
+          !p?.isHidden &&
+          String(p?.moderationStatus || "APPROVED").toUpperCase() ===
+            "APPROVED"
+      );
     }
 
     const q = (debouncedQ || "").trim().toLowerCase();
+
     if (q) {
       const terms = q
         .split(/\s+/)
@@ -384,10 +451,11 @@ export default function ProductList({
         if (Array.isArray(p?.styleTags)) parts.push(p.styleTags.join(" "));
         else if (typeof p?.styleTags === "string") parts.push(p.styleTags);
 
-        if (Array.isArray(p?.occasionTags))
+        if (Array.isArray(p?.occasionTags)) {
           parts.push(p.occasionTags.join(" "));
-        else if (typeof p?.occasionTags === "string")
+        } else if (typeof p?.occasionTags === "string") {
           parts.push(p.occasionTags);
+        }
 
         const haystack = parts.join(" ").toLowerCase();
         return terms.every((term) => haystack.includes(term));
@@ -398,33 +466,25 @@ export default function ProductList({
       arr = arr.filter((p) => (p?.category || "") === filters.category);
     }
 
-    // Culoare
     if (filters.color) {
       const c = filters.color.toLowerCase();
-      arr = arr.filter(
-        (p) => (p?.color || "").toLowerCase() === c
-      );
+      arr = arr.filter((p) => (p?.color || "").toLowerCase() === c);
     }
 
-    // Material principal
     if (filters.material) {
-      arr = arr.filter(
-        (p) => (p?.materialMain || "") === filters.material
-      );
+      arr = arr.filter((p) => (p?.materialMain || "") === filters.material);
     }
 
-    // Tehnică
     if (filters.technique) {
-      arr = arr.filter(
-        (p) => (p?.technique || "") === filters.technique
-      );
+      arr = arr.filter((p) => (p?.technique || "") === filters.technique);
     }
 
-    // Stil (orice tag din styleTags)
     if (filters.styleTag) {
       const target = filters.styleTag.toLowerCase();
+
       arr = arr.filter((p) => {
         let tags = [];
+
         if (Array.isArray(p?.styleTags)) {
           tags = p.styleTags;
         } else if (typeof p?.styleTags === "string") {
@@ -433,16 +493,17 @@ export default function ProductList({
             .map((t) => t.trim())
             .filter(Boolean);
         }
-        const lower = tags.map((t) => t.toLowerCase());
-        return lower.includes(target);
+
+        return tags.map((t) => String(t).toLowerCase()).includes(target);
       });
     }
 
-    // Ocazie (orice tag din occasionTags)
     if (filters.occasionTag) {
       const target = filters.occasionTag.toLowerCase();
+
       arr = arr.filter((p) => {
         let tags = [];
+
         if (Array.isArray(p?.occasionTags)) {
           tags = p.occasionTags;
         } else if (typeof p?.occasionTags === "string") {
@@ -451,45 +512,56 @@ export default function ProductList({
             .map((t) => t.trim())
             .filter(Boolean);
         }
-        const lower = tags.map((t) => t.toLowerCase());
-        return lower.includes(target);
+
+        return tags.map((t) => String(t).toLowerCase()).includes(target);
       });
     }
 
     if (!isOwner && filters.onlyFav) {
-      arr = arr.filter((p) => hasFav(p?.id || p?._id));
+      arr = arr.filter((p) => hasFav(getProductId(p)));
     }
 
-    // preț
-    const pmin = Number(filters.pmin) || 0;
-    const pmax =
-      Number(filters.pmax) || Number.POSITIVE_INFINITY;
-    arr = arr.filter((p) => {
-      const price = Number(p?.price);
-      if (!Number.isFinite(price)) return false;
-      return price >= pmin && price <= pmax;
-    });
+   const hasMin = filters.pmin !== "" && filters.pmin !== null;
+const hasMax = filters.pmax !== "" && filters.pmax !== null;
 
-    // vendor: status / hidden
+if (hasMin || hasMax) {
+  const pmin = hasMin ? Number(filters.pmin) : 0;
+  const pmax = hasMax ? Number(filters.pmax) : Number.POSITIVE_INFINITY;
+
+  arr = arr.filter((p) => {
+    const price = Number(p?.price);
+    if (!Number.isFinite(price)) return false;
+    return price >= pmin && price <= pmax;
+  });
+}
+
     if (isOwner && filters.status) {
       const shouldBeActive = filters.status === "active";
+      arr = arr.filter((p) => (p?.isActive !== false) === shouldBeActive);
+    }
+
+    if (isOwner && filters.moderationStatus) {
       arr = arr.filter(
-        (p) => (p?.isActive !== false) === shouldBeActive
+        (p) =>
+          String(p?.moderationStatus || "PENDING").toUpperCase() ===
+          filters.moderationStatus
       );
     }
+
     if (isOwner && filters.hidden) {
       arr = arr.filter((p) => p?.isHidden === true);
     }
 
-    // handmade: availability / lead time / custom
     if (filters.availability) {
       const av = String(filters.availability);
+
       if (av === "READY") {
         arr = arr.filter((p) => {
           const a = (p?.availability || "READY").toUpperCase();
           const qtty = Number.isFinite(Number(p?.readyQty))
             ? Number(p.readyQty)
             : null;
+
           return a === "READY" && (qtty == null || qtty > 0);
         });
       } else if (av === "SOLD_OUT") {
@@ -498,6 +570,7 @@ export default function ProductList({
           const qtty = Number.isFinite(Number(p?.readyQty))
             ? Number(p.readyQty)
             : null;
+
           return (
             a === "SOLD_OUT" ||
             (a === "READY" && qtty !== null && qtty <= 0)
@@ -512,14 +585,17 @@ export default function ProductList({
 
     if (Number(filters.leadTimeMax) > 0) {
       const maxDays = Number(filters.leadTimeMax);
+
       arr = arr.filter((p) => {
         const a = (p?.availability || "READY").toUpperCase();
+
         if (a === "MADE_TO_ORDER") {
           return (
             Number(p?.leadTimeDays) > 0 &&
             Number(p?.leadTimeDays) <= maxDays
           );
         }
+
         return true;
       });
     }
@@ -528,7 +604,6 @@ export default function ProductList({
       arr = arr.filter((p) => !!p?.acceptsCustom);
     }
 
-    // sort
     switch (filters.sort) {
       case "price_asc":
         arr.sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
@@ -539,113 +614,108 @@ export default function ProductList({
       case "new":
         arr.sort(
           (a, b) =>
-            new Date(b?.createdAt || 0) -
-            new Date(a?.createdAt || 0)
+            new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0)
         );
         break;
       case "old":
         arr.sort(
           (a, b) =>
-            new Date(a?.createdAt || 0) -
-            new Date(b?.createdAt || 0)
+            new Date(a?.createdAt || 0) - new Date(b?.createdAt || 0)
         );
         break;
       default:
         break;
     }
+
     return arr;
   }, [
     list,
     debouncedQ,
-    filters.category,
-    filters.color,
-    filters.material,
-    filters.technique,
-    filters.styleTag,
-    filters.occasionTag,
-    filters.onlyFav,
-    filters.pmin,
-    filters.pmax,
-    filters.sort,
-    filters.status,
-    filters.hidden,
-    filters.availability,
-    filters.leadTimeMax,
-    filters.acceptsCustom,
+    filters,
     isOwner,
     hasFav,
   ]);
 
-  /* ================= UI Helpers ================= */
   const activeChips = React.useMemo(() => {
     const chips = [];
-    if (filters.q)
-      chips.push({ key: "q", label: `„${filters.q}”` });
 
-    if (filters.category)
+    if (filters.q) chips.push({ key: "q", label: `„${filters.q}”` });
+
+    if (filters.category) {
       chips.push({
         key: "category",
-        label:
-          categoryLabelMap[filters.category] ||
-          filters.category,
+        label: categoryLabelMap[filters.category] || filters.category,
       });
+    }
 
-    if (filters.color)
+    if (filters.color) {
       chips.push({
         key: "color",
-        label: `Culoare: ${
-          colorLabelMap?.[filters.color] || filters.color
-        }`,
+        label: `Culoare: ${colorLabelMap?.[filters.color] || filters.color}`,
       });
+    }
 
-    if (filters.material)
+    if (filters.material) {
       chips.push({
         key: "material",
         label: `Material: ${humanizeSlug(filters.material)}`,
       });
+    }
 
-    if (filters.technique)
+    if (filters.technique) {
       chips.push({
         key: "technique",
         label: `Tehnică: ${humanizeSlug(filters.technique)}`,
       });
+    }
 
-    if (filters.styleTag)
+    if (filters.styleTag) {
       chips.push({
         key: "styleTag",
         label: `Stil: ${humanizeSlug(filters.styleTag)}`,
       });
+    }
 
-    if (filters.occasionTag)
+    if (filters.occasionTag) {
       chips.push({
         key: "occasionTag",
         label: `Ocazie: ${humanizeSlug(filters.occasionTag)}`,
       });
+    }
 
-    if (!isOwner && filters.onlyFav)
+    if (!isOwner && filters.onlyFav) {
       chips.push({ key: "onlyFav", label: "Favorite" });
+    }
 
-    if (Number(filters.pmin) > computed.priceMin)
-      chips.push({
-        key: "pmin",
-        label: `≥ ${filters.pmin} RON`,
-      });
-    if (Number(filters.pmax) < computed.priceMax)
-      chips.push({
-        key: "pmax",
-        label: `≤ ${filters.pmax} RON`,
-      });
+    if (filters.pmin !== "")
+    if (filters.pmax !== "")
 
-    if (isOwner && filters.status)
+    if (isOwner && filters.status) {
       chips.push({
         key: "status",
-        label:
-          filters.status === "active"
-            ? "Active"
-            : "Inactive",
+        label: filters.status === "active" ? "Active" : "Inactive",
       });
-    if (isOwner && filters.hidden)
+    }
+
+    if (isOwner && filters.moderationStatus) {
+      const moderationLabels = {
+        PENDING: "În verificare",
+        APPROVED: "Aprobate",
+        CHANGES_REQUESTED: "Necesită modificări",
+        REJECTED: "Respinse",
+      };
+
+      chips.push({
+        key: "moderationStatus",
+        label:
+          moderationLabels[filters.moderationStatus] ||
+          filters.moderationStatus,
+      });
+    }
+
+    if (isOwner && filters.hidden) {
       chips.push({ key: "hidden", label: "Ascunse" });
+    }
 
     if (filters.availability) {
       const map = {
@@ -654,30 +724,30 @@ export default function ProductList({
         PREORDER: "Precomandă",
         SOLD_OUT: "Epuizat",
       };
+
       chips.push({
         key: "availability",
-        label:
-          map[filters.availability] ||
-          filters.availability,
+        label: map[filters.availability] || filters.availability,
       });
     }
+
     if (Number(filters.leadTimeMax) > 0) {
       chips.push({
         key: "leadTimeMax",
         label: `Execuție ≤ ${filters.leadTimeMax} zile`,
       });
     }
+
     if (filters.acceptsCustom) {
       chips.push({
         key: "acceptsCustom",
         label: "Personalizabile",
       });
     }
+
     return chips;
   }, [
     filters,
-    computed.priceMin,
-    computed.priceMax,
     isOwner,
     categoryLabelMap,
     colorLabelMap,
@@ -686,6 +756,7 @@ export default function ProductList({
   const clearChip = (key) => {
     setFilters((f) => {
       const next = { ...f };
+
       switch (key) {
         case "q":
           next.q = "";
@@ -712,13 +783,16 @@ export default function ProductList({
           next.onlyFav = false;
           break;
         case "pmin":
-          next.pmin = computed.priceMin;
-          break;
-        case "pmax":
-          next.pmax = computed.priceMax;
-          break;
+  next.pmin = "";
+  break;
+case "pmax":
+  next.pmax = "";
+  break;
         case "status":
           next.status = "";
+          break;
+        case "moderationStatus":
+          next.moderationStatus = "";
           break;
         case "hidden":
           next.hidden = false;
@@ -735,6 +809,7 @@ export default function ProductList({
         default:
           break;
       }
+
       return next;
     });
   };
@@ -749,10 +824,11 @@ export default function ProductList({
       styleTag: "",
       occasionTag: "",
       onlyFav: false,
-      pmin: computed.priceMin,
-      pmax: computed.priceMax,
+      pmin: "",
+pmax: "",
       sort: "relevant",
       status: "",
+      moderationStatus: "",
       hidden: false,
       availability: "",
       leadTimeMax: "",
@@ -760,22 +836,21 @@ export default function ProductList({
     });
   };
 
-  // opțional: nu are rost buton de filtre dacă nu există produse
   const showFiltersUI = list.length > 0;
 
-  /* ================= Render ================= */
   return (
     <section className={styles.wrap}>
-      {/* Header + sortare + filtre */}
       <div className={styles.headerRow}>
         <div className={styles.headerLeft}>
           <h2 className={styles.title}>Produse</h2>
+
           <span
             className={styles.count}
             aria-label={`Număr produse: ${list.length}`}
           >
             {list.length}
           </span>
+
           {isOwner && (
             <button
               className={styles.addBtn}
@@ -791,7 +866,6 @@ export default function ProductList({
 
         {showFiltersUI && (
           <div className={styles.headerRight}>
-            {/* sortare scurtă */}
             <div
               className={styles.sortInline}
               role="group"
@@ -800,9 +874,7 @@ export default function ProductList({
               <button
                 type="button"
                 className={`${styles.sortBtn} ${
-                  filters.sort === "price_asc"
-                    ? styles.active
-                    : ""
+                  filters.sort === "price_asc" ? styles.active : ""
                 }`}
                 onClick={() =>
                   setFilters((f) => ({
@@ -816,12 +888,11 @@ export default function ProductList({
                 <FaSortAmountUp />{" "}
                 <span className={styles.hideSm}>Preț ↑</span>
               </button>
+
               <button
                 type="button"
                 className={`${styles.sortBtn} ${
-                  filters.sort === "price_desc"
-                    ? styles.active
-                    : ""
+                  filters.sort === "price_desc" ? styles.active : ""
                 }`}
                 onClick={() =>
                   setFilters((f) => ({
@@ -837,7 +908,6 @@ export default function ProductList({
               </button>
             </div>
 
-            {/* buton panou filtre */}
             <button
               type="button"
               className={styles.filterBtn}
@@ -849,17 +919,15 @@ export default function ProductList({
             >
               <FaFilter />
               <span className={styles.hideSm}>Filtre</span>
+
               {activeChips.length > 0 && (
-                <span className={styles.badge}>
-                  {activeChips.length}
-                </span>
+                <span className={styles.badge}>{activeChips.length}</span>
               )}
             </button>
           </div>
         )}
       </div>
 
-      {/* Chip-uri active */}
       {activeChips.length > 0 && (
         <div
           className={styles.chipsRow}
@@ -878,6 +946,7 @@ export default function ProductList({
               {c.label}
             </button>
           ))}
+
           <button
             className={styles.resetAll}
             onClick={resetAll}
@@ -888,12 +957,9 @@ export default function ProductList({
         </div>
       )}
 
-      {/* Panou filtre */}
       <div
         id="filters-panel"
-        className={`${styles.panel} ${
-          panelOpen ? styles.open : ""
-        }`}
+        className={`${styles.panel} ${panelOpen ? styles.open : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label="Filtre produse"
@@ -912,6 +978,7 @@ export default function ProductList({
 
         <div className={styles.panelHeader}>
           <strong>Filtre</strong>
+
           <button
             className={styles.panelClose}
             onClick={() => setPanelOpen(false)}
@@ -922,7 +989,6 @@ export default function ProductList({
         </div>
 
         <div className={styles.panelBody}>
-          {/* Căutare */}
           <label className={styles.label}>
             Caută
             <input
@@ -941,7 +1007,6 @@ export default function ProductList({
             />
           </label>
 
-          {/* Categorie */}
           <label className={styles.label}>
             Categorie
             <div className={styles.catRow}>
@@ -957,12 +1022,14 @@ export default function ProductList({
                 aria-label="Filtrează după categorie"
               >
                 <option value="">Toate categoriile</option>
+
                 {categoryOptions.map((c) => (
                   <option key={c.key} value={c.key}>
                     {c.label}
                   </option>
                 ))}
               </select>
+
               {filters.category && (
                 <button
                   className={styles.catChip}
@@ -970,15 +1037,13 @@ export default function ProductList({
                   title="Șterge categoria"
                 >
                   <FaTag />{" "}
-                  {categoryLabelMap[filters.category] ||
-                    filters.category}{" "}
+                  {categoryLabelMap[filters.category] || filters.category}{" "}
                   <FaTimes className={styles.chipX} />
                 </button>
               )}
             </div>
           </label>
 
-          {/* Culoare */}
           <label className={styles.label}>
             Culoare
             <div className={styles.catRow}>
@@ -994,28 +1059,27 @@ export default function ProductList({
                 aria-label="Filtrează după culoare"
               >
                 <option value="">Toate culorile</option>
+
                 {computed.colors.map((c) => (
                   <option key={c} value={c}>
                     {colorLabelMap?.[c] || c}
                   </option>
                 ))}
               </select>
+
               {filters.color && (
                 <button
                   className={styles.catChip}
                   onClick={() => clearChip("color")}
                   title="Șterge culoarea"
                 >
-                  <FaTag />{" "}
-                  {colorLabelMap?.[filters.color] ||
-                    filters.color}{" "}
+                  <FaTag /> {colorLabelMap?.[filters.color] || filters.color}{" "}
                   <FaTimes className={styles.chipX} />
                 </button>
               )}
             </div>
           </label>
 
-          {/* Material principal */}
           <label className={styles.label}>
             Material principal
             <div className={styles.catRow}>
@@ -1031,12 +1095,14 @@ export default function ProductList({
                 aria-label="Filtrează după material"
               >
                 <option value="">Toate materialele</option>
+
                 {computed.materials.map((m) => (
                   <option key={m} value={m}>
                     {humanizeSlug(m)}
                   </option>
                 ))}
               </select>
+
               {filters.material && (
                 <button
                   className={styles.catChip}
@@ -1050,7 +1116,6 @@ export default function ProductList({
             </div>
           </label>
 
-          {/* Tehnică */}
           <label className={styles.label}>
             Tehnică
             <div className={styles.catRow}>
@@ -1066,12 +1131,14 @@ export default function ProductList({
                 aria-label="Filtrează după tehnică"
               >
                 <option value="">Toate tehnicile</option>
+
                 {computed.techniques.map((t) => (
                   <option key={t} value={t}>
                     {humanizeSlug(t)}
                   </option>
                 ))}
               </select>
+
               {filters.technique && (
                 <button
                   className={styles.catChip}
@@ -1085,7 +1152,6 @@ export default function ProductList({
             </div>
           </label>
 
-          {/* Stil */}
           <label className={styles.label}>
             Stil
             <div className={styles.catRow}>
@@ -1101,12 +1167,14 @@ export default function ProductList({
                 aria-label="Filtrează după stil"
               >
                 <option value="">Toate stilurile</option>
+
                 {computed.styleTags.map((s) => (
                   <option key={s} value={s}>
                     {humanizeSlug(s)}
                   </option>
                 ))}
               </select>
+
               {filters.styleTag && (
                 <button
                   className={styles.catChip}
@@ -1120,7 +1188,6 @@ export default function ProductList({
             </div>
           </label>
 
-          {/* Ocazie */}
           <label className={styles.label}>
             Ocazie
             <div className={styles.catRow}>
@@ -1136,27 +1203,27 @@ export default function ProductList({
                 aria-label="Filtrează după ocazie"
               >
                 <option value="">Toate ocaziile</option>
+
                 {computed.occasionTags.map((o) => (
                   <option key={o} value={o}>
                     {humanizeSlug(o)}
                   </option>
                 ))}
               </select>
+
               {filters.occasionTag && (
                 <button
                   className={styles.catChip}
                   onClick={() => clearChip("occasionTag")}
                   title="Șterge ocazia"
                 >
-                  <FaTag />{" "}
-                  {humanizeSlug(filters.occasionTag)}{" "}
+                  <FaTag /> {humanizeSlug(filters.occasionTag)}{" "}
                   <FaTimes className={styles.chipX} />
                 </button>
               )}
             </div>
           </label>
 
-          {/* Preț */}
           <div className={styles.twoCols}>
             <label className={styles.label}>
               Preț minim
@@ -1176,6 +1243,7 @@ export default function ProductList({
                 aria-label="Preț minim"
               />
             </label>
+
             <label className={styles.label}>
               Preț maxim
               <input
@@ -1196,7 +1264,6 @@ export default function ProductList({
             </label>
           </div>
 
-          {/* USER: favorite */}
           {!isOwner && (
             <label className={styles.checkbox}>
               <input
@@ -1213,7 +1280,6 @@ export default function ProductList({
             </label>
           )}
 
-          {/* VENDOR: status & ascunse */}
           {isOwner && (
             <>
               <label className={styles.label}>
@@ -1235,6 +1301,29 @@ export default function ProductList({
                 </select>
               </label>
 
+              <label className={styles.label}>
+                Verificare admin
+                <select
+                  className={styles.select}
+                  value={filters.moderationStatus}
+                  onChange={(e) =>
+                    setFilters((f) => ({
+                      ...f,
+                      moderationStatus: e.target.value,
+                    }))
+                  }
+                  aria-label="Filtrează după verificare admin"
+                >
+                  <option value="">Toate</option>
+                  <option value="PENDING">În verificare</option>
+                  <option value="APPROVED">Aprobate</option>
+                  <option value="CHANGES_REQUESTED">
+                    Necesită modificări
+                  </option>
+                  <option value="REJECTED">Respinse</option>
+                </select>
+              </label>
+
               <label className={styles.checkbox}>
                 <input
                   type="checkbox"
@@ -1251,7 +1340,6 @@ export default function ProductList({
             </>
           )}
 
-          {/* Disponibilitate (user & vendor) */}
           <label className={styles.label}>
             Disponibilitate
             <select
@@ -1267,9 +1355,7 @@ export default function ProductList({
             >
               <option value="">Toate</option>
               <option value="READY">Gata de livrare</option>
-              <option value="MADE_TO_ORDER">
-                La comandă
-              </option>
+              <option value="MADE_TO_ORDER">La comandă</option>
               <option value="PREORDER">Precomandă</option>
               <option value="SOLD_OUT">Epuizat</option>
             </select>
@@ -1293,10 +1379,8 @@ export default function ProductList({
                 placeholder="ex: 7"
               />
             </label>
-            <label
-              className={styles.checkbox}
-              style={{ alignSelf: "end" }}
-            >
+
+            <label className={styles.checkbox} style={{ alignSelf: "end" }}>
               <input
                 type="checkbox"
                 checked={filters.acceptsCustom}
@@ -1313,12 +1397,10 @@ export default function ProductList({
         </div>
 
         <div className={styles.panelFooter}>
-          <button
-            className={styles.linkBtn}
-            onClick={resetAll}
-          >
+          <button className={styles.linkBtn} onClick={resetAll}>
             Resetează
           </button>
+
           <button
             className={styles.primaryBtn}
             onClick={() => setPanelOpen(false)}
@@ -1328,7 +1410,6 @@ export default function ProductList({
         </div>
       </div>
 
-      {/* backdrop */}
       {panelOpen && (
         <div
           className={styles.backdrop}
@@ -1337,16 +1418,17 @@ export default function ProductList({
         />
       )}
 
-      {/* Grid produse */}
-      {list.length === 0 ? (
+      {isLoading ? (
+        <div className={styles.empty}>
+          <p>Se încarcă produsele...</p>
+        </div>
+      ) : list.length === 0 ? (
         <div className={styles.empty}>
           {isOwner ? (
             <>
               <p>Nu ai încă produse adăugate.</p>
-              <button
-                className={styles.cta}
-                onClick={onAddFirstProduct}
-              >
+
+              <button className={styles.cta} onClick={onAddFirstProduct}>
                 <FaPlus /> Adaugă primul produs
               </button>
             </>
@@ -1356,20 +1438,17 @@ export default function ProductList({
         </div>
       ) : filteredSorted.length === 0 ? (
         <div className={styles.empty}>
-          <p>
-            Niciun produs nu corespunde filtrelor alese.
-          </p>
-          <button
-            className={styles.linkBtn}
-            onClick={resetAll}
-          >
+          <p>Niciun produs nu corespunde filtrelor alese.</p>
+
+          <button className={styles.linkBtn} onClick={resetAll}>
             Resetează filtrele
           </button>
         </div>
       ) : (
         <div className={styles.grid}>
           {filteredSorted.map((p, idx) => {
-            const pid = p?.id || p?._id || `idx-${idx}`;
+            const pid = getProductId(p) || `idx-${idx}`;
+
             return (
               <ProductCard
                 key={pid}

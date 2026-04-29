@@ -778,7 +778,11 @@ export default function UserDesktop() {
           <RowExternalLink href={`${docsBase}/termenii-si-conditiile`} label="Termeni și condiții" icon={<FileText size={20} />} />
           <RowExternalLink href={`${docsBase}/confidentialitate`} label="Politica de confidențialitate" icon={<ShieldHalf size={20} />} />
           <RowExternalLink href={`${docsBase}/politica-retur`} label="Politica de retur" icon={<FileText size={20} />} />
-
+<RowExternalLink
+  href={`${docsBase}/anexa-expediere`}
+  label="Politica de livrare"
+  icon={<Package size={20} />}
+/>
           {/* <RowLink to="/facturi" label="Facturi / documente" icon={<FileText size={20} />} /> */}
         </div>
       </section>

@@ -506,7 +506,7 @@ export default function Checkout() {
 
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("CARD");
+  const [paymentMethod, setPaymentMethod] = useState("COD");
 
   const [counties, setCounties] = useState([]);
   const [countiesLoading, setCountiesLoading] = useState(true);
@@ -2292,28 +2292,27 @@ export default function Checkout() {
               </div>
 
               <div className={styles.paymentMethods}>
-                <label className={styles.radio}>
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="CARD"
-                    checked={paymentMethod === "CARD"}
-                    onChange={() => setPaymentMethod("CARD")}
-                  />
-                  <span>Card online</span>
-                </label>
+  <label className={styles.radio}>
+    <input
+      type="radio"
+      name="paymentMethod"
+      value="COD"
+      checked={paymentMethod === "COD"}
+      onChange={() => setPaymentMethod("COD")}
+    />
+    <span>Plată la livrare (ramburs)</span>
+  </label>
 
-                <label className={styles.radio}>
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="COD"
-                    checked={paymentMethod === "COD"}
-                    onChange={() => setPaymentMethod("COD")}
-                  />
-                  <span>Plată la livrare (ramburs)</span>
-                </label>
-              </div>
+  <label className={`${styles.radio} ${styles.disabledOption}`}>
+    <input
+      type="radio"
+      name="paymentMethod"
+      value="CARD"
+      disabled
+    />
+    <span>Card online — indisponibil momentan</span>
+  </label>
+</div>
 
               <div className={styles.divider} />
 

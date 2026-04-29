@@ -822,3 +822,92 @@ export async function notifyVendorOnAwbAssigned(orderId, shipmentId) {
     },
   });
 }
+export async function notifyVendorOnProductModeration(productId, status, message) {
+  if (!productId) return null;
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      title: true,
+      service: {
+        select: {
+          vendorId: true,
+          profile: { select: { slug: true } },
+        },
+      },
+    },
+  });
+
+  const vendorId = product?.service?.vendorId;
+  if (!product || !vendorId) return null;
+
+  const statusUc = String(status || "").toUpperCase();
+  const isRejected = statusUc === "REJECTED";
+  const productTitle = product.title || "produsul tău";
+
+ return createVendorNotification(vendorId, {
+  dedupeKey: `product_moderation:${statusUc}:${product.id}:${Date.now()}`,
+  type: "system",
+  title: isRejected ? "Produs respins" : "Produsul necesită modificări",
+  body: isRejected
+    ? `Produsul „${productTitle}” a fost respins.\n\nMotiv: ${message}`
+    : `Produsul „${productTitle}” necesită modificări.\n\nMesaj admin: ${message}`,
+  link: "/vendor/store",
+  meta: {
+    kind: "product_moderation",
+    productId: product.id,
+    vendorId,
+    status: statusUc,
+    message,
+    storeSlug: product.service?.profile?.slug || null,
+  },
+});
+}
+
+export async function notifyVendorOnProductSoldOut(productId) {
+  if (!productId) return null;
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      title: true,
+      readyQty: true,
+      availability: true,
+      service: {
+        select: {
+          vendorId: true,
+          profile: {
+            select: {
+              slug: true,
+              displayName: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const vendorId = product?.service?.vendorId;
+  if (!product || !vendorId) return null;
+
+  const productTitle = product.title || "produsul tău";
+  const storeName = product.service?.profile?.displayName || "magazinul tău";
+
+  return createVendorNotification(vendorId, {
+    dedupeKey: `product_sold_out:${product.id}`,
+    type: "system",
+    title: "Produs epuizat",
+    body: `Produsul „${productTitle}” din ${storeName} a ajuns la stoc 0 și a fost marcat ca epuizat.`,
+    link: "/vendor/store",
+    meta: {
+      kind: "product_sold_out",
+      productId: product.id,
+      vendorId,
+      storeSlug: product.service?.profile?.slug || null,
+      readyQty: product.readyQty,
+      availability: product.availability,
+    },
+  });
+}

@@ -761,3 +761,12 @@
   margin-top: 6px;
   display: block;
 }
+.disabledOption {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.disabledOption input,
+.disabledOption span {
+  cursor: not-allowed;
+}

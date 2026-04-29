@@ -26,7 +26,7 @@ const LIMITS = {
   },
 
   pro: {
-    sentPerMonth: 300,
+    sentPerMonth: null,
     allowAttachments: true,
     allowAdvanced: false,
     allowChat: true,

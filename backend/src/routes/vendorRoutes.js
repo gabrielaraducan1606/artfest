@@ -1399,6 +1399,28 @@ router.post(
       return error(res, "service_not_found", 404);
     }
 
+    const now = new Date();
+
+const activeSubscription = await prisma.vendorSubscription.findFirst({
+  where: {
+    vendorId: meVendor.id,
+    OR: [
+      { status: "active", endAt: { gt: now } },
+      { trialEndsAt: { gt: now } },
+    ],
+  },
+  include: { plan: true },
+  orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
+});
+
+if (!activeSubscription) {
+  return error(res, "subscription_required", 402, {
+    missing: ["Abonament activ sau trial activ"],
+    upgradeUrl: "/onboarding/details?tab=plata&solo=1",
+    hint: "Ai nevoie de un abonament activ sau de un trial activ pentru a activa magazinul.",
+  });
+}
+
     const billingLocked = isBillingLocked();
 
     if (!billingLocked) {

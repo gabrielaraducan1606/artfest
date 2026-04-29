@@ -27,6 +27,8 @@ export default function useStoreOwnerData({
 
   const serviceId =
     sellerData?.serviceId ||
+    sellerData?.service?.id ||
+    sellerData?.profile?.serviceId ||
     sellerData?.id ||
     sellerData?._id ||
     null;
@@ -35,6 +37,7 @@ export default function useStoreOwnerData({
     const m = [];
     const s = sellerData || {};
     const profile = s.profile || {};
+
     const hasName = s.shopName || profile.displayName;
     const hasSlug = s.slug || profile.slug;
     const hasImage = !!(
@@ -65,6 +68,7 @@ export default function useStoreOwnerData({
     const s = sellerData || {};
     const statusRaw = s.status || s.profile?.status || "";
     const activeByStatus = String(statusRaw).toUpperCase() === "ACTIVE";
+
     const flag =
       s.isActive ??
       s.serviceIsActive ??
@@ -152,6 +156,7 @@ export default function useStoreOwnerData({
         setOwnerChecks((s) => ({ ...s, loading: true }));
 
         let hasActiveSub = false;
+
         try {
           const sub = await api("/api/vendors/me/subscription/status", {
             method: "GET",
@@ -162,24 +167,32 @@ export default function useStoreOwnerData({
         }
 
         let missingBilling = [];
+
         try {
           const b = await api("/api/vendors/me/billing", {
             method: "GET",
           });
+
           const v = b?.billing || {};
           const need = (k) => !String(v[k] ?? "").trim();
 
           if (need("legalType")) missingBilling.push("Tip entitate");
-          if (need("vendorName")) missingBilling.push("Nume vendor");
           if (need("companyName")) missingBilling.push("Denumire entitate");
           if (need("cui")) missingBilling.push("CUI");
           if (need("regCom")) missingBilling.push("Nr. Reg. Com.");
           if (need("address")) missingBilling.push("Adresă facturare");
-          if (need("iban")) missingBilling.push("IBAN");
-          if (need("bank")) missingBilling.push("Banca");
           if (need("email")) missingBilling.push("Email facturare");
           if (need("contactPerson")) missingBilling.push("Persoană contact");
           if (need("phone")) missingBilling.push("Telefon");
+          if (need("vatStatus")) missingBilling.push("Status TVA");
+
+          if (v?.vatStatus === "payer" && need("vatRate")) {
+            missingBilling.push("Cotă TVA");
+          }
+
+          if (!v?.vatResponsibilityConfirmed) {
+            missingBilling.push("Confirmarea responsabilității TVA");
+          }
         } catch {
           missingBilling = ["Date facturare"];
         }
@@ -249,7 +262,7 @@ export default function useStoreOwnerData({
           isActive: false,
           status: "INACTIVE",
           profile: {
-            ...(sellerData.profile || {}),
+            ...(sellerData?.profile || {}),
             ...(p.profile || {}),
             serviceIsActive: false,
             status: "INACTIVE",
@@ -266,7 +279,7 @@ export default function useStoreOwnerData({
           isActive: true,
           status: "ACTIVE",
           profile: {
-            ...(sellerData.profile || {}),
+            ...(sellerData?.profile || {}),
             ...(p.profile || {}),
             serviceIsActive: true,
             status: "ACTIVE",

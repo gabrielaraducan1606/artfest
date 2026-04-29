@@ -11,7 +11,7 @@ export async function seedSubscriptionPlans(prisma) {
       features: [
         "1 magazin inclus",
         "Max. 15 produse",
-        "Chat cu clienții (mesaje simple)",
+        "Chat cu clienții (max. 50 mesaje / lună)",
         "Recenzii",
         "Profil public",
         "3 lead-uri / lună",
@@ -57,8 +57,7 @@ export async function seedSubscriptionPlans(prisma) {
       features: [
         "2 magazine incluse",
         "Produse nelimitate",
-        "Chat + follow-up",
-        "Note interne",
+        "Chat cu clienții nelimitat",
         "Atașamente",
         "10 lead-uri / lună",
         "Suport prioritar",
@@ -73,7 +72,7 @@ export async function seedSubscriptionPlans(prisma) {
           stores: 2,
           products: -1,
           leadsPerMonth: 10,
-          chatMessagesPerMonth: 300,
+          chatMessagesPerMonth: -1,
         },
         commissions: {
           productsBps: 800,
@@ -103,7 +102,7 @@ export async function seedSubscriptionPlans(prisma) {
       features: [
         "3 magazine incluse",
         "Produse nelimitate",
-        "CRM complet (note + follow-up + atașamente)",
+        "Chat nelimitat + CRM complet (note interne, follow-up, atașamente)",
         "Badge verificat",
         "Prioritate în listări",
         "Statistici (vizualizări, lead-uri)",
@@ -175,5 +174,5 @@ export async function seedSubscriptionPlans(prisma) {
     });
   }
 
-  console.log("✅ Seeded subscription plans (Basic / Pro / Premium) fără magazine extra.");
+  console.log("✅ Seeded subscription plans (Basic / Pro / Premium).");
 }

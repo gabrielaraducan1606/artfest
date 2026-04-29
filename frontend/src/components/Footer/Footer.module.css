@@ -388,3 +388,31 @@
     padding: 0.72rem 0.9rem;
   }
 }
+/* ===== Legal links (mai multe politici) ===== */
+.bottomLinks a {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  text-decoration: none;
+  transition: color 0.18s ease;
+  position: relative;
+}
+
+.bottomLinks a:hover {
+  color: var(--color-primary);
+}
+
+/* separator discret între link-uri (desktop) */
+@media (min-width: 641px) {
+  .bottomLinks a:not(:last-child)::after {
+    content: "•";
+    margin-left: 0.9rem;
+    color: var(--color-border);
+  }
+}
+
+/* pe mobil – mai aerisit */
+@media (max-width: 640px) {
+  .bottomLinks a {
+    padding: 0.15rem 0;
+  }
+}

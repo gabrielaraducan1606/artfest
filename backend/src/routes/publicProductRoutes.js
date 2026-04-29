@@ -119,6 +119,8 @@ const baseProductSelect = {
 
   isActive: true,
   isHidden: true,
+  moderationStatus: true,
+
   category: true,
   color: true,
 
@@ -232,6 +234,7 @@ function mapPublicProduct(p) {
 
     isActive: p.isActive,
     isHidden: !!p.isHidden,
+    moderationStatus: p.moderationStatus || "PENDING",
     category: p.category || null,
     color: p.color || null,
 
@@ -375,43 +378,11 @@ router.get("/products", async (req, res, next) => {
       acceptsCustomRaw === "1" || acceptsCustomRaw.toLowerCase() === "true";
     const leadTimeMaxParam = parseInt(req.query.leadTimeMax || "", 10);
 
-    const isDefaultBrowseFirstPage =
-      page === 1 &&
-      !idsList.length &&
-      !qRaw &&
-      !categoryParam &&
-      !city &&
-      !colorParam &&
-      !materialParam &&
-      !techniqueParam &&
-      !styleTagParam &&
-      !occasionTagParamRaw &&
-      !availabilityParam &&
-      !acceptsCustomParam &&
-      Number.isNaN(minPrice) &&
-      Number.isNaN(maxPrice) &&
-      Number.isNaN(leadTimeMaxParam) &&
-      (sort === "new" || !sort);
-
-    const responseCacheTtl = isDefaultBrowseFirstPage
-      ? LIST_CACHE_TTL_DEFAULT_FIRST_PAGE_MS
-      : LIST_CACHE_TTL_MS;
-
-    res.set(
-      "Cache-Control",
-      isDefaultBrowseFirstPage
-        ? "public, max-age=60, stale-while-revalidate=300"
-        : "public, max-age=30, stale-while-revalidate=120"
-    );
-
-    const cacheKey = buildListCacheKey(req);
-    const cached = getCache(PUBLIC_LIST_CACHE, cacheKey);
-    if (cached) {
-      return res.json(cached);
-    }
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
 
     const smart = smartSearchFromQueryBackend(qRaw);
-
     const effectiveCategory = categoryParam || "";
 
     const inferredColors = Array.isArray(smart.inferredColors)
@@ -426,6 +397,7 @@ router.get("/products", async (req, res, next) => {
     const baseWhere = {
       isActive: true,
       isHidden: false,
+      moderationStatus: "APPROVED",
       service: {
         is: {
           type: { is: { code: serviceType } },
@@ -449,15 +421,42 @@ router.get("/products", async (req, res, next) => {
       if (materialParam) {
         whereObj.materialMain = { equals: materialParam, mode: "insensitive" };
       }
+
       if (techniqueParam) {
         whereObj.technique = { equals: techniqueParam, mode: "insensitive" };
       }
+
       if (styleTagParam) whereObj.styleTags = { has: styleTagParam };
       if (effectiveOccasionTag) whereObj.occasionTags = { has: effectiveOccasionTag };
-      if (availabilityParam) whereObj.availability = availabilityParam;
+
+      if (availabilityParam) {
+        if (availabilityParam === "READY") {
+          whereObj.AND = [
+            ...(whereObj.AND || []),
+            {
+              availability: "READY",
+              OR: [{ readyQty: null }, { readyQty: { gt: 0 } }],
+            },
+          ];
+        } else if (availabilityParam === "SOLD_OUT") {
+          whereObj.OR = [
+            { availability: "SOLD_OUT" },
+            {
+              AND: [
+                { availability: "READY" },
+                { readyQty: { lte: 0 } },
+              ],
+            },
+          ];
+        } else {
+          whereObj.availability = availabilityParam;
+        }
+      }
+
       if (!Number.isNaN(leadTimeMaxParam)) {
         whereObj.leadTimeDays = { lte: leadTimeMaxParam };
       }
+
       if (acceptsCustomParam) whereObj.acceptsCustom = true;
     };
 
@@ -481,7 +480,6 @@ router.get("/products", async (req, res, next) => {
       priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
     });
 
-    /* ========= 1) Caz special: ids ========= */
     if (idsList.length > 0) {
       const whereIds = { ...baseWhere, id: { in: idsList } };
 
@@ -489,9 +487,9 @@ router.get("/products", async (req, res, next) => {
         whereIds.category = { equals: effectiveCategory, mode: "insensitive" };
       }
 
-      if (effectiveColors && effectiveColors.length === 1) {
+      if (effectiveColors.length === 1) {
         whereIds.color = { equals: effectiveColors[0], mode: "insensitive" };
-      } else if (effectiveColors && effectiveColors.length > 1) {
+      } else if (effectiveColors.length > 1) {
         whereIds.color = { in: effectiveColors };
       }
 
@@ -512,7 +510,7 @@ router.get("/products", async (req, res, next) => {
       const pageSlice = ordered.slice(skip, skip + takePlus);
       const { items, hasMore } = finalizePaged(pageSlice);
 
-      const payload = {
+      return res.json({
         total,
         items,
         page,
@@ -520,22 +518,18 @@ router.get("/products", async (req, res, next) => {
         hasMore,
         smart,
         appliedFilters: buildAppliedFilters(),
-      };
-
-      setCache(PUBLIC_LIST_CACHE, cacheKey, payload, responseCacheTtl);
-      return res.json(payload);
+      });
     }
 
-    /* ========= 2) Caz general ========= */
     const whereMain = { ...baseWhere };
 
     if (effectiveCategory) {
       whereMain.category = { equals: effectiveCategory, mode: "insensitive" };
     }
 
-    if (effectiveColors && effectiveColors.length === 1) {
+    if (effectiveColors.length === 1) {
       whereMain.color = { equals: effectiveColors[0], mode: "insensitive" };
-    } else if (effectiveColors && effectiveColors.length > 1) {
+    } else if (effectiveColors.length > 1) {
       whereMain.color = { in: effectiveColors };
     }
 
@@ -573,7 +567,7 @@ router.get("/products", async (req, res, next) => {
     if (rowsMain.length > 0 || !qRaw) {
       const { items, hasMore } = finalizePaged(rowsMain);
 
-      const payload = {
+      return res.json({
         total: null,
         items,
         page,
@@ -581,13 +575,9 @@ router.get("/products", async (req, res, next) => {
         hasMore,
         smart,
         appliedFilters: buildAppliedFilters(),
-      };
-
-      setCache(PUBLIC_LIST_CACHE, cacheKey, payload, responseCacheTtl);
-      return res.json(payload);
+      });
     }
 
-    /* ========= 3) Fallback generic ========= */
     const whereFallback = { ...baseWhere };
     applyPriceFilter(whereFallback);
 
@@ -601,7 +591,7 @@ router.get("/products", async (req, res, next) => {
 
     const { items, hasMore } = finalizePaged(rowsFallback);
 
-    const payload = {
+    return res.json({
       total: null,
       items,
       page,
@@ -622,10 +612,7 @@ router.get("/products", async (req, res, next) => {
         priceMax: !Number.isNaN(maxPrice) ? maxPrice : null,
         fallback: "generic_after_zero_results",
       },
-    };
-
-    setCache(PUBLIC_LIST_CACHE, cacheKey, payload, responseCacheTtl);
-    return res.json(payload);
+    });
   } catch (e) {
     console.error("ERROR /api/public/products", e);
     next(e);
@@ -639,10 +626,11 @@ router.get("/products/recommended", async (_req, res, next) => {
   try {
     res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=180");
 
-    const baseWhere = {
-      isActive: true,
-      isHidden: false,
-      service: {
+   const baseWhere = {
+  isActive: true,
+  isHidden: false,
+  moderationStatus: "APPROVED",
+  service: {
         is: {
           isActive: true,
           status: "ACTIVE",
@@ -755,9 +743,10 @@ router.get("/products/suggest", async (req, res, next) => {
 
     const products = await prisma.product.findMany({
       where: {
-        isActive: true,
-        isHidden: false,
-        title: { contains: mainToken, mode: "insensitive" },
+  isActive: true,
+  isHidden: false,
+  moderationStatus: "APPROVED",
+  title: { contains: mainToken, mode: "insensitive" },
         service: {
           is: {
             isActive: true,
@@ -829,7 +818,14 @@ router.get("/products/:id", async (req, res, next) => {
       },
     });
 
-    if (!p || !p.isActive) return res.status(404).json({ error: "not_found" });
+    if (
+  !p ||
+  !p.isActive ||
+  p.isHidden ||
+  p.moderationStatus !== "APPROVED"
+) {
+  return res.status(404).json({ error: "not_found" });
+}
     if (
       !p.service?.isActive ||
       p.service?.status !== "ACTIVE" ||
@@ -951,7 +947,12 @@ router.get("/store/:slug/products", async (req, res) => {
   }
 
   const items = await prisma.product.findMany({
-    where: { serviceId: profile.serviceId, isActive: true, isHidden: false },
+    where: {
+  serviceId: profile.serviceId,
+  isActive: true,
+  isHidden: false,
+  moderationStatus: "APPROVED",
+},
     orderBy: { createdAt: "desc" },
   });
 
@@ -987,6 +988,7 @@ router.get("/store/:slug/products", async (req, res) => {
         specialNotes: p.specialNotes || null,
         isHidden: !!p.isHidden,
         isActive: !!p.isActive,
+        moderationStatus: p.moderationStatus || "PENDING",
       };
     })
   );

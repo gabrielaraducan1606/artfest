@@ -623,7 +623,7 @@ export default function UserMessagesPage() {
             {visibleThreads.map((t) => {
               const isSelected = String(t.id) === String(selectedId);
               const hasUnread = (t.unreadCount || 0) > 0;
-              const name = t.name || "Magazin";
+              const name = t.storeName || t.name || "Magazin";
               const lastMsg = t.lastMsg || "Fără mesaje recente";
 
               const isStoreGroup = isGroupedView && Array.isArray(t.threads);
@@ -701,10 +701,10 @@ export default function UserMessagesPage() {
                 </button>
 
                 <div className={styles.chatPeer}>
-                  <div className={styles.avatarLg}>{initialsOf(current.name || "M")}</div>
+                  <div className={styles.avatarLg}>{initialsOf(current.storeName || current.name || "M")}</div>
                   <div>
                     <div className={styles.peerName}>
-                      {current.name || "Magazin"}
+                     {current.storeName || current.name || "Magazin"}
                       {!isGroupedView &&
                         activeThread.orderSummary &&
                         shortOrderId(activeThread.orderSummary) && (

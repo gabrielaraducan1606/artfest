@@ -6,23 +6,17 @@ import styles from "./AdminDesktop.module.css";
 
 import AdminUsersTab from "./tabs/AdminUsersTab.jsx";
 import AdminVendorsTab from "./tabs/AdminVendorsTab.jsx";
-import AdminVendorPlansTab from "./tabs/AdminVendorTabPlans.jsx"; // ✅ NOU
+import AdminVendorPlansTab from "./tabs/AdminVendorTabPlans.jsx";
 import AdminOrdersTab from "./tabs/AdminOrdersTab.jsx";
 import AdminProductsTab from "./tabs/AdminProductsTab.jsx";
 import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
 import AdminEmailLogsTab from "./tabs/AdminEmailLogsTab.jsx";
 
-/**
- * Definiție tab-uri: un singur source of truth
- *
- * adminAllUsers = toate conturile (USER + VENDOR + ADMIN)
- * users         = doar useri (clienți, role=USER)
- */
 const TABS = [
   { id: "adminAllUsers", label: "Toate conturile" },
   { id: "users", label: "Useri (clienți)" },
   { id: "vendors", label: "Vendori" },
-  { id: "vendorPlans", label: "Abonamente (Vendori)" }, // ✅ NOU
+  { id: "vendorPlans", label: "Abonamente (Vendori)" },
   { id: "orders", label: "Comenzi" },
   { id: "products", label: "Produse" },
   { id: "policies", label: "Politici / consimțăminte" },
@@ -38,26 +32,21 @@ export default function AdminDesktop() {
   const { me, loading: authLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState(TAB_IDS.adminAllUsers);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const [users, setUsers] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [products, setProducts] = useState([]);
   const [userConsents, setUserConsents] = useState([]);
   const [vendorAgreements, setVendorAgreements] = useState([]);
-
-  // ✅ NOU: abonamente vendori (list)
   const [vendorPlans, setVendorPlans] = useState({ total: 0, items: [] });
 
-  // simple cache
   const [loadedTabs, setLoadedTabs] = useState({
     adminAllUsers: false,
     users: false,
     vendors: false,
-    vendorPlans: false, // ✅ NOU
+    vendorPlans: false,
     orders: false,
     products: false,
     policies: false,
@@ -71,7 +60,6 @@ export default function AdminDesktop() {
     products: 0,
   });
 
-  // filtru “forțat” pentru tabul de comenzi (setat din UsersTab)
   const [ordersFilter, setOrdersFilter] = useState({
     userId: null,
     vendorId: null,
@@ -79,12 +67,11 @@ export default function AdminDesktop() {
 
   const isAdmin = me && me.role === "ADMIN";
 
-  // ==================== DATA LOADERS ====================
-
   const loadStats = useCallback(async () => {
     try {
       const d = await api("/api/admin/stats").catch(() => null);
       if (!d) return;
+
       setStats({
         users: d.usersCount ?? 0,
         vendors: d.vendorsCount ?? 0,
@@ -111,11 +98,6 @@ export default function AdminDesktop() {
     setOrders(d.orders || []);
   }, []);
 
-  const loadProducts = useCallback(async () => {
-  const d = await api("/api/admin/products?take=50");
-  setProducts(d.items || []);
-}, []);
-
   const loadPolicies = useCallback(async () => {
     const [uc, va] = await Promise.all([
       api("/api/admin/user-consents"),
@@ -126,25 +108,23 @@ export default function AdminDesktop() {
     setVendorAgreements(va.agreements || []);
   }, []);
 
-  // ✅ NOU: vendor plans
   const loadVendorPlans = useCallback(async () => {
     const d = await api("/api/admin/vendors/plans?take=50&skip=0");
     setVendorPlans({ total: d.total ?? 0, items: d.items ?? [] });
   }, []);
 
-  /**
-   * Loader generic pe baza tab-ului activ.
-   */
   const loadTabData = useCallback(
     async (tabId) => {
       if (!tabId) return;
-
-      // dacă tabul e deja încărcat, nu mai facem request
       if (loadedTabs[tabId]) return;
 
-      // tabul de emailuri își face singur fetch (intern)
       if (tabId === TAB_IDS.emails) {
         setLoadedTabs((prev) => ({ ...prev, emails: true }));
+        return;
+      }
+
+      if (tabId === TAB_IDS.products) {
+        setLoadedTabs((prev) => ({ ...prev, products: true }));
         return;
       }
 
@@ -168,20 +148,17 @@ export default function AdminDesktop() {
         } else if (tabId === TAB_IDS.orders) {
           await loadOrders();
           setLoadedTabs((prev) => ({ ...prev, orders: true }));
-        } else if (tabId === TAB_IDS.products) {
-          await loadProducts();
-          setLoadedTabs((prev) => ({ ...prev, products: true }));
         } else if (tabId === TAB_IDS.policies) {
           await loadPolicies();
           setLoadedTabs((prev) => ({ ...prev, policies: true }));
         }
       } catch (e) {
         console.error(e);
-        const message =
+        setError(
           e?.response?.data?.message ||
-          e?.message ||
-          "Nu am putut încărca datele pentru acest tab.";
-        setError(message);
+            e?.message ||
+            "Nu am putut încărca datele pentru acest tab."
+        );
       } finally {
         setLoading(false);
       }
@@ -192,7 +169,6 @@ export default function AdminDesktop() {
       loadVendors,
       loadVendorPlans,
       loadOrders,
-      loadProducts,
       loadPolicies,
     ]
   );
@@ -206,8 +182,6 @@ export default function AdminDesktop() {
     [loadTabData]
   );
 
-  // ==================== EFFECTS ====================
-
   useEffect(() => {
     if (authLoading) return;
     if (!isAdmin) return;
@@ -219,8 +193,6 @@ export default function AdminDesktop() {
     if (!isAdmin) return;
     loadTabData(activeTab);
   }, [authLoading, isAdmin, activeTab, loadTabData]);
-
-  // ==================== GUARDING ====================
 
   const activeTabLabel = useMemo(
     () => TABS.find((t) => t.id === activeTab)?.label || "",
@@ -235,40 +207,36 @@ export default function AdminDesktop() {
     return <div className={styles.page}>Acces doar pentru administratori.</div>;
   }
 
-  // ==================== RENDER HELPERS ====================
-
   const renderTabContent = () => {
     if (loading) return null;
-
     if (error) return <div className={styles.error}>{error}</div>;
 
-    // state de "no data"
     if (activeTab === TAB_IDS.adminAllUsers && !users.length) {
       return <EmptyState text="Nu există conturi încă." />;
     }
+
     if (activeTab === TAB_IDS.users && !users.length) {
       return <EmptyState text="Nu există clienți încă." />;
     }
+
     if (activeTab === TAB_IDS.vendors && !vendors.length) {
       return <EmptyState text="Nu există vendori încă." />;
     }
+
     if (activeTab === TAB_IDS.vendorPlans && !vendorPlans?.items?.length) {
       return <EmptyState text="Nu există încă abonamente sau nu au fost încărcate." />;
     }
+
     if (activeTab === TAB_IDS.orders && !orders.length) {
       return <EmptyState text="Nu există comenzi în acest moment." />;
     }
-    if (activeTab === TAB_IDS.products && !products.length) {
-      return <EmptyState text="Nu există produse listate încă." />;
-    }
+
     if (
       activeTab === TAB_IDS.policies &&
       !userConsents.length &&
       !vendorAgreements.length
     ) {
-      return (
-        <EmptyState text="Nu există încă înregistrări de consimțăminte sau acorduri." />
-      );
+      return <EmptyState text="Nu există încă înregistrări de consimțăminte sau acorduri." />;
     }
 
     if (activeTab === TAB_IDS.adminAllUsers) {
@@ -295,7 +263,6 @@ export default function AdminDesktop() {
       return <AdminVendorsTab vendors={vendors} />;
     }
 
-    // ✅ NOU
     if (activeTab === TAB_IDS.vendorPlans) {
       return (
         <AdminVendorPlansTab
@@ -318,7 +285,7 @@ export default function AdminDesktop() {
     }
 
     if (activeTab === TAB_IDS.products) {
-      return <AdminProductsTab products={products} />;
+      return <AdminProductsTab />;
     }
 
     if (activeTab === TAB_IDS.policies) {
@@ -336,8 +303,6 @@ export default function AdminDesktop() {
 
     return null;
   };
-
-  // ==================== JSX ====================
 
   return (
     <section className={styles.page}>
@@ -384,8 +349,6 @@ export default function AdminDesktop() {
   );
 }
 
-/* ==================== KPI component ==================== */
-
 function KPI({ label, value }) {
   return (
     <div className={styles.kpi}>
@@ -394,8 +357,6 @@ function KPI({ label, value }) {
     </div>
   );
 }
-
-/* ==================== Empty state component ==================== */
 
 function EmptyState({ text }) {
   return <p className={styles.emptyState}>{text}</p>;

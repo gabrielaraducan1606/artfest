@@ -624,6 +624,17 @@ export default function ProductModal({
     }
   }, [open]);
 
+  useEffect(() => {
+  if (!open) return;
+  if (editingProduct) return;
+
+  setForm((s) => ({
+    ...s,
+    isActive: true,
+    isHidden: false,
+  }));
+}, [open, editingProduct, setForm]);
+
   const [vatState, setVatState] = useState({
     loading: false,
     error: "",
@@ -1317,19 +1328,20 @@ export default function ProductModal({
             >
               <label className={styles.checkbox}>
                 <input
-                  type="checkbox"
-                  checked={!!form.isActive}
-                  onChange={(e) =>
-                    setForm((s) => {
-                      const checked = e.target.checked;
-                      return {
-                        ...s,
-                        isActive: checked,
-                        isHidden: checked ? false : s.isHidden,
-                      };
-                    })
-                  }
-                />
+  type="checkbox"
+  checked={form.isActive !== false && !form.isHidden}
+  onChange={(e) =>
+    setForm((s) => {
+      const checked = e.target.checked;
+
+      return {
+        ...s,
+        isActive: checked,
+        isHidden: checked ? false : true,
+      };
+    })
+  }
+/>
                 Activ
                 <small style={{ marginLeft: 8, opacity: 0.7 }}>
                   Produsul poate fi cumpărat (dacă este vizibil).
@@ -1337,20 +1349,21 @@ export default function ProductModal({
               </label>
 
               <label className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={!!form.isHidden}
-                  onChange={(e) =>
-                    setForm((s) => {
-                      const checked = e.target.checked;
-                      return {
-                        ...s,
-                        isHidden: checked,
-                        isActive: checked ? false : s.isActive,
-                      };
-                    })
-                  }
-                />
+               <input
+  type="checkbox"
+  checked={!!form.isHidden}
+  onChange={(e) =>
+    setForm((s) => {
+      const checked = e.target.checked;
+
+      return {
+        ...s,
+        isHidden: checked,
+        isActive: checked ? false : true,
+      };
+    })
+  }
+/>
                 Ascuns
                 <small style={{ marginLeft: 8, opacity: 0.7 }}>
                   Nu apare public în magazin, chiar dacă este activ.

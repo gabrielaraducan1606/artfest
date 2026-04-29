@@ -27,6 +27,7 @@ import styles from "./Cart.module.css";
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 const isHttp = (u = "") => /^https?:\/\//i.test(u);
 const isDataOrBlob = (u = "") => /^(data|blob):/i.test(u);
+
 const resolveFileUrl = (u) => {
   if (!u) return "";
   if (isHttp(u) || isDataOrBlob(u)) return u;
@@ -36,8 +37,8 @@ const resolveFileUrl = (u) => {
     : path;
 };
 
-/* ===== Format bani cu cache ===== */
 const nfCache = new Map();
+
 const money = (v, currency = "RON", locale = "ro-RO") => {
   const key = `${locale}|${currency}`;
   if (!nfCache.has(key)) {
@@ -49,19 +50,31 @@ const money = (v, currency = "RON", locale = "ro-RO") => {
   return nfCache.get(key).format(v ?? 0);
 };
 
-/* ===== Cantități dinamice ===== */
 const DEFAULT_MAX_QTY = 9999;
+
 const getMaxQty = (product = {}) => {
-  if (Number.isFinite(product?.maxOrderQty) && product.maxOrderQty > 0)
+  if (Number.isFinite(product?.stockLimit) && product.stockLimit > 0) {
+    return product.stockLimit;
+  }
+
+  if (Number.isFinite(product?.readyQty) && product.readyQty > 0) {
+    return product.readyQty;
+  }
+
+  if (Number.isFinite(product?.maxOrderQty) && product.maxOrderQty > 0) {
     return product.maxOrderQty;
-  if (Number.isFinite(product?.stock) && product.stock > 0)
+  }
+
+  if (Number.isFinite(product?.stock) && product.stock > 0) {
     return product.stock;
+  }
+
   return DEFAULT_MAX_QTY;
 };
+
 const clampQty = (q, max = DEFAULT_MAX_QTY) =>
   Math.max(1, Math.min(Number.isFinite(q) ? q : 1, max));
 
-/* ===== UI cache (instant render) ===== */
 const CART_CACHE_KEY = "cart:ui-cache:v1";
 
 function readCartCache() {
@@ -84,26 +97,43 @@ function writeCartCache(data) {
   }
 }
 
+function getFriendlyCartError(e, fallbackMax) {
+  if (e?.error === "insufficient_stock") {
+    return `Avem doar ${e?.stock ?? fallbackMax} buc. disponibile momentan. Am ajustat cantitatea la maximul disponibil.`;
+  }
+
+  if (e?.error === "product_sold_out") {
+    return "Produsul este momentan epuizat. Îl poți elimina din coș sau verifica mai târziu.";
+  }
+
+  if (e?.error === "product_unavailable") {
+    return "Produsul nu mai este disponibil momentan.";
+  }
+
+  if (e?.error === "cannot_update_own_product") {
+    return "Nu poți modifica în coș un produs care îți aparține.";
+  }
+
+  return e?.message || "Nu am putut actualiza cantitatea.";
+}
+
 export default function Cart() {
   const nav = useNavigate();
 
-  // citește cache o singură dată
   const cached = useMemo(() => readCartCache(), []);
 
-  // dacă avem cache, nu mai afișăm loader (UI instant)
   const [loading, setLoading] = useState(() => !cached);
-
   const [me, setMe] = useState(() => cached?.me ?? null);
-  const [rows, setRows] = useState(() => cached?.rows ?? []); // [{ productId, qty, _localQty, product: {...} }]
+  const [rows, setRows] = useState(() => cached?.rows ?? []);
 
   const didMergeRef = useRef(false);
-  const announceRef = useRef(null); // aria-live
-  const [pending, setPending] = useState(() => new Set()); // ids în lucru (update/remove/fav)
-  const [favIds, setFavIds] = useState(() => new Set()); // productId-urile favorite
+  const announceRef = useRef(null);
+
+  const [pending, setPending] = useState(() => new Set());
+  const [favIds, setFavIds] = useState(() => new Set());
 
   const myVendorId = me?.vendor?.id || null;
 
-  // scrie cache la orice schimbare relevantă
   useEffect(() => {
     writeCartCache({
       me,
@@ -141,9 +171,9 @@ export default function Cart() {
     }
   }, []);
 
-  /* ================= Guest ================= */
   const loadGuest = useCallback(async (signal) => {
-    const list = guestCart.list(); // [{productId, qty}]
+    const list = guestCart.list();
+
     if (list.length === 0) {
       if (!signal?.aborted) setRows([]);
       return;
@@ -154,10 +184,12 @@ export default function Cart() {
       `/api/public/products?ids=${encodeURIComponent(ids)}&limit=${list.length}`,
       { signal }
     );
+
     const byId = new Map((res?.items || []).map((p) => [p.id, p]));
 
     const mapped = list.map((x) => {
       const p = byId.get(x.productId);
+
       if (!p) {
         const qty = clampQty(x.qty, 1);
         return {
@@ -197,26 +229,39 @@ export default function Cart() {
           p?.service?.vendor?.displayName ||
           "Magazin",
         vendorSlug: p.storeSlug || p?.service?.profile?.slug || null,
+
+        readyQty: Number.isFinite(Number(p?.readyQty))
+          ? Number(p.readyQty)
+          : null,
+        stockLimit: Number.isFinite(Number(p?.stockLimit))
+          ? Number(p.stockLimit)
+          : null,
         maxOrderQty: p?.maxOrderQty,
         stock: p?.stock,
-        available: true,
+
+        availability: p?.availability || null,
+        available:
+          p?.isActive !== false &&
+          !p?.isHidden &&
+          String(p?.availability || "").toUpperCase() !== "SOLD_OUT",
       };
 
       const max = getMaxQty(product);
       const qty = clampQty(x.qty, max);
+
       return { productId: x.productId, qty, _localQty: qty, product };
     });
 
     if (!signal?.aborted) setRows(mapped);
   }, []);
 
-  /* ================= Logged-in ================= */
   const loadServer = useCallback(async (signal) => {
     const c = await api("/api/cart", { signal });
     const items = Array.isArray(c?.items) ? c.items : [];
 
     const mapped = items.map((it) => {
       const productRaw = it?.product || {};
+
       const product = {
         ...productRaw,
         title: productRaw?.title || "Produs",
@@ -240,13 +285,27 @@ export default function Cart() {
           "Magazin",
         vendorSlug:
           productRaw?.storeSlug || productRaw?.service?.profile?.slug || null,
+
+        readyQty: Number.isFinite(Number(productRaw?.readyQty))
+          ? Number(productRaw.readyQty)
+          : null,
+        stockLimit: Number.isFinite(Number(productRaw?.stockLimit))
+          ? Number(productRaw.stockLimit)
+          : null,
         maxOrderQty: productRaw?.maxOrderQty,
         stock: productRaw?.stock,
-        available: !!it?.product,
+
+        availability: productRaw?.availability || null,
+        available:
+          !!it?.product &&
+          productRaw?.isActive !== false &&
+          !productRaw?.isHidden &&
+          String(productRaw?.availability || "").toUpperCase() !== "SOLD_OUT",
       };
 
       const max = getMaxQty(product);
       const qty = clampQty(it.qty, max);
+
       return { ...it, qty, _localQty: qty, product };
     });
 
@@ -256,6 +315,7 @@ export default function Cart() {
   const mergeIfNeeded = useCallback(
     async (user) => {
       if (!user || didMergeRef.current) return;
+
       const local = guestCart.list();
       if (!local.length) return;
 
@@ -264,6 +324,7 @@ export default function Cart() {
           method: "POST",
           body: { items: local },
         });
+
         guestCart.clear();
         didMergeRef.current = true;
         notifyCartChanged();
@@ -275,18 +336,15 @@ export default function Cart() {
     [announce, notifyCartChanged]
   );
 
-  /* ================= Load init (UN SINGUR efect) =================
-     - dacă avem deja rows (din cache), nu mai blocăm UI cu loader
-  */
   useEffect(() => {
     const ac = new AbortController();
 
     (async () => {
-
       try {
         const d = await api("/api/auth/me", {
           signal: ac.signal,
         }).catch(() => null);
+
         const user = d?.user || null;
         if (!ac.signal.aborted) setMe(user);
 
@@ -302,9 +360,8 @@ export default function Cart() {
     })();
 
     return () => ac.abort();
-  }, [loadGuest, loadServer, mergeIfNeeded, rows.length]);
+  }, [loadGuest, loadServer, mergeIfNeeded]);
 
-  /* ================= Load favorites ================= */
   useEffect(() => {
     const ac = new AbortController();
 
@@ -317,6 +374,7 @@ export default function Cart() {
       try {
         const res = await api("/api/favorites/ids", { signal: ac.signal });
         const items = Array.isArray(res?.items) ? res.items : [];
+
         if (!ac.signal.aborted) {
           setFavIds(new Set(items));
         }
@@ -328,27 +386,31 @@ export default function Cart() {
     return () => ac.abort();
   }, [me, me?.id, me?.sub]);
 
-  /* ================= Derivate ================= */
   const groups = useMemo(() => {
     const map = new Map();
+
     for (const r of rows) {
       const vid = r.product?.vendorId || "unknown";
       if (!map.has(vid)) map.set(vid, []);
       map.get(vid).push(r);
     }
+
     return map;
   }, [rows]);
 
   const grandTotal = useMemo(() => {
     let s = 0;
+
     for (const r of rows) {
       s += Number(r.product?.price || 0) * Number(r.qty || 0);
     }
+
     return s;
   }, [rows]);
 
   const hasOwnItems = useMemo(() => {
     if (!myVendorId) return false;
+
     return rows.some(
       (r) => r.product?.vendorId && r.product.vendorId === myVendorId
     );
@@ -359,7 +421,11 @@ export default function Cart() {
     [rows]
   );
 
-  /* ================= Mutations ================= */
+  const hasUnavailableItems = useMemo(
+    () => rows.some((r) => r.product?.available === false),
+    [rows]
+  );
+
   const setLocalQty = useCallback((productId, value) => {
     setRows((list) =>
       list.map((r) =>
@@ -377,26 +443,51 @@ export default function Cart() {
 
       setRows((list) =>
         list.map((r) =>
-          r.productId === productId ? { ...r, qty: safe, _localQty: safe } : r
+          r.productId === productId
+            ? { ...r, qty: safe, _localQty: safe }
+            : r
         )
       );
 
       if (!me) {
         guestCart.update(productId, safe);
         notifyCartChanged();
+
+        if (safe !== qty) {
+          alert(`Avem doar ${max} buc. disponibile momentan.`);
+        }
+
         return;
       }
 
       await withPending(productId, async () => {
         try {
-          await api("/api/cart/update", {
+          const res = await api("/api/cart/update", {
             method: "POST",
             body: { productId, qty: safe },
           });
+
+          if (res?.item?.qty && Number(res.item.qty) !== safe) {
+            const serverQty = Number(res.item.qty);
+
+            setRows((list) =>
+              list.map((r) =>
+                r.productId === productId
+                  ? { ...r, qty: serverQty, _localQty: serverQty }
+                  : r
+              )
+            );
+          }
+
           notifyCartChanged();
-          announce("Cantitate actualizată.");
+
+          if (safe !== qty) {
+            alert(`Avem doar ${max} buc. disponibile momentan.`);
+          } else {
+            announce("Cantitate actualizată.");
+          }
         } catch (e) {
-          alert(e?.message || "Nu am putut actualiza cantitatea.");
+          alert(getFriendlyCartError(e, max));
           setRows(prev);
         }
       });
@@ -408,7 +499,13 @@ export default function Cart() {
     (productId, current) => {
       const row = rows.find((r) => r.productId === productId);
       const max = getMaxQty(row?.product);
-      return commitQty(productId, Math.min(current + 1, max));
+
+      if (current >= max) {
+        alert(`Avem doar ${max} buc. disponibile momentan.`);
+        return;
+      }
+
+      return commitQty(productId, current + 1);
     },
     [rows, commitQty]
   );
@@ -421,6 +518,7 @@ export default function Cart() {
   const removeItem = useCallback(
     async (productId) => {
       const prev = rows.slice();
+
       setRows((list) => list.filter((r) => r.productId !== productId));
 
       if (!me) {
@@ -436,6 +534,7 @@ export default function Cart() {
             method: "DELETE",
             body: { productId },
           });
+
           notifyCartChanged();
           announce("Produs eliminat.");
         } catch {
@@ -477,6 +576,7 @@ export default function Cart() {
             }).catch(() => {});
           }
         });
+
         notifyCartChanged();
         announce("Produsele magazinului au fost eliminate.");
       } catch {
@@ -511,6 +611,7 @@ export default function Cart() {
           }).catch(() => {});
         }
       });
+
       notifyCartChanged();
       announce("Coș golit.");
     } catch {
@@ -523,9 +624,11 @@ export default function Cart() {
       const redir = encodeURIComponent("/checkout");
       return nav(`/autentificare?redirect=${redir}`);
     }
-    if (hasOwnItems) return;
+
+    if (hasOwnItems || hasUnavailableItems) return;
+
     nav("/checkout");
-  }, [me, hasOwnItems, nav]);
+  }, [me, hasOwnItems, hasUnavailableItems, nav]);
 
   const isRowPending = useCallback((id) => pending.has(id), [pending]);
 
@@ -570,9 +673,6 @@ export default function Cart() {
     [me, nav, withPending, announce]
   );
 
-  /* ================= Render ================= */
-
-  // Skeleton (în loc de ecran gol)
   if (loading) {
     return (
       <div className={styles.container}>
@@ -607,11 +707,11 @@ export default function Cart() {
 
   return (
     <div className={styles.container}>
-      {/* aria-live pentru anunțuri scurte */}
       <div ref={announceRef} aria-live="polite" className={styles.srOnly} />
 
       <div className={styles.headerRow}>
         <h2 className={styles.pageTitle}>Coș</h2>
+
         {rows.length > 0 && (
           <button className={styles.linkBtn} onClick={clearAll} type="button">
             Golește coșul
@@ -628,7 +728,6 @@ export default function Cart() {
         </div>
       ) : (
         <div className={styles.layout}>
-          {/* Listă grupată pe vendor (magazin) */}
           <div className={styles.list}>
             {[...groups.entries()].map(([vendorId, items]) => {
               const firstProduct = items[0]?.product || {};
@@ -636,7 +735,8 @@ export default function Cart() {
               const vSlug = firstProduct.vendorSlug || null;
 
               const vendorSubtotal = items.reduce(
-                (s, r) => s + Number(r.product?.price || 0) * Number(r.qty || 0),
+                (s, r) =>
+                  s + Number(r.product?.price || 0) * Number(r.qty || 0),
                 0
               );
 
@@ -648,11 +748,17 @@ export default function Cart() {
                 >
                   <header className={styles.vendorHead}>
                     <div className={styles.vendorTitle}>
-                      {vSlug ? <Link to={`/magazin/${vSlug}`}>{vName}</Link> : <span>{vName}</span>}
+                      {vSlug ? (
+                        <Link to={`/magazin/${vSlug}`}>{vName}</Link>
+                      ) : (
+                        <span>{vName}</span>
+                      )}
+
                       <small className={styles.vendorSub}>
                         Subtotal: {money(vendorSubtotal, "RON")}
                       </small>
                     </div>
+
                     <button
                       className={styles.linkBtn}
                       type="button"
@@ -667,21 +773,26 @@ export default function Cart() {
                     const img = p.images?.[0]
                       ? resolveFileUrl(p.images[0])
                       : productPlaceholder(200, 160, "Produs");
+
                     const isOwner =
                       !!myVendorId && !!p.vendorId && myVendorId === p.vendorId;
+
                     const max = getMaxQty(p);
                     const canDec = r._localQty > 1;
                     const canInc = r._localQty < max;
+
                     const unavailable = p.available === false;
                     const rowBusy = isRowPending(r.productId);
 
                     const productIdForFav = p.id || r.productId;
                     const isFav =
                       !!productIdForFav && favIds.has(productIdForFav);
-                    const favKey = productIdForFav ? `fav-${productIdForFav}` : null;
-                    const favBusy = favKey ? isRowPending(favKey) : false;
 
-                    // primele imagini eager => mai puțin “flash”
+                    const favKey = productIdForFav
+                      ? `fav-${productIdForFav}`
+                      : null;
+
+                    const favBusy = favKey ? isRowPending(favKey) : false;
                     const eager = idx < 2;
 
                     return (
@@ -701,7 +812,7 @@ export default function Cart() {
                             onError={(e) => onImgError(e, 200, 160, "Produs")}
                             decoding="async"
                             loading={eager ? "eager" : "lazy"}
-                            fetchpriority={eager ? "high" : "auto"}
+                            fetchPriority={eager ? "high" : "auto"}
                           />
                         </Link>
 
@@ -710,21 +821,29 @@ export default function Cart() {
                             {p.title}
                             {unavailable ? " (indisponibil)" : ""}
                           </h3>
+
                           {typeof p.price === "number" && (
                             <div className={styles.price}>
                               {money(p.price, p.currency)}
                             </div>
                           )}
-                          {r._localQty >= 1000 && (
+
+                          {Number.isFinite(max) && max !== DEFAULT_MAX_QTY && (
                             <div className={styles.meta}>
-                              Comenzile mari pot avea timpi de
-                              procesare/livrare suplimentari.
+                              Disponibil momentan: {max} buc.
                             </div>
                           )}
+
+                          {r._localQty >= 1000 && (
+                            <div className={styles.meta}>
+                              Comenzile mari pot avea timpi de procesare/livrare
+                              suplimentari.
+                            </div>
+                          )}
+
                           {isOwner && me && (
                             <div className={styles.ownerNote}>
-                              (Produsul îți aparține — checkout-ul va fi
-                              blocat.)
+                              (Produsul îți aparține — checkout-ul va fi blocat.)
                             </div>
                           )}
                         </div>
@@ -748,9 +867,11 @@ export default function Cart() {
                               inputMode="numeric"
                               pattern="[0-9]*"
                               min={1}
+                              max={max}
                               onChange={(e) => {
                                 const raw = e.target.value.replace(/[^\d]/g, "");
-                                const v = clampQty(parseInt(raw || "1", 10), max);
+                                const parsed = parseInt(raw || "1", 10);
+                                const v = clampQty(parsed, max);
                                 setLocalQty(r.productId, v);
                               }}
                               onBlur={() => {
@@ -768,7 +889,11 @@ export default function Cart() {
                             <button
                               className={styles.iconBtnOutline}
                               onClick={() => inc(r.productId, r.qty)}
-                              title="Crește cantitatea"
+                              title={
+                                canInc
+                                  ? "Crește cantitatea"
+                                  : `Avem doar ${max} buc. disponibile`
+                              }
                               aria-label="Crește cantitatea"
                               type="button"
                               disabled={!canInc || unavailable || rowBusy}
@@ -785,8 +910,16 @@ export default function Cart() {
                                   isFav ? styles.favActive : styles.favInactive
                                 }`}
                                 onClick={() => toggleFavorite(productIdForFav)}
-                                aria-label={isFav ? "Scoate din favorite" : "Adaugă la favorite"}
-                                title={isFav ? "Scoate din favorite" : "Adaugă la favorite"}
+                                aria-label={
+                                  isFav
+                                    ? "Scoate din favorite"
+                                    : "Adaugă la favorite"
+                                }
+                                title={
+                                  isFav
+                                    ? "Scoate din favorite"
+                                    : "Adaugă la favorite"
+                                }
                                 disabled={favBusy}
                               >
                                 {isFav ? <FaHeart /> : <FaRegHeart />}
@@ -813,12 +946,14 @@ export default function Cart() {
             })}
           </div>
 
-          {/* Sumar global */}
           <aside className={styles.summary} aria-label="Sumar coș">
             <div className={styles.summaryTitle}>
               Sumar
               {totalItems > 0 && (
-                <span className={styles.summaryCount}> · {totalItems} produse</span>
+                <span className={styles.summaryCount}>
+                  {" "}
+                  · {totalItems} produse
+                </span>
               )}
             </div>
 
@@ -828,13 +963,19 @@ export default function Cart() {
               const vSlug = firstProduct.vendorSlug || null;
 
               const vendorSubtotal = items.reduce(
-                (s, r) => s + Number(r.product?.price || 0) * Number(r.qty || 0),
+                (s, r) =>
+                  s + Number(r.product?.price || 0) * Number(r.qty || 0),
                 0
               );
 
               return (
                 <div className={styles.summaryRow} key={`sum-${vendorId}`}>
-                  {vSlug ? <Link to={`/magazin/${vSlug}`}>{vName}</Link> : <span>{vName}</span>}
+                  {vSlug ? (
+                    <Link to={`/magazin/${vSlug}`}>{vName}</Link>
+                  ) : (
+                    <span>{vName}</span>
+                  )}
+
                   <strong>{money(vendorSubtotal, "RON")}</strong>
                 </div>
               );
@@ -846,8 +987,8 @@ export default function Cart() {
             </div>
 
             <div className={styles.summaryNote}>
-              Taxele de livrare se calculează la pasul următor (separat pe
-              fiecare magazin).
+              Taxele de livrare se calculează la pasul următor, separat pe
+              fiecare magazin.
             </div>
 
             {hasOwnItems && (
@@ -857,11 +998,18 @@ export default function Cart() {
               </div>
             )}
 
+            {hasUnavailableItems && (
+              <div className={styles.errorBar} role="alert">
+                Un produs din coș nu mai este disponibil. Elimină-l pentru a
+                continua la checkout.
+              </div>
+            )}
+
             <button
               className={styles.checkoutBtn}
               onClick={goCheckout}
               type="button"
-              disabled={hasOwnItems || rows.every((r) => r.product?.available === false)}
+              disabled={hasOwnItems || hasUnavailableItems}
             >
               Continuă la checkout
             </button>
@@ -869,7 +1017,6 @@ export default function Cart() {
         </div>
       )}
 
-      {/* Sticky checkout bar – mobil */}
       {rows.length > 0 && (
         <div
           className={styles.mobileBar}
@@ -878,17 +1025,20 @@ export default function Cart() {
         >
           <div>
             <div className={styles.tot}>{money(grandTotal, "RON")}</div>
-            <div className={styles.small}>Subtotal (fără livrare)</div>
+            <div className={styles.small}>Subtotal fără livrare</div>
           </div>
+
           <button
             className={styles.mobileCheckout}
             onClick={goCheckout}
             type="button"
-            disabled={hasOwnItems || rows.every((r) => r.product?.available === false)}
-            aria-disabled={hasOwnItems}
+            disabled={hasOwnItems || hasUnavailableItems}
+            aria-disabled={hasOwnItems || hasUnavailableItems}
             title={
               hasOwnItems
                 ? "Ai produse din propriul magazin în coș"
+                : hasUnavailableItems
+                ? "Ai produse indisponibile în coș"
                 : "Continuă la checkout"
             }
           >

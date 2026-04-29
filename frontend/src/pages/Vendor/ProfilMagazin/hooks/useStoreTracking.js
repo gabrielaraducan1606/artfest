@@ -27,7 +27,11 @@ function getSessionId() {
 
 const VALID_TYPES = new Set(["PAGEVIEW", "CTA_CLICK", "MESSAGE"]);
 
-export default function useStoreTracking(vendorId) {
+/**
+ * 🔥 IMPORTANT:
+ * Acum primește obiect, nu doar vendorId
+ */
+export default function useStoreTracking({ vendorId, serviceId }) {
   const sessionId = useMemo(() => getSessionId(), []);
   const [viewId] = useState(() => makeId());
 
@@ -38,6 +42,7 @@ export default function useStoreTracking(vendorId) {
 
       const body = {
         vendorId: payload.vendorId,
+        serviceId: payload.serviceId || undefined, // ✅ FIX IMPORTANT
         type: payload.type,
         ctaLabel: payload.ctaLabel,
         sessionId,
@@ -73,37 +78,51 @@ export default function useStoreTracking(vendorId) {
     [sessionId, viewId]
   );
 
+  /**
+   * PAGEVIEW
+   */
   useEffect(() => {
     if (!vendorId) return;
 
     send({
       vendorId,
+      serviceId, // ✅ IMPORTANT
       type: "PAGEVIEW",
     });
-  }, [vendorId, send]);
+  }, [vendorId, serviceId, send]);
 
+  /**
+   * CTA
+   */
   const trackCTA = useCallback(
     (label) => {
       if (!vendorId) return;
+
       send({
         vendorId,
+        serviceId, // ✅ IMPORTANT
         type: "CTA_CLICK",
         ctaLabel: label,
       });
     },
-    [vendorId, send]
+    [vendorId, serviceId, send]
   );
 
+  /**
+   * MESSAGE
+   */
   const trackMESSAGE = useCallback(
     (label) => {
       if (!vendorId) return;
+
       send({
         vendorId,
+        serviceId, // ✅ IMPORTANT
         type: "MESSAGE",
         ctaLabel: label,
       });
     },
-    [vendorId, send]
+    [vendorId, serviceId, send]
   );
 
   return { trackCTA, trackMESSAGE };

@@ -413,10 +413,15 @@ router.delete("/me", authRequired, async (req, res) => {
       where: { userId: user.id },
     });
 
-    const hadOrders = ordersCount > 0;
+   const hadOrders = ordersCount > 0;
 
-    // 3. Generăm datele de anonimizare
-    const deletedEmail = `deleted+${user.id}@deleted.local`;
+const emailHash = crypto
+  .createHash("sha256")
+  .update(user.email.trim().toLowerCase())
+  .digest("hex");
+
+// 3. Generăm datele de anonimizare
+const deletedEmail = `deleted+${user.id}@deleted.local`;
     const randomPassword = crypto.randomBytes(32).toString("hex");
     const randomPasswordHash = await bcrypt.hash(randomPassword, 12);
 
@@ -426,7 +431,7 @@ router.delete("/me", authRequired, async (req, res) => {
       await tx.inactiveUserLog.create({
         data: {
           userId: user.id,
-          email: user.email, // dacă vrei extra-GDPR, poți salva un hash aici
+          email: emailHash,
           deletedAt: new Date(),
           reason: "USER_REQUEST",
           hadOrders,

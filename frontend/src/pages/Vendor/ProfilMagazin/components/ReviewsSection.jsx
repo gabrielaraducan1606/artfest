@@ -35,6 +35,7 @@ const DEFAULT_REPORT_REASONS = [
 ];
 
 export default function ReviewsSection({
+  serviceId,
   rating = 0,
   reviews = [],
   totalCount = 0,
@@ -102,7 +103,7 @@ export default function ReviewsSection({
 
   // histogramă accordion
   const [histOpen, setHistOpen] = useState(false);
-
+const [actionError, setActionError] = useState("");
   // închide meniurile la click în afara lor
   useEffect(() => {
     function handleClickOutside(e) {
@@ -127,40 +128,58 @@ export default function ReviewsSection({
   }, []);
 
   async function handleSubmitInline() {
-    const e = {};
-    if (draft.rating < 1 || draft.rating > 5) e.rating = "Alege 1–5 stele.";
-    setErrors(e);
-    if (Object.keys(e).length) return;
+  const e = {};
 
-    try {
-      setSubmitting(true);
-
-      // dacă e editare, nu mai facem optimistic add, doar trimitem update
-      if (editingReviewId) {
-        await onSubmit?.({
-          rating: draft.rating,
-          comment: draft.comment,
-        });
-        setEditingReviewId(null);
-      } else {
-        const temp = {
-          id: `tmp-${Date.now()}`,
-          userName: me?.name || "Tu",
-          rating: draft.rating,
-          comment: draft.comment.trim(),
-          createdAt: new Date().toISOString(),
-          verified: false,
-          helpfulCount: 0,
-        };
-        onOptimisticAdd?.(temp);
-        await onSubmit?.({ rating: draft.rating, comment: draft.comment });
-      }
-
-      setDraft({ rating: 0, comment: "" });
-    } finally {
-      setSubmitting(false);
-    }
+  if (!serviceId) {
+    e.serviceId = "Magazin invalid.";
   }
+
+  if (draft.rating < 1 || draft.rating > 5) {
+    e.rating = "Alege 1–5 stele.";
+  }
+
+  setErrors(e);
+  if (Object.keys(e).length) return;
+
+  try {
+    setSubmitting(true);
+
+    const payload = {
+      serviceId,
+      rating: draft.rating,
+      comment: draft.comment,
+    };
+
+    if (editingReviewId) {
+      await onSubmit?.({
+        ...payload,
+        reviewId: editingReviewId,
+      });
+
+      setEditingReviewId(null);
+    } else {
+      const temp = {
+        id: `tmp-${Date.now()}`,
+        serviceId,
+        userId: me?.id || null,
+        userName: me?.name || "Tu",
+        userAvatar: me?.avatarUrl || null,
+        rating: draft.rating,
+        comment: draft.comment.trim(),
+        createdAt: new Date().toISOString(),
+        verified: false,
+        helpfulCount: 0,
+      };
+
+      onOptimisticAdd?.(temp);
+      await onSubmit?.(payload);
+    }
+
+    setDraft({ rating: 0, comment: "" });
+  } finally {
+    setSubmitting(false);
+  }
+}
 
   async function handleSaveReply(review) {
     const text = (replyDrafts[review.id] ?? review.reply?.text ?? "").trim();
@@ -298,16 +317,6 @@ export default function ReviewsSection({
           </div>
         </div>
 
-        {canShowWriteButton && (
-          <button
-            type="button"
-            className={styles.writeBtnSmall}
-            onClick={scrollToWriteReview}
-          >
-            <FaPen style={{ marginRight: 4 }} />
-            Scrie recenzie
-          </button>
-        )}
       </div>
 
       {isVendorView && (
@@ -405,7 +414,12 @@ export default function ReviewsSection({
           <span>Reset</span>
         </button>
       </div>
-
+{actionError && (
+  <div className={styles.actionError}>
+    {actionError}{" "}
+    <a href="/autentificare">Autentifică-te</a>
+  </div>
+)}
       {/* listă recenzii */}
       {reviews.map((r) => {
         const isMine =
@@ -463,7 +477,16 @@ export default function ReviewsSection({
                 <div className={styles.reviewActionsRight}>
                   <button
                     className={styles.iconCircleBtn}
-                    onClick={() => onHelpful?.(r.id)}
+                   onClick={() => {
+  setActionError("");
+
+  if (!me) {
+    setActionError("Trebuie să te autentifici pentru a marca o recenzie ca utilă.");
+    return;
+  }
+
+  onHelpful?.(r.id);
+}}
                     title="Marchează recenzia ca utilă"
                   >
                     <FaThumbsUp />
@@ -771,8 +794,12 @@ export default function ReviewsSection({
                   ariaLabel={`${draft.rating} din 5`}
                 />
                 {errors.rating && (
-                  <span className={styles.err}>{errors.rating}</span>
-                )}
+  <span className={styles.err}>{errors.rating}</span>
+)}
+
+{errors.serviceId && (
+  <span className={styles.err}>{errors.serviceId}</span>
+)}
               </div>
               <textarea
                 value={draft.comment}

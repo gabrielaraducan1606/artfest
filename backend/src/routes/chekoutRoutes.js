@@ -3,7 +3,10 @@ import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { sendOrderConfirmationEmail } from "../lib/mailer.js";
 import { createPaymentForOrder } from "../payments/orchestrator.js";
-import { createVendorNotification } from "../services/notifications.js";
+import {
+  createVendorNotification,
+  notifyVendorOnProductSoldOut,
+} from "../services/notifications.js";
 
 const router = Router();
 const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
@@ -573,264 +576,390 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
 /**
  * PLACE
  */
+/**
+ * PLACE
+ */
 router.post("/checkout/place", authRequired, async (req, res) => {
-  const {
-    address,
-    billingAddress,
-    contactPerson,
-    selections,
-    paymentMethod,
-    customerType,
-    shipToDifferentAddress,
-  } = req.body || {};
+  const soldOutProductIds = [];
 
-  const ctRaw = String(customerType || "").toUpperCase();
-  const ct = ctRaw === "PJ" ? "PJ" : "PF";
+  try {
+    const {
+      address,
+      billingAddress,
+      contactPerson,
+      selections,
+      paymentMethod,
+      customerType,
+      shipToDifferentAddress,
+    } = req.body || {};
 
-  const pmRaw = String(paymentMethod || "").toUpperCase();
-  const pm = pmRaw === "CARD" ? "CARD" : "COD";
+    const ctRaw = String(customerType || "").toUpperCase();
+    const ct = ctRaw === "PJ" ? "PJ" : "PF";
 
-  const normalizedAddress = buildNormalizedShippingAddress(address || {});
-  const normalizedBillingAddress =
-    ct === "PJ" ? buildNormalizedBillingAddress(billingAddress || {}) : null;
-  const normalizedContactPerson =
-    ct === "PJ" ? buildNormalizedContactPerson(contactPerson || {}) : null;
+    const pmRaw = String(paymentMethod || "").toUpperCase();
+    const pm = pmRaw === "CARD" ? "CARD" : "COD";
 
-  const shippingError = validateShippingAddress(normalizedAddress);
-  if (shippingError) {
-    return res.status(400).json(shippingError);
-  }
+    const normalizedAddress = buildNormalizedShippingAddress(address || {});
+    const normalizedBillingAddress =
+      ct === "PJ" ? buildNormalizedBillingAddress(billingAddress || {}) : null;
+    const normalizedContactPerson =
+      ct === "PJ" ? buildNormalizedContactPerson(contactPerson || {}) : null;
 
-  if (ct === "PJ") {
-    const companyError = validateBillingCompany(normalizedBillingAddress);
-    if (companyError) {
-      return res.status(400).json(companyError);
+    const shippingError = validateShippingAddress(normalizedAddress);
+    if (shippingError) return res.status(400).json(shippingError);
+
+    if (ct === "PJ") {
+      const companyError = validateBillingCompany(normalizedBillingAddress);
+      if (companyError) return res.status(400).json(companyError);
+
+      const contactError = validateContactPerson(normalizedContactPerson);
+      if (contactError) return res.status(400).json(contactError);
     }
 
-    const contactError = validateContactPerson(normalizedContactPerson);
-    if (contactError) {
-      return res.status(400).json(contactError);
-    }
-  }
-
-  const cart = await prisma.cartItem.findMany({
-    where: { userId: req.user.sub },
-    include: {
-      product: {
-        select: {
-          id: true,
-          title: true,
-          priceCents: true,
-          currency: true,
-          service: {
-            select: {
-              id: true,
-              title: true,
-              vendorId: true,
-              estimatedShippingFeeCents: true,
-              freeShippingThresholdCents: true,
-              shippingNotes: true,
+    const cart = await prisma.cartItem.findMany({
+      where: { userId: req.user.sub },
+      include: {
+        product: {
+          select: {
+            id: true,
+            title: true,
+            priceCents: true,
+            currency: true,
+            availability: true,
+            readyQty: true,
+            isActive: true,
+            isHidden: true,
+            moderationStatus: true,
+            service: {
+              select: {
+                id: true,
+                title: true,
+                vendorId: true,
+                estimatedShippingFeeCents: true,
+                freeShippingThresholdCents: true,
+                shippingNotes: true,
+              },
             },
           },
         },
       },
-    },
-  });
-
-  if (!cart.length) {
-    return res.status(400).json({
-      error: "cart_empty",
-      message: "Coșul este gol.",
     });
-  }
 
-  const currency = cart[0]?.product?.currency || "RON";
+    if (!cart.length) {
+      return res.status(400).json({
+        error: "cart_empty",
+        message: "Coșul este gol.",
+      });
+    }
 
-  const items = cart.map((i) => ({
-    productId: i.productId,
-    title: i.product.title,
-    qty: i.qty,
-    price: Math.round(i.product.priceCents) / 100,
-    vendorId: i.product.service?.vendorId || null,
-    serviceId: i.product.service?.id || null,
-  }));
+    const currency = cart[0]?.product?.currency || "RON";
 
-  const subtotal = dec(items.reduce((s, it) => s + it.price * it.qty, 0));
+    const items = cart.map((i) => ({
+      productId: i.productId,
+      title: i.product.title,
+      qty: i.qty,
+      price: Math.round(i.product.priceCents) / 100,
+      vendorId: i.product.service?.vendorId || null,
+      serviceId: i.product.service?.id || null,
+    }));
 
-  const groups = buildCheckoutGroups(cart);
-  const quote = await quoteShipping({ groups, selections: selections || {} });
-  const shippingTotal = dec(quote.totalShipping);
-  const total = dec(subtotal + shippingTotal);
+    const subtotal = dec(items.reduce((s, it) => s + it.price * it.qty, 0));
 
-  const vendorIds = [...new Set(groups.map((g) => String(g.vendorId)).filter(Boolean))];
+    const groups = buildCheckoutGroups(cart);
+    const quote = await quoteShipping({ groups, selections: selections || {} });
+    const shippingTotal = dec(quote.totalShipping);
+    const total = dec(subtotal + shippingTotal);
 
-  const vendors = await prisma.vendor.findMany({
-    where: { id: { in: vendorIds } },
-    select: {
-      id: true,
-      displayName: true,
-      address: true,
-      city: true,
-    },
-  });
+    const vendorIds = [
+      ...new Set(groups.map((g) => String(g.vendorId)).filter(Boolean)),
+    ];
 
-  const storeAddresses = {};
-  for (const v of vendors) {
-    storeAddresses[v.id] = {
-      name: v.displayName || "Magazin",
-      street: v.address || "",
-      city: v.city || "",
-      county: normalizedAddress.county || "",
-      postalCode: "",
-      country: "România",
-    };
-  }
-
-  const shippingAddressForOrder =
-    ct === "PJ" && !shipToDifferentAddress
-      ? {
-          firstName: normalizedContactPerson?.firstName || "",
-          lastName: normalizedContactPerson?.lastName || "",
-          name: buildFullName(normalizedContactPerson || {}),
-          email: normalizedContactPerson?.email || "",
-          phone: normalizedContactPerson?.phone || "",
-          county: normalizedBillingAddress?.county || "",
-          city: normalizedBillingAddress?.city || "",
-          postalCode: normalizedBillingAddress?.postalCode || "",
-          street: normalizedBillingAddress?.street || "",
-          notes: normalizedAddress?.notes || "",
-          companyName: normalizedBillingAddress?.companyName || "",
-        }
-      : normalizedAddress;
-
-  const created = await prisma.$transaction(async (tx) => {
-    const order = await tx.order.create({
-      data: {
-        orderNumber: generateOrderNumber(),
-        userId: req.user.sub,
-        status: "PENDING",
-        paymentMethod: pm,
-        currency,
-        subtotal,
-        shippingTotal,
-        total,
-        shippingAddress: shippingAddressForOrder,
-        billingAddress: ct === "PJ" ? normalizedBillingAddress : null,
-        contactPerson: ct === "PJ" ? normalizedContactPerson : null,
-        shipToDifferentAddress:
-          ct === "PJ" ? Boolean(shipToDifferentAddress) : false,
-        customerType: ct,
+    const vendors = await prisma.vendor.findMany({
+      where: { id: { in: vendorIds } },
+      select: {
+        id: true,
+        displayName: true,
+        address: true,
+        city: true,
       },
     });
 
-    for (const s of quote.shipments) {
-      if (!s.vendorId) continue;
+    const storeAddresses = {};
+    for (const v of vendors) {
+      storeAddresses[v.id] = {
+        name: v.displayName || "Magazin",
+        street: v.address || "",
+        city: v.city || "",
+        county: normalizedAddress.county || "",
+        postalCode: "",
+        country: "România",
+      };
+    }
 
-      const sh = await tx.shipment.create({
+    const shippingAddressForOrder =
+      ct === "PJ" && !shipToDifferentAddress
+        ? {
+            firstName: normalizedContactPerson?.firstName || "",
+            lastName: normalizedContactPerson?.lastName || "",
+            name: buildFullName(normalizedContactPerson || {}),
+            email: normalizedContactPerson?.email || "",
+            phone: normalizedContactPerson?.phone || "",
+            county: normalizedBillingAddress?.county || "",
+            city: normalizedBillingAddress?.city || "",
+            postalCode: normalizedBillingAddress?.postalCode || "",
+            street: normalizedBillingAddress?.street || "",
+            notes: normalizedAddress?.notes || "",
+            companyName: normalizedBillingAddress?.companyName || "",
+          }
+        : normalizedAddress;
+
+    const created = await prisma.$transaction(async (tx) => {
+      for (const item of cart) {
+        const productId = item.productId;
+        const qty = Number(item.qty || 0);
+
+        if (!productId || qty <= 0) continue;
+
+        const product = await tx.product.findUnique({
+          where: { id: productId },
+          select: {
+            id: true,
+            title: true,
+            availability: true,
+            readyQty: true,
+            isActive: true,
+            isHidden: true,
+            moderationStatus: true,
+          },
+        });
+
+        if (!product) throw new Error("product_not_found");
+
+        if (
+          product.isActive === false ||
+          product.isHidden === true ||
+          product.moderationStatus !== "APPROVED"
+        ) {
+          throw new Error("product_unavailable");
+        }
+
+        const availability = String(product.availability || "READY").toUpperCase();
+
+        if (availability === "SOLD_OUT") {
+          throw new Error("product_sold_out");
+        }
+
+        if (availability === "READY" && product.readyQty !== null) {
+          const currentQty = Number(product.readyQty);
+
+          if (!Number.isFinite(currentQty) || currentQty < qty) {
+            throw new Error("insufficient_stock");
+          }
+
+          const nextQty = currentQty - qty;
+
+          const updatedStock = await tx.product.updateMany({
+            where: {
+              id: productId,
+              readyQty: { gte: qty },
+              isActive: true,
+              isHidden: false,
+              moderationStatus: "APPROVED",
+              availability: "READY",
+            },
+            data: {
+              readyQty: { decrement: qty },
+              availability: nextQty <= 0 ? "SOLD_OUT" : "READY",
+            },
+          });
+
+          if (updatedStock.count !== 1) {
+            throw new Error("insufficient_stock");
+          }
+
+          if (nextQty <= 0) {
+            soldOutProductIds.push(productId);
+          }
+        }
+      }
+
+      const order = await tx.order.create({
         data: {
-          orderId: order.id,
-          vendorId: String(s.vendorId),
-          serviceId: s.serviceId ? String(s.serviceId) : null,
-          method: s.method === "LOCKER" ? "LOCKER" : "COURIER",
-          lockerId: s.lockerId || null,
-          price: dec(s.price),
+          orderNumber: generateOrderNumber(),
+          userId: req.user.sub,
           status: "PENDING",
+          paymentMethod: pm,
+          currency,
+          subtotal,
+          shippingTotal,
+          total,
+          shippingAddress: shippingAddressForOrder,
+          billingAddress: ct === "PJ" ? normalizedBillingAddress : null,
+          contactPerson: ct === "PJ" ? normalizedContactPerson : null,
+          shipToDifferentAddress:
+            ct === "PJ" ? Boolean(shipToDifferentAddress) : false,
+          customerType: ct,
         },
       });
 
-      const its =
-        groups.find((g) => String(g.serviceId) === String(s.serviceId))?.items ||
-        [];
+      for (const s of quote.shipments) {
+        if (!s.vendorId) continue;
 
-      if (its.length) {
-        await tx.shipmentItem.createMany({
-          data: its.map((it) => ({
-            shipmentId: sh.id,
-            productId: it.productId,
-            title: it.title,
-            qty: it.qty,
-            price: dec(it.price),
-          })),
+        const sh = await tx.shipment.create({
+          data: {
+            orderId: order.id,
+            vendorId: String(s.vendorId),
+            serviceId: s.serviceId ? String(s.serviceId) : null,
+            method: s.method === "LOCKER" ? "LOCKER" : "COURIER",
+            lockerId: s.lockerId || null,
+            price: dec(s.price),
+            status: "PENDING",
+          },
         });
+
+        const its =
+          groups.find((g) => String(g.serviceId) === String(s.serviceId))
+            ?.items || [];
+
+        if (its.length) {
+          await tx.shipmentItem.createMany({
+            data: its.map((it) => ({
+              shipmentId: sh.id,
+              productId: it.productId,
+              title: it.title,
+              qty: it.qty,
+              price: dec(it.price),
+            })),
+          });
+        }
       }
+
+      await tx.cartItem.deleteMany({ where: { userId: req.user.sub } });
+
+      return order;
+    });
+
+    try {
+      await Promise.all(
+        [...new Set(soldOutProductIds)].map((productId) =>
+          notifyVendorOnProductSoldOut(productId)
+        )
+      );
+    } catch (err) {
+      console.error("Nu am putut trimite notificările pentru produse epuizate:", err);
     }
 
-    await tx.cartItem.deleteMany({ where: { userId: req.user.sub } });
+    try {
+      const shipments = await prisma.shipment.findMany({
+        where: { orderId: created.id },
+      });
 
-    return order;
-  });
+      const addr = created.shippingAddress || {};
+      const customerName =
+        addr.name ||
+        `${addr.lastName || ""} ${addr.firstName || ""}`.trim() ||
+        "Client";
 
-  try {
-    const shipments = await prisma.shipment.findMany({
-      where: { orderId: created.id },
-    });
+      await Promise.all(
+        shipments.map(async (s) => {
+          const shortId = s.id.slice(-6).toUpperCase();
 
-    const addr = created.shippingAddress || {};
-    const customerName =
-      addr.name ||
-      `${addr.lastName || ""} ${addr.firstName || ""}`.trim() ||
-      "Client";
+          const itemsForVendor = items.filter(
+            (it) => String(it.vendorId) === String(s.vendorId)
+          );
 
-    await Promise.all(
-      shipments.map(async (s) => {
-        const shortId = s.id.slice(-6).toUpperCase();
+          const subtotalVendor = dec(
+            itemsForVendor.reduce((sum, it) => sum + it.price * it.qty, 0)
+          );
 
-        const itemsForVendor = items.filter(
-          (it) => String(it.vendorId) === String(s.vendorId)
-        );
-        const subtotalVendor = dec(
-          itemsForVendor.reduce((sum, it) => sum + it.price * it.qty, 0)
-        );
-        const totalVendor = dec(subtotalVendor + Number(s.price || 0));
+          const totalVendor = dec(subtotalVendor + Number(s.price || 0));
 
-        await createVendorNotification(s.vendorId, {
-          type: "order",
-          title: `Comandă nouă (#${shortId})`,
-          body: `${customerName} a plasat o comandă – total ${totalVendor.toFixed(
-            2
-          )} ${created.currency || "RON"}.`,
-          link: `/vendor/orders`,
-        });
-      })
-    );
+          await createVendorNotification(s.vendorId, {
+            type: "order",
+            title: `Comandă nouă (#${shortId})`,
+            body: `${customerName} a plasat o comandă – total ${totalVendor.toFixed(
+              2
+            )} ${created.currency || "RON"}.`,
+            link: `/vendor/orders`,
+          });
+        })
+      );
+    } catch (err) {
+      console.error("Nu am putut crea notificările pentru vendor:", err);
+    }
+
+    try {
+      await sendOrderConfirmationEmail({
+        to: shippingAddressForOrder.email,
+        order: created,
+        items,
+        storeAddresses,
+      });
+    } catch (err) {
+      console.error("Eroare la trimiterea emailului de confirmare:", err);
+    }
+
+    if (pm === "COD") {
+      return res.json({
+        ok: true,
+        orderId: created.id,
+        orderNumber: created.orderNumber,
+      });
+    }
+
+    try {
+      const payment = await createPaymentForOrder(created);
+
+      return res.json({
+        ok: true,
+        orderId: created.id,
+        orderNumber: created.orderNumber,
+        payment,
+      });
+    } catch (err) {
+      console.error("Eroare la inițierea plății pentru comandă:", err);
+
+      return res.status(500).json({
+        error: "payment_init_failed",
+        message: "Comanda a fost creată, dar inițierea plății a eșuat.",
+        orderId: created.id,
+        orderNumber: created.orderNumber,
+      });
+    }
   } catch (err) {
-    console.error("Nu am putut crea notificările pentru vendor:", err);
-  }
+    console.error("Eroare la plasarea comenzii:", err);
 
-  try {
-    await sendOrderConfirmationEmail({
-      to: shippingAddressForOrder.email,
-      order: created,
-      items,
-      storeAddresses,
-    });
-  } catch (err) {
-    console.error("Eroare la trimiterea emailului de confirmare:", err);
-  }
+    if (err?.message === "insufficient_stock") {
+      return res.status(409).json({
+        error: "insufficient_stock",
+        message: "Un produs din coș nu mai are stoc suficient.",
+      });
+    }
 
-  if (pm === "COD") {
-    return res.json({
-      ok: true,
-      orderId: created.id,
-      orderNumber: created.orderNumber,
-    });
-  }
+    if (err?.message === "product_sold_out") {
+      return res.status(409).json({
+        error: "product_sold_out",
+        message: "Un produs din coș este epuizat.",
+      });
+    }
 
-  try {
-    const payment = await createPaymentForOrder(created);
-    return res.json({
-      ok: true,
-      orderId: created.id,
-      orderNumber: created.orderNumber,
-      payment,
-    });
-  } catch (err) {
-    console.error("Eroare la inițierea plății pentru comandă:", err);
+    if (err?.message === "product_unavailable") {
+      return res.status(409).json({
+        error: "product_unavailable",
+        message: "Un produs din coș nu mai este disponibil.",
+      });
+    }
+
+    if (err?.message === "product_not_found") {
+      return res.status(404).json({
+        error: "product_not_found",
+        message: "Un produs din coș nu mai există.",
+      });
+    }
+
     return res.status(500).json({
-      error: "payment_init_failed",
-      message: "Comanda a fost creată, dar inițierea plății a eșuat.",
-      orderId: created.id,
-      orderNumber: created.orderNumber,
+      error: "order_place_failed",
+      message: "Nu am putut plasa comanda.",
     });
   }
 });

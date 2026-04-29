@@ -1,7 +1,7 @@
 // src/components/Navbar/MessagesPopover.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, X, ArrowRight, Clock, Send } from "lucide-react";
+import { MessageSquare, X, ArrowRight, Clock } from "lucide-react";
 import { api } from "../../lib/api";
 import styles from "./Navbar.module.css";
 
@@ -100,7 +100,7 @@ export default function MessagesPopover({
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [threads, setThreads] = useState([]);
 
-  const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [loadingMsgs] = useState(false);
   const [msgs, setMsgs] = useState([]);
 
   const [text, setText] = useState("");
@@ -194,56 +194,18 @@ export default function MessagesPopover({
     };
   }, [open, me, API.listThreads, limit]);
 
-  // ✅ Prefetch messages for first N threads when popover opens (desktop only, best effort)
-  useEffect(() => {
-    if (!open || !threads.length) return;
-    const first = threads.slice(0, 4); // ajustează: 3-6 e sweet spot
-    first.forEach((t) => {
-      const threadId = pickRealThreadId(t);
-      if (!threadId) return;
-      if (getCached(threadId)) return; // already cached
-      fetchMsgsCached(API.getMsgs(threadId), threadId).catch(() => {});
-    });
-  }, [open, threads, API]);
+ async function openThread(item) {
+  const threadId = pickRealThreadId(item);
+  if (!threadId) return;
 
-  async function openThread(item) {
-    const threadId = pickRealThreadId(item);
-    if (!threadId) return;
+  setSheetOpen(false);
+  setActiveThread(null);
+  setText("");
 
-    setActiveThread({ ...item, _threadId: threadId });
-    setSheetOpen(true);
-    setText("");
+  onClose?.();
 
-    // ✅ 1) show cached instantly if exists (NO loader)
-    const cached = getCached(threadId);
-    if (cached) {
-      setMsgs(cached);
-      setLoadingMsgs(false);
-
-      // ✅ 2) refresh in background (stale-while-revalidate)
-      fetchMsgsCached(API.getMsgs(threadId), threadId)
-        .then((fresh) => {
-          // update only if still same thread open
-          setMsgs((prev) => (activeThread?._threadId === threadId ? fresh : prev));
-        })
-        .catch(() => {});
-    } else {
-      // no cache => fallback to loader
-      setLoadingMsgs(true);
-      setMsgs([]);
-      try {
-        const fresh = await fetchMsgsCached(API.getMsgs(threadId), threadId);
-        setMsgs(fresh);
-      } catch {
-        setMsgs([]);
-      } finally {
-        setLoadingMsgs(false);
-      }
-    }
-
-    // mark read (fire and forget)
-    api(API.markRead(threadId), { method: "PATCH" }).catch(() => {});
-  }
+  navigate(`${API.fullPage}?threadId=${encodeURIComponent(threadId)}`);
+}
 
   const activeThreadId = activeThread?._threadId || null;
 

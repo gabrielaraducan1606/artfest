@@ -5,10 +5,16 @@ import {
   requireRole,
   enforceTokenVersion,
 } from "../api/auth.js";
+import {
+  attachSubscription,
+  requireActiveSubscriptionForChat,
+  requireChatEntitlement,
+} from "../middleware/chatGuards.js";
 
 const router = Router();
 
 router.use(authRequired, enforceTokenVersion, requireRole("VENDOR"));
+router.use(attachSubscription());
 
 async function getVendorIdForUser(req) {
   if (req.user.vendorId) return req.user.vendorId;
@@ -17,6 +23,7 @@ async function getVendorIdForUser(req) {
     where: { userId: req.user.sub },
     select: { id: true },
   });
+
   return vendor?.id || null;
 }
 
@@ -32,80 +39,94 @@ const STATUS_MAP = {
  * PATCH /api/inbox/threads/:id/meta
  * body: { status?, internalNote?, followUpAt? }
  *
- * followUpAt:
- * - string ISO -> normalizat la ora 08:00
- * - null -> șterge follow-up
+ * Premium only:
+ * - status CRM
+ * - internalNote
+ * - followUpAt
  */
-router.patch("/inbox/threads/:id/meta", async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+router.patch(
+  "/inbox/threads/:id/meta",
+  requireActiveSubscriptionForChat(),
+  requireChatEntitlement({ advanced: true }),
+  async (req, res) => {
+    const vendorId = await getVendorIdForUser(req);
+    if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
-  const { id } = req.params;
-  const { status, internalNote } = req.body;
+    const { id } = req.params;
+    const { status, internalNote } = req.body || {};
 
-  const hasFollowUpInBody = Object.prototype.hasOwnProperty.call(req.body, "followUpAt");
+    const hasFollowUpInBody = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "followUpAt"
+    );
 
-  let followUpDate = null;
-  if (hasFollowUpInBody) {
-    if (req.body.followUpAt === null) {
-      followUpDate = null;
-    } else if (typeof req.body.followUpAt === "string") {
-      const d = new Date(req.body.followUpAt);
-      if (Number.isNaN(d.getTime())) {
-        return res.status(400).json({ error: "invalid_followUpAt" });
+    let followUpDate = null;
+
+    if (hasFollowUpInBody) {
+      if (req.body.followUpAt === null) {
+        followUpDate = null;
+      } else if (typeof req.body.followUpAt === "string") {
+        const d = new Date(req.body.followUpAt);
+
+        if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({ error: "invalid_followUpAt" });
+        }
+
+        d.setHours(8, 0, 0, 0);
+        followUpDate = d;
+      } else {
+        return res.status(400).json({ error: "invalid_followUpAt_type" });
+      }
+    }
+
+    const thread = await prisma.messageThread.findFirst({
+      where: {
+        id,
+        vendorId,
+        deletedByVendorAt: null,
+      },
+      select: {
+        id: true,
+        vendorId: true,
+      },
+    });
+
+    if (!thread) {
+      return res.status(404).json({ error: "thread_not_found" });
+    }
+
+    const dataToUpdate = {};
+
+    if (typeof internalNote === "string") {
+      dataToUpdate.internalNote = internalNote;
+    }
+
+    if (typeof status === "string") {
+      const mapped = STATUS_MAP[status];
+
+      if (!mapped) {
+        return res.status(400).json({ error: "invalid_status" });
       }
 
-      // normalize la 08:00 (server time)
-      d.setHours(8, 0, 0, 0);
-      followUpDate = d;
-    } else {
-      return res.status(400).json({ error: "invalid_followUpAt_type" });
+      dataToUpdate.leadStatus = mapped;
     }
-  }
 
-  const thread = await prisma.messageThread.findUnique({
-    where: { id },
-    select: { id: true, vendorId: true },
-  });
-
-  if (!thread || thread.vendorId !== vendorId) {
-    return res.status(404).json({ error: "thread_not_found" });
-  }
-
-  const dataToUpdate = {};
-
-  if (typeof internalNote === "string") {
-    dataToUpdate.internalNote = internalNote;
-  }
-
-  if (typeof status === "string") {
-    const mapped = STATUS_MAP[status];
-    if (!mapped) {
-      return res.status(400).json({ error: "invalid_status" });
+    if (hasFollowUpInBody) {
+      dataToUpdate.followUpAt = followUpDate;
+      dataToUpdate.followUpNotifiedAt = null;
     }
-    dataToUpdate.leadStatus = mapped;
+
+    if (Object.keys(dataToUpdate).length === 0) {
+      return res.json({ ok: true, thread });
+    }
+
+    const updated = await prisma.messageThread.update({
+      where: { id },
+      data: dataToUpdate,
+    });
+
+    return res.json({ ok: true, thread: updated });
   }
-
-  if (hasFollowUpInBody) {
-    dataToUpdate.followUpAt = followUpDate;
-
-    // ✅ CHEIA anti-spam:
-    // de fiecare dată când setezi/modifici/ștergi follow-up,
-    // resetezi marker-ul de "notificat", ca worker-ul să notifice o singură dată.
-    dataToUpdate.followUpNotifiedAt = null;
-  }
-
-  if (Object.keys(dataToUpdate).length === 0) {
-    return res.json({ ok: true, thread });
-  }
-
-  const updated = await prisma.messageThread.update({
-    where: { id },
-    data: dataToUpdate,
-    // dacă vrei să vezi în răspuns și followUpNotifiedAt, adaugă select/include
-  });
-
-  res.json({ ok: true, thread: updated });
-});
+);
 
 export default router;

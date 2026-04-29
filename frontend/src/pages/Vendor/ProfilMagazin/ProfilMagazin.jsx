@@ -65,7 +65,6 @@ export default function ProfilMagazinPage() {
 
   const [profilePatch, setProfilePatch] = useState({});
   const [editingOverride, setEditingOverride] = useState(null);
-
   const saveProductLockRef = useRef(false);
 
   const sellerData = useMemo(
@@ -107,6 +106,8 @@ export default function ProfilMagazinPage() {
     profile,
   } = sellerData || {};
 
+  const storeSlug = sellerData?.slug || sellerData?.profile?.slug || slug;
+
   const vendorId =
     sellerData?.vendorId ||
     sellerData?.profile?.vendorId ||
@@ -137,7 +138,12 @@ export default function ProfilMagazinPage() {
     _sellerData?._id ||
     null;
 
-  const { trackCTA, trackMESSAGE } = useStoreTracking(vendorId);
+  const currentShopId = serviceId || storeSlug || sdSlug || slug;
+
+  const { trackCTA, trackMESSAGE } = useStoreTracking({
+  vendorId,
+  serviceId,
+});
 
   const owner = useStoreOwnerData({
     isOwner,
@@ -150,13 +156,13 @@ export default function ProfilMagazinPage() {
     broadcastProfileUpdated,
   });
 
-  const reviews = useStoreReviews({
-    slug,
-    storeSlug: sdSlug || slug,
-    rating,
-    vendorId,
-  });
-
+ const reviews = useStoreReviews({
+  slug,
+  storeSlug: sdSlug || slug,
+  rating,
+  serviceId,
+  vendorId, 
+});
   const follow = useStoreFollow({
     serviceId,
     vendorId,
@@ -181,6 +187,7 @@ export default function ProfilMagazinPage() {
 
   async function handleSaveAbout() {
     if (!isOwner) return;
+
     const val = (aboutDraft || "").trim();
 
     try {
@@ -295,8 +302,6 @@ export default function ProfilMagazinPage() {
     },
   });
 
-  const storeSlug = sellerData?.slug || sellerData?.profile?.slug || slug;
-
   async function handleAddProduct() {
     if (!isOwner) return;
 
@@ -309,6 +314,7 @@ export default function ProfilMagazinPage() {
     }
 
     const hasProducts = Array.isArray(products) && products.length > 0;
+
     if (hasProducts) {
       openNewProduct();
       return;
@@ -338,6 +344,7 @@ export default function ProfilMagazinPage() {
             },
           },
         }));
+
         openNewProduct();
         return;
       }
@@ -360,6 +367,7 @@ export default function ProfilMagazinPage() {
       });
     } catch (e) {
       console.error("product-declaration/status error", e);
+
       setGateState((s) => ({
         ...s,
         loading: false,
@@ -367,6 +375,7 @@ export default function ProfilMagazinPage() {
           e?.message ||
           "Nu am putut verifica declarația produselor. Poți continua să adaugi produsul.",
       }));
+
       openNewProduct();
     }
   }
@@ -410,6 +419,7 @@ export default function ProfilMagazinPage() {
       openNewProduct();
     } catch (e) {
       console.error("product-declaration/accept error", e);
+
       setGateState((s) => ({
         ...s,
         loading: false,
@@ -422,6 +432,7 @@ export default function ProfilMagazinPage() {
 
   async function openEditProduct(p) {
     if (!p) return;
+
     const id = p.id || p._id;
     if (!id) return;
 
@@ -504,13 +515,10 @@ export default function ProfilMagazinPage() {
       if (isEdit) {
         const id = editingOverride.id || editingOverride._id;
 
-        saved = await api(
-          `/api/vendors/products/${encodeURIComponent(id)}`,
-          {
-            method: "PUT",
-            body: payload,
-          }
-        );
+        saved = await api(`/api/vendors/products/${encodeURIComponent(id)}`, {
+          method: "PUT",
+          body: payload,
+        });
       } else {
         const sd = sellerData?.slug || sellerData?.profile?.slug || slug;
 
@@ -530,7 +538,12 @@ export default function ProfilMagazinPage() {
           new CustomEvent(
             isEdit ? "vendor:productUpdated" : "vendor:productCreated",
             {
-              detail: { product: saved },
+              detail: {
+                product: saved,
+                shopId: currentShopId,
+                storeId: currentShopId,
+                vendorStoreId: currentShopId,
+              },
             }
           )
         );
@@ -569,9 +582,11 @@ export default function ProfilMagazinPage() {
         <h2 style={{ marginBottom: 8 }}>
           Încă nu ai configurat magazinul
         </h2>
+
         <p style={{ marginBottom: 16 }}>
           Pentru a-ți publica magazinul, completează pașii de onboarding.
         </p>
+
         <button
           type="button"
           className={styles.followBtn}
@@ -587,6 +602,7 @@ export default function ProfilMagazinPage() {
     return (
       <div style={{ padding: "2rem" }}>
         {err || "Magazinul nu a fost găsit."}
+
         {isOwner && (
           <div style={{ marginTop: 16 }}>
             <button
@@ -658,7 +674,14 @@ export default function ProfilMagazinPage() {
           ownerStores={owner.ownerStores}
           ownerStoresLoading={owner.ownerStoresLoading}
           handleGoToOwnerStore={owner.handleGoToOwnerStore}
-          handleCreateNewStoreFromProfile={owner.handleCreateNewStoreFromProfile}
+          handleCreateNewStoreFromProfile={
+            owner.handleCreateNewStoreFromProfile
+          }
+          serviceIsActive={owner.serviceIsActive}
+          activationBusy={owner.activationBusy}
+          ownerChecksLoading={owner.ownerChecksLoading}
+          handleToggleActive={owner.handleToggleActive}
+          activationError={owner.activationError}
           serviceId={serviceId}
           followersCount={follow.followersCount}
           canAddProduct={owner.canAddProduct}
@@ -673,62 +696,65 @@ export default function ProfilMagazinPage() {
 
         <div className={styles.card}>
           <StoreSections
-            tabs={tabs.tabs}
-            activeTab={tabs.activeTab}
-            onJump={tabs.onJump}
-            showAboutSection={showAboutSection}
-            aboutRef={tabs.aboutRef}
-            infoRef={tabs.infoRef}
-            productsRef={tabs.productsRef}
-            reviewsRef={tabs.reviewsRef}
-            aboutText={aboutText}
-            isOwner={isOwner}
-            editAbout={editAbout}
-            aboutDraft={aboutDraft}
-            onToggleEditAbout={() => setEditAbout((x) => !x)}
-            onChangeAbout={setAboutDraft}
-            onSaveAbout={handleSaveAbout}
-            savingAbout={savingAbout}
-            tags={tags}
-            niceCity={niceCity}
-            country={country}
-            address={address}
-            publicEmail={publicEmail}
-            phone={phone}
-            website={website}
-            leadTimes={leadTimes}
-            prettyDelivery={prettyDelivery}
-            editInfo={editInfo}
-            savingInfo={savingInfo}
-            infoErr={infoErr}
-            infoDraft={infoDraft}
-            onChangeInfoDraft={onChangeInfoDraft}
-            countySuggestions={countySuggestions}
-            countiesLoading={countiesLoading}
-            countiesErr={countiesErr}
-            onCountiesChange={onCountiesChange}
-            setEditInfo={setEditInfo}
-            saveInfoNow={saveInfoNow}
-            trackCTA={trackCTA}
-            products={products}
-            viewMode={viewMode}
-            favorites={favorites}
-            navigate={navigate}
-            handleAddProduct={handleAddProduct}
-            productsCacheT={productsCacheT}
-            openEditProduct={openEditProduct}
-            categories={categories}
-            rating={rating}
-            revState={reviews.revState}
-            me={me}
-            changeQueryFromUI={reviews.changeQueryFromUI}
-            onSubmitUserReview={reviews.onSubmitUserReview}
-            onHelpful={reviews.onHelpful}
-            onReport={reviews.onReport}
-            onVendorReply={reviews.onVendorReply}
-            onDeleteUserReview={reviews.onDeleteUserReview}
-            onVendorDeleteReply={reviews.onVendorDeleteReply}
-          />
+  tabs={tabs.tabs}
+  activeTab={tabs.activeTab}
+  onJump={tabs.onJump}
+  showAboutSection={showAboutSection}
+  aboutRef={tabs.aboutRef}
+  infoRef={tabs.infoRef}
+  productsRef={tabs.productsRef}
+  reviewsRef={tabs.reviewsRef}
+  aboutText={aboutText}
+  isOwner={isOwner}
+  editAbout={editAbout}
+  aboutDraft={aboutDraft}
+  onToggleEditAbout={() => setEditAbout((x) => !x)}
+  onChangeAbout={setAboutDraft}
+  onSaveAbout={handleSaveAbout}
+  savingAbout={savingAbout}
+  tags={tags}
+  niceCity={niceCity}
+  country={country}
+  address={address}
+  publicEmail={publicEmail}
+  phone={phone}
+  website={website}
+  leadTimes={leadTimes}
+  prettyDelivery={prettyDelivery}
+  editInfo={editInfo}
+  savingInfo={savingInfo}
+  infoErr={infoErr}
+  infoDraft={infoDraft}
+  onChangeInfoDraft={onChangeInfoDraft}
+  countySuggestions={countySuggestions}
+  countiesLoading={countiesLoading}
+  countiesErr={countiesErr}
+  onCountiesChange={onCountiesChange}
+  setEditInfo={setEditInfo}
+  saveInfoNow={saveInfoNow}
+  trackCTA={trackCTA}
+  products={products}
+  productsLoading={loading}
+  shopId={currentShopId}
+  serviceId={serviceId}
+  viewMode={viewMode}
+  favorites={favorites}
+  navigate={navigate}
+  handleAddProduct={handleAddProduct}
+  productsCacheT={productsCacheT}
+  openEditProduct={openEditProduct}
+  categories={categories}
+  rating={rating}
+  revState={reviews.revState}
+  me={me}
+  changeQueryFromUI={reviews.changeQueryFromUI}
+  onSubmitUserReview={reviews.onSubmitUserReview}
+  onHelpful={reviews.onHelpful}
+  onReport={reviews.onReport}
+  onVendorReply={reviews.onVendorReply}
+  onDeleteUserReview={reviews.onDeleteUserReview}
+  onVendorDeleteReply={reviews.onVendorDeleteReply}
+/>
         </div>
       </div>
 

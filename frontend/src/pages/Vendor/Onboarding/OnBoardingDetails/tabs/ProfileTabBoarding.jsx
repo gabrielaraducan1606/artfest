@@ -1202,21 +1202,37 @@ export default function ProfileTab({
         s.freeShippingThresholdCents !== undefined &&
         String(s.freeShippingThresholdCents) !== "";
 
-      if (!hasEstimatedShipping) list.push("Cost estimativ livrare");
-      if (!hasFreeShippingThreshold) list.push("Prag transport gratuit");
+      if (!hasEstimatedShipping) {
+  list.push("Cost estimativ livrare");
+} else if (Number(s.estimatedShippingFeeCents) < 0) {
+  list.push("Costul de livrare nu poate fi negativ");
+}
+
+if (!hasFreeShippingThreshold) {
+  list.push("Prag transport gratuit");
+} else if (Number(s.freeShippingThresholdCents) < 0) {
+  list.push("Pragul pentru transport gratuit nu poate fi negativ");
+}
     }
 
-    if (!vendorTermsAccepted) {
-      list.push("Acceptarea Acordului Master pentru Vânzători");
-    }
-    if (!returnsAccepted) {
-      list.push("Acceptarea Politicii de retur pentru vânzători");
-    }
+  if (legalLoading) {
+  list.push("Se verifică acordurile vendor");
+} else {
+  if (!vendorTermsAccepted) {
+    list.push("Acceptarea Acordului Master pentru Vânzători");
+  }
+  if (!returnsAccepted) {
+    list.push("Acceptarea Politicii de retur pentru vânzători");
+  }
+}
+if (hasNameConflict) {
+  list.push("Numele brandului este deja folosit");
+}
 
     return [...new Set(list)];
-  }, [services, legalByKey]);
+  }, [services, legalByKey, legalLoading, hasNameConflict]);
 
-  const canContinue = !isSavingAny && !hasNameConflict && blockers.length === 0;
+  const canContinue = !isSavingAny && blockers.length === 0;
 
   const firstService =
     Array.isArray(services) && services[0] ? services[0] : null;

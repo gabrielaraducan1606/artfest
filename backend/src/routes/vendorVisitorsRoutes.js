@@ -128,35 +128,118 @@ router.get("/kpi", async (req, res) => {
     const vendorId = req.vendorId;
     const { from, to } = parseRange(req);
 
-    const grouped = await prisma.event.groupBy({
-      by: ["type"],
-      where: { vendorId, createdAt: { gte: from, lte: to } },
-      _count: { _all: true },
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      select: {
+        services: {
+          select: { id: true },
+        },
+      },
     });
+
+    const serviceIds = vendor?.services?.map((s) => s.id) || [];
+
+    const byService = {};
+    for (const serviceId of serviceIds) {
+      byService[serviceId] = {
+        visitors: 0,
+        followers: 0,
+      };
+    }
+
+    const [grouped, sessions, followGroups] = await Promise.all([
+      prisma.event.groupBy({
+        by: ["type"],
+        where: { vendorId, createdAt: { gte: from, lte: to } },
+        _count: { _all: true },
+      }),
+
+      prisma.event.findMany({
+        where: {
+          vendorId,
+          createdAt: { gte: from, lte: to },
+          type: "PAGEVIEW",
+        },
+        select: {
+          sessionId: true,
+          serviceId: true,
+        },
+      }),
+
+      prisma.serviceFollow.groupBy({
+        by: ["serviceId"],
+        where: {
+          serviceId: { in: serviceIds },
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+    ]);
 
     const get = (t) => grouped.find((g) => g.type === t)?._count._all || 0;
 
-    const sessions = await prisma.event.findMany({
-      where: { vendorId, createdAt: { gte: from, lte: to }, type: "PAGEVIEW" },
-      select: { sessionId: true },
-    });
-
-    // ✅ nu numărăm sesiunea goală
-    const visitors = new Set(
+    const vendorSessions = new Set(
       sessions.map((s) => s.sessionId).filter(Boolean)
-    ).size;
+    );
 
-    const views = get("PAGEVIEW");
+    for (const s of sessions) {
+      if (!s.serviceId || !s.sessionId) continue;
+
+      byService[s.serviceId] ??= {
+        visitors: 0,
+        followers: 0,
+      };
+    }
+
+    const sessionByService = {};
+
+    for (const serviceId of serviceIds) {
+      sessionByService[serviceId] = new Set();
+    }
+
+    for (const s of sessions) {
+      if (!s.serviceId || !s.sessionId) continue;
+
+      sessionByService[s.serviceId] ??= new Set();
+      sessionByService[s.serviceId].add(s.sessionId);
+    }
+
+    for (const serviceId of Object.keys(sessionByService)) {
+      byService[serviceId] ??= {
+        visitors: 0,
+        followers: 0,
+      };
+
+      byService[serviceId].visitors = sessionByService[serviceId].size;
+    }
+
+    let followersTotal = 0;
+
+    for (const g of followGroups) {
+      const count = g._count._all || 0;
+
+      byService[g.serviceId] ??= {
+        visitors: 0,
+        followers: 0,
+      };
+
+      byService[g.serviceId].followers = count;
+      followersTotal += count;
+    }
+
     const cta = get("CTA_CLICK");
     const messages = get("MESSAGE");
 
     return res.json({
       data: {
-        visitors,
-        views,
+        visitors: vendorSessions.size,
+        followers: followersTotal,
+        views: get("PAGEVIEW"),
         cta,
         messages,
         convRate: cta ? messages / cta : 0,
+        byService,
       },
     });
   } catch (e) {

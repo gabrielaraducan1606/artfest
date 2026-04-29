@@ -23,12 +23,15 @@ export default function StoreHero({
   ownerStoresLoading,
   handleGoToOwnerStore,
   handleCreateNewStoreFromProfile,
-  serviceIsActive,
-  activationBusy,
-  ownerChecksLoading,
+
+  serviceIsActive = false,
+  activationBusy = false,
+  ownerChecksLoading = false,
   serviceId,
   handleToggleActive,
-  followersCount,
+  activationError,
+
+  followersCount = 0,
   canAddProduct,
   prodLimits,
   handleAddProduct,
@@ -36,17 +39,22 @@ export default function StoreHero({
   following,
   followLoading,
   toggleFollow,
-  activationError,
   trackCTA,
 }) {
   const [copied, setCopied] = useState(false);
+
+  const activationDisabled =
+    activationBusy ||
+    ownerChecksLoading ||
+    !serviceId ||
+    typeof handleToggleActive !== "function";
 
   async function handleCopy() {
     const url = `${origin}/magazin/${sdSlug}`;
 
     try {
       await navigator.clipboard.writeText(url);
-      trackCTA("Copy profile link");
+      trackCTA?.("Copy profile link");
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -57,13 +65,20 @@ export default function StoreHero({
 
       try {
         document.execCommand("copy");
-        trackCTA("Copy profile link");
+        trackCTA?.("Copy profile link");
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
-      } catch {""}
+      } catch {
+        // noop
+      }
 
       document.body.removeChild(ta);
     }
+  }
+
+  function onActivationClick() {
+    if (activationDisabled) return;
+    handleToggleActive?.();
   }
 
   return (
@@ -93,6 +108,7 @@ export default function StoreHero({
             >
               <FaCamera size={18} />
             </button>
+
             <input
               ref={coverInputRef}
               type="file"
@@ -131,6 +147,7 @@ export default function StoreHero({
                 >
                   <FaCamera size={16} />
                 </button>
+
                 <input
                   ref={avatarInputRef}
                   type="file"
@@ -159,15 +176,17 @@ export default function StoreHero({
             <StoreActivationBadge
               isOwner={isOwner}
               isActive={serviceIsActive}
-              busy={activationBusy || ownerChecksLoading || !serviceId}
+              busy={activationDisabled}
               onActivate={() => {
-                if (!serviceIsActive) handleToggleActive();
+                if (!serviceIsActive) onActivationClick();
               }}
             />
 
             {!!sdSlug && (
               <div className={styles.linkRow} style={{ marginTop: 6 }}>
-                <div className={styles.slug}>{origin}/magazin/{sdSlug}</div>
+                <div className={styles.slug}>
+                  {origin}/magazin/{sdSlug}
+                </div>
 
                 <button
                   type="button"
@@ -180,10 +199,7 @@ export default function StoreHero({
                 </button>
 
                 {copied && (
-                  <span
-                    className={styles.copiedBadge}
-                    style={{ fontWeight: 700 }}
-                  >
+                  <span className={styles.copiedBadge} style={{ fontWeight: 700 }}>
                     Copiat!
                   </span>
                 )}
@@ -233,17 +249,21 @@ export default function StoreHero({
                   <button
                     className={styles.followBtn}
                     type="button"
-                    onClick={handleToggleActive}
-                    disabled={activationBusy || ownerChecksLoading || !serviceId}
+                    onClick={onActivationClick}
+                    disabled={activationDisabled}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
+                      opacity: activationDisabled ? 0.6 : 1,
+                      cursor: activationDisabled ? "not-allowed" : "pointer",
                     }}
                     title={
-                      serviceIsActive
-                        ? "Dezactivează magazinul (nu mai apare în căutări)"
-                        : "Activează magazinul (va apărea în căutări)"
+                      !serviceId
+                        ? "Magazinul nu are încă un serviceId valid."
+                        : serviceIsActive
+                        ? "Dezactivează magazinul."
+                        : "Activează magazinul."
                     }
                   >
                     {activationBusy
@@ -300,6 +320,7 @@ export default function StoreHero({
                   textAlign: "right",
                   maxWidth: 360,
                   marginLeft: "auto",
+                  whiteSpace: "pre-line",
                 }}
               >
                 {activationError}

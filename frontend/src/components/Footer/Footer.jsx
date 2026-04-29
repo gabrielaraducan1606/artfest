@@ -100,6 +100,9 @@ export default function Footer() {
   const termsUrl = absLegalUrl("/termenii-si-conditiile");
   const privacyUrl = absLegalUrl("/confidentialitate");
   const cookiesUrl = absLegalUrl("/cookies");
+const returnsUrl = absLegalUrl("/politica-retur");
+const shippingUrl = absLegalUrl("/anexa-expediere");
+const vendorTermsUrl = absLegalUrl("/acord-vanzatori");
 
   return (
     <footer className={styles.footer}>
@@ -326,6 +329,32 @@ export default function Footer() {
           >
             Cookie-uri
           </a>
+          <a
+  href={returnsUrl}
+  className={styles.link}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  Politica de retur
+</a>
+
+<a
+  href={shippingUrl}
+  className={styles.link}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  Politica de livrare
+</a>
+
+<a
+  href={vendorTermsUrl}
+  className={styles.link}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  Acord vânzători
+</a>
         </div>
       </div>
     </footer>

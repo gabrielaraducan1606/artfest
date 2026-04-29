@@ -92,13 +92,25 @@ function mergeUniqueById(prev, next) {
 }
 
 function normalizeProducts(items = []) {
-  return items.map((pRaw) => ({
-    ...pRaw,
-    price:
-      typeof pRaw.price === "number"
-        ? pRaw.price
-        : (pRaw.priceCents || 0) / 100,
-  }));
+  return items
+    .filter((pRaw) => {
+      const moderationStatus = String(
+        pRaw?.moderationStatus || "APPROVED"
+      ).toUpperCase();
+
+      return (
+        pRaw?.isActive !== false &&
+        !pRaw?.isHidden &&
+        moderationStatus === "APPROVED"
+      );
+    })
+    .map((pRaw) => ({
+      ...pRaw,
+      price:
+        typeof pRaw.price === "number"
+          ? pRaw.price
+          : (pRaw.priceCents || 0) / 100,
+    }));
 }
 
 function extractFacetsFromItems(itemsList = []) {
@@ -773,12 +785,12 @@ export default function ProductsPage() {
   );
 
   const handleSuggestionProductClick = useCallback(
-    (id) => {
-      setSuggestions(null);
-      navigate(`/produse/${id}`);
-    },
-    [navigate]
-  );
+  (id) => {
+    setSuggestions(null);
+    navigate(`/produs/${id}`);
+  },
+  [navigate]
+);
 
   const handleApplySmartCategory = useCallback(
     (catKey) => {

@@ -123,8 +123,8 @@ function useThreads({ scope, q, status, eventType, period, groupByUser }) {
   }, [q]);
 
   const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading((items.length || 0) === 0);
+setError(null);
     try {
       const params = new URLSearchParams();
       params.set("scope", scope || "all");
@@ -143,7 +143,7 @@ function useThreads({ scope, q, status, eventType, period, groupByUser }) {
     } finally {
       setLoading(false);
     }
-  }, [scope, dq, status, eventType, period, groupByUser]);
+  }, [scope, dq, status, eventType, period, groupByUser, items.length]);
 
   useEffect(() => {
     reload();
@@ -167,8 +167,8 @@ function useMessages(threadId) {
 
   const reload = useCallback(async () => {
     if (!threadId) return;
-    setLoading(true);
-    setError(null);
+    setLoading((msgs.length || 0) === 0);
+setError(null);
     try {
       const d = await api(`/api/inbox/threads/${threadId}/messages`);
 
@@ -183,7 +183,7 @@ function useMessages(threadId) {
     } finally {
       setLoading(false);
     }
-  }, [threadId]);
+}, [threadId, msgs.length]);
 
   useEffect(() => {
     reload();
@@ -718,7 +718,7 @@ async function handleFilesChange(e) {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Caută nume, telefon, mesaj…"
+              placeholder="Caută client, magazin, telefon, mesaj…"
             />
             <button
               className={`${styles.iconBtn} ${
@@ -845,7 +845,8 @@ async function handleFilesChange(e) {
               const hasUnread = (t.unreadCount || 0) > 0;
 
               const name = t.name || "Vizitator";
-              const lastMsg = t.lastMsg || "Fără mesaje recente";
+const storeName = t.storeName || "Magazin";
+const lastMsg = t.lastMsg || "Fără mesaje recente";
 
               // mod grupat: afișăm doar userul + nr comenzi
               const isUserGroup = isGroupedView && Array.isArray(t.threads);
@@ -872,15 +873,18 @@ async function handleFilesChange(e) {
                   <div className={styles.threadBody}>
                     <div className={styles.threadRowTop}>
                       <span className={styles.threadName}>
-                        {name}
-                        {!isGroupedView &&
-                          t.orderSummary &&
-                          shortOrderId(t.orderSummary) && (
-                            <span className={styles.threadOrderBadge}>
-                              {" · "}Comanda {shortOrderId(t.orderSummary)}
-                            </span>
-                          )}
-                      </span>
+  {name}
+  <span className={styles.threadOrderBadge}>
+    {" · "}{storeName}
+  </span>
+  {!isGroupedView &&
+    t.orderSummary &&
+    shortOrderId(t.orderSummary) && (
+      <span className={styles.threadOrderBadge}>
+        {" · "}Comanda {shortOrderId(t.orderSummary)}
+      </span>
+    )}
+</span>
                       <span className={styles.threadTime}>
                         {fmtTime(t.lastAt)}
                       </span>
@@ -1025,16 +1029,21 @@ async function handleFilesChange(e) {
                   </div>
                   <div>
                     <div className={styles.peerName}>
-                      {current.name || "Vizitator"}
-                      {!isGroupedView &&
-                        activeThread.orderSummary &&
-                        shortOrderId(activeThread.orderSummary) && (
-                          <span className={styles.peerOrderBadge}>
-                            {" · "}Comanda{" "}
-                            {shortOrderId(activeThread.orderSummary)}
-                          </span>
-                        )}
-                    </div>
+  {current.name || "Vizitator"}
+  {activeThread?.storeName && (
+    <span className={styles.peerOrderBadge}>
+      {" · "}{activeThread.storeName}
+    </span>
+  )}
+  {!isGroupedView &&
+    activeThread.orderSummary &&
+    shortOrderId(activeThread.orderSummary) && (
+      <span className={styles.peerOrderBadge}>
+        {" · "}Comanda{" "}
+        {shortOrderId(activeThread.orderSummary)}
+      </span>
+    )}
+</div>
                     {current.phone && (
                       <div className={styles.peerSub}>
                         {current.phone}
@@ -1259,10 +1268,10 @@ async function handleFilesChange(e) {
                           onClick={() => setActiveThreadId(th.threadId)}
                         >
                           <span>
-                            {sid
-                              ? `Comanda ${sid}`
-                              : "Conversație fără comandă"}
-                          </span>
+  {sid
+    ? `${th.storeName || "Magazin"} · Comanda ${sid}`
+    : `${th.storeName || "Magazin"} · Conversație fără comandă`}
+</span>
                           {th.eventDate && (
                             <span className={styles.orderTabDate}>
                               {fmtDate(th.eventDate)}

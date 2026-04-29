@@ -28,16 +28,13 @@ import {
   Moon,
 } from "lucide-react";
 
-/* ===================== UI cache (instant render) ===================== */
-const DASH_CACHE_KEY = "vendor:dashboard-cache:v1";
+const DASH_CACHE_KEY = "vendor:dashboard-cache:v2";
 
 function readDashCache() {
   try {
     const raw = localStorage.getItem(DASH_CACHE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed) return null;
-    return parsed;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
@@ -51,10 +48,10 @@ function writeDashCache(data) {
   }
 }
 
-/* range helpers */
 function toISODate(d) {
   return d.toISOString().slice(0, 10);
 }
+
 function lastNDaysRange(n) {
   const to = new Date();
   const from = new Date();
@@ -64,29 +61,41 @@ function lastNDaysRange(n) {
 
 function humanizeAddStoreError(e) {
   const data = e?.data || e?.response?.data || {};
-
   const code = data?.error || e?.error || e?.code || "";
-  const title = data?.title || "";
-  const message = data?.message || "";
-  const hint = data?.hint || "";
 
   if (code === "store_limit_reached") {
-    return [title, message, hint].filter(Boolean).join("\n\n");
+    return [data?.title, data?.message, data?.hint].filter(Boolean).join("\n\n");
   }
 
-  return message || e?.message || "Nu am putut crea un magazin nou.";
+  return data?.message || e?.message || "Nu am putut crea un magazin nou.";
 }
 
-/* ============================ Subscriptions hook ============================ */
-/**
- * Așteaptă ca backend-ul să întoarcă:
- *  - ok: boolean
- *  - kind: "trial" | "paid" (opțional)
- *  - plan: {code,name} (opțional)
- *  - endAt: ISO date (opțional)
- *  - trialEndsAt: ISO date (opțional)
- *  - status: string (opțional)
- */
+function humanizeActivateError(e) {
+  const data = e?.data || e?.response?.data || {};
+  const missing = data?.missing;
+
+  if (Array.isArray(missing) && missing.length) {
+    return `Nu poți activa încă. Mai ai de completat:\n\n${missing.join("\n")}`;
+  }
+
+  if (data?.error === "subscription_required") {
+    return (
+      data?.hint ||
+      "Ai nevoie de un abonament activ sau de un trial activ pentru a activa magazinul."
+    );
+  }
+
+  if (data?.error === "missing_required_fields_billing") {
+    return "Nu poți activa încă. Lipsesc date obligatorii de facturare.";
+  }
+
+  if (data?.error === "missing_required_fields_profile") {
+    return "Nu poți activa încă. Lipsesc date obligatorii din profil.";
+  }
+
+  return data?.message || e?.message || "Nu am putut activa magazinul.";
+}
+
 function useSubscriptionStatus({ auto = true } = {}) {
   const [state, setState] = useState({
     ok: null,
@@ -104,7 +113,10 @@ function useSubscriptionStatus({ auto = true } = {}) {
   const fetchOnce = useCallback(async () => {
     try {
       setState((s) => ({ ...s, loading: true, error: "" }));
-      const d = await api("/api/vendors/me/subscription/status", { method: "GET" });
+
+      const d = await api("/api/vendors/me/subscription/status", {
+        method: "GET",
+      });
 
       if (d?.ok) {
         setState({
@@ -145,17 +157,21 @@ function useSubscriptionStatus({ auto = true } = {}) {
 
   const startShortPolling = useCallback(() => {
     const startedAt = Date.now();
+
     const tick = async () => {
       await fetchOnce();
+
       if (Date.now() - startedAt < 120_000) {
         timerRef.current = setTimeout(tick, 10_000);
       }
     };
+
     tick();
   }, [fetchOnce]);
 
   useEffect(() => {
     if (!auto) return;
+
     fetchOnce();
 
     const onFocus = () => fetchOnce();
@@ -172,57 +188,96 @@ function useSubscriptionStatus({ auto = true } = {}) {
     };
   }, [auto, fetchOnce]);
 
-  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   return { ...state, refetch: fetchOnce, startShortPolling };
 }
 
-/* ------- mici utilitare pentru identitate ------- */
 function displayName(me) {
   if (!me) return "Utilizator";
   if (me.name) return me.name;
+
   const full = `${me.firstName || ""} ${me.lastName || ""}`.trim();
   return full || me.email || "Utilizator";
 }
+
 function getInitials(me) {
   const s = displayName(me).split(" ").filter(Boolean);
   return ((s[0]?.[0] || "U") + (s[1]?.[0] || "").toUpperCase()).toUpperCase();
 }
 
-/* date helpers */
 function formatDT(v) {
   if (!v) return "—";
+
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return "—";
+
   return d.toLocaleDateString("ro-RO");
 }
+
 function daysLeftFromISO(iso) {
   if (!iso) return null;
+
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const diff = d.getTime() - Date.now();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+
+  return Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
 function isTrialSub(sub) {
   if (!sub?.ok) return false;
   if (sub.kind === "trial") return true;
+
   const left = daysLeftFromISO(sub.trialEndsAt);
   return typeof left === "number" && left > 0;
 }
 
-/* =============================== Componenta =============================== */
+function getServiceDisplayName(s) {
+  return (
+    s?.profile?.displayName ||
+    s?.title ||
+    s?.type?.name ||
+    s?.typeName ||
+    "Magazin"
+  );
+}
+
+function getServiceReviewCounts(reviewCounts, serviceId) {
+  return (
+    reviewCounts?.byService?.[serviceId] || {
+      product: 0,
+      store: 0,
+    }
+  );
+}
+
+function getServiceStats(stats, serviceId) {
+  return (
+    stats?.byService?.[serviceId] || {
+      visitors: 0,
+      followers: 0,
+    }
+  );
+}
+
 export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const [theme, setTheme] = useState(() => {
-    const saved = typeof window !== "undefined" ? localStorage.getItem("theme") : null;
+    const saved =
+      typeof window !== "undefined" ? localStorage.getItem("theme") : null;
+
     return saved === "dark" ? "dark" : "light";
   });
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+
     try {
       localStorage.setItem("theme", theme);
     } catch {
@@ -233,10 +288,27 @@ export default function DesktopV3() {
   const cached = useMemo(() => readDashCache(), []);
 
   const [services, setServices] = useState(() => cached?.services ?? []);
-  const [onboarding, setOnboarding] = useState(() => cached?.onboarding ?? null);
+  const [onboarding, setOnboarding] = useState(
+    () => cached?.onboarding ?? null
+  );
 
-  const [stats, setStats] = useState(() => cached?.stats ?? { visitors: 0, followers: 0 });
-  const [reviewCounts] = useState(() => cached?.reviewCounts ?? { product: 0, store: 0 });
+  const [stats, setStats] = useState(
+    () =>
+      cached?.stats ?? {
+        visitors: 0,
+        followers: 0,
+        byService: {},
+      }
+  );
+
+  const [reviewCounts, setReviewCounts] = useState(
+    () =>
+      cached?.reviewCounts ?? {
+        product: 0,
+        store: 0,
+        byService: {},
+      }
+  );
 
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState({});
@@ -245,13 +317,24 @@ export default function DesktopV3() {
 
   const sub = useSubscriptionStatus();
 
-  const [unreadNotif, setUnreadNotif] = useState(() => cached?.counts?.unreadNotif ?? 0);
-  const [unreadMsgs, setUnreadMsgs] = useState(() => cached?.counts?.unreadMsgs ?? 0);
-  const [cartCount, setCartCount] = useState(() => cached?.counts?.cartCount ?? 0);
-  const [favCount, setFavCount] = useState(() => cached?.counts?.favCount ?? 0);
-  const [supportUnread, setSupportUnread] = useState(() => cached?.counts?.supportUnread ?? 0);
+  const [unreadNotif, setUnreadNotif] = useState(
+    () => cached?.counts?.unreadNotif ?? 0
+  );
+  const [unreadMsgs, setUnreadMsgs] = useState(
+    () => cached?.counts?.unreadMsgs ?? 0
+  );
+  const [cartCount, setCartCount] = useState(
+    () => cached?.counts?.cartCount ?? 0
+  );
+  const [favCount, setFavCount] = useState(
+    () => cached?.counts?.favCount ?? 0
+  );
+  const [supportUnread, setSupportUnread] = useState(
+    () => cached?.counts?.supportUnread ?? 0
+  );
 
   const cacheTimerRef = useRef(null);
+
   useEffect(() => {
     if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
 
@@ -262,12 +345,20 @@ export default function DesktopV3() {
         stats,
         reviewCounts,
         vendor,
-        counts: { unreadNotif, unreadMsgs, cartCount, favCount, supportUnread },
+        counts: {
+          unreadNotif,
+          unreadMsgs,
+          cartCount,
+          favCount,
+          supportUnread,
+        },
         ts: Date.now(),
       });
     }, 800);
 
-    return () => cacheTimerRef.current && clearTimeout(cacheTimerRef.current);
+    return () => {
+      if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
+    };
   }, [
     services,
     onboarding,
@@ -290,24 +381,24 @@ export default function DesktopV3() {
     setLoading(true);
 
     const fetchLite = async () => {
-      try {
-        const lite = await api("/api/vendors/me/services").catch(() => ({ items: [] }));
-        setServices(lite?.items || []);
-      } catch {
-        /* ignore */
-      }
+      const lite = await api("/api/vendors/me/services").catch(() => ({
+        items: [],
+      }));
+
+      setServices(lite?.items || []);
     };
 
     const fetchFull = async () => {
       try {
         const [svc, ob] = await Promise.all([
-          api("/api/vendors/me/services?includeProfile=1").catch(() => ({ items: [] })),
+          api("/api/vendors/me/services?includeProfile=1").catch(() => ({
+            items: [],
+          })),
           api("/api/vendors/me/onboarding-status").catch(() => null),
         ]);
+
         setServices(svc?.items || []);
         setOnboarding(ob || null);
-      } catch {
-        /* ignore */
       } finally {
         setLoading(false);
       }
@@ -319,11 +410,33 @@ export default function DesktopV3() {
         .catch(() => {});
 
       const { from, to } = lastNDaysRange(7);
+
       api(`/api/vendors/me/visitors/kpi?from=${from}&to=${to}`)
         .then((r) => {
-          const d = r?.data;
+          const d = r?.data || r;
+
           if (!d) return;
-          setStats((prev) => ({ ...prev, visitors: d.visitors ?? 0 }));
+
+          setStats((prev) => ({
+            ...prev,
+            visitors: d.visitors ?? prev.visitors ?? 0,
+            followers: d.followers ?? prev.followers ?? 0,
+            byService: d.byService || prev.byService || {},
+          }));
+        })
+        .catch(() => {});
+
+      api("/api/vendors/me/reviews/kpi")
+        .then((r) => {
+          const d = r?.data || r;
+
+          if (!d) return;
+
+          setReviewCounts({
+            product: d.product ?? d.productReviews ?? 0,
+            store: d.store ?? d.storeReviews ?? 0,
+            byService: d.byService || {},
+          });
         })
         .catch(() => {});
     };
@@ -355,7 +468,9 @@ export default function DesktopV3() {
           api("/api/cart/count").catch(() => ({ count: 0 })),
           api("/api/favorites/count").catch(() => ({ count: 0 })),
           me.role === "VENDOR"
-            ? api("/api/vendor/support/unread-count").catch(() => ({ count: 0 }))
+            ? api("/api/vendor/support/unread-count").catch(() => ({
+                count: 0,
+              }))
             : Promise.resolve({ count: 0 }),
         ]);
 
@@ -373,6 +488,7 @@ export default function DesktopV3() {
 
     const startInterval = () => {
       if (intervalId) clearInterval(intervalId);
+
       const ms = document.visibilityState === "visible" ? 15_000 : 60_000;
       intervalId = setInterval(fetchCounts, ms);
     };
@@ -394,7 +510,9 @@ export default function DesktopV3() {
     return () => {
       alive = false;
       clearTimeout(warmup);
+
       if (intervalId) clearInterval(intervalId);
+
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
@@ -417,30 +535,94 @@ export default function DesktopV3() {
 
   const completeness = useMemo(() => {
     if (!services.length) return 0;
-    const filled = services.filter((s) => s?.profile && (s.profile.displayName || s.title)).length;
+
+    const filled = services.filter(
+      (s) => s?.profile && (s.profile.displayName || s.title)
+    ).length;
+
     return Math.round((filled / services.length) * 100);
   }, [services]);
 
   const nextStep = useMemo(() => {
-    if (!onboarding?.exists) return { label: "Creează profil vendor", href: "/onboarding" };
+    if (!onboarding?.exists) {
+      return {
+        label: "Creează profil vendor",
+        href: "/onboarding",
+      };
+    }
+
     const map = {
-      selectServices: { label: "Alege/Adaugă servicii", href: "/onboarding" },
-      fillDetails: { label: "Completează detalii servicii", href: "/onboarding/details" },
-      profile: { label: "Publică profilul", href: "/onboarding/details" },
-      done: { label: "Gata ✨", href: "/vendor/visitors" },
+      selectServices: {
+        label: "Alege/Adaugă magazine",
+        href: "/onboarding",
+      },
+      fillDetails: {
+        label: "Completează detalii magazine",
+        href: "/onboarding/details",
+      },
+      profile: {
+        label: "Publică magazinul",
+        href: "/onboarding/details",
+      },
+      done: {
+        label: "Gata ✨",
+        href: "/vendor/visitors",
+      },
     };
-    return map[onboarding?.nextStep] || { label: "Continuă", href: "/onboarding" };
+
+    return map[onboarding?.nextStep] || {
+      label: "Continuă",
+      href: "/onboarding",
+    };
   }, [onboarding]);
+
+  const onActivate = useCallback(async (serviceId) => {
+    try {
+      setBusy((prev) => ({ ...prev, [serviceId]: "activate" }));
+
+      await api(`/api/vendors/me/services/${serviceId}/activate`, {
+        method: "POST",
+      });
+
+      const [d, ob] = await Promise.all([
+        api("/api/vendors/me/services?includeProfile=1").catch(() => ({
+          items: [],
+        })),
+        api("/api/vendors/me/onboarding-status").catch(() => null),
+      ]);
+
+      setServices(d.items || []);
+      if (ob) setOnboarding(ob);
+    } catch (e) {
+      alert(humanizeActivateError(e));
+    } finally {
+      setBusy((prev) => {
+        const n = { ...prev };
+        delete n[serviceId];
+        return n;
+      });
+    }
+  }, []);
 
   const onDeactivate = useCallback(async (serviceId) => {
     try {
       setBusy((prev) => ({ ...prev, [serviceId]: "deactivate" }));
-      await api(`/api/vendors/me/services/${serviceId}/deactivate`, { method: "POST" });
 
-      const d = await api("/api/vendors/me/services?includeProfile=1");
+      await api(`/api/vendors/me/services/${serviceId}/deactivate`, {
+        method: "POST",
+      });
+
+      const [d, ob] = await Promise.all([
+        api("/api/vendors/me/services?includeProfile=1").catch(() => ({
+          items: [],
+        })),
+        api("/api/vendors/me/onboarding-status").catch(() => null),
+      ]);
+
       setServices(d.items || []);
+      if (ob) setOnboarding(ob);
     } catch (e) {
-      alert(e?.message || "Nu am putut dezactiva serviciul.");
+      alert(e?.message || "Nu am putut dezactiva magazinul.");
     } finally {
       setBusy((prev) => {
         const n = { ...prev };
@@ -453,22 +635,35 @@ export default function DesktopV3() {
   const onDelete = useCallback(async (serviceId, isActive, status) => {
     try {
       if (isActive && status === "ACTIVE") {
-        alert("Serviciul este activ. Dezactivează-l înainte de a-l șterge.");
+        alert("Magazinul este activ. Dezactivează-l înainte de a-l șterge.");
         return;
       }
+
       if (
-        !confirm("Ești sigur că vrei să ștergi definitiv acest serviciu? Acțiunea nu poate fi anulată.")
+        !confirm(
+          "Ești sigur că vrei să ștergi definitiv acest magazin? Acțiunea nu poate fi anulată."
+        )
       ) {
         return;
       }
 
       setBusy((prev) => ({ ...prev, [serviceId]: "delete" }));
-      await api(`/api/vendors/me/services/${serviceId}`, { method: "DELETE" });
 
-      const d = await api("/api/vendors/me/services?includeProfile=1");
+      await api(`/api/vendors/me/services/${serviceId}`, {
+        method: "DELETE",
+      });
+
+      const [d, ob] = await Promise.all([
+        api("/api/vendors/me/services?includeProfile=1").catch(() => ({
+          items: [],
+        })),
+        api("/api/vendors/me/onboarding-status").catch(() => null),
+      ]);
+
       setServices(d.items || []);
+      if (ob) setOnboarding(ob);
     } catch (e) {
-      alert(e?.message || "Nu am putut șterge serviciul.");
+      alert(e?.message || "Nu am putut șterge magazinul.");
     } finally {
       setBusy((prev) => {
         const n = { ...prev };
@@ -502,8 +697,7 @@ export default function DesktopV3() {
       const code = data?.error || e?.error || e?.code || "";
       const ctaUrl = data?.cta?.url || "";
 
-      const msg = humanizeAddStoreError(e);
-      alert(msg);
+      alert(humanizeAddStoreError(e));
 
       if (code === "store_limit_reached" && ctaUrl) {
         navigate(ctaUrl);
@@ -516,10 +710,13 @@ export default function DesktopV3() {
   const onPreview = useCallback(
     (service) => {
       const slug = service?.profile?.slug;
+
       if (slug) {
         window.open(`/magazin/${slug}`, "_blank", "noopener,noreferrer");
       } else {
-        navigate(`/onboarding/details?serviceId=${encodeURIComponent(service.id)}`);
+        navigate(
+          `/onboarding/details?serviceId=${encodeURIComponent(service.id)}`
+        );
       }
     },
     [navigate]
@@ -527,19 +724,64 @@ export default function DesktopV3() {
 
   const isVendor = me?.role === "VENDOR";
   const isAdmin = me?.role === "ADMIN";
-  const roleLabel = isVendor ? "Vânzător" : isAdmin ? "Administrator" : "Utilizator";
+  const roleLabel = isVendor
+    ? "Vânzător"
+    : isAdmin
+    ? "Administrator"
+    : "Utilizator";
 
   const quick = useMemo(
     () => [
-      { to: "/notificari", label: "Notificări", icon: <Bell size={20} />, badge: unreadNotif },
-      { to: "/mesaje", label: "Mesaje", icon: <MessageSquare size={20} />, badge: unreadMsgs },
-      { to: "/wishlist", label: "Dorințe", icon: <Heart size={20} />, badge: favCount },
-      { to: "/cos", label: "Coș", icon: <ShoppingCart size={20} />, badge: cartCount },
-      { to: "/vendor/support", label: "Asistență", icon: <LifeBuoy size={20} />, badge: supportUnread },
-      { to: "/vendor/store", label: "Magazinul meu", icon: <Store size={20} /> },
-      { to: "/setari", label: "Setări", icon: <Settings size={20} /> },
-      { to: "/vendor/invoices", label: "Facturi", icon: <FileText size={20} /> },
-      { to: "/vendor/orders", label: "Comenzi", icon: <Package size={20} /> },
+      {
+        to: "/notificari",
+        label: "Notificări",
+        icon: <Bell size={20} />,
+        badge: unreadNotif,
+      },
+      {
+        to: "/mesaje",
+        label: "Mesaje",
+        icon: <MessageSquare size={20} />,
+        badge: unreadMsgs,
+      },
+      {
+        to: "/wishlist",
+        label: "Dorințe",
+        icon: <Heart size={20} />,
+        badge: favCount,
+      },
+      {
+        to: "/cos",
+        label: "Coș",
+        icon: <ShoppingCart size={20} />,
+        badge: cartCount,
+      },
+      {
+        to: "/vendor/support",
+        label: "Asistență",
+        icon: <LifeBuoy size={20} />,
+        badge: supportUnread,
+      },
+      {
+        to: "/magazine",
+        label: "Magazinele mele",
+        icon: <Store size={20} />,
+      },
+      {
+        to: "/setari",
+        label: "Setări",
+        icon: <Settings size={20} />,
+      },
+      {
+        to: "/vendor/invoices",
+        label: "Facturi",
+        icon: <FileText size={20} />,
+      },
+      {
+        to: "/vendor/orders",
+        label: "Comenzi",
+        icon: <Package size={20} />,
+      },
     ],
     [unreadNotif, unreadMsgs, favCount, cartCount, supportUnread]
   );
@@ -576,12 +818,6 @@ export default function DesktopV3() {
       <TrialBanner sub={sub} />
       <SubscriptionAlert sub={sub} />
 
-      <div className={styles.kpiRow}>
-        <KPI label="Vizitatori (7d)" value={stats.visitors ?? 0} />
-        <KPI label="Recenzii produs" value={reviewCounts.product ?? 0} />
-        <KPI label="Recenzii magazin" value={reviewCounts.store ?? 0} />
-        <KPI label="Urmăritori" value={stats.followers ?? 0} />
-      </div>
 
       <div className={styles.grid}>
         <div className={styles.colMain}>
@@ -590,6 +826,9 @@ export default function DesktopV3() {
           <ServicesCard
             services={services}
             busy={busy}
+            stats={stats}
+            reviewCounts={reviewCounts}
+            onActivate={onActivate}
             onDeactivate={onDeactivate}
             onDelete={onDelete}
             onPreview={onPreview}
@@ -603,20 +842,27 @@ export default function DesktopV3() {
 
       <SettingsAndSecurityCard />
 
-      {isVendor && <VendorLinksCard unreadMsgs={unreadMsgs} supportUnread={supportUnread} />}
+      {isVendor && (
+        <VendorLinksCard
+          unreadMsgs={unreadMsgs}
+          supportUnread={supportUnread}
+        />
+      )}
 
       {isAdmin && <AdminCard />}
 
-      <LogoutCard onLogout={() => navigate("/autentificare", { replace: true })} />
+      <LogoutCard
+        onLogout={() => navigate("/autentificare", { replace: true })}
+      />
     </section>
   );
 }
 
-/* ============================= Sub-componente ============================= */
-
 function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
   const subBadge = (() => {
-    if (sub.loading) return <span className={styles.badgeWait} aria-label="loading" />;
+    if (sub.loading) {
+      return <span className={styles.badgeWait} aria-label="loading" />;
+    }
 
     if (sub.ok) {
       const trial = isTrialSub(sub);
@@ -629,13 +875,17 @@ function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
             <>
               Trial activ
               {until ? ` • până la ${formatDT(until)}` : ""}
-              {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+              {typeof daysLeft === "number"
+                ? ` • ${daysLeft} zile rămase`
+                : ""}
             </>
           ) : (
             <>
               Plan: {sub.plan?.name || sub.plan?.code || "activ"}
               {until ? ` • până la ${formatDT(until)}` : ""}
-              {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+              {typeof daysLeft === "number"
+                ? ` • ${daysLeft} zile rămase`
+                : ""}
             </>
           )}
         </span>
@@ -679,11 +929,12 @@ function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
 
       <div>
         <h1 className={styles.h1}>Bun venit, {me.name || me.email}!</h1>
+
         <div className={styles.meta}>
           <span className={styles.badge}>VENDOR</span>
           <span className={styles.dot} />
           <span className={styles.metaBlock}>
-            Completență profil:<b> {completeness}%</b>
+            Completență magazine:<b> {completeness}%</b>
           </span>
           <span className={styles.dot} />
           {subBadge}
@@ -691,8 +942,12 @@ function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
 
         <div className={styles.profileCompletion}>
           <div className={styles.progressBar}>
-            <div className={styles.progressFill} style={{ width: `${completeness}%` }} />
+            <div
+              className={styles.progressFill}
+              style={{ width: `${completeness}%` }}
+            />
           </div>
+
           <span className={styles.progressLabel}>
             Următorul pas: <b>{nextStep.label}</b>
           </span>
@@ -708,6 +963,7 @@ function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
 
 function TrialBanner({ sub }) {
   if (sub.loading) return null;
+
   const trial = isTrialSub(sub);
   if (!trial) return null;
 
@@ -719,6 +975,7 @@ function TrialBanner({ sub }) {
       <div className={styles.cardHead}>
         <h3>Perioadă de încercare (Trial)</h3>
       </div>
+
       <p className={styles.subtle}>
         Ai trial activ
         {until ? (
@@ -735,11 +992,20 @@ function TrialBanner({ sub }) {
         ) : null}
         .
       </p>
+
       <div className={styles.actionsRow}>
-        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details?tab=plata&solo=1">
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/onboarding/details?tab=plata&solo=1"
+        >
           Vezi abonamentul
         </Link>
-        <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
+
+        <button
+          className={`${styles.btn} ${styles.btnGhost}`}
+          onClick={sub.refetch}
+          type="button"
+        >
           Reîncarcă status
         </button>
       </div>
@@ -764,7 +1030,8 @@ function IdentityCard({ me, roleLabel }) {
             {displayName(me)}
             {me?.verified && (
               <span className={styles.verifiedPill}>
-                <CheckCircle2 size={14} className={styles.verifiedIcon} /> Verificat
+                <CheckCircle2 size={14} className={styles.verifiedIcon} />{" "}
+                Verificat
               </span>
             )}
           </div>
@@ -791,12 +1058,18 @@ function QuickCard({ quick }) {
             key={q.to}
             to={q.to}
             className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`}
-            style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 6,
+            }}
           >
             <span className={styles.iconWrap}>
               {q.icon}
               <Badge count={q.badge} />
             </span>
+
             <span>{q.label}</span>
           </Link>
         ))}
@@ -807,19 +1080,31 @@ function QuickCard({ quick }) {
 
 function SubscriptionAlert({ sub }) {
   if (sub.loading || sub.ok) return null;
+
   return (
     <div className={`${styles.card} ${styles.cardWarning}`}>
       <div className={styles.cardHead}>
         <h3>Abonament necesar</h3>
       </div>
+
       <p className={styles.subtle}>
-        Pentru a activa servicii și a apărea în căutări, ai nevoie de un abonament activ.
+        Pentru a activa magazine și a apărea în căutări, ai nevoie de un
+        abonament activ.
       </p>
+
       <div className={styles.actionsRow}>
-        <Link className={`${styles.btn} ${styles.btnPrimary}`} to="/onboarding/details?tab=plata&solo=1">
+        <Link
+          className={`${styles.btn} ${styles.btnPrimary}`}
+          to="/onboarding/details?tab=plata&solo=1"
+        >
           Activează abonament
         </Link>
-        <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
+
+        <button
+          className={`${styles.btn} ${styles.btnGhost}`}
+          onClick={sub.refetch}
+          type="button"
+        >
           Reîncarcă status
         </button>
       </div>
@@ -836,11 +1121,16 @@ function OnboardingCard({ nextStep }) {
           Următorul pas: <b>{nextStep.label}</b>
         </span>
       </div>
+
       <div className={styles.actionsRow}>
         <Link className={`${styles.btn} ${styles.btnPrimary}`} to="/onboarding">
-          Alege/Adaugă servicii
+          Alege/Adaugă magazine
         </Link>
-        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details">
+
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/onboarding/details"
+        >
           Completează detalii
         </Link>
       </div>
@@ -851,19 +1141,24 @@ function OnboardingCard({ nextStep }) {
 function ServicesCard({
   services,
   busy,
+  stats,
+  reviewCounts,
+  onActivate,
   onDeactivate,
   onDelete,
   onPreview,
   onAddStore,
   loading,
 }) {
-  const activeCount = services.filter((s) => s.isActive && s.status === "ACTIVE").length;
+  const activeCount = services.filter(
+    (s) => s.isActive && s.status === "ACTIVE"
+  ).length;
 
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
         <div>
-          <h3>Serviciile mele</h3>
+          <h3>Magazinele mele</h3>
           <div className={styles.subtle}>
             Active: <b>{activeCount}</b> / Total: <b>{services.length}</b>
           </div>
@@ -884,33 +1179,42 @@ function ServicesCard({
         <ServicesSkeleton />
       ) : services.length === 0 ? (
         <EmptyState
-          title="Nu ai servicii încă"
-          subtitle="Începe prin a alege servicii și a completa detaliile profilului."
+          title="Nu ai magazine încă"
+          subtitle="Începe prin a alege un tip de magazin și a completa detaliile profilului."
           ctaText="Pornește onboarding"
           to="/onboarding"
         />
       ) : (
         <ul className={styles.serviceList}>
           {services.map((s) => {
-            const hasFull = !!(s.status || s.profile?.displayName || typeof s.isActive === "boolean");
+            const hasFull = !!(
+              s.status ||
+              s.profile?.displayName ||
+              typeof s.isActive === "boolean"
+            );
+
             const isAct = !!(s.isActive && s.status === "ACTIVE");
             const isBusy = !!busy[s.id];
+
+            const serviceStats = getServiceStats(stats, s.id);
+            const serviceReviews = getServiceReviewCounts(reviewCounts, s.id);
 
             return (
               <li key={s.id} className={styles.serviceItem}>
                 <div className={styles.serviceMain}>
                   <div className={styles.serviceTitle}>
-                    {s.profile?.displayName || s.title || s.type?.name || s.typeName || "Serviciu"}
+                    {getServiceDisplayName(s)}
                   </div>
 
                   <div className={styles.serviceMeta}>
                     {hasFull ? (
                       <>
                         <span>
-                          Tip: <b>{s.type?.name || s.typeName}</b>
+                          Tip: <b>{s.type?.name || s.typeName || "—"}</b>
                         </span>
 
                         {" · "}
+
                         <span>
                           Status: <b>{s.status}</b>
                           {isAct ? " (activ)" : ""}
@@ -927,6 +1231,26 @@ function ServicesCard({
                             {" · "}Oraș: <b>{s.city}</b>
                           </>
                         ) : null}
+
+                        <>
+                          {" · "}Vizitatori:{" "}
+                          <b>{serviceStats.visitors ?? 0}</b>
+                        </>
+
+                        <>
+                          {" · "}Urmăritori:{" "}
+                          <b>{serviceStats.followers ?? 0}</b>
+                        </>
+
+                        <>
+                          {" · "}Recenzii magazin:{" "}
+                          <b>{serviceReviews.store ?? 0}</b>
+                        </>
+
+                        <>
+                          {" · "}Recenzii produs:{" "}
+                          <b>{serviceReviews.product ?? 0}</b>
+                        </>
                       </>
                     ) : (
                       <div className={styles.metaSkeletonRow}>
@@ -943,7 +1267,9 @@ function ServicesCard({
                     <>
                       <Link
                         className={`${styles.btn} ${styles.btnGhost}`}
-                        to={`/onboarding/details?serviceId=${encodeURIComponent(s.id)}`}
+                        to={`/onboarding/details?serviceId=${encodeURIComponent(
+                          s.id
+                        )}`}
                       >
                         Editează
                       </Link>
@@ -958,6 +1284,20 @@ function ServicesCard({
                         Previzualizează
                       </button>
 
+                      {!isAct && (
+                        <button
+                          className={`${styles.btn} ${styles.btnPrimary}`}
+                          onClick={() => onActivate(s.id)}
+                          disabled={isBusy}
+                          type="button"
+                          title="Activează magazinul"
+                        >
+                          {busy[s.id] === "activate"
+                            ? "Se activează…"
+                            : "Activează"}
+                        </button>
+                      )}
+
                       {isAct && (
                         <button
                           className={`${styles.btn} ${styles.btnWarn}`}
@@ -966,7 +1306,9 @@ function ServicesCard({
                           type="button"
                           title="Dezactivează"
                         >
-                          {busy[s.id] === "deactivate" ? "Se dezactivează…" : "Dezactivează"}
+                          {busy[s.id] === "deactivate"
+                            ? "Se dezactivează…"
+                            : "Dezactivează"}
                         </button>
                       )}
 
@@ -1025,7 +1367,9 @@ function Sidebar({ sub }) {
                   {until ? (
                     <>
                       Valabil până la: <b>{formatDT(until)}</b>
-                      {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+                      {typeof daysLeft === "number"
+                        ? ` • ${daysLeft} zile rămase`
+                        : ""}
                     </>
                   ) : null}
                 </>
@@ -1036,27 +1380,49 @@ function Sidebar({ sub }) {
                   {until ? (
                     <>
                       Valabil până la: <b>{formatDT(until)}</b>
-                      {typeof daysLeft === "number" ? ` • ${daysLeft} zile rămase` : ""}
+                      {typeof daysLeft === "number"
+                        ? ` • ${daysLeft} zile rămase`
+                        : ""}
                     </>
                   ) : null}
                 </>
               )}
             </p>
 
-            <Link className={`${styles.btn} ${styles.btnGhost}`} to="/onboarding/details?tab=plata&solo=1">
+            <Link
+              className={`${styles.btn} ${styles.btnGhost}`}
+              to="/onboarding/details?tab=plata&solo=1"
+            >
               Gestionează abonamentul
             </Link>
-            <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
+
+            <button
+              className={`${styles.btn} ${styles.btnGhost}`}
+              onClick={sub.refetch}
+              type="button"
+            >
               Reîncarcă
             </button>
           </>
         ) : (
           <>
-            <p className={styles.subtle}>Nu ai un abonament activ. Activează-l pentru a-ți publica serviciile.</p>
-            <Link className={`${styles.btn} ${styles.btnPrimary}`} to="/onboarding/details?tab=plata&solo=1">
+            <p className={styles.subtle}>
+              Nu ai un abonament activ. Activează-l pentru a-ți publica
+              magazinele.
+            </p>
+
+            <Link
+              className={`${styles.btn} ${styles.btnPrimary}`}
+              to="/onboarding/details?tab=plata&solo=1"
+            >
               Activează abonament
             </Link>
-            <button className={`${styles.btn} ${styles.btnGhost}`} onClick={sub.refetch} type="button">
+
+            <button
+              className={`${styles.btn} ${styles.btnGhost}`}
+              onClick={sub.refetch}
+              type="button"
+            >
               Am plătit — verifică din nou
             </button>
           </>
@@ -1068,6 +1434,7 @@ function Sidebar({ sub }) {
 
 function SettingsAndSecurityCard() {
   const base = import.meta.env.VITE_API_URL.replace(/\/+$/, "");
+
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
@@ -1079,35 +1446,61 @@ function SettingsAndSecurityCard() {
           <Settings size={18} style={{ marginRight: 6 }} /> Setări cont
         </Link>
 
-        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/invoices">
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/vendor/invoices"
+        >
           <Receipt size={18} style={{ marginRight: 6 }} /> Facturi / documente
         </Link>
 
-        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/setari?tab=billing">
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/setari?tab=billing"
+        >
           <CreditCard size={18} style={{ marginRight: 6 }} /> Date facturare
         </Link>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/termenii-si-conditiile`}>
-          <ScrollText size={18} style={{ marginRight: 6 }} /> Termeni și condiții
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${base}/termenii-si-conditiile`}
+        >
+          <ScrollText size={18} style={{ marginRight: 6 }} /> Termeni și
+          condiții
         </a>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/confidentialitate`}>
-          <ScrollText size={18} style={{ marginRight: 6 }} /> Politica de confidențialitate
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${base}/confidentialitate`}
+        >
+          <ScrollText size={18} style={{ marginRight: 6 }} /> Politica de
+          confidențialitate
         </a>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/politica-retur`}>
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${base}/politica-retur`}
+        >
           <ScrollText size={18} style={{ marginRight: 6 }} /> Politica de retur
         </a>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/anexa-expediere`}>
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${base}/anexa-expediere`}
+        >
           <Paperclip size={18} style={{ marginRight: 6 }} /> Anexa expediere
         </a>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/acord-vanzatori`}>
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${base}/acord-vanzatori`}
+        >
           <Paperclip size={18} style={{ marginRight: 6 }} /> Acord vânzători
         </a>
 
-        <a className={`${styles.btn} ${styles.btnGhost}`} href={`${base}/anexa-produse`}>
+        <a
+          className={`${styles.btn} ${styles.btnGhost}`}
+          href={`${base}/anexa-produse`}
+        >
           <Paperclip size={18} style={{ marginRight: 6 }} /> Anexa produse
         </a>
       </div>
@@ -1121,18 +1514,31 @@ function VendorLinksCard({ unreadMsgs, supportUnread }) {
       <div className={styles.cardHead}>
         <h3>Vânzător</h3>
       </div>
+
       <div className={styles.actionsCol}>
         <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/orders">
           <Package size={18} style={{ marginRight: 6 }} /> Comenzile mele
         </Link>
-        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/orders/planning">
-          <LayoutDashboard size={18} style={{ marginRight: 6 }} /> Planificator comenzi
+
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/vendor/orders/planning"
+        >
+          <LayoutDashboard size={18} style={{ marginRight: 6 }} /> Planificator
+          comenzi
         </Link>
-        <Link className={`${styles.btn} ${styles.btnGhost}`} to="/vendor/visitors">
+
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/vendor/visitors"
+        >
           <Users size={18} style={{ marginRight: 6 }} /> Vizitatori
         </Link>
 
-        <Link className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} to="/mesaje">
+        <Link
+          className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`}
+          to="/mesaje"
+        >
           <span className={styles.iconWrap}>
             <MessageSquare size={18} style={{ marginRight: 6 }} />
             <Badge count={unreadMsgs} />
@@ -1144,7 +1550,10 @@ function VendorLinksCard({ unreadMsgs, supportUnread }) {
           <Store size={18} style={{ marginRight: 6 }} /> Magazine / Produse
         </Link>
 
-        <Link className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`} to="/vendor/support">
+        <Link
+          className={`${styles.btn} ${styles.btnGhost} ${styles.btnWithBadge}`}
+          to="/vendor/support"
+        >
           <span className={styles.iconWrap}>
             <LifeBuoy size={18} style={{ marginRight: 6 }} />
             <Badge count={supportUnread} />
@@ -1162,6 +1571,7 @@ function AdminCard() {
       <div className={styles.cardHead}>
         <h3>Administrare</h3>
       </div>
+
       <div className={styles.actionsCol}>
         <Link className={`${styles.btn} ${styles.btnGhost}`} to="/admin">
           <ShieldCheck size={18} style={{ marginRight: 6 }} /> Panou Admin
@@ -1174,11 +1584,13 @@ function AdminCard() {
 function LogoutCard({ onLogout }) {
   async function handleLogout(e) {
     e.preventDefault();
+
     try {
       await api("/api/auth/logout", { method: "POST" });
     } catch {
       /* ignore */
     }
+
     onLogout?.();
   }
 
@@ -1210,6 +1622,7 @@ function EmptyState({ title, subtitle, ctaText, to }) {
     <div className={styles.empty}>
       <div className={styles.emptyTitle}>{title}</div>
       <div className={styles.subtle}>{subtitle}</div>
+
       <Link className={`${styles.btn} ${styles.btnPrimary}`} to={to}>
         {ctaText}
       </Link>
@@ -1223,11 +1636,13 @@ function HeaderSkeleton() {
       <div className={styles.cardHead}>
         <div className={styles.skelTitle} />
       </div>
+
       <div className={styles.metaSkeletonRow}>
         <span className={styles.skelLine} />
         <span className={styles.skelLine} />
         <span className={styles.skelLine} />
       </div>
+
       <div className={styles.metaSkeletonRow} style={{ marginTop: 10 }}>
         <span className={styles.skelLine} />
         <span className={styles.skelLine} />
@@ -1240,7 +1655,7 @@ function ServicesSkeleton() {
   return (
     <div className={styles.card}>
       <div className={styles.cardHead}>
-        <h3>Serviciile mele</h3>
+        <h3>Magazinele mele</h3>
       </div>
 
       <ul className={styles.serviceList}>
@@ -1254,6 +1669,7 @@ function ServicesSkeleton() {
                 <span className={styles.skelLine} />
               </div>
             </div>
+
             <div className={styles.actionsRow}>
               <span className={styles.skelBtn} />
               <span className={styles.skelBtn} />
@@ -1268,6 +1684,7 @@ function ServicesSkeleton() {
 
 function Badge({ count }) {
   if (!count || count <= 0) return null;
+
   const v = Math.min(count, 99);
   return <span className={styles.badgeBubble}>{v}</span>;
 }

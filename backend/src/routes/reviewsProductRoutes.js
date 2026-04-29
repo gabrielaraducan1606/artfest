@@ -933,5 +933,118 @@ router.get("/product-comments/received", authRequired, async (req, res) => {
     res.status(500).json({ error: "product_comments_received_failed" });
   }
 });
+/**
+ * GET /api/vendors/me/reviews/kpi
+ * KPI recenzii produs + magazin pentru dashboard vendor
+ */
+router.get("/vendors/me/reviews/kpi", authRequired, async (req, res) => {
+  try {
+    const userId = req.user.sub;
 
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        services: {
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!vendor) {
+      return res.json({
+        ok: true,
+        data: {
+          product: 0,
+          store: 0,
+          byService: {},
+        },
+      });
+    }
+
+    const serviceIds = vendor.services.map((s) => s.id);
+
+    if (!serviceIds.length) {
+      return res.json({
+        ok: true,
+        data: {
+          product: 0,
+          store: 0,
+          byService: {},
+        },
+      });
+    }
+
+    const [storeGroups, productReviews] = await Promise.all([
+      prisma.storeReview.groupBy({
+        by: ["serviceId"],
+        where: {
+          status: "APPROVED",
+          serviceId: { in: serviceIds },
+        },
+        _count: { _all: true },
+      }),
+
+      prisma.review.findMany({
+        where: {
+          status: "APPROVED",
+          product: {
+            serviceId: { in: serviceIds },
+          },
+        },
+        select: {
+          id: true,
+          product: {
+            select: {
+              serviceId: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const byService = {};
+
+    for (const serviceId of serviceIds) {
+      byService[serviceId] = {
+        product: 0,
+        store: 0,
+      };
+    }
+
+    let storeTotal = 0;
+    let productTotal = 0;
+
+    for (const g of storeGroups) {
+      const count = g._count._all || 0;
+
+      byService[g.serviceId] ??= { product: 0, store: 0 };
+      byService[g.serviceId].store += count;
+
+      storeTotal += count;
+    }
+
+    for (const r of productReviews) {
+      const serviceId = r.product?.serviceId;
+      if (!serviceId) continue;
+
+      byService[serviceId] ??= { product: 0, store: 0 };
+      byService[serviceId].product += 1;
+
+      productTotal += 1;
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        product: productTotal,
+        store: storeTotal,
+        byService,
+      },
+    });
+  } catch (e) {
+    console.error("GET /api/vendors/me/reviews/kpi error", e);
+    return res.status(500).json({ error: "reviews_kpi_failed" });
+  }
+});
 export default router;

@@ -9,99 +9,110 @@ import {
 const router = Router();
 
 /* =========================================================
-   Helpers: Vendor -> Store slug (ServiceProfile.slug)
-   Vendor NU are slug în schema ta.
-   Slug-ul e pe VendorService.profile.slug (ServiceProfile).
+   Helpers: Store = VendorService + ServiceProfile
 ========================================================= */
 
-async function getStoreSlugByVendorIds(vendorIds = []) {
-  const ids = [...new Set(vendorIds.filter(Boolean))];
-  if (!ids.length) return new Map();
-
-  const rows = await prisma.vendorService.findMany({
-    where: {
-      vendorId: { in: ids },
-      profile: { is: { slug: { not: null } } },
-    },
+async function getMyVendorWithServicesByUserId(userId) {
+  return prisma.vendor.findUnique({
+    where: { userId },
     select: {
-      vendorId: true,
-      status: true,
+      id: true,
+      displayName: true,
+      logoUrl: true,
       isActive: true,
-      updatedAt: true,
-      createdAt: true,
-      profile: { select: { slug: true } },
+      services: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          isActive: true,
+          profile: {
+            select: {
+              slug: true,
+              displayName: true,
+              logoUrl: true,
+            },
+          },
+        },
+      },
     },
-    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
   });
-
-  // preferăm servicii ACTIVE/isActive
-  const best = new Map(); // vendorId -> { slug, score }
-  for (const r of rows) {
-    const slug = r.profile?.slug;
-    if (!slug) continue;
-
-    const score = (r.status === "ACTIVE" ? 100 : 0) + (r.isActive ? 50 : 0);
-    const prev = best.get(r.vendorId);
-    if (!prev || score > prev.score) {
-      best.set(r.vendorId, { slug, score });
-    }
-  }
-
-  const out = new Map();
-  for (const [vendorId, v] of best.entries()) out.set(vendorId, v.slug);
-  return out;
 }
 
-async function getMyVendorAndSlugByUserId(userId) {
-  const vendor = await prisma.vendor.findUnique({
-    where: { userId },
-    select: { id: true, displayName: true, logoUrl: true, isActive: true },
-  });
-  if (!vendor) return { vendor: null, slug: null };
+function mapServiceDisplay(service, fallbackName = "Magazin") {
+  const name =
+    service?.profile?.displayName ||
+    service?.title ||
+    fallbackName;
 
-  const slugMap = await getStoreSlugByVendorIds([vendor.id]);
-  const slug = slugMap.get(vendor.id) || null;
+  const slug = service?.profile?.slug || null;
+  const image = service?.profile?.logoUrl || null;
 
-  return { vendor, slug };
+  return {
+    name,
+    url: slug ? `/magazin/${slug}` : service?.id ? `/magazin/${service.id}` : null,
+    image,
+  };
 }
 
 /**
  * POST /api/store-reviews
- * Creează sau actualizează recenzia unui user pentru un MAGAZIN (Vendor).
+ * Creează sau actualizează recenzia unui user pentru un MAGAZIN/SERVICE.
  * Body:
- *  - vendorId (obligatoriu)
- *  - rating (1–5, obligatoriu)
- *  - comment (opțional)
+ *  - serviceId obligatoriu
+ *  - rating 1–5 obligatoriu
+ *  - comment opțional
  */
 router.post("/store-reviews", authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
-    const vendorId = String(req.body?.vendorId || "").trim();
+    const serviceId = String(req.body?.serviceId || "").trim();
     const rating = Number(req.body?.rating);
     const comment =
       typeof req.body?.comment === "string" ? req.body.comment.trim() : null;
 
-    if (!vendorId) {
-      return res.status(400).json({ error: "invalid_vendor_id" });
+    if (!serviceId) {
+      return res.status(400).json({ error: "invalid_service_id" });
     }
 
     if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
       return res.status(400).json({ error: "invalid_rating" });
     }
 
-    // verificăm că vendorul există și e activ
-    const vendor = await prisma.vendor.findUnique({
-      where: { id: vendorId },
-      select: { id: true, isActive: true },
+    const service = await prisma.vendorService.findUnique({
+      where: { id: serviceId },
+      select: {
+        id: true,
+        vendorId: true,
+        status: true,
+        isActive: true,
+        vendor: {
+          select: {
+            id: true,
+            isActive: true,
+          },
+        },
+      },
     });
 
-    if (!vendor || !vendor.isActive) {
-      return res.status(404).json({ error: "vendor_not_found_or_inactive" });
+    if (
+      !service ||
+      !service.isActive ||
+      service.status !== "ACTIVE" ||
+      !service.vendor?.isActive
+    ) {
+      return res.status(404).json({ error: "service_not_found_or_inactive" });
     }
 
-    // verificăm dacă există deja recenzie
+    const vendorId = service.vendorId;
+
     const existing = await prisma.storeReview.findUnique({
-      where: { vendorId_userId: { vendorId, userId } },
+      where: {
+        serviceId_userId: {
+          serviceId,
+          userId,
+        },
+      },
       select: {
         id: true,
         rating: true,
@@ -115,9 +126,9 @@ router.post("/store-reviews", authRequired, async (req, res) => {
     let review;
 
     if (!existing) {
-      // 🌱 NU există recenzie → creare simplă
       review = await prisma.storeReview.create({
         data: {
+          serviceId,
           vendorId,
           userId,
           rating,
@@ -126,12 +137,30 @@ router.post("/store-reviews", authRequired, async (req, res) => {
         },
         include: {
           user: {
-            select: { id: true, firstName: true, lastName: true, name: true },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              name: true,
+              avatarUrl: true,
+            },
+          },
+          service: {
+            select: {
+              id: true,
+              title: true,
+              profile: {
+                select: {
+                  slug: true,
+                  displayName: true,
+                  logoUrl: true,
+                },
+              },
+            },
           },
         },
       });
 
-      // 🔔 notificare vendor (doar pe recenzie nouă)
       notifyVendorOnStoreReviewCreated(review.id).catch((e) => {
         console.warn("[notifyVendorOnStoreReviewCreated] failed:", e);
       });
@@ -139,52 +168,56 @@ router.post("/store-reviews", authRequired, async (req, res) => {
       return res.json({ ok: true, review });
     }
 
-    // există recenzie anterioară
     const isModeratedStatus =
       existing.status === "REJECTED" || existing.status === "HIDDEN";
 
-    if (isModeratedStatus) {
-      // 🧹 recenzie moderată anterior → o tratăm ca una NOUĂ
-      review = await prisma.storeReview.update({
-        where: { id: existing.id },
-        data: {
-          rating,
-          comment,
-          status: "APPROVED",
-          createdAt: now,
-          updatedAt: now,
-        },
-        include: {
-          user: {
-            select: { id: true, firstName: true, lastName: true, name: true },
-          },
-        },
-      });
-
-      // 🔔 notificare vendor (tratăm ca recenzie nouă)
-      notifyVendorOnStoreReviewCreated(review.id).catch((e) => {
-        console.warn("[notifyVendorOnStoreReviewCreated] failed:", e);
-      });
-
-      return res.json({ ok: true, review });
-    }
-
-    // ✏️ caz normal: recenzie APROBATĂ care este EDITATĂ
     review = await prisma.storeReview.update({
       where: { id: existing.id },
       data: {
         rating,
         comment,
         status: "APPROVED",
+        ...(isModeratedStatus
+          ? {
+              createdAt: now,
+              updatedAt: now,
+            }
+          : {}),
       },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, name: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            name: true,
+            avatarUrl: true,
+          },
+        },
+        service: {
+          select: {
+            id: true,
+            title: true,
+            profile: {
+              select: {
+                slug: true,
+                displayName: true,
+                logoUrl: true,
+              },
+            },
+          },
         },
       },
     });
 
-    // dacă s-a schimbat ceva → log de editare
+    if (isModeratedStatus) {
+      notifyVendorOnStoreReviewCreated(review.id).catch((e) => {
+        console.warn("[notifyVendorOnStoreReviewCreated] failed:", e);
+      });
+
+      return res.json({ ok: true, review });
+    }
+
     if (
       existing.rating !== rating ||
       (existing.comment || "") !== (comment || "")
@@ -219,7 +252,6 @@ router.post("/store-reviews", authRequired, async (req, res) => {
       }
     }
 
-    // ❗ NU notificăm vendorul la edit normal (anti-spam)
     return res.json({ ok: true, review });
   } catch (e) {
     console.error("POST /api/store-reviews error", e);
@@ -228,12 +260,12 @@ router.post("/store-reviews", authRequired, async (req, res) => {
 });
 
 /**
- * GET /api/store-reviews?vendorId=...
- * Listă recenzii pentru un magazin (profil).
+ * GET /api/store-reviews?serviceId=...
+ * Listă recenzii pentru un magazin/service.
  */
 router.get("/store-reviews", async (req, res) => {
   try {
-    const vendorId = String(req.query.vendorId || "").trim();
+    const serviceId = String(req.query.serviceId || "").trim();
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
     const limit = Math.min(
       50,
@@ -241,16 +273,19 @@ router.get("/store-reviews", async (req, res) => {
     );
     const skip = (page - 1) * limit;
 
-    if (!vendorId) {
-      return res.status(400).json({ error: "invalid_vendor_id" });
+    if (!serviceId) {
+      return res.status(400).json({ error: "invalid_service_id" });
     }
 
+    const where = {
+      serviceId,
+      status: "APPROVED",
+    };
+
     const [total, reviews] = await Promise.all([
-      prisma.storeReview.count({
-        where: { vendorId, status: "APPROVED" },
-      }),
+      prisma.storeReview.count({ where }),
       prisma.storeReview.findMany({
-        where: { vendorId, status: "APPROVED" },
+        where,
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
@@ -279,15 +314,24 @@ router.get("/store-reviews", async (req, res) => {
 
 /**
  * POST /api/store-reviews/:id/helpful
- * User marchează / demarchează recenzia ca "utilă"
  */
 router.post("/store-reviews/:id/helpful", authRequired, async (req, res) => {
   try {
     const reviewId = String(req.params.id || "").trim();
-    const userId = req.user.sub;
+    const userId = req.user?.sub;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: "unauthorized",
+        message: "Trebuie să te autentifici pentru a marca o recenzie ca utilă.",
+      });
+    }
 
     if (!reviewId) {
-      return res.status(400).json({ error: "invalid_review_id" });
+      return res.status(400).json({
+        error: "invalid_review_id",
+        message: "Recenzia este invalidă.",
+      });
     }
 
     const review = await prisma.storeReview.findUnique({
@@ -296,45 +340,77 @@ router.post("/store-reviews/:id/helpful", authRequired, async (req, res) => {
     });
 
     if (!review) {
-      return res.status(404).json({ error: "review_not_found" });
+      return res.status(404).json({
+        error: "review_not_found",
+        message: "Recenzia nu mai există.",
+      });
     }
 
     const existing = await prisma.storeReviewHelpful.findUnique({
-      where: { reviewId_userId: { reviewId, userId } },
+      where: {
+        reviewId_userId: {
+          reviewId,
+          userId,
+        },
+      },
     });
 
     if (existing) {
       await prisma.storeReviewHelpful.delete({
-        where: { reviewId_userId: { reviewId, userId } },
+        where: {
+          reviewId_userId: {
+            reviewId,
+            userId,
+          },
+        },
       });
-      return res.json({ ok: true, helpful: false });
+
+      return res.json({
+        ok: true,
+        helpful: false,
+        message: "Ai eliminat aprecierea.",
+      });
     }
 
     await prisma.storeReviewHelpful.create({
-      data: { reviewId, userId },
+      data: {
+        reviewId,
+        userId,
+      },
     });
 
-    return res.json({ ok: true, helpful: true });
+    return res.json({
+      ok: true,
+      helpful: true,
+      message: "Recenzia a fost marcată ca utilă.",
+    });
   } catch (e) {
     console.error("POST /api/store-reviews/:id/helpful error", e);
-    res.status(500).json({ error: "store_review_helpful_failed" });
+
+    return res.status(500).json({
+      error: "store_review_helpful_failed",
+      message: "Nu am putut marca recenzia ca utilă. Încearcă din nou.",
+    });
   }
 });
 
 /**
- * User raportează o recenzie de profil (store).
+ * POST /api/store-reviews/:id/report
  */
 router.post("/store-reviews/:id/report", authRequired, async (req, res) => {
   try {
     const reviewId = String(req.params.id || "").trim();
     const reason = String(req.body?.reason || "").trim();
+
     if (!reviewId || !reason) {
       return res.status(400).json({ error: "invalid_input" });
     }
 
     const review = await prisma.storeReview.findUnique({
       where: { id: reviewId },
+      select: { id: true },
     });
+
     if (!review) {
       return res.status(404).json({ error: "review_not_found" });
     }
@@ -356,7 +432,6 @@ router.post("/store-reviews/:id/report", authRequired, async (req, res) => {
 
 /**
  * DELETE /api/store-reviews/:id
- * User își șterge propria recenzie
  */
 router.delete("/store-reviews/:id", authRequired, async (req, res) => {
   try {
@@ -369,7 +444,10 @@ router.delete("/store-reviews/:id", authRequired, async (req, res) => {
 
     const review = await prisma.storeReview.findUnique({
       where: { id: reviewId },
-      select: { id: true, userId: true },
+      select: {
+        id: true,
+        userId: true,
+      },
     });
 
     if (!review) {
@@ -380,7 +458,10 @@ router.delete("/store-reviews/:id", authRequired, async (req, res) => {
       return res.status(403).json({ error: "forbidden" });
     }
 
-    await prisma.storeReview.delete({ where: { id: reviewId } });
+    await prisma.storeReview.delete({
+      where: { id: reviewId },
+    });
+
     return res.json({ ok: true });
   } catch (e) {
     console.error("DELETE /api/store-reviews/:id error", e);
@@ -389,7 +470,8 @@ router.delete("/store-reviews/:id", authRequired, async (req, res) => {
 });
 
 /**
- * Vendor adaugă / editează răspunsul la o recenzie de profil
+ * POST /api/vendor/store-reviews/:id/reply
+ * Vendor adaugă / editează răspunsul la o recenzie.
  */
 router.post("/vendor/store-reviews/:id/reply", authRequired, async (req, res) => {
   try {
@@ -401,28 +483,49 @@ router.post("/vendor/store-reviews/:id/reply", authRequired, async (req, res) =>
       return res.status(400).json({ error: "invalid_input" });
     }
 
+    const myVendor = await prisma.vendor.findUnique({
+      where: { userId: editorUserId },
+      select: { id: true },
+    });
+
+    if (!myVendor) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const review = await prisma.storeReview.findUnique({
       where: { id: reviewId },
-      include: { vendor: true, reply: true },
+      include: {
+        vendor: true,
+        service: true,
+        reply: true,
+      },
     });
 
     if (!review) {
       return res.status(404).json({ error: "review_not_found" });
     }
 
+    if (review.vendorId !== myVendor.id) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const existingReply = review.reply || null;
 
     const reply = await prisma.storeReviewReply.upsert({
       where: { reviewId },
-      update: { text },
+      update: {
+        text,
+        serviceId: review.serviceId,
+        vendorId: review.vendorId,
+      },
       create: {
         reviewId,
         vendorId: review.vendorId,
+        serviceId: review.serviceId,
         text,
       },
     });
 
-    // log edit reply (dacă exista reply și s-a schimbat)
     if (existingReply && (existingReply.text || "") !== text) {
       try {
         await prisma.storeReviewEditLog.create({
@@ -445,7 +548,6 @@ router.post("/vendor/store-reviews/:id/reply", authRequired, async (req, res) =>
       }
     }
 
-    // 🔔 notifică CLIENTUL că vendorul a răspuns la recenzie
     notifyUserOnStoreReviewReply(review.id).catch((e) => {
       console.warn("[notifyUserOnStoreReviewReply] failed:", e);
     });
@@ -458,16 +560,47 @@ router.post("/vendor/store-reviews/:id/reply", authRequired, async (req, res) =>
 });
 
 /**
- * Vendor șterge răspunsul la recenzie de profil
+ * DELETE /api/vendor/store-reviews/:id/reply
  */
 router.delete("/vendor/store-reviews/:id/reply", authRequired, async (req, res) => {
   try {
     const reviewId = String(req.params.id || "").trim();
+    const editorUserId = req.user.sub;
+
     if (!reviewId) {
       return res.status(400).json({ error: "invalid_input" });
     }
 
-    await prisma.storeReviewReply.delete({ where: { reviewId } }).catch(() => null);
+    const myVendor = await prisma.vendor.findUnique({
+      where: { userId: editorUserId },
+      select: { id: true },
+    });
+
+    if (!myVendor) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const review = await prisma.storeReview.findUnique({
+      where: { id: reviewId },
+      select: {
+        id: true,
+        vendorId: true,
+      },
+    });
+
+    if (!review) {
+      return res.status(404).json({ error: "review_not_found" });
+    }
+
+    if (review.vendorId !== myVendor.id) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    await prisma.storeReviewReply
+      .delete({
+        where: { reviewId },
+      })
+      .catch(() => null);
 
     return res.json({ ok: true });
   } catch (e) {
@@ -477,18 +610,24 @@ router.delete("/vendor/store-reviews/:id/reply", authRequired, async (req, res) 
 });
 
 /* ================== LISTE PENTRU CONT UTILIZATOR ================== */
+
 /**
  * GET /api/comments/my
- * „Comentariile” mele – recenzii de magazin (storeReview) scrise de mine
  */
 router.get("/comments/my", authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.limit || "10", 10))
+    );
     const skip = (page - 1) * limit;
 
-    const where = { userId, status: "APPROVED" };
+    const where = {
+      userId,
+      status: "APPROVED",
+    };
 
     const [total, items] = await Promise.all([
       prisma.storeReview.count({ where }),
@@ -498,30 +637,34 @@ router.get("/comments/my", authRequired, async (req, res) => {
         skip,
         take: limit,
         include: {
-          vendor: {
+          service: {
             select: {
               id: true,
-              displayName: true,
-              logoUrl: true,
+              title: true,
+              profile: {
+                select: {
+                  slug: true,
+                  displayName: true,
+                  logoUrl: true,
+                },
+              },
             },
           },
         },
       }),
     ]);
 
-    const vendorIds = items.map((r) => r.vendorId);
-    const slugByVendorId = await getStoreSlugByVendorIds(vendorIds);
-
     const mapped = items.map((r) => {
-      const slug = slugByVendorId.get(r.vendorId) || null;
+      const display = mapServiceDisplay(r.service, "Magazin");
+
       return {
         id: r.id,
         createdAt: r.createdAt,
         rating: r.rating,
         text: r.comment || "",
-        productTitle: r.vendor?.displayName || "Magazin",
-        productUrl: slug ? `/magazin/${slug}` : (r.vendor ? `/magazin/${r.vendor.id}` : null),
-        image: r.vendor?.logoUrl || null,
+        productTitle: display.name,
+        productUrl: display.url,
+        image: display.image,
       };
     });
 
@@ -534,22 +677,34 @@ router.get("/comments/my", authRequired, async (req, res) => {
 
 /**
  * GET /api/comments/received
- * Comentarii primite pe profilul de magazin al VENDOR-ului curent
  */
 router.get("/comments/received", authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
 
-    const { vendor, slug } = await getMyVendorAndSlugByUserId(userId);
+    const vendor = await getMyVendorWithServicesByUserId(userId);
+
     if (!vendor) {
       return res.json({ total: 0, page: 1, limit: 10, items: [] });
     }
 
+    const serviceIds = vendor.services.map((s) => s.id);
+
+    if (!serviceIds.length) {
+      return res.json({ total: 0, page: 1, limit: 10, items: [] });
+    }
+
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.limit || "10", 10))
+    );
     const skip = (page - 1) * limit;
 
-    const where = { vendorId: vendor.id, status: "APPROVED" };
+    const where = {
+      serviceId: { in: serviceIds },
+      status: "APPROVED",
+    };
 
     const [total, items] = await Promise.all([
       prisma.storeReview.count({ where }),
@@ -560,21 +715,46 @@ router.get("/comments/received", authRequired, async (req, res) => {
         take: limit,
         include: {
           user: {
-            select: { id: true, firstName: true, lastName: true, name: true },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              name: true,
+            },
+          },
+          service: {
+            select: {
+              id: true,
+              title: true,
+              profile: {
+                select: {
+                  slug: true,
+                  displayName: true,
+                  logoUrl: true,
+                },
+              },
+            },
           },
         },
       }),
     ]);
 
-    const mapped = items.map((r) => ({
-      id: r.id,
-      createdAt: r.createdAt,
-      rating: r.rating,
-      text: r.comment || "",
-      productTitle: vendor.displayName || "Magazinul meu",
-      productUrl: slug ? `/magazin/${slug}` : `/magazin/${vendor.id}`,
-      image: vendor.logoUrl || null,
-    }));
+    const mapped = items.map((r) => {
+      const display = mapServiceDisplay(
+        r.service,
+        vendor.displayName || "Magazinul meu"
+      );
+
+      return {
+        id: r.id,
+        createdAt: r.createdAt,
+        rating: r.rating,
+        text: r.comment || "",
+        productTitle: display.name,
+        productUrl: display.url,
+        image: display.image || vendor.logoUrl || null,
+      };
+    });
 
     res.json({ total, page, limit, items: mapped });
   } catch (e) {
@@ -583,12 +763,17 @@ router.get("/comments/received", authRequired, async (req, res) => {
   }
 });
 
-// GET /api/desktop-reviews/my  (recenzii produs + recenzii magazin)
+/**
+ * GET /api/desktop-reviews/my
+ */
 router.get("/desktop-reviews/my", authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.limit || "10", 10))
+    );
     const skip = (page - 1) * limit;
 
     const [prodItems, storeItems] = await Promise.all([
@@ -598,17 +783,42 @@ router.get("/desktop-reviews/my", authRequired, async (req, res) => {
         skip: 0,
         take: 200,
         include: {
-          product: { select: { id: true, title: true, images: true } },
-          images: { select: { url: true } },
+          product: {
+            select: {
+              id: true,
+              title: true,
+              images: true,
+            },
+          },
+          images: {
+            select: {
+              url: true,
+            },
+          },
         },
       }),
       prisma.storeReview.findMany({
-        where: { userId, status: "APPROVED" },
+        where: {
+          userId,
+          status: "APPROVED",
+        },
         orderBy: { createdAt: "desc" },
         skip: 0,
         take: 200,
         include: {
-          vendor: { select: { id: true, displayName: true, logoUrl: true } },
+          service: {
+            select: {
+              id: true,
+              title: true,
+              profile: {
+                select: {
+                  slug: true,
+                  displayName: true,
+                  logoUrl: true,
+                },
+              },
+            },
+          },
         },
       }),
     ]);
@@ -621,31 +831,30 @@ router.get("/desktop-reviews/my", authRequired, async (req, res) => {
       productTitle: r.product?.title || "Produs",
       productUrl: r.product ? `/produs/${r.product.id}` : null,
       image:
-        (r.images && r.images[0]?.url) ||
+        r.images?.[0]?.url ||
         (Array.isArray(r.product?.images) ? r.product.images[0] : null) ||
         null,
       kind: "PRODUCT_REVIEW",
     }));
 
-    const vendorIds = storeItems.map((r) => r.vendorId);
-    const slugByVendorId = await getStoreSlugByVendorIds(vendorIds);
-
     const storeMapped = storeItems.map((r) => {
-      const slug = slugByVendorId.get(r.vendorId) || null;
+      const display = mapServiceDisplay(r.service, "Magazin");
+
       return {
         id: r.id,
         createdAt: r.createdAt,
         rating: r.rating,
         text: r.comment || "",
-        productTitle: r.vendor?.displayName || "Magazin",
-        productUrl: slug ? `/magazin/${slug}` : (r.vendor ? `/magazin/${r.vendor.id}` : null),
-        image: r.vendor?.logoUrl || null,
+        productTitle: display.name,
+        productUrl: display.url,
+        image: display.image,
         kind: "STORE_REVIEW",
       };
     });
 
     const all = [...prodMapped, ...storeMapped].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
     const total = all.length;
@@ -658,39 +867,92 @@ router.get("/desktop-reviews/my", authRequired, async (req, res) => {
   }
 });
 
-// GET /api/desktop-reviews/received (doar pentru vendor: recenzii produse primite + recenzii magazin primite)
+/**
+ * GET /api/desktop-reviews/received
+ */
 router.get("/desktop-reviews/received", authRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
 
-    const { vendor, slug } = await getMyVendorAndSlugByUserId(userId);
-    if (!vendor) return res.json({ total: 0, page: 1, limit: 10, items: [] });
+    const vendor = await getMyVendorWithServicesByUserId(userId);
+
+    if (!vendor) {
+      return res.json({ total: 0, page: 1, limit: 10, items: [] });
+    }
+
+    const serviceIds = vendor.services.map((s) => s.id);
+
+    if (!serviceIds.length) {
+      return res.json({ total: 0, page: 1, limit: 10, items: [] });
+    }
 
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.limit || "10", 10))
+    );
     const skip = (page - 1) * limit;
 
     const [prodItems, storeItems] = await Promise.all([
       prisma.review.findMany({
         where: {
           status: "APPROVED",
-          product: { service: { vendorId: vendor.id } },
+          product: {
+            serviceId: {
+              in: serviceIds,
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
         skip: 0,
         take: 200,
         include: {
-          product: { select: { id: true, title: true, images: true } },
-          images: { select: { url: true } },
+          product: {
+            select: {
+              id: true,
+              title: true,
+              images: true,
+            },
+          },
+          images: {
+            select: {
+              url: true,
+            },
+          },
         },
       }),
       prisma.storeReview.findMany({
-        where: { vendorId: vendor.id, status: "APPROVED" },
+        where: {
+          serviceId: {
+            in: serviceIds,
+          },
+          status: "APPROVED",
+        },
         orderBy: { createdAt: "desc" },
         skip: 0,
         take: 200,
         include: {
-          user: { select: { id: true, firstName: true, lastName: true, name: true } },
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              name: true,
+            },
+          },
+          service: {
+            select: {
+              id: true,
+              title: true,
+              profile: {
+                select: {
+                  slug: true,
+                  displayName: true,
+                  logoUrl: true,
+                },
+              },
+            },
+          },
         },
       }),
     ]);
@@ -703,31 +965,39 @@ router.get("/desktop-reviews/received", authRequired, async (req, res) => {
       productTitle: r.product?.title || "Produs",
       productUrl: r.product ? `/produs/${r.product.id}` : null,
       image:
-        (r.images && r.images[0]?.url) ||
+        r.images?.[0]?.url ||
         (Array.isArray(r.product?.images) ? r.product.images[0] : null) ||
         null,
       kind: "PRODUCT_REVIEW",
     }));
 
-    const storeMapped = storeItems.map((r) => ({
-      id: r.id,
-      createdAt: r.createdAt,
-      rating: r.rating,
-      text: r.comment || "",
-      productTitle: vendor.displayName || "Magazinul meu",
-      productUrl: slug ? `/magazin/${slug}` : `/magazin/${vendor.id}`,
-      image: vendor.logoUrl || null,
-      reviewer: {
-        name:
-          r.user?.firstName || r.user?.lastName
-            ? [r.user?.firstName, r.user?.lastName].filter(Boolean).join(" ")
-            : r.user?.name || "Client",
-      },
-      kind: "STORE_REVIEW",
-    }));
+    const storeMapped = storeItems.map((r) => {
+      const display = mapServiceDisplay(
+        r.service,
+        vendor.displayName || "Magazinul meu"
+      );
+
+      return {
+        id: r.id,
+        createdAt: r.createdAt,
+        rating: r.rating,
+        text: r.comment || "",
+        productTitle: display.name,
+        productUrl: display.url,
+        image: display.image || vendor.logoUrl || null,
+        reviewer: {
+          name:
+            r.user?.firstName || r.user?.lastName
+              ? [r.user?.firstName, r.user?.lastName].filter(Boolean).join(" ")
+              : r.user?.name || "Client",
+        },
+        kind: "STORE_REVIEW",
+      };
+    });
 
     const all = [...prodMapped, ...storeMapped].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
     const total = all.length;
@@ -737,6 +1007,113 @@ router.get("/desktop-reviews/received", authRequired, async (req, res) => {
   } catch (e) {
     console.error("GET /api/desktop-reviews/received error", e);
     res.status(500).json({ error: "desktop_reviews_received_failed" });
+  }
+});
+
+/**
+ * GET /api/vendors/me/reviews/kpi
+ * KPI recenzii pentru dashboard (desktop)
+ */
+router.get("/vendors/me/reviews/kpi", authRequired, async (req, res) => {
+  try {
+    const userId = req.user.sub;
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        services: {
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!vendor) {
+      return res.json({
+        ok: true,
+        data: { product: 0, store: 0, byService: {} },
+      });
+    }
+
+    const serviceIds = vendor.services.map((s) => s.id);
+
+    if (!serviceIds.length) {
+      return res.json({
+        ok: true,
+        data: { product: 0, store: 0, byService: {} },
+      });
+    }
+
+    // STORE REVIEWS (direct pe service)
+    const storeGroups = await prisma.storeReview.groupBy({
+      by: ["serviceId"],
+      where: {
+        status: "APPROVED",
+        serviceId: { in: serviceIds },
+      },
+      _count: { _all: true },
+    });
+
+    // PRODUCT REVIEWS (via product -> serviceId)
+    const productReviews = await prisma.review.findMany({
+      where: {
+        status: "APPROVED",
+        product: {
+          serviceId: { in: serviceIds },
+        },
+      },
+      select: {
+        id: true,
+        product: {
+          select: {
+            serviceId: true,
+          },
+        },
+      },
+    });
+
+    const byService = {};
+
+    // init
+    for (const id of serviceIds) {
+      byService[id] = { product: 0, store: 0 };
+    }
+
+    let storeTotal = 0;
+    let productTotal = 0;
+
+    // STORE
+    for (const g of storeGroups) {
+      const count = g._count._all || 0;
+
+      byService[g.serviceId] ??= { product: 0, store: 0 };
+      byService[g.serviceId].store += count;
+
+      storeTotal += count;
+    }
+
+    // PRODUCT
+    for (const r of productReviews) {
+      const sid = r.product?.serviceId;
+      if (!sid) continue;
+
+      byService[sid] ??= { product: 0, store: 0 };
+      byService[sid].product += 1;
+
+      productTotal += 1;
+    }
+
+    return res.json({
+      ok: true,
+      data: {
+        product: productTotal,
+        store: storeTotal,
+        byService,
+      },
+    });
+  } catch (e) {
+    console.error("GET /api/vendors/me/reviews/kpi error", e);
+    res.status(500).json({ error: "reviews_kpi_failed" });
   }
 });
 

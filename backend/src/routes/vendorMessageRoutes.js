@@ -105,7 +105,14 @@ async function uploadToR2({ key, buffer, contentType }) {
     })
   );
 }
-
+function storeNameFromThread(t) {
+  return (
+    t?.service?.profile?.displayName ||
+    t?.service?.title ||
+    t?.vendor?.displayName ||
+    "Magazin"
+  );
+}
 // helper: mapare string UI -> LeadStatus enum
 function mapStatusFilterToEnum(status) {
   if (!status || status === "all") return undefined;
@@ -220,6 +227,21 @@ router.get("/threads", async (req, res) => {
               ],
             },
           },
+          {
+            service: {
+              OR: [
+                { title: { contains: String(q), mode: "insensitive" } },
+                {
+                  profile: {
+                    displayName: {
+                      contains: String(q),
+                      mode: "insensitive",
+                    },
+                  },
+                },
+              ],
+            },
+          },
         ]
       : undefined,
   };
@@ -243,6 +265,7 @@ router.get("/threads", async (req, res) => {
     select: {
       id: true,
       userId: true,
+      serviceId: true,
       contactName: true,
       contactPhone: true,
       contactEmail: true,
@@ -250,7 +273,28 @@ router.get("/threads", async (req, res) => {
       lastAt: true,
       vendorLastReadAt: true,
       archived: true,
+
       user: { select: { firstName: true, lastName: true } },
+
+      vendor: {
+        select: {
+          displayName: true,
+        },
+      },
+
+      service: {
+        select: {
+          id: true,
+          title: true,
+          profile: {
+            select: {
+              displayName: true,
+              slug: true,
+              logoUrl: true,
+            },
+          },
+        },
+      },
 
       eventDate: true,
       eventType: true,
@@ -300,7 +344,9 @@ router.get("/threads", async (req, res) => {
       GROUP BY t.id
     `;
 
-    for (const r of unreadRows || []) unreadByThreadId.set(r.threadId, r.unreadCount);
+    for (const r of unreadRows || []) {
+      unreadByThreadId.set(r.threadId, r.unreadCount);
+    }
   }
 
   const threadsWithUnread = threads.map((t) => ({
@@ -323,8 +369,15 @@ router.get("/threads", async (req, res) => {
         id: t.id,
         threadId: t.id,
         userId: t.userId,
+
         name: userName || t.contactName || "Vizitator",
         phone: t.contactPhone || null,
+
+        storeId: t.serviceId || null,
+        storeName: storeNameFromThread(t),
+        storeSlug: t.service?.profile?.slug || null,
+        storeLogoUrl: t.service?.profile?.logoUrl || null,
+
         lastMsg: t.lastMsg || null,
         lastAt: t.lastAt,
         unreadCount: t.unreadCount,
@@ -363,6 +416,7 @@ router.get("/threads", async (req, res) => {
     if (!grouped.has(key)) {
       grouped.set(key, { key, userId: t.userId || null, threads: [] });
     }
+
     grouped.get(key).threads.push(t);
   }
 
@@ -385,6 +439,11 @@ router.get("/threads", async (req, res) => {
         threadId: t.id,
         archived: t.archived,
         unreadCount: t.unreadCount || 0,
+
+        storeId: t.serviceId || null,
+        storeName: storeNameFromThread(t),
+        storeSlug: t.service?.profile?.slug || null,
+        storeLogoUrl: t.service?.profile?.logoUrl || null,
 
         eventDate: t.eventDate,
         eventType: t.eventType,
@@ -411,6 +470,12 @@ router.get("/threads", async (req, res) => {
         userId,
         name: userName || primary.contactName || "Vizitator",
         phone: primary.contactPhone || null,
+
+        storeId: primary.serviceId || null,
+        storeName: storeNameFromThread(primary),
+        storeSlug: primary.service?.profile?.slug || null,
+        storeLogoUrl: primary.service?.profile?.logoUrl || null,
+
         lastMsg: primary.lastMsg || null,
         lastAt: primary.lastAt,
         unreadCount: totalUnread,
@@ -424,8 +489,8 @@ router.get("/threads", async (req, res) => {
         status: leadEnumToUi(primary.leadStatus),
         tags: primary.tags || [],
         followUpAt: primary.followUpAt,
-
         internalNote: primary.internalNote || "",
+
         orderSummary: primary.order
           ? {
               id: primary.order.id,
@@ -450,6 +515,12 @@ router.get("/threads", async (req, res) => {
         userId: t.userId,
         name: userName || t.contactName || "Vizitator",
         phone: t.contactPhone || null,
+
+        storeId: t.serviceId || null,
+        storeName: storeNameFromThread(t),
+        storeSlug: t.service?.profile?.slug || null,
+        storeLogoUrl: t.service?.profile?.logoUrl || null,
+
         lastMsg: t.lastMsg || null,
         lastAt: t.lastAt,
         unreadCount: t.unreadCount,
@@ -481,6 +552,11 @@ router.get("/threads", async (req, res) => {
             archived: t.archived,
             unreadCount: t.unreadCount || 0,
 
+            storeId: t.serviceId || null,
+            storeName: storeNameFromThread(t),
+            storeSlug: t.service?.profile?.slug || null,
+            storeLogoUrl: t.service?.profile?.logoUrl || null,
+
             eventDate: t.eventDate,
             eventType: t.eventType,
             eventLocation: t.eventLocation,
@@ -508,7 +584,6 @@ router.get("/threads", async (req, res) => {
   items.sort((a, b) => (+b.lastAt || 0) - (+a.lastAt || 0));
   return res.json({ items });
 });
-
 /**
  * GET /api/inbox/threads/:id/messages
  * ✅ include attachments
@@ -522,8 +597,31 @@ router.get("/threads/:id/messages", async (req, res) => {
 
   const thread = await prisma.messageThread.findFirst({
     where: { id, vendorId, deletedByVendorAt: null },
-    select: { id: true, userLastReadAt: true },
+    select: {
+      id: true,
+      userLastReadAt: true,
+      serviceId: true,
+      vendor: {
+        select: {
+          displayName: true,
+        },
+      },
+      service: {
+        select: {
+          id: true,
+          title: true,
+          profile: {
+            select: {
+              displayName: true,
+              slug: true,
+              logoUrl: true,
+            },
+          },
+        },
+      },
+    },
   });
+
   if (!thread) return res.status(404).json({ error: "Thread not found" });
 
   const msgs = await prisma.message.findMany({
@@ -580,7 +678,16 @@ router.get("/threads/:id/messages", async (req, res) => {
     };
   });
 
-  return res.json({ items });
+  return res.json({
+    items,
+    threadMeta: {
+      id: thread.id,
+      storeId: thread.serviceId || null,
+      storeName: storeNameFromThread(thread),
+      storeSlug: thread.service?.profile?.slug || null,
+      storeLogoUrl: thread.service?.profile?.logoUrl || null,
+    },
+  });
 });
 
 /**
@@ -711,6 +818,7 @@ router.post(
 
     const { id } = req.params;
     const { body } = req.body || {};
+
     if (!body || !String(body).trim()) {
       return res.status(400).json({ error: "Mesajul nu poate fi gol" });
     }
@@ -719,14 +827,35 @@ router.post(
       vendorId,
       subscription: req.subscription,
     });
+
     if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
 
     try {
       const out = await prisma.$transaction(async (tx) => {
         const thread = await tx.messageThread.findFirst({
           where: { id, vendorId, deletedByVendorAt: null },
-          select: { id: true, userId: true, vendor: { select: { displayName: true } } },
+          select: {
+            id: true,
+            userId: true,
+            serviceId: true,
+            vendor: {
+              select: {
+                displayName: true,
+              },
+            },
+            service: {
+              select: {
+                title: true,
+                profile: {
+                  select: {
+                    displayName: true,
+                  },
+                },
+              },
+            },
+          },
         });
+
         if (!thread) {
           return { error: { status: 404, payload: { error: "Thread not found" } } };
         }
@@ -743,7 +872,11 @@ router.post(
 
         await tx.messageThread.update({
           where: { id },
-          data: { lastMsg: msg.body, lastAt: msg.createdAt, vendorLastReadAt: new Date() },
+          data: {
+            lastMsg: msg.body,
+            lastAt: msg.createdAt,
+            vendorLastReadAt: new Date(),
+          },
         });
 
         await bumpChatUsage({ tx, vendorId, incSent: 1 });
@@ -755,9 +888,11 @@ router.post(
 
       try {
         if (out.thread.userId) {
+          const storeName = storeNameFromThread(out.thread);
+
           await createUserNotification(out.thread.userId, {
             type: "message",
-            title: `Mesaj nou de la ${out.thread.vendor?.displayName || "vendor"}`,
+            title: `Mesaj nou de la ${storeName}`,
             body: out.msg.body.slice(0, 140),
             link: `/cont/mesaje?threadId=${out.thread.id}`,
           });
@@ -766,7 +901,11 @@ router.post(
         console.error("Nu am putut crea notificarea pentru user (mesaj nou):", e);
       }
 
-      return res.status(201).json({ ok: true, id: out.msg.id, createdAt: out.msg.createdAt });
+      return res.status(201).json({
+        ok: true,
+        id: out.msg.id,
+        createdAt: out.msg.createdAt,
+      });
     } catch (e) {
       console.error("vendor send message error:", e);
       return res.status(500).json({
@@ -1075,6 +1214,7 @@ router.post(
       vendorId,
       subscription: req.subscription,
     });
+
     if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
 
     const threadId = String(req.params.id || "");
@@ -1082,14 +1222,35 @@ router.post(
 
     const thread = await prisma.messageThread.findFirst({
       where: { id: threadId, vendorId, deletedByVendorAt: null },
-      select: { id: true, userId: true, vendor: { select: { displayName: true } } },
+      select: {
+        id: true,
+        userId: true,
+        serviceId: true,
+        vendor: {
+          select: {
+            displayName: true,
+          },
+        },
+        service: {
+          select: {
+            title: true,
+            profile: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
+      },
     });
+
     if (!thread) return res.status(404).json({ error: "Thread not found" });
 
     const files = Array.isArray(req.files) ? req.files : [];
     if (!files.length) return res.status(400).json({ error: "no_files" });
 
     const publicBase = getPublicBase();
+
     if (!publicBase) {
       return res.status(500).json({
         error: "r2_public_base_missing",
@@ -1118,7 +1279,11 @@ router.post(
 
           const key = `inbox/${threadId}/${msg.id}/${Date.now()}_${rnd}${ext}`;
 
-          await uploadToR2({ key, buffer: f.buffer, contentType: f.mimetype });
+          await uploadToR2({
+            key,
+            buffer: f.buffer,
+            contentType: f.mimetype,
+          });
 
           const url = publicUrlForKey(key);
 
@@ -1130,7 +1295,13 @@ router.post(
               size: typeof f.size === "number" ? f.size : null,
               mime: f.mimetype || null,
             },
-            select: { id: true, filename: true, url: true, size: true, mime: true },
+            select: {
+              id: true,
+              filename: true,
+              url: true,
+              size: true,
+              mime: true,
+            },
           });
 
           createdAttachments.push(att);
@@ -1157,9 +1328,11 @@ router.post(
 
       try {
         if (thread.userId) {
+          const storeName = storeNameFromThread(thread);
+
           await createUserNotification(thread.userId, {
             type: "message",
-            title: `Atașament nou de la ${thread.vendor?.displayName || "vendor"}`,
+            title: `Atașament nou de la ${storeName}`,
             body:
               result.createdAttachments.length === 1
                 ? `📎 ${result.createdAttachments[0].filename}`

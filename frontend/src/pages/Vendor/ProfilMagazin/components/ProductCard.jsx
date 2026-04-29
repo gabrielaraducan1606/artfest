@@ -20,7 +20,7 @@ import {
   productPlaceholder,
   onImgError,
 } from "../../../../components/utils/imageFallback";
-import { resolveFileUrl} from "../hooks/useProfilMagazin";
+import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
 
 const humanizeSlug = (slug = "", { dropPrefix = false } = {}) => {
@@ -38,39 +38,32 @@ const LOCAL_COLOR_LABELS = {
   grey_light: "Gri deschis",
   grey_dark: "Gri închis",
   black: "Negru",
-
   brown_light: "Maro deschis",
   brown: "Maro",
   brown_dark: "Maro închis",
   taupe: "Taupe",
-
   red: "Roșu",
   burgundy: "Burgundy / vișiniu",
   pink_light: "Roz deschis",
   pink_dusty: "Roz pudră",
   pink_hot: "Roz aprins",
-
   lilac: "Lila",
   purple: "Mov",
-
   yellow: "Galben",
   mustard: "Muștar",
   orange: "Portocaliu",
   peach: "Piersică",
-
   blue_light: "Albastru deschis",
   blue: "Albastru",
   blue_royal: "Albastru regal",
   navy: "Bleumarin",
   turquoise: "Turcoaz",
   teal: "Teal",
-
   green_light: "Verde deschis",
   green: "Verde",
   green_olive: "Verde olive",
   green_dark: "Verde închis",
   mint: "Mentă",
-
   gold: "Auriu",
   rose_gold: "Rose gold",
   silver: "Argintiu",
@@ -78,6 +71,28 @@ const LOCAL_COLOR_LABELS = {
   transparent: "Transparent",
   multicolor: "Multicolor",
 };
+
+function moderationMeta(status) {
+  switch (String(status || "PENDING").toUpperCase()) {
+    case "APPROVED":
+      return { label: "Aprobat", tone: "success" };
+    case "CHANGES_REQUESTED":
+      return { label: "Necesită modificări", tone: "warning" };
+    case "REJECTED":
+      return { label: "Respins", tone: "danger" };
+    case "PENDING":
+    default:
+      return { label: "În verificare", tone: "info" };
+  }
+}
+
+function badgeToneClass(tone) {
+  if (tone === "danger") return styles.badgeDanger;
+  if (tone === "warning") return styles.badgeWarning;
+  if (tone === "info") return styles.badgeInfo;
+  if (tone === "success") return styles.badgeSuccess;
+  return "";
+}
 
 function ProductCard({
   p,
@@ -118,9 +133,7 @@ function ProductCard({
 
     const readyQtyRaw = p?.readyQty;
     const readyQty =
-      readyQtyRaw === null ||
-      readyQtyRaw === undefined ||
-      readyQtyRaw === ""
+      readyQtyRaw === null || readyQtyRaw === undefined || readyQtyRaw === ""
         ? null
         : Number.isFinite(Number(readyQtyRaw))
         ? Number(readyQtyRaw)
@@ -156,6 +169,8 @@ function ProductCard({
       color: p?.color || null,
       isActive: p?.isActive !== false,
       isHidden: !!p?.isHidden,
+      moderationStatus: String(p?.moderationStatus || "PENDING").toUpperCase(),
+      moderationMessage: p?.moderationMessage || null,
       availability,
       leadTimeDays: Number.isFinite(Number(p?.leadTimeDays))
         ? Number(p.leadTimeDays)
@@ -172,11 +187,11 @@ function ProductCard({
   const activeIndex = imgCount ? Math.min(idx, imgCount - 1) : 0;
 
   const resolvedImages = useMemo(() => {
-  return safe.images.map((img) => {
-    const src = resolveFileUrl(img);
-    return src || "";
-  });
-}, [safe.images]);
+    return safe.images.map((img) => {
+      const src = resolveFileUrl(img);
+      return src || "";
+    });
+  }, [safe.images]);
 
   const imgSrc = useMemo(() => {
     const src = resolvedImages[activeIndex];
@@ -233,7 +248,17 @@ function ProductCard({
     safe.availability === "SOLD_OUT" ||
     (safe.availability === "READY" && safe.readyQty === 0);
 
-  const isDisabled = !safe.isActive || safe.isHidden;
+  const isApproved = safe.moderationStatus === "APPROVED";
+
+  const isDisabled =
+    viewMode === "vendor"
+      ? false
+      : !safe.isActive || safe.isHidden || !isApproved;
+
+  const moderation = useMemo(
+    () => moderationMeta(safe.moderationStatus),
+    [safe.moderationStatus]
+  );
 
   const status = useMemo(() => {
     if (safe.availability === "SOLD_OUT" || isSoldOut) {
@@ -262,24 +287,28 @@ function ProductCard({
     goTo(`/autentificare?redirect=${encodeURIComponent(href || "/")}`);
   }, [goTo, href]);
 
-  const prefetchProduct = useCallback(() => {
-    if (!safe.id || prefetchedRef.current) return;
-    prefetchedRef.current = true;
+ const prefetchProduct = useCallback(() => {
+  if (!safe.id || prefetchedRef.current) return;
 
-    api(`/api/public/products/${encodeURIComponent(safe.id)}`).catch(() => {});
+  // Nu prefetch public pentru produse care nu sunt publice
+  if (viewMode === "vendor" || isDisabled) return;
 
-    if (resolvedImages[0]) {
-      const hero = new Image();
-      hero.decoding = "async";
-      hero.src = resolvedImages[0];
-    }
+  prefetchedRef.current = true;
 
-    if (resolvedImages[1]) {
-      const second = new Image();
-      second.decoding = "async";
-      second.src = resolvedImages[1];
-    }
-  }, [safe.id, resolvedImages]);
+  api(`/api/public/products/${encodeURIComponent(safe.id)}`).catch(() => {});
+
+  if (resolvedImages[0]) {
+    const hero = new Image();
+    hero.decoding = "async";
+    hero.src = resolvedImages[0];
+  }
+
+  if (resolvedImages[1]) {
+    const second = new Image();
+    second.decoding = "async";
+    second.src = resolvedImages[1];
+  }
+}, [safe.id, resolvedImages, viewMode, isDisabled]);
 
   useEffect(() => {
     prefetchedRef.current = false;
@@ -498,17 +527,17 @@ function ProductCard({
 
           {safe.isHidden && <span className={styles.badge}>Ascuns</span>}
 
+          {viewMode === "vendor" && (
+            <span
+              className={`${styles.badge} ${badgeToneClass(moderation.tone)}`}
+            >
+              {moderation.label}
+            </span>
+          )}
+
           {status && (
             <span
-              className={`${styles.badge} ${
-                status.tone === "danger"
-                  ? styles.badgeDanger
-                  : status.tone === "warning"
-                  ? styles.badgeWarning
-                  : status.tone === "info"
-                  ? styles.badgeInfo
-                  : styles.badgeSuccess
-              }`}
+              className={`${styles.badge} ${badgeToneClass(status.tone)}`}
             >
               {status.label}
             </span>
@@ -627,6 +656,12 @@ function ProductCard({
           )}
         </h4>
 
+        {viewMode === "vendor" && safe.moderationMessage && (
+          <p className={styles.moderationMessage}>
+            Mesaj admin: {safe.moderationMessage}
+          </p>
+        )}
+
         {colorLabel && (
           <p className={styles.colorHint} title={safe.color || ""}>
             Culoare: <span className={styles.metaInline}>{colorLabel}</span>
@@ -643,14 +678,17 @@ function ProductCard({
 
             {safe.availability === "READY" && safe.readyQty != null && (
               <span className={styles.metaHint}>
-                Stoc: <span className={styles.metaInline}>{safe.readyQty} buc</span>
+                Stoc:{" "}
+                <span className={styles.metaInline}>{safe.readyQty} buc</span>
               </span>
             )}
 
             {safe.availability === "MADE_TO_ORDER" && safe.leadTimeDays && (
               <span className={styles.metaHint}>
                 Timp execuție:{" "}
-                <span className={styles.metaInline}>{safe.leadTimeDays} zile</span>
+                <span className={styles.metaInline}>
+                  {safe.leadTimeDays} zile
+                </span>
               </span>
             )}
 

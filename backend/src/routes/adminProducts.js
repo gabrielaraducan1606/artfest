@@ -3,12 +3,11 @@ import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { CATEGORY_SET } from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
-
+import { notifyVendorOnProductModeration } from "../services/notifications.js";
 const router = Router();
 
 /* ================= Helpers comune ================= */
 
-// Guard tolerant: permite VENDOR/ADMIN sau user care are deja Vendor în DB
 async function vendorAccessRequired(req, res, next) {
   try {
     if (req.user?.role === "VENDOR" || req.user?.role === "ADMIN") return next();
@@ -29,13 +28,38 @@ async function vendorAccessRequired(req, res, next) {
   }
 }
 
-// guard strict pentru admin
-function adminRequired(req, res, next) {
-  if (req.user?.role === "ADMIN") return next();
-  return res.status(403).json({ error: "forbidden" });
+async function adminRequired(req, res, next) {
+  try {
+    const roleFromToken = String(req.user?.role || "").toUpperCase();
+
+    if (roleFromToken === "ADMIN") return next();
+
+    const userId = req.user?.sub || req.user?.id;
+
+    if (!userId) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+
+    if (String(user?.role || "").toUpperCase() === "ADMIN") {
+      req.user.role = "ADMIN";
+      return next();
+    }
+
+    return res.status(403).json({
+      error: "forbidden",
+      currentRole: user?.role || req.user?.role || null,
+    });
+  } catch (e) {
+    console.error("adminRequired error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
 }
 
-// verifică dacă slug-ul aparține vendorului curent și este serviciu de tip "products"
 async function getOwnedProductsServiceBySlug(slug, userSub) {
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
@@ -65,7 +89,6 @@ async function getOwnedProductsServiceBySlug(slug, userSub) {
   return { service: svc, profile };
 }
 
-// pentru admin: găsește store-ul products după slug, fără ownership check
 async function getProductsServiceBySlugForAdmin(slug) {
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
@@ -91,7 +114,6 @@ async function getProductsServiceBySlugForAdmin(slug) {
   return { service: svc, profile };
 }
 
-// mapare la payloadul așteptat pe front
 function mapProduct(p) {
   return {
     id: p.id,
@@ -120,12 +142,112 @@ function mapProduct(p) {
     careInstructions: p.careInstructions || null,
     specialNotes: p.specialNotes || null,
 
+    moderationStatus: p.moderationStatus || "PENDING",
+    moderationMessage: p.moderationMessage || null,
+    submittedAt: p.submittedAt || null,
+    reviewedAt: p.reviewedAt || null,
+    reviewedByUserId: p.reviewedByUserId || null,
+    approvedAt: p.approvedAt || null,
+
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
 }
 
-// validare + normalizare availability payload
+function mapAdminProduct(p) {
+  return {
+    ...mapProduct(p),
+    service: {
+      id: p.service?.id || null,
+      vendorId: p.service?.vendorId || null,
+      type: p.service?.type?.code || null,
+      status: p.service?.status || null,
+      isActive: !!p.service?.isActive,
+      slug: p.service?.profile?.slug || null,
+      displayName:
+        p.service?.profile?.displayName ||
+        p.service?.vendor?.displayName ||
+        "",
+    },
+    vendor: {
+      id: p.service?.vendor?.id || null,
+      userId: p.service?.vendor?.userId || null,
+      displayName: p.service?.vendor?.displayName || "",
+      city: p.service?.vendor?.city || "",
+      isActive: !!p.service?.vendor?.isActive,
+    },
+  };
+}
+
+function parseBooleanQuery(value) {
+  if (value === undefined) return undefined;
+
+  const v = String(value).trim().toLowerCase();
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+
+  return undefined;
+}
+
+function buildProductOrderBy(sort = "new") {
+  switch (String(sort || "new")) {
+    case "price_asc":
+      return [{ priceCents: "asc" }, { createdAt: "desc" }];
+    case "price_desc":
+      return [{ priceCents: "desc" }, { createdAt: "desc" }];
+    case "old":
+      return [{ createdAt: "asc" }];
+    case "title_asc":
+      return [{ title: "asc" }];
+    case "title_desc":
+      return [{ title: "desc" }];
+    case "new":
+    default:
+      return [{ createdAt: "desc" }];
+  }
+}
+
+function applyProductFilters(where, query = {}) {
+  const {
+    q = "",
+    category = "",
+    availability = "",
+    isActive,
+    isHidden,
+    moderationStatus = "",
+  } = query;
+
+  if (category) where.category = String(category).trim();
+
+  const av = String(availability || "").trim().toUpperCase();
+  if (av) where.availability = av;
+
+  const mod = String(moderationStatus || "").trim().toUpperCase();
+  if (["PENDING", "APPROVED", "REJECTED", "CHANGES_REQUESTED"].includes(mod)) {
+    where.moderationStatus = mod;
+  }
+
+  const activeBool = parseBooleanQuery(isActive);
+  if (activeBool !== undefined) where.isActive = activeBool;
+
+  const hiddenBool = parseBooleanQuery(isHidden);
+  if (hiddenBool !== undefined) where.isHidden = hiddenBool;
+
+  const qstr = String(q || "").trim();
+  if (qstr) {
+    where.OR = [
+      { title: { contains: qstr, mode: "insensitive" } },
+      { description: { contains: qstr, mode: "insensitive" } },
+      { category: { contains: qstr, mode: "insensitive" } },
+      { color: { contains: qstr, mode: "insensitive" } },
+      { materialMain: { contains: qstr, mode: "insensitive" } },
+      { technique: { contains: qstr, mode: "insensitive" } },
+      { styleTags: { has: qstr } },
+      { occasionTags: { has: qstr } },
+    ];
+  }
+}
+
 function normalizeAvailabilityPayload(body, currentProduct = null) {
   let availabilityRaw = null;
 
@@ -192,7 +314,6 @@ function normalizeAvailabilityPayload(body, currentProduct = null) {
   return { ok: true, ...out };
 }
 
-// normalizare tag-uri
 function normalizeTags(value) {
   if (Array.isArray(value)) {
     return value
@@ -214,7 +335,6 @@ function normalizeTags(value) {
 
 /* ================= Subscription / plan helpers ================= */
 
-// ia planul activ al vendorului; fallback la basic
 async function getActivePlanForVendor(vendorId) {
   const now = new Date();
 
@@ -246,7 +366,6 @@ async function getActivePlanForVendor(vendorId) {
   );
 }
 
-// calculează limita finală ținând cont de override
 async function resolveProductLimitForVendor({ vendorId }) {
   const [plan, vendor] = await Promise.all([
     getActivePlanForVendor(vendorId),
@@ -259,7 +378,7 @@ async function resolveProductLimitForVendor({ vendorId }) {
   let limit;
 
   if (vendor?.productLimitOverride === -1) {
-    limit = null; // nelimitat
+    limit = null;
   } else if (typeof vendor?.productLimitOverride === "number") {
     limit = vendor.productLimitOverride;
   } else {
@@ -273,7 +392,6 @@ async function resolveProductLimitForVendor({ vendorId }) {
   };
 }
 
-// limită PER STORE/SERVICE
 async function checkProductLimitForService({ serviceId, vendorId }) {
   const { plan, limit, override } = await resolveProductLimitForVendor({ vendorId });
 
@@ -312,9 +430,8 @@ async function checkProductLimitForService({ serviceId, vendorId }) {
   };
 }
 
-/* ============== Handlere publice & vendor ============== */
+/* ============== Public & vendor handlers ============== */
 
-/** PUBLIC: lista produselor unui magazin */
 async function publicListProducts(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -344,6 +461,7 @@ async function publicListProducts(req, res) {
       serviceId: profile.serviceId,
       isActive: true,
       isHidden: false,
+      moderationStatus: "APPROVED",
     };
 
     if (category) where.category = String(category);
@@ -387,28 +505,12 @@ async function publicListProducts(req, res) {
       ]);
     }
 
-    let orderBy;
-    switch (sort) {
-      case "price_asc":
-        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
-        break;
-      case "price_desc":
-        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
-        break;
-      case "old":
-        orderBy = [{ createdAt: "asc" }];
-        break;
-      case "new":
-      default:
-        orderBy = [{ createdAt: "desc" }];
-    }
-
     const pageSize = Math.max(1, Math.min(48, Number(take) || 24));
     const cursorObj = cursor ? { id: String(cursor) } : undefined;
 
     const items = await prisma.product.findMany({
       where,
-      orderBy,
+      orderBy: buildProductOrderBy(sort),
       take: pageSize + 1,
       ...(cursorObj ? { cursor: cursorObj, skip: 1 } : {}),
     });
@@ -428,9 +530,6 @@ async function publicListProducts(req, res) {
   }
 }
 
-/** GET /vendors/store/:slug/products
- *  Listă privată pentru vendor/admin dashboard
- */
 async function listVendorProducts(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -438,82 +537,16 @@ async function listVendorProducts(req, res) {
 
     if (error) return res.status(status).json({ error });
 
-    const {
-      q = "",
-      category = "",
-      availability = "",
-      isActive,
-      isHidden,
-      sort = "new",
-      take = "100",
-    } = req.query || {};
+    const { sort = "new", take = "100" } = req.query || {};
 
-    const where = {
-      serviceId: service.id,
-    };
-
-    if (category) {
-      where.category = String(category).trim();
-    }
-
-    const av = String(availability || "").trim().toUpperCase();
-    if (av) {
-      where.availability = av;
-    }
-
-    if (isActive !== undefined) {
-      const activeVal = String(isActive).trim().toLowerCase();
-      if (activeVal === "true" || activeVal === "1") where.isActive = true;
-      if (activeVal === "false" || activeVal === "0") where.isActive = false;
-    }
-
-    if (isHidden !== undefined) {
-      const hiddenVal = String(isHidden).trim().toLowerCase();
-      if (hiddenVal === "true" || hiddenVal === "1") where.isHidden = true;
-      if (hiddenVal === "false" || hiddenVal === "0") where.isHidden = false;
-    }
-
-    const qstr = String(q || "").trim();
-    if (qstr) {
-      where.OR = [
-        { title: { contains: qstr, mode: "insensitive" } },
-        { description: { contains: qstr, mode: "insensitive" } },
-        { category: { contains: qstr, mode: "insensitive" } },
-        { color: { contains: qstr, mode: "insensitive" } },
-        { materialMain: { contains: qstr, mode: "insensitive" } },
-        { technique: { contains: qstr, mode: "insensitive" } },
-        { styleTags: { has: qstr } },
-        { occasionTags: { has: qstr } },
-      ];
-    }
-
-    let orderBy;
-    switch (String(sort || "new")) {
-      case "price_asc":
-        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
-        break;
-      case "price_desc":
-        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
-        break;
-      case "old":
-        orderBy = [{ createdAt: "asc" }];
-        break;
-      case "title_asc":
-        orderBy = [{ title: "asc" }];
-        break;
-      case "title_desc":
-        orderBy = [{ title: "desc" }];
-        break;
-      case "new":
-      default:
-        orderBy = [{ createdAt: "desc" }];
-    }
+    const where = { serviceId: service.id };
+    applyProductFilters(where, req.query);
 
     const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
 
     const items = await prisma.product.findMany({
       where,
-      orderBy,
+      orderBy: buildProductOrderBy(sort),
       take: pageSize,
     });
 
@@ -522,6 +555,8 @@ async function listVendorProducts(req, res) {
         id: service.id,
         vendorId: service.vendorId,
         slug,
+        status: service.status,
+        isActive: !!service.isActive,
       },
       items: items.map(mapProduct),
       total: items.length,
@@ -532,7 +567,6 @@ async function listVendorProducts(req, res) {
   }
 }
 
-/** GET /vendors/products/:id */
 async function getProduct(req, res) {
   try {
     const id = String(req.params.id);
@@ -569,6 +603,11 @@ async function getProduct(req, res) {
         slug: p.service.profile?.slug || null,
         city: p.service.profile?.city || p.service.vendor.city || "",
       },
+      service: {
+        id: p.service.id,
+        status: p.service.status,
+        isActive: !!p.service.isActive,
+      },
     });
   } catch (e) {
     console.error("GET /vendors/products/:id error:", e);
@@ -576,7 +615,6 @@ async function getProduct(req, res) {
   }
 }
 
-/** GET /vendors/store/:slug/products/limits */
 async function getProductLimits(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -602,7 +640,6 @@ async function getProductLimits(req, res) {
   }
 }
 
-/** GET /vendors/store/:slug/products/pricing */
 async function getProductPricing(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -626,7 +663,6 @@ async function getProductPricing(req, res) {
   }
 }
 
-/** POST /vendors/store/:slug/products */
 async function createProduct(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -651,15 +687,11 @@ async function createProduct(req, res) {
       currency = "RON",
       category = null,
       color = null,
-
       availability,
       leadTimeDays,
       readyQty,
       nextShipDate,
       acceptsCustom = false,
-      isHidden = false,
-      isActive = true,
-
       materialMain,
       technique,
       styleTags,
@@ -679,7 +711,6 @@ async function createProduct(req, res) {
     }
 
     const priceCents = Math.round(priceNum * 100);
-
     const imgs = Array.isArray(images) ? images.slice(0, 12).map((s) => String(s)) : [];
 
     let cat = null;
@@ -711,9 +742,6 @@ async function createProduct(req, res) {
       return res.status(400).json({ error: availNorm.error });
     }
 
-    const styleTagsNorm = normalizeTags(styleTags);
-    const occasionTagsNorm = normalizeTags(occasionTags);
-
     const created = await prisma.product.create({
       data: {
         serviceId: service.id,
@@ -722,21 +750,27 @@ async function createProduct(req, res) {
         priceCents,
         currency: String(currency || "RON"),
         images: imgs,
-        isActive: !!isActive,
-        isHidden: !!isHidden,
+
+        isActive: false,
+        isHidden: true,
+        moderationStatus: "PENDING",
+        moderationMessage: null,
+        submittedAt: new Date(),
+        reviewedAt: null,
+        reviewedByUserId: null,
+        approvedAt: null,
+
         category: cat,
         color: colorCode,
-
         availability: availNorm.availability,
         leadTimeDays: availNorm.leadTimeDays,
         readyQty: availNorm.readyQty,
         nextShipDate: availNorm.nextShipDate,
         acceptsCustom: !!acceptsCustom,
-
         materialMain: materialMain ? String(materialMain).trim() : null,
         technique: technique ? String(technique).trim() : null,
-        styleTags: styleTagsNorm,
-        occasionTags: occasionTagsNorm,
+        styleTags: normalizeTags(styleTags),
+        occasionTags: normalizeTags(occasionTags),
         dimensions: dimensions ? String(dimensions).trim() : null,
         careInstructions: careInstructions ? String(careInstructions) : null,
         specialNotes: specialNotes ? String(specialNotes) : null,
@@ -750,7 +784,6 @@ async function createProduct(req, res) {
   }
 }
 
-/** PUT /vendors/products/:id */
 async function updateProduct(req, res) {
   try {
     const id = String(req.params.id);
@@ -780,15 +813,11 @@ async function updateProduct(req, res) {
     const patch = {};
 
     if (typeof req.body.title === "string") {
-      if (!req.body.title.trim()) {
-        return res.status(400).json({ error: "invalid_title" });
-      }
+      if (!req.body.title.trim()) return res.status(400).json({ error: "invalid_title" });
       patch.title = req.body.title.trim();
     }
 
-    if (typeof req.body.description === "string") {
-      patch.description = req.body.description;
-    }
+    if (typeof req.body.description === "string") patch.description = req.body.description;
 
     if (req.body.price !== undefined) {
       const priceNum = Number(req.body.price);
@@ -802,18 +831,13 @@ async function updateProduct(req, res) {
       patch.images = req.body.images.slice(0, 12).map((s) => String(s));
     }
 
-    if (typeof req.body.isActive === "boolean") patch.isActive = req.body.isActive;
-    if (typeof req.body.isHidden === "boolean") patch.isHidden = req.body.isHidden;
-
     if (req.body.category !== undefined) {
       const v = req.body.category;
       if (v == null || String(v).trim() === "") {
         patch.category = null;
       } else {
         const c = String(v).trim();
-        if (!CATEGORY_SET.has(c)) {
-          return res.status(400).json({ error: "invalid_category" });
-        }
+        if (!CATEGORY_SET.has(c)) return res.status(400).json({ error: "invalid_category" });
         patch.category = c;
       }
     }
@@ -824,12 +848,7 @@ async function updateProduct(req, res) {
         patch.color = null;
       } else {
         const c = String(v).trim();
-        if (COLOR_SET.has(c)) {
-          patch.color = c;
-        } else {
-          console.warn("Unknown color code on update:", c);
-          patch.color = null;
-        }
+        patch.color = COLOR_SET.has(c) ? c : null;
       }
     }
 
@@ -843,13 +862,8 @@ async function updateProduct(req, res) {
       patch.technique = v == null || String(v).trim() === "" ? null : String(v).trim();
     }
 
-    if (req.body.styleTags !== undefined) {
-      patch.styleTags = normalizeTags(req.body.styleTags);
-    }
-
-    if (req.body.occasionTags !== undefined) {
-      patch.occasionTags = normalizeTags(req.body.occasionTags);
-    }
+    if (req.body.styleTags !== undefined) patch.styleTags = normalizeTags(req.body.styleTags);
+    if (req.body.occasionTags !== undefined) patch.occasionTags = normalizeTags(req.body.occasionTags);
 
     if (req.body.dimensions !== undefined) {
       const v = req.body.dimensions;
@@ -867,18 +881,23 @@ async function updateProduct(req, res) {
     }
 
     const availNorm = normalizeAvailabilityPayload(req.body, product);
-    if (availNorm.error) {
-      return res.status(400).json({ error: availNorm.error });
-    }
+    if (availNorm.error) return res.status(400).json({ error: availNorm.error });
 
     patch.availability = availNorm.availability;
     patch.leadTimeDays = availNorm.leadTimeDays;
     patch.readyQty = availNorm.readyQty;
     patch.nextShipDate = availNorm.nextShipDate;
 
-    if (typeof req.body.acceptsCustom === "boolean") {
-      patch.acceptsCustom = req.body.acceptsCustom;
-    }
+    if (typeof req.body.acceptsCustom === "boolean") patch.acceptsCustom = req.body.acceptsCustom;
+
+    patch.isActive = false;
+    patch.isHidden = true;
+    patch.moderationStatus = "PENDING";
+    patch.moderationMessage = null;
+    patch.submittedAt = new Date();
+    patch.reviewedAt = null;
+    patch.reviewedByUserId = null;
+    patch.approvedAt = null;
 
     const updated = await prisma.product.update({
       where: { id },
@@ -892,7 +911,6 @@ async function updateProduct(req, res) {
   }
 }
 
-/** DELETE /vendors/products/:id */
 async function deleteProduct(req, res) {
   try {
     const id = String(req.params.id);
@@ -920,7 +938,6 @@ async function deleteProduct(req, res) {
     }
 
     await prisma.product.delete({ where: { id } });
-
     return res.json({ ok: true, deletedId: id });
   } catch (e) {
     console.error("DELETE /vendors/products/:id error:", e);
@@ -930,9 +947,6 @@ async function deleteProduct(req, res) {
 
 /* ================= Admin handlers ================= */
 
-/** GET /admin/products
- *  Listă globală pentru admin
- */
 async function adminListProducts(req, res) {
   try {
     const {
@@ -943,87 +957,55 @@ async function adminListProducts(req, res) {
       serviceId = "",
       isActive,
       isHidden,
+      serviceStatus = "",
+      moderationStatus = "",
       sort = "new",
       take = "100",
     } = req.query || {};
 
     const where = {};
+    const serviceFilter = { type: { code: "products" } };
 
-    if (category) where.category = String(category).trim();
+    if (vendorId) serviceFilter.vendorId = String(vendorId).trim();
 
-    const av = String(availability || "").trim().toUpperCase();
-    if (av) where.availability = av;
+    const svcStatus = String(serviceStatus || "").trim().toUpperCase();
+    if (svcStatus) serviceFilter.status = svcStatus;
 
     if (serviceId) where.serviceId = String(serviceId).trim();
+    where.service = serviceFilter;
 
-    if (vendorId) {
-      where.service = {
-        vendorId: String(vendorId).trim(),
-      };
-    }
+    applyProductFilters(where, {
+      q,
+      category,
+      availability,
+      isActive,
+      isHidden,
+      moderationStatus,
+    });
 
-    if (isActive !== undefined) {
-      const activeVal = String(isActive).trim().toLowerCase();
-      if (activeVal === "true" || activeVal === "1") where.isActive = true;
-      if (activeVal === "false" || activeVal === "0") where.isActive = false;
-    }
-
-    if (isHidden !== undefined) {
-      const hiddenVal = String(isHidden).trim().toLowerCase();
-      if (hiddenVal === "true" || hiddenVal === "1") where.isHidden = true;
-      if (hiddenVal === "false" || hiddenVal === "0") where.isHidden = false;
-    }
-
-    const qstr = String(q || "").trim();
-    if (qstr) {
+    if (q) {
+      const qstr = String(q).trim();
       where.OR = [
-        { title: { contains: qstr, mode: "insensitive" } },
-        { description: { contains: qstr, mode: "insensitive" } },
-        { category: { contains: qstr, mode: "insensitive" } },
-        { color: { contains: qstr, mode: "insensitive" } },
-        { materialMain: { contains: qstr, mode: "insensitive" } },
-        { technique: { contains: qstr, mode: "insensitive" } },
-        { styleTags: { has: qstr } },
-        { occasionTags: { has: qstr } },
+        ...(where.OR || []),
         {
           service: {
-            OR: [
-              { vendor: { displayName: { contains: qstr, mode: "insensitive" } } },
-              { profile: { displayName: { contains: qstr, mode: "insensitive" } } },
-              { profile: { slug: { contains: qstr, mode: "insensitive" } } },
-            ],
+            is: {
+              OR: [
+                { vendor: { is: { displayName: { contains: qstr, mode: "insensitive" } } } },
+                { profile: { is: { displayName: { contains: qstr, mode: "insensitive" } } } },
+                { profile: { is: { slug: { contains: qstr, mode: "insensitive" } } } },
+              ],
+            },
           },
         },
       ];
-    }
-
-    let orderBy;
-    switch (String(sort || "new")) {
-      case "price_asc":
-        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
-        break;
-      case "price_desc":
-        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
-        break;
-      case "old":
-        orderBy = [{ createdAt: "asc" }];
-        break;
-      case "title_asc":
-        orderBy = [{ title: "asc" }];
-        break;
-      case "title_desc":
-        orderBy = [{ title: "desc" }];
-        break;
-      case "new":
-      default:
-        orderBy = [{ createdAt: "desc" }];
     }
 
     const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
 
     const items = await prisma.product.findMany({
       where,
-      orderBy,
+      orderBy: buildProductOrderBy(sort),
       take: pageSize,
       include: {
         service: {
@@ -1037,25 +1019,7 @@ async function adminListProducts(req, res) {
     });
 
     return res.json({
-      items: items.map((p) => ({
-        ...mapProduct(p),
-        service: {
-          id: p.service?.id || null,
-          vendorId: p.service?.vendorId || null,
-          type: p.service?.type?.code || null,
-          slug: p.service?.profile?.slug || null,
-          displayName:
-            p.service?.profile?.displayName ||
-            p.service?.vendor?.displayName ||
-            "",
-        },
-        vendor: {
-          id: p.service?.vendor?.id || null,
-          userId: p.service?.vendor?.userId || null,
-          displayName: p.service?.vendor?.displayName || "",
-          city: p.service?.vendor?.city || "",
-        },
-      })),
+      items: items.map(mapAdminProduct),
       total: items.length,
     });
   } catch (e) {
@@ -1064,9 +1028,133 @@ async function adminListProducts(req, res) {
   }
 }
 
-/** GET /admin/store/:slug/products
- *  Listă produse dintr-un store pentru admin
- */
+async function adminApproveProduct(req, res) {
+  try {
+    const id = String(req.params.id || "").trim();
+
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: { service: { include: { type: true } } },
+    });
+
+    if (!product) return res.status(404).json({ error: "not_found" });
+    if (product.service?.type?.code !== "products") {
+      return res.status(400).json({ error: "not_a_products_store" });
+    }
+
+    const now = new Date();
+
+    const updated = await prisma.product.update({
+      where: { id },
+      data: {
+        moderationStatus: "APPROVED",
+        moderationMessage: null,
+        reviewedAt: now,
+        reviewedByUserId: req.user.sub,
+        approvedAt: now,
+        isActive: true,
+        isHidden: false,
+      },
+      include: { service: { include: { vendor: true, profile: true, type: true } } },
+    });
+
+    return res.json({ ok: true, product: mapAdminProduct(updated) });
+  } catch (e) {
+    console.error("PATCH /admin/products/:id/approve error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+async function adminRequestProductChanges(req, res) {
+  try {
+    const id = String(req.params.id || "").trim();
+    const message = String(req.body?.message || "").trim();
+
+    if (!message) {
+      return res.status(400).json({
+        error: "moderation_message_required",
+        message: "Trebuie să trimiți modificările cerute.",
+      });
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: { service: { include: { type: true } } },
+    });
+
+    if (!product) return res.status(404).json({ error: "not_found" });
+    if (product.service?.type?.code !== "products") {
+      return res.status(400).json({ error: "not_a_products_store" });
+    }
+
+    const updated = await prisma.product.update({
+      where: { id },
+      data: {
+        moderationStatus: "CHANGES_REQUESTED",
+        moderationMessage: message,
+        reviewedAt: new Date(),
+        reviewedByUserId: req.user.sub,
+        approvedAt: null,
+        isActive: false,
+        isHidden: true,
+      },
+      include: { service: { include: { vendor: true, profile: true, type: true } } },
+    });
+await notifyVendorOnProductModeration(updated.id, "CHANGES_REQUESTED", message).catch((e) => {
+  console.error("notify product changes requested error:", e);
+});
+    return res.json({ ok: true, product: mapAdminProduct(updated) });
+  } catch (e) {
+    console.error("PATCH /admin/products/:id/request-changes error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
+async function adminRejectProduct(req, res) {
+  try {
+    const id = String(req.params.id || "").trim();
+    const message = String(req.body?.message || "").trim();
+
+    if (!message) {
+      return res.status(400).json({
+        error: "moderation_message_required",
+        message: "Trebuie să trimiți motivul respingerii.",
+      });
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: { service: { include: { type: true } } },
+    });
+
+    if (!product) return res.status(404).json({ error: "not_found" });
+    if (product.service?.type?.code !== "products") {
+      return res.status(400).json({ error: "not_a_products_store" });
+    }
+
+    const updated = await prisma.product.update({
+      where: { id },
+      data: {
+        moderationStatus: "REJECTED",
+        moderationMessage: message,
+        reviewedAt: new Date(),
+        reviewedByUserId: req.user.sub,
+        approvedAt: null,
+        isActive: false,
+        isHidden: true,
+      },
+      include: { service: { include: { vendor: true, profile: true, type: true } } },
+    });
+await notifyVendorOnProductModeration(updated.id, "REJECTED", message).catch((e) => {
+  console.error("notify product rejected error:", e);
+});
+    return res.json({ ok: true, product: mapAdminProduct(updated) });
+  } catch (e) {
+    console.error("PATCH /admin/products/:id/reject error:", e);
+    return res.status(500).json({ error: "server_error" });
+  }
+}
+
 async function adminListStoreProducts(req, res) {
   try {
     const slug = String(req.params.slug || "").trim().toLowerCase();
@@ -1074,78 +1162,16 @@ async function adminListStoreProducts(req, res) {
 
     if (error) return res.status(status).json({ error });
 
-    const {
-      q = "",
-      category = "",
-      availability = "",
-      isActive,
-      isHidden,
-      sort = "new",
-      take = "100",
-    } = req.query || {};
+    const { sort = "new", take = "100" } = req.query || {};
+    const where = { serviceId: service.id };
 
-    const where = {
-      serviceId: service.id,
-    };
-
-    if (category) where.category = String(category).trim();
-
-    const av = String(availability || "").trim().toUpperCase();
-    if (av) where.availability = av;
-
-    if (isActive !== undefined) {
-      const activeVal = String(isActive).trim().toLowerCase();
-      if (activeVal === "true" || activeVal === "1") where.isActive = true;
-      if (activeVal === "false" || activeVal === "0") where.isActive = false;
-    }
-
-    if (isHidden !== undefined) {
-      const hiddenVal = String(isHidden).trim().toLowerCase();
-      if (hiddenVal === "true" || hiddenVal === "1") where.isHidden = true;
-      if (hiddenVal === "false" || hiddenVal === "0") where.isHidden = false;
-    }
-
-    const qstr = String(q || "").trim();
-    if (qstr) {
-      where.OR = [
-        { title: { contains: qstr, mode: "insensitive" } },
-        { description: { contains: qstr, mode: "insensitive" } },
-        { category: { contains: qstr, mode: "insensitive" } },
-        { color: { contains: qstr, mode: "insensitive" } },
-        { materialMain: { contains: qstr, mode: "insensitive" } },
-        { technique: { contains: qstr, mode: "insensitive" } },
-        { styleTags: { has: qstr } },
-        { occasionTags: { has: qstr } },
-      ];
-    }
-
-    let orderBy;
-    switch (String(sort || "new")) {
-      case "price_asc":
-        orderBy = [{ priceCents: "asc" }, { createdAt: "desc" }];
-        break;
-      case "price_desc":
-        orderBy = [{ priceCents: "desc" }, { createdAt: "desc" }];
-        break;
-      case "old":
-        orderBy = [{ createdAt: "asc" }];
-        break;
-      case "title_asc":
-        orderBy = [{ title: "asc" }];
-        break;
-      case "title_desc":
-        orderBy = [{ title: "desc" }];
-        break;
-      case "new":
-      default:
-        orderBy = [{ createdAt: "desc" }];
-    }
+    applyProductFilters(where, req.query);
 
     const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
 
     const items = await prisma.product.findMany({
       where,
-      orderBy,
+      orderBy: buildProductOrderBy(sort),
       take: pageSize,
     });
 
@@ -1154,10 +1180,9 @@ async function adminListStoreProducts(req, res) {
         id: service.id,
         vendorId: service.vendorId,
         slug,
-        displayName:
-          service.profile?.displayName ||
-          service.vendor?.displayName ||
-          "",
+        status: service.status,
+        isActive: !!service.isActive,
+        displayName: service.profile?.displayName || service.vendor?.displayName || "",
       },
       items: items.map(mapProduct),
       total: items.length,
@@ -1168,7 +1193,6 @@ async function adminListStoreProducts(req, res) {
   }
 }
 
-/** GET /admin/products/:id */
 async function adminGetProduct(req, res) {
   try {
     const id = String(req.params.id);
@@ -1187,25 +1211,13 @@ async function adminGetProduct(req, res) {
     });
 
     if (!p) return res.status(404).json({ error: "not_found" });
-
     if (p.service?.type?.code !== "products") {
       return res.status(400).json({ error: "not_a_products_store" });
     }
 
     return res.json({
-      ...mapProduct(p),
+      ...mapAdminProduct(p),
       ownerVendorId: p.service.vendorId,
-      vendor: {
-        id: p.service.vendor?.id || null,
-        userId: p.service.vendor?.userId || null,
-        displayName: p.service.profile?.displayName || p.service.vendor?.displayName || "",
-        slug: p.service.profile?.slug || null,
-        city: p.service.profile?.city || p.service.vendor?.city || "",
-      },
-      service: {
-        id: p.service?.id || null,
-        type: p.service?.type?.code || null,
-      },
     });
   } catch (e) {
     console.error("GET /admin/products/:id error:", e);
@@ -1215,50 +1227,41 @@ async function adminGetProduct(req, res) {
 
 /* ================= Mount routes ================= */
 
-// PUBLIC
-router.get("/public/store/:slug/products", publicListProducts);
+router.get("/products", authRequired, adminRequired, adminListProducts);
 
-// Helper: înregistrează același set de rute sub un prefix
-function registerProductRoutes(prefix) {
-  router.get(
-    `/${prefix}/store/:slug/products`,
-    authRequired,
-    vendorAccessRequired,
-    listVendorProducts
-  );
+router.patch(
+  "/products/:id/approve",
+  authRequired,
+  adminRequired,
+  adminApproveProduct
+);
 
-  router.get(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, getProduct);
+router.patch(
+  "/products/:id/request-changes",
+  authRequired,
+  adminRequired,
+  adminRequestProductChanges
+);
 
-  router.post(`/${prefix}/store/:slug/products`, authRequired, vendorAccessRequired, createProduct);
+router.patch(
+  "/products/:id/reject",
+  authRequired,
+  adminRequired,
+  adminRejectProduct
+);
 
-  router.get(
-    `/${prefix}/store/:slug/products/limits`,
-    authRequired,
-    vendorAccessRequired,
-    getProductLimits
-  );
+router.get(
+  "/products/:id",
+  authRequired,
+  adminRequired,
+  adminGetProduct
+);
 
-  router.get(
-    `/${prefix}/store/:slug/products/pricing`,
-    authRequired,
-    vendorAccessRequired,
-    getProductPricing
-  );
-
-  router.put(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, updateProduct);
-
-  router.delete(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, deleteProduct);
-}
-
-registerProductRoutes("vendors");
-registerProductRoutes("vendor");
-
-// alias simplu
-router.get("/products/:id", authRequired, vendorAccessRequired, getProduct);
-
-// ADMIN
-router.get("/admin/products", authRequired, adminRequired, adminListProducts);
-router.get("/admin/products/:id", authRequired, adminRequired, adminGetProduct);
-router.get("/admin/store/:slug/products", authRequired, adminRequired, adminListStoreProducts);
+router.get(
+  "/store/:slug/products",
+  authRequired,
+  adminRequired,
+  adminListStoreProducts
+);
 
 export default router;

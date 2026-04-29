@@ -1,10 +1,9 @@
-// client/src/pages/Vendor/ProfilMagazin/hooks/useProfilMagazin.js
+/// client/src/pages/Vendor/ProfilMagazin/hooks/useProfilMagazin.js
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../lib/api.js";
 
 /* ================= Fallback categorii (labels + grupuri) ================= */
 const FALLBACK_CATEGORY_LABELS = {
-  // Papetărie
   "papetarie_invitatii-nunta": "Invitații nuntă",
   "papetarie_invitatii-botez": "Invitații botez",
   "papetarie_invitatii-corporate": "Invitații corporate",
@@ -23,7 +22,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "papetarie_afis-program": "Afiș Programul Zilei",
   "papetarie_afis-bar-menu": "Afiș Meniu Bar",
 
-  // Ceremonie
   "ceremonie_pernuta-verighete": "Pernuță verighete",
   "ceremonie_cutie-verighete": "Cutie verighete",
   "ceremonie_pahare-miri": "Pahare miri",
@@ -34,7 +32,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "ceremonie_cutie-amintiri-botez": "Cutie amintiri botez",
   "ceremonie_cruciulite-botez": "Cruciuțe/broșe botez",
 
-  // Home
   "home_lumanari-parfumate": "Lumânări parfumate",
   "home_difuzoare-parfum-camera": "Difuzoare & parfumuri cameră",
   "home_ceramica-lut": "Obiecte ceramică / lut",
@@ -43,7 +40,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "home_imprimare-3d": "Obiecte print 3D",
   "home_decor-perete": "Decor de perete",
 
-  // Bijuterii
   "bijuterii_bratari": "Brățări",
   "bijuterii_coliere": "Coliere",
   "bijuterii_cercei": "Cercei",
@@ -54,7 +50,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "bijuterii_butoni": "Butoni",
   "bijuterii_brose": "Broșe",
 
-  // Mărturii
   "marturii_nunta": "Mărturii nuntă",
   "marturii_botez": "Mărturii botez",
   "marturii_corporate": "Mărturii corporate",
@@ -66,7 +61,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "marturii_mini-lumanari": "Mini-lumânări",
   "marturii_obiecte-gravate": "Obiecte gravate",
 
-  // Cadouri
   "cadouri_pentru-miri": "Cadouri pentru miri",
   "cadouri_pentru-nasi": "Cadouri pentru nași",
   "cadouri_pentru-parinti": "Cadouri pentru părinți",
@@ -86,7 +80,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "cadouri_boxa-muzicala": "Boxă muzicală personalizată",
   "cadouri_obiecte-cu-nume": "Obiecte cu nume/mesaj",
 
-  // Artă
   "arta_tablouri": "Tablouri",
   "arta_ilustratii-digitale": "Ilustrații digitale",
   "arta_pe-lemn": "Artă pe lemn",
@@ -96,7 +89,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "arta_quilling": "Quilling",
   "arta_flori-de-hartie": "Flori din hârtie",
 
-  // Textile
   "textile_rochii-ceremonie-copii": "Rochii ceremonie copii",
   "textile_body-personalizat-bebe": "Body personalizat bebe",
   "textile_hainute-tematice": "Hăinuțe tematice",
@@ -105,7 +97,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "textile_personalizare-broderie": "Personalizare textile – broderie",
   "textile_personalizare-imprimare": "Personalizare textile – imprimare",
 
-  // Party
   "party_figurine-tort": "Figurine tort",
   "party_cake-toppers": "Cake toppers",
   "party_standuri-prajituri": "Standuri prăjituri",
@@ -117,7 +108,6 @@ const FALLBACK_CATEGORY_LABELS = {
   "party_bannere": "Bannere",
   "party_seturi-petreceri": "Seturi petreceri",
 
-  // Back-compat
   alte: "Altele",
 };
 
@@ -157,6 +147,7 @@ const isDataOrBlob = (u = "") => /^(data|blob):/i.test(u);
 export const resolveFileUrl = (u) => {
   if (!u) return "";
   if (isHttp(u) || isDataOrBlob(u)) return u;
+
   const path = u.startsWith("/") ? u : `/${u}`;
   return BACKEND_BASE ? `${BACKEND_BASE}${path}` : path;
 };
@@ -168,16 +159,18 @@ export const withCache = (url, t) =>
     ? `${url}&t=${t}`
     : `${url}?t=${t}`;
 
-/* ================== Session cache (SWR) ================== */
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute
+/* ================== Session cache ================== */
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 function readCache(key) {
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
+
     const parsed = JSON.parse(raw);
     if (!parsed?.t) return null;
     if (Date.now() - parsed.t > CACHE_TTL_MS) return null;
+
     return parsed;
   } catch {
     return null;
@@ -186,9 +179,15 @@ function readCache(key) {
 
 function writeCache(key, value) {
   try {
-    sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), ...value }));
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        t: Date.now(),
+        ...value,
+      })
+    );
   } catch {
-    /* ignore */
+    // ignore
   }
 }
 
@@ -211,7 +210,7 @@ export function useDebouncedCallback(fn, delay = 600) {
 
   useEffect(
     () => () => {
-      tRef.current && clearTimeout(tRef.current);
+      if (tRef.current) clearTimeout(tRef.current);
     },
     []
   );
@@ -219,33 +218,46 @@ export function useDebouncedCallback(fn, delay = 600) {
   return call;
 }
 
-/* ====== hook: județe din API (cu „Toată țara” exclusivă) ====== */
+/* ====== hook: județe din API ====== */
 function useRoCounties() {
   const [list, setList] = useState([]);
-  const [all, setAll] = useState({ code: "RO-ALL", name: "Toată țara" });
+  const [all, setAll] = useState({
+    code: "RO-ALL",
+    name: "Toată țara",
+  });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         setLoading(true);
         setErr("");
-        const d = await api("/api/geo/ro/counties", { method: "GET" });
+
+        const d = await api("/api/geo/ro/counties", {
+          method: "GET",
+        });
+
         if (!alive) return;
+
         const items = Array.isArray(d?.items) ? d.items : [];
         items.sort((a, b) => a.name.localeCompare(b.name, "ro"));
+
         setList(items);
+
         if (d?.all) setAll(d.all);
       } catch (e) {
         if (!alive) return;
+
         setErr(e?.message || "Nu am putut încărca județele.");
-        setList([{ code: "B", name: "București" }]); // fallback
+        setList([{ code: "B", name: "București" }]);
       } finally {
         if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
@@ -255,19 +267,31 @@ function useRoCounties() {
     () => [all.name, ...list.map((c) => c.name)],
     [list, all]
   );
-  return { suggestions, all, loading, err };
+
+  return {
+    suggestions,
+    all,
+    loading,
+    err,
+  };
 }
 
 /* ===== Utils ===== */
 const normalizePhone = (v) => {
   const raw = String(v || "").replace(/\s+/g, "");
-  if (/^0?7\d{8}$/.test(raw))
+
+  if (/^0?7\d{8}$/.test(raw)) {
     return `+4${raw.startsWith("0") ? raw.slice(1) : raw}`;
-  if (/^\+?4?07\d{8}$/.test(raw)) return raw.startsWith("+") ? raw : `+${raw}`;
+  }
+
+  if (/^\+?4?07\d{8}$/.test(raw)) {
+    return raw.startsWith("+") ? raw : `+${raw}`;
+  }
+
   return v || "";
 };
 
-/* ===== Form produs gol – în afara hook-ului ca să nu se re-creeze ===== */
+/* ===== Form produs gol ===== */
 const EMPTY_PROD_FORM = {
   title: "",
   description: "",
@@ -283,7 +307,6 @@ const EMPTY_PROD_FORM = {
   isHidden: false,
   isActive: true,
 
-  // detalii structurate
   materialMain: "",
   technique: "",
   styleTags: "",
@@ -295,20 +318,17 @@ const EMPTY_PROD_FORM = {
 
 export default function useProfilMagazin(slug, opts = {}) {
   const meFromProps = opts.me ?? null;
+  const requestIdRef = useRef(0);
 
-  const CACHE_KEY = useMemo(() => `pm:${slug}`, [slug]);
-  const cached = useMemo(() => readCache(`pm:${slug}`), [slug]);
-
-  const [sellerData, setSellerData] = useState(cached?.sellerData ?? null);
-  const [products, setProducts] = useState(cached?.products ?? []);
+  const [sellerData, setSellerData] = useState(null);
+  const [products, setProducts] = useState([]);
   const [reviews, setReviews] = useState([]);
-  const [rating, setRating] = useState(cached?.rating ?? 0);
+  const [rating, setRating] = useState(0);
 
   const [me, setMe] = useState(meFromProps);
   const [isOwner, setIsOwner] = useState(false);
 
-  // dacă avem cache, nu mai pornim cu loading = true
-  const [loading, setLoading] = useState(() => !cached?.sellerData);
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
@@ -317,13 +337,11 @@ export default function useProfilMagazin(slug, opts = {}) {
   const [categories, setCategories] = useState(FALLBACK_CATEGORIES_DETAILED);
   const categoriesLoadedRef = useRef(false);
 
-  // form produs (create/edit)
   const [prodModalOpen, setProdModalOpen] = useState(false);
   const [savingProd, setSavingProd] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [prodForm, setProdForm] = useState(EMPTY_PROD_FORM);
 
-  /* ====== INFO inline edit ====== */
   const [editInfo, setEditInfo] = useState(false);
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoSavedAt, setInfoSavedAt] = useState(null);
@@ -336,7 +354,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     leadTimes: "",
   });
 
-  // 🔧 serviceId – fără _id, luăm id-ul serviciului din ce primim de la backend
   const serviceId =
     sellerData?.serviceId ||
     sellerData?.service?.id ||
@@ -344,7 +361,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     sellerData?.id ||
     null;
 
-  /* ===== județe pentru ChipsInput ===== */
   const {
     suggestions: countySuggestions,
     all: allCountry,
@@ -352,14 +368,22 @@ export default function useProfilMagazin(slug, opts = {}) {
     err: countiesErr,
   } = useRoCounties();
 
+  useEffect(() => {
+    setMe(meFromProps);
+  }, [meFromProps]);
+
   const saveProfilePart = useCallback(
     async (patch) => {
       if (!isOwner || !serviceId) return;
+
       setSavingInfo(true);
       setInfoErr("");
+
       try {
         await api(
-          `/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`,
+          `/api/vendors/vendor-services/${encodeURIComponent(
+            serviceId
+          )}/profile`,
           {
             method: "PUT",
             body: {
@@ -378,6 +402,7 @@ export default function useProfilMagazin(slug, opts = {}) {
             },
           }
         );
+
         setSellerData((s) =>
           s
             ? {
@@ -391,10 +416,13 @@ export default function useProfilMagazin(slug, opts = {}) {
                 publicEmail:
                   patch.email !== undefined ? patch.email || "" : s.publicEmail,
                 delivery:
-                  patch.deliveryArr !== undefined ? patch.deliveryArr || [] : s.delivery,
+                  patch.deliveryArr !== undefined
+                    ? patch.deliveryArr || []
+                    : s.delivery,
               }
             : s
         );
+
         setInfoSavedAt(Date.now());
       } catch (e) {
         setInfoErr(e?.message || "Nu am putut salva datele.");
@@ -408,23 +436,35 @@ export default function useProfilMagazin(slug, opts = {}) {
   const saveLeadTimes = useCallback(
     async (nextLeadTimes) => {
       if (!isOwner || !serviceId) return;
+
       setSavingInfo(true);
       setInfoErr("");
+
       try {
-        const meServices = await api("/api/vendors/me/services?includeProfile=1", {
-          method: "GET",
-        });
+        const meServices = await api(
+          "/api/vendors/me/services?includeProfile=1",
+          {
+            method: "GET",
+          }
+        );
+
         const items = Array.isArray(meServices?.items) ? meServices.items : [];
         const mine = items.find((x) => x.id === serviceId);
+
         const merged = {
           ...(mine?.attributes || {}),
           leadTimes: nextLeadTimes || "",
         };
+
         await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
           method: "PATCH",
           body: { attributes: merged },
         });
-        setSellerData((s) => (s ? { ...s, leadTimes: nextLeadTimes || "" } : s));
+
+        setSellerData((s) =>
+          s ? { ...s, leadTimes: nextLeadTimes || "" } : s
+        );
+
         setInfoSavedAt(Date.now());
       } catch (e) {
         setInfoErr(e?.message || "Nu am putut salva termenele de execuție.");
@@ -442,94 +482,164 @@ export default function useProfilMagazin(slug, opts = {}) {
       email: draft.email,
       deliveryArr: draft.deliveryArr,
     });
+
     saveLeadTimes(draft.leadTimes);
   }, 600);
 
   const onCountiesChange = (arr) => {
     const clean = Array.isArray(arr) ? arr.filter(Boolean) : [];
+
     if (clean.includes(allCountry.name)) {
       const one = [allCountry.name];
-      setInfoDraft((d) => ({ ...d, deliveryArr: one }));
-      debouncedAutoSave({ ...infoDraft, deliveryArr: one });
+
+      setInfoDraft((d) => ({
+        ...d,
+        deliveryArr: one,
+      }));
+
+      debouncedAutoSave({
+        ...infoDraft,
+        deliveryArr: one,
+      });
+
       return;
     }
+
     const uniq = [...new Set(clean)]
       .filter((n) => n !== allCountry.name)
       .sort((a, b) => a.localeCompare(b, "ro"));
-    setInfoDraft((d) => ({ ...d, deliveryArr: uniq }));
-    debouncedAutoSave({ ...infoDraft, deliveryArr: uniq });
+
+    setInfoDraft((d) => ({
+      ...d,
+      deliveryArr: uniq,
+    }));
+
+    debouncedAutoSave({
+      ...infoDraft,
+      deliveryArr: uniq,
+    });
   };
 
-  /* ========= fetch (profil rapid + restul în background) ========= */
+  const loadCategoriesOnce = useCallback(async () => {
+    if (categoriesLoadedRef.current) return;
+
+    const catCached = readCache("pm:categories");
+
+    if (catCached?.categories?.length) {
+      setCategories(catCached.categories);
+      categoriesLoadedRef.current = true;
+      return;
+    }
+
+    try {
+      const det = await api("/api/public/categories/detailed");
+
+      if (Array.isArray(det) && det.length && typeof det[0] === "object") {
+        setCategories(det);
+        writeCache("pm:categories", { categories: det });
+        categoriesLoadedRef.current = true;
+        return;
+      }
+
+      const list = await api("/api/public/categories");
+
+      if (Array.isArray(list) && list.length) {
+        if (typeof list[0] === "string") {
+          const detFromSimple = list.map((key) => ({
+            key,
+            label: FALLBACK_CATEGORY_LABELS[key] || key,
+            group: key.split("_")[0] || "alte",
+            groupLabel:
+              FALLBACK_CATEGORY_GROUP_LABELS[key.split("_")[0]] || "Altele",
+          }));
+
+          setCategories(detFromSimple);
+          writeCache("pm:categories", {
+            categories: detFromSimple,
+          });
+        } else {
+          setCategories(list);
+          writeCache("pm:categories", {
+            categories: list,
+          });
+        }
+
+        categoriesLoadedRef.current = true;
+        return;
+      }
+
+      setCategories(FALLBACK_CATEGORIES_DETAILED);
+      writeCache("pm:categories", {
+        categories: FALLBACK_CATEGORIES_DETAILED,
+      });
+      categoriesLoadedRef.current = true;
+    } catch {
+      setCategories(FALLBACK_CATEGORIES_DETAILED);
+      writeCache("pm:categories", {
+        categories: FALLBACK_CATEGORIES_DETAILED,
+      });
+      categoriesLoadedRef.current = true;
+    }
+  }, []);
+
   const fetchEverything = useCallback(async () => {
-    if (!sellerData) setLoading(true);
+    if (!slug) return;
+
+    const requestId = ++requestIdRef.current;
+    const currentSlug = slug;
+    const currentCacheKey = `pm:${currentSlug}`;
+
+    const isCurrent = () => requestIdRef.current === requestId;
+
+    setLoading(true);
     setErr(null);
     setNeedsOnboarding(false);
 
-    try {
-      // categorii (cache per sesiune)
-      if (!categoriesLoadedRef.current) {
-        const catCached = readCache("pm:categories");
-        if (catCached?.categories?.length) {
-          setCategories(catCached.categories);
-          categoriesLoadedRef.current = true;
-        } else {
-          try {
-            const det = await api("/api/public/categories/detailed");
-            if (Array.isArray(det) && det.length && typeof det[0] === "object") {
-              setCategories(det);
-              writeCache("pm:categories", { categories: det });
-              categoriesLoadedRef.current = true;
-            } else {
-              const list = await api("/api/public/categories");
-              if (Array.isArray(list) && list.length) {
-                if (typeof list[0] === "string") {
-                  const detFromSimple = list.map((key) => ({
-                    key,
-                    label: FALLBACK_CATEGORY_LABELS[key] || key,
-                    group: key.split("_")[0] || "alte",
-                    groupLabel:
-                      FALLBACK_CATEGORY_GROUP_LABELS[key.split("_")[0]] || "Altele",
-                  }));
-                  setCategories(detFromSimple);
-                  writeCache("pm:categories", { categories: detFromSimple });
-                } else {
-                  setCategories(list);
-                  writeCache("pm:categories", { categories: list });
-                }
-                categoriesLoadedRef.current = true;
-              } else {
-                setCategories(FALLBACK_CATEGORIES_DETAILED);
-                writeCache("pm:categories", { categories: FALLBACK_CATEGORIES_DETAILED });
-                categoriesLoadedRef.current = true;
-              }
-            }
-          } catch {
-            setCategories(FALLBACK_CATEGORIES_DETAILED);
-            writeCache("pm:categories", { categories: FALLBACK_CATEGORIES_DETAILED });
-            categoriesLoadedRef.current = true;
-          }
-        }
-      }
+    setSellerData(null);
+    setProducts([]);
+    setReviews([]);
+    setRating(0);
+    setIsOwner(false);
+    setFavorites(new Set());
 
-      // me (doar dacă nu a venit din props)
+    const cached = readCache(currentCacheKey);
+
+    if (cached?.sellerData && isCurrent()) {
+      setSellerData(cached.sellerData);
+      setProducts(Array.isArray(cached.products) ? cached.products : []);
+      setRating(Number(cached.rating || 0));
+    }
+
+    try {
+      await loadCategoriesOnce();
+
+      if (!isCurrent()) return;
+
       let meNow = meFromProps;
+
       if (!meFromProps) {
         try {
           const d = await api("/api/auth/me");
+
+          if (!isCurrent()) return;
+
           meNow = d?.user || null;
           setMe(meNow);
         } catch {
-          setMe(null);
+          if (!isCurrent()) return;
+
           meNow = null;
+          setMe(null);
         }
       }
 
-      // magazin (profil) — acesta e “critical path”
       let shop;
+
       try {
-        shop = await api(`/api/public/store/${encodeURIComponent(slug)}`);
+        shop = await api(`/api/public/store/${encodeURIComponent(currentSlug)}`);
       } catch (e) {
+        if (!isCurrent()) return;
+
         if ([404, 400].includes(e?.status)) {
           setErr("Magazinul nu a fost găsit.");
           setSellerData(null);
@@ -539,103 +649,143 @@ export default function useProfilMagazin(slug, opts = {}) {
           setLoading(false);
           return;
         }
+
         throw e;
       }
 
+      if (!isCurrent()) return;
+
       setSellerData(shop);
 
-      // owner?
       const owner =
         !!meNow &&
         !!shop?.userId &&
         (meNow.id === shop.userId || meNow.sub === shop.userId);
-      setIsOwner(owner);
 
-      // ✅ stop loading imediat după ce avem profilul (restul vine în background)
+      setIsOwner(owner);
       setLoading(false);
 
-      // cache update (profil)
-      writeCache(CACHE_KEY, {
+      writeCache(currentCacheKey, {
         sellerData: shop,
-        products: Array.isArray(products) ? products : [],
-        rating: Number(rating || 0),
+        products: [],
+        rating: 0,
       });
 
-      // restul în paralel (nu blochează UI)
+      const productsPromise = (async () => {
+        try {
+          const productsPath = owner
+            ? `/api/vendors/store/${encodeURIComponent(currentSlug)}/products`
+            : `/api/public/store/${encodeURIComponent(currentSlug)}/products`;
+
+          const resp = await api(productsPath);
+
+          if (!isCurrent()) return;
+
+          const itemsRaw = Array.isArray(resp?.items)
+            ? resp.items
+            : Array.isArray(resp)
+            ? resp
+            : [];
+
+          setProducts(itemsRaw);
+
+          writeCache(currentCacheKey, {
+            sellerData: shop,
+            products: itemsRaw,
+            rating: Number(rating || 0),
+          });
+        } catch {
+          if (!isCurrent()) return;
+          setProducts([]);
+        }
+      })();
+
+      const favoritesPromise = (async () => {
+        if (!meNow) return;
+
+        try {
+          const fav = await api("/api/vendors/favorites");
+
+          if (!isCurrent()) return;
+
+          const ids = new Set(
+            (Array.isArray(fav?.items) ? fav.items : []).map(
+              (x) => x.productId
+            )
+          );
+
+          setFavorites(ids);
+        } catch {
+          // ignore
+        }
+      })();
+
+      const ratingPromise = (async () => {
+        try {
+          const avg = await api(
+            `/api/public/store/${encodeURIComponent(
+              currentSlug
+            )}/reviews/average`
+          );
+
+          if (!isCurrent()) return;
+
+          const nextRating = Number(avg?.average || 0);
+
+          setRating(nextRating);
+          setReviews([]);
+
+          const latestCache = readCache(currentCacheKey);
+
+          writeCache(currentCacheKey, {
+            sellerData: shop,
+            products: Array.isArray(latestCache?.products)
+              ? latestCache.products
+              : [],
+            rating: nextRating,
+          });
+        } catch {
+          if (!isCurrent()) return;
+
+          setRating(0);
+          setReviews([]);
+        }
+      })();
+
       Promise.allSettled([
-        (async () => {
-          try {
-            const resp = await api(
-              `/api/public/store/${encodeURIComponent(slug)}/products`
-            );
-            const itemsRaw = Array.isArray(resp?.items)
-              ? resp.items
-              : Array.isArray(resp)
-              ? resp
-              : [];
-
-            // ✅ fără N+1 pentru owner — detaliile full le iei la edit
-            setProducts(itemsRaw);
-
-            writeCache(CACHE_KEY, {
-              sellerData: shop,
-              products: itemsRaw,
-              rating: Number(rating || 0),
-            });
-          } catch {
-            setProducts([]);
-          }
-        })(),
-
-        (async () => {
-          // favorites doar dacă e logat
-          if (!meNow) return;
-          try {
-            const fav = await api("/api/vendors/favorites");
-            const ids = new Set(
-              (Array.isArray(fav?.items) ? fav.items : []).map((x) => x.productId)
-            );
-            setFavorites(ids);
-          } catch {
-            /* ignore */
-          }
-        })(),
-
-        (async () => {
-          try {
-            const avg = await api(
-              `/api/public/store/${encodeURIComponent(slug)}/reviews/average`
-            );
-            const nextRating = Number(avg?.average || 0);
-            setRating(nextRating);
-            setReviews([]);
-
-            writeCache(CACHE_KEY, {
-              sellerData: shop,
-              products: Array.isArray(products) ? products : [],
-              rating: nextRating,
-            });
-          } catch {
-            setRating(0);
-            setReviews([]);
-          }
-        })(),
+        productsPromise,
+        favoritesPromise,
+        ratingPromise,
       ]).catch(() => {});
     } catch (error) {
+      if (!isCurrent()) return;
+
       console.error("Eroare încărcare profil magazin:", error);
+
       setErr("Nu am putut încărca magazinul.");
+      setSellerData(null);
+      setProducts([]);
+      setReviews([]);
+      setRating(0);
       setLoading(false);
     }
-  }, [slug, meFromProps, CACHE_KEY, sellerData, products, rating]);
+  }, [slug, meFromProps, loadCategoriesOnce, rating]);
 
   useEffect(() => {
     fetchEverything();
+
+    return () => {
+      requestIdRef.current += 1;
+    };
   }, [fetchEverything]);
 
-  // inițializează draftul când avem date magazin
   useEffect(() => {
     if (!sellerData) return;
-    const deliveryArr = Array.isArray(sellerData.delivery) ? sellerData.delivery : [];
+
+    const deliveryArr = Array.isArray(sellerData.delivery)
+      ? sellerData.delivery
+      : [];
+
     setInfoDraft({
       address: sellerData.address || "",
       phone: sellerData.phone || "",
@@ -645,15 +795,16 @@ export default function useProfilMagazin(slug, opts = {}) {
     });
   }, [sellerData]);
 
-  // cache-buster pe imagini profil
   const cacheT = useMemo(
     () =>
-      sellerData?.updatedAt ? new Date(sellerData.updatedAt).getTime() : Date.now(),
+      sellerData?.updatedAt
+        ? new Date(sellerData.updatedAt).getTime()
+        : Date.now(),
     [sellerData?.updatedAt]
   );
 
-  // cache-buster dedicat produselor
   const productsCacheTRef = useRef(Date.now());
+
   useEffect(() => {
     productsCacheTRef.current = Date.now();
   }, [products]);
@@ -663,20 +814,31 @@ export default function useProfilMagazin(slug, opts = {}) {
   async function uploadFile(file) {
     const fd = new FormData();
     fd.append("file", file);
-    const { url } = await api("/api/upload", { method: "POST", body: fd });
+
+    const { url } = await api("/api/upload", {
+      method: "POST",
+      body: fd,
+    });
+
     return url;
   }
 
   const onChangeInfoDraft = (patch) => {
     setInfoDraft((d) => {
-      const next = { ...d, ...patch };
+      const next = {
+        ...d,
+        ...patch,
+      };
+
       debouncedAutoSave(next);
+
       return next;
     });
   };
 
   const saveInfoNow = useCallback(async () => {
     const d = infoDraft;
+
     await Promise.all([
       saveProfilePart({
         address: d.address,
@@ -686,10 +848,10 @@ export default function useProfilMagazin(slug, opts = {}) {
       }),
       saveLeadTimes(d.leadTimes),
     ]);
+
     setEditInfo(false);
   }, [infoDraft, saveProfilePart, saveLeadTimes]);
 
-  /* ====== NEW PRODUCT – doar deschide modalul, fără gate ====== */
   const openNewProduct = () => {
     if (!isOwner) return;
 
@@ -698,17 +860,20 @@ export default function useProfilMagazin(slug, opts = {}) {
     setProdModalOpen(true);
   };
 
-  /* ====== SAVE PRODUCT (create/edit) ====== */
   const dateOnlyToISO = (yyyyMmDd) => {
     if (!yyyyMmDd) return null;
+
     const [y, m, d] = String(yyyyMmDd).split("-").map(Number);
+
     if (!y || !m || !d) return null;
+
     const dt = new Date(y, m - 1, d, 12, 0, 0);
     return dt.toISOString();
   };
 
   const onSaveProduct = async (e) => {
     e.preventDefault();
+
     if (!isOwner) return;
 
     const title = (prodForm.title || "").trim();
@@ -755,79 +920,46 @@ export default function useProfilMagazin(slug, opts = {}) {
 
       const av = String(prodForm.availability || "READY").toUpperCase();
 
+      const payload = {
+        ...basePayload,
+        availability: av,
+        leadTimeDays: null,
+        readyQty: null,
+        nextShipDate: null,
+      };
+
+      if (av === "MADE_TO_ORDER") {
+        const lt = Number(prodForm.leadTimeDays || 0);
+        payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
+      }
+
+      if (av === "READY") {
+        if (prodForm.readyQty !== "" && prodForm.readyQty !== undefined) {
+          const rq = Number(prodForm.readyQty);
+          payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
+        } else {
+          payload.readyQty = null;
+        }
+      }
+
+      if (av === "PREORDER") {
+        payload.nextShipDate = prodForm.nextShipDate
+          ? dateOnlyToISO(prodForm.nextShipDate)
+          : null;
+      }
+
+      if (av === "SOLD_OUT") {
+        payload.readyQty = 0;
+      }
+
       if (editingProduct && (editingProduct.id || editingProduct._id)) {
-        // EDIT
-        const payload = {
-          ...basePayload,
-          availability: av,
-          leadTimeDays: null,
-          readyQty: null,
-          nextShipDate: null,
-        };
-
-        if (av === "MADE_TO_ORDER") {
-          const lt = Number(prodForm.leadTimeDays || 0);
-          payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
-        }
-
-        if (av === "READY") {
-          if (prodForm.readyQty !== "" && prodForm.readyQty !== undefined) {
-            const rq = Number(prodForm.readyQty);
-            payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
-          } else {
-            payload.readyQty = null;
-          }
-        }
-
-        if (av === "PREORDER") {
-          payload.nextShipDate = prodForm.nextShipDate
-            ? dateOnlyToISO(prodForm.nextShipDate)
-            : null;
-        }
-
-        if (av === "SOLD_OUT") {
-          payload.readyQty = 0;
-        }
-
         const id = editingProduct.id || editingProduct._id;
+
         await api(`/api/vendors/products/${encodeURIComponent(id)}`, {
           method: "PUT",
           body: payload,
         });
       } else {
-        // CREATE
-        const payload = {
-          ...basePayload,
-          availability: av,
-          leadTimeDays: null,
-          readyQty: null,
-          nextShipDate: null,
-        };
-
-        if (av === "MADE_TO_ORDER") {
-          const lt = Number(prodForm.leadTimeDays || 0);
-          payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
-        }
-
-        if (av === "READY") {
-          if (prodForm.readyQty !== "" && prodForm.readyQty !== undefined) {
-            const rq = Number(prodForm.readyQty);
-            payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
-          } else {
-            payload.readyQty = null;
-          }
-        }
-
-        if (av === "PREORDER") {
-          payload.nextShipDate = prodForm.nextShipDate
-            ? dateOnlyToISO(prodForm.nextShipDate)
-            : null;
-        }
-
-        if (av === "SOLD_OUT") {
-          payload.readyQty = 0;
-        }
-
         await api(`/api/vendors/store/${encodeURIComponent(slug)}/products`, {
           method: "POST",
           body: payload,
@@ -848,7 +980,6 @@ export default function useProfilMagazin(slug, opts = {}) {
   };
 
   return {
-    // data
     sellerData,
     products,
     reviews,
@@ -864,7 +995,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     cacheT,
     productsCacheT: productsCacheTRef.current,
 
-    // info inline edit
     editInfo,
     setEditInfo,
     savingInfo,
@@ -879,7 +1009,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     onCountiesChange,
     saveInfoNow,
 
-    // product modal
     prodModalOpen,
     setProdModalOpen,
     savingProd,
@@ -888,7 +1017,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     prodForm,
     setProdForm,
 
-    // actions
     fetchEverything,
     uploadFile,
     openNewProduct,

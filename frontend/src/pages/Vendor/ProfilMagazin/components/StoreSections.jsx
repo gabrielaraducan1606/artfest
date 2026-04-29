@@ -7,6 +7,7 @@ const ReviewsSection = lazy(() => import("./ReviewsSection.jsx"));
 const ProductList = lazy(() => import("./ProductList"));
 
 export default function StoreSections({
+  serviceId,
   tabs,
   activeTab,
   onJump,
@@ -125,7 +126,9 @@ export default function StoreSections({
         data-tab-key="produse"
         className="sectionAnchorPad"
       >
-        <Suspense fallback={<div style={{ padding: 12 }}>Se încarcă produsele…</div>}>
+        <Suspense
+          fallback={<div style={{ padding: 12 }}>Se încarcă produsele…</div>}
+        >
           <ProductList
             products={products}
             isOwner={isOwner}
@@ -148,6 +151,7 @@ export default function StoreSections({
       >
         <Suspense fallback={<div>Se încarcă recenziile…</div>}>
           <ReviewsSection
+            serviceId={serviceId}
             rating={revState.stats?.avg ?? rating}
             reviews={revState.items}
             totalCount={revState.total}
