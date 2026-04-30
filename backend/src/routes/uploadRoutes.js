@@ -6,7 +6,7 @@ import { authRequired } from "../api/auth.js";
 
 const router = Router();
 
-// ========== CONFIG R2 din env ==========
+/* ================= ENV R2 ================= */
 const {
   R2_ACCOUNT_ID,
   R2_ACCESS_KEY_ID,
@@ -16,12 +16,10 @@ const {
 } = process.env;
 
 if (!R2_ACCOUNT_ID || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET_NAME) {
-  console.warn(
-    "[R2] Env incomplet. Verifică R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME."
-  );
+  console.warn("[R2] Env incomplet!");
 }
 
-// Client compatibil S3 pentru Cloudflare R2
+/* ================= R2 CLIENT ================= */
 const r2Client = new S3Client({
   region: "auto",
   endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -31,19 +29,31 @@ const r2Client = new S3Client({
   },
 });
 
-// Multer – memorie, max 5MB
+/* ================= MULTER CONFIG ================= */
+// 🔥 LIMITAT + VALIDARE
+const ALLOWED_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+];
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 2 * 1024 * 1024 }, // 🔥 2MB max
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_TYPES.includes(file.mimetype)) {
+      return cb(new Error("INVALID_FILE_TYPE"));
+    }
+    cb(null, true);
+  },
 });
 
-// helper URL public
+/* ================= HELPERS ================= */
 function buildPublicUrl(key) {
   if (R2_PUBLIC_BASE_URL) {
-    // ex: https://media.artfest.ro/avatars/...
     return `${R2_PUBLIC_BASE_URL.replace(/\/+$/, "")}/${key}`;
   }
-  // fallback
   return `https://${R2_BUCKET_NAME}.${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${key}`;
 }
 
@@ -51,119 +61,100 @@ function getUserId(req) {
   return req.user?.sub || req.user?.id;
 }
 
-/**
- * POST /api/upload
- * FormData: file=<binary>
- * Răspuns: { ok: true, url, key }
- */
+function safeName(name = "file") {
+  return String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9.\-_]+/g, "-")
+    .slice(0, 120);
+}
+
+/* ================= SINGLE UPLOAD ================= */
 router.post("/", authRequired, upload.single("file"), async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
-      return res.status(403).json({
-        error: "unauthorized",
-        message: "Trebuie să fii autentificat pentru upload.",
-      });
+      return res.status(403).json({ error: "unauthorized" });
     }
 
     if (!req.file) {
-      return res.status(400).json({
-        error: "no_file",
-        message: "Nu ai trimis niciun fișier.",
-      });
+      return res.status(400).json({ error: "no_file" });
     }
 
-    const mime = req.file.mimetype || "application/octet-stream";
+    const key = `avatars/${userId}/${Date.now()}-${safeName(req.file.originalname)}`;
 
-    const safeOriginalName = (req.file.originalname || "avatar")
-      .toLowerCase()
-      .replace(/[^a-z0-9.\-_]+/g, "-");
-
-    const timestamp = Date.now();
-    const key = `avatars/${userId}/${timestamp}-${safeOriginalName}`;
-
-    const putCommand = new PutObjectCommand({
-      Bucket: R2_BUCKET_NAME,
-      Key: key,
-      Body: req.file.buffer,
-      ContentType: mime,
-    });
-
-    await r2Client.send(putCommand);
-
-    const url = buildPublicUrl(key);
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET_NAME,
+        Key: key,
+        Body: req.file.buffer,
+        ContentType: req.file.mimetype,
+      })
+    );
 
     return res.json({
       ok: true,
-      url,
+      url: buildPublicUrl(key),
       key,
     });
   } catch (err) {
-    if (err && err.code === "LIMIT_FILE_SIZE") {
+    if (err?.code === "LIMIT_FILE_SIZE") {
       return res.status(413).json({
         error: "file_too_large",
-        message: "Fișierul este prea mare (max 5MB).",
+        message: "Max 2MB",
       });
     }
-    console.error("Upload error (R2):", err);
-    return res.status(500).json({
-      error: "upload_failed",
-      message: "Upload eșuat. Încearcă din nou.",
-    });
+
+    if (err?.message === "INVALID_FILE_TYPE") {
+      return res.status(400).json({
+        error: "invalid_file_type",
+        message: "Doar JPG, PNG, WEBP sau PDF",
+      });
+    }
+
+    console.error("Upload error:", err);
+    return res.status(500).json({ error: "upload_failed" });
   }
 });
+
+/* ================= MULTI UPLOAD (SUPPORT) ================= */
 router.post(
   "/support",
   authRequired,
-  upload.array("files", 10), // până la 10 atașamente
+  upload.array("files", 3), // 🔥 max 3 fișiere
   async (req, res) => {
     try {
       const userId = getUserId(req);
       if (!userId) {
-        return res.status(403).json({
-          error: "unauthorized",
-          message: "Trebuie să fii autentificat pentru upload.",
-        });
+        return res.status(403).json({ error: "unauthorized" });
       }
 
       const files = req.files || [];
       if (!files.length) {
-        return res.status(400).json({
-          error: "no_file",
-          message: "Nu ai trimis niciun fișier.",
-        });
+        return res.status(400).json({ error: "no_file" });
       }
 
       const uploaded = [];
 
-      for (let i = 0; i < files.length; i += 1) {
+      for (let i = 0; i < files.length; i++) {
         const f = files[i];
-        const mime = f.mimetype || "application/octet-stream";
 
-        const safeOriginalName = (f.originalname || "attachment")
-          .toLowerCase()
-          .replace(/[^a-z0-9.\-_]+/g, "-");
+        const key = `support/${userId}/${Date.now()}-${i}-${safeName(f.originalname)}`;
 
-        const timestamp = Date.now();
-        const key = `support/${userId}/${timestamp}-${i}-${safeOriginalName}`;
-
-        const putCommand = new PutObjectCommand({
-          Bucket: R2_BUCKET_NAME,
-          Key: key,
-          Body: f.buffer,
-          ContentType: mime,
-        });
-
-        await r2Client.send(putCommand);
-
-        const url = buildPublicUrl(key);
+        await r2Client.send(
+          new PutObjectCommand({
+            Bucket: R2_BUCKET_NAME,
+            Key: key,
+            Body: f.buffer,
+            ContentType: f.mimetype,
+          })
+        );
 
         uploaded.push({
-          url,
+          url: buildPublicUrl(key),
           key,
-          name: f.originalname || safeOriginalName,
-          size: f.size || null,
-          mimeType: mime,
+          name: f.originalname,
+          size: f.size,
+          mimeType: f.mimetype,
         });
       }
 
@@ -172,18 +163,24 @@ router.post(
         items: uploaded,
       });
     } catch (err) {
-      if (err && err.code === "LIMIT_FILE_SIZE") {
+      if (err?.code === "LIMIT_FILE_SIZE") {
         return res.status(413).json({
           error: "file_too_large",
-          message: "Fișierul este prea mare (max 5MB).",
+          message: "Max 2MB",
         });
       }
-      console.error("Upload error (R2 support):", err);
-      return res.status(500).json({
-        error: "upload_failed",
-        message: "Upload eșuat. Încearcă din nou.",
-      });
+
+      if (err?.message === "INVALID_FILE_TYPE") {
+        return res.status(400).json({
+          error: "invalid_file_type",
+          message: "Doar JPG, PNG, WEBP sau PDF",
+        });
+      }
+
+      console.error("Upload support error:", err);
+      return res.status(500).json({ error: "upload_failed" });
     }
   }
 );
+
 export default router;
