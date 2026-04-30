@@ -52,6 +52,8 @@ export const CATEGORIES = [
   "ceremonie_cutie-amintiri-botez",
   "ceremonie_cruciulite-botez",
   "ceremonie_tavita-mot",
+  "ceremonie_tava-gatit-mireasa",
+  "ceremonie_tava-gatit-mire",
 
   "home_lumanari-parfumate",
   "home_difuzoare-parfum-camera",
@@ -188,6 +190,8 @@ export const CATEGORY_LABELS = {
   "ceremonie_cutie-amintiri-botez": "Cutie amintiri botez",
   "ceremonie_cruciulite-botez": "Cruciuțe/broșe botez",
   "ceremonie_tavita-mot": "Tăviță moț",
+  "ceremonie_tava-gatit-mireasa": "Tavă gătit mireasă",
+  "ceremonie_tava-gatit-mire": "Tavă gătit mire",
 
   "home_lumanari-parfumate": "Lumânări parfumate",
   "home_difuzoare-parfum-camera": "Difuzoare & parfumuri cameră",
