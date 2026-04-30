@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import styles from "./MobileCategories.module.css";
+import { getSlugByCategoryKey } from "../../constants/seoCategories";
 
 import {
   FaEnvelopeOpenText,
@@ -495,12 +496,16 @@ export default function MobileCategories() {
                       const IconComp = GROUP_ICON[c.group] || FaTags;
 
                       return (
-                        <Link
-                          key={c.key}
-                          to={`/produse?categorie=${encodeURIComponent(c.key)}&page=1`}
-                          className={styles.compactTile}
-                          title={c.label}
-                        >
+                       <Link
+  key={c.key}
+  to={
+    getSlugByCategoryKey(c.key)
+      ? `/categorii/${getSlugByCategoryKey(c.key)}`
+      : `/produse?categorie=${encodeURIComponent(c.key)}&page=1`
+  }
+  className={styles.compactTile}
+  title={c.label}
+>
                           <span className={styles.compactIcon}>
                             <IconComp size={16} />
                           </span>

@@ -12,7 +12,8 @@ import { api } from "../../lib/api.js";
 import styles from "./Products.module.css";
 import { guestCart } from "../../lib/guestCart";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
-
+import { SEO } from "../../components/Seo/SeoProvider";
+import { SEO_CATEGORIES } from "../../constants/seoCategories";
 import {
   FaFilter,
   FaUndoAlt,
@@ -197,6 +198,7 @@ export default function ProductsPage() {
 
   const qParam = params.get("q") || "";
   const categoryParam = params.get("categorie") || params.get("category") || "";
+  const currentSeoCategory = categoryParam ? SEO_CATEGORIES[categoryParam] : null;
   const cityParam = params.get("city") || "";
   const sortParam = params.get("sort") || "new";
   const minPriceParam = params.get("minPrice") || params.get("min") || "";
@@ -857,6 +859,28 @@ export default function ProductsPage() {
 
   return (
     <section className={styles.page}>
+      <SEO
+  title={
+    currentSeoCategory
+      ? `${currentSeoCategory.title} | Produse`
+      : "Produse handmade"
+  }
+  description={
+    currentSeoCategory
+      ? currentSeoCategory.description
+      : "Descoperă produse handmade, cadouri personalizate și creații artizanale românești pe Artfest."
+  }
+  canonical={
+    currentSeoCategory
+      ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
+      : "https://artfest.ro/produse"
+  }
+  url={
+    currentSeoCategory
+      ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
+      : "https://artfest.ro/produse"
+  }
+/>
       <header className={styles.head}>
         <div className={styles.headTop}>
           <h1 className={styles.h1}>Produse</h1>

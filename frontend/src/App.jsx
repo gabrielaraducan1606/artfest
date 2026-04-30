@@ -77,7 +77,7 @@ import AdminMaintenance from "./pages/Admin/AdminMaintenance/AdminMaintenancePag
 import AdminVendorPlansPage from "./pages/Admin/AdminVendorPlansPage/AdminVendorPlansPage.jsx";
 import AdminPickupsPage from "./pages/Admin/AdminPickupsPage/AdminPickupsPage.jsx";
 import AdminBillingToClientPage from "./pages/Admin/AdminBillingToClient/AdminBillingToClient.jsx";
-
+import CategoryPage from "./pages/CategoryPage/CategoryPage.jsx";
 import RouteIncidentsPage from "./pages/Admin/AdminIncidentsPage/AdminIncidentsPage.jsx";
 
 import UserSettingsPage from "./pages/User/UserSettings/UserSettingsPage.jsx";
@@ -482,7 +482,7 @@ export default function App() {
 
             <Route path="/categorii" element={<MobileCategories />} />
             <Route path="/@:slug" element={<AtSlugRedirect />} />
-
+<Route path="/categorii/:slug" element={<CategoryPage />} />
             {/* Support */}
             <Route
               path="/account/support"
