@@ -883,29 +883,44 @@ export default function ProductsPage() {
 />
       <header className={styles.head}>
         <div className={styles.headTop}>
-          <h1 className={styles.h1}>Produse</h1>
-          <div className={styles.headActions}>
-            <button
-              type="button"
-              className={styles.iconCircle}
-              onClick={() => setFiltersOpen(true)}
-              title="Filtrează produse"
-              aria-label="Filtrează produse"
-            >
-              <FaFilter />
-            </button>
-            <button
-              type="button"
-              className={styles.iconCircle}
-              onClick={resetFilters}
-              title="Resetează filtrele"
-              aria-label="Resetează filtrele"
-            >
-              <FaUndoAlt />
-            </button>
-          </div>
-        </div>
+  <div className={styles.categoryHeroText}>
+    <span className={styles.categoryEyebrow}>
+      Artfest Marketplace
+    </span>
 
+    <h1 className={styles.h1}>
+      {currentSeoCategory?.h1 || "Produse"}
+    </h1>
+
+    {currentSeoCategory?.intro ? (
+      <p className={styles.categoryIntro}>
+        {currentSeoCategory.intro}
+      </p>
+    ) : null}
+  </div>
+
+  <div className={styles.headActions}>
+    <button
+      type="button"
+      className={styles.iconCircle}
+      onClick={() => setFiltersOpen(true)}
+      title="Filtrează produse"
+      aria-label="Filtrează produse"
+    >
+      <FaFilter />
+    </button>
+
+    <button
+      type="button"
+      className={styles.iconCircle}
+      onClick={resetFilters}
+      title="Resetează filtrele"
+      aria-label="Resetează filtrele"
+    >
+      <FaUndoAlt />
+    </button>
+  </div>
+</div>
         <form
           ref={searchRef}
           className={styles.searchRow}

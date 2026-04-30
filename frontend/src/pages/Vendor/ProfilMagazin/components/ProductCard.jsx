@@ -564,7 +564,7 @@ function ProductCard({
           >
             <img
               src={imgSrc}
-              alt={safe.title}
+              alt={`${safe.title}${catLabel ? ` - ${catLabel}` : ""}`}
               className={styles.image}
               loading="lazy"
               decoding="async"
@@ -577,7 +577,7 @@ function ProductCard({
         ) : (
           <img
             src={imgSrc}
-            alt={safe.title}
+            alt={`${safe.title}${catLabel ? ` - ${catLabel}` : ""}`}
             className={styles.image}
             loading="lazy"
             decoding="async"
