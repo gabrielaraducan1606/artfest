@@ -64,6 +64,7 @@ export default function PopularProducts() {
   const navigate = useNavigate();
   const loadingRef = useRef(false);
   const didInitRef = useRef(false);
+  const loadMoreRef = useRef(null);
 
   const priceFmt = (p) => {
     const cur = p?.currency || "RON";
@@ -216,6 +217,32 @@ export default function PopularProducts() {
     fetchPage(1);
   }, [fetchPage]);
 
+  useEffect(() => {
+    const el = loadMoreRef.current;
+
+    if (!el) return;
+    if (!hasMore || initialLoading || loadingMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+
+        if (first.isIntersecting && !loadingRef.current && hasMore) {
+          fetchPage(page + 1);
+        }
+      },
+      {
+        root: null,
+        rootMargin: "300px",
+        threshold: 0,
+      }
+    );
+
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [fetchPage, hasMore, initialLoading, loadingMore, page]);
+
   if (initialLoading && items.length === 0) {
     return (
       <section className={styles.section} aria-labelledby="pp-heading">
@@ -257,7 +284,8 @@ export default function PopularProducts() {
           const img = getImageSrc(p);
           const addedAgo = timeAgo(p);
           const hasImageError = !img || brokenImages[p.id];
-          const safeKey = p?.id ?? `${p?.title ?? "produs"}-${getTimestamp(p)}-${index}`;
+          const safeKey =
+            p?.id ?? `${p?.title ?? "produs"}-${getTimestamp(p)}-${index}`;
 
           return (
             <article
@@ -275,7 +303,9 @@ export default function PopularProducts() {
             >
               <Link
                 to={`/produs/${p.id}`}
-                className={`${styles.thumbLink} ${hasImageError ? styles.noImage : ""}`}
+                className={`${styles.thumbLink} ${
+                  hasImageError ? styles.noImage : ""
+                }`}
                 onClick={(e) => e.stopPropagation()}
                 aria-label={`Vezi ${p.title}`}
               >
@@ -327,7 +357,9 @@ export default function PopularProducts() {
                   <div
                     className={styles.rating}
                     aria-label={
-                      rating != null ? `Rating ${rating} din 5` : "Fără recenzii"
+                      rating != null
+                        ? `Rating ${rating} din 5`
+                        : "Fără recenzii"
                     }
                   >
                     {[...Array(5)].map((_, i) => (
@@ -356,6 +388,7 @@ export default function PopularProducts() {
       {hasMore && (
         <div className={styles.loadMoreWrap}>
           <button
+            ref={loadMoreRef}
             type="button"
             className={styles.loadMore}
             onClick={() => {
