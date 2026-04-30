@@ -11,7 +11,7 @@ import {
 import Modal from "../ui/Modal";
 import styles from "../components/css/ProductModal.module.css";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
-import { uploadDirectToR2 } from "../../../../lib/uploadDirectToR2";
+import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
 import { api } from "../../../../lib/api";
 
 // IMPORTURI CONSTANTE
@@ -587,9 +587,10 @@ export default function ProductModal({
   setForm,
   categories = [],
   onSave,
+  uploadFile,
   storeSlug,
 }) {
- const doUpload = uploadDirectToR2;
+  const doUpload = uploadFile || uploadFileHelper;
 
   const updateField = useCallback(
     (field) => (e) => {
@@ -622,17 +623,6 @@ export default function ProductModal({
       });
     }
   }, [open]);
-
-  useEffect(() => {
-  if (!open) return;
-  if (editingProduct) return;
-
-  setForm((s) => ({
-    ...s,
-    isActive: true,
-    isHidden: false,
-  }));
-}, [open, editingProduct, setForm]);
 
   const [vatState, setVatState] = useState({
     loading: false,
@@ -1079,7 +1069,7 @@ export default function ProductModal({
         if (!/^image\//i.test(f.type)) continue;
         let url;
         try {
-          url = await doUpload(f, "products");
+          url = await doUpload(f);
         } catch (er) {
           console.error(er);
           alert(er?.message || "Upload eșuat.");
@@ -1327,20 +1317,19 @@ export default function ProductModal({
             >
               <label className={styles.checkbox}>
                 <input
-  type="checkbox"
-  checked={form.isActive !== false && !form.isHidden}
-  onChange={(e) =>
-    setForm((s) => {
-      const checked = e.target.checked;
-
-      return {
-        ...s,
-        isActive: checked,
-        isHidden: checked ? false : true,
-      };
-    })
-  }
-/>
+                  type="checkbox"
+                  checked={!!form.isActive}
+                  onChange={(e) =>
+                    setForm((s) => {
+                      const checked = e.target.checked;
+                      return {
+                        ...s,
+                        isActive: checked,
+                        isHidden: checked ? false : s.isHidden,
+                      };
+                    })
+                  }
+                />
                 Activ
                 <small style={{ marginLeft: 8, opacity: 0.7 }}>
                   Produsul poate fi cumpărat (dacă este vizibil).
@@ -1348,21 +1337,20 @@ export default function ProductModal({
               </label>
 
               <label className={styles.checkbox}>
-               <input
-  type="checkbox"
-  checked={!!form.isHidden}
-  onChange={(e) =>
-    setForm((s) => {
-      const checked = e.target.checked;
-
-      return {
-        ...s,
-        isHidden: checked,
-        isActive: checked ? false : true,
-      };
-    })
-  }
-/>
+                <input
+                  type="checkbox"
+                  checked={!!form.isHidden}
+                  onChange={(e) =>
+                    setForm((s) => {
+                      const checked = e.target.checked;
+                      return {
+                        ...s,
+                        isHidden: checked,
+                        isActive: checked ? false : s.isActive,
+                      };
+                    })
+                  }
+                />
                 Ascuns
                 <small style={{ marginLeft: 8, opacity: 0.7 }}>
                   Nu apare public în magazin, chiar dacă este activ.
