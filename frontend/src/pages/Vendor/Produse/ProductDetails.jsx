@@ -647,45 +647,53 @@ export default function ProductDetails() {
     }
   }, []);
 
-  const loadAll = useCallback(async () => {
-    const seq = ++requestSeqRef.current;
+const loadAll = useCallback(async () => {
+  const seq = ++requestSeqRef.current;
 
-    setLoading(true);
-    setError(null);
+  setLoading(true);
+  setError(null);
+
+  try {
+    const [meRes, favRes] = await Promise.allSettled([
+      api("/api/auth/me"),
+      api("/api/favorites/ids"),
+    ]);
+
+    if (!mountedRef.current || requestSeqRef.current !== seq) return;
+
+    const user =
+      meRes.status === "fulfilled" ? meRes.value?.user || null : null;
+
+    let p = null;
 
     try {
-      const [productRes, meRes, favRes] = await Promise.allSettled([
-        api(`/api/public/products/${encodeURIComponent(id)}`),
-        api("/api/auth/me"),
-        api("/api/favorites/ids"),
-      ]);
-
-      if (!mountedRef.current || requestSeqRef.current !== seq) return;
-
-      if (productRes.status !== "fulfilled") {
-        throw productRes.reason;
+      p = await api(`/api/public/products/${encodeURIComponent(id)}`);
+    } catch (publicErr) {
+      if (!user) {
+        throw publicErr;
       }
 
-      const p = productRes.value;
-      setProduct(p);
-
-      const user =
-        meRes.status === "fulfilled" ? meRes.value?.user || null : null;
-      setMe(user);
-
-      const favItems =
-        favRes.status === "fulfilled" && Array.isArray(favRes.value?.items)
-          ? favRes.value.items
-          : [];
-      setFavorites(new Set(favItems));
-
-      setLoading(false);
-    } catch (e) {
-      if (!mountedRef.current || requestSeqRef.current !== seq) return;
-      setError(e?.message || "Nu am putut încărca produsul.");
-      setLoading(false);
+      p = await api(`/api/vendors/products/${encodeURIComponent(id)}`);
     }
-  }, [id]);
+
+    if (!mountedRef.current || requestSeqRef.current !== seq) return;
+
+    setProduct(p);
+    setMe(user);
+
+    const favItems =
+      favRes.status === "fulfilled" && Array.isArray(favRes.value?.items)
+        ? favRes.value.items
+        : [];
+
+    setFavorites(new Set(favItems));
+    setLoading(false);
+  } catch (e) {
+    if (!mountedRef.current || requestSeqRef.current !== seq) return;
+    setError(e?.message || "Nu am putut încărca produsul.");
+    setLoading(false);
+  }
+}, [id]);
 
   useEffect(() => {
     loadAll();
