@@ -466,7 +466,6 @@ app.use("/api", samedayWebhookRoutes);
 app.use("/api/auth", authRouter);
 app.use("/api/vendors", vendorsRouter);
 app.use("/api/service-types", serviceTypesRouter);
-app.use("/api/upload", uploadRoutes);
 app.use("/api/vendors", billingRoutes);
 app.use("/api", subscriptionRoutes);
 app.use("/api", vendorProductRoutes);

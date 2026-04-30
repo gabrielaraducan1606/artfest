@@ -11,7 +11,7 @@ import {
 import Modal from "../ui/Modal";
 import styles from "../components/css/ProductModal.module.css";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
-import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
+import { uploadDirectToR2 } from "../../../../lib/uploadDirectToR2";
 import { api } from "../../../../lib/api";
 
 // IMPORTURI CONSTANTE
@@ -587,10 +587,9 @@ export default function ProductModal({
   setForm,
   categories = [],
   onSave,
-  uploadFile,
   storeSlug,
 }) {
-  const doUpload = uploadFile || uploadFileHelper;
+ const doUpload = uploadDirectToR2;
 
   const updateField = useCallback(
     (field) => (e) => {
@@ -1080,7 +1079,7 @@ export default function ProductModal({
         if (!/^image\//i.test(f.type)) continue;
         let url;
         try {
-          url = await doUpload(f);
+          url = await doUpload(f, "products");
         } catch (er) {
           console.error(er);
           alert(er?.message || "Upload eșuat.");

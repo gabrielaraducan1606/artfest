@@ -8,7 +8,6 @@ import StoreActivationBadge from "./StoreActivationBadge";
 
 export default function StoreHero({
   isOwner,
-  isUser,
   shopName,
   shortText,
   origin,
@@ -277,22 +276,20 @@ export default function StoreHero({
                 </>
               ) : (
                 <>
-                  {isUser && (
-                    <button
-                      className={styles.followBtn}
-                      type="button"
-                      onClick={handleContactVendor}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        marginRight: 8,
-                      }}
-                    >
-                      <MessageSquare size={16} />
-                      Trimite mesaj
-                    </button>
-                  )}
+                 <button
+  className={styles.followBtn}
+  type="button"
+  onClick={handleContactVendor}
+  style={{
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    marginRight: 8,
+  }}
+>
+  <MessageSquare size={16} />
+  Trimite mesaj
+</button>
 
                   <button
                     className={`${styles.followBtn} ${
