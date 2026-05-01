@@ -86,6 +86,9 @@ const SendNewsletterSchema = z.object({
 // ========= helpers =========
 
 const APP_URL = process.env.APP_URL || "https://artfest.ro";
+
+const API_URL = process.env.API_URL || "http://localhost:5000";
+
 const R2_PUBLIC_BASE_URL =
   process.env.R2_PUBLIC_BASE_URL || "https://media.artfest.ro";
 
@@ -112,7 +115,7 @@ function renderBodyTemplate(bodyHtml, user) {
   ts: Date.now(),
 });
 
-const unsubscribeUrl = `${APP_URL}/unsubscribe?token=${encodeURIComponent(
+const unsubscribeUrl = `${API_URL}/api/unsubscribe?token=${encodeURIComponent(
   token
 )}`;
   out = out.replace(/{{\s*unsubscribeUrl\s*}}/gi, unsubscribeUrl);
@@ -165,7 +168,7 @@ function renderFollowedStoresDigestHtml({ user, grouped, days }) {
   ts: Date.now(),
 });
 
-const unsubscribeUrl = `${APP_URL}/unsubscribe?token=${encodeURIComponent(
+const unsubscribeUrl = `${API_URL}/api/unsubscribe?token=${encodeURIComponent(
   token
 )}`;
   const sections = grouped
