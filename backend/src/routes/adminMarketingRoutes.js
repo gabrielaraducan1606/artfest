@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { sendMarketingEmail } from "../lib/mailer.js";
+import { signUnsubToken } from "../lib/unsubscribe.js";
 const router = Router();
 
 /**
@@ -105,11 +106,17 @@ function renderBodyTemplate(bodyHtml, user) {
 
   out = out.replace(/{{\s*name\s*}}/gi, name);
 
-  const unsubscribeUrl = `${APP_URL}/unsubscribe?email=${encodeURIComponent(
-    user.email
-  )}`;
+  const token = signUnsubToken({
+  email: user.email,
+  category: "marketing",
+  ts: Date.now(),
+});
 
+const unsubscribeUrl = `${APP_URL}/unsubscribe?token=${encodeURIComponent(
+  token
+)}`;
   out = out.replace(/{{\s*unsubscribeUrl\s*}}/gi, unsubscribeUrl);
+
   return out;
 }
 
@@ -152,10 +159,15 @@ function renderFollowedStoresDigestHtml({ user, grouped, days }) {
   const name =
     user.name || user.firstName || user.email?.split("@")[0] || "acolo";
 
-  const unsubscribeUrl = `${APP_URL}/unsubscribe?email=${encodeURIComponent(
-    user.email
-  )}`;
+ const token = signUnsubToken({
+  email: user.email,
+  category: "marketing",
+  ts: Date.now(),
+});
 
+const unsubscribeUrl = `${APP_URL}/unsubscribe?token=${encodeURIComponent(
+  token
+)}`;
   const sections = grouped
     .map((g) => {
       const storeName = g.storeName || "Magazin";
@@ -446,19 +458,18 @@ router.post("/send", authRequired, adminOnly, async (req, res) => {
 
     const baseWhere = {
       status: "SUBSCRIBED",
-      email: { not: null },
     };
 
     let where = baseWhere;
     if (audience === "USERS") {
       where = {
         ...baseWhere,
-        user: { role: "USER" },
+       user: { is: { role: "USER" } }
       };
     } else if (audience === "VENDORS") {
       where = {
         ...baseWhere,
-        user: { role: "VENDOR" },
+        user: { is: { role: "VENDOR" } }
       };
     }
 
@@ -682,7 +693,7 @@ router.post(
           user = await prisma.user.findFirst({
             where: {
               marketingOptIn: true,
-              email: { not: null },
+             email: { not: "" },
               status: "ACTIVE",
             },
             select: { id: true, email: true, name: true, firstName: true },
@@ -722,7 +733,7 @@ router.post(
       const recipients = await prisma.user.findMany({
         where: {
           marketingOptIn: true,
-          email: { not: null },
+          email: { not: "" },
           status: "ACTIVE",
           OR: [
             { marketingPrefs: { is: null } },
