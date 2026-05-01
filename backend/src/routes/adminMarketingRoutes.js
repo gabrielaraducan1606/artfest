@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-
+import { sendMarketingEmail } from "../lib/mailer.js";
 const router = Router();
 
 /**
@@ -62,7 +62,26 @@ const CreateNewsletterSubscriberSchema = z.object({
   sourceLabel: z.string().optional(),
   notes: z.string().optional(),
 });
+const NewsletterAudienceEnum = z.enum([
+  "ALL_SUBSCRIBED",
+  "USERS",
+  "VENDORS",
+  "NO_ACCOUNT",
+]);
 
+const TestNewsletterSchema = z.object({
+  to: z.string().email(),
+  subject: z.string().min(1),
+  preheader: z.string().optional(),
+  bodyHtml: z.string().min(1),
+});
+
+const SendNewsletterSchema = z.object({
+  subject: z.string().min(1),
+  preheader: z.string().optional(),
+  bodyHtml: z.string().min(1),
+  audience: NewsletterAudienceEnum.default("ALL_SUBSCRIBED"),
+});
 // ========= helpers =========
 
 const APP_URL = process.env.APP_URL || "https://artfest.ro";
@@ -92,12 +111,6 @@ function renderBodyTemplate(bodyHtml, user) {
 
   out = out.replace(/{{\s*unsubscribeUrl\s*}}/gi, unsubscribeUrl);
   return out;
-}
-
-// adaptează la sistemul tău real (SendGrid, Nodemailer etc.)
-async function sendMarketingEmail({ to, subject, html, preheader }) {
-  console.log("TRIMIT EMAIL marketing către", to, { subject, preheader });
-  // TODO: înlocuiește cu implementarea reală
 }
 
 function toAbsoluteMediaUrl(u) {
@@ -929,7 +942,221 @@ router.get("/user/:userId", authRequired, adminOnly, async (req, res) => {
     return res.status(500).json({ error: "user_prefs_fetch_failed" });
   }
 });
+router.post(
+  "/newsletter-subscribers/test",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const parsed = TestNewsletterSchema.safeParse(req.body || {});
 
+      if (!parsed.success) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid_payload",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const { to, subject, preheader, bodyHtml } = parsed.data;
+
+      const html = renderBodyTemplate(bodyHtml, {
+        email: to,
+        name: "Test",
+        firstName: "Test",
+      });
+
+      await sendMarketingEmail({
+        to,
+        subject,
+        html,
+        preheader,
+      });
+
+      await prisma.marketingCampaign.create({
+        data: {
+          subject,
+          preheader,
+          bodyHtml,
+          audience: "ALL",
+          status: "SENT",
+          targetCount: 1,
+          sentCount: 1,
+          testEmail: to,
+          sentAt: new Date(),
+          createdById: req.adminUser?.id ?? null,
+        },
+      });
+
+      return res.json({
+        ok: true,
+        sentCount: 1,
+        testMode: true,
+      });
+    } catch (e) {
+      console.error(
+        "POST /api/admin/marketing/newsletter-subscribers/test error:",
+        e
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "newsletter_test_send_failed",
+      });
+    }
+  }
+);
+
+router.post(
+  "/newsletter-subscribers/send",
+  authRequired,
+  adminOnly,
+  async (req, res) => {
+    try {
+      const parsed = SendNewsletterSchema.safeParse(req.body || {});
+
+      if (!parsed.success) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid_payload",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const { subject, preheader, bodyHtml, audience } = parsed.data;
+
+      const where = {
+        status: "SUBSCRIBED",
+      };
+
+     if (audience === "USERS") {
+  where.user = {
+    is: {
+      role: "USER",
+    },
+  };
+}
+
+if (audience === "VENDORS") {
+  where.user = {
+    is: {
+      role: "VENDOR",
+    },
+  };
+}
+
+if (audience === "NO_ACCOUNT") {
+  where.userId = null;
+}
+
+     const subscribers = await prisma.newsletterSubscriber.findMany({
+  where,
+  select: {
+    id: true,
+    email: true,
+    user: {
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        firstName: true,
+        role: true,
+      },
+    },
+  },
+});
+
+      if (!subscribers.length) {
+        return res.json({
+          ok: false,
+          error: "no_recipients",
+        });
+      }
+
+      const campaign = await prisma.marketingCampaign.create({
+        data: {
+          subject,
+          preheader,
+          bodyHtml,
+          audience:
+            audience === "ALL_SUBSCRIBED"
+              ? "ALL"
+              : audience === "NO_ACCOUNT"
+              ? "ALL"
+              : audience,
+          status: "SENDING",
+          targetCount: subscribers.length,
+          sentCount: 0,
+          createdById: req.adminUser?.id ?? null,
+        },
+      });
+
+      let sentCount = 0;
+
+      for (const subscriber of subscribers) {
+        try {
+          const emailUser = {
+            email: subscriber.email,
+            name: subscriber.user?.name || null,
+            firstName: subscriber.user?.firstName || null,
+          };
+
+          const html = renderBodyTemplate(bodyHtml, emailUser);
+
+          await sendMarketingEmail({
+            to: subscriber.email,
+            subject,
+            html,
+            preheader,
+          });
+
+          sentCount += 1;
+
+          await prisma.newsletterSubscriber.update({
+            where: {
+              id: subscriber.id,
+            },
+            data: {
+              lastSentAt: new Date(),
+            },
+          });
+        } catch (e) {
+          console.error(
+            `newsletter send failed către ${subscriber.email}, campaign ${campaign.id}:`,
+            e
+          );
+        }
+      }
+
+      await prisma.marketingCampaign.update({
+        where: {
+          id: campaign.id,
+        },
+        data: {
+          sentCount,
+          status: sentCount > 0 ? "SENT" : "FAILED",
+          sentAt: new Date(),
+        },
+      });
+
+      return res.json({
+        ok: true,
+        sentCount,
+        totalMatched: subscribers.length,
+      });
+    } catch (e) {
+      console.error(
+        "POST /api/admin/marketing/newsletter-subscribers/send error:",
+        e
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "newsletter_send_failed",
+      });
+    }
+  }
+);
 /**
  * GET /api/admin/marketing/newsletter-subscribers
  */

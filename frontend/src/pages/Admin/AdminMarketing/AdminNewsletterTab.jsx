@@ -22,6 +22,19 @@ export default function AdminNewsletterSubscribersTab() {
   const [createNotes, setCreateNotes] = useState("");
   const [creating, setCreating] = useState(false);
 
+  const [subject, setSubject] = useState("Noutăți Artfest ✨");
+  const [preheader, setPreheader] = useState(
+    "Avem noutăți pentru tine pe Artfest."
+  );
+  const [bodyHtml, setBodyHtml] = useState(`<h2>Noutăți Artfest ✨</h2>
+<p>Bună,</p>
+<p>Avem noutăți pentru comunitatea Artfest.</p>
+<p style="margin-top:14px;">— Echipa Artfest</p>`);
+  const [audience, setAudience] = useState("ALL_SUBSCRIBED");
+  const [testMode, setTestMode] = useState(true);
+  const [testEmail, setTestEmail] = useState("");
+  const [sending, setSending] = useState(false);
+
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
     [total, pageSize]
@@ -36,15 +49,9 @@ export default function AdminNewsletterSubscribersTab() {
       params.set("page", String(nextPage));
       params.set("pageSize", String(pageSize));
 
-      if (nextQuery?.trim()) {
-        params.set("q", nextQuery.trim());
-      }
-      if (statusFilter) {
-        params.set("status", statusFilter);
-      }
-      if (sourceFilter) {
-        params.set("source", sourceFilter);
-      }
+      if (nextQuery?.trim()) params.set("q", nextQuery.trim());
+      if (statusFilter) params.set("status", statusFilter);
+      if (sourceFilter) params.set("source", sourceFilter);
 
       const res = await api(
         `/api/admin/marketing/newsletter-subscribers?${params.toString()}`
@@ -149,6 +156,67 @@ export default function AdminNewsletterSubscribersTab() {
     }
   }
 
+  async function handleSendNewsletter(e) {
+    e.preventDefault();
+    setMessage("");
+    setError("");
+
+    if (!subject.trim()) return setError("Completează subiectul.");
+    if (!bodyHtml.trim()) return setError("Completează conținutul HTML.");
+    if (testMode && !testEmail.trim()) {
+      return setError("Completează adresa de test.");
+    }
+
+    try {
+      setSending(true);
+
+      const endpoint = testMode
+        ? "/api/admin/marketing/newsletter-subscribers/test"
+        : "/api/admin/marketing/newsletter-subscribers/send";
+
+      const payload = testMode
+        ? {
+            to: testEmail.trim(),
+            subject: subject.trim(),
+            bodyHtml,
+            preheader: preheader.trim() || undefined,
+          }
+        : {
+            subject: subject.trim(),
+            bodyHtml,
+            preheader: preheader.trim() || undefined,
+            audience,
+          };
+
+      const res = await api(endpoint, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res?.ok) {
+        setError(
+          res?.error ||
+            (testMode
+              ? "Nu am putut trimite emailul de test."
+              : "Nu am putut trimite newsletterul.")
+        );
+        return;
+      }
+
+      setMessage(
+        testMode
+          ? "Emailul de test a fost trimis."
+          : `Newsletter trimis către ${res.sentCount ?? 0} destinatari.`
+      );
+
+      if (!testMode) await loadSubscribers(page);
+    } catch (e) {
+      setError(e?.message || "Eroare la trimiterea newsletterului.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className={styles.cardMuted}>
       <div className={styles.prefsHead}>
@@ -210,6 +278,104 @@ export default function AdminNewsletterSubscribersTab() {
       {message && <div className={styles.success}>{message}</div>}
 
       <form
+        onSubmit={handleSendNewsletter}
+        className={styles.marketingForm}
+        style={{ marginBottom: 16 }}
+      >
+        <div className={styles.marketingFormHead}>
+          <h3>Trimite newsletter</h3>
+          <p className={styles.subtle}>
+            Creează și trimite emailuri către abonați, useri sau vendori.
+          </p>
+        </div>
+
+        <div className={styles.formRow}>
+          <label className={styles.field}>
+            <span>Subiect</span>
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className={styles.formRow}>
+          <label className={styles.field}>
+            <span>Preheader opțional</span>
+            <input
+              type="text"
+              value={preheader}
+              onChange={(e) => setPreheader(e.target.value)}
+              placeholder="Text scurt care apare în inbox"
+            />
+          </label>
+        </div>
+
+        <div className={styles.formRow}>
+          <label className={styles.field}>
+            <span>Conținut HTML</span>
+            <textarea
+              rows={10}
+              value={bodyHtml}
+              onChange={(e) => setBodyHtml(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className={styles.formRow}>
+          <label className={styles.field}>
+            <span>Destinatari</span>
+            <select
+              value={audience}
+              onChange={(e) => setAudience(e.target.value)}
+              disabled={testMode}
+            >
+              <option value="ALL_SUBSCRIBED">Toți abonații</option>
+              <option value="USERS">Doar useri / clienți</option>
+              <option value="VENDORS">Doar vendori</option>
+              <option value="NO_ACCOUNT">Doar fără cont</option>
+            </select>
+          </label>
+        </div>
+
+        <div className={styles.formRow}>
+          <label className={styles.checkboxRow}>
+            <input
+              type="checkbox"
+              checked={testMode}
+              onChange={(e) => setTestMode(e.target.checked)}
+            />
+            <span>Trimite doar email de test</span>
+          </label>
+
+          {testMode && (
+            <label className={styles.field}>
+              <span>Adresă test</span>
+              <input
+                type="email"
+                placeholder="ex: tu@artfest.ro"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+              />
+            </label>
+          )}
+        </div>
+
+        <div className={styles.formActions}>
+          <button type="submit" className={styles.sendBtn} disabled={sending}>
+            {sending
+              ? testMode
+                ? "Se trimite test…"
+                : "Se trimite newsletterul…"
+              : testMode
+              ? "Trimite email de test"
+              : "Trimite newsletter"}
+          </button>
+        </div>
+      </form>
+
+      <form
         onSubmit={handleCreate}
         className={styles.marketingForm}
         style={{ marginBottom: 16 }}
@@ -250,7 +416,7 @@ export default function AdminNewsletterSubscribersTab() {
 
         <div className={styles.formRow}>
           <label className={styles.field}>
-            <span>Etichetă sursă (opțional)</span>
+            <span>Etichetă sursă opțional</span>
             <input
               type="text"
               value={createSourceLabel}
@@ -262,7 +428,7 @@ export default function AdminNewsletterSubscribersTab() {
 
         <div className={styles.formRow}>
           <label className={styles.field}>
-            <span>Note (opțional)</span>
+            <span>Note opțional</span>
             <textarea
               rows={3}
               value={createNotes}
@@ -273,11 +439,7 @@ export default function AdminNewsletterSubscribersTab() {
         </div>
 
         <div className={styles.formActions}>
-          <button
-            type="submit"
-            className={styles.sendBtn}
-            disabled={creating}
-          >
+          <button type="submit" className={styles.sendBtn} disabled={creating}>
             {creating ? "Se salvează…" : "Adaugă abonat"}
           </button>
         </div>
@@ -304,12 +466,15 @@ export default function AdminNewsletterSubscribersTab() {
                   <th>Acțiuni</th>
                 </tr>
               </thead>
+
               <tbody>
                 {items.map((row) => (
                   <tr key={row.id}>
                     <td>{row.email}</td>
                     <td>
-                      {row.status === "SUBSCRIBED" ? "✔ Abonat" : "— Dezabonat"}
+                      {row.status === "SUBSCRIBED"
+                        ? "✔ Abonat"
+                        : "— Dezabonat"}
                     </td>
                     <td>{row.sourceLabel || row.source || "—"}</td>
                     <td>{row.user ? "Da" : "Nu"}</td>
@@ -368,8 +533,9 @@ export default function AdminNewsletterSubscribersTab() {
 
           <div className={styles.prefsPagination}>
             <span>
-              Pagina {page} din {totalPages} (total {total} rânduri)
+              Pagina {page} din {totalPages} total {total} rânduri
             </span>
+
             <div className={styles.prefsPaginationBtns}>
               <button
                 type="button"
@@ -378,6 +544,7 @@ export default function AdminNewsletterSubscribersTab() {
               >
                 &larr; Anterioară
               </button>
+
               <button
                 type="button"
                 disabled={page >= totalPages}

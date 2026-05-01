@@ -11,27 +11,90 @@ async function applyUnsubscribe({ email, category }) {
 
   if (category === "waitlist_digital") {
     await prisma.digitalWaitlistSubscriber
-      .update({ where: { email: e }, data: { status: "unsubscribed" } })
+      .update({
+        where: { email: e },
+        data: { status: "unsubscribed" },
+      })
       .catch(async () => {
         await prisma.digitalWaitlistSubscriber.create({
-          data: { email: e, status: "unsubscribed", source: "unsubscribe_link" },
+          data: {
+            email: e,
+            status: "unsubscribed",
+            source: "unsubscribe_link",
+          },
         });
       });
+
+    return;
+  }
+
+  if (category === "marketplace_waitlist") {
+    await prisma.marketplaceWaitlistSubscriber
+      .update({
+        where: { email: e },
+        data: {
+          status: "SPAM",
+          notes: "Unsubscribed via email link",
+        },
+      })
+      .catch(async () => {
+        await prisma.marketplaceWaitlistSubscriber.create({
+          data: {
+            email: e,
+            status: "SPAM",
+            source: "unsubscribe_link",
+            notes: "Unsubscribed via email link",
+          },
+        });
+      });
+
     return;
   }
 
   if (category === "marketing") {
-    const user = await prisma.user.findUnique({ where: { email: e }, select: { id: true } });
-    if (!user) return;
-
-    await prisma.userMarketingPrefs.upsert({
-      where: { userId: user.id },
-      create: { userId: user.id, emailEnabled: false, marketingOptIn: false },
-      update: { emailEnabled: false, marketingOptIn: false },
+    const user = await prisma.user.findUnique({
+      where: { email: e },
+      select: { id: true },
     });
 
-    // dacă ai și câmp direct pe user (ai deja)
-    await prisma.user.update({ where: { id: user.id }, data: { marketingOptIn: false } }).catch(() => {});
+    await prisma.newsletterSubscriber.upsert({
+      where: { email: e },
+      create: {
+        email: e,
+        status: "UNSUBSCRIBED",
+        source: "OTHER",
+        sourceLabel: "unsubscribe_link",
+        unsubscribedAt: new Date(),
+        userId: user?.id ?? null,
+      },
+      update: {
+        status: "UNSUBSCRIBED",
+        unsubscribedAt: new Date(),
+      },
+    });
+
+    if (user?.id) {
+      await prisma.userMarketingPrefs.upsert({
+        where: { userId: user.id },
+        create: {
+          userId: user.id,
+          emailEnabled: false,
+          marketingOptIn: false,
+        },
+        update: {
+          emailEnabled: false,
+          marketingOptIn: false,
+        },
+      });
+
+      await prisma.user
+        .update({
+          where: { id: user.id },
+          data: { marketingOptIn: false },
+        })
+        .catch(() => {});
+    }
+
     return;
   }
 
@@ -41,6 +104,7 @@ async function applyUnsubscribe({ email, category }) {
 function renderHtml({ ok, message }) {
   const title = ok ? "Dezabonare reușită" : "Link invalid";
   const color = ok ? "#16a34a" : "#dc2626";
+
   return `<!doctype html>
 <html lang="ro">
 <head>
@@ -57,40 +121,55 @@ function renderHtml({ ok, message }) {
 </html>`;
 }
 
-// Click (browser) unsubscribe
+// Click browser unsubscribe
 router.get("/unsubscribe", async (req, res) => {
   try {
     const token = req.query.token;
     const { email, category } = verifyUnsubToken(token);
+
     await applyUnsubscribe({ email, category });
 
     return res
       .status(200)
       .set("Content-Type", "text/html; charset=utf-8")
-      .send(renderHtml({ ok: true, message: "Te-ai dezabonat cu succes. Mulțumim!" }));
-  } catch {
+      .send(
+        renderHtml({
+          ok: true,
+          message: "Te-ai dezabonat cu succes. Mulțumim!",
+        })
+      );
+  } catch (e) {
+    console.error("GET /unsubscribe error:", e);
+
     return res
       .status(400)
       .set("Content-Type", "text/html; charset=utf-8")
-      .send(renderHtml({ ok: false, message: "Link invalid sau expirat." }));
+      .send(
+        renderHtml({
+          ok: false,
+          message: "Link invalid sau expirat.",
+        })
+      );
   }
 });
 
-// One-click unsubscribe (Gmail etc.)
-router.post("/unsubscribe", express.urlencoded({ extended: false }), async (req, res) => {
-  try {
-    // Gmail trimite POST la URL-ul din List-Unsubscribe; uneori tokenul e în query.
-    // Uneori e în body (depinde de client), suportăm ambele.
-    const token = req.query.token || req.body?.token;
+// One-click unsubscribe Gmail etc.
+router.post(
+  "/unsubscribe",
+  express.urlencoded({ extended: false }),
+  async (req, res) => {
+    try {
+      const token = req.query.token || req.body?.token;
+      const { email, category } = verifyUnsubToken(token);
 
-    const { email, category } = verifyUnsubToken(token);
-    await applyUnsubscribe({ email, category });
+      await applyUnsubscribe({ email, category });
 
-    // 200 OK este suficient
-    return res.status(200).send("OK");
-  } catch {
-    return res.status(400).send("Bad Request");
+      return res.status(200).send("OK");
+    } catch (e) {
+      console.error("POST /unsubscribe error:", e);
+      return res.status(400).send("Bad Request");
+    }
   }
-});
+);
 
 export default router;
