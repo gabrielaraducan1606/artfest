@@ -21,6 +21,7 @@ import React, {
 } from "react";
 import Modal from "../ui/Modal";
 import { api } from "../../../../lib/api";
+import { uploadFile } from "../../../../lib/uploadFile";
 import styles from "../components/css/ProductModal.module.css";
 
 // IMPORTURI CONSTANTE – la fel ca în ProductModal
@@ -59,7 +60,12 @@ const dateOnlyToISO = (yyyyMmDd) => {
   const dt = new Date(y, m - 1, d, 12, 0, 0);
   return dt.toISOString();
 };
-
+const isAllowedImageFile = (file) => {
+  return (
+    /^image\//i.test(file?.type || "") ||
+    /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file?.name || "")
+  );
+};
 // Sugestie de descriere pe baza câmpurilor structurate
 const generateDescriptionFromForm = (f) => {
   if (!f) return "";
@@ -567,7 +573,7 @@ export default function ProductEditModal({ open, onClose, productId, onSaved }) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [cats, setCats] = useState([]);
-
+const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
   const [initial, setInitial] = useState(null);
   const [form, setForm] = useState({
     title: "",
@@ -669,12 +675,36 @@ export default function ProductEditModal({ open, onClose, productId, onSaved }) 
     },
     [moveImage]
   );
+const onFilesPicked = useCallback(async (files) => {
+  if (!files?.length) return;
 
+  for (const f of files) {
+    if (!isAllowedImageFile(f)) {
+      alert(
+        `Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`
+      );
+      continue;
+    }
+
+    try {
+      const url = await uploadFile(f, "/api/upload/products");
+
+      setForm((s) => ({
+        ...s,
+        images: [...(s.images || []), url].slice(0, 12),
+      }));
+    } catch (er) {
+      console.error(er);
+      alert(er?.message || "Upload eșuat.");
+    }
+  }
+}, []);
   // Reset local state când închizi modalul
   useEffect(() => {
     if (!open) {
       setError(null);
       setInitial(null);
+      setUploadInfo("Niciun fișier ales");
       setForm({
         title: "",
         description: "",
@@ -1083,13 +1113,29 @@ export default function ProductEditModal({ open, onClose, productId, onSaved }) 
   }, [saving, validate, productId, form, onSaved]);
 
   // PASTE (URL text)
-  const onPaste = useCallback((e) => {
+ const onPaste = useCallback(
+  async (e) => {
     const text = e.clipboardData?.getData("text")?.trim();
+
     if (text && /^(https?:\/\/|\/)/i.test(text)) {
-      setForm((s) => ({ ...s, images: [...(s.images || []), text] }));
+      setForm((s) => ({
+        ...s,
+        images: [...(s.images || []), text].slice(0, 12),
+      }));
       return;
     }
-  }, []);
+
+    const files = Array.from(e.clipboardData?.files || []).filter(
+      isAllowedImageFile
+    );
+
+    if (!files.length) return;
+
+    e.preventDefault();
+    await onFilesPicked(files);
+  },
+  [onFilesPicked]
+);
 
   const generatedDescription = useMemo(
     () => generateDescriptionFromForm(form),
@@ -1507,6 +1553,38 @@ export default function ProductEditModal({ open, onClose, productId, onSaved }) 
             >
               <label className={styles.label}>Imagini produs (max 12)</label>
               <div className={styles.imagesRow} onPaste={onPaste}>
+                <div className={styles.fileUploadWrapper}>
+  <input
+    id="edit-product-images-input"
+    type="file"
+    accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif"
+    multiple
+    className={styles.fileInputHidden}
+    onChange={async (e) => {
+      const files = Array.from(e.target.files || []);
+
+      if (files.length === 0) {
+        setUploadInfo("Niciun fișier ales");
+      } else if (files.length === 1) {
+        setUploadInfo(files[0].name);
+      } else {
+        setUploadInfo(`${files.length} fișiere selectate`);
+      }
+
+      e.target.value = "";
+      await onFilesPicked(files);
+    }}
+  />
+
+  <label
+    htmlFor="edit-product-images-input"
+    className={styles.fileUploadButton}
+  >
+    Alege imagini
+  </label>
+
+  <span className={styles.fileUploadInfo}>{uploadInfo}</span>
+</div>
                 <button
                   type="button"
                   className={styles.smallBtn}

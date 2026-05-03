@@ -590,7 +590,9 @@ export default function ProductModal({
   uploadFile,
   storeSlug,
 }) {
-  const doUpload = uploadFile || uploadFileHelper;
+  const doUpload = useMemo(() => {
+  return uploadFile || ((file) => uploadFileHelper(file, "/api/upload/products"));
+}, [uploadFile]);
 
   const updateField = useCallback(
     (field) => (e) => {
@@ -1066,7 +1068,14 @@ export default function ProductModal({
     async (files) => {
       if (!files?.length) return;
       for (const f of files) {
-        if (!/^image\//i.test(f.type)) continue;
+       const isImage =
+  /^image\//i.test(f.type || "") ||
+  /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "");
+
+if (!isImage) {
+  alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`);
+  continue;
+}
         let url;
         try {
           url = await doUpload(f);
@@ -1084,25 +1093,32 @@ export default function ProductModal({
     [doUpload, setForm]
   );
 
-  const onPasteImages = useCallback(
-    async (e) => {
-      const text = e.clipboardData?.getData("text")?.trim();
-      if (text && /^(https?:\/\/|\/)/i.test(text)) {
-        setForm((s) => ({
-          ...s,
-          images: [...(s.images || []), text],
-        }));
-        return;
-      }
-      const files = Array.from(e.clipboardData?.files || []).filter((f) =>
-        /^image\//i.test(f.type)
+const onPasteImages = useCallback(
+  async (e) => {
+    const text = e.clipboardData?.getData("text")?.trim();
+
+    if (text && /^(https?:\/\/|\/)/i.test(text)) {
+      setForm((s) => ({
+        ...s,
+        images: [...(s.images || []), text],
+      }));
+      return;
+    }
+
+    const files = Array.from(e.clipboardData?.files || []).filter((f) => {
+      return (
+        /^image\//i.test(f.type || "") ||
+        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "")
       );
-      if (!files.length) return;
-      e.preventDefault();
-      await onFilesPicked(files);
-    },
-    [onFilesPicked, setForm]
-  );
+    });
+
+    if (!files.length) return;
+
+    e.preventDefault();
+    await onFilesPicked(files);
+  },
+  [onFilesPicked, setForm]
+);
 
   useEffect(() => {
     setForm((s) => {
@@ -1768,7 +1784,7 @@ export default function ProductModal({
                 <input
                   id="product-images-input"
                   type="file"
-                  accept="image/*"
+                 accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif"
                   multiple
                   className={styles.fileInputHidden}
                   onChange={async (e) => {
