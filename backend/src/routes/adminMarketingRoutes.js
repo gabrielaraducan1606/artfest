@@ -123,6 +123,65 @@ const unsubscribeUrl = `${API_URL}/api/unsubscribe?token=${encodeURIComponent(
   return out;
 }
 
+const AccountAudienceEnum = z.enum(["ALL", "USER", "VENDOR"]);
+
+const SendAccountEmailSchema = z.object({
+  subject: z.string().min(1),
+  preheader: z.string().optional(),
+  bodyHtml: z.string().min(1),
+  testEmail: z.string().email().optional(),
+  userIds: z.array(z.string()).default([]),
+});
+
+function buildVendorSetupStatus(vendor) {
+  if (!vendor) {
+    return {
+      isVendor: false,
+      completed: false,
+      missing: [],
+    };
+  }
+
+  const services = vendor.services || [];
+  const activeServices = services.filter(
+    (s) => s.isActive && s.status === "ACTIVE"
+  );
+
+  const products = services.flatMap((s) => s.products || []);
+  const activeProducts = products.filter((p) => p.isActive && !p.isHidden);
+  const approvedProducts = products.filter(
+    (p) => p.moderationStatus === "APPROVED"
+  );
+
+  const missing = [];
+
+  if (!vendor.displayName) missing.push("Nume vendor");
+  if (!vendor.about) missing.push("Descriere vendor");
+  if (!vendor.logoUrl) missing.push("Logo");
+  if (!vendor.city) missing.push("Oraș");
+  if (!vendor.phone) missing.push("Telefon");
+  if (!vendor.email) missing.push("Email vendor");
+
+  if (!vendor.billing) missing.push("Date facturare");
+  if (!vendor.productDeclaration) missing.push("Declarație produse handmade");
+
+  if (!vendor.stripeDetailsSubmitted) missing.push("Stripe onboarding");
+  if (!vendor.stripeChargesEnabled) missing.push("Stripe plăți active");
+  if (!vendor.stripePayoutsEnabled) missing.push("Stripe payout activ");
+
+  if (!services.length) missing.push("Magazin / serviciu creat");
+  if (!activeServices.length) missing.push("Magazin activ");
+  if (!products.length) missing.push("Primul produs adăugat");
+  if (!activeProducts.length) missing.push("Produs activ");
+  if (!approvedProducts.length) missing.push("Produs aprobat");
+
+  return {
+    isVendor: true,
+    completed: missing.length === 0,
+    missing,
+  };
+}
+
 function toAbsoluteMediaUrl(u) {
   if (!u) return null;
   const s = String(u);
@@ -1420,5 +1479,525 @@ router.patch(
     }
   }
 );
+
+router.get("/account-targets", authRequired, adminOnly, async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page ?? "1", 10) || 1, 1);
+    const pageSizeRaw = parseInt(req.query.pageSize ?? "25", 10) || 25;
+    const pageSize = Math.min(Math.max(pageSizeRaw, 1), 200);
+
+    const q = String(req.query.q || "").trim();
+    const role = String(req.query.role || "ALL").trim();
+
+    const setup = String(req.query.setup || "").trim();
+    // setup: "" | "complete" | "incomplete"
+
+    const minProducts =
+      req.query.minProducts !== undefined ? Number(req.query.minProducts) : null;
+    const maxProducts =
+      req.query.maxProducts !== undefined ? Number(req.query.maxProducts) : null;
+
+    const minStores =
+      req.query.minStores !== undefined ? Number(req.query.minStores) : null;
+    const maxStores =
+      req.query.maxStores !== undefined ? Number(req.query.maxStores) : null;
+
+    const minActiveStores =
+      req.query.minActiveStores !== undefined
+        ? Number(req.query.minActiveStores)
+        : null;
+    const maxActiveStores =
+      req.query.maxActiveStores !== undefined
+        ? Number(req.query.maxActiveStores)
+        : null;
+
+    const minOrders =
+      req.query.minOrders !== undefined ? Number(req.query.minOrders) : null;
+    const maxOrders =
+      req.query.maxOrders !== undefined ? Number(req.query.maxOrders) : null;
+
+    const where = {
+      status: "ACTIVE",
+      email: q
+        ? {
+            contains: q,
+            mode: "insensitive",
+          }
+        : {
+            not: "",
+          },
+    };
+
+    if (role === "USER") where.role = "USER";
+    if (role === "VENDOR") where.role = "VENDOR";
+
+    const users = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        city: true,
+        marketingOptIn: true,
+        createdAt: true,
+        lastLoginAt: true,
+        emailVerifiedAt: true,
+
+        orders: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+
+        marketingPrefs: {
+          select: {
+            marketingOptIn: true,
+            emailEnabled: true,
+            sourcePreference: true,
+            topics: true,
+          },
+        },
+
+        newsletterSubscriptions: {
+          select: {
+            id: true,
+            status: true,
+            subscribedAt: true,
+            unsubscribedAt: true,
+          },
+          take: 1,
+        },
+
+        vendor: {
+          select: {
+            id: true,
+            displayName: true,
+            about: true,
+            isActive: true,
+            createdAt: true,
+            logoUrl: true,
+            coverUrl: true,
+            phone: true,
+            email: true,
+            city: true,
+
+            stripeConnectStatus: true,
+            stripeDetailsSubmitted: true,
+            stripeChargesEnabled: true,
+            stripePayoutsEnabled: true,
+            stripeOnboardedAt: true,
+
+            billing: {
+              select: {
+                id: true,
+                legalType: true,
+                companyName: true,
+                cui: true,
+                email: true,
+                phone: true,
+              },
+            },
+
+            productDeclaration: {
+              select: {
+                id: true,
+                acceptedAt: true,
+                version: true,
+              },
+            },
+
+            VendorAcceptance: {
+              select: {
+                document: true,
+                version: true,
+                acceptedAt: true,
+              },
+            },
+
+            subscriptions: {
+              select: {
+                id: true,
+                status: true,
+                endAt: true,
+                plan: {
+                  select: {
+                    code: true,
+                    name: true,
+                    maxProducts: true,
+                    maxStores: true,
+                  },
+                },
+              },
+              orderBy: {
+                createdAt: "desc",
+              },
+              take: 1,
+            },
+
+            services: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                isActive: true,
+                createdAt: true,
+                profile: {
+                  select: {
+                    displayName: true,
+                    slug: true,
+                    logoUrl: true,
+                    coverUrl: true,
+                    about: true,
+                    city: true,
+                    phone: true,
+                    email: true,
+                  },
+                },
+                products: {
+                  select: {
+                    id: true,
+                    title: true,
+                    isActive: true,
+                    isHidden: true,
+                    moderationStatus: true,
+                    createdAt: true,
+                  },
+                },
+                shipments: {
+                  select: {
+                    id: true,
+                    orderId: true,
+                    status: true,
+                    createdAt: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 5000,
+    });
+
+    let rows = users.map((u) => {
+      const vendor = u.vendor;
+      const services = vendor?.services || [];
+
+      const storesCount = services.length;
+      const activeStoresCount = services.filter(
+        (s) => s.isActive && s.status === "ACTIVE"
+      ).length;
+
+      const products = services.flatMap((s) => s.products || []);
+
+      const productsCount = products.length;
+      const activeProductsCount = products.filter(
+        (p) => p.isActive && !p.isHidden
+      ).length;
+      const approvedProductsCount = products.filter(
+        (p) => p.moderationStatus === "APPROVED"
+      ).length;
+      const pendingProductsCount = products.filter(
+        (p) => p.moderationStatus === "PENDING"
+      ).length;
+      const rejectedProductsCount = products.filter(
+        (p) => p.moderationStatus === "REJECTED"
+      ).length;
+
+      const vendorOrderIds = new Set();
+
+      for (const service of services) {
+        for (const shipment of service.shipments || []) {
+          if (shipment.orderId) vendorOrderIds.add(shipment.orderId);
+        }
+      }
+
+      const ordersCount =
+        u.role === "VENDOR" ? vendorOrderIds.size : u.orders?.length || 0;
+
+      const latestSubscription = vendor?.subscriptions?.[0] || null;
+      const setupStatus = buildVendorSetupStatus(vendor);
+
+      const newsletter = u.newsletterSubscriptions?.[0] || null;
+
+      return {
+        id: u.id,
+        email: u.email,
+        role: u.role,
+        name:
+          u.name ||
+          `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() ||
+          null,
+        phone: u.phone || null,
+        city: u.city || null,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt,
+        emailVerifiedAt: u.emailVerifiedAt,
+
+        marketingOptIn: u.marketingOptIn,
+        marketingEmailEnabled: u.marketingPrefs?.emailEnabled ?? null,
+        newsletterStatus: newsletter?.status || null,
+
+        ordersCount,
+
+        vendorId: vendor?.id || null,
+        vendorDisplayName: vendor?.displayName || null,
+        vendorIsActive: vendor?.isActive || false,
+        vendorCreatedAt: vendor?.createdAt || null,
+
+        storesCount,
+        activeStoresCount,
+        productsCount,
+        activeProductsCount,
+        approvedProductsCount,
+        pendingProductsCount,
+        rejectedProductsCount,
+
+        stripeConnectStatus: vendor?.stripeConnectStatus || null,
+        stripeDetailsSubmitted: vendor?.stripeDetailsSubmitted || false,
+        stripeChargesEnabled: vendor?.stripeChargesEnabled || false,
+        stripePayoutsEnabled: vendor?.stripePayoutsEnabled || false,
+        stripeOnboardedAt: vendor?.stripeOnboardedAt || null,
+
+        hasBilling: Boolean(vendor?.billing),
+        hasProductDeclaration: Boolean(vendor?.productDeclaration),
+        acceptedDocuments:
+          vendor?.VendorAcceptance?.map((a) => a.document) || [],
+
+        subscriptionStatus: latestSubscription?.status || null,
+        subscriptionPlan:
+          latestSubscription?.plan?.name ||
+          latestSubscription?.plan?.code ||
+          null,
+        subscriptionEndsAt: latestSubscription?.endAt || null,
+
+        setupCompleted: setupStatus.completed,
+        setupMissing: setupStatus.missing,
+
+        stores: services.map((s) => ({
+          id: s.id,
+          title: s.title,
+          name: s.profile?.displayName || s.title || "Magazin",
+          slug: s.profile?.slug || null,
+          status: s.status,
+          isActive: s.isActive,
+          productsCount: s.products?.length || 0,
+          activeProductsCount:
+            s.products?.filter((p) => p.isActive && !p.isHidden).length || 0,
+          approvedProductsCount:
+            s.products?.filter((p) => p.moderationStatus === "APPROVED")
+              .length || 0,
+          shipmentsCount: s.shipments?.length || 0,
+        })),
+      };
+    });
+
+    rows = rows.filter((row) => {
+      if (setup === "complete" && !row.setupCompleted) return false;
+      if (setup === "incomplete" && row.setupCompleted) return false;
+
+      if (minProducts !== null && row.productsCount < minProducts) return false;
+      if (maxProducts !== null && row.productsCount > maxProducts) return false;
+
+      if (minStores !== null && row.storesCount < minStores) return false;
+      if (maxStores !== null && row.storesCount > maxStores) return false;
+
+      if (
+        minActiveStores !== null &&
+        row.activeStoresCount < minActiveStores
+      ) {
+        return false;
+      }
+
+      if (
+        maxActiveStores !== null &&
+        row.activeStoresCount > maxActiveStores
+      ) {
+        return false;
+      }
+
+      if (minOrders !== null && row.ordersCount < minOrders) return false;
+      if (maxOrders !== null && row.ordersCount > maxOrders) return false;
+
+      return true;
+    });
+
+    const total = rows.length;
+    const paged = rows.slice((page - 1) * pageSize, page * pageSize);
+
+    return res.json({
+      ok: true,
+      items: paged,
+      total,
+      page,
+      pageSize,
+    });
+  } catch (e) {
+    console.error("GET /api/admin/marketing/account-targets error:", e);
+    return res.status(500).json({
+      ok: false,
+      error: "account_targets_failed",
+    });
+  }
+});
+
+router.post("/account-send", authRequired, adminOnly, async (req, res) => {
+  try {
+    const parsed = SendAccountEmailSchema.safeParse(req.body || {});
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid_payload",
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const { subject, preheader, bodyHtml, testEmail, userIds } = parsed.data;
+
+    if (testEmail) {
+      const html = renderBodyTemplate(bodyHtml, {
+        email: testEmail,
+        name: "Test",
+        firstName: "Test",
+      });
+
+      await sendMarketingEmail({
+        to: testEmail,
+        subject,
+        html,
+        preheader,
+      });
+
+      await prisma.marketingCampaign.create({
+        data: {
+          subject,
+          preheader,
+          bodyHtml,
+          audience: "ALL",
+          status: "SENT",
+          targetCount: 1,
+          sentCount: 1,
+          testEmail,
+          sentAt: new Date(),
+          createdById: req.adminUser?.id ?? null,
+        },
+      });
+
+      return res.json({
+        ok: true,
+        testMode: true,
+        sentCount: 1,
+      });
+    }
+
+    if (!userIds.length) {
+      return res.status(400).json({
+        ok: false,
+        error: "user_ids_required",
+      });
+    }
+
+    const recipients = await prisma.user.findMany({
+      where: {
+        id: {
+          in: userIds,
+        },
+        status: "ACTIVE",
+        email: {
+          not: "",
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        name: true,
+        firstName: true,
+      },
+    });
+
+    if (!recipients.length) {
+      return res.json({
+        ok: false,
+        error: "no_recipients",
+      });
+    }
+
+    const audience =
+      recipients.every((u) => u.role === "VENDOR")
+        ? "VENDORS"
+        : recipients.every((u) => u.role === "USER")
+        ? "USERS"
+        : "ALL";
+
+    const campaign = await prisma.marketingCampaign.create({
+      data: {
+        subject,
+        preheader,
+        bodyHtml,
+        audience,
+        status: "SENDING",
+        targetCount: recipients.length,
+        sentCount: 0,
+        createdById: req.adminUser?.id ?? null,
+      },
+    });
+
+    let sentCount = 0;
+
+    for (const user of recipients) {
+      try {
+        const html = renderBodyTemplate(bodyHtml, user);
+
+        await sendMarketingEmail({
+          to: user.email,
+          subject,
+          html,
+          preheader,
+        });
+
+        sentCount += 1;
+      } catch (e) {
+        console.error(
+          `account email failed către ${user.email}, campaign ${campaign.id}:`,
+          e
+        );
+      }
+    }
+
+    await prisma.marketingCampaign.update({
+      where: {
+        id: campaign.id,
+      },
+      data: {
+        sentCount,
+        status: sentCount > 0 ? "SENT" : "FAILED",
+        sentAt: new Date(),
+      },
+    });
+
+    return res.json({
+      ok: true,
+      sentCount,
+      totalMatched: recipients.length,
+    });
+  } catch (e) {
+    console.error("POST /api/admin/marketing/account-send error:", e);
+    return res.status(500).json({
+      ok: false,
+      error: "account_send_failed",
+    });
+  }
+});
 
 export default router;

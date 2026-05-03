@@ -4,6 +4,7 @@ import styles from "./AdminMarketingPage.module.css";
 import AdminDigitalWaitlistTab from "./AdminDigitalWaitListTab";
 import AdminMarketplaceWaitlistTab from "./AdminMarketplaceWaitlistTab";
 import AdminNewsletterSubscribersTab from "./AdminNewsletterTab";
+import AdminAccountEmailTab from "./AdminAccountEmailTab";
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -17,54 +18,24 @@ export default function AdminMarketingTab() {
     unsubscribedTotal: 0,
   });
 
-  // campanie manuală
-  const [subject, setSubject] = useState("");
-  const [preheader, setPreheader] = useState("");
-  const [bodyHtml, setBodyHtml] = useState("");
-  const [audience, setAudience] = useState("ALL"); // ALL | USERS | VENDORS
-  const [testMode, setTestMode] = useState(false);
-  const [testEmail, setTestEmail] = useState("");
-
-  const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  // 🔹 Tab intern: "campaign" | "prefs" | "newsletter" | "digitalWaitlist" | "marketplaceWaitlist"
   const [tab, setTab] = useState("campaign");
 
-  // 🔹 stare pentru tabelul cu preferințe
   const [prefs, setPrefs] = useState([]);
   const [prefsPage, setPrefsPage] = useState(1);
   const [prefsTotal, setPrefsTotal] = useState(0);
   const [prefsPageSize] = useState(25);
   const [prefsLoading, setPrefsLoading] = useState(false);
   const [prefsError, setPrefsError] = useState("");
-  const [prefsQuery, setPrefsQuery] = useState(""); // search după email
-
-  // ============ DIGEST: Followed stores ============
-  const [digestDays, setDigestDays] = useState(7);
-  const [digestMaxPerStore, setDigestMaxPerStore] = useState(4);
-  const [digestMaxStores, setDigestMaxStores] = useState(6);
-
-  const [digestSubject, setDigestSubject] = useState(
-    "Noutăți de la magazinele urmărite"
-  );
-  const [digestPreheader, setDigestPreheader] = useState("");
-  const [digestTestMode, setDigestTestMode] = useState(true);
-  const [digestTestEmail, setDigestTestEmail] = useState("");
-
-  const [digestSending, setDigestSending] = useState(false);
-  const [digestMsg, setDigestMsg] = useState("");
-  const [digestErr, setDigestErr] = useState("");
+  const [prefsQuery, setPrefsQuery] = useState("");
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(prefsTotal / prefsPageSize)),
     [prefsTotal, prefsPageSize]
   );
 
-  // citește statistici despre abonați
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         const d = await api("/api/admin/marketing/stats").catch(() => null);
@@ -86,7 +57,6 @@ export default function AdminMarketingTab() {
     };
   }, []);
 
-  // funcție pentru încărcat preferințele
   async function loadPrefs(page = 1, q = prefsQuery) {
     setPrefsLoading(true);
     setPrefsError("");
@@ -125,7 +95,6 @@ export default function AdminMarketingTab() {
     }
   }
 
-  // încarcă preferințele DOAR când intri pe tab-ul "prefs"
   useEffect(() => {
     if (tab === "prefs") {
       loadPrefs(1);
@@ -133,112 +102,9 @@ export default function AdminMarketingTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ========= campanie manuală =========
-  async function handleSend(e) {
-    e.preventDefault();
-    setMessage("");
-    setError("");
-
-    if (!subject.trim()) {
-      setError("Completează subiectul.");
-      return;
-    }
-    if (!bodyHtml.trim()) {
-      setError("Completează conținutul campaniei.");
-      return;
-    }
-    if (testMode && !testEmail.trim()) {
-      setError("Introdu o adresă de test.");
-      return;
-    }
-
-    try {
-      setSending(true);
-
-      const payload = {
-        subject: subject.trim(),
-        preheader: preheader.trim() || undefined,
-        bodyHtml,
-        audience,
-        testEmail: testMode ? testEmail.trim() : undefined,
-      };
-
-      const res = await api("/api/admin/marketing/send", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-
-      if (res?.ok) {
-        setMessage(
-          testMode
-            ? "Emailul de test a fost trimis."
-            : `Campania a fost lansată către ${res.sentCount ?? "abonați"} abonați.`
-        );
-      } else {
-        setError(
-          res?.error ||
-            "Nu am putut trimite campania. Verifică serverul sau log-urile."
-        );
-      }
-    } catch (e) {
-      setError(e?.message || "Eroare la trimiterea campaniei.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  // ========= digest followed stores =========
-  async function handleSendDigest(e) {
-    e.preventDefault();
-    setDigestMsg("");
-    setDigestErr("");
-
-    if (!digestSubject.trim()) {
-      setDigestErr("Completează subiectul digest-ului.");
-      return;
-    }
-    if (digestTestMode && !digestTestEmail.trim()) {
-      setDigestErr("Introdu o adresă de test pentru digest.");
-      return;
-    }
-
-    try {
-      setDigestSending(true);
-
-      const payload = {
-        subject: digestSubject.trim(),
-        preheader: digestPreheader.trim() || undefined,
-        days: Number(digestDays) || 7,
-        maxPerStore: Number(digestMaxPerStore) || 4,
-        maxStores: Number(digestMaxStores) || 6,
-        testEmail: digestTestMode ? digestTestEmail.trim() : undefined,
-      };
-
-      const res = await api("/api/admin/marketing/send-followed-stores-digest", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-
-      if (res?.ok) {
-        setDigestMsg(
-          digestTestMode
-            ? "Digest-ul de test a fost trimis."
-            : `Digest-ul a fost trimis către ${res.sentCount ?? 0} destinatari (doar cei cu noutăți).`
-        );
-      } else {
-        setDigestErr(res?.error || "Nu am putut trimite digest-ul.");
-      }
-    } catch (e) {
-      setDigestErr(e?.message || "Eroare la trimiterea digest-ului.");
-    } finally {
-      setDigestSending(false);
-    }
-  }
-
   return (
     <div className={styles.page}>
       <div className={styles.marketingRoot}>
-        {/* Statistici abonați – rămân sus, comune pentru toate tab-urile */}
         <div className={styles.marketingStats}>
           <div className={styles.marketingStatItem}>
             <span className={styles.marketingStatLabel}>Abonați total</span>
@@ -269,7 +135,6 @@ export default function AdminMarketingTab() {
           </div>
         </div>
 
-        {/* 🔹 TAB-URI INTERNE */}
         <div className={styles.tabsRow}>
           <button
             type="button"
@@ -279,7 +144,7 @@ export default function AdminMarketingTab() {
             )}
             onClick={() => setTab("campaign")}
           >
-            Campanii email
+            Email conturi
           </button>
 
           <button
@@ -324,243 +189,14 @@ export default function AdminMarketingTab() {
           </button>
         </div>
 
-        {/* TAB: Newsletter subscribers */}
+        {tab === "campaign" && <AdminAccountEmailTab />}
+
         {tab === "newsletter" && <AdminNewsletterSubscribersTab />}
 
-        {/* TAB: Waitlist servicii digitale */}
         {tab === "digitalWaitlist" && <AdminDigitalWaitlistTab />}
 
-        {/* TAB: Waitlist marketplace */}
         {tab === "marketplaceWaitlist" && <AdminMarketplaceWaitlistTab />}
 
-        {/* TAB: Campanii email */}
-        {tab === "campaign" && (
-          <>
-            {/* ======= CARD: Digest followed stores ======= */}
-            <div className={styles.cardMuted} style={{ marginBottom: 16 }}>
-              <h4>Digest: Produse noi de la magazinele urmărite</h4>
-              <p className={styles.subtle}>
-                Trimite automat emailuri personalizate. Fiecare user primește doar
-                noutățile din ultimele X zile de la magazinele pe care le urmărește.
-                Dacă nu are noutăți, nu primește email.
-              </p>
-
-              {digestErr && <div className={styles.error}>{digestErr}</div>}
-              {digestMsg && <div className={styles.success}>{digestMsg}</div>}
-
-              <form onSubmit={handleSendDigest}>
-                <div className={styles.formRow}>
-                  <label className={styles.field}>
-                    <span>Subiect</span>
-                    <input
-                      type="text"
-                      value={digestSubject}
-                      onChange={(e) => setDigestSubject(e.target.value)}
-                    />
-                  </label>
-                </div>
-
-                <div className={styles.formRow}>
-                  <label className={styles.field}>
-                    <span>Preheader (opțional)</span>
-                    <input
-                      type="text"
-                      value={digestPreheader}
-                      onChange={(e) => setDigestPreheader(e.target.value)}
-                    />
-                  </label>
-                </div>
-
-                <div className={styles.formRow}>
-                  <label className={styles.field}>
-                    <span>Zile (ex: 7)</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="60"
-                      value={digestDays}
-                      onChange={(e) => setDigestDays(e.target.value)}
-                    />
-                  </label>
-
-                  <label className={styles.field}>
-                    <span>Max produse / magazin</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={digestMaxPerStore}
-                      onChange={(e) => setDigestMaxPerStore(e.target.value)}
-                    />
-                  </label>
-
-                  <label className={styles.field}>
-                    <span>Max magazine</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={digestMaxStores}
-                      onChange={(e) => setDigestMaxStores(e.target.value)}
-                    />
-                  </label>
-                </div>
-
-                <div className={styles.formRow}>
-                  <label className={styles.checkboxRow}>
-                    <input
-                      type="checkbox"
-                      checked={digestTestMode}
-                      onChange={(e) => setDigestTestMode(e.target.checked)}
-                    />
-                    <span>Trimite doar email de test</span>
-                  </label>
-
-                  {digestTestMode && (
-                    <label className={styles.field}>
-                      <span>Adresă test</span>
-                      <input
-                        type="email"
-                        placeholder="ex: tu@artfest.ro"
-                        value={digestTestEmail}
-                        onChange={(e) => setDigestTestEmail(e.target.value)}
-                      />
-                    </label>
-                  )}
-                </div>
-
-                <div className={styles.formActions}>
-                  <button
-                    type="submit"
-                    className={styles.sendBtn}
-                    disabled={digestSending}
-                  >
-                    {digestSending
-                      ? digestTestMode
-                        ? "Se trimite digest-ul de test…"
-                        : "Se trimite digest-ul…"
-                      : digestTestMode
-                        ? "Trimite digest de test"
-                        : "Trimite digest către abonați"}
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* ======= Form: campanie manuală ======= */}
-            <form className={styles.marketingForm} onSubmit={handleSend}>
-              <div className={styles.marketingFormHead}>
-                <h3>Campanie rapidă email</h3>
-                <p className={styles.subtle}>
-                  Trimite un email către utilizatorii care au acceptat marketing-ul
-                  și către abonații existenți din lista de newsletter. Ai grijă să
-                  incluzi link de dezabonare.
-                </p>
-              </div>
-
-              {error && <div className={styles.error}>{error}</div>}
-              {message && <div className={styles.success}>{message}</div>}
-
-              <div className={styles.formRow}>
-                <label className={styles.field}>
-                  <span>Public țintă</span>
-                  <select
-                    value={audience}
-                    onChange={(e) => setAudience(e.target.value)}
-                  >
-                    <option value="ALL">Toți abonații</option>
-                    <option value="USERS">Doar useri (clienți)</option>
-                    <option value="VENDORS">Doar vendori</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className={styles.formRow}>
-                <label className={styles.field}>
-                  <span>Subiect email</span>
-                  <input
-                    type="text"
-                    placeholder="Ex: Noutăți handmade de primăvară"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div className={styles.formRow}>
-                <label className={styles.field}>
-                  <span>Preheader (opțional)</span>
-                  <input
-                    type="text"
-                    placeholder="Text scurt afișat lângă subiect în inbox"
-                    value={preheader}
-                    onChange={(e) => setPreheader(e.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div className={styles.formRow}>
-                <label className={styles.field}>
-                  <span>Conținut (HTML sau text simplu)</span>
-                  <textarea
-                    rows={10}
-                    value={bodyHtml}
-                    onChange={(e) => setBodyHtml(e.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div className={styles.formRow}>
-                <label className={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={testMode}
-                    onChange={(e) => setTestMode(e.target.checked)}
-                  />
-                  <span>Trimite doar email de test</span>
-                </label>
-
-                {testMode && (
-                  <label className={styles.field}>
-                    <span>Adresă test</span>
-                    <input
-                      type="email"
-                      placeholder="ex: tu@artfest.ro"
-                      value={testEmail}
-                      onChange={(e) => setTestEmail(e.target.value)}
-                    />
-                  </label>
-                )}
-              </div>
-
-              <div className={styles.formActions}>
-                <button
-                  type="submit"
-                  className={styles.sendBtn}
-                  disabled={sending}
-                >
-                  {sending
-                    ? testMode
-                      ? "Se trimite emailul de test…"
-                      : "Se lansează campania…"
-                    : testMode
-                      ? "Trimite email de test"
-                      : "Trimite campania"}
-                </button>
-              </div>
-            </form>
-
-            <div className={styles.cardMuted}>
-              <h4>Istoric campanii (de implementat ulterior)</h4>
-              <p className={styles.subtle}>
-                Aici poți lista campaniile salvate în DB: subiect, dată, audiență,
-                număr destinatari, număr trimise etc.
-              </p>
-            </div>
-          </>
-        )}
-
-        {/* TAB: Preferințe utilizatori */}
         {tab === "prefs" && (
           <div className={styles.cardMuted}>
             <div className={styles.prefsHead}>
@@ -568,7 +204,7 @@ export default function AdminMarketingTab() {
                 <h4>Preferințe marketing utilizatori</h4>
                 <p className={styles.subtle}>
                   Vizualizează cine este abonat, ce sursă și ce topicuri a ales
-                  (din <code>UserMarketingPrefs</code>).
+                  din <code>UserMarketingPrefs</code>.
                 </p>
               </div>
 
@@ -581,7 +217,7 @@ export default function AdminMarketingTab() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      loadPrefs(1, e.target.value);
+                      loadPrefs(1, e.currentTarget.value);
                     }
                   }}
                 />
@@ -623,6 +259,7 @@ export default function AdminMarketingTab() {
                         <th>Ultima actualizare</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {prefs.map((row) => (
                         <tr key={row.id}>
@@ -657,7 +294,8 @@ export default function AdminMarketingTab() {
 
                 <div className={styles.prefsPagination}>
                   <span>
-                    Pagina {prefsPage} din {totalPages} (total {prefsTotal} rânduri)
+                    Pagina {prefsPage} din {totalPages} total {prefsTotal}{" "}
+                    rânduri
                   </span>
 
                   <div className={styles.prefsPaginationBtns}>
