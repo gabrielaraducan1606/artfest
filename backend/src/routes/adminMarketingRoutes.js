@@ -1106,9 +1106,16 @@ if (audience === "NO_ACCOUNT") {
       });
 
       let sentCount = 0;
+for (const subscriber of subscribers) {
+  try {
+    const freshSubscriber = await prisma.newsletterSubscriber.findUnique({
+      where: { id: subscriber.id },
+      select: { status: true },
+    });
 
-      for (const subscriber of subscribers) {
-        try {
+    if (freshSubscriber?.status !== "SUBSCRIBED") {
+      continue;
+    }
           const emailUser = {
             email: subscriber.email,
             name: subscriber.user?.name || null,
@@ -1302,13 +1309,11 @@ router.post(
       const item = await prisma.newsletterSubscriber.upsert({
         where: { email },
         update: {
-          status: "SUBSCRIBED",
-          unsubscribedAt: null,
-          source: parsed.data.source,
-          sourceLabel: parsed.data.sourceLabel || null,
-          notes: parsed.data.notes || null,
-          userId: existingUser?.id ?? null,
-        },
+  source: parsed.data.source,
+  sourceLabel: parsed.data.sourceLabel || null,
+  notes: parsed.data.notes || null,
+  userId: existingUser?.id ?? null,
+},
         create: {
           email,
           status: "SUBSCRIBED",
