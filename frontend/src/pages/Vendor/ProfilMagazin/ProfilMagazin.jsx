@@ -95,13 +95,9 @@ export default function ProfilMagazinPage() {
     city,
     citySlug: rawCitySlug,
     country,
-    address,
     tags = [],
-    publicEmail,
-    phone,
     delivery = [],
     website,
-    leadTimes,
     slug: sdSlug,
     profile,
   } = sellerData || {};
@@ -141,9 +137,9 @@ export default function ProfilMagazinPage() {
   const currentShopId = serviceId || storeSlug || sdSlug || slug;
 
   const { trackCTA, trackMESSAGE } = useStoreTracking({
-  vendorId,
-  serviceId,
-});
+    vendorId,
+    serviceId,
+  });
 
   const owner = useStoreOwnerData({
     isOwner,
@@ -156,13 +152,14 @@ export default function ProfilMagazinPage() {
     broadcastProfileUpdated,
   });
 
- const reviews = useStoreReviews({
-  slug,
-  storeSlug: sdSlug || slug,
-  rating,
-  serviceId,
-  vendorId, 
-});
+  const reviews = useStoreReviews({
+    slug,
+    storeSlug: sdSlug || slug,
+    rating,
+    serviceId,
+    vendorId,
+  });
+
   const follow = useStoreFollow({
     serviceId,
     vendorId,
@@ -234,9 +231,7 @@ export default function ProfilMagazinPage() {
 
         if (Array.isArray(data?.cities)) {
           for (const c of data.cities) {
-            if (c.slug && c.label) {
-              map[c.slug] = c.label;
-            }
+            if (c.slug && c.label) map[c.slug] = c.label;
           }
         }
 
@@ -321,11 +316,7 @@ export default function ProfilMagazinPage() {
     }
 
     try {
-      setGateState((s) => ({
-        ...s,
-        loading: true,
-        error: "",
-      }));
+      setGateState((s) => ({ ...s, loading: true, error: "" }));
 
       const resp = await api("/api/vendor/product-declaration/status", {
         method: "GET",
@@ -395,11 +386,7 @@ export default function ProfilMagazinPage() {
       return;
     }
 
-    setGateState((s) => ({
-      ...s,
-      loading: true,
-      error: "",
-    }));
+    setGateState((s) => ({ ...s, loading: true, error: "" }));
 
     try {
       await api("/api/vendor/product-declaration/accept", {
@@ -579,9 +566,7 @@ export default function ProfilMagazinPage() {
   if (owner.shouldShowOnboardingGate) {
     return (
       <div style={{ padding: "2rem" }}>
-        <h2 style={{ marginBottom: 8 }}>
-          Încă nu ai configurat magazinul
-        </h2>
+        <h2 style={{ marginBottom: 8 }}>Încă nu ai configurat magazinul</h2>
 
         <p style={{ marginBottom: 16 }}>
           Pentru a-ți publica magazinul, completează pașii de onboarding.
@@ -639,9 +624,6 @@ export default function ProfilMagazinPage() {
             name: shopName,
             url: pageUrl,
             logo: shareImage,
-            address: address || undefined,
-            telephone: phone || undefined,
-            email: publicEmail || undefined,
           },
           {
             "@context": "https://schema.org",
@@ -674,9 +656,9 @@ export default function ProfilMagazinPage() {
           ownerStores={owner.ownerStores}
           ownerStoresLoading={owner.ownerStoresLoading}
           handleGoToOwnerStore={owner.handleGoToOwnerStore}
-          handleCreateNewStoreFromProfile={
-            owner.handleCreateNewStoreFromProfile
-          }
+          handleCreateNewStoreFromProfile={owner.handleCreateNewStoreFromProfile}
+          sellerType={sellerData?.sellerType}
+          sellerTypeLabel={sellerData?.sellerTypeLabel}
           serviceIsActive={owner.serviceIsActive}
           activationBusy={owner.activationBusy}
           ownerChecksLoading={owner.ownerChecksLoading}
@@ -696,65 +678,61 @@ export default function ProfilMagazinPage() {
 
         <div className={styles.card}>
           <StoreSections
-  tabs={tabs.tabs}
-  activeTab={tabs.activeTab}
-  onJump={tabs.onJump}
-  showAboutSection={showAboutSection}
-  aboutRef={tabs.aboutRef}
-  infoRef={tabs.infoRef}
-  productsRef={tabs.productsRef}
-  reviewsRef={tabs.reviewsRef}
-  aboutText={aboutText}
-  isOwner={isOwner}
-  editAbout={editAbout}
-  aboutDraft={aboutDraft}
-  onToggleEditAbout={() => setEditAbout((x) => !x)}
-  onChangeAbout={setAboutDraft}
-  onSaveAbout={handleSaveAbout}
-  savingAbout={savingAbout}
-  tags={tags}
-  niceCity={niceCity}
-  country={country}
-  address={address}
-  publicEmail={publicEmail}
-  phone={phone}
-  website={website}
-  leadTimes={leadTimes}
-  prettyDelivery={prettyDelivery}
-  editInfo={editInfo}
-  savingInfo={savingInfo}
-  infoErr={infoErr}
-  infoDraft={infoDraft}
-  onChangeInfoDraft={onChangeInfoDraft}
-  countySuggestions={countySuggestions}
-  countiesLoading={countiesLoading}
-  countiesErr={countiesErr}
-  onCountiesChange={onCountiesChange}
-  setEditInfo={setEditInfo}
-  saveInfoNow={saveInfoNow}
-  trackCTA={trackCTA}
-  products={products}
-  productsLoading={loading}
-  shopId={currentShopId}
-  serviceId={serviceId}
-  viewMode={viewMode}
-  favorites={favorites}
-  navigate={navigate}
-  handleAddProduct={handleAddProduct}
-  productsCacheT={productsCacheT}
-  openEditProduct={openEditProduct}
-  categories={categories}
-  rating={rating}
-  revState={reviews.revState}
-  me={me}
-  changeQueryFromUI={reviews.changeQueryFromUI}
-  onSubmitUserReview={reviews.onSubmitUserReview}
-  onHelpful={reviews.onHelpful}
-  onReport={reviews.onReport}
-  onVendorReply={reviews.onVendorReply}
-  onDeleteUserReview={reviews.onDeleteUserReview}
-  onVendorDeleteReply={reviews.onVendorDeleteReply}
-/>
+            tabs={tabs.tabs}
+            activeTab={tabs.activeTab}
+            onJump={tabs.onJump}
+            showAboutSection={showAboutSection}
+            aboutRef={tabs.aboutRef}
+            infoRef={tabs.infoRef}
+            productsRef={tabs.productsRef}
+            reviewsRef={tabs.reviewsRef}
+            aboutText={aboutText}
+            isOwner={isOwner}
+            editAbout={editAbout}
+            aboutDraft={aboutDraft}
+            onToggleEditAbout={() => setEditAbout((x) => !x)}
+            onChangeAbout={setAboutDraft}
+            onSaveAbout={handleSaveAbout}
+            savingAbout={savingAbout}
+            tags={tags}
+            niceCity={niceCity}
+            country={country}
+            website={website}
+            prettyDelivery={prettyDelivery}
+            editInfo={editInfo}
+            savingInfo={savingInfo}
+            infoErr={infoErr}
+            infoDraft={infoDraft}
+            onChangeInfoDraft={onChangeInfoDraft}
+            countySuggestions={countySuggestions}
+            countiesLoading={countiesLoading}
+            countiesErr={countiesErr}
+            onCountiesChange={onCountiesChange}
+            setEditInfo={setEditInfo}
+            saveInfoNow={saveInfoNow}
+            trackCTA={trackCTA}
+            products={products}
+            productsLoading={loading}
+            shopId={currentShopId}
+            serviceId={serviceId}
+            viewMode={viewMode}
+            favorites={favorites}
+            navigate={navigate}
+            handleAddProduct={handleAddProduct}
+            productsCacheT={productsCacheT}
+            openEditProduct={openEditProduct}
+            categories={categories}
+            rating={rating}
+            revState={reviews.revState}
+            me={me}
+            changeQueryFromUI={reviews.changeQueryFromUI}
+            onSubmitUserReview={reviews.onSubmitUserReview}
+            onHelpful={reviews.onHelpful}
+            onReport={reviews.onReport}
+            onVendorReply={reviews.onVendorReply}
+            onDeleteUserReview={reviews.onDeleteUserReview}
+            onVendorDeleteReply={reviews.onVendorDeleteReply}
+          />
         </div>
       </div>
 

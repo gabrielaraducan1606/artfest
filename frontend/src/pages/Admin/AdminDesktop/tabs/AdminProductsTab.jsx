@@ -72,6 +72,16 @@ function normalizeProductsPayload(payload) {
   return [];
 }
 
+function getPayloadTotal(payload) {
+  return (
+    payload?.total ??
+    payload?.totalCount ??
+    payload?.count ??
+    payload?.meta?.total ??
+    null
+  );
+}
+
 export default function AdminProductsTab({ products: productsProp = null }) {
   const [productsState, setProductsState] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -90,9 +100,9 @@ export default function AdminProductsTab({ products: productsProp = null }) {
 
   const shouldFetchOwnData = productsProp === null;
 
- async function fetchJson(path, options = {}) {
-  return api(path, options);
-}
+  async function fetchJson(path, options = {}) {
+    return api(path, options);
+  }
 
   useEffect(() => {
     if (!shouldFetchOwnData) return;
@@ -104,10 +114,30 @@ export default function AdminProductsTab({ products: productsProp = null }) {
         setLoading(true);
         setError("");
 
-        const data = await fetchJson("/api/admin/products?take=200");
+        const take = 50;
+        let skip = 0;
+        let allProducts = [];
+        let total = null;
 
-        if (!alive) return;
-        setProductsState(normalizeProductsPayload(data));
+        while (true) {
+          const data = await fetchJson(
+            `/api/admin/products?take=${take}&skip=${skip}`
+          );
+
+          if (!alive) return;
+
+          const pageProducts = normalizeProductsPayload(data);
+
+          allProducts = [...allProducts, ...pageProducts];
+          total = getPayloadTotal(data);
+
+          if (pageProducts.length < take) break;
+          if (total != null && allProducts.length >= total) break;
+
+          skip += take;
+        }
+
+        setProductsState(allProducts);
       } catch (e) {
         if (!alive) return;
         setError(e?.message || "Nu am putut încărca produsele.");
@@ -173,10 +203,13 @@ export default function AdminProductsTab({ products: productsProp = null }) {
       setWorkingProductId(productId);
       setError("");
 
-      const data = await fetchJson(`/api/admin/products/${productId}/request-changes`, {
-        method: "PATCH",
-        body: { message: String(message).trim() },
-      });
+      const data = await fetchJson(
+        `/api/admin/products/${productId}/request-changes`,
+        {
+          method: "PATCH",
+          body: { message: String(message).trim() },
+        }
+      );
 
       if (data?.product) {
         setProductEverywhere(productId, data.product);
@@ -381,6 +414,7 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                   Array.isArray(p.images) && p.images.length ? p.images[0] : "";
 
                 const storeStatus = String(p.service?.status || "").toUpperCase();
+
                 const storeStatusTone =
                   storeStatus === "ACTIVE"
                     ? "success"
@@ -396,13 +430,13 @@ export default function AdminProductsTab({ products: productsProp = null }) {
 
                 return (
                   <tr
-  key={p.id}
-  className={styles.clickableRow}
-  onClick={() => {
-    setSelectedProduct(p);
-    setModerationMessage("");
-  }}
->
+                    key={p.id}
+                    className={styles.clickableRow}
+                    onClick={() => {
+                      setSelectedProduct(p);
+                      setModerationMessage("");
+                    }}
+                  >
                     <td>
                       <div className={styles.productCell}>
                         <div className={styles.thumbWrap}>
@@ -413,7 +447,9 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                               className={styles.thumb}
                             />
                           ) : (
-                            <div className={styles.thumbPlaceholder}>Fără poză</div>
+                            <div className={styles.thumbPlaceholder}>
+                              Fără poză
+                            </div>
                           )}
                         </div>
 
@@ -421,6 +457,7 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                           <div className={styles.productTitle}>
                             {p.title || "Fără titlu"}
                           </div>
+
                           <div className={styles.productId}>ID: {p.id}</div>
 
                           {p.description ? (
@@ -436,14 +473,20 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                     <td>
                       <div className={styles.vendorBlock}>
                         <div className={styles.vendorName}>
-                          {p.vendor?.displayName || p.service?.displayName || "—"}
+                          {p.vendor?.displayName ||
+                            p.service?.displayName ||
+                            "—"}
                         </div>
+
                         <div className={styles.vendorMeta}>
                           slug: {p.service?.slug || "—"}
                         </div>
+
                         <div className={styles.vendorMeta}>
-                          vendorId: {p.vendor?.id || p.service?.vendorId || "—"}
+                          vendorId:{" "}
+                          {p.vendor?.id || p.service?.vendorId || "—"}
                         </div>
+
                         <div className={styles.vendorMeta}>
                           serviceId: {p.service?.id || "—"}
                         </div>
@@ -456,17 +499,24 @@ export default function AdminProductsTab({ products: productsProp = null }) {
 
                     <td>
                       <div>{p.category || "—"}</div>
+
                       {p.color ? (
-                        <div className={styles.subtleLine}>Culoare: {p.color}</div>
+                        <div className={styles.subtleLine}>
+                          Culoare: {p.color}
+                        </div>
                       ) : null}
                     </td>
 
                     <td>
                       <div className={styles.badgesCol}>
-                        <StatusBadge tone="info">{p.availability || "—"}</StatusBadge>
+                        <StatusBadge tone="info">
+                          {p.availability || "—"}
+                        </StatusBadge>
 
                         {p.availability === "READY" && p.readyQty != null ? (
-                          <span className={styles.inlineMeta}>Qty: {p.readyQty}</span>
+                          <span className={styles.inlineMeta}>
+                            Qty: {p.readyQty}
+                          </span>
                         ) : null}
 
                         {p.availability === "MADE_TO_ORDER" &&
@@ -504,6 +554,7 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                         <StatusBadge tone={p.isActive ? "success" : "danger"}>
                           {p.isActive ? "Activ" : "Inactiv"}
                         </StatusBadge>
+
                         <StatusBadge tone={p.isHidden ? "warn" : "neutral"}>
                           {p.isHidden ? "Ascuns" : "Vizibil"}
                         </StatusBadge>
@@ -515,7 +566,10 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                         <StatusBadge tone={storeStatusTone}>
                           {storeStatus || "—"}
                         </StatusBadge>
-                        <StatusBadge tone={p.service?.isActive ? "success" : "danger"}>
+
+                        <StatusBadge
+                          tone={p.service?.isActive ? "success" : "danger"}
+                        >
                           {p.service?.isActive ? "Store activ" : "Store inactiv"}
                         </StatusBadge>
                       </div>
@@ -526,32 +580,32 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                     <td>
                       <div className={styles.badgesCol}>
                         <button
-  type="button"
-  className={styles.actionBtn}
-  onClick={(e) => {
-    e.stopPropagation();
-    setSelectedProduct(p);
-    setModerationMessage("");
-  }}
->
-  Verifică
-</button>
+                          type="button"
+                          className={styles.actionBtn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedProduct(p);
+                            setModerationMessage("");
+                          }}
+                        >
+                          Verifică
+                        </button>
 
-<button
-  type="button"
-  className={styles.approveBtn}
-  disabled={isApproved || workingProductId === p.id}
-  onClick={(e) => {
-    e.stopPropagation();
-    approveProduct(p.id);
-  }}
->
-  {isApproved
-    ? "Aprobat"
-    : workingProductId === p.id
-    ? "Se procesează..."
-    : "Aprobă"}
-</button>
+                        <button
+                          type="button"
+                          className={styles.approveBtn}
+                          disabled={isApproved || workingProductId === p.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            approveProduct(p.id);
+                          }}
+                        >
+                          {isApproved
+                            ? "Aprobat"
+                            : workingProductId === p.id
+                            ? "Se procesează..."
+                            : "Aprobă"}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -594,7 +648,9 @@ function ProductReviewModal({
   onReject,
 }) {
   const images = Array.isArray(product.images) ? product.images : [];
-  const moderationStatus = String(product.moderationStatus || "PENDING").toUpperCase();
+  const moderationStatus = String(
+    product.moderationStatus || "PENDING"
+  ).toUpperCase();
   const isApproved = moderationStatus === "APPROVED";
 
   return (
@@ -620,7 +676,11 @@ function ProductReviewModal({
             disabled={isApproved || working}
             onClick={onApprove}
           >
-            {isApproved ? "Produs aprobat" : working ? "Se procesează..." : "Aprobă produsul"}
+            {isApproved
+              ? "Produs aprobat"
+              : working
+              ? "Se procesează..."
+              : "Aprobă produsul"}
           </button>
         </div>
 

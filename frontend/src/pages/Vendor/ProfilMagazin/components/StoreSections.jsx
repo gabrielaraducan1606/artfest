@@ -27,11 +27,7 @@ export default function StoreSections({
   tags,
   niceCity,
   country,
-  address,
-  publicEmail,
-  phone,
   website,
-  leadTimes,
   prettyDelivery,
   editInfo,
   savingInfo,
@@ -42,7 +38,6 @@ export default function StoreSections({
   countiesLoading,
   countiesErr,
   onCountiesChange,
-  setEditInfo,
   saveInfoNow,
   trackCTA,
   products,
@@ -98,11 +93,7 @@ export default function StoreSections({
           tags={tags}
           city={niceCity}
           country={country}
-          address={address}
-          publicEmail={publicEmail}
-          phone={phone}
           website={website}
-          leadTimes={leadTimes}
           prettyDelivery={prettyDelivery}
           editInfo={editInfo}
           savingInfo={savingInfo}
@@ -114,7 +105,16 @@ export default function StoreSections({
           countiesErr={countiesErr}
           onCountiesChange={onCountiesChange}
           canEdit={isOwner}
-          onToggleEditInfo={() => setEditInfo((x) => !x)}
+          onToggleEditInfo={() => {
+  const qs = new URLSearchParams({
+    tab: "profil",
+    solo: "1",
+  });
+
+  if (serviceId) qs.set("serviceId", serviceId);
+
+  navigate(`/onboarding/details?${qs.toString()}`);
+}}
           onSaveInfo={saveInfoNow}
           onTrackCTA={trackCTA}
         />

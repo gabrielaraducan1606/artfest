@@ -5,6 +5,7 @@ import { api } from "../../../../../lib/api";
 
 /* utils */
 const isPhoneIntl = (v) => /^\+[1-9]\d{7,14}$/.test((v || "").replace(/\s+/g, ""));
+const isEmail = (v) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((v || "").trim());
 
 const slugify = (s = "") =>
   String(s)
@@ -13,6 +14,8 @@ const slugify = (s = "") =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/(^-|-$)/g, "");
+
+    const normalizePhoneInput = (v) => String(v || "").replace(/\s+/g, "");
 
 function legalHref(pathname) {
   const p = (pathname || "").trim();
@@ -481,7 +484,9 @@ function VendorAgreementsCard({
                 !vendorTermsAccepted &&
                 onToggleAccept("vendor_terms", !!e.target.checked)
               }
-              disabled={legalLoading || accepting === "vendor_terms" || vendorTermsAccepted}
+              disabled={
+                legalLoading || accepting === "vendor_terms" || vendorTermsAccepted
+              }
             />
             <span>
               Accept{" "}
@@ -495,9 +500,7 @@ function VendorAgreementsCard({
             Document contractual pentru relația ta cu platforma: reguli de
             listare, taxe, plăți, obligații și utilizarea marketplace-ului.
           </small>
-          {vendorTermsAccepted && (
-            <small className={styles.help}>Acceptat.</small>
-          )}
+          {vendorTermsAccepted && <small className={styles.help}>Acceptat.</small>}
         </div>
 
         <div className={styles.stack} style={{ marginTop: 12 }}>
@@ -522,9 +525,7 @@ function VendorAgreementsCard({
             Politica de retur definește obligațiile tale comerciale față de
             clienți.
           </small>
-          {returnsAccepted && (
-            <small className={styles.help}>Confirmată.</small>
-          )}
+          {returnsAccepted && <small className={styles.help}>Confirmată.</small>}
         </div>
 
         <div className={styles.stack} style={{ marginTop: 12 }}>
@@ -651,15 +652,26 @@ function ServiceCard({
     ? `https://${vanityBase.replace(/\/+$/, "")}/magazin/${p.slug.trim()}`
     : "";
 
-  const phoneErr =
-    p.phone && !isPhoneIntl(p.phone)
-      ? "Număr invalid. Folosește format internațional, ex: +40712345678"
-      : "";
+const phoneValue = normalizePhoneInput(p.phone);
 
+const phoneErr =
+  phoneValue && !isPhoneIntl(phoneValue)
+    ? "Număr invalid. Folosește format internațional, ex: +40712345678"
+    : "";
   const emailErr =
-    p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)
-      ? "Adresă de email invalidă"
-      : "";
+    p.email && !isEmail(p.email) ? "Adresă de email invalidă" : "";
+
+  const returnAddressErr = !p.address?.trim()
+    ? "Adresa pentru retururi este obligatorie."
+    : "";
+
+  const returnPhoneErr = !p.phone?.trim()
+    ? "Telefonul este obligatoriu pentru retururi."
+    : phoneErr;
+
+  const returnEmailErr = !p.email?.trim()
+    ? "Emailul este obligatoriu pentru retururi."
+    : emailErr;
 
   const deliveryArr = Array.isArray(p.delivery) ? p.delivery : [];
   const {
@@ -685,8 +697,7 @@ function ServiceCard({
     !p.slug?.trim() ||
     !Array.isArray(p.delivery) ||
     p.delivery.length === 0 ||
-    (!p.logoUrl && !p.coverUrl) ||
-    !p.address?.trim() ? (
+    (!p.logoUrl && !p.coverUrl) ? (
       <span className={styles.badgeBad}>incomplet</span>
     ) : (
       <span className={styles.badgeOk}>ok</span>
@@ -703,7 +714,13 @@ function ServiceCard({
     String(service.freeShippingThresholdCents) !== "";
 
   const shippingBadge =
-    hasEstimatedShipping && hasFreeShippingThreshold ? (
+    hasEstimatedShipping &&
+    hasFreeShippingThreshold &&
+    p.address?.trim() &&
+    p.phone?.trim() &&
+    p.email?.trim() &&
+    !phoneErr &&
+    !emailErr ? (
       <span className={styles.badgeOk}>ok</span>
     ) : (
       <span className={styles.badgeBad}>incomplet</span>
@@ -783,7 +800,7 @@ function ServiceCard({
       <div ref={(el) => (sectionRefs.current[0] = el)}>
         <SectionCard
           title="Profil public & acoperire"
-          subtitle="brand • link public • zonă • punct de lucru / retururi"
+          subtitle="brand • link public • zonă"
           open={open === 0}
           onToggle={() => setOpen((o) => (o === 0 ? -1 : 0))}
           badge={identBadge}
@@ -974,58 +991,6 @@ function ServiceCard({
           </div>
 
           <Row
-            id={`address-${service.id}`}
-            label="Adresă retururi / punct de lucru (intern) *"
-            help="Folosită intern pentru retururi și operațiuni. Nu este afișată public și poate fi diferită de adresa de facturare."
-          >
-            <input
-              id={`address-${service.id}`}
-              className={styles.input}
-              value={p.address || ""}
-              onChange={(e) => updateProfile(idx, { address: e.target.value })}
-              placeholder="Localitate, stradă și număr, bloc/scară/ap., județ"
-            />
-          </Row>
-
-          <div className={styles.grid2}>
-            <Row
-              id={`phone-${service.id}`}
-              label="Telefon afișat public (opțional)"
-              error={phoneErr}
-              help="Folosește format internațional, ex: +40712345678"
-            >
-              <input
-                id={`phone-${service.id}`}
-                className={styles.input}
-                value={p.phone || ""}
-                onChange={(e) => updateProfile(idx, { phone: e.target.value })}
-                onBlur={(e) => {
-                  const raw = e.target.value.replace(/\s+/g, "");
-                  updateProfile(idx, { phone: raw });
-                }}
-                placeholder="ex: +40712345678"
-                inputMode="tel"
-                autoComplete="tel"
-              />
-            </Row>
-
-            <Row
-              id={`email-${service.id}`}
-              label="Email afișat public (opțional)"
-              error={emailErr}
-            >
-              <input
-                id={`email-${service.id}`}
-                className={styles.input}
-                value={p.email || ""}
-                onChange={(e) => updateProfile(idx, { email: e.target.value })}
-                placeholder="contact@brand.ro"
-                type="email"
-              />
-            </Row>
-          </div>
-
-          <Row
             id={`about-${service.id}`}
             label="Despre (opțional)"
             help="Scurtă poveste a brandului (se poate completa și ulterior)"
@@ -1045,11 +1010,66 @@ function ServiceCard({
       <div ref={(el) => (sectionRefs.current[1] = el)}>
         <SectionCard
           title="Livrare"
-          subtitle="cost estimativ • prag gratuitate • mențiuni"
+          subtitle="retururi interne • cost estimativ • prag gratuitate • mențiuni"
           open={open === 1}
           onToggle={() => setOpen((o) => (o === 1 ? -1 : 1))}
           badge={shippingBadge}
         >
+          <Row
+            id={`address-${service.id}`}
+            label="Adresă retururi / punct de lucru *"
+            error={returnAddressErr}
+            help="Folosită intern pentru retururi și operațiuni. Nu este afișată public și poate fi diferită de adresa de facturare. Dacă există deja în backend, se încarcă automat aici."
+          >
+            <input
+              id={`address-${service.id}`}
+              className={styles.input}
+              value={p.address || ""}
+              onChange={(e) => updateProfile(idx, { address: e.target.value })}
+              placeholder="Localitate, stradă și număr, bloc/scară/ap., județ"
+              autoComplete="street-address"
+            />
+          </Row>
+
+          <div className={styles.grid2}>
+            <Row
+              id={`phone-${service.id}`}
+              label="Telefon pentru retururi *"
+              error={returnPhoneErr}
+              help="Necesar pentru retururi. Nu este afișat public. Folosește format internațional, ex: +40712345678."
+            >
+              <input
+                id={`phone-${service.id}`}
+                className={styles.input}
+                value={p.phone || ""}
+               onChange={(e) => {
+  const raw = normalizePhoneInput(e.target.value);
+  updateProfile(idx, { phone: raw });
+}}
+                placeholder="ex: +40712345678"
+                inputMode="tel"
+                autoComplete="tel"
+              />
+            </Row>
+
+            <Row
+              id={`email-${service.id}`}
+              label="Email pentru retururi *"
+              error={returnEmailErr}
+              help="Necesar pentru comunicarea retururilor. Nu este afișat public."
+            >
+              <input
+                id={`email-${service.id}`}
+                className={styles.input}
+                value={p.email || ""}
+                onChange={(e) => updateProfile(idx, { email: e.target.value })}
+                placeholder="retururi@brand.ro"
+                type="email"
+                autoComplete="email"
+              />
+            </Row>
+          </div>
+
           <div className={styles.grid2}>
             <Row
               id={`shipping-fee-${service.id}`}
@@ -1120,8 +1140,9 @@ function ServiceCard({
           </Row>
 
           <small className={styles.help}>
-            Aceste valori sunt informative și pot fi afișate în checkout până când
-            implementezi integrarea de curierat.
+            Costurile și mențiunile de livrare pot fi afișate clientului. Datele
+            de retur — adresă, telefon și email — sunt operaționale și nu trebuie
+            afișate public.
           </small>
         </SectionCard>
       </div>
@@ -1186,10 +1207,19 @@ export default function ProfileTab({
 
       if (!p.displayName?.trim()) list.push("Nume brand");
       if (!p.slug?.trim()) list.push("Slug");
-      if (!p.address?.trim()) list.push("Adresă retururi / punct de lucru");
       if (!p.logoUrl && !p.coverUrl) list.push("O imagine (logo sau copertă)");
       if (!Array.isArray(p.delivery) || p.delivery.length === 0) {
         list.push("Zonă acoperire");
+      }
+
+      if (!p.address?.trim()) list.push("Adresă retururi / punct de lucru");
+      if (!p.phone?.trim()) list.push("Telefon pentru retururi");
+      if (!p.email?.trim()) list.push("Email pentru retururi");
+      if (p.phone?.trim() && !isPhoneIntl(p.phone)) {
+        list.push("Telefon retur invalid");
+      }
+      if (p.email?.trim() && !isEmail(p.email)) {
+        list.push("Email retur invalid");
       }
 
       const hasEstimatedShipping =
@@ -1202,37 +1232,21 @@ export default function ProfileTab({
         s.freeShippingThresholdCents !== undefined &&
         String(s.freeShippingThresholdCents) !== "";
 
-      if (!hasEstimatedShipping) {
-  list.push("Cost estimativ livrare");
-} else if (Number(s.estimatedShippingFeeCents) < 0) {
-  list.push("Costul de livrare nu poate fi negativ");
-}
-
-if (!hasFreeShippingThreshold) {
-  list.push("Prag transport gratuit");
-} else if (Number(s.freeShippingThresholdCents) < 0) {
-  list.push("Pragul pentru transport gratuit nu poate fi negativ");
-}
+      if (!hasEstimatedShipping) list.push("Cost estimativ livrare");
+      if (!hasFreeShippingThreshold) list.push("Prag transport gratuit");
     }
 
-  if (legalLoading) {
-  list.push("Se verifică acordurile vendor");
-} else {
-  if (!vendorTermsAccepted) {
-    list.push("Acceptarea Acordului Master pentru Vânzători");
-  }
-  if (!returnsAccepted) {
-    list.push("Acceptarea Politicii de retur pentru vânzători");
-  }
-}
-if (hasNameConflict) {
-  list.push("Numele brandului este deja folosit");
-}
+    if (!vendorTermsAccepted) {
+      list.push("Acceptarea Acordului Master pentru Vânzători");
+    }
+    if (!returnsAccepted) {
+      list.push("Acceptarea Politicii de retur pentru vânzători");
+    }
 
     return [...new Set(list)];
-  }, [services, legalByKey, legalLoading, hasNameConflict]);
+  }, [services, legalByKey]);
 
-  const canContinue = !isSavingAny && blockers.length === 0;
+  const canContinue = !isSavingAny && !hasNameConflict && blockers.length === 0;
 
   const firstService =
     Array.isArray(services) && services[0] ? services[0] : null;

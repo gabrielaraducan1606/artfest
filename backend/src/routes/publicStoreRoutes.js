@@ -1,4 +1,3 @@
-// server/routes/public.store.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import {
@@ -11,7 +10,7 @@ import { normalizeCityName, hasRomanianDiacritics } from "../utils/cityUtils.js"
 const router = Router();
 
 /* =========================================================
- *            MAGAZINE (/stores) – listă, sugestii, orașe
+ * Helpers
  * =======================================================*/
 
 function buildStoreOrderBy(sort) {
@@ -21,7 +20,6 @@ function buildStoreOrderBy(sort) {
     case "name_desc":
       return [{ displayName: "desc" }, { createdAt: "desc" }, { id: "desc" }];
     case "popular":
-      // (dacă ai un câmp/metrică de popularitate pe viitor, îl pui aici)
       return [{ createdAt: "desc" }, { id: "desc" }];
     case "new":
     default:
@@ -36,7 +34,41 @@ function pickBetterLabel(existing, candidate) {
   if (hasRomanianDiacritics(candidate) && !hasRomanianDiacritics(existing)) {
     return candidate;
   }
+
   return existing;
+}
+
+function publicSellerTypeFromBilling(billing) {
+  const hasBusinessBillingData = !!(
+    billing?.legalType ||
+    billing?.companyName ||
+    billing?.cui ||
+    billing?.regCom ||
+    billing?.vatStatus
+  );
+
+  const sellerType =
+    billing?.sellerType ||
+    (hasBusinessBillingData ? "verified_business" : null);
+
+  if (sellerType === "independent_creator") {
+    return {
+      sellerType: "independent_creator",
+      sellerTypeLabel: "Creator independent la început de drum",
+    };
+  }
+
+  if (sellerType === "verified_business") {
+    return {
+      sellerType: "verified_business",
+      sellerTypeLabel: "Business verificat",
+    };
+  }
+
+  return {
+    sellerType: null,
+    sellerTypeLabel: null,
+  };
 }
 
 function buildCityMetaFromProfile(profile, dictMap) {
@@ -58,41 +90,58 @@ function buildCityMetaFromProfile(profile, dictMap) {
   const citySlug = slugFromProfile || null;
 
   let cityLabel = null;
+
   if (citySlug) {
     const fromDict = (dictMap.get(citySlug) || "").trim();
     if (fromDict) cityLabel = fromDict;
   }
+
   if (!cityLabel) cityLabel = rawCity || null;
 
   return { city: cityLabel, citySlug };
 }
 
+function buildProductOrderBy(sort) {
+  switch ((sort || "new").toLowerCase()) {
+    case "price_asc":
+      return [{ priceCents: "asc" }, { createdAt: "desc" }];
+    case "price_desc":
+      return [{ priceCents: "desc" }, { createdAt: "desc" }];
+    case "popular":
+      return [{ popularityScore: "desc" }, { createdAt: "desc" }];
+    case "new":
+    default:
+      return [{ createdAt: "desc" }];
+  }
+}
+
 /* ----------------------------
-   CityDictionary cache (mem)
+   CityDictionary cache
 ----------------------------- */
 let _dictCache = { at: 0, map: new Map() };
-const DICT_TTL_MS = 5 * 60 * 1000; // 5 min
+const DICT_TTL_MS = 5 * 60 * 1000;
 
 async function getCityDictMapCached() {
   const now = Date.now();
+
   if (_dictCache.map.size && now - _dictCache.at < DICT_TTL_MS) {
     return _dictCache.map;
   }
+
   const dictRows = await prisma.cityDictionary.findMany({
     select: { slug: true, canonicalLabel: true },
   });
+
   const dictMap = new Map(dictRows.map((r) => [r.slug, r.canonicalLabel]));
+
   _dictCache = { at: now, map: dictMap };
   return dictMap;
 }
 
-/**
- * GET /api/public/stores
- * Optimizări:
- * - page=1: total (count)
- * - page>1: fără count, returnăm hasMore din take=limit+1
- * - productsCount din _count (nu mai încărcăm service.products)
- */
+/* =========================================================
+ * Magazine publice
+ * =======================================================*/
+
 router.get("/stores", async (req, res, next) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || "1", 10));
@@ -109,7 +158,7 @@ router.get("/stores", async (req, res, next) => {
           isActive: true,
           status: "ACTIVE",
           vendor: { is: { isActive: true } },
-          type: { is: { code: "products" } }, // ✅ dacă vrei doar magazine de produse
+          type: { is: { code: "products" } },
         },
       },
     };
@@ -126,7 +175,9 @@ router.get("/stores", async (req, res, next) => {
                 service: {
                   is: {
                     vendor: {
-                      is: { displayName: { contains: q, mode: "insensitive" } },
+                      is: {
+                        displayName: { contains: q, mode: "insensitive" },
+                      },
                     },
                   },
                 },
@@ -152,8 +203,6 @@ router.get("/stores", async (req, res, next) => {
     };
 
     const dictMap = await getCityDictMapCached();
-
-    // take+1 pentru hasMore (și evităm count pe pagini > 1)
     const take = limit + 1;
 
     const [totalFirstPage, profilesRaw] = await Promise.all([
@@ -166,10 +215,23 @@ router.get("/stores", async (req, res, next) => {
         include: {
           service: {
             include: {
-              vendor: true,
+              vendor: {
+                include: {
+                  billing: {
+  select: {
+    sellerType: true,
+    legalType: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    vatStatus: true,
+  },
+},
+                },
+              },
               _count: {
                 select: {
-                  products: true, // numără toate produsele asociate service-ului
+                  products: true,
                 },
               },
             },
@@ -184,16 +246,14 @@ router.get("/stores", async (req, res, next) => {
     const items = profiles.map((p) => {
       const service = p.service;
       const vendor = service?.vendor;
+      const sellerTypeInfo = publicSellerTypeFromBilling(vendor?.billing);
 
       const storeName = p.displayName || vendor?.displayName || "Magazin";
       const logoUrl = p.logoUrl || vendor?.logoUrl || null;
-
       const { city, citySlug } = buildCityMetaFromProfile(p, dictMap);
 
-      // productsCount fără încărcat produse
       const productsCount = service?._count?.products || 0;
 
-      // about scurt pentru listă (payload mic)
       const aboutRaw = p.shortDescription || p.about || vendor?.about || null;
       const about =
         aboutRaw && String(aboutRaw).length > 180
@@ -201,7 +261,7 @@ router.get("/stores", async (req, res, next) => {
           : aboutRaw;
 
       return {
-        id: service?.id, // service id (cum aveai)
+        id: service?.id,
         profileSlug: p.slug || null,
         storeName,
         displayName: storeName,
@@ -211,10 +271,11 @@ router.get("/stores", async (req, res, next) => {
         about,
         logoUrl,
         productsCount,
+        sellerType: sellerTypeInfo.sellerType,
+        sellerTypeLabel: sellerTypeInfo.sellerTypeLabel,
       };
     });
 
-    // cache mic pe listă (feel instant)
     res.set("Cache-Control", "public, max-age=5, stale-while-revalidate=30");
 
     res.json({
@@ -229,12 +290,6 @@ router.get("/stores", async (req, res, next) => {
   }
 });
 
-/**
- * GET /api/public/stores/suggest
- * Optimizări:
- * - select minimalist
- * - dict map cached
- */
 router.get("/stores/suggest", async (req, res, next) => {
   try {
     const q = (req.query.q || "").trim();
@@ -260,7 +315,9 @@ router.get("/stores/suggest", async (req, res, next) => {
             service: {
               is: {
                 vendor: {
-                  is: { displayName: { contains: q, mode: "insensitive" } },
+                  is: {
+                    displayName: { contains: q, mode: "insensitive" },
+                  },
                 },
               },
             },
@@ -269,16 +326,35 @@ router.get("/stores/suggest", async (req, res, next) => {
       },
       take: 10,
       orderBy: [{ displayName: "asc" }, { createdAt: "desc" }, { id: "desc" }],
-      include: { service: { include: { vendor: true } } },
+      include: {
+        service: {
+          include: {
+            vendor: {
+              include: {
+                billing: {
+  select: {
+    sellerType: true,
+    legalType: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    vatStatus: true,
+  },
+},
+              },
+            },
+          },
+        },
+      },
     });
 
     const stores = profiles.map((p) => {
       const service = p.service;
       const vendor = service?.vendor;
+      const sellerTypeInfo = publicSellerTypeFromBilling(vendor?.billing);
 
       const storeName = p.displayName || vendor?.displayName || "Magazin";
       const logoUrl = p.logoUrl || vendor?.logoUrl || null;
-
       const { city, citySlug } = buildCityMetaFromProfile(p, dictMap);
 
       return {
@@ -289,6 +365,8 @@ router.get("/stores/suggest", async (req, res, next) => {
         city,
         citySlug,
         logoUrl,
+        sellerType: sellerTypeInfo.sellerType,
+        sellerTypeLabel: sellerTypeInfo.sellerTypeLabel,
       };
     });
 
@@ -300,10 +378,194 @@ router.get("/stores/suggest", async (req, res, next) => {
 });
 
 /**
+ * GET /api/public/store/:slug
+ * Profil public magazin
+ */
+router.get("/store/:slug", async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    if (!slug) return res.status(400).json({ error: "invalid_slug" });
+
+    const profile = await prisma.serviceProfile.findUnique({
+      where: { slug },
+      include: {
+        service: {
+          include: {
+            type: true,
+            vendor: {
+              include: {
+               billing: {
+  select: {
+    sellerType: true,
+    legalType: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    vatStatus: true,
+  },
+},
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (
+      !profile ||
+      !profile.service?.isActive ||
+      profile.service?.status !== "ACTIVE" ||
+      !profile.service?.vendor?.isActive ||
+      profile.service?.type?.code !== "products"
+    ) {
+      return res.status(404).json({ error: "store_not_found" });
+    }
+
+    const service = profile.service;
+    const vendor = service.vendor;
+    const sellerTypeInfo = publicSellerTypeFromBilling(vendor.billing);
+
+    res.set("Cache-Control", "public, max-age=5, stale-while-revalidate=30");
+
+    return res.json({
+      serviceId: service.id,
+      vendorId: vendor.id,
+      userId: vendor.userId,
+
+      slug: profile.slug,
+      shopName: profile.displayName || vendor.displayName || "Magazin",
+      displayName: profile.displayName || vendor.displayName || "Magazin",
+
+      shortDescription: profile.shortDescription || "",
+      tagline: profile.tagline || "",
+      about: profile.about || vendor.about || "",
+
+      city: profile.city || service.city || vendor.city || "",
+      citySlug: profile.citySlug || service.citySlug || vendor.citySlug || null,
+      country: "România",
+
+      address: profile.address || vendor.address || "",
+      publicEmail: profile.email || vendor.email || "",
+      email: profile.email || vendor.email || "",
+      phone: profile.phone || vendor.phone || "",
+      website: profile.website || vendor.website || "",
+
+      delivery: Array.isArray(profile.delivery) ? profile.delivery : [],
+
+      logoUrl: profile.logoUrl || vendor.logoUrl || "",
+      coverUrl: profile.coverUrl || vendor.coverUrl || "",
+      profileImageUrl: profile.logoUrl || vendor.logoUrl || "",
+      coverImageUrl: profile.coverUrl || vendor.coverUrl || "",
+
+      leadTimes: service.attributes?.leadTimes || "",
+
+      status: "active",
+      sellerType: sellerTypeInfo.sellerType,
+      sellerTypeLabel: sellerTypeInfo.sellerTypeLabel,
+
+      updatedAt: profile.updatedAt,
+      profile,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * GET /api/public/store/:slug/products
+ */
+router.get("/store/:slug/products", async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    if (!slug) return res.status(400).json({ error: "invalid_slug" });
+
+    const profile = await prisma.serviceProfile.findUnique({
+      where: { slug },
+      include: {
+        service: {
+          include: {
+            type: true,
+            vendor: true,
+          },
+        },
+      },
+    });
+
+    if (
+      !profile ||
+      !profile.service?.isActive ||
+      profile.service?.status !== "ACTIVE" ||
+      !profile.service?.vendor?.isActive ||
+      profile.service?.type?.code !== "products"
+    ) {
+      return res.status(404).json({ error: "store_not_found" });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(60, Math.max(1, parseInt(req.query.limit || "24", 10)));
+    const skip = (page - 1) * limit;
+    const sort = String(req.query.sort || "new").trim();
+
+    const where = {
+      serviceId: profile.serviceId,
+      isActive: true,
+      isHidden: false,
+    };
+
+    const [total, items] = await Promise.all([
+      prisma.product.count({ where }),
+      prisma.product.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: buildProductOrderBy(sort),
+      }),
+    ]);
+
+    res.set("Cache-Control", "public, max-age=5, stale-while-revalidate=30");
+
+    return res.json({
+      total,
+      page,
+      limit,
+      items: items.map((p) => ({
+        id: p.id,
+        title: p.title,
+        description: p.description || "",
+        price: Number.isFinite(p.priceCents) ? p.priceCents / 100 : null,
+        priceCents: p.priceCents,
+        currency: p.currency || "RON",
+        images: Array.isArray(p.images) ? p.images : [],
+        category: p.category || null,
+        isActive: p.isActive,
+        isHidden: !!p.isHidden,
+
+        availability: p.availability || "READY",
+        leadTimeDays: p.leadTimeDays ?? null,
+        readyQty: p.readyQty ?? 0,
+        nextShipDate: p.nextShipDate || null,
+        acceptsCustom: !!p.acceptsCustom,
+
+        color: p.color || "",
+        materialMain: p.materialMain || "",
+        technique: p.technique || "",
+        styleTags: Array.isArray(p.styleTags) ? p.styleTags : [],
+        occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
+        dimensions: p.dimensions || "",
+        careInstructions: p.careInstructions || "",
+        specialNotes: p.specialNotes || "",
+
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * GET /api/public/stores/cities
- * Optimizări:
- * - dict cached
- * - cache HTTP mare (se schimbă rar)
  */
 router.get("/stores/cities", async (_req, res, next) => {
   try {
@@ -343,6 +605,7 @@ router.get("/stores/cities", async (_req, res, next) => {
       if (!slug) continue;
 
       const fromDict = (dictMap.get(slug) || "").trim();
+
       if (fromDict) {
         map.set(slug, fromDict);
         continue;
@@ -350,6 +613,7 @@ router.get("/stores/cities", async (_req, res, next) => {
 
       const existing = map.get(slug) || null;
       const better = pickBetterLabel(existing, rawLabel);
+
       map.set(slug, better);
     }
 
@@ -366,17 +630,33 @@ router.get("/stores/cities", async (_req, res, next) => {
   }
 });
 
-/* =========================
- * Categorii (public)
- * ========================= */
+/* =========================================================
+ * Categorii publice
+ * =======================================================*/
+
 router.get("/categories", (_req, res) => res.json(CATEGORIES));
-router.get("/categories/detailed", (_req, res) => res.json(CATEGORIES_DETAILED));
+
+router.get("/categories/detailed", (_req, res) => {
+  res.json(CATEGORIES_DETAILED);
+});
 
 router.get("/products/categories/stats", async (_req, res, next) => {
   try {
     const byProd = await prisma.product.groupBy({
       by: ["category"],
-      where: { isActive: true, category: { not: null } },
+      where: {
+        isActive: true,
+        isHidden: false,
+        category: { not: null },
+        service: {
+          is: {
+            isActive: true,
+            status: "ACTIVE",
+            vendor: { is: { isActive: true } },
+            type: { is: { code: "products" } },
+          },
+        },
+      },
       _count: { category: true },
     });
 

@@ -1,19 +1,14 @@
-import { FaSave, FaEdit } from "react-icons/fa";
+import { FaEdit } from "react-icons/fa";
 import ChipsInput from "../../Onboarding/fields/ChipsInput.jsx";
 import s from "./css/InfoSection.module.css";
 
 export default function InfoSection({
-  // date afișare
   tags = [],
   city,
   country,
-  publicEmail,
-  phone,
   website,
-  leadTimes,
   prettyDelivery,
 
-  // edit state props
   editInfo,
   savingInfo,
   infoErr,
@@ -23,13 +18,11 @@ export default function InfoSection({
   onSaveInfo,
   canEdit = false,
 
-  // counties
   countySuggestions,
   countiesLoading,
   countiesErr,
   onCountiesChange,
 
-  // 👇 nou: tracker CTA din pagina părinte
   onTrackCTA = () => {},
 }) {
   return (
@@ -37,6 +30,7 @@ export default function InfoSection({
       <div className={s.head}>
         <h3 className={s.title}>
           Informații magazin
+
           {canEdit && (
             <button
               type="button"
@@ -57,6 +51,7 @@ export default function InfoSection({
         {tags.length > 0 && (
           <div className={s.metaRow}>
             <span className={s.metaLabel}>Tag-uri</span>
+
             <div className={s.tags}>
               {tags.map((t, i) => (
                 <span key={i} className={s.tag}>
@@ -70,6 +65,7 @@ export default function InfoSection({
         {(city || country) && (
           <div className={s.metaRow}>
             <span className={s.metaLabel}>Locație</span>
+
             <span className={s.metaValue}>
               {city}
               {country ? `, ${country}` : ""}
@@ -77,15 +73,17 @@ export default function InfoSection({
           </div>
         )}
 
-        {/* 🔒 Adresa completă – DOAR în modul edit (nu este afișată public) */}
         {editInfo && (
           <div className={s.metaRow}>
             <span className={s.metaLabel}>Adresă (internă)</span>
+
             <input
               className={s.inputInline}
-              value={infoDraft.address}
+              value={infoDraft?.address || ""}
               onChange={(e) =>
-                onChangeInfoDraft({ address: e.target.value })
+                onChangeInfoDraft({
+                  address: e.target.value,
+                })
               }
               placeholder="Str. Exemplu 10, București, jud. X"
             />
@@ -95,12 +93,13 @@ export default function InfoSection({
         {(editInfo || prettyDelivery) && (
           <div className={s.metaRow}>
             <span className={s.metaLabel}>Zonă acoperire</span>
+
             {!editInfo ? (
               <span className={s.metaValue}>{prettyDelivery || "—"}</span>
             ) : (
               <div className={s.metaValue} style={{ width: "100%" }}>
                 <ChipsInput
-                  value={infoDraft.deliveryArr}
+                  value={infoDraft?.deliveryArr || []}
                   onChange={onCountiesChange}
                   suggestions={countySuggestions}
                   placeholder={
@@ -109,6 +108,7 @@ export default function InfoSection({
                       : "Toată țara, București, Ilfov, Prahova…"
                   }
                 />
+
                 {countiesErr && (
                   <small className={s.errorField}>{countiesErr}</small>
                 )}
@@ -117,84 +117,10 @@ export default function InfoSection({
           </div>
         )}
 
-        {(editInfo || leadTimes) && (
-          <div className={s.metaRow}>
-            <span className={s.metaLabel}>Termene de execuție</span>
-            {!editInfo ? (
-              <span className={s.metaValue}>{leadTimes || "—"}</span>
-            ) : (
-              <input
-                className={s.inputInline}
-                value={infoDraft.leadTimes}
-                onChange={(e) =>
-                  onChangeInfoDraft({ leadTimes: e.target.value })
-                }
-                placeholder="Ex: 3–5 zile lucrătoare"
-              />
-            )}
-          </div>
-        )}
-
-        {(editInfo || publicEmail) && (
-          <div className={s.metaRow}>
-            <span className={s.metaLabel}>Email</span>
-            {!editInfo ? (
-              publicEmail ? (
-                <a
-                  href={`mailto:${publicEmail}`}
-                  className={s.link}
-                  onClick={() => onTrackCTA("Email click")}
-                >
-                  {publicEmail}
-                </a>
-              ) : (
-                <span className={s.metaValue}>—</span>
-              )
-            ) : (
-              <input
-                className={s.inputInline}
-                value={infoDraft.email}
-                type="email"
-                onChange={(e) =>
-                  onChangeInfoDraft({ email: e.target.value })
-                }
-                placeholder="contact@brand.ro"
-              />
-            )}
-          </div>
-        )}
-
-        {(editInfo || phone) && (
-          <div className={s.metaRow}>
-            <span className={s.metaLabel}>Telefon</span>
-            {!editInfo ? (
-              phone ? (
-                <a
-                  href={`tel:${phone}`}
-                  className={s.link}
-                  onClick={() => onTrackCTA("Telefon click")}
-                >
-                  {phone}
-                </a>
-              ) : (
-                <span className={s.metaValue}>—</span>
-              )
-            ) : (
-              <input
-                className={s.inputInline}
-                value={infoDraft.phone}
-                onChange={(e) =>
-                  onChangeInfoDraft({ phone: e.target.value })
-                }
-                placeholder="+40 7xx xxx xxx"
-              />
-            )}
-          </div>
-        )}
-
         {website && (
           <div className={s.metaRow}>
             <span className={s.metaLabel}>Website</span>
+
             <a
               href={website}
               target="_blank"
@@ -208,7 +134,6 @@ export default function InfoSection({
         )}
       </div>
 
-      {/* ——— Butonul unic de salvare, DOAR în modul edit ——— */}
       {editInfo && (
         <div className={s.footer}>
           <button
@@ -217,7 +142,7 @@ export default function InfoSection({
             onClick={onSaveInfo}
             disabled={savingInfo}
           >
-            {savingInfo ? " Salvare…" : " Salvează"}
+            {savingInfo ? "Salvare…" : "Salvează"}
           </button>
         </div>
       )}

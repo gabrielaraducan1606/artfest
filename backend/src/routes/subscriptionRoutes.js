@@ -1,24 +1,48 @@
+// src/routes/subscriptionRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { z } from "zod";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 import { createSubscriptionCheckoutSession } from "../payments/stripe.subscriptions.js";
+import { stripe } from "../lib/stripe.js";
 
 const router = Router();
 
 const BILLING_ACTIVATION_AT = new Date(
   process.env.BILLING_ACTIVATION_AT || "2026-05-17T00:00:00.000Z"
 );
+
 const TRIAL_DEFAULT_DAYS = Number(process.env.TRIAL_DEFAULT_DAYS || 30);
+
+const PLAN_SELECT = {
+  id: true,
+  code: true,
+  name: true,
+  priceCents: true,
+  currency: true,
+  interval: true,
+  features: true,
+  entitlements: true,
+  popular: true,
+  trialDays: true,
+  maxProducts: true,
+  commissionBps: true,
+  isActive: true,
+  meta: true,
+};
+
+const PLAN_SELECT_INTERNAL = {
+  ...PLAN_SELECT,
+  stripePriceMonthId: true,
+  stripePriceYearId: true,
+};
 
 const sendError = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ ok: false, error: code, message: code, ...extra });
 
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
-
-/* ===================== Helpers ===================== */
 
 function isBillingLocked(now = new Date()) {
   return now < BILLING_ACTIVATION_AT;
@@ -34,6 +58,33 @@ async function getVendorByUserSub(userSub) {
   return prisma.vendor.findUnique({
     where: { userId: userSub },
   });
+}
+
+async function vendorHadTrial(vendorId) {
+  const existing = await prisma.vendorSubscription.findFirst({
+    where: {
+      vendorId,
+      OR: [
+        { trialEndsAt: { not: null } },
+        { trialDays: { gt: 0 } },
+        {
+          meta: {
+            path: ["trialDays"],
+            not: null,
+          },
+        },
+        {
+          meta: {
+            path: ["activatedBy"],
+            equals: "trial_select",
+          },
+        },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return !!existing;
 }
 
 async function getCurrentVendorSubscription(vendorId, { includePlan = true } = {}) {
@@ -59,8 +110,6 @@ async function getLatestVendorSubscription(vendorId, { includePlan = true } = {}
     orderBy: [{ createdAt: "desc" }],
   });
 }
-
-/* ===================== Subscription Guard ===================== */
 
 export const requireActiveSubscription = asyncHandler(async (req, res, next) => {
   if (req.user?.roles?.includes?.("ADMIN") || req.user?.role === "ADMIN") {
@@ -99,24 +148,7 @@ export const requireActiveSubscription = asyncHandler(async (req, res, next) => 
     },
     include: {
       plan: {
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          priceCents: true,
-          currency: true,
-          interval: true,
-          features: true,
-          entitlements: true,
-          popular: true,
-          trialDays: true,
-          maxProducts: true,
-          commissionBps: true,
-          isActive: true,
-          meta: true,
-          stripePriceMonthId: true,
-          stripePriceYearId: true,
-        },
+        select: PLAN_SELECT_INTERNAL,
       },
     },
     orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
@@ -133,8 +165,6 @@ export const requireActiveSubscription = asyncHandler(async (req, res, next) => 
   return next();
 });
 
-/* ===================== Validation ===================== */
-
 const CheckoutQuery = z.object({
   plan: z.enum(["basic", "pro", "premium"]),
   period: z.enum(["month", "year"]).default("month"),
@@ -147,8 +177,6 @@ const TrialSelectBody = z.object({
   period: z.enum(["month", "year"]).default("month"),
 });
 
-/* ===================== Billing Plans ===================== */
-
 router.get(
   "/billing/plans",
   asyncHandler(async (_req, res) => {
@@ -156,24 +184,7 @@ router.get(
       where: {
         code: { in: ["basic", "pro", "premium"] },
       },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        priceCents: true,
-        currency: true,
-        interval: true,
-        features: true,
-        entitlements: true,
-        popular: true,
-        trialDays: true,
-        maxProducts: true,
-        commissionBps: true,
-        isActive: true,
-        meta: true,
-        stripePriceMonthId: true,
-        stripePriceYearId: true,
-      },
+      select: PLAN_SELECT,
     });
 
     const order = { basic: 1, pro: 2, premium: 3 };
@@ -189,8 +200,6 @@ router.get(
   })
 );
 
-/* ===================== Current Subscription ===================== */
-
 router.get(
   "/vendors/me/subscription",
   authRequired,
@@ -202,8 +211,15 @@ router.get(
       return sendError(res, "vendor_profile_missing", 404);
     }
 
-    const current = await getCurrentVendorSubscription(meVendor.id, { includePlan: true });
-    const latest = current ?? (await getLatestVendorSubscription(meVendor.id, { includePlan: true }));
+    const current = await getCurrentVendorSubscription(meVendor.id, {
+      includePlan: true,
+    });
+
+    const latest =
+      current ??
+      (await getLatestVendorSubscription(meVendor.id, {
+        includePlan: true,
+      }));
 
     return res.json({
       subscription: latest || null,
@@ -277,8 +293,6 @@ router.get(
   })
 );
 
-/* ===================== Expire Job ===================== */
-
 export async function expireSubscriptionsJob() {
   const now = new Date();
 
@@ -290,8 +304,6 @@ export async function expireSubscriptionsJob() {
     data: { status: "expired" },
   });
 }
-
-/* ===================== Trial Select ===================== */
 
 router.post(
   "/vendors/me/subscription/trial-select",
@@ -325,7 +337,17 @@ router.post(
       return sendError(res, "plan_inactive", 409);
     }
 
-    const existing = await getCurrentVendorSubscription(vendor.id, { includePlan: true });
+    const hadTrial = await vendorHadTrial(vendor.id);
+
+    if (hadTrial) {
+      return sendError(res, "trial_already_used", 409, {
+        hint: "Perioada de probă a fost deja folosită pentru acest vendor.",
+      });
+    }
+
+    const existing = await getCurrentVendorSubscription(vendor.id, {
+      includePlan: true,
+    });
 
     if (existing?.status === "active" && existing?.planId === plan.id) {
       return res.json({
@@ -361,34 +383,19 @@ router.post(
         planId: plan.id,
         status: "active",
         startAt: now,
+        trialDays,
         trialEndsAt,
         endAt: trialEndsAt,
         meta: {
           activatedBy: "trial_select",
           selectedPeriod: body.period,
+          trialDays,
           billingLockedUntil: BILLING_ACTIVATION_AT.toISOString(),
         },
       },
       include: {
         plan: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            priceCents: true,
-            currency: true,
-            interval: true,
-            features: true,
-            entitlements: true,
-            popular: true,
-            trialDays: true,
-            maxProducts: true,
-            commissionBps: true,
-            isActive: true,
-            meta: true,
-            stripePriceMonthId: true,
-            stripePriceYearId: true,
-          },
+          select: PLAN_SELECT_INTERNAL,
         },
       },
     });
@@ -402,8 +409,6 @@ router.post(
     });
   })
 );
-
-/* ===================== Checkout ===================== */
 
 router.post(
   "/billing/checkout",
@@ -431,20 +436,7 @@ router.post(
     }
 
     const now = new Date();
-    const billingLocked = isBillingLocked(now);
 
-    // Dacă billing-ul e blocat, nu pornim checkout Stripe pentru planurile plătite
-    if (billingLocked && (plan.priceCents ?? 0) > 0) {
-      return sendError(res, "billing_locked_trial_only", 409, {
-        billingLocked: true,
-        billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-        hint:
-          "În perioada de probă, planurile pot fi selectate gratuit. Folosește endpoint-ul de trial-select.",
-        upgradeUrl: "/onboarding/details?tab=plata&trial=1",
-      });
-    }
-
-    // Activare plan gratuit
     if ((plan.priceCents ?? 0) === 0) {
       const endAt = new Date(now);
       endAt.setFullYear(endAt.getFullYear() + 10);
@@ -473,24 +465,7 @@ router.post(
         },
         include: {
           plan: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              priceCents: true,
-              currency: true,
-              interval: true,
-              features: true,
-              entitlements: true,
-              popular: true,
-              trialDays: true,
-              maxProducts: true,
-              commissionBps: true,
-              isActive: true,
-              meta: true,
-              stripePriceMonthId: true,
-              stripePriceYearId: true,
-            },
+            select: PLAN_SELECT_INTERNAL,
           },
         },
       });
@@ -522,6 +497,79 @@ router.post(
       const status = e?.status || 400;
       return sendError(res, code, status);
     }
+  })
+);
+
+router.post(
+  "/vendors/me/subscription/cancel",
+  authRequired,
+  vendorAccessRequired,
+  asyncHandler(async (req, res) => {
+    const vendor = req.meVendor ?? (await getVendorByUserSub(req.user.sub));
+
+    if (!vendor) {
+      return sendError(res, "vendor_profile_missing", 404);
+    }
+
+    const now = new Date();
+
+    const sub = await prisma.vendorSubscription.findFirst({
+      where: {
+        vendorId: vendor.id,
+        status: { in: ["active", "pending", "past_due", "unpaid"] },
+      },
+      include: {
+        plan: {
+          select: PLAN_SELECT_INTERNAL,
+        },
+      },
+      orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
+    });
+
+    if (!sub) {
+      return sendError(res, "subscription_not_found", 404);
+    }
+
+    if (sub.stripeSubscriptionId) {
+      try {
+        await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+      } catch (e) {
+        const code = e?.code || e?.raw?.code || e?.message || "stripe_cancel_failed";
+
+        if (
+          code !== "resource_missing" &&
+          !String(e?.message || "").includes("No such subscription")
+        ) {
+          return sendError(res, "stripe_cancel_failed", 400, {
+            detail: String(e?.message || code),
+          });
+        }
+      }
+    }
+
+    const updated = await prisma.vendorSubscription.update({
+      where: { id: sub.id },
+      data: {
+        status: "canceled",
+        endAt: now,
+        meta: {
+          ...(sub.meta && typeof sub.meta === "object" ? sub.meta : {}),
+          canceledBy: "vendor",
+          canceledAt: now.toISOString(),
+          stripeCancelRequested: !!sub.stripeSubscriptionId,
+        },
+      },
+      include: {
+        plan: {
+          select: PLAN_SELECT_INTERNAL,
+        },
+      },
+    });
+
+    return res.json({
+      ok: true,
+      subscription: updated,
+    });
   })
 );
 

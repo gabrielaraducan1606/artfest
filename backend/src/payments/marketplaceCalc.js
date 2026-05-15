@@ -1,5 +1,5 @@
 // src/payments/marketplaceCalc.js
-import { prisma } from "../lib/prisma.js";
+import { prisma } from "../db.js";
 
 /**
  * IMPORTANT:

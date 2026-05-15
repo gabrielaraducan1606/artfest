@@ -20,6 +20,39 @@ const slugify = (s = "") =>
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
+function publicSellerTypeFromBilling(billing) {
+  const hasBusinessBillingData = !!(
+    billing?.legalType ||
+    billing?.companyName ||
+    billing?.cui ||
+    billing?.regCom ||
+    billing?.vatStatus
+  );
+
+  const sellerType =
+    billing?.sellerType ||
+    (hasBusinessBillingData ? "verified_business" : null);
+
+  if (sellerType === "independent_creator") {
+    return {
+      sellerType: "independent_creator",
+      sellerTypeLabel: "Creator independent la început de drum",
+    };
+  }
+
+  if (sellerType === "verified_business") {
+    return {
+      sellerType: "verified_business",
+      sellerTypeLabel: "Business verificat",
+    };
+  }
+
+  return {
+    sellerType: null,
+    sellerTypeLabel: null,
+  };
+}
+
 const buildOrderBy = (sort) => {
   switch ((sort || "new").toLowerCase()) {
     case "price_asc":
@@ -34,7 +67,6 @@ const buildOrderBy = (sort) => {
   }
 };
 
-/* ============== disponibilitate: normalizare payload ============== */
 function normalizeAvailabilityPayload(body, current = null) {
   const raw =
     body?.availability != null
@@ -65,22 +97,17 @@ function normalizeAvailabilityPayload(body, current = null) {
 
   if (raw === "READY") {
     const rq =
-      body?.readyQty != null
-        ? Number(body.readyQty)
-        : current?.readyQty ?? 0;
+      body?.readyQty != null ? Number(body.readyQty) : current?.readyQty ?? 0;
     if (!Number.isFinite(rq) || rq < 0) return { error: "invalid_ready_qty" };
     out.readyQty = Math.floor(rq);
   }
 
   if (raw === "PREORDER") {
     const rawDate =
-      body?.nextShipDate != null
-        ? body.nextShipDate
-        : current?.nextShipDate;
+      body?.nextShipDate != null ? body.nextShipDate : current?.nextShipDate;
     if (!rawDate) return { error: "next_ship_date_required" };
     const dt = new Date(rawDate);
-    if (Number.isNaN(dt.getTime()))
-      return { error: "invalid_next_ship_date" };
+    if (Number.isNaN(dt.getTime())) return { error: "invalid_next_ship_date" };
     out.nextShipDate = dt;
   }
 
@@ -89,7 +116,6 @@ function normalizeAvailabilityPayload(body, current = null) {
 
 const router = Router();
 
-/* ============== Guard permisiv: vendorAccessRequired ============== */
 async function vendorAccessRequired(req, res, next) {
   try {
     const role = req.user?.role || req.user?.roles?.[0];
@@ -98,18 +124,18 @@ async function vendorAccessRequired(req, res, next) {
     const v = await prisma.vendor.findUnique({
       where: { userId: req.user.sub },
     });
+
     if (v) {
       req.meVendor = v;
       return next();
     }
 
     return res.status(403).json({ error: "forbidden" });
-  } catch (e) {
+  } catch {
     return res.status(500).json({ error: "server_error" });
   }
 }
 
-/* Toate rutele sunt private (auth) + guard permisiv */
 router.use(authRequired, vendorAccessRequired);
 
 /** GET /api/vendors/store */
@@ -117,24 +143,47 @@ router.get("/store", async (req, res) => {
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const profiles = await prisma.serviceProfile.findMany({
     where: { service: { vendorId: meVendor.id, type: { code: "products" } } },
-    include: { service: { include: { vendor: true } } },
+    include: {
+      service: {
+        include: {
+          vendor: {
+            include: {
+              billing: {
+  select: {
+    sellerType: true,
+    legalType: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    vatStatus: true,
+  },
+},
+            },
+          },
+        },
+      },
+    },
     orderBy: { updatedAt: "desc" },
   });
 
   const items = profiles.map((p) => {
     const svc = p.service;
     const vendor = svc.vendor;
+    const sellerTypeInfo = publicSellerTypeFromBilling(vendor.billing);
     const isActive = svc.status === "ACTIVE" && svc.isActive && vendor.isActive;
+
     return {
       serviceId: svc.id,
       slug: p.slug,
       shopName: p.displayName || vendor.displayName || "Magazin",
-      // opțional: poți expune și aici scurta descriere, dacă vrei
       shortDescription: p.shortDescription || "",
+      sellerType: sellerTypeInfo.sellerType,
+      sellerTypeLabel: sellerTypeInfo.sellerTypeLabel,
       status: isActive ? "active" : "inactive",
       city: p.city || vendor.city || "",
       phone: p.phone || vendor.phone || "",
@@ -158,11 +207,32 @@ router.get("/store/:slug", async (req, res) => {
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
-    include: { service: { include: { type: true, vendor: true } } },
+    include: {
+      service: {
+        include: {
+          type: true,
+          vendor: {
+            include: {
+              billing: {
+  select: {
+    sellerType: true,
+    legalType: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    vatStatus: true,
+  },
+},
+            },
+          },
+        },
+      },
+    },
   });
 
   if (
@@ -175,16 +245,16 @@ router.get("/store/:slug", async (req, res) => {
 
   const svc = profile.service;
   const vendor = svc.vendor;
+  const sellerTypeInfo = publicSellerTypeFromBilling(vendor.billing);
   const isActive = svc.status === "ACTIVE" && svc.isActive && vendor.isActive;
 
   res.json({
     serviceId: svc.id,
     slug: profile.slug,
     shopName: profile.displayName || vendor.displayName || "Magazin",
-
-    // 👇 scurta descriere pentru front (ProfilMagazin)
     shortDescription: profile.shortDescription || "",
-
+    sellerType: sellerTypeInfo.sellerType,
+    sellerTypeLabel: sellerTypeInfo.sellerTypeLabel,
     tagline: profile.tagline || "",
     about: profile.about || "",
     city: profile.city || vendor.city || "",
@@ -208,12 +278,14 @@ router.put("/store/:slug", async (req, res) => {
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug: currSlug },
     include: { service: { include: { type: true, vendor: true } } },
   });
+
   if (
     !profile ||
     profile.service.vendorId !== meVendor.id ||
@@ -240,9 +312,7 @@ router.put("/store/:slug", async (req, res) => {
   } = req.body || {};
 
   const data = {
-    ...(displayName !== undefined
-      ? { displayName: cleanOrNull(displayName) }
-      : {}),
+    ...(displayName !== undefined ? { displayName: cleanOrNull(displayName) } : {}),
     ...(tagline !== undefined ? { tagline: cleanOrNull(tagline) } : {}),
     ...(about !== undefined ? { about: cleanOrNull(about) } : {}),
     ...(city !== undefined ? { city: cleanOrNull(city) } : {}),
@@ -261,9 +331,11 @@ router.put("/store/:slug", async (req, res) => {
   if (typeof nextSlug === "string" && nextSlug.trim()) {
     const s = slugify(nextSlug);
     if (!s) return error(res, "invalid_next_slug", 400);
+
     const clash = await prisma.serviceProfile.findFirst({
       where: { slug: s, NOT: { serviceId: profile.serviceId } },
     });
+
     if (clash) return error(res, "service_brand_unavailable", 409, { slug: s });
     data.slug = s;
   }
@@ -287,6 +359,7 @@ router.put("/store/:slug", async (req, res) => {
         : {}),
       ...(data.website !== undefined ? { website: data.website ?? "" } : {}),
     };
+
     if (Object.keys(vendorPatch).length) {
       await prisma.vendor
         .update({ where: { id: meVendor.id }, data: vendorPatch })
@@ -300,15 +373,18 @@ router.put("/store/:slug", async (req, res) => {
 /** POST /api/vendors/store/:slug/activate */
 router.post("/store/:slug/activate", async (req, res) => {
   const slug = String(req.params.slug || "").trim().toLowerCase();
+
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
     include: { service: { include: { type: true, vendor: true } } },
   });
+
   if (
     !profile ||
     profile.service.vendorId !== meVendor.id ||
@@ -331,15 +407,18 @@ router.post("/store/:slug/activate", async (req, res) => {
 /** POST /api/vendors/store/:slug/deactivate */
 router.post("/store/:slug/deactivate", async (req, res) => {
   const slug = String(req.params.slug || "").trim().toLowerCase();
+
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
     include: { service: { include: { type: true, vendor: true } } },
   });
+
   if (
     !profile ||
     profile.service.vendorId !== meVendor.id ||
@@ -367,12 +446,14 @@ router.get("/store/:slug/products", async (req, res) => {
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
     include: { service: { include: { type: true, vendor: true } } },
   });
+
   if (
     !profile ||
     profile.service.vendorId !== meVendor.id ||
@@ -382,13 +463,10 @@ router.get("/store/:slug/products", async (req, res) => {
   }
 
   const page = Math.max(1, parseInt(req.query.page || "1", 10));
-  const limit = Math.min(
-    60,
-    Math.max(1, parseInt(req.query.limit || "24", 10))
-  );
+  const limit = Math.min(60, Math.max(1, parseInt(req.query.limit || "24", 10)));
   const skip = (page - 1) * limit;
   const sort = (req.query.sort || "new").trim();
-  const status = (req.query.status || "all").trim(); // all | active | inactive
+  const status = (req.query.status || "all").trim();
 
   const where = {
     serviceId: profile.serviceId,
@@ -420,13 +498,11 @@ router.get("/store/:slug/products", async (req, res) => {
       category: p.category || null,
       isActive: p.isActive,
       isHidden: !!p.isHidden,
-
       availability: p.availability || "READY",
       leadTimeDays: p.leadTimeDays ?? null,
       readyQty: p.readyQty ?? 0,
       nextShipDate: p.nextShipDate || null,
       acceptsCustom: !!p.acceptsCustom,
-
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
     })),
@@ -436,6 +512,7 @@ router.get("/store/:slug/products", async (req, res) => {
 /** POST /api/vendors/store/:slug/products */
 router.post("/store/:slug/products", async (req, res) => {
   const slug = String(req.params.slug || "").trim().toLowerCase();
+
   const {
     title,
     description,
@@ -453,22 +530,26 @@ router.post("/store/:slug/products", async (req, res) => {
   } = req.body || {};
 
   if (!slug) return error(res, "invalid_slug", 400);
-  if (!title || typeof title !== "string" || !title.trim())
+  if (!title || typeof title !== "string" || !title.trim()) {
     return error(res, "invalid_title", 400);
+  }
 
   const priceNum = Number(price);
-  if (!Number.isFinite(priceNum) || priceNum < 0)
+  if (!Number.isFinite(priceNum) || priceNum < 0) {
     return error(res, "invalid_price", 400);
+  }
 
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
     include: { service: { include: { type: true } } },
   });
+
   if (
     !profile ||
     profile.service.vendorId !== meVendor.id ||
@@ -485,6 +566,7 @@ router.post("/store/:slug/products", async (req, res) => {
     { availability, leadTimeDays, readyQty, nextShipDate },
     null
   );
+
   if (avail.error) return error(res, avail.error, 400);
 
   const created = await prisma.product.create({
@@ -498,7 +580,6 @@ router.post("/store/:slug/products", async (req, res) => {
       isActive: !!isActive,
       isHidden: !!isHidden,
       category: category ? String(category).trim().slice(0, 64) : null,
-
       availability: avail.availability,
       leadTimeDays: avail.leadTimeDays,
       readyQty: avail.readyQty,
@@ -517,13 +598,11 @@ router.post("/store/:slug/products", async (req, res) => {
     category: created.category || null,
     isActive: created.isActive,
     isHidden: !!created.isHidden,
-
     availability: created.availability,
     leadTimeDays: created.leadTimeDays ?? null,
     readyQty: created.readyQty ?? 0,
     nextShipDate: created.nextShipDate || null,
     acceptsCustom: !!created.acceptsCustom,
-
     createdAt: created.createdAt,
     updatedAt: created.updatedAt,
   });
@@ -532,6 +611,7 @@ router.post("/store/:slug/products", async (req, res) => {
 /** PUT /api/vendors/products/:id */
 router.put("/products/:id", async (req, res) => {
   const { id } = req.params;
+
   const {
     title,
     description,
@@ -551,12 +631,14 @@ router.put("/products/:id", async (req, res) => {
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const prod = await prisma.product.findUnique({
     where: { id },
     include: { service: { select: { vendorId: true, type: true } } },
   });
+
   if (
     !prod ||
     prod.service.vendorId !== meVendor.id ||
@@ -566,38 +648,51 @@ router.put("/products/:id", async (req, res) => {
   }
 
   const data = {};
+
   if (typeof title === "string") data.title = title.trim();
   if (typeof description === "string") data.description = description.trim();
+
   if (price !== undefined) {
     const priceNum = Number(price);
-    if (!Number.isFinite(priceNum) || priceNum < 0)
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
       return error(res, "invalid_price", 400);
+    }
     data.priceCents = Math.round(priceNum * 100);
   }
-  if (Array.isArray(images))
+
+  if (Array.isArray(images)) {
     data.images = images.filter((u) => typeof u === "string" && u.trim());
+  }
+
   if (isActive !== undefined) data.isActive = !!isActive;
   if (isHidden !== undefined) data.isHidden = !!isHidden;
-  if (category !== undefined)
-    data.category = category ? String(category).trim().slice(0, 64) : null;
-  if (typeof currency === "string" && currency.trim())
-    data.currency = currency.trim();
 
-  // disponibilitate
+  if (category !== undefined) {
+    data.category = category ? String(category).trim().slice(0, 64) : null;
+  }
+
+  if (typeof currency === "string" && currency.trim()) {
+    data.currency = currency.trim();
+  }
+
   const avail = normalizeAvailabilityPayload(
     { availability, leadTimeDays, readyQty, nextShipDate },
     prod
   );
+
   if (avail.error) return error(res, avail.error, 400);
+
   data.availability = avail.availability;
   data.leadTimeDays = avail.leadTimeDays;
   data.readyQty = avail.readyQty;
   data.nextShipDate = avail.nextShipDate;
 
-  if (typeof acceptsCustom === "boolean")
+  if (typeof acceptsCustom === "boolean") {
     data.acceptsCustom = acceptsCustom;
+  }
 
   const updated = await prisma.product.update({ where: { id }, data });
+
   res.json({
     id: updated.id,
     title: updated.title,
@@ -608,13 +703,11 @@ router.put("/products/:id", async (req, res) => {
     isActive: updated.isActive,
     isHidden: !!updated.isHidden,
     category: updated.category || null,
-
     availability: updated.availability || "READY",
     leadTimeDays: updated.leadTimeDays ?? null,
     readyQty: updated.readyQty ?? 0,
     nextShipDate: updated.nextShipDate || null,
     acceptsCustom: !!updated.acceptsCustom,
-
     updatedAt: updated.updatedAt,
   });
 });
@@ -626,12 +719,14 @@ router.delete("/products/:id", async (req, res) => {
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const prod = await prisma.product.findUnique({
     where: { id },
     include: { service: { select: { vendorId: true, type: true } } },
   });
+
   if (
     !prod ||
     prod.service.vendorId !== meVendor.id ||
@@ -651,14 +746,35 @@ router.get("/products/:id", async (req, res) => {
   const meVendor =
     req.meVendor ||
     (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+
   if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
   const p = await prisma.product.findUnique({
     where: { id },
     include: {
-      service: { include: { vendor: true, type: true, profile: true } },
+      service: {
+        include: {
+          vendor: {
+            include: {
+             billing: {
+  select: {
+    sellerType: true,
+    legalType: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    vatStatus: true,
+  },
+},
+            },
+          },
+          type: true,
+          profile: true,
+        },
+      },
     },
   });
+
   if (
     !p ||
     p.service.vendorId !== meVendor.id ||
@@ -666,6 +782,8 @@ router.get("/products/:id", async (req, res) => {
   ) {
     return error(res, "product_not_found_or_forbidden", 404);
   }
+
+  const sellerTypeInfo = publicSellerTypeFromBilling(p.service.vendor.billing);
 
   res.json({
     id: p.id,
@@ -677,13 +795,11 @@ router.get("/products/:id", async (req, res) => {
     category: p.category || null,
     isActive: p.isActive,
     isHidden: !!p.isHidden,
-
     availability: p.availability || "READY",
     leadTimeDays: p.leadTimeDays ?? null,
     readyQty: p.readyQty ?? 0,
     nextShipDate: p.nextShipDate || null,
     acceptsCustom: !!p.acceptsCustom,
-
     ownerVendorId: p.service.vendorId,
     vendor: {
       id: p.service.vendor.id,
@@ -691,6 +807,8 @@ router.get("/products/:id", async (req, res) => {
         p.service.profile?.displayName || p.service.vendor.displayName || "",
       slug: p.service.profile?.slug || null,
       city: p.service.profile?.city || p.service.vendor.city || "",
+      sellerType: sellerTypeInfo.sellerType,
+      sellerTypeLabel: sellerTypeInfo.sellerTypeLabel,
     },
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,

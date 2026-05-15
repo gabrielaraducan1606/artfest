@@ -593,31 +593,32 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
           />
           <span id="vendor-box-title" className={styles.vendorTitle}>
             Sunt <strong>furnizor de servicii / partener Artfest</strong>
-            <span className={styles.vendorSubtitle}> (PFA / SRL / II / IF)</span>
           </span>
         </label>
 
         <p className={styles.vendorNote}>
           <AlertTriangle size={14} aria-hidden="true" />
           <span>
-            <strong>Doar pentru furnizori (entități juridice).</strong> Clienții
+            <strong>Doar pentru furnizori.</strong> Clienții
             care doresc să comande <u>nu bifează</u> această opțiune.
           </span>
         </p>
 
-        {asVendor && (
-          <label className={styles.entityConfirmRow}>
-            <input
-              type="checkbox"
-              checked={vendorEntityConfirm}
-              onChange={(e) => setVendorEntityConfirm(e.target.checked)}
-              aria-required="true"
-            />
-            <span className={styles.spanConfirm}>
-              Confirm că reprezint o <strong>entitate juridică</strong> (PFA / SRL / II / IF) și dețin un <strong>CUI/CIF</strong> valid.
-            </span>
-          </label>
-        )}
+       {asVendor && (
+  <label className={styles.entityConfirmRow}>
+    <input
+      type="checkbox"
+      checked={vendorEntityConfirm}
+      onChange={(e) => setVendorEntityConfirm(e.target.checked)}
+      aria-required="true"
+    />
+    <span className={styles.spanConfirm}>
+      Declar că sunt responsabil(ă) pentru obligațiile fiscale și pentru
+      legalitatea activităților desfășurate prin platformă, fie ca persoană
+      fizică, fie printr-o entitate juridică.
+    </span>
+  </label>
+)}
       </div>
 
       <div className={styles.nameRow}>

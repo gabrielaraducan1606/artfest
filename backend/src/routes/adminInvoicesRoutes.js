@@ -9,6 +9,10 @@ import path from "path";
 
 import { htmlToPdfBuffer } from "../lib/htmlToPdf.js";
 import { renderInvoiceHtml } from "../lib/invoiceHtmlTemplate.js";
+import {
+  createSmartBillInvoice,
+  getSmartBillInvoicePdfBuffer,
+} from "../lib/smartbill.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -163,7 +167,6 @@ function buildLinesFromShipments(order, vatRate) {
    PDF helpers
 ---------------------------- */
 function toBillingProfileFromPlatform(platform, vatRate = 0) {
-  // mapați PlatformBilling -> ce așteaptă template-ul tău (invoiceHtmlTemplate)
   return {
     vendorName: "ArtFest",
     companyName: platform.companyName,
@@ -273,7 +276,16 @@ router.get("/billing/to-invoice", requireAdmin, async (req, res) => {
           currency: true,
           paymentMethod: true,
           shippingAddress: true,
-          user: { select: { id: true, email: true, name: true, firstName: true, lastName: true, phone: true } },
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
           shipments: { select: { id: true, status: true, awb: true, courierProvider: true } },
         },
       }),
@@ -283,7 +295,10 @@ router.get("/billing/to-invoice", requireAdmin, async (req, res) => {
     const items = (rows || []).map((o) => {
       const addr = o.shippingAddress || {};
       const customerName =
-        addr?.name || o.user?.name || [o.user?.firstName, o.user?.lastName].filter(Boolean).join(" ") || "";
+        addr?.name ||
+        o.user?.name ||
+        [o.user?.firstName, o.user?.lastName].filter(Boolean).join(" ") ||
+        "";
 
       return {
         orderId: o.id,
@@ -293,14 +308,13 @@ router.get("/billing/to-invoice", requireAdmin, async (req, res) => {
         total: o.total,
         currency: o.currency,
         paymentMethod: o.paymentMethod,
-
         customerName,
         customerEmail: addr?.email || o.user?.email || "",
         customerPhone: addr?.phone || o.user?.phone || "",
         customerCity: addr?.city || "",
         customerAddress:
-          addr?.address || [addr?.street, addr?.city, addr?.county, addr?.postalCode].filter(Boolean).join(", "),
-
+          addr?.address ||
+          [addr?.street, addr?.city, addr?.county, addr?.postalCode].filter(Boolean).join(", "),
         shipments: (o.shipments || []).map((s) => ({
           shipmentId: s.id,
           status: s.status,
@@ -313,18 +327,21 @@ router.get("/billing/to-invoice", requireAdmin, async (req, res) => {
     return res.json({ total, items });
   } catch (err) {
     console.error("GET /api/admin/billing/to-invoice FAILED:", err);
-    return res.status(500).json({ error: "server_error", message: err?.message || "Internal Server Error" });
+    return res.status(500).json({
+      error: "server_error",
+      message: err?.message || "Internal Server Error",
+    });
   }
 });
 
 /* =========================================================
-   2) GET /api/admin/invoices (platform->client)
+   2) GET /api/admin/invoices
 ========================================================= */
 router.get("/invoices", requireAdmin, async (req, res) => {
   try {
     const q = String(req.query.q || "").trim();
     const status = String(req.query.status || "").trim();
-    const direction = String(req.query.direction || "PLATFORM_TO_CLIENT").trim();
+    const direction = String(req.query.direction || "PLATFORM_TO_VENDOR").trim();
     const from = req.query.from ? new Date(String(req.query.from)) : null;
     const to = req.query.to ? new Date(String(req.query.to)) : null;
 
@@ -340,6 +357,8 @@ router.get("/invoices", requireAdmin, async (req, res) => {
             { orderId: { contains: q, mode: "insensitive" } },
             { clientName: { contains: q, mode: "insensitive" } },
             { clientEmail: { contains: q, mode: "insensitive" } },
+            { providerSeries: { contains: q, mode: "insensitive" } },
+            { providerNumber: { contains: q, mode: "insensitive" } },
           ],
         }
       : null;
@@ -368,9 +387,11 @@ router.get("/invoices", requireAdmin, async (req, res) => {
           id: true,
           orderId: true,
           direction: true,
+          type: true,
           series: true,
           number: true,
           issueDate: true,
+          dueDate: true,
           currency: true,
           totalNet: true,
           totalVat: true,
@@ -380,6 +401,13 @@ router.get("/invoices", requireAdmin, async (req, res) => {
           clientName: true,
           clientEmail: true,
           clientPhone: true,
+          provider: true,
+          providerInvoiceId: true,
+          providerSeries: true,
+          providerNumber: true,
+          providerStatus: true,
+          providerPdfUrl: true,
+          providerSyncedAt: true,
         },
       }),
       prisma.invoice.count({ where }),
@@ -388,12 +416,15 @@ router.get("/invoices", requireAdmin, async (req, res) => {
     return res.json({ total, items: rows || [] });
   } catch (err) {
     console.error("GET /api/admin/invoices FAILED:", err);
-    return res.status(500).json({ error: "server_error", message: err?.message || "Internal Server Error" });
+    return res.status(500).json({
+      error: "server_error",
+      message: err?.message || "Internal Server Error",
+    });
   }
 });
 
 /* =========================================================
-   3) GET /api/admin/invoices/:id (details + lines)
+   3) GET /api/admin/invoices/:id
 ========================================================= */
 router.get("/invoices/:id", requireAdmin, async (req, res) => {
   try {
@@ -408,7 +439,10 @@ router.get("/invoices/:id", requireAdmin, async (req, res) => {
     return res.json({ invoice: inv, lines: inv.lines || [] });
   } catch (err) {
     console.error("GET /api/admin/invoices/:id FAILED:", err);
-    return res.status(500).json({ error: "server_error", message: err?.message || "Internal Server Error" });
+    return res.status(500).json({
+      error: "server_error",
+      message: err?.message || "Internal Server Error",
+    });
   }
 });
 
@@ -496,15 +530,20 @@ router.get("/billing/preview-invoice-from-order", requireAdmin, async (req, res)
     console.error("GET /billing/preview-invoice-from-order FAILED:", err);
     const code = err?.code;
     if (code === "PLATFORM_BILLING_MISSING") {
-      return res.status(409).json({ error: "PLATFORM_BILLING_MISSING", message: "Lipsește PlatformBilling (id='platform')." });
+      return res.status(409).json({
+        error: "PLATFORM_BILLING_MISSING",
+        message: "Lipsește PlatformBilling (id='platform').",
+      });
     }
-    return res.status(500).json({ error: "server_error", message: err?.message || "Internal Server Error" });
+    return res.status(500).json({
+      error: "server_error",
+      message: err?.message || "Internal Server Error",
+    });
   }
 });
 
 /* =========================================================
    4) POST /api/admin/billing/create-invoice-from-order
-   + generate PDF + save pdfUrl
 ========================================================= */
 const CreateFromOrderPayload = z.object({
   orderId: z.string().min(6),
@@ -550,7 +589,6 @@ router.post("/billing/create-invoice-from-order", requireAdmin, async (req, res)
     const linesDraft = buildLinesFromShipments(order, vatRate);
     const totals = computeTotals(linesDraft);
 
-    // 1) Create in DB
     const created = await prisma.$transaction(async (tx) => {
       const updatedPlatform = await tx.platformBilling.update({
         where: { id: "platform" },
@@ -571,25 +609,20 @@ router.post("/billing/create-invoice-from-order", requireAdmin, async (req, res)
           direction: "PLATFORM_TO_CLIENT",
           type: "OTHER",
           orderId: order.id,
-
           series: finalSeries,
           number,
           issueDate,
           dueDate,
           currency: order.currency || "RON",
-
           clientName,
           clientEmail,
           clientPhone,
           clientAddress,
-
           totalNet: totals.totalNet,
           totalVat: totals.totalVat,
           totalGross: totals.totalGross,
-
           status: "UNPAID",
           pdfUrl: null,
-
           lines: {
             create: linesDraft.map((l) => ({
               type: l.type,
@@ -617,10 +650,8 @@ router.post("/billing/create-invoice-from-order", requireAdmin, async (req, res)
       return inv;
     });
 
-    // 2) Generate PDF + store + update pdfUrl
     const billingProfile = toBillingProfileFromPlatform(platform, vatRate);
     const platformMeta = getPlatformMeta();
-
     const pdfUrl = await savePdfAndGetUrl(created, billingProfile, platformMeta);
 
     const updated = await prisma.invoice.update({
@@ -636,18 +667,26 @@ router.post("/billing/create-invoice-from-order", requireAdmin, async (req, res)
     }
     console.error("POST /api/admin/billing/create-invoice-from-order FAILED:", err);
     if (err?.code === "PLATFORM_BILLING_MISSING") {
-      return res.status(409).json({ error: "PLATFORM_BILLING_MISSING", message: "Lipsește PlatformBilling (id='platform')." });
+      return res.status(409).json({
+        error: "PLATFORM_BILLING_MISSING",
+        message: "Lipsește PlatformBilling (id='platform').",
+      });
     }
     if (err?.code === "PLATFORM_VENDOR_MISSING") {
-      return res.status(409).json({ error: "PLATFORM_VENDOR_MISSING", message: "Lipsește Vendor-ul platformei (id='platform'). Rulează seed-ul." });
+      return res.status(409).json({
+        error: "PLATFORM_VENDOR_MISSING",
+        message: "Lipsește Vendor-ul platformei (id='platform'). Rulează seed-ul.",
+      });
     }
-    return res.status(500).json({ error: "server_error", message: err?.message || "Internal Server Error" });
+    return res.status(500).json({
+      error: "server_error",
+      message: err?.message || "Internal Server Error",
+    });
   }
 });
 
 /* =========================================================
    5) GET /api/admin/invoices/:id/pdf
-   - serve PDF (preferă pdfUrl, altfel regenerează)
 ========================================================= */
 router.get("/invoices/:id/pdf", requireAdmin, async (req, res) => {
   try {
@@ -657,21 +696,432 @@ router.get("/invoices/:id/pdf", requireAdmin, async (req, res) => {
       where: { id },
       include: { lines: true },
     });
-    if (!inv) return res.status(404).json({ error: "not_found" });
 
+    if (!inv) {
+      return res.status(404).json({ error: "not_found" });
+    }
+
+    // PDF SmartBill salvat local
+    if (inv.providerPdfUrl) {
+      const absPath = path.join(process.cwd(), inv.providerPdfUrl.replace(/^\//, ""));
+
+      try {
+        await fs.access(absPath);
+
+        return res.sendFile(absPath);
+      } catch {
+        console.warn("PDF local missing:", absPath);
+      }
+    }
+
+    // fallback local pdf
+    if (inv.pdfUrl) {
+      const absPath = path.join(process.cwd(), inv.pdfUrl.replace(/^\//, ""));
+
+      try {
+        await fs.access(absPath);
+
+        return res.sendFile(absPath);
+      } catch {
+        console.warn("PDF local missing:", absPath);
+      }
+    }
+
+    // fallback regenerate
     const platform = await getPlatformBillingOrThrow();
+
     const billingProfile = toBillingProfileFromPlatform(platform, 0);
+
     const platformMeta = getPlatformMeta();
 
-    const html = renderInvoiceHtml({ invoice: inv, billingProfile, platform: platformMeta });
+    const html = renderInvoiceHtml({
+      invoice: inv,
+      billingProfile,
+      platform: platformMeta,
+    });
+
     const pdf = await htmlToPdfBuffer(html);
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="${inv.series || "FA"}-${inv.number || inv.id}.pdf"`);
+
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${inv.series || "FA"}-${inv.number || inv.id}.pdf"`
+    );
+
     return res.send(pdf);
   } catch (err) {
     console.error("GET /api/admin/invoices/:id/pdf FAILED:", err);
-    return res.status(500).json({ error: "server_error", message: err?.message || "Internal Server Error" });
+
+    return res.status(500).json({
+      error: "server_error",
+      message: err?.message || "Internal Server Error",
+    });
+  }
+});
+
+/* =========================================================
+   6) GET /api/admin/billing/vendors-due
+========================================================= */
+router.get("/billing/vendors-due", requireAdmin, async (_req, res) => {
+  try {
+    const vendors = await prisma.vendor.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        displayName: true,
+        email: true,
+        user: {
+          select: {
+            email: true,
+          },
+        },
+        billing: {
+          select: {
+            sellerType: true,
+            companyName: true,
+            vendorName: true,
+            cui: true,
+            regCom: true,
+            address: true,
+            email: true,
+            contactPerson: true,
+            phone: true,
+            vatStatus: true,
+          },
+        },
+        earningEntries: {
+          where: {
+            payoutId: null,
+            type: { in: ["SALE", "REFUND", "ADJUSTMENT"] },
+          },
+          select: {
+            id: true,
+            currency: true,
+            itemsNet: true,
+            commissionNet: true,
+            vendorNet: true,
+            occurredAt: true,
+          },
+        },
+        invoices: {
+          where: {
+            direction: "PLATFORM_TO_VENDOR",
+            status: { in: ["UNPAID", "OVERDUE"] },
+          },
+          select: {
+            id: true,
+            number: true,
+            providerSeries: true,
+            providerNumber: true,
+            totalGross: true,
+            dueDate: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const items = vendors
+      .filter((v) => v.id !== "platform")
+      .map((v) => {
+        const currency = v.earningEntries[0]?.currency || "RON";
+        const entryCount = v.earningEntries.length;
+        const commissionNet = money2(
+          v.earningEntries.reduce((sum, e) => sum + Number(e.commissionNet || 0), 0)
+        );
+        const totalSalesNet = money2(
+          v.earningEntries.reduce((sum, e) => sum + Number(e.itemsNet || 0), 0)
+        );
+        const vendorNet = money2(
+          v.earningEntries.reduce((sum, e) => sum + Number(e.vendorNet || 0), 0)
+        );
+        const unpaidGross = money2(
+          v.invoices.reduce((sum, inv) => sum + Number(inv.totalGross || 0), 0)
+        );
+
+        return {
+          vendorId: v.id,
+          displayName: v.displayName,
+          email: v.billing?.email || v.email || v.user?.email || null,
+          billing: v.billing,
+          entryCount,
+          currency,
+          totalSalesNet,
+          commissionNet,
+          vendorNet,
+          alreadyUnpaidGross: unpaidGross,
+          unpaidInvoices: v.invoices.map((inv) => ({
+            id: inv.id,
+            number:
+              inv.providerSeries && inv.providerNumber
+                ? `${inv.providerSeries}-${inv.providerNumber}`
+                : inv.number,
+            totalGross: Number(inv.totalGross || 0),
+            dueDate: inv.dueDate,
+            status: inv.status,
+          })),
+          canInvoice: entryCount > 0 && commissionNet > 0 && !!v.billing,
+          missingBilling: !v.billing,
+        };
+      })
+      .filter((x) => x.entryCount > 0 || x.alreadyUnpaidGross > 0);
+
+    return res.json({ total: items.length, items });
+  } catch (err) {
+    console.error("GET /api/admin/billing/vendors-due FAILED:", err);
+    return res.status(500).json({
+      error: "vendors_due_failed",
+      message: err?.message || "Nu am putut încărca sumele datorate de vendori.",
+    });
+  }
+});
+
+const CreateVendorCommissionInvoicePayload = z.object({
+  vendorId: z.string().min(6),
+  vatRate: z.number().min(0).max(100).default(0),
+});
+
+/* =========================================================
+   7) POST /api/admin/billing/create-vendor-commission-invoice
+   - emite factură SmartBill către vendor
+========================================================= */
+router.post("/billing/create-vendor-commission-invoice", requireAdmin, async (req, res) => {
+  try {
+    const { vendorId, vatRate } = CreateVendorCommissionInvoicePayload.parse(req.body || {});
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      include: {
+        billing: true,
+        earningEntries: {
+          where: {
+            payoutId: null,
+            type: { in: ["SALE", "REFUND", "ADJUSTMENT"] },
+          },
+          orderBy: { occurredAt: "asc" },
+        },
+      },
+    });
+
+    if (!vendor) return res.status(404).json({ error: "vendor_not_found" });
+
+    if (!vendor.billing) {
+      return res.status(409).json({
+        error: "vendor_billing_missing",
+        message: "Vendorul nu are date de facturare completate.",
+      });
+    }
+
+    if (!vendor.earningEntries.length) {
+      return res.status(409).json({
+        error: "no_entries_to_invoice",
+        message: "Nu există comisioane nefacturate pentru acest vendor.",
+      });
+    }
+
+    const commissionNet = money2(
+      vendor.earningEntries.reduce((sum, e) => sum + Number(e.commissionNet || 0), 0)
+    );
+
+    if (commissionNet <= 0) {
+      return res.status(409).json({
+        error: "zero_commission",
+        message: "Comisionul calculat este 0.",
+      });
+    }
+
+    const currency = vendor.earningEntries[0]?.currency || "RON";
+    const totalVat = money2((commissionNet * vatRate) / 100);
+    const totalGross = money2(commissionNet + totalVat);
+
+    const issueDate = new Date();
+    const dueDate = new Date(issueDate);
+    dueDate.setDate(dueDate.getDate() + 7);
+
+    const periodFrom = vendor.earningEntries[0].occurredAt;
+    const periodTo = vendor.earningEntries[vendor.earningEntries.length - 1].occurredAt;
+
+    const platform = await getPlatformBillingOrThrow();
+    const smartBillSeries = process.env.SMARTBILL_SERIES || platform.invoiceSeries || "AF";
+
+    const clientName =
+      vendor.billing.companyName ||
+      vendor.billing.vendorName ||
+      vendor.billing.contactPerson ||
+      vendor.displayName;
+
+    const description = `Comision platformă ArtFest pentru ${vendor.earningEntries.length} tranzacții`;
+
+    let smartBill;
+    try {
+      smartBill = await createSmartBillInvoice({
+        client: {
+          name: clientName,
+          vatCode: vendor.billing.cui || "",
+          regCom: vendor.billing.regCom || "",
+          address: vendor.billing.address || "",
+          email: vendor.billing.email || "",
+          isTaxPayer: vendor.billing.vatStatus === "payer",
+        },
+        issueDate,
+        dueDate,
+        seriesName: smartBillSeries,
+        currency,
+        totalNet: commissionNet,
+        vatRate,
+        description,
+      });
+    } catch (smartBillErr) {
+      console.error("SmartBill invoice create failed:", smartBillErr?.details || smartBillErr);
+      return res.status(502).json({
+        error: "smartbill_create_failed",
+        message:
+          smartBillErr?.message ||
+          "Factura nu a putut fi emisă în SmartBill. Verifică datele vendorului și credențialele SmartBill.",
+        details: smartBillErr?.details || null,
+      });
+    }
+
+    const providerSeries = smartBill.series || smartBillSeries;
+    const providerNumber = String(
+      smartBill.number || smartBill.invoiceNumber || smartBill.documentNumber || smartBill.id
+    );
+
+    if (!providerNumber || providerNumber === "undefined") {
+      return res.status(502).json({
+        error: "smartbill_missing_invoice_number",
+        message: "SmartBill nu a returnat numărul facturii.",
+        details: smartBill,
+      });
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          vendorId: vendor.id,
+          direction: "PLATFORM_TO_VENDOR",
+          type: "COMMISSION",
+          periodFrom,
+          periodTo,
+          series: providerSeries,
+          number: providerNumber,
+          issueDate,
+          dueDate,
+          currency,
+          clientName,
+          clientEmail: vendor.billing.email,
+          clientPhone: vendor.billing.phone,
+          clientAddress: vendor.billing.address,
+          totalNet: commissionNet,
+          totalVat,
+          totalGross,
+          status: "UNPAID",
+          provider: "SMARTBILL",
+          providerInvoiceId: smartBill.id ? String(smartBill.id) : null,
+          providerSeries,
+          providerNumber,
+          providerStatus: "ISSUED",
+          providerPayload: smartBill,
+          providerSyncedAt: new Date(),
+          lines: {
+            create: [
+              {
+                type: "COMMISSION",
+                description,
+                quantity: 1,
+                unitNet: commissionNet,
+                vatRate,
+                totalNet: commissionNet,
+                totalVat,
+                totalGross,
+                vendorId: vendor.id,
+              },
+            ],
+          },
+        },
+        include: { lines: true },
+      });
+
+      const payout = await tx.vendorPayout.create({
+        data: {
+          vendorId: vendor.id,
+          periodFrom,
+          periodTo,
+          currency,
+          totalItemsNet: money2(
+            vendor.earningEntries.reduce((sum, e) => sum + Number(e.itemsNet || 0), 0)
+          ),
+          totalCommissionNet: commissionNet,
+          totalVendorNet: money2(
+            vendor.earningEntries.reduce((sum, e) => sum + Number(e.vendorNet || 0), 0)
+          ),
+          invoiceId: invoice.id,
+          status: "UNPAID",
+          issuedAt: issueDate,
+        },
+      });
+
+      await tx.vendorEarningEntry.updateMany({
+        where: {
+          id: { in: vendor.earningEntries.map((e) => e.id) },
+        },
+        data: {
+          payoutId: payout.id,
+        },
+      });
+
+      return invoice;
+    });
+
+    let updatedInvoice = created;
+
+    try {
+      const pdfBuffer = await getSmartBillInvoicePdfBuffer({
+        seriesName: created.providerSeries || created.series,
+        number: created.providerNumber || created.number,
+      });
+
+      const dir = path.join(process.cwd(), "uploads", "invoices");
+      await fs.mkdir(dir, { recursive: true });
+
+      const fileName = `${created.providerSeries || created.series}-${
+        created.providerNumber || created.number
+      }.pdf`;
+      const absPath = path.join(dir, fileName);
+
+      await fs.writeFile(absPath, pdfBuffer);
+
+      const pdfUrl = `/uploads/invoices/${fileName}`;
+
+      updatedInvoice = await prisma.invoice.update({
+        where: { id: created.id },
+        data: {
+          pdfUrl,
+          providerPdfUrl: pdfUrl,
+        },
+        include: { lines: true },
+      });
+    } catch (pdfErr) {
+      console.error("SmartBill PDF save failed:", pdfErr);
+    }
+
+    return res.json({
+      ok: true,
+      invoice: updatedInvoice,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: "invalid_payload", details: err.errors });
+    }
+
+    console.error("POST /api/admin/billing/create-vendor-commission-invoice FAILED:", err);
+
+    return res.status(500).json({
+      error: "create_vendor_commission_invoice_failed",
+      message: err?.message || "Nu am putut crea factura de comision.",
+    });
   }
 });
 

@@ -291,6 +291,30 @@ const normalizePhone = (v) => {
   return v || "";
 };
 
+function normalizeSellerTypeForProfile(shop) {
+  const sellerType =
+    shop?.sellerType ||
+    shop?.vendor?.sellerType ||
+    shop?.vendor?.billing?.sellerType ||
+    shop?.billing?.sellerType ||
+    shop?.profile?.service?.vendor?.billing?.sellerType ||
+    "";
+
+  const sellerTypeLabel =
+    shop?.sellerTypeLabel ||
+    (sellerType === "independent_creator"
+      ? "Creator independent la început de drum"
+      : sellerType === "verified_business"
+      ? "Business verificat"
+      : "");
+
+  return {
+    ...shop,
+    sellerType,
+    sellerTypeLabel,
+  };
+}
+
 /* ===== Form produs gol ===== */
 const EMPTY_PROD_FORM = {
   title: "",
@@ -351,7 +375,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     phone: "",
     email: "",
     deliveryArr: [],
-    leadTimes: "",
   });
 
   const serviceId =
@@ -433,48 +456,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     [isOwner, serviceId]
   );
 
-  const saveLeadTimes = useCallback(
-    async (nextLeadTimes) => {
-      if (!isOwner || !serviceId) return;
-
-      setSavingInfo(true);
-      setInfoErr("");
-
-      try {
-        const meServices = await api(
-          "/api/vendors/me/services?includeProfile=1",
-          {
-            method: "GET",
-          }
-        );
-
-        const items = Array.isArray(meServices?.items) ? meServices.items : [];
-        const mine = items.find((x) => x.id === serviceId);
-
-        const merged = {
-          ...(mine?.attributes || {}),
-          leadTimes: nextLeadTimes || "",
-        };
-
-        await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
-          method: "PATCH",
-          body: { attributes: merged },
-        });
-
-        setSellerData((s) =>
-          s ? { ...s, leadTimes: nextLeadTimes || "" } : s
-        );
-
-        setInfoSavedAt(Date.now());
-      } catch (e) {
-        setInfoErr(e?.message || "Nu am putut salva termenele de execuție.");
-      } finally {
-        setSavingInfo(false);
-      }
-    },
-    [isOwner, serviceId]
-  );
-
   const debouncedAutoSave = useDebouncedCallback((draft) => {
     saveProfilePart({
       address: draft.address,
@@ -482,8 +463,6 @@ export default function useProfilMagazin(slug, opts = {}) {
       email: draft.email,
       deliveryArr: draft.deliveryArr,
     });
-
-    saveLeadTimes(draft.leadTimes);
   }, 600);
 
   const onCountiesChange = (arr) => {
@@ -587,7 +566,7 @@ export default function useProfilMagazin(slug, opts = {}) {
 
     const requestId = ++requestIdRef.current;
     const currentSlug = slug;
-    const currentCacheKey = `pm:${currentSlug}`;
+    const currentCacheKey = `pm:v6:${currentSlug}`;
 
     const isCurrent = () => requestIdRef.current === requestId;
 
@@ -605,7 +584,7 @@ export default function useProfilMagazin(slug, opts = {}) {
     const cached = readCache(currentCacheKey);
 
     if (cached?.sellerData && isCurrent()) {
-      setSellerData(cached.sellerData);
+      setSellerData(normalizeSellerTypeForProfile(cached.sellerData));
       setProducts(Array.isArray(cached.products) ? cached.products : []);
       setRating(Number(cached.rating || 0));
     }
@@ -633,14 +612,34 @@ export default function useProfilMagazin(slug, opts = {}) {
         }
       }
 
-      let shop;
+      let shop = null;
+      let ownerFromPrivateRoute = false;
 
       try {
         shop = await api(`/api/public/store/${encodeURIComponent(currentSlug)}`);
-      } catch (e) {
+      } catch (publicError) {
         if (!isCurrent()) return;
 
-        if ([404, 400].includes(e?.status)) {
+        if (![404, 400].includes(publicError?.status)) {
+          throw publicError;
+        }
+
+        if (meNow) {
+          try {
+            shop = await api(
+              `/api/vendors/store/${encodeURIComponent(currentSlug)}`
+            );
+            ownerFromPrivateRoute = true;
+          } catch {
+            setErr("Magazinul nu a fost găsit.");
+            setSellerData(null);
+            setProducts([]);
+            setReviews([]);
+            setRating(0);
+            setLoading(false);
+            return;
+          }
+        } else {
           setErr("Magazinul nu a fost găsit.");
           setSellerData(null);
           setProducts([]);
@@ -649,24 +648,53 @@ export default function useProfilMagazin(slug, opts = {}) {
           setLoading(false);
           return;
         }
-
-        throw e;
       }
 
       if (!isCurrent()) return;
 
-      setSellerData(shop);
+      let normalizedShop = normalizeSellerTypeForProfile(shop);
 
       const owner =
-        !!meNow &&
-        !!shop?.userId &&
-        (meNow.id === shop.userId || meNow.sub === shop.userId);
+        ownerFromPrivateRoute ||
+        (!!meNow &&
+          !!normalizedShop?.userId &&
+          (meNow.id === normalizedShop.userId ||
+            meNow.sub === normalizedShop.userId));
 
+      if (owner && !normalizedShop.sellerType) {
+        try {
+          const billingResp = await api("/api/vendors/me/billing", {
+            method: "GET",
+          });
+
+          const billing = billingResp?.billing || {};
+          const sellerType =
+            billing.sellerType ||
+            billing.vendorType ||
+            billing.accountType ||
+            "";
+
+          normalizedShop = normalizeSellerTypeForProfile({
+            ...normalizedShop,
+            sellerType,
+            sellerTypeLabel:
+              sellerType === "independent_creator"
+                ? "Creator independent la început de drum"
+                : sellerType === "verified_business"
+                ? "Business verificat"
+                : "",
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      setSellerData(normalizedShop);
       setIsOwner(owner);
       setLoading(false);
 
       writeCache(currentCacheKey, {
-        sellerData: shop,
+        sellerData: normalizedShop,
         products: [],
         rating: 0,
       });
@@ -690,7 +718,7 @@ export default function useProfilMagazin(slug, opts = {}) {
           setProducts(itemsRaw);
 
           writeCache(currentCacheKey, {
-            sellerData: shop,
+            sellerData: normalizedShop,
             products: itemsRaw,
             rating: Number(rating || 0),
           });
@@ -709,9 +737,7 @@ export default function useProfilMagazin(slug, opts = {}) {
           if (!isCurrent()) return;
 
           const ids = new Set(
-            (Array.isArray(fav?.items) ? fav.items : []).map(
-              (x) => x.productId
-            )
+            (Array.isArray(fav?.items) ? fav.items : []).map((x) => x.productId)
           );
 
           setFavorites(ids);
@@ -723,9 +749,7 @@ export default function useProfilMagazin(slug, opts = {}) {
       const ratingPromise = (async () => {
         try {
           const avg = await api(
-            `/api/public/store/${encodeURIComponent(
-              currentSlug
-            )}/reviews/average`
+            `/api/public/store/${encodeURIComponent(currentSlug)}/reviews/average`
           );
 
           if (!isCurrent()) return;
@@ -738,7 +762,7 @@ export default function useProfilMagazin(slug, opts = {}) {
           const latestCache = readCache(currentCacheKey);
 
           writeCache(currentCacheKey, {
-            sellerData: shop,
+            sellerData: normalizedShop,
             products: Array.isArray(latestCache?.products)
               ? latestCache.products
               : [],
@@ -791,7 +815,6 @@ export default function useProfilMagazin(slug, opts = {}) {
       phone: sellerData.phone || "",
       email: sellerData.publicEmail || "",
       deliveryArr,
-      leadTimes: sellerData.leadTimes || "",
     });
   }, [sellerData]);
 
@@ -839,18 +862,15 @@ export default function useProfilMagazin(slug, opts = {}) {
   const saveInfoNow = useCallback(async () => {
     const d = infoDraft;
 
-    await Promise.all([
-      saveProfilePart({
-        address: d.address,
-        phone: d.phone,
-        email: d.email,
-        deliveryArr: d.deliveryArr,
-      }),
-      saveLeadTimes(d.leadTimes),
-    ]);
+    await saveProfilePart({
+      address: d.address,
+      phone: d.phone,
+      email: d.email,
+      deliveryArr: d.deliveryArr,
+    });
 
     setEditInfo(false);
-  }, [infoDraft, saveProfilePart, saveLeadTimes]);
+  }, [infoDraft, saveProfilePart]);
 
   const openNewProduct = () => {
     if (!isOwner) return;

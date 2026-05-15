@@ -1,17 +1,17 @@
-// backend/src/routes/vendorPayouts.js
 import { Router } from "express";
+import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import PDFDocument from "pdfkit";
+import fs from "fs/promises";
+import path from "path";
 import { renderInvoiceHtml } from "../lib/invoiceHtmlTemplate.js";
 import { htmlToPdfBuffer } from "../lib/htmlToPdf.js";
 import { getPlatformBillingOrThrow } from "../lib/platformBilling.js";
 
 const router = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// ------------------------------
-// Constants / labels
-// ------------------------------
 const ENTRY_TYPE_LABELS = {
   SALE: "Comandă",
   REFUND: "Corecție",
@@ -34,26 +34,11 @@ const INVOICE_STATUS_LABELS = {
   CANCELLED: "Anulată",
 };
 
-// ------------------------------
-// Helpers
-// ------------------------------
 async function getCurrentVendorByUser(userId) {
   return prisma.vendor.findUnique({
     where: { userId },
     select: { id: true },
   });
-}
-
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfDay(d) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
 }
 
 function addDays(d, days) {
@@ -112,6 +97,34 @@ function getInvoiceTypeLabel(type) {
   }
 }
 
+function getShippingNetFromEntry(entry) {
+  const meta = entry?.meta || {};
+
+  return round2(
+    meta.shippingNet ??
+      meta.transportNet ??
+      meta.shippingAmount ??
+      meta.shipping ??
+      meta.deliveryFee ??
+      entry?.shipment?.price ??
+      0
+  );
+}
+
+function getOrderTotalNetFromEntry(entry) {
+  const meta = entry?.meta || {};
+  const itemsNet = Number(entry?.itemsNet || 0);
+  const shippingNet = getShippingNetFromEntry(entry);
+
+  return round2(meta.orderTotalNet ?? meta.totalNet ?? itemsNet + shippingNet);
+}
+
+function getVatLabel(vatStatus) {
+  if (vatStatus === "payer") return "Plătitor TVA";
+  if (vatStatus === "non_payer") return "Neplătitor TVA";
+  return "—";
+}
+
 function toPlatformBillingProfile(platform) {
   return {
     vendorName: platform.companyName || "ArtFest",
@@ -129,12 +142,17 @@ function toPlatformBillingProfile(platform) {
   };
 }
 
+function mergeMeta(oldMeta, nextMeta) {
+  return {
+    ...(oldMeta && typeof oldMeta === "object" ? oldMeta : {}),
+    ...nextMeta,
+  };
+}
+
 async function getOrderNumberMap(orderIds) {
   const uniqueOrderIds = [...new Set((orderIds || []).filter(Boolean))];
 
-  if (!uniqueOrderIds.length) {
-    return new Map();
-  }
+  if (!uniqueOrderIds.length) return new Map();
 
   const orders = await prisma.order.findMany({
     where: { id: { in: uniqueOrderIds } },
@@ -144,9 +162,6 @@ async function getOrderNumberMap(orderIds) {
   return new Map(orders.map((o) => [o.id, o.orderNumber]));
 }
 
-// ------------------------------
-// Core queries
-// ------------------------------
 async function getOpenLedgerEntries({ vendorId, currency = null }) {
   const where = {
     vendorId,
@@ -163,6 +178,7 @@ async function getOpenLedgerEntries({ vendorId, currency = null }) {
       id: true,
       vendorId: true,
       shipmentId: true,
+      shipment: { select: { price: true } },
       orderId: true,
       type: true,
       occurredAt: true,
@@ -182,19 +198,33 @@ async function computeOpenLedgerTotals({ vendorId }) {
 
   const sums = entries.reduce(
     (acc, e) => {
+      const shippingNet = getShippingNetFromEntry(e);
+
       acc.itemsNet += Number(e.itemsNet || 0);
+      acc.shippingNet += shippingNet;
+      acc.orderTotalNet += Number(e.itemsNet || 0) + shippingNet;
       acc.commissionNet += Number(e.commissionNet || 0);
       acc.vendorNet += Number(e.vendorNet || 0);
       acc.count += 1;
+
       return acc;
     },
-    { itemsNet: 0, commissionNet: 0, vendorNet: 0, count: 0 }
+    {
+      itemsNet: 0,
+      shippingNet: 0,
+      orderTotalNet: 0,
+      commissionNet: 0,
+      vendorNet: 0,
+      count: 0,
+    }
   );
 
   return {
     currency,
     eligibleCount: sums.count,
     itemsNet: round2(sums.itemsNet),
+    shippingNet: round2(sums.shippingNet),
+    orderTotalNet: round2(sums.orderTotalNet),
     commissionNet: round2(sums.commissionNet),
     vendorNet: round2(sums.vendorNet),
   };
@@ -249,6 +279,7 @@ async function getVendorBillingSummary({ vendorId }) {
   const totals = invoices.reduce(
     (acc, inv) => {
       const gross = Number(inv.totalGross || 0);
+
       acc.totalInvoiced += gross;
 
       if (inv.status === "PAID") acc.totalPaid += gross;
@@ -261,10 +292,12 @@ async function getVendorBillingSummary({ vendorId }) {
   );
 
   const now = Date.now();
+
   const nextDueInvoice =
     invoices.find((inv) => {
       if (!(inv.status === "UNPAID" || inv.status === "OVERDUE")) return false;
       if (!inv.dueDate) return false;
+
       const t = new Date(inv.dueDate).getTime();
       return Number.isFinite(t) && t >= now;
     }) ||
@@ -286,13 +319,104 @@ async function getVendorBillingSummary({ vendorId }) {
   };
 }
 
-// ------------------------------
-// 1) SUMMARY
+async function sendLocalPdfIfExists(res, pdfUrl, label = "PDF") {
+  if (!pdfUrl) return false;
+
+  if (/^https?:\/\//i.test(pdfUrl)) {
+    res.redirect(pdfUrl);
+    return true;
+  }
+
+  const absPath = path.join(process.cwd(), pdfUrl.replace(/^\//, ""));
+
+  try {
+    await fs.access(absPath);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${path.basename(absPath).replace(/"/g, "")}"`
+    );
+    res.sendFile(absPath);
+    return true;
+  } catch {
+    console.warn(`${label} local missing:`, absPath);
+    return false;
+  }
+}
+
+// GET /api/vendors/me/billing
+router.get("/vendors/me/billing", authRequired, async (req, res) => {
+  try {
+    const vendor = await getCurrentVendorByUser(req.user.sub);
+
+    if (!vendor) {
+      return res.status(403).json({ error: "not_a_vendor" });
+    }
+
+    const billing = await prisma.vendorBilling.findUnique({
+      where: { vendorId: vendor.id },
+      select: {
+        sellerType: true,
+        legalType: true,
+        vendorName: true,
+        companyName: true,
+        cui: true,
+        regCom: true,
+        address: true,
+        email: true,
+        contactPerson: true,
+        phone: true,
+        vatStatus: true,
+        vatRate: true,
+        autoBillingEnabled: true,
+        stripeCustomerId: true,
+        stripePaymentMethodId: true,
+      },
+    });
+
+    return res.json({ billing });
+  } catch (err) {
+    console.error("GET /vendors/me/billing FAILED:", err);
+    return res.status(500).json({
+      error: "vendor_billing_failed",
+      message: err?.message || "Nu am putut încărca datele de facturare.",
+    });
+  }
+});
+
+// POST /api/vendors/me/billing/auto-pay/disable
+router.post("/vendors/me/billing/auto-pay/disable", authRequired, async (req, res) => {
+  try {
+    const vendor = await getCurrentVendorByUser(req.user.sub);
+    if (!vendor) return res.status(403).json({ error: "not_a_vendor" });
+
+    const billing = await prisma.vendorBilling.update({
+      where: { vendorId: vendor.id },
+      data: {
+        autoBillingEnabled: false,
+        autoBillingDisabledAt: new Date(),
+      },
+      select: {
+        autoBillingEnabled: true,
+        stripeCustomerId: true,
+        stripePaymentMethodId: true,
+      },
+    });
+
+    return res.json({ billing });
+  } catch (err) {
+    return res.status(500).json({
+      error: "auto_pay_disable_failed",
+      message: err?.message || "Nu am putut dezactiva plata automată.",
+    });
+  }
+});
+
 // GET /api/vendor/payouts/summary
-// ------------------------------
 router.get("/vendor/payouts/summary", authRequired, async (req, res) => {
   try {
     const vendor = await getCurrentVendorByUser(req.user.sub);
+
     if (!vendor) {
       return res.status(403).json({ error: "not_a_vendor" });
     }
@@ -310,6 +434,8 @@ router.get("/vendor/payouts/summary", authRequired, async (req, res) => {
       currentPeriod: {
         entryCount: openTotals.eligibleCount,
         salesNet: openTotals.itemsNet,
+        shippingNet: openTotals.shippingNet,
+        orderTotalNet: openTotals.orderTotalNet,
         commissionNet: openTotals.commissionNet,
         vendorNetInformative: openTotals.vendorNet,
         currency: openTotals.currency,
@@ -342,13 +468,11 @@ router.get("/vendor/payouts/summary", authRequired, async (req, res) => {
   }
 });
 
-// ------------------------------
-// 1b) VENDOR INVOICES
 // GET /api/vendors/me/invoices
-// ------------------------------
 router.get("/vendors/me/invoices", authRequired, async (req, res) => {
   try {
     const vendor = await getCurrentVendorByUser(req.user.sub);
+
     if (!vendor) {
       return res.status(403).json({ error: "not_a_vendor" });
     }
@@ -358,33 +482,60 @@ router.get("/vendors/me/invoices", authRequired, async (req, res) => {
         vendorId: vendor.id,
         direction: "PLATFORM_TO_VENDOR",
       },
-      include: { order: true },
+      include: {
+        order: true,
+        vendor: {
+          include: {
+            billing: true,
+            user: true,
+          },
+        },
+      },
       orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
 
-    const dto = items.map((inv) => ({
-      id: inv.id,
-      number: inv.number,
-      series: inv.series || null,
-      issueDate: inv.issueDate,
-      dueDate: inv.dueDate || null,
-      periodFrom: inv.periodFrom || null,
-      periodTo: inv.periodTo || null,
-      type: inv.type || "OTHER",
-      typeLabel: getInvoiceTypeLabel(inv.type),
-      direction: inv.direction,
-      directionLabel: getInvoiceDirectionLabel(inv.direction),
-      orderId: inv.orderId || null,
-      orderNumber: inv.order?.orderNumber || null,
-      totalNet: Number(inv.totalNet || 0),
-      totalVat: Number(inv.totalVat || 0),
-      totalGross: Number(inv.totalGross || 0),
-      currency: inv.currency || "RON",
-      status: inv.status,
-      statusLabel: getInvoiceStatusLabel(inv.status),
-      downloadUrl: inv.pdfUrl || `/api/vendors/me/invoices/${inv.id}/pdf`,
-    }));
+    const dto = items.map((inv) => {
+      const payable = inv.status === "UNPAID" || inv.status === "OVERDUE";
+
+      return {
+        id: inv.id,
+        number: inv.number,
+        series: inv.series || null,
+        issueDate: inv.issueDate,
+        dueDate: inv.dueDate || null,
+        periodFrom: inv.periodFrom || null,
+        periodTo: inv.periodTo || null,
+        type: inv.type || "OTHER",
+        typeLabel: getInvoiceTypeLabel(inv.type),
+        direction: inv.direction,
+        directionLabel: getInvoiceDirectionLabel(inv.direction),
+        orderId: inv.orderId || null,
+        orderNumber: inv.order?.orderNumber || null,
+        totalNet: Number(inv.totalNet || 0),
+        totalVat: Number(inv.totalVat || 0),
+        totalGross: Number(inv.totalGross || 0),
+        currency: inv.currency || "RON",
+        status: inv.status,
+        statusLabel: getInvoiceStatusLabel(inv.status),
+
+        provider: inv.provider || "LOCAL",
+        providerInvoiceId: inv.providerInvoiceId || null,
+        providerSeries: inv.providerSeries || null,
+        providerNumber: inv.providerNumber || null,
+        providerStatus: inv.providerStatus || null,
+        providerPdfUrl: inv.providerPdfUrl || null,
+        providerSyncedAt: inv.providerSyncedAt || null,
+        smartBill: inv.provider === "SMARTBILL",
+
+        downloadUrl: `/api/vendors/me/invoices/${inv.id}/pdf`,
+        paymentUrl: payable ? `/api/vendors/me/invoices/${inv.id}/pay` : null,
+        paymentUrlWithAuto: payable ? `/api/vendors/me/invoices/${inv.id}/pay?autopay=1` : null,
+
+        autoBillingEnabled: Boolean(inv.vendor?.billing?.autoBillingEnabled),
+        hasSavedCard: Boolean(inv.vendor?.billing?.stripePaymentMethodId),
+      };
+    });
 
     return res.json({ items: dto });
   } catch (err) {
@@ -396,13 +547,11 @@ router.get("/vendors/me/invoices", authRequired, async (req, res) => {
   }
 });
 
-// ------------------------------
-// 2) CURRENT PERIOD ENTRIES
 // GET /api/vendor/payouts/entries?eligible=true
-// ------------------------------
 router.get("/vendor/payouts/entries", authRequired, async (req, res) => {
   try {
     const vendor = await getCurrentVendorByUser(req.user.sub);
+
     if (!vendor) {
       return res.status(403).json({ error: "not_a_vendor" });
     }
@@ -412,6 +561,7 @@ router.get("/vendor/payouts/entries", authRequired, async (req, res) => {
     const where = {
       vendorId: vendor.id,
       ...(eligible ? { payoutId: null } : {}),
+      type: { in: ["SALE", "REFUND", "ADJUSTMENT"] },
     };
 
     const items = await prisma.vendorEarningEntry.findMany({
@@ -428,26 +578,34 @@ router.get("/vendor/payouts/entries", authRequired, async (req, res) => {
         vendorNet: true,
         orderId: true,
         shipmentId: true,
+        shipment: { select: { price: true } },
         meta: true,
       },
     });
 
     const orderNumberById = await getOrderNumberMap(items.map((x) => x.orderId));
 
-    const dto = items.map((e) => ({
-      id: e.id,
-      type: e.type,
-      typeLabel: getEntryTypeLabel(e.type),
-      occurredAt: e.occurredAt,
-      currency: e.currency || "RON",
-      itemsNet: Number(e.itemsNet || 0),
-      commissionNet: Number(e.commissionNet || 0),
-      vendorNet: Number(e.vendorNet || 0),
-      orderId: e.orderId || null,
-      orderNumber: e.orderId ? orderNumberById.get(e.orderId) || null : null,
-      shipmentId: e.shipmentId || null,
-      meta: e.meta || null,
-    }));
+    const dto = items.map((e) => {
+      const shippingNet = getShippingNetFromEntry(e);
+      const orderTotalNet = getOrderTotalNetFromEntry(e);
+
+      return {
+        id: e.id,
+        type: e.type,
+        typeLabel: getEntryTypeLabel(e.type),
+        occurredAt: e.occurredAt,
+        currency: e.currency || "RON",
+        itemsNet: Number(e.itemsNet || 0),
+        shippingNet,
+        orderTotalNet,
+        commissionNet: Number(e.commissionNet || 0),
+        vendorNet: Number(e.vendorNet || 0),
+        orderId: e.orderId || null,
+        orderNumber: e.orderId ? orderNumberById.get(e.orderId) || null : null,
+        shipmentId: e.shipmentId || null,
+        meta: e.meta || null,
+      };
+    });
 
     return res.json({ items: dto });
   } catch (err) {
@@ -459,13 +617,11 @@ router.get("/vendor/payouts/entries", authRequired, async (req, res) => {
   }
 });
 
-// ------------------------------
-// 3) STATEMENTS HISTORY
 // GET /api/vendor/payouts
-// ------------------------------
 router.get("/vendor/payouts", authRequired, async (req, res) => {
   try {
     const vendor = await getCurrentVendorByUser(req.user.sub);
+
     if (!vendor) {
       return res.status(403).json({ error: "not_a_vendor" });
     }
@@ -515,14 +671,7 @@ router.get("/vendor/payouts", authRequired, async (req, res) => {
   }
 });
 
-// ------------------------------
-// 4) REQUEST PAYOUT
 // POST /api/vendor/payouts/request
-// ------------------------------
-// Business actual:
-// vendorul încasează direct banii de la client,
-// iar platforma facturează comisionul și abonamentul.
-// Prin urmare vendorul NU solicită o plată de la platformă.
 router.post("/vendor/payouts/request", authRequired, async (_req, res) => {
   return res.status(410).json({
     error: "payout_request_not_supported",
@@ -531,13 +680,11 @@ router.post("/vendor/payouts/request", authRequired, async (_req, res) => {
   });
 });
 
-// ------------------------------
-// 5) STATEMENT PDF
 // GET /api/vendor/payouts/:id/pdf
-// ------------------------------
 router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
   try {
     const vendor = await getCurrentVendorByUser(req.user.sub);
+
     if (!vendor) {
       return res.status(403).json({ error: "not_a_vendor" });
     }
@@ -578,6 +725,8 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
         vendorNet: true,
         orderId: true,
         shipmentId: true,
+        shipment: { select: { price: true } },
+        meta: true,
       },
     });
 
@@ -586,12 +735,17 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
     const billing = await prisma.vendorBilling.findUnique({
       where: { vendorId: vendor.id },
       select: {
+        sellerType: true,
+        legalType: true,
+        vendorName: true,
         companyName: true,
         cui: true,
         regCom: true,
         address: true,
-        iban: true,
-        bank: true,
+        email: true,
+        contactPerson: true,
+        phone: true,
+        vatStatus: true,
       },
     });
 
@@ -599,10 +753,7 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
     const fileName = `Situatie-comision-${statement.id}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${fileName.replace(/"/g, "")}"`
-    );
+    res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/"/g, "")}"`);
 
     doc.pipe(res);
 
@@ -616,38 +767,51 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
         statement.periodTo
       ).toLocaleDateString("ro-RO")}`
     );
-    doc.text(
-      `Data emiterii: ${new Date(statement.issuedAt).toLocaleString("ro-RO")}`
-    );
+    doc.text(`Data emiterii: ${new Date(statement.issuedAt).toLocaleString("ro-RO")}`);
+
     if (statement.paidAt) {
       doc.text(`Data plății: ${new Date(statement.paidAt).toLocaleString("ro-RO")}`);
     }
+
     doc.moveDown(1);
 
     doc.fontSize(12).text("Date vendor", { underline: true });
     doc.fontSize(10);
 
     if (billing) {
-      doc.text(billing.companyName || "—");
-      doc.text(`CUI: ${billing.cui || "—"}`);
-      doc.text(`Nr. Reg. Com.: ${billing.regCom || "—"}`);
-      doc.text(`Adresă: ${billing.address || "—"}`);
-      doc.text(`IBAN: ${billing.iban || "—"}`);
-      doc.text(`Banca: ${billing.bank || "—"}`);
+      const isIndependent = billing.sellerType === "independent_creator";
+
+      if (isIndependent) {
+        doc.text(billing.vendorName || billing.contactPerson || "Creator Independent");
+        doc.text("Tip cont: Creator Independent");
+        doc.text(`Nume complet: ${billing.contactPerson || "—"}`);
+        doc.text(`Email: ${billing.email || "—"}`);
+        doc.text(`Telefon: ${billing.phone || "—"}`);
+        doc.text(`Adresă: ${billing.address || "—"}`);
+      } else {
+        doc.text(billing.companyName || billing.vendorName || "Business Verificat");
+        doc.text(`Tip entitate: ${billing.legalType || "—"}`);
+        doc.text(`CUI / Cod fiscal: ${billing.cui || "—"}`);
+        doc.text(`Nr. Reg. Com.: ${billing.regCom || "—"}`);
+        doc.text(`TVA: ${getVatLabel(billing.vatStatus)}`);
+        doc.text(`Adresă: ${billing.address || "—"}`);
+      }
     } else {
       doc.text("Date de facturare lipsă.");
     }
 
     doc.moveDown(1);
 
+    const shippingTotal = entries.reduce((sum, e) => sum + getShippingNetFromEntry(e), 0);
+    const orderTotal = Number(statement.totalItemsNet || 0) + shippingTotal;
+
     doc.fontSize(12).text("Sumar perioadă", { underline: true });
     doc.fontSize(10);
     doc.text(
-      `Valoare produse net: ${formatMoney(
-        Number(statement.totalItemsNet || 0),
-        statement.currency
-      )}`
+      `Valoare produse net: ${formatMoney(Number(statement.totalItemsNet || 0), statement.currency)}`
     );
+    doc.text(`Transport net: ${formatMoney(shippingTotal, statement.currency)}`);
+    doc.text(`Total comenzi net: ${formatMoney(orderTotal, statement.currency)}`);
     doc.text(
       `Comision net datorat platformei: ${formatMoney(
         Number(statement.totalCommissionNet || 0),
@@ -655,10 +819,7 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
       )}`
     );
     doc.text(
-      `Net vendor informativ: ${formatMoney(
-        Number(statement.totalVendorNet || 0),
-        statement.currency
-      )}`
+      `Net vendor informativ: ${formatMoney(Number(statement.totalVendorNet || 0), statement.currency)}`
     );
 
     doc.moveDown(1);
@@ -666,15 +827,26 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
     doc.fontSize(12).text("Comenzi incluse în calcul", { underline: true });
     doc.moveDown(0.5);
 
-    const col = { date: 48, type: 120, order: 210, itemsNet: 360, commission: 450 };
+    const col = {
+      date: 48,
+      type: 105,
+      order: 165,
+      itemsNet: 270,
+      shipping: 355,
+      total: 430,
+      commission: 505,
+    };
+
     let y = doc.y;
 
     function drawTableHeader(atY) {
-      doc.fontSize(9);
+      doc.fontSize(8);
       doc.text("Data", col.date, atY);
       doc.text("Tip", col.type, atY);
       doc.text("Comandă", col.order, atY);
-      doc.text("Net produse", col.itemsNet, atY);
+      doc.text("Produse", col.itemsNet, atY);
+      doc.text("Transport", col.shipping, atY);
+      doc.text("Total", col.total, atY);
       doc.text("Comision", col.commission, atY);
       doc.moveTo(48, atY + 12).lineTo(560, atY + 12).stroke();
       return atY + 18;
@@ -689,20 +861,18 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
       }
 
       const orderNumber = e.orderId ? orderNumberById.get(e.orderId) : null;
+      const currency = e.currency || statement.currency;
+      const shippingNet = getShippingNetFromEntry(e);
+      const orderTotalNet = getOrderTotalNetFromEntry(e);
 
+      doc.fontSize(8);
       doc.text(new Date(e.occurredAt).toLocaleDateString("ro-RO"), col.date, y);
       doc.text(getEntryTypeLabel(e.type), col.type, y);
-      doc.text(orderNumber || e.orderId || "—", col.order, y, { width: 135 });
-      doc.text(
-        formatMoney(Number(e.itemsNet || 0), e.currency || statement.currency),
-        col.itemsNet,
-        y
-      );
-      doc.text(
-        formatMoney(Number(e.commissionNet || 0), e.currency || statement.currency),
-        col.commission,
-        y
-      );
+      doc.text(orderNumber || e.orderId || "—", col.order, y, { width: 90 });
+      doc.text(formatMoney(Number(e.itemsNet || 0), currency), col.itemsNet, y);
+      doc.text(formatMoney(shippingNet, currency), col.shipping, y);
+      doc.text(formatMoney(orderTotalNet, currency), col.total, y);
+      doc.text(formatMoney(Number(e.commissionNet || 0), currency), col.commission, y);
 
       y += 14;
     }
@@ -724,22 +894,18 @@ router.get("/vendor/payouts/:id/pdf", authRequired, async (req, res) => {
   }
 });
 
-// ------------------------------
-// 6) VENDOR INVOICE PDF
 // GET /api/vendors/me/invoices/:id/pdf
-// ------------------------------
 router.get("/vendors/me/invoices/:id/pdf", authRequired, async (req, res) => {
   try {
     const vendor = await getCurrentVendorByUser(req.user.sub);
+
     if (!vendor) {
       return res.status(403).json({ error: "not_a_vendor" });
     }
 
-    const id = String(req.params.id);
-
     const invoice = await prisma.invoice.findFirst({
       where: {
-        id,
+        id: String(req.params.id),
         vendorId: vendor.id,
         direction: "PLATFORM_TO_VENDOR",
       },
@@ -754,12 +920,19 @@ router.get("/vendors/me/invoices/:id/pdf", authRequired, async (req, res) => {
       return res.status(404).json({ error: "invoice_not_found" });
     }
 
-    if (invoice.pdfUrl && /^https?:\/\//i.test(invoice.pdfUrl)) {
-      return res.redirect(invoice.pdfUrl);
-    }
+    const sentSmartBillPdf = await sendLocalPdfIfExists(
+      res,
+      invoice.providerPdfUrl,
+      "Vendor SmartBill PDF"
+    );
+    if (sentSmartBillPdf) return;
+
+    const sentLocalPdf = await sendLocalPdfIfExists(res, invoice.pdfUrl, "Vendor PDF");
+    if (sentLocalPdf) return;
 
     const platformBilling = await getPlatformBillingOrThrow();
     const billingProfile = toPlatformBillingProfile(platformBilling);
+
     const platform = {
       name: "ArtFest",
       supportEmail: platformBilling.email || "support@artfest.ro",
@@ -771,10 +944,7 @@ router.get("/vendors/me/invoices/:id/pdf", authRequired, async (req, res) => {
     const fileName = `Factura-${invoice.series || "AF"}-${invoice.number || invoice.id}.pdf`;
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${fileName.replace(/"/g, "")}"`
-    );
+    res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/"/g, "")}"`);
 
     return res.send(pdfBuffer);
   } catch (err) {
@@ -782,6 +952,163 @@ router.get("/vendors/me/invoices/:id/pdf", authRequired, async (req, res) => {
     return res.status(500).json({
       error: "vendor_invoice_pdf_failed",
       message: err?.message || "Nu am putut genera PDF-ul facturii.",
+    });
+  }
+});
+
+// GET /api/vendors/me/invoices/:id/pay
+router.get("/vendors/me/invoices/:id/pay", authRequired, async (req, res) => {
+  try {
+    const vendor = await getCurrentVendorByUser(req.user.sub);
+
+    if (!vendor) {
+      return res.status(403).json({ error: "not_a_vendor" });
+    }
+
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        id: String(req.params.id),
+        vendorId: vendor.id,
+        direction: "PLATFORM_TO_VENDOR",
+      },
+      include: {
+        vendor: {
+          include: {
+            billing: true,
+            user: true,
+          },
+        },
+      },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ error: "invoice_not_found" });
+    }
+
+    if (invoice.status === "PAID") {
+      return res.status(400).json({
+        error: "invoice_already_paid",
+        message: "Factura este deja plătită.",
+      });
+    }
+
+    if (!(invoice.status === "UNPAID" || invoice.status === "OVERDUE")) {
+      return res.status(400).json({
+        error: "invoice_not_payable",
+        message: "Factura nu poate fi plătită în starea curentă.",
+      });
+    }
+
+    const amount = Math.round(Number(invoice.totalGross || 0) * 100);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({
+        error: "invalid_invoice_amount",
+        message: "Suma facturii este invalidă.",
+      });
+    }
+
+    const billing = invoice.vendor.billing;
+
+    if (!billing) {
+      return res.status(409).json({
+        error: "vendor_billing_missing",
+        message: "Datele de facturare lipsesc.",
+      });
+    }
+
+    let stripeCustomerId = billing.stripeCustomerId || null;
+
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: billing.email || invoice.vendor.user?.email || undefined,
+        name:
+          billing.companyName ||
+          billing.vendorName ||
+          billing.contactPerson ||
+          invoice.vendor.displayName,
+        metadata: {
+          vendorId: vendor.id,
+        },
+      });
+
+      stripeCustomerId = customer.id;
+
+      await prisma.vendorBilling.update({
+        where: { vendorId: vendor.id },
+        data: { stripeCustomerId },
+      });
+    }
+
+    const enableAutoPay = String(req.query.autopay || "") === "1";
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const displayNumber = [invoice.series, invoice.number].filter(Boolean).join("-") || invoice.id;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer: stripeCustomerId,
+      payment_method_types: ["card"],
+      success_url: `${frontendUrl}/vendor/invoices?payment=success&invoice=${invoice.id}`,
+      cancel_url: `${frontendUrl}/vendor/invoices?payment=cancelled&invoice=${invoice.id}`,
+
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: String(invoice.currency || "RON").toLowerCase(),
+            unit_amount: amount,
+            product_data: {
+              name: `Factură comision ${displayNumber}`,
+              description: "Comision platformă ArtFest",
+            },
+          },
+        },
+      ],
+
+      payment_intent_data: {
+  setup_future_usage: enableAutoPay ? "off_session" : undefined,
+  metadata: {
+    purpose: "vendor_commission_invoice",
+    type: "VENDOR_COMMISSION_INVOICE",
+    invoiceId: invoice.id,
+    vendorId: vendor.id,
+    autoPay: enableAutoPay ? "true" : "false",
+    enableAutoPay: enableAutoPay ? "1" : "0",
+  },
+},
+
+metadata: {
+  purpose: "vendor_commission_invoice",
+  type: "VENDOR_COMMISSION_INVOICE",
+  invoiceId: invoice.id,
+  vendorId: vendor.id,
+  autoPay: enableAutoPay ? "true" : "false",
+  enableAutoPay: enableAutoPay ? "1" : "0",
+},
+    });
+
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        paymentUrl: session.url,
+        stripeCheckoutSessionId: session.id,
+        stripePaymentStatus: "CHECKOUT_CREATED",
+        stripeAutoCharge: enableAutoPay,
+        meta: mergeMeta(invoice.meta, {
+          purpose: "vendor_commission_invoice",
+          stripeCheckoutSessionId: session.id,
+          stripeCustomerId,
+          autoPayRequested: enableAutoPay,
+        }),
+      },
+    });
+
+    return res.redirect(session.url);
+  } catch (err) {
+    console.error("GET /vendors/me/invoices/:id/pay FAILED:", err);
+    return res.status(500).json({
+      error: "invoice_payment_failed",
+      message: err?.message || "Nu am putut iniția plata facturii.",
     });
   }
 });

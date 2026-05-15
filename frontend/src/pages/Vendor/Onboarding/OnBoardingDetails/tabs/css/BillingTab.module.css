@@ -657,3 +657,33 @@ textarea.input {
   width: 100%;
   justify-content: center;
 }
+
+.sellerTypeCards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sellerTypeCard {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.sellerTypeCardActive {
+  border-color: var(--primary, #111);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.sellerTypeCard input {
+  margin-top: 3px;
+}
+
+.sellerTypeCard small {
+  display: block;
+  margin-top: 4px;
+}

@@ -310,42 +310,63 @@ model VendorProductDeclaration {
 }
 
 model VendorBilling {
-  id                           String    @id @default(uuid())
-  vendorId                     String    @unique
-  legalType                    String
-  vendorName                   String
-  companyName                  String
-  cui                          String
-  regCom                       String
-  address                      String
-  iban                         String?
-  bank                         String?
-  email                        String
-  contactPerson                String
-  phone                        String
+  id       String @id @default(uuid())
+  vendorId String @unique
+
+  sellerType String @default("verified_business") @db.VarChar(32)
+
+  legalType     String?
+  vendorName    String
+  companyName   String?
+  cui           String?
+  regCom        String?
+  address       String
+  iban          String?
+  bank          String?
+  email         String
+  contactPerson String
+  phone         String
+
   vatStatus                    String?   @db.VarChar(32)
   vatRate                      String?   @db.VarChar(8)
   vatResponsibilityConfirmed   Boolean   @default(false)
   vatLastResponsibilityConfirm DateTime?
-  tvaActive                    Boolean?
-  tvaVerifiedAt                DateTime?
-  tvaSource                    String?
-  anafName                     String?
-  anafAddress                  String?
-  tvaRegStart                  DateTime?
-  tvaRegEnd                    DateTime?
-  inactiv                      Boolean?
-  inactivFrom                  DateTime?
-  insolvent                    Boolean?
-  splitTva                     Boolean?
-  anafPayload                  Json?
-  createdAt                    DateTime  @default(now())
-  updatedAt                    DateTime  @updatedAt
+
+  taxResponsibilityConfirmed   Boolean   @default(false)
+  taxResponsibilityConfirmedAt DateTime?
+  independentTermsConfirmed    Boolean   @default(false)
+  independentTermsConfirmedAt  DateTime?
+
+  tvaActive     Boolean?
+  tvaVerifiedAt DateTime?
+  tvaSource     String?
+  anafName      String?
+  anafAddress   String?
+  tvaRegStart   DateTime?
+  tvaRegEnd     DateTime?
+  inactiv       Boolean?
+  inactivFrom   DateTime?
+  insolvent     Boolean?
+  splitTva      Boolean?
+  anafPayload   Json?
+
+  stripeCustomerId             String?   @db.VarChar(255)
+  stripeDefaultPaymentMethodId String?   @db.VarChar(255)
+  autoBillingEnabled           Boolean   @default(false)
+  autoBillingEnabledAt         DateTime?
+  autoBillingDisabledAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
+  @@index([sellerType])
   @@index([cui])
   @@index([email])
+  @@index([stripeCustomerId])
+  @@index([stripeDefaultPaymentMethodId])
+  @@index([autoBillingEnabled])
 }
 
 model ServiceType {
@@ -377,9 +398,9 @@ model VendorService {
   estimatedShippingFeeCents  Int?
   freeShippingThresholdCents Int?
   shippingNotes              String?
-  
-searches Search[] // dacă ai pus relație Search -> VendorService
-  events Event[] // ✅ adaugă
+
+  searches           Search[] // dacă ai pus relație Search -> VendorService
+  events             Event[] // ✅ adaugă
   products           Product[]
   shipments          Shipment[]
   ServiceFollow      ServiceFollow[]
@@ -483,15 +504,15 @@ model VendorSubscription {
   trialEndsAt             DateTime?
   trialStartsAt           DateTime?
   stripeCustomerId        String?            @db.VarChar(255)
-  stripeSubscriptionId    String?            @db.VarChar(255)
-  stripeCheckoutSessionId String?            @db.VarChar(255)
+  stripeSubscriptionId    String?            @unique @db.VarChar(255)
+  stripeCheckoutSessionId String?            @unique @db.VarChar(255)
 
   plan   SubscriptionPlan @relation(fields: [planId], references: [id])
   vendor Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@index([stripeCustomerId])
-  @@index([stripeSubscriptionId])
   @@index([vendorId, status, endAt])
+  @@index([vendorId, stripeCustomerId])
 }
 
 model Product {
@@ -822,7 +843,7 @@ model Visitor {
 model Event {
   id        String    @id @default(cuid())
   vendorId  String
-  serviceId String?   // ✅ adaugă
+  serviceId String? // ✅ adaugă
   type      EventType
   createdAt DateTime  @default(now())
   pageUrl   String?
@@ -846,7 +867,7 @@ model Event {
 model Search {
   id        String   @id @default(cuid())
   vendorId  String
-  serviceId String?  // ✅ adaugă
+  serviceId String? // ✅ adaugă
   query     String
   hits      Int      @default(1)
   createdAt DateTime @default(now())
@@ -1276,10 +1297,29 @@ model Invoice {
   totalGross    Decimal          @db.Decimal(12, 2)
   status        InvoiceStatus    @default(UNPAID)
   pdfUrl        String?
+  paymentUrl    String?
+  paidAt        DateTime?
   externalId    String?
   meta          Json?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+
+  provider          InvoiceProvider @default(LOCAL)
+  providerInvoiceId String?
+  providerSeries    String?         @db.VarChar(32)
+  providerNumber    String?         @db.VarChar(64)
+  providerStatus    String?         @db.VarChar(64)
+  providerPdfUrl    String?
+  providerPayload   Json?
+  providerSyncedAt  DateTime?
+
+  stripeCheckoutSessionId String? @db.VarChar(255)
+  stripePaymentIntentId   String? @db.VarChar(255)
+  stripeChargeId          String? @db.VarChar(255)
+  stripePaymentStatus     String? @db.VarChar(64)
+  stripeAutoCharge        Boolean @default(false)
+  stripeLastPaymentError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   vendor       Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   order        Order?        @relation(fields: [orderId], references: [id])
@@ -1287,8 +1327,15 @@ model Invoice {
   lines        InvoiceLine[]
 
   @@unique([vendorId, number])
+  @@unique([vendorId, type, periodFrom, periodTo], name: "vendor_monthly_invoice_unique")
   @@index([orderId])
   @@index([vendorId, direction, status, issueDate])
+  @@index([provider, providerInvoiceId])
+  @@index([dueDate, status])
+  @@index([stripeCheckoutSessionId])
+  @@index([stripePaymentIntentId])
+  @@index([stripeChargeId])
+  @@index([stripePaymentStatus])
 }
 
 model InvoiceLine {
@@ -1990,4 +2037,9 @@ enum NewsletterSource {
   CHECKOUT
   CONTACT
   OTHER
+}
+
+enum InvoiceProvider {
+  LOCAL
+  SMARTBILL
 }

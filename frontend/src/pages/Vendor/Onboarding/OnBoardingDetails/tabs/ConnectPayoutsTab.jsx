@@ -1,5 +1,51 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../../../../../lib/api";
+import styles from "./css/ConnectPayouts.module.css";
+
+const requirementLabels = {
+  "business_profile.url": "Website / pagină online",
+  external_account: "Cont bancar / IBAN",
+
+  "company.name": "Denumire firmă",
+  "company.tax_id": "CUI / cod fiscal",
+  "company.phone": "Telefon firmă",
+  "company.address.city": "Oraș firmă",
+  "company.address.line1": "Adresă firmă",
+  "company.address.postal_code": "Cod poștal firmă",
+  "company.address.country": "Țară firmă",
+
+  "company.directors_provided": "Date despre administratori",
+  "company.executives_provided": "Date despre reprezentanți",
+  "company.owners_provided": "Date despre beneficiarii reali",
+
+  "directors.first_name": "Prenume administrator",
+  "directors.last_name": "Nume administrator",
+  "directors.dob.day": "Zi naștere administrator",
+  "directors.dob.month": "Lună naștere administrator",
+  "directors.dob.year": "An naștere administrator",
+  "directors.address.city": "Oraș administrator",
+  "directors.address.line1": "Adresă administrator",
+  "directors.address.postal_code": "Cod poștal administrator",
+  "directors.email": "Email administrator",
+  "directors.phone": "Telefon administrator",
+
+  "individual.first_name": "Prenume",
+  "individual.last_name": "Nume",
+  "individual.dob.day": "Zi naștere",
+  "individual.dob.month": "Lună naștere",
+  "individual.dob.year": "An naștere",
+  "individual.email": "Email",
+  "individual.phone": "Telefon",
+  "individual.address.city": "Oraș",
+  "individual.address.line1": "Adresă",
+  "individual.address.postal_code": "Cod poștal",
+  "individual.id_number": "CNP / document identificare",
+  "individual.verification.document": "Document de identitate",
+};
+
+function labelRequirement(item) {
+  return requirementLabels[item] || item;
+}
 
 export default function ConnectPayoutsTab() {
   const [loading, setLoading] = useState(true);
@@ -7,46 +53,28 @@ export default function ConnectPayoutsTab() {
   const [err, setErr] = useState("");
   const [status, setStatus] = useState(null);
 
-  const payoutsActivationDate = useMemo(
-    () => new Date("2026-05-17T00:00:00"),
-    []
-  );
-
-  const payoutsLocked = new Date() < payoutsActivationDate;
-
+  const payoutsLocked = false;
   const activationDateText = "17 mai";
-  const gracePeriodText =
-    "După 17 mai, vei avea o perioadă limitată pentru completarea formularului de activare.";
 
-  const boxStyle = {
-    marginTop: 10,
-    padding: 12,
-    border: "1px solid #ddd",
-    borderRadius: 8,
-    background: "#fafafa",
-  };
+  const hasAccount = !!status?.hasAccount;
+  const payoutsEnabled = !!status?.payouts_enabled;
+  const chargesEnabled = !!status?.charges_enabled;
+  const detailsSubmitted = !!status?.details_submitted;
+  const due = Array.isArray(status?.requirements_due)
+    ? status.requirements_due
+    : [];
 
-  const warningStyle = {
-    marginTop: 10,
-    padding: 12,
-    border: "1px solid #e6b800",
-    borderRadius: 8,
-    background: "#fff8e1",
-  };
-
-  const errorStyle = {
-    marginTop: 10,
-    padding: 10,
-    border: "1px solid #f00",
-    borderRadius: 8,
-    background: "#fff5f5",
-  };
+  const fullyEnabled = hasAccount && payoutsEnabled;
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
     setErr("");
+
     try {
-      const d = await api("/api/vendors/stripe/connect/status", { method: "GET" });
+      const d = await api("/api/vendors/stripe/connect/status", {
+        method: "GET",
+      });
+
       setStatus(d);
     } catch (e) {
       setErr(e?.message || "Nu am putut verifica statusul Stripe.");
@@ -67,15 +95,20 @@ export default function ConnectPayoutsTab() {
 
     setStarting(true);
     setErr("");
+
     try {
-      const d = await api("/api/vendors/stripe/connect/start", { method: "POST" });
-      if (!d?.url) throw new Error("Nu am primit linkul de onboarding.");
+      const d = await api("/api/vendors/stripe/connect/start", {
+        method: "POST",
+      });
+
+      if (!d?.url) throw new Error("Nu am primit linkul de onboarding Stripe.");
+
       window.location.href = d.url;
     } catch (e) {
       setErr(e?.message || "Nu am putut porni onboarding-ul Stripe.");
       setStarting(false);
     }
-  }, [payoutsLocked, activationDateText]);
+  }, [payoutsLocked]);
 
   const continueOnboarding = useCallback(async () => {
     if (payoutsLocked) {
@@ -85,142 +118,216 @@ export default function ConnectPayoutsTab() {
 
     setStarting(true);
     setErr("");
+
     try {
-      const d = await api("/api/vendors/stripe/connect/continue", { method: "POST" });
-      if (!d?.url) throw new Error("Nu am primit linkul de continuare.");
+      const d = await api("/api/vendors/stripe/connect/continue", {
+        method: "POST",
+      });
+
+      if (!d?.url) throw new Error("Nu am primit linkul de continuare Stripe.");
+
       window.location.href = d.url;
     } catch (e) {
-      setErr(e?.message || "Nu am putut continua onboarding-ul.");
+      setErr(e?.message || "Nu am putut continua onboarding-ul Stripe.");
       setStarting(false);
     }
-  }, [payoutsLocked, activationDateText]);
+  }, [payoutsLocked]);
 
   if (loading) {
-    return <div style={{ padding: 12 }}>Se verifică statusul încasărilor…</div>;
+    return <div className={styles.loading}>Se verifică statusul încasărilor…</div>;
   }
 
-  const enabled = !!status?.payouts_enabled;
-  const hasAccount = !!status?.hasAccount;
-  const due = Array.isArray(status?.requirements_due) ? status.requirements_due : [];
-
   return (
-    <div style={{ padding: 12 }}>
-      <h3>Încasări prin platformă (Stripe)</h3>
+    <div className={styles.wrap}>
+      <div className={styles.header}>
+        <h3 className={styles.title}>Încasări prin platformă</h3>
+        <p className={styles.subtitle}>
+          Activează Stripe Connect pentru a primi transferuri către contul tău bancar.
+        </p>
+      </div>
 
-      <div style={boxStyle}>
-        <p style={{ marginTop: 0 }}>
-          În curând, platforma va introduce <strong>plăți online</strong> pentru clienți.
-          Pentru ca tu să poți primi acești bani direct în contul tău bancar, folosim{" "}
-          <strong>Stripe</strong>.
+      <div className={`${styles.card} ${styles.cardSoft}`}>
+        <span className={styles.badge}>Stripe Connect</span>
+
+        <p className={styles.text}>
+          Platforma va folosi <strong>Stripe Connect</strong> pentru plățile online.
+          Ca să primești bani din comenzile plătite online, trebuie să ai activat
+          contul de încasări Stripe.
         </p>
 
-        <p>
-          Stripe este serviciul prin care se procesează plățile online și prin care se pot
-          face transferurile către vânzători. În cadrul activării, Stripe poate solicita
-          date precum:
+        <p className={styles.text}>
+          În Stripe vei completa datele necesare pentru verificare și pentru transferul
+          banilor către contul tău bancar.
         </p>
 
-        <ul style={{ marginTop: 0 }}>
-          <li>nume / denumire firmă sau PFA</li>
-          <li>IBAN pentru încasări</li>
-          <li>date de identificare necesare verificării</li>
+        <ul className={styles.list}>
+          <li>Nume / denumire firmă sau PFA</li>
+          <li>Date de identificare cerute de Stripe</li>
+          <li>IBAN / cont bancar pentru încasări</li>
         </ul>
 
-        <p style={{ marginBottom: 0 }}>
-          Până atunci, îți poți activa magazinul și folosi platforma în perioada de probă
-          gratuită <strong>fără să completezi acest formular</strong>.
+        <p className={styles.text}>
+          Datele bancare sunt completate direct în Stripe, nu în Artfest.
         </p>
       </div>
 
       {payoutsLocked && (
-        <div style={warningStyle}>
-          <p style={{ marginTop: 0 }}>
-            <strong>Activarea încasărilor nu este necesară încă.</strong>
-          </p>
+        <div className={styles.notice}>
+          <h4>Activarea încasărilor nu este necesară încă.</h4>
           <p>
-            Formularul Stripe va deveni disponibil după <strong>{activationDateText}</strong>.
-            Până atunci, platforma este în perioadă de probă gratuită.
+            Formularul Stripe va deveni disponibil după{" "}
+            <strong>{activationDateText}</strong>. Până atunci poți folosi platforma
+            fără să activezi încasările.
           </p>
-          <p style={{ marginBottom: 0 }}>{gracePeriodText}</p>
         </div>
       )}
 
-      {err && <div style={errorStyle}>{err}</div>}
+      {err && <div className={styles.error}>{err}</div>}
 
       {!hasAccount && (
         <>
-          <div style={boxStyle}>
-            <p style={{ marginTop: 0 }}>
-              Pentru a primi plăți online prin platformă după perioada de probă, va trebui
-              să activezi încasările prin Stripe.
-            </p>
-            <p style={{ marginBottom: 0 }}>
-              Când activarea va fi disponibilă, vei fi redirecționat către Stripe pentru
-              completarea datelor necesare.
+          <div className={styles.card}>
+            <h4 className={styles.cardTitle}>Stripe nu este conectat</h4>
+            <p className={styles.text}>
+              Pentru a primi plăți online după lansarea încasărilor, trebuie să
+              activezi contul Stripe.
             </p>
           </div>
 
-          <button onClick={startOnboarding} disabled={starting || payoutsLocked}>
-            {starting ? "Se deschide Stripe…" : "Activează încasări"}
-          </button>
-        </>
-      )}
-
-      {hasAccount && !enabled && (
-        <>
-          <div style={boxStyle}>
-            <p style={{ marginTop: 0 }}>
-              Contul Stripe există, dar activarea încasărilor nu este încă finalizată.
-            </p>
-            <p style={{ marginBottom: 0 }}>
-              După activare, vei putea primi plăți online și transferuri către contul bancar.
-            </p>
-          </div>
-
-          {due.length > 0 && (
-            <div style={boxStyle}>
-              <strong>Mai lipsesc:</strong>
-              <ul>
-                {due.slice(0, 12).map((x) => (
-                  <li key={x}>{x}</li>
-                ))}
-              </ul>
-              {due.length > 12 && <div>…și încă {due.length - 12}</div>}
-            </div>
-          )}
-
-          {payoutsLocked && (
-            <div style={warningStyle}>
-              Continuarea onboarding-ului va fi disponibilă după{" "}
-              <strong>{activationDateText}</strong>.
-            </div>
-          )}
-
-          <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
-            <button onClick={continueOnboarding} disabled={starting || payoutsLocked}>
-              {starting ? "Se deschide Stripe…" : "Continuă onboarding"}
+          <div className={styles.buttonRow}>
+            <button
+              className={styles.primaryButton}
+              onClick={startOnboarding}
+              disabled={starting || payoutsLocked}
+            >
+              {starting ? "Se deschide Stripe…" : "Activează încasări"}
             </button>
-            <button onClick={loadStatus} disabled={starting}>
+
+            <button
+              className={styles.secondaryButton}
+              onClick={loadStatus}
+              disabled={starting}
+            >
               Reîncarcă status
             </button>
           </div>
         </>
       )}
 
-      {hasAccount && enabled && (
+      {hasAccount && !fullyEnabled && (
         <>
-          <p style={{ marginTop: 10 }}>
-            ✅ Încasările sunt active. Poți primi transferuri către contul bancar.
-          </p>
+          <div className={styles.notice}>
+            <h4>Cont Stripe început, dar incomplet</h4>
 
-          <div style={boxStyle}>
-            <div>payouts_enabled: {String(status.payouts_enabled)}</div>
-            <div>details_submitted: {String(status.details_submitted)}</div>
-            <div>charges_enabled: {String(status.charges_enabled)}</div>
+            <p>
+              Contul Stripe există, dar încă nu este complet activ pentru transferuri.
+            </p>
+
+            <div className={styles.statusGrid}>
+              <div className={styles.statusItem}>
+                <span className={styles.statusLabel}>Plăți online</span>
+                <span className={styles.statusValue}>
+                  {chargesEnabled ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              <div className={styles.statusItem}>
+                <span className={styles.statusLabel}>Transferuri bancare</span>
+                <span className={styles.statusValue}>
+                  {payoutsEnabled ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              <div className={styles.statusItem}>
+                <span className={styles.statusLabel}>Date trimise</span>
+                <span className={styles.statusValue}>
+                  {detailsSubmitted ? "Da" : "Nu"}
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div style={{ marginTop: 12 }}>
-            <button onClick={loadStatus}>Reîncarcă status</button>
+          {due.length > 0 && (
+            <div className={styles.card}>
+              <h4 className={styles.cardTitle}>
+                Stripe mai cere următoarele informații:
+              </h4>
+
+              <ul className={styles.list}>
+                {due.slice(0, 12).map((item) => (
+                  <li key={item}>{labelRequirement(item)}</li>
+                ))}
+              </ul>
+
+              {due.length > 12 && (
+                <p className={styles.text}>…și încă {due.length - 12}</p>
+              )}
+
+              <p className={styles.text}>
+                Completează aceste informații în pagina Stripe de onboarding.
+              </p>
+            </div>
+          )}
+
+          <div className={styles.buttonRow}>
+            <button
+              className={styles.primaryButton}
+              onClick={continueOnboarding}
+              disabled={starting || payoutsLocked}
+            >
+              {starting ? "Se deschide Stripe…" : "Continuă onboarding"}
+            </button>
+
+            <button
+              className={styles.secondaryButton}
+              onClick={loadStatus}
+              disabled={starting}
+            >
+              Reîncarcă status
+            </button>
+          </div>
+        </>
+      )}
+
+      {fullyEnabled && (
+        <>
+          <div className={styles.success}>
+            <h4>Încasările sunt active</h4>
+            <p>
+              Contul tău Stripe este activ. Poți primi transferuri către contul
+              bancar.
+            </p>
+          </div>
+
+          <div className={styles.card}>
+            <div className={styles.statusGrid}>
+              <div className={styles.statusItem}>
+                <span className={styles.statusLabel}>Plăți online</span>
+                <span className={styles.statusValue}>
+                  {chargesEnabled ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              <div className={styles.statusItem}>
+                <span className={styles.statusLabel}>Transferuri</span>
+                <span className={styles.statusValue}>
+                  {payoutsEnabled ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              <div className={styles.statusItem}>
+                <span className={styles.statusLabel}>Date trimise</span>
+                <span className={styles.statusValue}>
+                  {detailsSubmitted ? "Da" : "Nu"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.buttonRow}>
+            <button className={styles.secondaryButton} onClick={loadStatus}>
+              Reîncarcă status
+            </button>
           </div>
         </>
       )}

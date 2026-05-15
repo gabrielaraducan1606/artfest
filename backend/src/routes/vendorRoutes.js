@@ -1,9 +1,11 @@
 // server/routes/vendors.js
 import { Router } from "express";
+import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { authRequired /*, requireRole*/ } from "../api/auth.js";
 
 const router = Router();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
 
 /* ===================== Helpers ===================== */
 
@@ -29,6 +31,22 @@ const cleanOrNull = (v) => {
   return c ? c : null;
 };
 
+const normalizePhone = (v) => {
+  const c = clean(v);
+  return c ? String(c).replace(/\s+/g, "") : null;
+};
+
+const normalizeEmail = (v) => {
+  const c = clean(v);
+  return c ? String(c).toLowerCase() : null;
+};
+
+const isPhoneIntl = (v) =>
+  /^\+[1-9]\d{7,14}$/.test((v || "").replace(/\s+/g, ""));
+
+const isEmail = (v) =>
+  /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((v || "").trim());
+
 const MULTI_INSTANCE_SERVICE_CODES = new Set(["products"]);
 
 /* ===================== Legal constants ===================== */
@@ -46,11 +64,155 @@ const VENDOR_DOC_LABELS = {
 const BILLING_ACTIVATION_AT = new Date(
   process.env.BILLING_ACTIVATION_AT || "2026-05-17T00:00:00.000Z"
 );
+const PAYOUTS_ACTIVATION_AT = new Date(
+  process.env.PAYOUTS_ACTIVATION_AT || "2026-05-17T00:00:00.000Z"
+);
 
+const PAYOUTS_REQUIRED_AT = new Date(
+  process.env.PAYOUTS_REQUIRED_AT || "2026-06-01T00:00:00.000Z"
+);
+
+function isPayoutsGracePeriod(now = new Date()) {
+  return now >= PAYOUTS_ACTIVATION_AT && now < PAYOUTS_REQUIRED_AT;
+}
+
+function arePayoutsRequired(now = new Date()) {
+  return now >= PAYOUTS_REQUIRED_AT;
+}
+
+function getPayoutsWarning(vendor, now = new Date()) {
+  if (!vendor) return null;
+  if (vendor.stripePayoutsEnabled) return null;
+
+  if (isPayoutsGracePeriod(now)) {
+    return "Activează încasările Stripe Connect până la 1 iunie pentru ca magazinul să rămână activ.";
+  }
+
+  if (arePayoutsRequired(now)) {
+    return "Încasările Stripe Connect sunt obligatorii pentru activarea magazinului.";
+  }
+
+  return null;
+}
+
+async function refreshVendorStripeStatus(vendor) {
+  if (!vendor?.stripeAccountId || !process.env.STRIPE_SECRET_KEY) {
+    return vendor;
+  }
+
+  const acct = await stripe.accounts.retrieve(vendor.stripeAccountId);
+
+  return prisma.vendor.update({
+    where: { id: vendor.id },
+    data: {
+      stripeChargesEnabled: !!acct.charges_enabled,
+      stripePayoutsEnabled: !!acct.payouts_enabled,
+      stripeDetailsSubmitted: !!acct.details_submitted,
+      stripeConnectStatus: acct.payouts_enabled
+  ? "enabled"
+  : acct.requirements?.disabled_reason
+  ? "restricted"
+  : acct.details_submitted || acct.id
+  ? "pending"
+  : "not_started",
+      stripeRequirementsDue: [
+        ...(acct.requirements?.currently_due || []),
+        ...(acct.requirements?.past_due || []),
+      ],
+      stripeDisabledReason: acct.requirements?.disabled_reason || null,
+      stripeOnboardedAt: acct.details_submitted
+        ? vendor.stripeOnboardedAt || new Date()
+        : vendor.stripeOnboardedAt,
+    },
+  });
+}
 function isBillingLocked(now = new Date()) {
   return now < BILLING_ACTIVATION_AT;
 }
+const ALLOWED_SELLER_TYPES = ["independent_creator", "verified_business"];
 
+function hasBusinessBillingData(b) {
+  if (!b) return false;
+
+  return !!(
+    b.legalType ||
+    b.companyName ||
+    b.cui ||
+    b.regCom ||
+    b.vatStatus
+  );
+}
+
+function getSellerTypeFromBilling(b) {
+  if (!b) return "";
+
+  if (ALLOWED_SELLER_TYPES.includes(b.sellerType)) {
+    return b.sellerType;
+  }
+
+  if (hasBusinessBillingData(b)) {
+    return "verified_business";
+  }
+
+  return "";
+}
+
+function validateBillingForActivation(billing) {
+  const missing = [];
+  const isEmpty = (v) => !v || !String(v).trim();
+
+  if (!billing) {
+    return {
+      ok: false,
+      sellerType: "",
+      missing: ['datele de facturare (tab "Plată & facturare")'],
+    };
+  }
+
+  const sellerType = getSellerTypeFromBilling(billing);
+
+  if (!sellerType) {
+    missing.push("tipul de vendor");
+  }
+
+  if (isEmpty(billing.vendorName)) missing.push("numele vendorului");
+  if (isEmpty(billing.address)) missing.push("adresa");
+  if (isEmpty(billing.email)) missing.push("emailul de facturare");
+  if (isEmpty(billing.contactPerson)) missing.push("persoana de contact");
+  if (isEmpty(billing.phone)) missing.push("telefonul de contact");
+
+  if (sellerType === "independent_creator") {
+    if (!billing.taxResponsibilityConfirmed) {
+      missing.push("confirmarea responsabilității fiscale");
+    }
+
+    if (!billing.independentTermsConfirmed) {
+      missing.push("acceptarea condițiilor pentru Creator Independent");
+    }
+  }
+
+  if (sellerType === "verified_business") {
+    if (isEmpty(billing.legalType)) missing.push("tip entitate (SRL / PFA / II / IF)");
+    if (isEmpty(billing.companyName)) missing.push("denumirea entității");
+    if (isEmpty(billing.cui)) missing.push("CUI-ul pentru facturare");
+    if (isEmpty(billing.regCom)) missing.push("Nr. Registrul Comerțului");
+    if (isEmpty(billing.vatStatus)) missing.push("status TVA");
+
+    if (billing.vatStatus === "payer" && isEmpty(billing.vatRate)) {
+      missing.push("cota de TVA aplicată");
+    }
+
+    if (!billing.vatResponsibilityConfirmed) {
+      missing.push("confirmarea responsabilității pentru informațiile fiscale");
+    }
+  }
+
+  return {
+    ok: missing.length === 0,
+    sellerType,
+    missing,
+  };
+}
 /* ===================== Inline middleware ===================== */
 
 async function vendorAccessRequired(req, res, next) {
@@ -366,26 +528,59 @@ router.get("/me/onboarding-status", authRequired, async (req, res) => {
 router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res) => {
   try {
     const userId = req.user.sub;
-    const billingLocked = isBillingLocked();
+    const now = new Date();
+    const billingLocked = isBillingLocked(now);
 
     const meVendor =
-      req.meVendor ??
-      (await prisma.vendor.findUnique({
-        where: { userId },
-        select: {
-          id: true,
-          displayName: true,
-          logoUrl: true,
-          coverUrl: true,
-          phone: true,
-          email: true,
-          address: true,
-          about: true,
-          website: true,
-          entitySelfDeclared: true,
-          entitySelfDeclaredAt: true,
-        },
-      }));
+      req.meVendor?.id
+        ? await prisma.vendor.findUnique({
+            where: { id: req.meVendor.id },
+            select: {
+              id: true,
+              displayName: true,
+              logoUrl: true,
+              coverUrl: true,
+              phone: true,
+              email: true,
+              address: true,
+              about: true,
+              website: true,
+              entitySelfDeclared: true,
+              entitySelfDeclaredAt: true,
+
+              stripeAccountId: true,
+              stripeChargesEnabled: true,
+              stripePayoutsEnabled: true,
+              stripeDetailsSubmitted: true,
+              stripeConnectStatus: true,
+              stripeRequirementsDue: true,
+              stripeDisabledReason: true,
+            },
+          })
+        : await prisma.vendor.findUnique({
+            where: { userId },
+            select: {
+              id: true,
+              displayName: true,
+              logoUrl: true,
+              coverUrl: true,
+              phone: true,
+              email: true,
+              address: true,
+              about: true,
+              website: true,
+              entitySelfDeclared: true,
+              entitySelfDeclaredAt: true,
+
+              stripeAccountId: true,
+              stripeChargesEnabled: true,
+              stripePayoutsEnabled: true,
+              stripeDetailsSubmitted: true,
+              stripeConnectStatus: true,
+              stripeRequirementsDue: true,
+              stripeDisabledReason: true,
+            },
+          });
 
     if (!meVendor) {
       return res.json({
@@ -409,6 +604,16 @@ router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res)
           notice: billingLocked
             ? "Perioada de probă gratuită este activă. Facturarea și plățile online vor începe după data de activare."
             : null,
+        },
+        payouts: {
+          activationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
+          requiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
+          gracePeriod: isPayoutsGracePeriod(now),
+          required: arePayoutsRequired(now),
+          enabled: false,
+          status: "not_started",
+          warning: null,
+          ctaUrl: "/onboarding/details?tab=incasari&solo=1",
         },
       });
     }
@@ -524,6 +729,16 @@ router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res)
         notice: billingLocked
           ? "Perioada de probă gratuită este activă. Facturarea și plățile online vor începe după data de activare."
           : null,
+      },
+      payouts: {
+        activationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
+        requiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
+        gracePeriod: isPayoutsGracePeriod(now),
+        required: arePayoutsRequired(now),
+        enabled: !!meVendor.stripePayoutsEnabled,
+        status: meVendor.stripeConnectStatus || "not_started",
+        warning: getPayoutsWarning(meVendor, now),
+        ctaUrl: "/onboarding/details?tab=incasari&solo=1",
       },
     });
   } catch (e) {
@@ -1217,9 +1432,9 @@ router.put(
       const payload = {
         logoUrl: cleanOrNull(logoUrl),
         coverUrl: cleanOrNull(coverUrl),
-        phone: cleanOrNull(phone),
-        email: cleanOrNull(email),
-        address: cleanOrNull(address),
+       phone: normalizePhone(phone),
+email: normalizeEmail(email),
+address: cleanOrNull(address),
         delivery: Array.isArray(delivery) ? delivery : [],
         city: cleanOrNull(city),
         tagline: cleanOrNull(tagline),
@@ -1260,6 +1475,19 @@ router.put(
 
         payload.slug = nextSlug;
       }
+
+      if (payload.phone && !isPhoneIntl(payload.phone)) {
+  return error(res, "invalid_return_phone", 400, {
+    message:
+      "Telefonul pentru retururi trebuie să fie în format internațional, ex: +40712345678.",
+  });
+}
+
+if (payload.email && !isEmail(payload.email)) {
+  return error(res, "invalid_return_email", 400, {
+    message: "Emailul pentru retururi este invalid.",
+  });
+}
 
       const saved = await prisma.serviceProfile.upsert({
         where: { serviceId: id },
@@ -1374,10 +1602,11 @@ router.post(
     const { id } = req.params;
 
     const meVendor =
-      req.meVendor ??
-      (await prisma.vendor.findUnique({
-        where: { userId: req.user.sub },
-      }));
+      req.meVendor?.id
+        ? await prisma.vendor.findUnique({ where: { id: req.meVendor.id } })
+        : await prisma.vendor.findUnique({
+            where: { userId: req.user.sub },
+          });
 
     if (!meVendor) return error(res, "vendor_profile_missing", 404);
 
@@ -1401,77 +1630,59 @@ router.post(
 
     const now = new Date();
 
-const activeSubscription = await prisma.vendorSubscription.findFirst({
-  where: {
-    vendorId: meVendor.id,
-    OR: [
-      { status: "active", endAt: { gt: now } },
-      { trialEndsAt: { gt: now } },
-    ],
-  },
-  include: { plan: true },
-  orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
-});
+    const activeSubscription = await prisma.vendorSubscription.findFirst({
+      where: {
+        vendorId: meVendor.id,
+        OR: [
+          { status: "active", endAt: { gt: now } },
+          { trialEndsAt: { gt: now } },
+        ],
+      },
+      include: { plan: true },
+      orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
+    });
 
-if (!activeSubscription) {
-  return error(res, "subscription_required", 402, {
-    missing: ["Abonament activ sau trial activ"],
-    upgradeUrl: "/onboarding/details?tab=plata&solo=1",
-    hint: "Ai nevoie de un abonament activ sau de un trial activ pentru a activa magazinul.",
-  });
-}
+    if (!activeSubscription) {
+      return error(res, "subscription_required", 402, {
+        missing: ["Abonament activ sau trial activ"],
+        upgradeUrl: "/onboarding/details?tab=plata&solo=1",
+        hint:
+          "Ai nevoie de un abonament activ sau de un trial activ pentru a activa magazinul.",
+      });
+    }
 
-    const billingLocked = isBillingLocked();
+    const vendorWithStripe = await refreshVendorStripeStatus(meVendor).catch(
+      () => meVendor
+    );
+
+    if (arePayoutsRequired(now) && !vendorWithStripe.stripePayoutsEnabled) {
+      return error(res, "stripe_payouts_required", 400, {
+        missing: ["Activarea încasărilor Stripe Connect"],
+        upgradeUrl: "/onboarding/details?tab=incasari&solo=1",
+        payoutsRequired: true,
+        payoutsActivationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
+        payoutsRequiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
+        stripeConnectStatus:
+          vendorWithStripe.stripeConnectStatus || "not_started",
+        stripePayoutsEnabled: !!vendorWithStripe.stripePayoutsEnabled,
+        hint:
+          "Pentru a activa magazinul trebuie să finalizezi activarea încasărilor Stripe Connect.",
+      });
+    }
+
+    const billingLocked = isBillingLocked(now);
 
     if (!billingLocked) {
       const billing = await prisma.vendorBilling.findUnique({
         where: { vendorId: meVendor.id },
       });
 
-      const missingBilling = [];
-      const isEmpty = (v) => !v || !String(v).trim();
+      const billingCheck = validateBillingForActivation(billing);
 
-      if (!billing) {
-        missingBilling.push('datele de facturare (tab "Plată & facturare")');
-      } else {
-        if (isEmpty(billing.legalType)) {
-          missingBilling.push("tip entitate (SRL / PFA / II / IF)");
-        }
-        if (isEmpty(billing.companyName)) {
-          missingBilling.push("denumirea entității (facturare)");
-        }
-        if (isEmpty(billing.cui)) {
-          missingBilling.push("CUI-ul pentru facturare");
-        }
-        if (isEmpty(billing.regCom)) {
-          missingBilling.push("Nr. Registrul Comerțului");
-        }
-        if (isEmpty(billing.address)) {
-          missingBilling.push("adresa de facturare");
-        }
-        if (isEmpty(billing.email)) {
-          missingBilling.push("emailul de facturare");
-        }
-        if (isEmpty(billing.contactPerson)) {
-          missingBilling.push("persoana de contact (facturare)");
-        }
-        if (isEmpty(billing.phone)) {
-          missingBilling.push("telefonul de contact (facturare)");
-        }
-        if (isEmpty(billing.vatStatus)) {
-          missingBilling.push("status TVA (plătitor / neplătitor)");
-        }
-        if (billing.vatStatus === "payer" && isEmpty(billing.vatRate)) {
-          missingBilling.push("cota de TVA aplicată");
-        }
-        if (!billing.vatResponsibilityConfirmed) {
-          missingBilling.push("confirmarea responsabilității pentru informațiile TVA");
-        }
-      }
-
-      if (missingBilling.length) {
+      if (!billingCheck.ok) {
         return error(res, "missing_required_fields_billing", 400, {
-          missing: missingBilling,
+          sellerType: billingCheck.sellerType || null,
+          missing: billingCheck.missing,
           billingLocked: false,
           billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
         });
@@ -1481,10 +1692,22 @@ if (!activeSubscription) {
     const p = svc.profile || {};
     const missing = [];
 
-    if (!p.displayName?.trim()) missing.push("Nume brand");
-    if (!p.slug?.trim()) missing.push("Slug");
-    if (!p.address?.trim()) missing.push("Adresă retururi / punct de lucru");
-    if (!p.logoUrl && !p.coverUrl) missing.push("O imagine (logo/copertă)");
+   if (!p.displayName?.trim()) missing.push("Nume brand");
+if (!p.slug?.trim()) missing.push("Slug");
+if (!p.address?.trim()) missing.push("Adresă retururi / punct de lucru");
+if (!p.phone?.trim()) missing.push("Telefon pentru retururi");
+if (!p.email?.trim()) missing.push("Email pentru retururi");
+
+if (p.phone?.trim() && !isPhoneIntl(p.phone)) {
+  missing.push("Telefon retur invalid");
+}
+
+if (p.email?.trim() && !isEmail(p.email)) {
+  missing.push("Email retur invalid");
+}
+
+if (!p.logoUrl && !p.coverUrl) missing.push("O imagine (logo/copertă)");
+
     if (!Array.isArray(p.delivery) || p.delivery.length === 0) {
       missing.push("Zonă acoperire");
     }
@@ -1553,6 +1776,14 @@ if (!activeSubscription) {
       ...activated,
       billingLocked,
       billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
+
+      payoutsGracePeriod: isPayoutsGracePeriod(now),
+      payoutsRequired: arePayoutsRequired(now),
+      payoutsActivationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
+      payoutsRequiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
+      stripePayoutsEnabled: !!vendorWithStripe.stripePayoutsEnabled,
+      payoutsWarning: getPayoutsWarning(vendorWithStripe, now),
+
       storeName:
         activated.profile?.displayName ||
         activated.title ||
@@ -1587,7 +1818,7 @@ router.post(
 
     const updated = await prisma.vendorService.update({
       where: { id },
-      data: { isActive: false },
+      data: { isActive: false, status: "INACTIVE" },
       include: {
         type: true,
         profile: true,
@@ -1707,30 +1938,81 @@ router.post("/favorites/toggle", authRequired, async (req, res) => {
 /* ===================== Vendor /me ===================== */
 
 router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
-  const v = await prisma.vendor.findUnique({
-    where: { userId: req.user.sub },
-    select: {
-      id: true,
-      displayName: true,
-      logoUrl: true,
-      coverUrl: true,
-      phone: true,
-      email: true,
-      address: true,
-      about: true,
-      website: true,
-      entitySelfDeclared: true,
-      entitySelfDeclaredAt: true,
+  const vendorSelect = {
+    id: true,
+    displayName: true,
+    logoUrl: true,
+    coverUrl: true,
+    phone: true,
+    email: true,
+    address: true,
+    about: true,
+    website: true,
+    entitySelfDeclared: true,
+    entitySelfDeclaredAt: true,
+
+    stripeAccountId: true,
+    stripeChargesEnabled: true,
+    stripePayoutsEnabled: true,
+    stripeDetailsSubmitted: true,
+    stripeConnectStatus: true,
+    stripeRequirementsDue: true,
+    stripeDisabledReason: true,
+
+    billing: {
+      select: {
+        sellerType: true,
+        legalType: true,
+        vendorName: true,
+        companyName: true,
+        cui: true,
+        regCom: true,
+        address: true,
+        email: true,
+        contactPerson: true,
+        phone: true,
+        vatStatus: true,
+        vatRate: true,
+        vatResponsibilityConfirmed: true,
+        taxResponsibilityConfirmed: true,
+        independentTermsConfirmed: true,
+      },
     },
-  });
+  };
+
+  const v = req.meVendor?.id
+    ? await prisma.vendor.findUnique({
+        where: { id: req.meVendor.id },
+        select: vendorSelect,
+      })
+    : await prisma.vendor.findUnique({
+        where: { userId: req.user.sub },
+        select: vendorSelect,
+      });
 
   if (!v) return error(res, "vendor_profile_missing", 404);
 
+  const { billing: billingRecord, ...vendor } = v;
+  const now = new Date();
+
   res.json({
-    vendor: v,
+    vendor,
     billing: {
-      locked: isBillingLocked(),
+      locked: isBillingLocked(now),
       activationAt: BILLING_ACTIVATION_AT.toISOString(),
+      hasBilling: !!billingRecord,
+      sellerType: getSellerTypeFromBilling(billingRecord) || null,
+      record: billingRecord || null,
+    },
+    payouts: {
+      activationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
+      requiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
+      gracePeriod: isPayoutsGracePeriod(now),
+      required: arePayoutsRequired(now),
+      enabled: !!v.stripePayoutsEnabled,
+      status: v.stripeConnectStatus || "not_started",
+      warning: getPayoutsWarning(v, now),
+      ctaUrl: "/onboarding/details?tab=incasari&solo=1",
     },
   });
 });

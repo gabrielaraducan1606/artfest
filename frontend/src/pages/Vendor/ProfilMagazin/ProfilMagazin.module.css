@@ -459,3 +459,23 @@
   .tabBtn[aria-current="page"] { box-shadow: 0 0 0 2px rgba(0,0,0,.15) inset; }
   .linkBtn, .copyBtn { border-color: var(--color-text); }
 }
+.sellerTypeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--color-primary);
+  border: 1px solid color-mix(in oklab, var(--color-primary), transparent 55%);
+  background: color-mix(in oklab, var(--color-primary), white 92%);
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .sellerTypeBadge {
+    font-size: 0.76rem;
+    padding: 4px 8px;
+  }
+}

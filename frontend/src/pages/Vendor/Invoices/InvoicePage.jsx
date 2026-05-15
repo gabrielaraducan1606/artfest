@@ -1,8 +1,15 @@
 // src/pages/Vendor/Invoices/InvoicePage.jsx
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import styles from "./InvoicePage.module.css";
 
+const API_BASE = import.meta.env.VITE_API_URL || "";
 const BILLING_URL = "/onboarding/details?tab=facturare";
+
+function apiFileUrl(url) {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${API_BASE}${url}`;
+}
 
 const TABS = {
   CURRENT_PERIOD: "CURRENT_PERIOD",
@@ -37,6 +44,35 @@ const ENTRY_TYPE_LABELS = {
   ADJUSTMENT: "Ajustare",
   REFUND: "Corecție",
 };
+
+async function apiGet(url) {
+  const res = await fetch(`/api${url}`, {
+    credentials: "include",
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || "Eroare la încărcare.");
+  }
+
+  return data;
+}
+
+async function apiPost(url) {
+  const res = await fetch(`/api${url}`, {
+    method: "POST",
+    credentials: "include",
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(data?.message || data?.error || "Eroare la salvare.");
+  }
+
+  return data;
+}
 
 function formatDate(d) {
   if (!d) return "—";
@@ -78,166 +114,219 @@ function getCommissionInvoiceTypeLabel(type) {
   return COMMISSION_INVOICE_TYPE_LABELS[type] || type || "—";
 }
 
-// MOCK DATA
-const MOCK_BILLING = {
-  companyName: "SC Demo Vendor SRL",
-  address: "Str. Exemplu 10, București",
-  cui: "RO12345678",
-  regCom: "J40/1234/2020",
-  iban: "RO49AAAA1B31007593840000",
-  bank: "Banca Demo",
-};
+function getEntryShippingNet(entry) {
+  return Number(
+    entry?.shippingNet ??
+      entry?.transportNet ??
+      entry?.shippingAmount ??
+      entry?.meta?.shippingNet ??
+      entry?.meta?.transportNet ??
+      entry?.meta?.shippingAmount ??
+      entry?.meta?.shipping ??
+      entry?.meta?.deliveryFee ??
+      entry?.shipment?.price ??
+      0
+  );
+}
 
-const MOCK_SUMMARY = {
-  currency: "RON",
-  currentPeriod: {
-    entryCount: 3,
-    salesNet: 2450,
-    commissionNet: 245,
-    vendorNetInformative: 2205,
-    currency: "RON",
-  },
-  billing: {
-    totalDue: 420,
-    totalPaid: 1800,
-    totalInvoiced: 2220,
-    totalOverdue: 120,
-    unpaidCount: 2,
-    nextDueAt: "2026-04-25T12:00:00",
-    currency: "RON",
-  },
-  nextStatementAt: "2026-05-01T09:00:00",
-  lastStatement: {
-    issuedAt: "2026-04-01T10:30:00",
-  },
-};
+function getEntryOrderTotalNet(entry) {
+  return Number(
+    entry?.orderTotalNet ??
+      entry?.meta?.orderTotalNet ??
+      entry?.meta?.totalNet ??
+      Number(entry?.itemsNet || 0) + getEntryShippingNet(entry)
+  );
+}
 
-const MOCK_ENTRIES = [
-  {
-    id: "e1",
-    occurredAt: "2026-04-10T14:20:00",
-    type: "SALE",
-    orderNumber: "CMD-1001",
-    orderId: "1001",
-    itemsNet: 1200,
-    commissionNet: 120,
-    vendorNet: 1080,
-    currency: "RON",
-  },
-  {
-    id: "e2",
-    occurredAt: "2026-04-12T11:00:00",
-    type: "SALE",
-    orderNumber: "CMD-1002",
-    orderId: "1002",
-    itemsNet: 950,
-    commissionNet: 95,
-    vendorNet: 855,
-    currency: "RON",
-  },
-  {
-    id: "e3",
-    occurredAt: "2026-04-13T16:45:00",
-    type: "ADJUSTMENT",
-    orderNumber: "CMD-1003",
-    orderId: "1003",
-    itemsNet: 300,
-    commissionNet: 30,
-    vendorNet: 270,
-    currency: "RON",
-  },
-];
+function isIndependentCreatorBilling(billing) {
+  return billing?.sellerType === "independent_creator";
+}
 
-const MOCK_STATEMENTS = [
-  {
-    id: "s1",
-    issuedAt: "2026-04-01T10:30:00",
-    periodFrom: "2026-03-01",
-    periodTo: "2026-03-31",
-    totalItemsNet: 8500,
-    totalCommissionNet: 850,
-    currency: "RON",
-    status: "PAID",
-    pdfUrl: "#",
-  },
-  {
-    id: "s2",
-    issuedAt: "2026-03-01T10:00:00",
-    periodFrom: "2026-02-01",
-    periodTo: "2026-02-28",
-    totalItemsNet: 7200,
-    totalCommissionNet: 720,
-    currency: "RON",
-    status: "UNPAID",
-    pdfUrl: "#",
-  },
-];
+function getBillingDisplayName(billing) {
+  if (!billing) return "—";
 
-const MOCK_COMMISSION_INVOICES = [
-  {
-    id: "i1",
-    number: "FAC-2026-001",
-    issueDate: "2026-04-05",
-    dueDate: "2026-04-20",
-    type: "COMMISSION",
-    orderNumber: "CMD-1001",
-    orderId: "1001",
-    totalGross: 120,
-    currency: "RON",
-    status: "UNPAID",
-    directionLabel: "Factura platformă",
-    downloadUrl: "#",
-  },
-  {
-    id: "i2",
-    number: "FAC-2026-002",
-    issueDate: "2026-04-06",
-    dueDate: "2026-04-22",
-    type: "SUBSCRIPTION",
-    orderNumber: null,
-    orderId: null,
-    totalGross: 99,
-    currency: "RON",
-    status: "PAID",
-    directionLabel: "Factura platformă",
-    downloadUrl: "#",
-  },
-  {
-    id: "i3",
-    number: "FAC-2026-003",
-    issueDate: "2026-04-07",
-    dueDate: "2026-04-18",
-    type: "SHIPPING",
-    orderNumber: "CMD-1002",
-    orderId: "1002",
-    totalGross: 201,
-    currency: "RON",
-    status: "OVERDUE",
-    directionLabel: "Factura platformă",
-    downloadUrl: "#",
-  },
-];
+  if (isIndependentCreatorBilling(billing)) {
+    return billing.vendorName || billing.contactPerson || "Creator Independent";
+  }
+
+  return billing.companyName || billing.vendorName || "Business Verificat";
+}
+
+function getVatLabel(vatStatus) {
+  if (vatStatus === "payer") return "Plătitor TVA";
+  if (vatStatus === "non_payer") return "Neplătitor TVA";
+  return "—";
+}
+
+function getInvoiceDisplayNumber(inv) {
+  if (inv?.providerSeries && inv?.providerNumber) {
+    return `${inv.providerSeries}-${inv.providerNumber}`;
+  }
+
+  if (inv?.series && inv?.number) {
+    return `${inv.series}-${inv.number}`;
+  }
+
+  return inv?.number || "—";
+}
+
+function BillingDetails({ billing }) {
+  if (!billing) return null;
+
+  const independent = isIndependentCreatorBilling(billing);
+
+  return (
+    <div className={styles.billingGrid}>
+      <div>
+        <strong>{getBillingDisplayName(billing)}</strong>
+        <div>
+          {independent
+            ? "Creator Independent"
+            : `Business Verificat${billing.legalType ? ` · ${billing.legalType}` : ""}`}
+        </div>
+        <div>{billing.address || "—"}</div>
+      </div>
+
+      {independent ? (
+        <div>
+          <div>Nume complet: {billing.contactPerson || "—"}</div>
+          <div>Email: {billing.email || "—"}</div>
+          <div>Telefon: {billing.phone || "—"}</div>
+        </div>
+      ) : (
+        <div>
+          <div>CUI / Cod fiscal: {billing.cui || "—"}</div>
+          <div>Nr. Reg. Com.: {billing.regCom || "—"}</div>
+          <div>TVA: {getVatLabel(billing.vatStatus)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function VendorInvoicesPage() {
-  const [billing] = useState(MOCK_BILLING);
+  const [billing, setBilling] = useState(null);
   const [activeTab, setActiveTab] = useState(TABS.CURRENT_PERIOD);
 
-  const [summary] = useState(MOCK_SUMMARY);
-  const [summaryLoading] = useState(false);
-  const [summaryErr] = useState("");
+  const [summary, setSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryErr, setSummaryErr] = useState("");
 
-  const [entries] = useState(MOCK_ENTRIES);
-  const [entriesLoading] = useState(false);
-  const [entriesErr] = useState("");
+  const [entries, setEntries] = useState([]);
+  const [entriesLoading, setEntriesLoading] = useState(true);
+  const [entriesErr, setEntriesErr] = useState("");
 
-  const [statements] = useState(MOCK_STATEMENTS);
+  const [statements, setStatements] = useState([]);
 
-  const [commissionInvoices] = useState(MOCK_COMMISSION_INVOICES);
-  const [commissionLoading] = useState(false);
-  const [commissionErr] = useState("");
+  const [commissionInvoices, setCommissionInvoices] = useState([]);
+  const [commissionLoading, setCommissionLoading] = useState(true);
+  const [commissionErr, setCommissionErr] = useState("");
 
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
+  const [autoPaySaving, setAutoPaySaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadData() {
+      try {
+        setSummaryLoading(true);
+        setEntriesLoading(true);
+        setCommissionLoading(true);
+        setSummaryErr("");
+        setEntriesErr("");
+        setCommissionErr("");
+
+        const [summaryRes, entriesRes, statementsRes, invoicesRes, billingRes] =
+          await Promise.allSettled([
+            apiGet("/vendor/payouts/summary"),
+            apiGet("/vendor/payouts/entries?eligible=true"),
+            apiGet("/vendor/payouts"),
+            apiGet("/vendors/me/invoices"),
+            apiGet("/vendors/me/billing"),
+          ]);
+
+        if (!alive) return;
+
+        if (summaryRes.status === "fulfilled") {
+          setSummary(summaryRes.value);
+        } else {
+          setSummaryErr(summaryRes.reason?.message || "Nu am putut încărca sumarul financiar.");
+        }
+
+        if (entriesRes.status === "fulfilled") {
+          setEntries(entriesRes.value?.items || []);
+        } else {
+          setEntriesErr(entriesRes.reason?.message || "Nu am putut încărca tranzacțiile.");
+        }
+
+        if (statementsRes.status === "fulfilled") {
+          setStatements(statementsRes.value?.items || []);
+        } else {
+          setStatements([]);
+        }
+
+        if (invoicesRes.status === "fulfilled") {
+          setCommissionInvoices(invoicesRes.value?.items || []);
+        } else {
+          setCommissionErr(invoicesRes.reason?.message || "Nu am putut încărca facturile.");
+        }
+
+        if (billingRes.status === "fulfilled") {
+          setBilling(billingRes.value?.billing || billingRes.value || null);
+        } else {
+          setBilling(null);
+        }
+      } catch (err) {
+        if (alive) {
+          setSummaryErr(err?.message || "Nu am putut încărca situația financiară.");
+          setEntriesErr(err?.message || "Nu am putut încărca tranzacțiile.");
+          setCommissionErr(err?.message || "Nu am putut încărca facturile.");
+        }
+      } finally {
+        if (alive) {
+          setSummaryLoading(false);
+          setEntriesLoading(false);
+          setCommissionLoading(false);
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function disableAutoPay() {
+    try {
+      setAutoPaySaving(true);
+
+      await apiPost("/vendors/me/billing/auto-pay/disable");
+
+      setBilling((prev) =>
+        prev
+          ? {
+              ...prev,
+              autoBillingEnabled: false,
+            }
+          : prev
+      );
+
+      setCommissionInvoices((prev) =>
+        prev.map((inv) => ({
+          ...inv,
+          autoBillingEnabled: false,
+        }))
+      );
+    } catch (err) {
+      alert(err?.message || "Nu am putut dezactiva plata automată.");
+    } finally {
+      setAutoPaySaving(false);
+    }
+  }
 
   const filteredCommissionInvoices = useMemo(() => {
     return commissionInvoices.filter((inv) => {
@@ -251,6 +340,8 @@ export default function VendorInvoicesPage() {
     return {
       entryCount: Number(summary?.currentPeriod?.entryCount || 0),
       salesNet: Number(summary?.currentPeriod?.salesNet || 0),
+      shippingNet: Number(summary?.currentPeriod?.shippingNet || 0),
+      orderTotalNet: Number(summary?.currentPeriod?.orderTotalNet || 0),
       commissionNet: Number(summary?.currentPeriod?.commissionNet || 0),
       vendorNetInformative: Number(summary?.currentPeriod?.vendorNetInformative || 0),
       currency: summary?.currentPeriod?.currency || summary?.currency || "RON",
@@ -378,20 +469,7 @@ export default function VendorInvoicesPage() {
           {billing ? (
             <section className={styles.billingCard} aria-label="Date de facturare">
               <h2 className={styles.sectionTitle}>Datele tale de facturare</h2>
-              <div className={styles.billingGrid}>
-                <div>
-                  <strong>{billing.companyName}</strong>
-                  <div>{billing.address || "—"}</div>
-                </div>
-                <div>
-                  <div>CUI: {billing.cui || "—"}</div>
-                  <div>Nr. Reg. Com.: {billing.regCom || "—"}</div>
-                </div>
-                <div>
-                  <div>IBAN: {billing.iban || "—"}</div>
-                  <div>Banca: {billing.bank || "—"}</div>
-                </div>
-              </div>
+              <BillingDetails billing={billing} />
             </section>
           ) : (
             <section className={styles.billingCard} aria-label="Date de facturare lipsă">
@@ -401,20 +479,37 @@ export default function VendorInvoicesPage() {
                 <a href={BILLING_URL} className={styles.linkInline}>
                   Completează-le acum
                 </a>{" "}
-                pentru emiterea corectă a facturilor și documentelor lunare.
+                pentru afișarea corectă a comisioanelor și situațiilor lunare.
               </p>
             </section>
           )}
 
           <section className={styles.summaryRow} aria-label="Sumar perioadă curentă">
             <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Vânzări nete în calcul</span>
+              <span className={styles.summaryLabel}>Vânzări produse nete</span>
               <span className={styles.summaryValue}>
                 {formatMoney(currentPeriod.salesNet, currentPeriod.currency)}
               </span>
-              <span className={styles.summaryPill}>
-                Pe baza comenzilor livrate și ajustărilor deschise
+              <span className={styles.summaryPill}>Produse din comenzile eligibile</span>
+            </div>
+
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Transport</span>
+              <span className={styles.summaryValue}>
+                {formatMoney(currentPeriod.shippingNet, currentPeriod.currency)}
               </span>
+              <span className={styles.summaryPill}>Transport defalcat din comenzi</span>
+            </div>
+
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Total comenzi net</span>
+              <span className={styles.summaryValue}>
+                {formatMoney(
+                  currentPeriod.orderTotalNet || currentPeriod.salesNet + currentPeriod.shippingNet,
+                  currentPeriod.currency
+                )}
+              </span>
+              <span className={styles.summaryPill}>Produse + transport</span>
             </div>
 
             <div className={styles.summaryCard}>
@@ -423,17 +518,17 @@ export default function VendorInvoicesPage() {
                 {formatMoney(currentPeriod.commissionNet, currentPeriod.currency)}
               </span>
               <span className={styles.summaryPill}>
-                Această sumă va intra în următoarea factură / situație
+                Această sumă intră în calculul facturării platformei
               </span>
             </div>
 
             <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Net vendor informativ</span>
+              <span className={styles.summaryLabel}>Câștigul tău estimat</span>
               <span className={styles.summaryValue}>
                 {formatMoney(currentPeriod.vendorNetInformative, currentPeriod.currency)}
               </span>
               <span className={styles.summaryPill}>
-                Informativ, fără a reprezenta o plată procesată de platformă
+                Informativ: vânzări minus comisionul platformei
               </span>
             </div>
           </section>
@@ -463,36 +558,49 @@ export default function VendorInvoicesPage() {
                     <th>Data</th>
                     <th>Tip</th>
                     <th>Comandă</th>
-                    <th>Net produse</th>
+                    <th>Produse net</th>
+                    <th>Transport</th>
+                    <th>Total comandă</th>
                     <th>Comision</th>
-                    <th>Net informativ vendor</th>
+                    <th>Câștig vendor</th>
                     <th>Acțiuni</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map((e) => (
-                    <tr key={e.id}>
-                      <td>{formatDate(e.occurredAt)}</td>
-                      <td>{getEntryTypeLabel(e.type)}</td>
-                      <td>{e.orderNumber || e.orderId || "—"}</td>
-                      <td>{formatMoney(e.itemsNet, e.currency || "RON")}</td>
-                      <td>{formatMoney(e.commissionNet, e.currency || "RON")}</td>
-                      <td>{formatMoney(e.vendorNet, e.currency || "RON")}</td>
-                      <td>
-                        {e.orderId && (
-                          <a href={`/vendor/orders/${e.orderId}`} className={styles.linkBtn}>
-                            Vezi comanda
-                          </a>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {entries.map((e) => {
+                    const shippingNet = getEntryShippingNet(e);
+                    const orderTotalNet = getEntryOrderTotalNet(e);
+
+                    return (
+                      <tr key={e.id}>
+                        <td>{formatDate(e.occurredAt)}</td>
+                        <td>{getEntryTypeLabel(e.type)}</td>
+                        <td>{e.orderNumber || e.orderId || "—"}</td>
+                        <td>{formatMoney(e.itemsNet, e.currency || "RON")}</td>
+                        <td>{formatMoney(shippingNet, e.currency || "RON")}</td>
+                        <td>{formatMoney(orderTotalNet, e.currency || "RON")}</td>
+                        <td>{formatMoney(e.commissionNet, e.currency || "RON")}</td>
+                        <td>{formatMoney(e.vendorNet, e.currency || "RON")}</td>
+                        <td>
+                          {e.orderId && (
+                            <a href={`/vendor/orders/${e.orderId}`} className={styles.linkBtn}>
+                              Vezi comanda
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
           </section>
 
-          <section className={styles.tableWrap} aria-label="Istoric situații lunare" style={{ marginTop: 18 }}>
+          <section
+            className={styles.tableWrap}
+            aria-label="Istoric situații lunare"
+            style={{ marginTop: 18 }}
+          >
             <div className={styles.sectionHead}>
               <div>
                 <h2 className={styles.sectionTitle}>Istoric situații lunare</h2>
@@ -513,7 +621,6 @@ export default function VendorInvoicesPage() {
                     <th>Vânzări nete</th>
                     <th>Comision</th>
                     <th>Status</th>
-                    <th>Actiuni</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -531,18 +638,6 @@ export default function VendorInvoicesPage() {
                         <span className={`${styles.status} ${styles[`status_${s.status}`]}`}>
                           {STATEMENT_STATUS_LABELS[s.status] || s.status}
                         </span>
-                      </td>
-                      <td>
-                        {s.pdfUrl && (
-                          <a
-                            href={s.pdfUrl}
-                            className={styles.linkBtn}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            PDF
-                          </a>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -567,16 +662,12 @@ export default function VendorInvoicesPage() {
               <span className={styles.summaryValue}>
                 {formatMoney(billingOverview.totalDue, billingOverview.currency)}
               </span>
-              <span className={styles.summaryPill}>
-                {billingOverview.unpaidCount} facturi active
-              </span>
+              <span className={styles.summaryPill}>{billingOverview.unpaidCount} facturi active</span>
             </div>
 
             <div className={styles.summaryCard}>
               <span className={styles.summaryLabel}>Următoarea scadență</span>
-              <span className={styles.summaryValue}>
-                {formatDateTime(billingOverview.nextDueAt)}
-              </span>
+              <span className={styles.summaryValue}>{formatDateTime(billingOverview.nextDueAt)}</span>
               <span className={styles.summaryPill}>
                 {billingOverview.totalOverdue > 0
                   ? `Restanțe curente: ${formatMoney(
@@ -603,8 +694,7 @@ export default function VendorInvoicesPage() {
               <div>
                 <h2 className={styles.sectionTitle}>Facturi emise de platformă</h2>
                 <p className={styles.info}>
-                  Aici găsești facturile pentru comisioane, abonamente, curierat sau alte costuri
-                  asociate contului tău.
+                  Aici găsești facturile de comision emise prin SmartBill și salvate în contul tău.
                 </p>
               </div>
             </div>
@@ -665,16 +755,19 @@ export default function VendorInvoicesPage() {
                         <th>Comandă</th>
                         <th>Total</th>
                         <th>Status</th>
-                        <th>Actiuni</th>
+                        <th>Sursă</th>
+                        <th>Acțiuni</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredCommissionInvoices.map((inv) => (
                         <tr key={inv.id}>
                           <td>
-                            <div>{inv.number}</div>
+                            <div>{getInvoiceDisplayNumber(inv)}</div>
                             <div className={styles.clientSubline}>
-                              {inv.directionLabel || "Factura platformă"}
+                              {inv.smartBill
+                                ? "Factura SmartBill"
+                                : inv.directionLabel || "Factura platformă"}
                             </div>
                           </td>
                           <td>{formatDate(inv.issueDate)}</td>
@@ -687,23 +780,73 @@ export default function VendorInvoicesPage() {
                               {getCommissionInvoiceStatusLabel(inv.status)}
                             </span>
                           </td>
+                          <td>{inv.smartBill ? "SmartBill" : "Local"}</td>
                           <td>
-                            {inv.downloadUrl && (
-                              <a
-                                href={inv.downloadUrl}
-                                className={styles.linkBtn}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                PDF
-                              </a>
-                            )}
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {inv.downloadUrl && (
+                                <a
+                                  href={apiFileUrl(inv.downloadUrl)}
+                                  className={styles.linkBtn}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  PDF
+                                </a>
+                              )}
+
+                              {inv.paymentUrl && (
+                                <a href={apiFileUrl(inv.paymentUrl)} className={styles.linkBtn}>
+                                  Plătește
+                                </a>
+                              )}
+
+                              {inv.paymentUrlWithAuto && !inv.autoBillingEnabled && (
+                                <a
+                                  href={apiFileUrl(inv.paymentUrlWithAuto)}
+                                  className={styles.linkBtn}
+                                  title="Plătește factura și salvează cardul pentru plăți automate viitoare"
+                                >
+                                  Plătește + auto
+                                </a>
+                              )}
+
+                              {inv.autoBillingEnabled && (
+                                <>
+                                  <span className={styles.clientSubline}>Auto activ</span>
+
+                                  <button
+                                    type="button"
+                                    className={styles.linkBtn}
+                                    onClick={disableAutoPay}
+                                    disabled={autoPaySaving}
+                                  >
+                                    {autoPaySaving ? "Se dezactivează…" : "Dezactivează auto"}
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 )}
+
+                <div className={styles.autoBillingNote}>
+                  <strong>Ce înseamnă „Plătește + auto”?</strong>
+
+                  <p>
+                    Dacă alegi această opțiune, plata facturii se face acum, iar cardul tău poate fi
+                    salvat securizat pentru plăți automate viitoare către platformă.
+                  </p>
+
+                  <p>
+                    Astfel, facturile următoare pot fi achitate automat la scadență, fără să mai fie
+                    nevoie să intri manual în cont.
+                  </p>
+
+                  <p>Poți dezactiva oricând plata automată din setările contului tău.</p>
+                </div>
               </>
             )}
           </section>

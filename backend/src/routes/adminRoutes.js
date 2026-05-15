@@ -100,6 +100,30 @@ function mapMarketingPrefs(prefs) {
   };
 }
 
+function mapVendorBilling(billing) {
+  if (!billing) return null;
+
+  const hasBusinessData = !!(
+    billing.legalType ||
+    billing.companyName ||
+    billing.cui ||
+    billing.regCom ||
+    billing.vatStatus
+  );
+
+  return {
+    ...billing,
+    sellerType: billing.sellerType || (hasBusinessData ? "verified_business" : ""),
+
+    vatLastResponsibilityConfirm: toIso(billing.vatLastResponsibilityConfirm),
+    taxResponsibilityConfirmedAt: toIso(billing.taxResponsibilityConfirmedAt),
+    independentTermsConfirmedAt: toIso(billing.independentTermsConfirmedAt),
+
+    tvaVerifiedAt: toIso(billing.tvaVerifiedAt),
+    createdAt: toIso(billing.createdAt),
+    updatedAt: toIso(billing.updatedAt),
+  };
+}
 /* =========================================================
  *                      SELECTS
  * ========================================================= */
@@ -238,39 +262,44 @@ const adminVendorSelect = {
     },
   },
 
-  billing: {
-    select: {
-      id: true,
-      legalType: true,
-      vendorName: true,
-      companyName: true,
-      cui: true,
-      regCom: true,
-      address: true,
-      iban: true,
-      bank: true,
-      email: true,
-      contactPerson: true,
-      phone: true,
+   billing: {
+  select: {
+    id: true,
+    sellerType: true,
+    legalType: true,
+    vendorName: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    address: true,
+    iban: true,
+    bank: true,
+    email: true,
+    contactPerson: true,
+    phone: true,
 
-      vatStatus: true,
-      vatRate: true,
-      vatResponsibilityConfirmed: true,
-      vatLastResponsibilityConfirm: true,
+    vatStatus: true,
+    vatRate: true,
+    vatResponsibilityConfirmed: true,
+    vatLastResponsibilityConfirm: true,
 
-      tvaActive: true,
-      inactiv: true,
-      insolvent: true,
-      splitTva: true,
-      tvaVerifiedAt: true,
-      tvaSource: true,
-      anafName: true,
-      anafAddress: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    taxResponsibilityConfirmed: true,
+    taxResponsibilityConfirmedAt: true,
+    independentTermsConfirmed: true,
+    independentTermsConfirmedAt: true,
+
+    tvaActive: true,
+    inactiv: true,
+    insolvent: true,
+    splitTva: true,
+    tvaVerifiedAt: true,
+    tvaSource: true,
+    anafName: true,
+    anafAddress: true,
+    createdAt: true,
+    updatedAt: true,
   },
-
+},
   _count: {
     select: {
       services: true,
@@ -388,38 +417,44 @@ router.get("/vendors", async (_req, res) => {
             },
           },
         },
-        billing: {
-          select: {
-            id: true,
-            legalType: true,
-            vendorName: true,
-            companyName: true,
-            cui: true,
-            regCom: true,
-            address: true,
-            iban: true,
-            bank: true,
-            email: true,
-            contactPerson: true,
-            phone: true,
+       billing: {
+  select: {
+    id: true,
+    sellerType: true,
+    legalType: true,
+    vendorName: true,
+    companyName: true,
+    cui: true,
+    regCom: true,
+    address: true,
+    iban: true,
+    bank: true,
+    email: true,
+    contactPerson: true,
+    phone: true,
 
-            vatStatus: true,
-            vatRate: true,
-            vatResponsibilityConfirmed: true,
-            vatLastResponsibilityConfirm: true,
+    vatStatus: true,
+    vatRate: true,
+    vatResponsibilityConfirmed: true,
+    vatLastResponsibilityConfirm: true,
 
-            tvaActive: true,
-            inactiv: true,
-            insolvent: true,
-            splitTva: true,
-            tvaVerifiedAt: true,
-            tvaSource: true,
-            anafName: true,
-            anafAddress: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        },
+    taxResponsibilityConfirmed: true,
+    taxResponsibilityConfirmedAt: true,
+    independentTermsConfirmed: true,
+    independentTermsConfirmedAt: true,
+
+    tvaActive: true,
+    inactiv: true,
+    insolvent: true,
+    splitTva: true,
+    tvaVerifiedAt: true,
+    tvaSource: true,
+    anafName: true,
+    anafAddress: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+},
         _count: { select: { services: true, visitors: true, supportTickets: true } },
         services: { include: { profile: true } },
         VendorAcceptance: { select: { document: true, version: true, acceptedAt: true } },
@@ -529,15 +564,7 @@ router.get("/vendors", async (_req, res) => {
             }
           : null,
 
-        billing: v.billing
-          ? {
-              ...v.billing,
-              vatLastResponsibilityConfirm: toIso(v.billing.vatLastResponsibilityConfirm),
-              tvaVerifiedAt: toIso(v.billing.tvaVerifiedAt),
-              createdAt: toIso(v.billing.createdAt),
-              updatedAt: toIso(v.billing.updatedAt),
-            }
-          : null,
+              billing: mapVendorBilling(v.billing),
 
         hasMasterAgreement,
         masterAgreementAcceptedAt,
@@ -974,15 +1001,7 @@ router.post("/vendors/:id/activate", async (req, res) => {
               consentSummary: buildUserConsentsSummary(vendor.user),
             }
           : null,
-        billing: vendor.billing
-          ? {
-              ...vendor.billing,
-              vatLastResponsibilityConfirm: toIso(vendor.billing.vatLastResponsibilityConfirm),
-              tvaVerifiedAt: toIso(vendor.billing.tvaVerifiedAt),
-              createdAt: toIso(vendor.billing.createdAt),
-              updatedAt: toIso(vendor.billing.updatedAt),
-            }
-          : null,
+             billing: mapVendorBilling(vendor.billing),
       },
     });
   } catch (e) {
@@ -1022,15 +1041,7 @@ router.post("/vendors/:id/deactivate", async (req, res) => {
               consentSummary: buildUserConsentsSummary(vendor.user),
             }
           : null,
-        billing: vendor.billing
-          ? {
-              ...vendor.billing,
-              vatLastResponsibilityConfirm: toIso(vendor.billing.vatLastResponsibilityConfirm),
-              tvaVerifiedAt: toIso(vendor.billing.tvaVerifiedAt),
-              createdAt: toIso(vendor.billing.createdAt),
-              updatedAt: toIso(vendor.billing.updatedAt),
-            }
-          : null,
+                billing: mapVendorBilling(vendor.billing),
       },
     });
   } catch (e) {

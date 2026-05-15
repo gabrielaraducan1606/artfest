@@ -87,10 +87,11 @@ import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
 import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
 import adminProductsRoutes from "./src/routes/adminProducts.js";
 import newsletterRoutes from "./src/routes/newsletterRoutes.js";
+import stripeWebhookRoutes from "./src/routes/stripeWebhookRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
-
+import { deactivateStoresWithoutPayouts } from "./src/jobs/deactivateStoresWithoutPayouts.js";
 // Încarcă .env DOAR în development
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override
@@ -166,6 +167,11 @@ app.use(
 );
 app.use(compression());
 app.use(cookieParser());
+app.use(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhookRoutes
+);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -549,16 +555,33 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`API up on port ${PORT}`);
   console.log("CORS allowed:", allowedOrigins);
 
-  runFollowUpNotificationJob().catch((err) =>
-    console.error("followUpNotificationJob (startup) failed:", err)
-  );
+ runFollowUpNotificationJob().catch((err) =>
+  console.error("followUpNotificationJob (startup) failed:", err)
+);
 
-  const intervalMs = 10 * 60 * 1000;
-  setInterval(() => {
-    runFollowUpNotificationJob().catch((err) =>
-      console.error("followUpNotificationJob (interval) failed:", err)
-    );
-  }, intervalMs);
+deactivateStoresWithoutPayouts().catch((err) =>
+  console.error("deactivateStoresWithoutPayouts (startup) failed:", err)
+);
+
+const intervalMs = 10 * 60 * 1000;
+
+setInterval(() => {
+  runFollowUpNotificationJob().catch((err) =>
+    console.error("followUpNotificationJob (interval) failed:", err)
+  );
+}, intervalMs);
+
+/*
+  verificăm magazinele fără Stripe payouts
+  o dată pe zi
+*/
+const payoutsIntervalMs = 24 * 60 * 60 * 1000;
+
+setInterval(() => {
+  deactivateStoresWithoutPayouts().catch((err) =>
+    console.error("deactivateStoresWithoutPayouts (interval) failed:", err)
+  );
+}, payoutsIntervalMs);
 });
 
 /* ---------------- ENV REQUIRED ---------------- */
@@ -573,6 +596,14 @@ must("DATABASE_URL");
 must("CORS_ORIGIN");
 must("JWT_SECRET");
 must("ADMIN_MONITOR_TOKEN");
+
+must("STRIPE_SECRET_KEY");
+must("PAYOUTS_REQUIRED_AT");
+must("PAYOUTS_ACTIVATION_AT");
+
+must("STRIPE_WEBHOOK_SECRET");
+must("APP_ORIGIN");
+must("TRIAL_DEFAULT_DAYS");
 
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 process.on("SIGINT", () => server.close(() => process.exit(0)));

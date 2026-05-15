@@ -314,6 +314,8 @@ export default function DesktopV3() {
   const [busy, setBusy] = useState({});
   const [error, setError] = useState("");
   const [vendor, setVendor] = useState(() => cached?.vendor ?? null);
+const [billing, setBilling] = useState(() => cached?.billing ?? null);
+const [payouts, setPayouts] = useState(() => cached?.payouts ?? null);
 
   const sub = useSubscriptionStatus();
 
@@ -345,6 +347,8 @@ export default function DesktopV3() {
         stats,
         reviewCounts,
         vendor,
+        payouts,
+        billing,
         counts: {
           unreadNotif,
           unreadMsgs,
@@ -365,11 +369,13 @@ export default function DesktopV3() {
     stats,
     reviewCounts,
     vendor,
+    billing,
     unreadNotif,
     unreadMsgs,
     cartCount,
     favCount,
     supportUnread,
+    payouts,
   ]);
 
   useEffect(() => {
@@ -405,10 +411,13 @@ export default function DesktopV3() {
     };
 
     const fetchNonCritical = async () => {
-      api("/api/vendors/me")
-        .then((v) => v?.vendor && setVendor(v.vendor))
-        .catch(() => {});
-
+    api("/api/vendors/me")
+  .then((v) => {
+    if (v?.vendor) setVendor(v.vendor);
+    if (v?.billing) setBilling(v.billing);
+    if (v?.payouts) setPayouts(v.payouts);
+  })
+  .catch(() => {});
       const { from, to } = lastNDaysRange(7);
 
       api(`/api/vendors/me/visitors/kpi?from=${from}&to=${to}`)
@@ -812,12 +821,12 @@ export default function DesktopV3() {
 
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 
-      <IdentityCard me={me} roleLabel={roleLabel} />
+      <IdentityCard me={me} roleLabel={roleLabel} billing={billing} />
       <QuickCard quick={quick} />
 
       <TrialBanner sub={sub} />
       <SubscriptionAlert sub={sub} />
-
+<PayoutsWarning payouts={payouts} />
 
       <div className={styles.grid}>
         <div className={styles.colMain}>
@@ -837,7 +846,7 @@ export default function DesktopV3() {
           />
         </div>
 
-        <Sidebar sub={sub} />
+        <Sidebar sub={sub} billing={billing} />
       </div>
 
       <SettingsAndSecurityCard />
@@ -960,6 +969,32 @@ function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
     </div>
   );
 }
+function PayoutsWarning({ payouts }) {
+  if (!payouts) return null;
+  if (payouts.enabled) return null;
+  if (!payouts.warning) return null;
+
+  return (
+    <div className={`${styles.card} ${styles.cardWarning}`}>
+      <div className={styles.cardHead}>
+        <h3>Activează încasările</h3>
+      </div>
+
+      <p className={styles.subtle}>
+        {payouts.warning}
+      </p>
+
+      <div className={styles.actionsRow}>
+        <Link
+          className={`${styles.btn} ${styles.btnPrimary}`}
+          to={payouts.ctaUrl || "/onboarding/details?tab=incasari&solo=1"}
+        >
+          Activează încasările
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 function TrialBanner({ sub }) {
   if (sub.loading) return null;
@@ -1013,7 +1048,7 @@ function TrialBanner({ sub }) {
   );
 }
 
-function IdentityCard({ me, roleLabel }) {
+function IdentityCard({ me, roleLabel, billing }) {
   const initials = getInitials(me);
 
   return (
@@ -1037,6 +1072,16 @@ function IdentityCard({ me, roleLabel }) {
           </div>
 
           <div className={styles.subtle}>{roleLabel}</div>
+          <div className={styles.subtle}>
+  Tip vendor:{" "}
+  <b>
+    {billing?.sellerType === "independent_creator"
+      ? "Creator Independent"
+      : billing?.sellerType === "verified_business"
+      ? "Business Verificat"
+      : "Neconfigurat"}
+  </b>
+</div>
         </div>
       </div>
     </div>
@@ -1339,13 +1384,44 @@ function ServicesCard({
   );
 }
 
-function Sidebar({ sub }) {
+function Sidebar({ sub, billing }) {
   const trial = isTrialSub(sub);
   const until = trial ? sub?.trialEndsAt : sub?.endAt;
   const daysLeft = daysLeftFromISO(until);
 
   return (
     <aside className={styles.colSide}>
+      <div className={styles.card}>
+  <div className={styles.cardHead}>
+    <h3>Tip vendor</h3>
+  </div>
+
+  <p className={styles.subtle}>
+    {billing?.sellerType === "independent_creator" ? (
+      <>
+        Ești configurat ca <b>Creator Independent</b>. Poți activa magazinul fără
+        date de firmă, dacă ai completat confirmările fiscale.
+      </>
+    ) : billing?.sellerType === "verified_business" ? (
+      <>
+        Ești configurat ca <b>Business Verificat</b>. Pentru activare sunt necesare
+        datele firmei/PFA și confirmarea fiscală.
+      </>
+    ) : (
+      <>
+        Nu ai configurat încă tipul de vendor. Completează datele de facturare
+        înainte de activare.
+      </>
+    )}
+  </p>
+
+  <Link
+    className={`${styles.btn} ${styles.btnGhost}`}
+    to="/onboarding/details?tab=facturare&solo=1"
+  >
+    Editează date facturare
+  </Link>
+</div>
       <div className={styles.card}>
         <div className={styles.cardHead}>
           <h3>Abonament</h3>

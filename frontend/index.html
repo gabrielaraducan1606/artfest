@@ -3,124 +3,174 @@
   <head>
     <meta charset="UTF-8" />
 
-    <!-- 🔐 Access gate pentru coming soon -->
-    <!-- 🔐 Access gate pentru coming soon -->
-<!--
-<script>
-  (function () {
-    try {
-      const isLocal =
-        location.hostname === "localhost" ||
-        location.hostname === "127.0.0.1" ||
-        location.hostname === "::1";
+    <!-- 🔐 Maintenance / Access Guard -->
+    <script>
+      (function () {
+        try {
+          const isLocal =
+            location.hostname === "localhost" ||
+            location.hostname === "127.0.0.1" ||
+            location.hostname === "::1";
 
-      const allowed = isLocal || localStorage.getItem("artfest-access") === "ok";
-      const path = window.location.pathname;
-      const isComingSoon = path === "/coming-soon.html" || path === "/unlock.html";
-      const isSeo =
-        path === "/sitemap.xml" ||
-        path === "/robots.txt" ||
-        path.startsWith("/icons/");
+          // 🔧 activează/dezactivează maintenance mode
+          const MAINTENANCE_MODE = true;
 
-      if (!allowed && !isComingSoon && !isSeo) {
-        window.location.replace("/coming-soon.html");
-      }
-    } catch (e) {
-      console.error("Access gate error:", e);
-    }
-  })();
-</script>
--->
+          // 🔓 acces privat
+          const hasAccess =
+            localStorage.getItem("artfest-access") === "ok";
 
+          const path = window.location.pathname;
+
+          // 📄 pagini publice permise
+          const allowedPaths = [
+            "/coming-soon.html",
+            "/favicon.ico",
+            "/robots.txt",
+            "/sitemap.xml",
+          ];
+
+          const isAllowedPath =
+            allowedPaths.includes(path) ||
+            path.startsWith("/icons/") ||
+            path.startsWith("/assets/");
+
+          // localhost = acces total
+          if (isLocal) return;
+
+          // maintenance OFF
+          if (!MAINTENANCE_MODE) return;
+
+          // acces privat OK
+          if (hasAccess) return;
+
+          // deja pe maintenance page
+          if (isAllowedPath) return;
+
+          // redirect
+          window.location.replace("/coming-soon.html");
+        } catch (e) {
+          console.error("Maintenance guard error:", e);
+        }
+      })();
+    </script>
 
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
+
     <meta name="theme-color" content="#f97316" />
 
-    <!-- 🏷️ SEO Title -->
+    <!-- SEO -->
     <title>Artfest – Platformă pentru artizanii de evenimente</title>
 
-    <!-- 📄 Meta Description -->
     <meta
       name="description"
-      content="Artfest este platforma dedicată artizanilor de evenimente. Creează-ți un profil online gratuit, distribuie-l clienților, vinde invitații instant, gestionează albume QR și organizarea meselor. Totul într-un singur loc."
+      content="Artfest este platforma dedicată artizanilor de evenimente. Creează-ți un profil online gratuit, distribuie-l clienților, vinde invitații instant, gestionează albume QR și organizarea meselor."
     />
 
-    <!-- 🧭 Meta Keywords -->
     <meta
       name="keywords"
-      content="artfest, artizani evenimente, platformă evenimente, invitații online, albume QR, organizare mese, profil online, nuntă, botez, invitații nuntă, invitații botez, mărturii, organizatori"
+      content="artfest, artizani evenimente, invitații online, albume QR, organizare mese"
     />
 
-    <!-- 🕷️ SEO Robots -->
-    <meta name="robots" content="index, follow" />
+    <!-- ⚠️ cât timp site-ul e în maintenance -->
+    <meta name="robots" content="noindex, nofollow" />
 
-    <!-- 🌍 Canonical URL -->
+    <!-- Canonical -->
     <link rel="canonical" href="https://artfest.ro/" />
 
-    <!-- 🖼️ Open Graph -->
-    <meta property="og:title" content="Artfest – Platformă pentru artizanii de evenimente" />
-    <meta property="og:description" content="Profiluri gratuite pentru artizanii de evenimente, invitații online, albume QR și organizare mese." />
+    <!-- Open Graph -->
+    <meta
+      property="og:title"
+      content="Artfest – Platformă pentru artizanii de evenimente"
+    />
+
+    <meta
+      property="og:description"
+      content="Profiluri gratuite pentru artizanii de evenimente, invitații online, albume QR și organizare mese."
+    />
+
     <meta property="og:type" content="website" />
+
     <meta property="og:url" content="https://artfest.ro/" />
-    <meta property="og:image" content="https://media.artfest.ro/branding/LogoArtfest.png" />
 
-    <!-- 🐦 Twitter Card -->
+    <meta
+      property="og:image"
+      content="https://media.artfest.ro/branding/LogoArtfest.png"
+    />
+
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Artfest – Platformă pentru artizanii de evenimente" />
-    <meta name="twitter:description" content="Profiluri gratuite pentru artizanii de evenimente, invitații online, albume QR și organizare mese." />
-    <meta name="twitter:image" content="https://artfest.ro/cover.png" />
 
-    <!-- 📱 Apple touch icons -->
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="32x32" href="https://media.artfest.ro/branding/LogoArtfest.png">
+    <meta
+      name="twitter:title"
+      content="Artfest – Platformă pentru artizanii de evenimente"
+    />
 
-    <!-- ⚡ Schema.org JSON-LD -->
+    <meta
+      name="twitter:description"
+      content="Profiluri gratuite pentru artizanii de evenimente."
+    />
+
+    <meta
+      name="twitter:image"
+      content="https://media.artfest.ro/branding/LogoArtfest.png"
+    />
+
+    <!-- Icons -->
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/apple-touch-icon.png"
+    />
+
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="https://media.artfest.ro/branding/LogoArtfest.png"
+    />
+
+    <!-- JSON-LD -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "WebSite",
         "name": "Artfest",
         "url": "https://artfest.ro/",
-        "description": "Platformă pentru artizanii de evenimente — profiluri online gratuite, invitații instant, albume QR și organizare mese.",
+        "description": "Platformă pentru artizanii de evenimente.",
         "publisher": {
           "@type": "Organization",
           "name": "Artfest"
-        },
-        "potentialAction": {
-          "@type": "SearchAction",
-          "target": "https://artfest.ro/?s={search_term_string}",
-          "query-input": "required name=search_term_string"
         }
       }
     </script>
 
-    <!-- 🌗 Tema light/dark -->
+    <!-- 🌗 Theme -->
     <script>
-  (function () {
-    try {
-      var t = localStorage.getItem("theme");
-      var d = document.documentElement;
-      if (t === "light" || t === "dark") d.setAttribute("data-theme", t);
-      else d.removeAttribute("data-theme");
-    } catch (e) {}
-  })();
-</script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          var d = document.documentElement;
 
-    <!-- (opțional) fonturi -->
-    <!--
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
-      rel="stylesheet"
-    >
-    -->
+          if (t === "light" || t === "dark") {
+            d.setAttribute("data-theme", t);
+          } else {
+            d.removeAttribute("data-theme");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
+
   <body>
-    <noscript>Ai nevoie de JavaScript pentru a rula această aplicație.</noscript>
+    <noscript>
+      Ai nevoie de JavaScript pentru a rula această aplicație.
+    </noscript>
+
     <div id="root"></div>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

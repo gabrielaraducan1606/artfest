@@ -590,3 +590,24 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) {
     font-size: 0.85rem;
   }
 }
+
+.autoBillingNote {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.autoBillingNote strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+
+.autoBillingNote p {
+  margin: 6px 0;
+  opacity: 0.9;
+}

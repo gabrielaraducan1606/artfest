@@ -44,6 +44,9 @@ export async function seedSubscriptionPlans(prisma) {
       isActive: true,
       popular: false,
       trialDays: null,
+      stripeProductId: null,
+      stripePriceMonthId: null,
+      stripePriceYearId: null,
     },
 
     {
@@ -89,6 +92,9 @@ export async function seedSubscriptionPlans(prisma) {
       isActive: true,
       popular: false,
       trialDays: 30,
+      stripeProductId: process.env.STRIPE_PRODUCT_PRO || null,
+      stripePriceMonthId: process.env.STRIPE_PRICE_PRO_MONTH || null,
+      stripePriceYearId: process.env.STRIPE_PRICE_PRO_YEAR || null,
     },
 
     {
@@ -136,6 +142,9 @@ export async function seedSubscriptionPlans(prisma) {
       isActive: true,
       popular: true,
       trialDays: 30,
+      stripeProductId: process.env.STRIPE_PRODUCT_PREMIUM || null,
+      stripePriceMonthId: process.env.STRIPE_PRICE_PREMIUM_MONTH || null,
+      stripePriceYearId: process.env.STRIPE_PRICE_PREMIUM_YEAR || null,
     },
   ];
 
@@ -156,6 +165,9 @@ export async function seedSubscriptionPlans(prisma) {
         isActive: p.isActive,
         popular: p.popular ?? false,
         trialDays: p.trialDays ?? null,
+        stripeProductId: p.stripeProductId ?? null,
+        stripePriceMonthId: p.stripePriceMonthId ?? null,
+        stripePriceYearId: p.stripePriceYearId ?? null,
       },
       update: {
         name: p.name,
@@ -170,6 +182,9 @@ export async function seedSubscriptionPlans(prisma) {
         isActive: p.isActive,
         popular: p.popular ?? false,
         trialDays: p.trialDays ?? null,
+        stripeProductId: p.stripeProductId ?? null,
+        stripePriceMonthId: p.stripePriceMonthId ?? null,
+        stripePriceYearId: p.stripePriceYearId ?? null,
       },
     });
   }

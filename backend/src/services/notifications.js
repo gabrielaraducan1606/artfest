@@ -911,3 +911,34 @@ export async function notifyVendorOnProductSoldOut(productId) {
     },
   });
 }
+export async function notifyVendorStripePayoutsRequired(vendorId, mode = "grace") {
+  if (!vendorId) return null;
+
+  const isDeactivated = mode === "deactivated";
+  const isRequired = mode === "required";
+
+  return createVendorNotification(vendorId, {
+    dedupeKey:
+      mode === "grace"
+        ? `stripe_payouts_${mode}:${vendorId}:${new Date().toISOString().slice(0, 10)}`
+        : `stripe_payouts_${mode}:${vendorId}`,
+
+    type: "system",
+    title: isDeactivated
+      ? "Magazinele au fost dezactivate"
+      : isRequired
+      ? "Încasările Stripe Connect sunt obligatorii"
+      : "Activează încasările Stripe Connect",
+    body: isDeactivated
+      ? "Magazinele tale au fost dezactivate deoarece încasările Stripe Connect nu au fost activate până la termenul limită."
+      : isRequired
+      ? "Încasările Stripe Connect sunt obligatorii pentru ca magazinul să poată rămâne activ."
+      : "Activează încasările Stripe Connect până la 1 iunie pentru ca magazinul să rămână activ.",
+    link: "/onboarding/details?tab=incasari&solo=1",
+    meta: {
+      kind: "stripe_payouts_required",
+      vendorId,
+      mode,
+    },
+  });
+}

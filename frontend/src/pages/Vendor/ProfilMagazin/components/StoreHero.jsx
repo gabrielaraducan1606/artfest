@@ -23,6 +23,9 @@ export default function StoreHero({
   handleGoToOwnerStore,
   handleCreateNewStoreFromProfile,
 
+  sellerType,
+  sellerTypeLabel,
+
   serviceIsActive = false,
   activationBusy = false,
   ownerChecksLoading = false,
@@ -161,6 +164,22 @@ export default function StoreHero({
           <div>
             <h1 className={styles.title}>{shopName}</h1>
 
+            {sellerTypeLabel && (
+              <div style={{ marginTop: 6, marginBottom: 6 }}>
+                <span
+                  className={styles.sellerTypeBadge}
+                  title={
+                    sellerType === "independent_creator"
+                      ? "Acest magazin este operat de un Creator Independent."
+                      : "Acest magazin este operat de un Business Verificat."
+                  }
+                >
+                  {sellerType === "independent_creator" ? "🌱" : "✓"}{" "}
+                  {sellerTypeLabel}
+                </span>
+              </div>
+            )}
+
             {shortText && <p className={styles.subtitle}>{shortText}</p>}
 
             <OwnerStoresSwitcher
@@ -276,20 +295,20 @@ export default function StoreHero({
                 </>
               ) : (
                 <>
-                 <button
-  className={styles.followBtn}
-  type="button"
-  onClick={handleContactVendor}
-  style={{
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    marginRight: 8,
-  }}
->
-  <MessageSquare size={16} />
-  Trimite mesaj
-</button>
+                  <button
+                    className={styles.followBtn}
+                    type="button"
+                    onClick={handleContactVendor}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginRight: 8,
+                    }}
+                  >
+                    <MessageSquare size={16} />
+                    Trimite mesaj
+                  </button>
 
                   <button
                     className={`${styles.followBtn} ${
@@ -321,6 +340,22 @@ export default function StoreHero({
                 }}
               >
                 {activationError}
+
+                {String(activationError).toLowerCase().includes("facturare") && (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      className={styles.followBtn}
+                      onClick={() => {
+                        window.location.assign(
+                          "/onboarding/details?tab=facturare&solo=1"
+                        );
+                      }}
+                    >
+                      Completează date facturare
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

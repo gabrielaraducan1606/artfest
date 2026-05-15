@@ -7,59 +7,71 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
-  CheckCircle2,
   ExternalLink,
-  X,
 } from "lucide-react";
 
 import styles from "./AdminBillingToClient.module.css";
 
-/* Utils */
-function formatMoney(n) {
+function formatMoney(n, currency = "RON") {
   const v = Number(n || 0);
-  return new Intl.NumberFormat("ro-RO", { style: "currency", currency: "RON" }).format(v);
+  return new Intl.NumberFormat("ro-RO", {
+    style: "currency",
+    currency,
+  }).format(v);
 }
 
 function formatDate(d) {
+  if (!d) return "—";
+
   try {
     const dt = new Date(d);
-    return new Intl.DateTimeFormat("ro-RO", { dateStyle: "medium", timeStyle: "short" }).format(dt);
+    if (Number.isNaN(dt.getTime())) return "—";
+
+    return new Intl.DateTimeFormat("ro-RO", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(dt);
   } catch {
-    return d || "";
+    return d || "—";
   }
 }
 
-export default function AdminBillingToClientPage() {
-  const [tab, setTab] = useState("toInvoice"); // toInvoice | invoices
+function getInvoiceNumber(row) {
+  if (row.providerSeries && row.providerNumber) {
+    return `${row.providerSeries}-${row.providerNumber}`;
+  }
 
-  // shared filters
+  if (row.series && row.number) {
+    return `${row.series} ${row.number}`;
+  }
+
+  return row.number || "—";
+}
+
+export default function AdminBillingToClientPage() {
+  const [tab, setTab] = useState("vendorDue"); // vendorDue | invoices
+
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
 
-  // list
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [data, setData] = useState({ items: [], total: 0 });
 
-  // modal (order)
-  const [previewOrder, setPreviewOrder] = useState(null);
-
-  // modal (draft)
-  const [draftLoading, setDraftLoading] = useState(false);
-  const [draftErr, setDraftErr] = useState("");
-  const [draft, setDraft] = useState(null);
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
-
-  // create
-  const [creating, setCreating] = useState(false);
+  const [creatingId, setCreatingId] = useState("");
   const [createErr, setCreateErr] = useState("");
+
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
 
-  const query = useMemo(() => ({ q, from, to, page, pageSize }), [q, from, to, page, pageSize]);
+  const query = useMemo(
+    () => ({ q, from, to, page, pageSize }),
+    [q, from, to, page, pageSize]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -67,32 +79,43 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
     async function run() {
       setLoading(true);
       setErr("");
+      setCreateErr("");
+
       try {
         const qs = new URLSearchParams(
-          Object.fromEntries(Object.entries(query).filter(([, v]) => v !== "" && v != null))
+          Object.fromEntries(
+            Object.entries(query).filter(([, v]) => v !== "" && v != null)
+          )
         ).toString();
 
         const url =
-          tab === "toInvoice"
-            ? `/api/admin/billing/to-invoice?${qs}`
-            : `/api/admin/invoices?direction=PLATFORM_TO_CLIENT&${qs}`;
+          tab === "vendorDue"
+            ? `/api/admin/billing/vendors-due?${qs}`
+            : `/api/admin/invoices?direction=PLATFORM_TO_VENDOR&${qs}`;
 
         const res = await api(url);
+
         if (!alive) return;
 
         setData({
           items: Array.isArray(res?.items) ? res.items : [],
-          total: Number(res?.total || 0),
+          total: Number(res?.total ?? res?.items?.length ?? 0),
         });
       } catch {
         if (!alive) return;
-        setErr(tab === "toInvoice" ? "Nu am putut încărca comenzile de facturat." : "Nu am putut încărca facturile.");
+
+        setErr(
+          tab === "vendorDue"
+            ? "Nu am putut încărca vendorii de facturat."
+            : "Nu am putut încărca facturile către vendori."
+        );
       } finally {
         if (alive) setLoading(false);
       }
     }
 
     run();
+
     return () => {
       alive = false;
     };
@@ -105,59 +128,40 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
     setTo("");
   }
 
-  async function openPreview(row) {
-    setPreviewOrder(row);
-    setDraft(null);
-    setDraftErr("");
-    setCreateErr("");
-    setDraftLoading(true);
-
-    try {
-      const res = await api(
-        `/api/admin/billing/preview-invoice-from-order?orderId=${encodeURIComponent(row.orderId)}&vatRate=0`
-      );
-      setDraft(res);
-    } catch {
-      setDraftErr("Nu am putut genera draftul de factură.");
-    } finally {
-      setDraftLoading(false);
-    }
+  function refresh() {
+    setPage((p) => p);
+    setData((prev) => ({ ...prev }));
   }
 
-  async function createInvoiceFromOrder(orderId) {
-    setCreating(true);
+  async function createVendorCommissionInvoice(vendorId) {
+    setCreatingId(vendorId);
     setCreateErr("");
+
     try {
-      const res = await api(`/api/admin/billing/create-invoice-from-order`, {
+      const res = await api(`/api/admin/billing/create-vendor-commission-invoice`, {
         method: "POST",
-        body: JSON.stringify({ orderId, vatRate: 0 }),
+        body: JSON.stringify({ vendorId, vatRate: 0}),
       });
 
       const inv = res?.invoice;
       if (!inv?.id) throw new Error("bad_response");
 
-      // scoate comanda din listă (de facturat)
+      alert(`Factura a fost creată: ${inv.series || ""} ${inv.number || ""}`);
+
       setData((prev) => ({
         ...prev,
-        items: (prev.items || []).filter((x) => x.orderId !== orderId),
+        items: (prev.items || []).filter((x) => x.vendorId !== vendorId),
         total: Math.max(0, Number(prev.total || 0) - 1),
       }));
-
-      // închide modal
-      setPreviewOrder(null);
-      setDraft(null);
-
-      alert(`Factura a fost creată: ${inv.series ? inv.series + " " : ""}${inv.number}`);
     } catch (e) {
-      const status = e?.status || e?.response?.status;
-      const data = e?.data || e?.response?.data;
-      setCreateErr(
-        status === 409
-          ? data?.message || "Nu pot crea factura (nu e DELIVERED sau există deja)."
-          : "Nu am putut crea factura. Încearcă din nou."
-      );
+      const message =
+        e?.data?.message ||
+        e?.response?.data?.message ||
+        "Nu am putut crea factura pentru vendor.";
+
+      setCreateErr(message);
     } finally {
-      setCreating(false);
+      setCreatingId("");
     }
   }
 
@@ -165,13 +169,13 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
     <main className={styles.page}>
       <div className={styles.headerRow}>
         <div>
-          <h1 className={styles.h1}>Facturare (Platformă → Client)</h1>
+          <h1 className={styles.h1}>Facturare vendori</h1>
           <div className={styles.muted} style={{ fontSize: 13, marginTop: 4 }}>
-            Comenzile apar la „De facturat” doar după ce sunt marcate <strong>DELIVERED</strong>.
+            Platforma emite facturi către vendori pentru comisioanele acumulate.
           </div>
         </div>
 
-        <button className={styles.secondaryBtn} onClick={() => setPage((p) => p)}>
+        <button className={styles.secondaryBtn} onClick={refresh}>
           <RefreshCw size={16} /> Refresh
         </button>
       </div>
@@ -179,13 +183,13 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
       <div className={styles.tabs}>
         <button
           type="button"
-          className={`${styles.tab} ${tab === "toInvoice" ? styles.tabActive : ""}`}
+          className={`${styles.tab} ${tab === "vendorDue" ? styles.tabActive : ""}`}
           onClick={() => {
-            setTab("toInvoice");
+            setTab("vendorDue");
             setPage(1);
           }}
         >
-          De facturat
+          Vendori de facturat
         </button>
 
         <button
@@ -196,11 +200,10 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
             setPage(1);
           }}
         >
-          Facturi emise
+          Facturi emise către vendori
         </button>
       </div>
 
-      {/* Filters */}
       <div className={styles.filters}>
         <div className={styles.inputWrap}>
           <Search size={16} className={styles.inputIcon} />
@@ -210,7 +213,11 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
               setPage(1);
               setQ(e.target.value);
             }}
-            placeholder={tab === "toInvoice" ? "Caută: AF-..., client, email…" : "Caută: nr factură, client, orderId…"}
+            placeholder={
+              tab === "vendorDue"
+                ? "Caută vendor, firmă, email, CUI…"
+                : "Caută nr factură, vendor, email…"
+            }
             className={styles.input}
           />
         </div>
@@ -252,18 +259,27 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
         </div>
       </div>
 
-      {/* List */}
       <div className={styles.card}>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead className={styles.thead}>
-              <tr>
-                <th className={styles.th}>{tab === "toInvoice" ? "Comandă" : "Factură"}</th>
-                <th className={styles.th}>Client</th>
-                <th className={styles.th}>Data</th>
-                <th className={styles.th}>Total</th>
-                <th className={styles.th}></th>
-              </tr>
+              {tab === "vendorDue" ? (
+                <tr>
+                  <th className={styles.th}>Vendor</th>
+                  <th className={styles.th}>Date facturare</th>
+                  <th className={styles.th}>Tranzacții</th>
+                  <th className={styles.th}>Comision datorat</th>
+                  <th className={styles.th}></th>
+                </tr>
+              ) : (
+                <tr>
+                  <th className={styles.th}>Factură</th>
+                  <th className={styles.th}>Vendor</th>
+                  <th className={styles.th}>Data</th>
+                  <th className={styles.th}>Total</th>
+                  <th className={styles.th}></th>
+                </tr>
+              )}
             </thead>
 
             <tbody>
@@ -285,55 +301,103 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
               {!loading &&
                 (data.items || []).map((row) => {
-                  if (tab === "toInvoice") {
+                  if (tab === "vendorDue") {
                     return (
-                      <tr
-                        key={row.orderId}
-                        className={styles.row}
-                        onClick={() => openPreview(row)}
-                        title="Click pentru preview"
-                      >
+                      <tr key={row.vendorId} className={styles.row}>
                         <td className={styles.td}>
                           <div style={{ display: "grid", gap: 4 }}>
-                            <div style={{ fontWeight: 800 }}>{row.orderNumber || row.orderId}</div>
-                            <div className={styles.muted} style={{ fontSize: 12 }}>
-                              Status: <code className={styles.code}>{row.status}</code>
+                            <div style={{ fontWeight: 800 }}>
+                              {row.displayName || "Vendor"}
                             </div>
+                            <div className={styles.muted} style={{ fontSize: 12 }}>
+                              {row.email || "—"}
+                            </div>
+
+                            {row.missingBilling && (
+                              <div className={styles.error} style={{ fontSize: 12 }}>
+                                Date de facturare lipsă
+                              </div>
+                            )}
                           </div>
                         </td>
 
                         <td className={styles.td}>
-                          <div style={{ fontWeight: 700 }}>{row.customerName || "—"}</div>
+                          <div style={{ fontWeight: 700 }}>
+                            {row.billing?.companyName ||
+                              row.billing?.vendorName ||
+                              row.billing?.contactPerson ||
+                              "—"}
+                          </div>
                           <div className={styles.muted} style={{ fontSize: 12 }}>
-                            {row.customerEmail || "—"} · {row.customerPhone || "—"}
+                            CUI: {row.billing?.cui || "—"}
+                          </div>
+                          <div className={styles.muted} style={{ fontSize: 12 }}>
+                            {row.billing?.address || "—"}
                           </div>
                         </td>
 
-                        <td className={styles.td}>{row.createdAt ? formatDate(row.createdAt) : "—"}</td>
+                        <td className={styles.td}>
+                          <div style={{ fontWeight: 800 }}>
+                            {row.entryCount || 0}
+                          </div>
+                          <div className={styles.muted} style={{ fontSize: 12 }}>
+                            Vânzări nete:{" "}
+                            {formatMoney(row.totalSalesNet, row.currency || "RON")}
+                          </div>
+                        </td>
 
-                        <td className={styles.td}>{formatMoney(row.total)}</td>
+                        <td className={styles.td}>
+                          <div style={{ fontWeight: 900 }}>
+                            {formatMoney(row.commissionNet, row.currency || "RON")}
+                          </div>
 
-                        <td className={styles.td} onClick={(e) => e.stopPropagation()}>
-                          <button className={styles.primaryBtn} onClick={() => openPreview(row)}>
-                            <FileText size={16} /> Preview
-                          </button>
+                          {Number(row.alreadyUnpaidGross || 0) > 0 && (
+                            <div className={styles.muted} style={{ fontSize: 12 }}>
+                              Deja neplătit:{" "}
+                              {formatMoney(row.alreadyUnpaidGross, row.currency || "RON")}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className={styles.td}>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              justifyContent: "flex-end",
+                            }}
+                          >
+                            <button
+                              className={styles.primaryBtn}
+                              disabled={!row.canInvoice || creatingId === row.vendorId}
+                              onClick={() => createVendorCommissionInvoice(row.vendorId)}
+                            >
+                              {creatingId === row.vendorId ? (
+                                <Loader2 size={16} className={styles.spin} />
+                              ) : (
+                                <FileText size={16} />
+                              )}
+                              Creează factură
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
                   }
 
-                  // invoices tab
                   return (
                     <tr key={row.id} className={styles.row}>
                       <td className={styles.td}>
                         <div style={{ display: "grid", gap: 4 }}>
-                          <div style={{ fontWeight: 800 }}>
-                            {row.series ? `${row.series} ` : ""}
-                            {row.number || "—"}
-                          </div>
+                          <div style={{ fontWeight: 800 }}>{getInvoiceNumber(row)}</div>
                           <div className={styles.muted} style={{ fontSize: 12 }}>
-                            orderId: <code className={styles.code}>{row.orderId || "—"}</code>
+                            Status: <code className={styles.code}>{row.status || "—"}</code>
                           </div>
+                          {row.provider === "SMARTBILL" && (
+                            <div className={styles.muted} style={{ fontSize: 12 }}>
+                              SmartBill
+                            </div>
+                          )}
                         </div>
                       </td>
 
@@ -344,28 +408,33 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
                         </div>
                       </td>
 
-                      <td className={styles.td}>{row.issueDate ? formatDate(row.issueDate) : "—"}</td>
-
-                      <td className={styles.td}>{formatMoney(row.totalGross)}</td>
+                      <td className={styles.td}>
+                        <div>{row.issueDate ? formatDate(row.issueDate) : "—"}</div>
+                        <div className={styles.muted} style={{ fontSize: 12 }}>
+                          Scadență: {row.dueDate ? formatDate(row.dueDate) : "—"}
+                        </div>
+                      </td>
 
                       <td className={styles.td}>
-                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                          {row.pdfUrl ? (
-                           
-<a
-  className={styles.secondaryBtn}
-  href={`${API_URL}/api/admin/invoices/${row.id}/pdf`}
-  target="_blank"
-  rel="noreferrer"
->
-  <ExternalLink size={16} /> PDF
-</a>
+                        {formatMoney(row.totalGross, row.currency || "RON")}
+                      </td>
 
-                          ) : (
-                            <span className={styles.muted} style={{ fontSize: 12 }}>
-                              (fără PDF)
-                            </span>
-                          )}
+                      <td className={styles.td}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 8,
+                            justifyContent: "flex-end",
+                          }}
+                        >
+                          <a
+                            className={styles.secondaryBtn}
+                            href={`${API_URL}/api/admin/invoices/${row.id}/pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <ExternalLink size={16} /> PDF
+                          </a>
                         </div>
                       </td>
                     </tr>
@@ -376,6 +445,7 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
         </div>
 
         {!!err && <p className={styles.error}>{err}</p>}
+        {!!createErr && <p className={styles.error}>{createErr}</p>}
 
         {data.total > pageSize && (
           <div className={styles.pagination}>
@@ -401,164 +471,6 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
           </div>
         )}
       </div>
-
-      {/* Preview modal */}
-      {previewOrder && (
-        <PreviewInvoiceModal
-          order={previewOrder}
-          draft={draft}
-          draftLoading={draftLoading}
-          draftErr={draftErr}
-          creating={creating}
-          error={createErr}
-          onClose={() => {
-            setPreviewOrder(null);
-            setDraft(null);
-            setDraftErr("");
-            setCreateErr("");
-          }}
-          onCreate={() => createInvoiceFromOrder(previewOrder.orderId)}
-        />
-      )}
     </main>
-  );
-}
-
-function PreviewInvoiceModal({ order, draft, draftLoading, draftErr, onClose, onCreate, creating, error }) {
-  const d = draft?.draft;
-  const issuer = draft?.issuer;
-
-  return (
-    <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
-      <div className={styles.modal}>
-        <div className={styles.modalHead}>
-          <div>
-            <div style={{ fontWeight: 800, fontFamily: "var(--font-title)" }}>
-              Preview factură (Platformă → Client)
-            </div>
-            <div className={styles.muted} style={{ fontSize: 12, marginTop: 2 }}>
-              Comandă <code className={styles.code}>{order.orderNumber || order.orderId}</code>
-            </div>
-          </div>
-
-          <button className={styles.iconBtn} onClick={onClose} aria-label="Închide">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className={styles.modalBody}>
-          {draftLoading && (
-            <div className={styles.muted} style={{ fontSize: 13 }}>
-              <Loader2 size={16} className={styles.spin} /> Generez draftul…
-            </div>
-          )}
-
-          {!!draftErr && <div className={styles.error} style={{ marginTop: 10 }}>{draftErr}</div>}
-
-          {!draftLoading && d && (
-            <>
-              <div className={styles.kvGrid}>
-                <KV label="Emitent (Platformă)">
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <div style={{ fontWeight: 800 }}>{issuer?.companyName || "—"}</div>
-                    <div className={styles.muted} style={{ fontSize: 12 }}>
-                      CUI: {issuer?.cui || "—"} {issuer?.regCom ? `· RegCom: ${issuer.regCom}` : ""}
-                    </div>
-                    <div className={styles.muted} style={{ fontSize: 12 }}>
-                      {issuer?.address || "—"}
-                    </div>
-                    {(issuer?.iban || issuer?.bank) && (
-                      <div className={styles.muted} style={{ fontSize: 12 }}>
-                        IBAN: {issuer?.iban || "—"} {issuer?.bank ? `· ${issuer.bank}` : ""}
-                      </div>
-                    )}
-                  </div>
-                </KV>
-
-                <KV label="Factură (draft)">
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <div style={{ fontWeight: 900 }}>
-                      {d.series} {d.number} <span className={styles.muted} style={{ fontSize: 12 }}>(următorul)</span>
-                    </div>
-                    <div className={styles.muted} style={{ fontSize: 12 }}>
-                      Emitere: {formatDate(d.issueDate)} · Scadență: {formatDate(d.dueDate)}
-                    </div>
-                  </div>
-                </KV>
-
-                <KV label="Client">
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <div style={{ fontWeight: 700 }}>{d.clientName || "—"}</div>
-                    <div className={styles.muted} style={{ fontSize: 12 }}>
-                      {d.clientEmail || "—"} · {d.clientPhone || "—"}
-                    </div>
-                    {d.clientAddress && (
-                      <div className={styles.muted} style={{ fontSize: 12 }}>
-                        {d.clientAddress}
-                      </div>
-                    )}
-                  </div>
-                </KV>
-
-                <KV label="Total">
-                  <div style={{ fontWeight: 900, fontSize: 16 }}>{formatMoney(d.totals?.totalGross)}</div>
-                  <div className={styles.muted} style={{ fontSize: 12, marginTop: 6 }}>
-                    Net: {formatMoney(d.totals?.totalNet)} · TVA: {formatMoney(d.totals?.totalVat)}
-                  </div>
-                </KV>
-              </div>
-
-              <div className={styles.card} style={{ marginTop: 12 }}>
-                <div className={styles.tableWrap} style={{ maxHeight: 260 }}>
-                  <table className={styles.table}>
-                    <thead className={styles.thead}>
-                      <tr>
-                        <th className={styles.th}>Descriere</th>
-                        <th className={styles.th}>Cant.</th>
-                        <th className={styles.th}>Preț (net)</th>
-                        <th className={styles.th}>TVA</th>
-                        <th className={styles.th}>Total (brut)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(d.lines || []).map((ln, idx) => (
-                        <tr key={idx} className={styles.row}>
-                          <td className={styles.td}>{ln.description}</td>
-                          <td className={styles.td}>{ln.quantity}</td>
-                          <td className={styles.td}>{formatMoney(ln.unitNet)}</td>
-                          <td className={styles.td}>{Number(ln.vatRate || 0)}%</td>
-                          <td className={styles.td}>{formatMoney(ln.totalGross)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
-
-          {!!error && <div className={styles.error} style={{ marginTop: 10 }}>{error}</div>}
-
-          <div className={styles.modalActions}>
-            <button className={styles.primaryBtn} disabled={creating} onClick={onCreate}>
-              {creating ? <Loader2 size={16} className={styles.spin} /> : <CheckCircle2 size={16} />}
-              Creează factura
-            </button>
-            <button className={styles.secondaryBtn} onClick={onClose}>
-              Închide
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function KV({ label, children }) {
-  return (
-    <div className={styles.kv}>
-      <div className={styles.kvLabel}>{label}</div>
-      <div className={styles.kvValue}>{children}</div>
-    </div>
   );
 }

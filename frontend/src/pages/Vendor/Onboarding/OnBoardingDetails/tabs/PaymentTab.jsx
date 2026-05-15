@@ -3,10 +3,8 @@ import { api } from "../../../../../lib/api";
 import styles from "./css/PaymentTab.module.css";
 import { useCurrentSubscription } from "../hooks/useCurrentSubscriptionBanner.js";
 
-/* ============================ Constante ============================ */
 const TRIAL_DAYS = 30;
-const YEAR_DISCOUNT = 2 / 12; // ~16.6667%
-const BILLING_ACTIVATION_DATE = new Date("2026-05-17T00:00:00");
+const YEAR_DISCOUNT = 2 / 12;
 
 const LEGAL_LINKS = {
   vendorTerms: "/acord-vanzatori",
@@ -15,22 +13,16 @@ const LEGAL_LINKS = {
 };
 
 const CHECKOUT_LEGAL_NOTE =
-  "Prin apăsarea butonului de mai sus, confirmi că ai citit și accepți termenii abonamentului, condițiile de facturare și politica de confidențialitate aplicabilă și înțelegi că selectarea unui plan plătit implică o obligație de plată.";
-
-const TRIAL_CHECKOUT_LEGAL_NOTE =
-  "În perioada de probă gratuită, alegerea unui plan nu implică o plată imediată. După finalul perioadei de probă, pentru a continua pe un plan plătit, poate fi necesară confirmarea facturării conform termenilor aplicabili.";
+  "Prin apăsarea butonului de mai sus, confirmi că ai citit și accepți termenii abonamentului, condițiile de facturare și politica de confidențialitate aplicabilă.";
 
 const TRIAL_NOTE =
-  "Perioada de probă se aplică doar la prima activare eligibilă. Verifică termenii abonamentului pentru a vedea ce se întâmplă la finalul trial-ului și dacă este necesară o confirmare suplimentară pentru continuare.";
+  "Trial-ul se aplică doar la prima activare eligibilă. Dacă ești eligibilă, nu plătești nimic acum, iar abonamentul se poate reînnoi automat după perioada de probă dacă nu îl anulezi înainte.";
 
 const CANCELLATION_NOTE =
   "Anularea poate produce dezactivarea imediată a magazinelor tale, conform regulilor abonamentului și politicii de facturare.";
 
 const PAYMENT_PROCESSOR_NOTE =
-  "Comisioanele procesatorului de plăți nu sunt incluse în prețurile de mai sus și pot fi percepute separat de procesator, conform propriilor condiții.";
-
-const BILLING_LOCKED_NOTE =
-  "Până pe 17 mai 2026 poți activa gratuit orice plan eligibil. Prețurile și beneficiile planurilor rămân aceleași, iar facturarea efectivă devine activă după această dată, conform regulilor aplicabile.";
+  "Plata este procesată securizat prin Stripe. Cardul poate fi salvat pentru reînnoirea automată a abonamentului.";
 
 const FEES = {
   basic: { productsBps: 1200, minFeeCentsPerOrder: 0 },
@@ -135,9 +127,9 @@ const DEFAULT_PLANS = [
   },
 ];
 
-/* ============================ Utils ============================ */
 function formatPrice(cents, currency = "RON") {
   if (cents === 0) return "Gratuit";
+
   try {
     return new Intl.NumberFormat("ro-RO", {
       style: "currency",
@@ -159,6 +151,7 @@ function absolutizeUrl(url) {
     /\/+$/,
     ""
   );
+
   const APP_BASE = (import.meta.env?.VITE_APP_URL || window.location.origin).replace(
     /\/+$/,
     ""
@@ -172,7 +165,32 @@ function getLegalUrl(path) {
   return absolutizeUrl(path);
 }
 
-/* ============================ Hooks ============================ */
+function billingErrorMessage(e) {
+  const code = e?.data?.error || e?.data?.message || e?.message;
+
+  if (code === "trial_already_used") {
+    return "Trial-ul a fost deja folosit. Poți continua cu abonamentul plătit.";
+  }
+
+  if (code === "stripe_price_missing") {
+    return "Planul nu este configurat complet pentru plată. Contactează suportul.";
+  }
+
+  if (code === "plan_inactive") {
+    return "Planul selectat nu este disponibil momentan.";
+  }
+
+  if (code === "plan_not_found") {
+    return "Planul selectat nu a fost găsit.";
+  }
+
+  if (code === "vendor_profile_missing") {
+    return "Nu am găsit profilul de vânzător pentru acest cont.";
+  }
+
+  return e?.data?.message || e?.message || "Nu s-a putut porni activarea sau plata.";
+}
+
 function usePlans() {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -220,8 +238,6 @@ function usePlans() {
               ? TRIAL_DAYS
               : 0;
 
-      const storeLimit = p?.meta?.limits?.stores ?? null;
-
       return {
         ...p,
         trialDays,
@@ -234,7 +250,7 @@ function usePlans() {
         serviceSalesEnabled: !!p?.meta?.capabilities?.serviceSalesEnabled,
         shareLinkEnabled: p?.meta?.capabilities?.shareLink !== false,
         isActive: p.isActive !== false,
-        storeLimit,
+        storeLimit: p?.meta?.limits?.stores ?? null,
       };
     });
   }, [plans]);
@@ -242,14 +258,12 @@ function usePlans() {
   return { plans: enriched, loading, err };
 }
 
-/* ============================ Componenta ============================ */
 function SubscriptionPayment({ obSessionId }) {
   const { plans, loading: plansLoading, err: plansErr } = usePlans();
   const { sub, loading: subLoading, setSub } = useCurrentSubscription();
 
   const KEY_PLAN = `onboarding.plan:${obSessionId || "default"}`;
   const KEY_PERIOD = `onboarding.period:${obSessionId || "default"}`;
-  const KEY_PENDING_TRIAL = `onboarding.pendingTrial:${obSessionId || "default"}`;
 
   const ss = useMemo(() => {
     return {
@@ -269,43 +283,30 @@ function SubscriptionPayment({ obSessionId }) {
           // ignore
         }
       },
-      remove(k) {
-        try {
-          if (typeof window === "undefined") return;
-          window.sessionStorage.removeItem(k);
-        } catch {
-          // ignore
-        }
-      },
     };
   }, []);
 
   const [period, setPeriod] = useState(() =>
     ss.get(KEY_PERIOD) === "year" ? "year" : "month"
   );
+
   const [plan, setPlan] = useState(() => ss.get(KEY_PLAN) || "premium");
   const [expanded, setExpanded] = useState({});
   const [status, setStatus] = useState("idle");
   const [err, setErr] = useState("");
-  const [localTrialActivated, setLocalTrialActivated] = useState(
-    ss.get(KEY_PENDING_TRIAL) === "1"
-  );
-
-  const billingLocked = useMemo(() => new Date() < BILLING_ACTIVATION_DATE, []);
 
   useEffect(() => {
     if (sub?.plan?.code) {
       setPlan(sub.plan.code);
       ss.set(KEY_PLAN, sub.plan.code);
-      ss.remove(KEY_PENDING_TRIAL);
-      setLocalTrialActivated(false);
     }
-  }, [sub?.plan?.code, KEY_PLAN, ss, KEY_PENDING_TRIAL]);
+  }, [sub?.plan?.code, KEY_PLAN, ss]);
 
   useEffect(() => {
     if (!plans.length) return;
 
     const current = plans.find((p) => p.code === plan);
+
     if (!current || current.isActive === false) {
       const firstActive = plans.find((p) => p.isActive !== false) || plans[0];
       setPlan(firstActive.code);
@@ -335,6 +336,7 @@ function SubscriptionPayment({ obSessionId }) {
         typeof w.ApplePaySession.canMakePayments === "function" &&
         w.ApplePaySession.canMakePayments()
       );
+
       if (canApplePay) applePay = "1";
     } catch {
       // ignore
@@ -347,6 +349,7 @@ function SubscriptionPayment({ obSessionId }) {
         w.PaymentRequest &&
         /Android|Chrome/i.test(navigator.userAgent)
       );
+
       if (canGooglePay) googlePay = "1";
     } catch {
       // ignore
@@ -362,36 +365,6 @@ function SubscriptionPayment({ obSessionId }) {
       setStatus("processing");
       setErr("");
 
-      if (billingLocked) {
-        try {
-          const resp = await api("/api/vendors/me/subscription/trial-select", {
-            method: "POST",
-            body: {
-              plan,
-              period,
-            },
-          });
-
-          if (resp?.subscription) {
-            setSub(resp.subscription);
-            ss.remove(KEY_PENDING_TRIAL);
-            setLocalTrialActivated(false);
-          } else {
-            ss.set(KEY_PENDING_TRIAL, "1");
-            setLocalTrialActivated(true);
-          }
-        } catch {
-          ss.set(KEY_PENDING_TRIAL, "1");
-          setLocalTrialActivated(true);
-          setErr(
-            "Planul a fost selectat pentru perioada de probă. Activarea completă va fi confirmată după conectarea backend-ului pentru trial."
-          );
-        }
-
-        setStatus("idle");
-        return;
-      }
-
       const { applePay, googlePay } = detectWalletHints();
 
       const resp = await api(
@@ -401,32 +374,8 @@ function SubscriptionPayment({ obSessionId }) {
         { method: "POST" }
       );
 
-      if (resp?.kind === "free_activated" && resp?.url) {
-        window.location.assign(absolutizeUrl(resp.url));
-        return;
-      }
-
-      if (resp?.kind === "provider_redirect") {
-        if (resp.url) {
-          window.location.assign(absolutizeUrl(resp.url));
-          return;
-        }
-
-        if (resp.form?.action) {
-          const form = document.createElement("form");
-          form.method = resp.form.method || "POST";
-          form.action = absolutizeUrl(resp.form.action);
-
-          const hid = document.createElement("input");
-          hid.type = "hidden";
-          hid.name = "subId";
-          hid.value = resp.subscriptionId || "";
-          form.appendChild(hid);
-
-          document.body.appendChild(form);
-          form.submit();
-          return;
-        }
+      if (resp?.subscription) {
+        setSub(resp.subscription);
       }
 
       if (resp?.url) {
@@ -437,11 +386,7 @@ function SubscriptionPayment({ obSessionId }) {
       throw new Error("Răspuns de checkout neașteptat.");
     } catch (e) {
       console.error("checkout failed:", e);
-      setStatus("error");
-      const msg =
-        e?.data?.message || e?.message || "Nu s-a putut porni activarea sau plata.";
-      setErr(msg);
-    } finally {
+      setErr(billingErrorMessage(e));
       setStatus("idle");
     }
   }
@@ -452,6 +397,7 @@ function SubscriptionPayment({ obSessionId }) {
     const ok = window.confirm(
       "Sigur vrei să anulezi abonamentul?\n\nMagazinele tale pot deveni inactive imediat, conform regulilor abonamentului și politicii de facturare."
     );
+
     if (!ok) return;
 
     try {
@@ -461,27 +407,28 @@ function SubscriptionPayment({ obSessionId }) {
       const resp = await api("/api/vendors/me/subscription/cancel", {
         method: "POST",
       });
+
       setSub(resp?.subscription ?? null);
-      ss.remove(KEY_PENDING_TRIAL);
-      setLocalTrialActivated(false);
     } catch (e) {
       console.error("subscription cancel failed:", e);
-      setStatus("error");
-      const msg =
+      setErr(
         e?.data?.message ||
-        e?.message ||
-        "Nu am putut anula abonamentul. Încearcă din nou.";
-      setErr(msg);
+          e?.message ||
+          "Nu am putut anula abonamentul. Încearcă din nou."
+      );
     } finally {
       setStatus("idle");
     }
   }
 
   const sameActivePlan = !!sub?.plan?.code && sub.plan.code === plan;
+
   const daysLeft = sub?.endAt
     ? Math.ceil((new Date(sub.endAt) - new Date()) / (1000 * 60 * 60 * 24))
     : null;
+
   const isRenewSoon = typeof daysLeft === "number" && daysLeft <= 7;
+
   const isFreePlan =
     selectedPlan?.code === "basic" || (selectedPlan?.priceCents ?? 0) === 0;
 
@@ -495,6 +442,7 @@ function SubscriptionPayment({ obSessionId }) {
         p.interval === "year"
           ? base
           : Math.round(base * 12 * (1 - YEAR_DISCOUNT));
+
       return `${formatPrice(yearlyCents, p.currency)} / an`;
     }
 
@@ -504,25 +452,21 @@ function SubscriptionPayment({ obSessionId }) {
   function shouldShowTrialBadge(p) {
     const trialDays = typeof p?.trialDays === "number" ? p.trialDays : 0;
     const base = p?.priceCents || 0;
+
     return p.isActive !== false && base > 0 && trialDays > 0;
   }
 
   const disableCheckout =
     status === "processing" ||
     status === "canceling" ||
-    (sameActivePlan && !isRenewSoon && !billingLocked) ||
+    (sameActivePlan && !isRenewSoon) ||
     !selectedPlan ||
     selectedPlan.isActive === false;
 
   const FEATURE_COLLAPSE_AT = 8;
 
-  const checkoutButtonLabel = billingLocked
-    ? status === "processing"
-      ? "Se activează…"
-      : localTrialActivated
-        ? "Plan selectat pentru trial"
-        : "Activează gratuit"
-    : status === "processing"
+  const checkoutButtonLabel =
+    status === "processing"
       ? "Se redirecționează…"
       : isFreePlan
         ? "Activează planul gratuit"
@@ -530,16 +474,12 @@ function SubscriptionPayment({ obSessionId }) {
           ? isRenewSoon
             ? "Confirmă și plătește prelungirea"
             : "Plan activ"
-          : shouldShowTrialBadge(selectedPlan)
-            ? "Activează trial-ul"
-            : "Confirmă și plătește abonamentul";
+          : "Continuă cu cardul";
 
   return (
     <div className={styles.form}>
       <header className={styles.header}>
-        <h2 className={styles.cardTitle}>
-          {billingLocked ? "Alegere abonament" : "Plată abonament"}
-        </h2>
+        <h2 className={styles.cardTitle}>Plată abonament</h2>
 
         {subLoading ? (
           <span className={styles.badgeWait}>Se încarcă abonamentul curent…</span>
@@ -549,29 +489,22 @@ function SubscriptionPayment({ obSessionId }) {
             {sub?.plan?.priceCents === 0
               ? " • plan gratuit activ"
               : sub?.endAt
-                ? ` • valabil până la ${new Date(sub.endAt).toLocaleDateString("ro-RO")}`
+                ? ` • valabil până la ${new Date(sub.endAt).toLocaleDateString(
+                    "ro-RO"
+                  )}`
                 : ""}
             {sub?.plan?.priceCents !== 0 && typeof daysLeft === "number"
               ? ` • ${daysLeft} zile rămase`
               : ""}
-          </span>
-        ) : localTrialActivated ? (
-          <span className={styles.badgeOk}>
-            Plan selectat pentru perioada de probă
           </span>
         ) : (
           <span className={styles.help}>Nu ai un abonament activ.</span>
         )}
       </header>
 
-      {billingLocked && (
-        <div className={styles.shareHint} style={{ marginBottom: 10 }}>
-          <strong>Perioadă de probă gratuită activă.</strong> {BILLING_LOCKED_NOTE}
-        </div>
-      )}
-
       <div className={styles.periodRow}>
         <div className={styles.help}>Perioadă de facturare:</div>
+
         <div
           className={styles.periodToggle}
           role="tablist"
@@ -600,9 +533,8 @@ function SubscriptionPayment({ obSessionId }) {
 
       {selectedPlan && shouldShowTrialBadge(selectedPlan) && (
         <div className={styles.shareHint} style={{ marginBottom: 10 }}>
-          <strong>{selectedPlan.trialDays || TRIAL_DAYS} zile gratuite</strong> la
-          activare — verifică termenii abonamentului pentru ce se întâmplă la
-          finalul perioadei de probă.
+          <strong>Trial disponibil pentru prima activare eligibilă.</strong> Cardul
+          poate fi folosit pentru reînnoirea automată după trial.
         </div>
       )}
 
@@ -649,6 +581,7 @@ function SubscriptionPayment({ obSessionId }) {
                 onClick={onSelectPlan}
                 onKeyDown={(e) => {
                   if (disabled) return;
+
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     onSelectPlan();
@@ -672,16 +605,9 @@ function SubscriptionPayment({ obSessionId }) {
                   <div className={styles.planPrice}>{displayPrice(p)}</div>
                 </div>
 
-                {billingLocked && (p.priceCents || 0) > 0 && (
-                  <div className={styles.shareHint} style={{ marginTop: 8 }}>
-                    Activ gratuit până la 17 mai 2026
-                  </div>
-                )}
-
                 {shouldShowTrialBadge(p) && (
                   <div className={styles.shareHint} style={{ marginTop: 8 }}>
-                    <strong>{p.trialDays || TRIAL_DAYS} zile gratuite</strong> la
-                    activare
+                    <strong>Trial pentru prima activare eligibilă</strong>
                   </div>
                 )}
 
@@ -723,6 +649,7 @@ function SubscriptionPayment({ obSessionId }) {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+
                           setExpanded((prev) => ({
                             ...prev,
                             [p.code]: !prev[p.code],
@@ -763,6 +690,7 @@ function SubscriptionPayment({ obSessionId }) {
                     onChange={onSelectPlan}
                     onClick={(e) => e.stopPropagation()}
                   />
+
                   <label htmlFor={radioId} onClick={(e) => e.stopPropagation()}>
                     {disabled ? "În curând" : `Alege ${p.name}`}
                   </label>
@@ -792,7 +720,7 @@ function SubscriptionPayment({ obSessionId }) {
           title={
             selectedPlan?.isActive === false
               ? "Plan indisponibil momentan"
-              : sameActivePlan && !isRenewSoon && !billingLocked
+              : sameActivePlan && !isRenewSoon
                 ? "Ești deja pe acest plan"
                 : undefined
           }
@@ -800,7 +728,7 @@ function SubscriptionPayment({ obSessionId }) {
           {checkoutButtonLabel}
         </button>
 
-        {sub?.status === "active" && !billingLocked && (
+        {sub?.status === "active" && (
           <button
             type="button"
             onClick={cancelSubscription}
@@ -817,29 +745,39 @@ function SubscriptionPayment({ obSessionId }) {
             {PAYMENT_PROCESSOR_NOTE}
           </small>
 
-          {billingLocked && (
-            <small className={styles.help} style={{ display: "block", marginTop: 6 }}>
-              {BILLING_LOCKED_NOTE}
-            </small>
-          )}
-
           {selectedPlan && shouldShowTrialBadge(selectedPlan) && (
             <small className={styles.help} style={{ display: "block", marginTop: 6 }}>
               {TRIAL_NOTE}
             </small>
           )}
 
-          {sub?.status === "active" && !billingLocked && (
+          {sub?.status === "active" && (
             <small className={styles.help} style={{ display: "block", marginTop: 6 }}>
               {CANCELLATION_NOTE}
             </small>
           )}
 
           <small className={styles.help} style={{ display: "block", marginTop: 6 }}>
-            {billingLocked ? TRIAL_CHECKOUT_LEGAL_NOTE : CHECKOUT_LEGAL_NOTE}
+            {CHECKOUT_LEGAL_NOTE}
           </small>
 
           <small className={styles.help} style={{ display: "block", marginTop: 8 }}>
+            <a
+              href={getLegalUrl(LEGAL_LINKS.vendorTerms)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Acord vânzători
+            </a>
+            {" · "}
+            <a
+              href={getLegalUrl(LEGAL_LINKS.billingTerms)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Abonamente și facturare
+            </a>
+            {" · "}
             <a href={getLegalUrl(LEGAL_LINKS.privacy)} target="_blank" rel="noreferrer">
               Politica de confidențialitate
             </a>
