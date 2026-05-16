@@ -114,29 +114,33 @@ export default function AdminProductsTab({ products: productsProp = null }) {
         setLoading(true);
         setError("");
 
-        const take = 50;
+        const take = 200;
         let skip = 0;
         let allProducts = [];
         let total = null;
 
         while (true) {
-          const data = await fetchJson(
-            `/api/admin/products?take=${take}&skip=${skip}`
-          );
+  const data = await fetchJson(
+    `/api/admin/products?take=${take}&skip=${skip}`
+  );
 
-          if (!alive) return;
+  if (!alive) return;
 
-          const pageProducts = normalizeProductsPayload(data);
+  const pageProducts = normalizeProductsPayload(data);
 
-          allProducts = [...allProducts, ...pageProducts];
-          total = getPayloadTotal(data);
+  if (!pageProducts.length) {
+    break;
+  }
 
-          if (pageProducts.length < take) break;
-          if (total != null && allProducts.length >= total) break;
+  allProducts = [...allProducts, ...pageProducts];
+  total = getPayloadTotal(data);
 
-          skip += take;
-        }
+  if (total != null && allProducts.length >= total) {
+    break;
+  }
 
+  skip += pageProducts.length;
+}
         setProductsState(allProducts);
       } catch (e) {
         if (!alive) return;

@@ -4,55 +4,57 @@
     <meta charset="UTF-8" />
 
     <!-- 🔐 Maintenance / Access Guard -->
-    <script>
-      (function () {
-        try {
-          const isLocal =
-            location.hostname === "localhost" ||
-            location.hostname === "127.0.0.1" ||
-            location.hostname === "::1";
+<!--
+<script>
+  (function () {
+    try {
+      const isLocal =
+        location.hostname === "localhost" ||
+        location.hostname === "127.0.0.1" ||
+        location.hostname === "::1";
 
-          // 🔧 activează/dezactivează maintenance mode
-          const MAINTENANCE_MODE = true;
+      // 🔧 activează/dezactivează maintenance mode
+      const MAINTENANCE_MODE = true;
 
-          // 🔓 acces privat
-          const hasAccess =
-            localStorage.getItem("artfest-access") === "ok";
+      // 🔓 acces privat
+      const hasAccess =
+        localStorage.getItem("artfest-access") === "ok";
 
-          const path = window.location.pathname;
+      const path = window.location.pathname;
 
-          // 📄 pagini publice permise
-          const allowedPaths = [
-            "/coming-soon.html",
-            "/favicon.ico",
-            "/robots.txt",
-            "/sitemap.xml",
-          ];
+      // 📄 pagini publice permise
+      const allowedPaths = [
+        "/coming-soon.html",
+        "/favicon.ico",
+        "/robots.txt",
+        "/sitemap.xml",
+      ];
 
-          const isAllowedPath =
-            allowedPaths.includes(path) ||
-            path.startsWith("/icons/") ||
-            path.startsWith("/assets/");
+      const isAllowedPath =
+        allowedPaths.includes(path) ||
+        path.startsWith("/icons/") ||
+        path.startsWith("/assets/");
 
-          // localhost = acces total
-          if (isLocal) return;
+      // localhost = acces total
+      if (isLocal) return;
 
-          // maintenance OFF
-          if (!MAINTENANCE_MODE) return;
+      // maintenance OFF
+      if (!MAINTENANCE_MODE) return;
 
-          // acces privat OK
-          if (hasAccess) return;
+      // acces privat OK
+      if (hasAccess) return;
 
-          // deja pe maintenance page
-          if (isAllowedPath) return;
+      // deja pe maintenance page
+      if (isAllowedPath) return;
 
-          // redirect
-          window.location.replace("/coming-soon.html");
-        } catch (e) {
-          console.error("Maintenance guard error:", e);
-        }
-      })();
-    </script>
+      // redirect
+      window.location.replace("/coming-soon.html");
+    } catch (e) {
+      console.error("Maintenance guard error:", e);
+    }
+  })();
+</script>
+-->
 
     <meta
       name="viewport"
