@@ -961,6 +961,7 @@ async function adminListProducts(req, res) {
       moderationStatus = "",
       sort = "new",
       take = "100",
+      skip = "0",
     } = req.query || {};
 
     const where = {};
@@ -1002,25 +1003,32 @@ async function adminListProducts(req, res) {
     }
 
     const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
+    const offset = Math.max(0, Number(skip) || 0);
 
-    const items = await prisma.product.findMany({
-      where,
-      orderBy: buildProductOrderBy(sort),
-      take: pageSize,
-      include: {
-        service: {
-          include: {
-            vendor: true,
-            profile: true,
-            type: true,
+    const [items, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy: buildProductOrderBy(sort),
+        skip: offset,
+        take: pageSize,
+        include: {
+          service: {
+            include: {
+              vendor: true,
+              profile: true,
+              type: true,
+            },
           },
         },
-      },
-    });
+      }),
+      prisma.product.count({ where }),
+    ]);
 
     return res.json({
       items: items.map(mapAdminProduct),
-      total: items.length,
+      total,
+      take: pageSize,
+      skip: offset,
     });
   } catch (e) {
     console.error("GET /admin/products error:", e);

@@ -10,16 +10,106 @@ function formatDate(v) {
   return d.toLocaleString("ro-RO");
 }
 
-function subKind(sub) {
-  if (!sub) return "—";
-  const now = new Date();
-  const trialEndsAt = sub.trialEndsAt ? new Date(sub.trialEndsAt) : null;
-  if (trialEndsAt && trialEndsAt > now) return "trial";
-  return "paid";
+function formatDays(n) {
+  if (n === null || n === undefined) return "—";
+  if (!Number.isFinite(Number(n))) return "—";
+  return `${n} zile`;
 }
+
+function prettyStatus(status) {
+  if (!status) return "—";
+  return String(status).replaceAll("_", " ");
+}
+
+function billingLabel(state) {
+  switch (state) {
+    case "trial":
+      return "Trial";
+    case "paid":
+      return "Plătit";
+    case "past_due":
+      return "Plată întârziată";
+    case "unpaid":
+      return "Neplătit";
+    case "canceling":
+      return "Se anulează";
+    case "canceled":
+      return "Anulat";
+    case "expired":
+      return "Expirat";
+    case "pending":
+      return "În așteptare";
+    case "none":
+      return "Fără abonament";
+    default:
+      return prettyStatus(state);
+  }
+}
+
+function badgeStyle(state) {
+  if (state === "paid" || state === "trial") {
+    return {
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "#dcfce7",
+      color: "#166534",
+      fontWeight: 700,
+      fontSize: 12,
+      whiteSpace: "nowrap",
+    };
+  }
+
+  if (state === "past_due" || state === "pending" || state === "canceling") {
+    return {
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "#fef3c7",
+      color: "#92400e",
+      fontWeight: 700,
+      fontSize: 12,
+      whiteSpace: "nowrap",
+    };
+  }
+
+  if (state === "unpaid" || state === "canceled" || state === "expired" || state === "none") {
+    return {
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "#fee2e2",
+      color: "#991b1b",
+      fontWeight: 700,
+      fontSize: 12,
+      whiteSpace: "nowrap",
+    };
+  }
+
+  return {
+    padding: "4px 8px",
+    borderRadius: 999,
+    background: "#f3f4f6",
+    color: "#374151",
+    fontWeight: 700,
+    fontSize: 12,
+    whiteSpace: "nowrap",
+  };
+}
+
+const BILLING_STATES = [
+  "",
+  "trial",
+  "paid",
+  "past_due",
+  "unpaid",
+  "canceling",
+  "canceled",
+  "expired",
+  "pending",
+  "none",
+];
 
 export default function AdminVendorPlansTab({ initial, onRefresh }) {
   const [q, setQ] = useState("");
+  const [billingState, setBillingState] = useState("");
   const [onlyWithSub, setOnlyWithSub] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -34,11 +124,14 @@ export default function AdminVendorPlansTab({ initial, onRefresh }) {
     async ({ skip = 0 } = {}) => {
       setLoading(true);
       setError("");
+
       try {
         const qs = new URLSearchParams();
         qs.set("take", "50");
         qs.set("skip", String(skip));
+
         if (q.trim()) qs.set("q", q.trim());
+        if (billingState) qs.set("billingState", billingState);
         if (onlyWithSub) qs.set("onlyWithSubscription", "1");
 
         const d = await api(`/api/admin/vendors/plans?${qs.toString()}`);
@@ -49,7 +142,7 @@ export default function AdminVendorPlansTab({ initial, onRefresh }) {
         setLoading(false);
       }
     },
-    [q, onlyWithSub]
+    [q, billingState, onlyWithSub]
   );
 
   const handleRefresh = async () => {
@@ -72,6 +165,20 @@ export default function AdminVendorPlansTab({ initial, onRefresh }) {
           />
         </label>
 
+        <label>
+          <span>Status abonament</span>
+          <select
+            value={billingState}
+            onChange={(e) => setBillingState(e.target.value)}
+          >
+            {BILLING_STATES.map((st) => (
+              <option key={st || "all"} value={st}>
+                {st ? billingLabel(st) : "Toate"}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input
             type="checkbox"
@@ -87,6 +194,7 @@ export default function AdminVendorPlansTab({ initial, onRefresh }) {
             className={styles.resetBtn}
             onClick={() => {
               setQ("");
+              setBillingState("");
               setOnlyWithSub(false);
             }}
             title="Resetează filtre"
@@ -114,7 +222,9 @@ export default function AdminVendorPlansTab({ initial, onRefresh }) {
             Refresh
           </button>
 
-          <span className={styles.filtersCount}>{data.total ?? items.length} rezultate</span>
+          <span className={styles.filtersCount}>
+            {data.total ?? items.length} rezultate
+          </span>
         </div>
       </div>
 
@@ -131,21 +241,22 @@ export default function AdminVendorPlansTab({ initial, onRefresh }) {
               <th>Vendor</th>
               <th>User</th>
               <th>Plan</th>
-              <th>Status</th>
-              <th>Tip</th>
-              <th>EndAt</th>
-              <th>TrialEndsAt</th>
-              <th>Stripe sub</th>
+              <th>Billing</th>
+              <th>Status DB</th>
+              <th>Zile rămase</th>
+              <th>Trial</th>
+              <th>Stripe</th>
+              <th>Blocked</th>
               <th>Acțiuni</th>
             </tr>
           </thead>
+
           <tbody>
             {items.map((row) => (
               <VendorPlanRow
                 key={row.vendorId}
                 row={row}
                 onUpdated={async () => {
-                  // simplu: reîncarcă lista curentă
                   await fetchList({ skip: 0 });
                 }}
               />
@@ -166,13 +277,20 @@ function VendorPlanRow({ row, onUpdated }) {
   const latest = row.latestSubscription || null;
   const shown = current || latest;
 
+  const billing = row.billing || {};
+  const state = billing.state || shown?.billingState || shown?.status || "none";
+
   const planLabel = shown?.plan?.name || shown?.plan?.code || "—";
-  const status = shown?.status || "—";
-  const kind = subKind(shown);
+  const dbStatus = shown?.status || "—";
   const endAt = shown?.endAt || null;
   const trialEndsAt = shown?.trialEndsAt || null;
 
-  const stripeSubId = shown?.stripeSubscriptionId || shown?.meta?.stripeSubscriptionId || null;
+  const stripeSubId =
+    shown?.stripeSubscriptionId ||
+    shown?.meta?.stripeSubscriptionId ||
+    null;
+
+  const stripeStatus = billing.stripeStatus || shown?.stripeStatus || shown?.meta?.stripeStatus || "—";
 
   const [busy, setBusy] = useState(false);
   const [trialDays, setTrialDays] = useState("");
@@ -189,26 +307,41 @@ function VendorPlanRow({ row, onUpdated }) {
 
   const setTrial = async () => {
     const n = Number(trialDays || 0);
+
     await call(() =>
       api(`/api/admin/vendors/${vendorId}/subscription/trial`, {
         method: "PATCH",
         body: { trialDays: Number.isFinite(n) ? n : 0 },
       })
     );
+
     setTrialDays("");
   };
 
   const syncStripe = async () => {
-    await call(() => api(`/api/admin/vendors/${vendorId}/subscription/stripe/sync`, { method: "POST" }));
+    await call(() =>
+      api(`/api/admin/vendors/${vendorId}/subscription/stripe/sync`, {
+        method: "POST",
+      })
+    );
   };
 
   const cancelStripe = async () => {
     if (!window.confirm("Sigur vrei să setezi cancel_at_period_end = true?")) return;
-    await call(() => api(`/api/admin/vendors/${vendorId}/subscription/stripe/cancel`, { method: "POST" }));
+
+    await call(() =>
+      api(`/api/admin/vendors/${vendorId}/subscription/stripe/cancel`, {
+        method: "POST",
+      })
+    );
   };
 
   const resumeStripe = async () => {
-    await call(() => api(`/api/admin/vendors/${vendorId}/subscription/stripe/resume`, { method: "POST" }));
+    await call(() =>
+      api(`/api/admin/vendors/${vendorId}/subscription/stripe/resume`, {
+        method: "POST",
+      })
+    );
   };
 
   return (
@@ -224,33 +357,71 @@ function VendorPlanRow({ row, onUpdated }) {
 
       <td>{planLabel}</td>
 
-      <td>{status}</td>
+      <td>
+        <span style={badgeStyle(state)}>{billingLabel(state)}</span>
+        {billing.cancelAtPeriodEnd ? (
+          <div className={styles.subtle}>cancel at period end</div>
+        ) : null}
+      </td>
 
-      <td>{kind}</td>
-
-      <td>{formatDate(endAt)}</td>
-
-      <td>{formatDate(trialEndsAt)}</td>
+      <td>{prettyStatus(dbStatus)}</td>
 
       <td>
+        <div>{formatDays(billing.daysLeft)}</div>
+        <div className={styles.subtle}>{formatDate(endAt)}</div>
+      </td>
+
+      <td>
+        <div>{formatDays(billing.trialDaysLeft)}</div>
+        <div className={styles.subtle}>{formatDate(trialEndsAt)}</div>
+      </td>
+
+      <td>
+        <div>
+          Stripe status: <b>{prettyStatus(stripeStatus)}</b>
+        </div>
         {stripeSubId ? (
           <code title={stripeSubId}>{String(stripeSubId).slice(0, 18)}…</code>
         ) : (
-          "—"
+          <span className={styles.subtle}>fără Stripe sub</span>
+        )}
+      </td>
+
+      <td>
+        {billing.isBlocked ? (
+          <span style={badgeStyle("unpaid")}>Da</span>
+        ) : (
+          <span style={badgeStyle("paid")}>Nu</span>
         )}
       </td>
 
       <td>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <button type="button" className={styles.resetBtn} onClick={syncStripe} disabled={busy}>
+          <button
+            type="button"
+            className={styles.resetBtn}
+            onClick={syncStripe}
+            disabled={busy || !stripeSubId}
+            title={!stripeSubId ? "Nu există Stripe subscription" : "Sincronizează cu Stripe"}
+          >
             Sync Stripe
           </button>
 
-          <button type="button" className={styles.resetBtn} onClick={cancelStripe} disabled={busy}>
+          <button
+            type="button"
+            className={styles.resetBtn}
+            onClick={cancelStripe}
+            disabled={busy || !stripeSubId}
+          >
             Cancel
           </button>
 
-          <button type="button" className={styles.resetBtn} onClick={resumeStripe} disabled={busy}>
+          <button
+            type="button"
+            className={styles.resetBtn}
+            onClick={resumeStripe}
+            disabled={busy || !stripeSubId}
+          >
             Resume
           </button>
 
@@ -263,9 +434,15 @@ function VendorPlanRow({ row, onUpdated }) {
               placeholder="trial zile"
               value={trialDays}
               onChange={(e) => setTrialDays(e.target.value)}
-              disabled={busy}
+              disabled={busy || !shown}
             />
-            <button type="button" className={styles.resetBtn} onClick={setTrial} disabled={busy}>
+
+            <button
+              type="button"
+              className={styles.resetBtn}
+              onClick={setTrial}
+              disabled={busy || !shown}
+            >
               Set trial
             </button>
           </div>

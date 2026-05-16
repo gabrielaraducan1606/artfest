@@ -53,7 +53,7 @@ export default function ConnectPayoutsTab() {
   const [err, setErr] = useState("");
   const [status, setStatus] = useState(null);
 
-  const payoutsLocked = false;
+  const payoutsLocked = true;
   const activationDateText = "17 mai";
 
   const hasAccount = !!status?.hasAccount;
