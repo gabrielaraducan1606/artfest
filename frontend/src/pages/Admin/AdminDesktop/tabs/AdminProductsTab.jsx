@@ -72,16 +72,6 @@ function normalizeProductsPayload(payload) {
   return [];
 }
 
-function getPayloadTotal(payload) {
-  return (
-    payload?.total ??
-    payload?.totalCount ??
-    payload?.count ??
-    payload?.meta?.total ??
-    null
-  );
-}
-
 export default function AdminProductsTab({ products: productsProp = null }) {
   const [productsState, setProductsState] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -105,58 +95,58 @@ export default function AdminProductsTab({ products: productsProp = null }) {
   }
 
   useEffect(() => {
-    if (!shouldFetchOwnData) return;
+  if (!shouldFetchOwnData) return;
 
-    let alive = true;
+  let alive = true;
 
-    async function loadProducts() {
-      try {
-        setLoading(true);
-        setError("");
+  async function loadProducts() {
+    try {
+      setLoading(true);
+      setError("");
 
-        const take = 200;
-        let skip = 0;
-        let allProducts = [];
-        let total = null;
+      const take = 200;
+      let skip = 0;
+      let allProducts = [];
 
-        while (true) {
-  const data = await fetchJson(
-    `/api/admin/products?take=${take}&skip=${skip}`
-  );
+      while (true) {
+        const data = await fetchJson(
+          `/api/admin/products?take=${take}&skip=${skip}`
+        );
 
-  if (!alive) return;
-
-  const pageProducts = normalizeProductsPayload(data);
-
-  if (!pageProducts.length) {
-    break;
-  }
-
-  allProducts = [...allProducts, ...pageProducts];
-  total = getPayloadTotal(data);
-
-  if (total != null && allProducts.length >= total) {
-    break;
-  }
-
-  skip += pageProducts.length;
-}
-        setProductsState(allProducts);
-      } catch (e) {
         if (!alive) return;
-        setError(e?.message || "Nu am putut încărca produsele.");
-        setProductsState([]);
-      } finally {
-        if (alive) setLoading(false);
+
+        const pageProducts = normalizeProductsPayload(data);
+
+        if (!pageProducts.length) {
+          break;
+        }
+
+        allProducts = [...allProducts, ...pageProducts];
+
+        if (pageProducts.length < take) {
+          break;
+        }
+
+        skip += pageProducts.length;
       }
+
+      setProductsState(allProducts);
+    } catch (e) {
+      if (!alive) return;
+
+      setError(e?.message || "Nu am putut încărca produsele.");
+      setProductsState([]);
+    } finally {
+      if (alive) setLoading(false);
     }
+  }
 
-    loadProducts();
+  loadProducts();
 
-    return () => {
-      alive = false;
-    };
-  }, [shouldFetchOwnData]);
+  return () => {
+    alive = false;
+  };
+}, [shouldFetchOwnData]);
 
   const products = Array.isArray(productsProp) ? productsProp : productsState;
 
