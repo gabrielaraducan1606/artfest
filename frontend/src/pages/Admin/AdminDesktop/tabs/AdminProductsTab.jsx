@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api";
 import styles from "../css/AdminProductsTab.module.css";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 200;
 
 function formatPrice(value, currency = "RON") {
   const n = Number(value || 0);
