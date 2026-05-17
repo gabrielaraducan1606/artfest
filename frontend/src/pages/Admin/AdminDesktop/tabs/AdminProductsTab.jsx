@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api";
 import styles from "../css/AdminProductsTab.module.css";
 
+const PAGE_SIZE = 50;
+
 function formatPrice(value, currency = "RON") {
   const n = Number(value || 0);
 
@@ -74,6 +76,9 @@ function normalizeProductsPayload(payload) {
 
 export default function AdminProductsTab({ products: productsProp = null }) {
   const [productsState, setProductsState] = useState([]);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [page, setPage] = useState(1);
+
   const [loading, setLoading] = useState(false);
   const [workingProductId, setWorkingProductId] = useState("");
   const [error, setError] = useState("");
@@ -95,60 +100,86 @@ export default function AdminProductsTab({ products: productsProp = null }) {
   }
 
   useEffect(() => {
-  if (!shouldFetchOwnData) return;
+    if (!shouldFetchOwnData) return;
 
-  let alive = true;
+    let alive = true;
 
-  async function loadProducts() {
-    try {
-      setLoading(true);
-      setError("");
+    async function loadProducts() {
+      try {
+        setLoading(true);
+        setError("");
 
-      const take = 200;
-      let skip = 0;
-      let allProducts = [];
+        const skip = (page - 1) * PAGE_SIZE;
 
-      while (true) {
-        const data = await fetchJson(
-          `/api/admin/products?take=${take}&skip=${skip}`
-        );
+        const params = new URLSearchParams({
+          take: String(PAGE_SIZE),
+          skip: String(skip),
+        });
+
+        const q = query.trim();
+        if (q) params.set("q", q);
+        if (availability) params.set("availability", availability);
+        if (moderationFilter) params.set("moderationStatus", moderationFilter);
+        if (storeStatusFilter) params.set("serviceStatus", storeStatusFilter);
+
+        if (activeFilter === "active") params.set("isActive", "true");
+        if (activeFilter === "inactive") params.set("isActive", "false");
+
+        if (hiddenFilter === "hidden") params.set("isHidden", "true");
+        if (hiddenFilter === "visible") params.set("isHidden", "false");
+
+        const data = await fetchJson(`/api/admin/products?${params.toString()}`);
 
         if (!alive) return;
 
         const pageProducts = normalizeProductsPayload(data);
 
-        if (!pageProducts.length) {
-          break;
-        }
+        setProductsState(pageProducts);
+        setTotalProducts(Number(data?.total || pageProducts.length || 0));
+      } catch (e) {
+        if (!alive) return;
 
-        allProducts = [...allProducts, ...pageProducts];
-
-        if (pageProducts.length < take) {
-          break;
-        }
-
-        skip += pageProducts.length;
+        setError(e?.message || "Nu am putut încărca produsele.");
+        setProductsState([]);
+        setTotalProducts(0);
+      } finally {
+        if (alive) setLoading(false);
       }
-
-      setProductsState(allProducts);
-    } catch (e) {
-      if (!alive) return;
-
-      setError(e?.message || "Nu am putut încărca produsele.");
-      setProductsState([]);
-    } finally {
-      if (alive) setLoading(false);
     }
-  }
 
-  loadProducts();
+    loadProducts();
 
-  return () => {
-    alive = false;
-  };
-}, [shouldFetchOwnData]);
+    return () => {
+      alive = false;
+    };
+  }, [
+    shouldFetchOwnData,
+    page,
+    query,
+    availability,
+    activeFilter,
+    hiddenFilter,
+    storeStatusFilter,
+    moderationFilter,
+  ]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    query,
+    availability,
+    activeFilter,
+    hiddenFilter,
+    storeStatusFilter,
+    moderationFilter,
+  ]);
 
   const products = Array.isArray(productsProp) ? productsProp : productsState;
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil((shouldFetchOwnData ? totalProducts : products.length) / PAGE_SIZE)
+  );
 
   const setProductEverywhere = (productId, patchOrProduct) => {
     const updater = (old) =>
@@ -240,6 +271,8 @@ export default function AdminProductsTab({ products: productsProp = null }) {
   };
 
   const filtered = useMemo(() => {
+    if (shouldFetchOwnData) return products;
+
     const q = query.trim().toLowerCase();
 
     return products.filter((p) => {
@@ -291,6 +324,7 @@ export default function AdminProductsTab({ products: productsProp = null }) {
       );
     });
   }, [
+    shouldFetchOwnData,
     products,
     query,
     availability,
@@ -369,11 +403,37 @@ export default function AdminProductsTab({ products: productsProp = null }) {
 
       <div className={styles.metaRow}>
         <p className={styles.metaText}>
-          Total produse încărcate: <b>{products.length}</b>
+          Total produse:{" "}
+          <b>{shouldFetchOwnData ? totalProducts : products.length}</b>
         </p>
+
         <p className={styles.metaText}>
-          Rezultate afișate: <b>{filtered.length}</b>
+          Rezultate afișate pe pagina curentă: <b>{filtered.length}</b>
         </p>
+      </div>
+
+      <div className={styles.metaRow}>
+        <button
+          type="button"
+          className={styles.actionBtn}
+          disabled={page <= 1 || loading}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+        >
+          ← Înapoi
+        </button>
+
+        <p className={styles.metaText}>
+          Pagina <b>{page}</b> din <b>{totalPages}</b>
+        </p>
+
+        <button
+          type="button"
+          className={styles.actionBtn}
+          disabled={page >= totalPages || loading}
+          onClick={() => setPage((p) => p + 1)}
+        >
+          Înainte →
+        </button>
       </div>
 
       {loading ? (
@@ -407,7 +467,9 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                 const image =
                   Array.isArray(p.images) && p.images.length ? p.images[0] : "";
 
-                const storeStatus = String(p.service?.status || "").toUpperCase();
+                const storeStatus = String(
+                  p.service?.status || ""
+                ).toUpperCase();
 
                 const storeStatusTone =
                   storeStatus === "ACTIVE"
@@ -564,7 +626,9 @@ export default function AdminProductsTab({ products: productsProp = null }) {
                         <StatusBadge
                           tone={p.service?.isActive ? "success" : "danger"}
                         >
-                          {p.service?.isActive ? "Store activ" : "Store inactiv"}
+                          {p.service?.isActive
+                            ? "Store activ"
+                            : "Store inactiv"}
                         </StatusBadge>
                       </div>
                     </td>
@@ -744,17 +808,31 @@ function ProductReviewModal({
           </div>
 
           <div className={styles.detailsPanel}>
-            <Detail label="Preț" value={formatPrice(product.price, product.currency)} />
+            <Detail
+              label="Preț"
+              value={formatPrice(product.price, product.currency)}
+            />
             <Detail label="Categorie" value={product.category || "—"} />
             <Detail label="Culoare" value={product.color || "—"} />
-            <Detail label="Disponibilitate" value={product.availability || "—"} />
+            <Detail
+              label="Disponibilitate"
+              value={product.availability || "—"}
+            />
             <Detail label="Stoc ready" value={product.readyQty ?? "—"} />
             <Detail
               label="Lead time"
-              value={product.leadTimeDays ? `${product.leadTimeDays} zile` : "—"}
+              value={
+                product.leadTimeDays ? `${product.leadTimeDays} zile` : "—"
+              }
             />
-            <Detail label="Livrare preorder" value={formatDate(product.nextShipDate)} />
-            <Detail label="Acceptă custom" value={product.acceptsCustom ? "Da" : "Nu"} />
+            <Detail
+              label="Livrare preorder"
+              value={formatDate(product.nextShipDate)}
+            />
+            <Detail
+              label="Acceptă custom"
+              value={product.acceptsCustom ? "Da" : "Nu"}
+            />
 
             <hr className={styles.modalSep} />
 
@@ -766,18 +844,36 @@ function ProductReviewModal({
             <Detail label="Store" value={product.service?.displayName || "—"} />
             <Detail label="Slug store" value={product.service?.slug || "—"} />
             <Detail label="Service ID" value={product.service?.id || "—"} />
-            <Detail label="Status store" value={product.service?.status || "—"} />
-            <Detail label="Store activ" value={product.service?.isActive ? "Da" : "Nu"} />
+            <Detail
+              label="Status store"
+              value={product.service?.status || "—"}
+            />
+            <Detail
+              label="Store activ"
+              value={product.service?.isActive ? "Da" : "Nu"}
+            />
 
             <hr className={styles.modalSep} />
 
-            <Detail label="Produs activ" value={product.isActive ? "Da" : "Nu"} />
-            <Detail label="Produs ascuns" value={product.isHidden ? "Da" : "Nu"} />
+            <Detail
+              label="Produs activ"
+              value={product.isActive ? "Da" : "Nu"}
+            />
+            <Detail
+              label="Produs ascuns"
+              value={product.isHidden ? "Da" : "Nu"}
+            />
             <Detail label="Trimis la" value={formatDate(product.submittedAt)} />
-            <Detail label="Verificat la" value={formatDate(product.reviewedAt)} />
+            <Detail
+              label="Verificat la"
+              value={formatDate(product.reviewedAt)}
+            />
             <Detail label="Aprobat la" value={formatDate(product.approvedAt)} />
             <Detail label="Creat la" value={formatDate(product.createdAt)} />
-            <Detail label="Actualizat la" value={formatDate(product.updatedAt)} />
+            <Detail
+              label="Actualizat la"
+              value={formatDate(product.updatedAt)}
+            />
           </div>
         </div>
 
@@ -805,7 +901,8 @@ function ProductReviewModal({
           </p>
           <p>
             Ocazii:{" "}
-            {Array.isArray(product.occasionTags) && product.occasionTags.length
+            {Array.isArray(product.occasionTags) &&
+            product.occasionTags.length
               ? product.occasionTags.join(", ")
               : "—"}
           </p>
