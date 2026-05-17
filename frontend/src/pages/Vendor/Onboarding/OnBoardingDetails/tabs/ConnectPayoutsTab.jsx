@@ -60,11 +60,18 @@ export default function ConnectPayoutsTab() {
   const payoutsEnabled = !!status?.payouts_enabled;
   const chargesEnabled = !!status?.charges_enabled;
   const detailsSubmitted = !!status?.details_submitted;
+
   const due = Array.isArray(status?.requirements_due)
     ? status.requirements_due
     : [];
 
   const fullyEnabled = hasAccount && payoutsEnabled;
+
+  const pendingVerification =
+    hasAccount &&
+    detailsSubmitted &&
+    !chargesEnabled &&
+    !payoutsEnabled;
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -89,7 +96,9 @@ export default function ConnectPayoutsTab() {
 
   const startOnboarding = useCallback(async () => {
     if (payoutsLocked) {
-      setErr(`Activarea încasărilor va fi disponibilă după ${activationDateText}.`);
+      setErr(
+        `Activarea încasărilor va fi disponibilă după ${activationDateText}.`
+      );
       return;
     }
 
@@ -101,7 +110,9 @@ export default function ConnectPayoutsTab() {
         method: "POST",
       });
 
-      if (!d?.url) throw new Error("Nu am primit linkul de onboarding Stripe.");
+      if (!d?.url) {
+        throw new Error("Nu am primit linkul de onboarding Stripe.");
+      }
 
       window.location.href = d.url;
     } catch (e) {
@@ -112,7 +123,9 @@ export default function ConnectPayoutsTab() {
 
   const continueOnboarding = useCallback(async () => {
     if (payoutsLocked) {
-      setErr(`Continuarea onboarding-ului va fi disponibilă după ${activationDateText}.`);
+      setErr(
+        `Continuarea onboarding-ului va fi disponibilă după ${activationDateText}.`
+      );
       return;
     }
 
@@ -124,7 +137,9 @@ export default function ConnectPayoutsTab() {
         method: "POST",
       });
 
-      if (!d?.url) throw new Error("Nu am primit linkul de continuare Stripe.");
+      if (!d?.url) {
+        throw new Error("Nu am primit linkul de continuare Stripe.");
+      }
 
       window.location.href = d.url;
     } catch (e) {
@@ -134,15 +149,21 @@ export default function ConnectPayoutsTab() {
   }, [payoutsLocked]);
 
   if (loading) {
-    return <div className={styles.loading}>Se verifică statusul încasărilor…</div>;
+    return (
+      <div className={styles.loading}>
+        Se verifică statusul încasărilor…
+      </div>
+    );
   }
 
   return (
     <div className={styles.wrap}>
       <div className={styles.header}>
         <h3 className={styles.title}>Încasări prin platformă</h3>
+
         <p className={styles.subtitle}>
-          Activează Stripe Connect pentru a primi transferuri către contul tău bancar.
+          Activează Stripe Connect pentru a primi transferuri către contul tău
+          bancar.
         </p>
       </div>
 
@@ -150,14 +171,14 @@ export default function ConnectPayoutsTab() {
         <span className={styles.badge}>Stripe Connect</span>
 
         <p className={styles.text}>
-          Platforma va folosi <strong>Stripe Connect</strong> pentru plățile online.
-          Ca să primești bani din comenzile plătite online, trebuie să ai activat
-          contul de încasări Stripe.
+          Platforma va folosi <strong>Stripe Connect</strong> pentru plățile
+          online. Ca să primești bani din comenzile plătite online, trebuie să
+          ai activat contul de încasări Stripe.
         </p>
 
         <p className={styles.text}>
-          În Stripe vei completa datele necesare pentru verificare și pentru transferul
-          banilor către contul tău bancar.
+          În Stripe vei completa datele necesare pentru verificare și pentru
+          transferul banilor către contul tău bancar.
         </p>
 
         <ul className={styles.list}>
@@ -174,10 +195,11 @@ export default function ConnectPayoutsTab() {
       {payoutsLocked && (
         <div className={styles.notice}>
           <h4>Activarea încasărilor nu este necesară încă.</h4>
+
           <p>
             Formularul Stripe va deveni disponibil după{" "}
-            <strong>{activationDateText}</strong>. Până atunci poți folosi platforma
-            fără să activezi încasările.
+            <strong>{activationDateText}</strong>. Până atunci poți folosi
+            platforma fără să activezi încasările.
           </p>
         </div>
       )}
@@ -188,6 +210,7 @@ export default function ConnectPayoutsTab() {
         <>
           <div className={styles.card}>
             <h4 className={styles.cardTitle}>Stripe nu este conectat</h4>
+
             <p className={styles.text}>
               Pentru a primi plăți online după lansarea încasărilor, trebuie să
               activezi contul Stripe.
@@ -217,22 +240,32 @@ export default function ConnectPayoutsTab() {
       {hasAccount && !fullyEnabled && (
         <>
           <div className={styles.notice}>
-            <h4>Cont Stripe început, dar incomplet</h4>
+            <h4>
+              {pendingVerification
+                ? "Stripe verifică datele contului"
+                : "Cont Stripe început, dar incomplet"}
+            </h4>
 
             <p>
-              Contul Stripe există, dar încă nu este complet activ pentru transferuri.
+              {pendingVerification
+                ? "Datele au fost trimise către Stripe și sunt în curs de verificare. Activarea poate dura până la 24 de ore."
+                : "Contul Stripe există, dar încă nu este complet activ pentru transferuri."}
             </p>
 
             <div className={styles.statusGrid}>
               <div className={styles.statusItem}>
                 <span className={styles.statusLabel}>Plăți online</span>
+
                 <span className={styles.statusValue}>
                   {chargesEnabled ? "Active" : "Inactive"}
                 </span>
               </div>
 
               <div className={styles.statusItem}>
-                <span className={styles.statusLabel}>Transferuri bancare</span>
+                <span className={styles.statusLabel}>
+                  Transferuri bancare
+                </span>
+
                 <span className={styles.statusValue}>
                   {payoutsEnabled ? "Active" : "Inactive"}
                 </span>
@@ -240,6 +273,7 @@ export default function ConnectPayoutsTab() {
 
               <div className={styles.statusItem}>
                 <span className={styles.statusLabel}>Date trimise</span>
+
                 <span className={styles.statusValue}>
                   {detailsSubmitted ? "Da" : "Nu"}
                 </span>
@@ -260,7 +294,9 @@ export default function ConnectPayoutsTab() {
               </ul>
 
               {due.length > 12 && (
-                <p className={styles.text}>…și încă {due.length - 12}</p>
+                <p className={styles.text}>
+                  …și încă {due.length - 12}
+                </p>
               )}
 
               <p className={styles.text}>
@@ -293,6 +329,7 @@ export default function ConnectPayoutsTab() {
         <>
           <div className={styles.success}>
             <h4>Încasările sunt active</h4>
+
             <p>
               Contul tău Stripe este activ. Poți primi transferuri către contul
               bancar.
@@ -303,6 +340,7 @@ export default function ConnectPayoutsTab() {
             <div className={styles.statusGrid}>
               <div className={styles.statusItem}>
                 <span className={styles.statusLabel}>Plăți online</span>
+
                 <span className={styles.statusValue}>
                   {chargesEnabled ? "Active" : "Inactive"}
                 </span>
@@ -310,6 +348,7 @@ export default function ConnectPayoutsTab() {
 
               <div className={styles.statusItem}>
                 <span className={styles.statusLabel}>Transferuri</span>
+
                 <span className={styles.statusValue}>
                   {payoutsEnabled ? "Active" : "Inactive"}
                 </span>
@@ -317,6 +356,7 @@ export default function ConnectPayoutsTab() {
 
               <div className={styles.statusItem}>
                 <span className={styles.statusLabel}>Date trimise</span>
+
                 <span className={styles.statusValue}>
                   {detailsSubmitted ? "Da" : "Nu"}
                 </span>
@@ -325,7 +365,10 @@ export default function ConnectPayoutsTab() {
           </div>
 
           <div className={styles.buttonRow}>
-            <button className={styles.secondaryButton} onClick={loadStatus}>
+            <button
+              className={styles.secondaryButton}
+              onClick={loadStatus}
+            >
               Reîncarcă status
             </button>
           </div>
