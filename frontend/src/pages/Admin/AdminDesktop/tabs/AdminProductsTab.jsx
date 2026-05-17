@@ -133,7 +133,8 @@ export default function AdminProductsTab() {
         if (!alive) return;
 
         const pageProducts = normalizeProductsPayload(data);
-
+console.log("ADMIN PRODUCTS RESPONSE", data);
+console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?.take);
         setProductsState(pageProducts);
         setTotalProducts(Number(data?.total || pageProducts.length || 0));
       } catch (e) {
