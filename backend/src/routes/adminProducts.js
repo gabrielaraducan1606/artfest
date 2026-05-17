@@ -950,19 +950,19 @@ async function deleteProduct(req, res) {
 async function adminListProducts(req, res) {
   try {
     const {
-      q = "",
-      category = "",
-      availability = "",
-      vendorId = "",
-      serviceId = "",
-      isActive,
-      isHidden,
-      serviceStatus = "",
-      moderationStatus = "",
-      sort = "new",
-      take = "50",
-      skip = "0",
-    } = req.query || {};
+  q = "",
+  category = "",
+  availability = "",
+  vendorId = "",
+  serviceId = "",
+  isActive,
+  isHidden,
+  serviceStatus = "",
+  moderationStatus = "",
+  sort = "new",
+  take = "500",
+  skip = "0",
+} = req.query || {};
 
     const where = {};
 
@@ -1039,7 +1039,7 @@ async function adminListProducts(req, res) {
       ];
     }
 
-    const pageSize = Math.max(1, Math.min(200, Number(take) || 50));
+   const pageSize = Math.max(1, Math.min(500, Number(take) || 500));
     const offset = Math.max(0, Number(skip) || 0);
 
     const [items, total] = await Promise.all([
