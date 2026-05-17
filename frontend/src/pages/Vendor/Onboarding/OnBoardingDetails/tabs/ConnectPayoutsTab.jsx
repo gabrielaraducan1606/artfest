@@ -65,7 +65,7 @@ export default function ConnectPayoutsTab() {
     ? status.requirements_due
     : [];
 
-  const fullyEnabled = hasAccount && payoutsEnabled;
+const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
 
   const pendingVerification =
     hasAccount &&
