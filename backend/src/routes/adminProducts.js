@@ -960,30 +960,28 @@ async function adminListProducts(req, res) {
       serviceStatus = "",
       moderationStatus = "",
       sort = "new",
-      take = "100",
+      take = "50",
       skip = "0",
     } = req.query || {};
 
     const where = {};
-const serviceFilter = {};
 
-if (vendorId) {
-  serviceFilter.vendorId = String(vendorId).trim();
-}
+    if (serviceId) {
+      where.serviceId = String(serviceId).trim();
+    }
 
-const svcStatus = String(serviceStatus || "").trim().toUpperCase();
+    if (vendorId || serviceStatus) {
+      where.service = {};
 
-if (svcStatus) {
-  serviceFilter.status = svcStatus;
-}
+      if (vendorId) {
+        where.service.vendorId = String(vendorId).trim();
+      }
 
-if (serviceId) {
-  where.serviceId = String(serviceId).trim();
-}
-
-if (Object.keys(serviceFilter).length > 0) {
-  where.service = serviceFilter;
-}
+      const svcStatus = String(serviceStatus || "").trim().toUpperCase();
+      if (svcStatus) {
+        where.service.status = svcStatus;
+      }
+    }
 
     applyProductFilters(where, {
       q,
@@ -996,15 +994,44 @@ if (Object.keys(serviceFilter).length > 0) {
 
     if (q) {
       const qstr = String(q).trim();
+
       where.OR = [
         ...(where.OR || []),
+        { id: { contains: qstr, mode: "insensitive" } },
         {
           service: {
             is: {
               OR: [
-                { vendor: { is: { displayName: { contains: qstr, mode: "insensitive" } } } },
-                { profile: { is: { displayName: { contains: qstr, mode: "insensitive" } } } },
-                { profile: { is: { slug: { contains: qstr, mode: "insensitive" } } } },
+                {
+                  vendor: {
+                    is: {
+                      displayName: {
+                        contains: qstr,
+                        mode: "insensitive",
+                      },
+                    },
+                  },
+                },
+                {
+                  profile: {
+                    is: {
+                      displayName: {
+                        contains: qstr,
+                        mode: "insensitive",
+                      },
+                    },
+                  },
+                },
+                {
+                  profile: {
+                    is: {
+                      slug: {
+                        contains: qstr,
+                        mode: "insensitive",
+                      },
+                    },
+                  },
+                },
               ],
             },
           },
@@ -1012,7 +1039,7 @@ if (Object.keys(serviceFilter).length > 0) {
       ];
     }
 
-    const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
+    const pageSize = Math.max(1, Math.min(200, Number(take) || 50));
     const offset = Math.max(0, Number(skip) || 0);
 
     const [items, total] = await Promise.all([
