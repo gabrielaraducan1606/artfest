@@ -965,15 +965,25 @@ async function adminListProducts(req, res) {
     } = req.query || {};
 
     const where = {};
-    const serviceFilter = { type: { code: "products" } };
+const serviceFilter = {};
 
-    if (vendorId) serviceFilter.vendorId = String(vendorId).trim();
+if (vendorId) {
+  serviceFilter.vendorId = String(vendorId).trim();
+}
 
-    const svcStatus = String(serviceStatus || "").trim().toUpperCase();
-    if (svcStatus) serviceFilter.status = svcStatus;
+const svcStatus = String(serviceStatus || "").trim().toUpperCase();
 
-    if (serviceId) where.serviceId = String(serviceId).trim();
-    where.service = serviceFilter;
+if (svcStatus) {
+  serviceFilter.status = svcStatus;
+}
+
+if (serviceId) {
+  where.serviceId = String(serviceId).trim();
+}
+
+if (Object.keys(serviceFilter).length > 0) {
+  where.service = serviceFilter;
+}
 
     applyProductFilters(where, {
       q,
