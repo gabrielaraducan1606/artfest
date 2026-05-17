@@ -738,16 +738,14 @@ router.get("/orders", async (req, res) => {
 
 router.get("/products", async (req, res) => {
   try {
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const take = Math.min(Number(req.query.take || req.query.limit) || 200, 500);
+    const skip = Math.max(0, Number(req.query.skip) || 0);
 
-    const activePolicies = await prisma.vendorPolicy.findMany({
-      where: { isActive: true, isRequired: true },
-      select: { document: true },
-    });
-    const requiredDocs = activePolicies.map((p) => p.document);
+    const total = await prisma.product.count();
 
     const products = await prisma.product.findMany({
-      take: limit,
+      skip,
+      take,
       orderBy: { createdAt: "desc" },
       include: {
         service: {
@@ -773,21 +771,12 @@ router.get("/products", async (req, res) => {
       },
     });
 
-    const productsWithAgreements = products.map((p) => {
-      const vendor = p.service?.vendor;
-      if (!vendor) return p;
-
-      const agreementsSummary = buildVendorAgreementsSummary(vendor, requiredDocs);
-      return {
-        ...p,
-        service: {
-          ...p.service,
-          vendor: { ...vendor, agreementsSummary },
-        },
-      };
+    res.json({
+      products,
+      total,
+      take,
+      skip,
     });
-
-    res.json({ products: productsWithAgreements });
   } catch (e) {
     console.error("ADMIN /products error", e);
     res.status(500).json({ error: "admin_products_failed" });
