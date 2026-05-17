@@ -74,7 +74,7 @@ function normalizeProductsPayload(payload) {
   return [];
 }
 
-export default function AdminProductsTab({ products: productsProp = null }) {
+export default function AdminProductsTab() {
   const [productsState, setProductsState] = useState([]);
   const [totalProducts, setTotalProducts] = useState(0);
   const [page, setPage] = useState(1);
@@ -93,7 +93,7 @@ export default function AdminProductsTab({ products: productsProp = null }) {
   const [storeStatusFilter, setStoreStatusFilter] = useState("");
   const [moderationFilter, setModerationFilter] = useState("");
 
-  const shouldFetchOwnData = productsProp === null;
+ const shouldFetchOwnData = true;
 
   async function fetchJson(path, options = {}) {
     return api(path, options);
@@ -174,7 +174,7 @@ export default function AdminProductsTab({ products: productsProp = null }) {
     moderationFilter,
   ]);
 
-  const products = Array.isArray(productsProp) ? productsProp : productsState;
+  const products = productsState;
 
   const totalPages = Math.max(
     1,
