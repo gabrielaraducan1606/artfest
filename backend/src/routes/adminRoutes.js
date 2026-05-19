@@ -738,44 +738,120 @@ router.get("/orders", async (req, res) => {
 
 router.get("/products", async (req, res) => {
   try {
-    const take = Math.min(Number(req.query.take || req.query.limit) || 200, 500);
-    const skip = Math.max(0, Number(req.query.skip) || 0);
+    const {
+      q = "",
+      availability = "",
+      isActive,
+      isHidden,
+      serviceStatus = "",
+      moderationStatus = "",
+      take = "200",
+      skip = "0",
+    } = req.query || {};
 
-    const total = await prisma.product.count();
+    const where = {};
 
-    const products = await prisma.product.findMany({
-      skip,
-      take,
-      orderBy: { createdAt: "desc" },
-      include: {
-        service: {
-          select: {
-            id: true,
-            title: true,
-            city: true,
-            status: true,
-            isActive: true,
-            vendor: {
-              select: {
-                id: true,
-                displayName: true,
-                VendorAcceptance: {
-                  select: { document: true, version: true, acceptedAt: true },
+    if (availability) {
+      where.availability = String(availability).trim().toUpperCase();
+    }
+
+    if (moderationStatus) {
+      where.moderationStatus = String(moderationStatus)
+        .trim()
+        .toUpperCase();
+    }
+
+    if (isActive === "true") where.isActive = true;
+    if (isActive === "false") where.isActive = false;
+
+    if (isHidden === "true") where.isHidden = true;
+    if (isHidden === "false") where.isHidden = false;
+
+    if (serviceStatus) {
+  where.service = {
+    is: {
+      status: String(serviceStatus).trim().toUpperCase(),
+    },
+  };
+}
+
+    const qstr = String(q || "").trim();
+
+    if (qstr) {
+      where.OR = [
+        { id: { contains: qstr, mode: "insensitive" } },
+        { title: { contains: qstr, mode: "insensitive" } },
+        { description: { contains: qstr, mode: "insensitive" } },
+        { category: { contains: qstr, mode: "insensitive" } },
+        { color: { contains: qstr, mode: "insensitive" } },
+        {
+  service: {
+    is: {
+      vendor: {
+        is: {
+          displayName: {
+            contains: qstr,
+            mode: "insensitive",
+          },
+        },
+      },
+    },
+  },
+},
+      ];
+    }
+
+    const pageSize = Math.max(1, Math.min(500, Number(take) || 200));
+    const offset = Math.max(0, Number(skip) || 0);
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        skip: offset,
+        take: pageSize,
+        orderBy: { createdAt: "desc" },
+        include: {
+          service: {
+            select: {
+              id: true,
+              title: true,
+              city: true,
+              status: true,
+              isActive: true,
+              vendor: {
+                select: {
+                  id: true,
+                  displayName: true,
+                  VendorAcceptance: {
+                    select: {
+                      document: true,
+                      version: true,
+                      acceptedAt: true,
+                    },
+                  },
                 },
               },
             },
           },
+          ProductRatingStats: true,
+          _count: {
+            select: {
+              Favorite: true,
+              comments: true,
+              reviews: true,
+              cartItems: true,
+            },
+          },
         },
-        ProductRatingStats: true,
-        _count: { select: { Favorite: true, comments: true, reviews: true, cartItems: true } },
-      },
-    });
+      }),
+      prisma.product.count({ where }),
+    ]);
 
     res.json({
       products,
       total,
-      take,
-      skip,
+      take: pageSize,
+      skip: offset,
     });
   } catch (e) {
     console.error("ADMIN /products error", e);
