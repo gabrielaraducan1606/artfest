@@ -95,6 +95,32 @@ function mapPublicBilling(billing) {
   };
 }
 
+function getPromotionRank(planCode) {
+  switch (String(planCode || "basic").toLowerCase()) {
+    case "premium":
+      return 3;
+    case "pro":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function sortPromotedFirst(rows) {
+  return [...rows].sort((a, b) => {
+    const planA =
+      a?.service?.vendor?.subscriptions?.[0]?.plan?.code || "basic";
+
+    const planB =
+      b?.service?.vendor?.subscriptions?.[0]?.plan?.code || "basic";
+
+    const rankDiff = getPromotionRank(planB) - getPromotionRank(planA);
+    if (rankDiff !== 0) return rankDiff;
+
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+}
+
 function buildOrderBy(sort) {
   switch ((sort || "new").toLowerCase()) {
     case "price_asc":
@@ -142,11 +168,36 @@ const baseProductSelect = {
         },
       },
       vendor: {
-        select: {
-          userId: true,
-          displayName: true,
+  select: {
+    userId: true,
+    displayName: true,
+
+    subscriptions: {
+      where: {
+        status: {
+          in: ["active", "canceled_at_period_end"],
+        },
+        endAt: {
+          gte: new Date(),
         },
       },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 1,
+      select: {
+        status: true,
+        endAt: true,
+        plan: {
+          select: {
+            code: true,
+            name: true,
+          },
+        },
+      },
+    },
+  },
+},
     },
   },
 };
@@ -222,7 +273,10 @@ function mapPublicProduct(p) {
 
   const storeSlug = p?.service?.profile?.slug || null;
   const unitPrice = p.priceCents != null ? p.priceCents / 100 : 0;
+const sellerPlan =
+  p?.service?.vendor?.subscriptions?.[0]?.plan?.code || "basic";
 
+const promotionRank = getPromotionRank(sellerPlan);
   return {
     id: p.id,
     title: p.title,
@@ -265,6 +319,9 @@ function mapPublicProduct(p) {
 
     storeName,
     storeSlug,
+    sellerPlan,
+promotionRank,
+isPromoted: sellerPlan === "premium" || sellerPlan === "pro",
   };
 }
 
@@ -556,13 +613,15 @@ router.get("/products", async (req, res, next) => {
       }
     }
 
-    const rowsMain = await prisma.product.findMany({
-      where: whereMain,
-      skip,
-      take: takePlus,
-      orderBy: buildOrderBy(sort),
-      select: baseProductSelect,
-    });
+   const rowsMainRaw = await prisma.product.findMany({
+  where: whereMain,
+  skip,
+  take: takePlus,
+  orderBy: buildOrderBy(sort),
+  select: baseProductSelect,
+});
+
+const rowsMain = sortPromotedFirst(rowsMainRaw);
 
     if (rowsMain.length > 0 || !qRaw) {
       const { items, hasMore } = finalizePaged(rowsMain);
@@ -581,13 +640,15 @@ router.get("/products", async (req, res, next) => {
     const whereFallback = { ...baseWhere };
     applyPriceFilter(whereFallback);
 
-    const rowsFallback = await prisma.product.findMany({
-      where: whereFallback,
-      skip,
-      take: takePlus,
-      orderBy: buildOrderBy(sort),
-      select: baseProductSelect,
-    });
+  const rowsFallbackRaw = await prisma.product.findMany({
+  where: whereFallback,
+  skip,
+  take: takePlus,
+  orderBy: buildOrderBy(sort),
+  select: baseProductSelect,
+});
+
+const rowsFallback = sortPromotedFirst(rowsFallbackRaw);
 
     const { items, hasMore } = finalizePaged(rowsFallback);
 
@@ -647,7 +708,7 @@ router.get("/products/recommended", async (_req, res, next) => {
       select: baseProductSelect,
     });
 
-    const latest = latestRaw.map(mapPublicProduct);
+   const latest = sortPromotedFirst(latestRaw).map(mapPublicProduct);
 
     const since = new Date();
     since.setDate(since.getDate() - 30);
@@ -670,9 +731,7 @@ router.get("/products/recommended", async (_req, res, next) => {
         })
       : [];
 
-    const popular = popularRaw
-      .map(mapPublicProduct)
-      .sort((a, b) => (pos.get(a.id) ?? 9999) - (pos.get(b.id) ?? 9999));
+    const popular = sortPromotedFirst(popularRaw).map(mapPublicProduct);
 
     const recommendedRaw = await prisma.product.findMany({
       where: baseWhere,
@@ -681,7 +740,7 @@ router.get("/products/recommended", async (_req, res, next) => {
       select: baseProductSelect,
     });
 
-    const recommended = recommendedRaw.map(mapPublicProduct);
+    const recommended = sortPromotedFirst(recommendedRaw).map(mapPublicProduct);
 
     res.json({ latest, popular, recommended });
   } catch (e) {
