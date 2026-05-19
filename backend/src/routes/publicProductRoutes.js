@@ -95,42 +95,6 @@ function mapPublicBilling(billing) {
   };
 }
 
-function getPromotionRank(planCode) {
-  switch (String(planCode || "basic").toLowerCase()) {
-    case "premium":
-      return 3;
-
-    case "pro":
-      return 2;
-
-    default:
-      return 1;
-  }
-}
-
-function sortPromotedFirst(rows) {
-  return [...rows].sort((a, b) => {
-    const planA =
-      a?.service?.vendor?.subscription?.plan?.code || "basic";
-
-    const planB =
-      b?.service?.vendor?.subscription?.plan?.code || "basic";
-
-    const rankDiff =
-      getPromotionRank(planB) -
-      getPromotionRank(planA);
-
-    if (rankDiff !== 0) {
-      return rankDiff;
-    }
-
-    return (
-      new Date(b.createdAt) -
-      new Date(a.createdAt)
-    );
-  });
-}
-
 function buildOrderBy(sort) {
   switch ((sort || "new").toLowerCase()) {
     case "price_asc":
@@ -171,31 +135,16 @@ const baseProductSelect = {
   service: {
     select: {
       id: true,
-
       profile: {
         select: {
           displayName: true,
           slug: true,
         },
       },
-
       vendor: {
         select: {
           userId: true,
           displayName: true,
-
-          subscription: {
-            select: {
-              status: true,
-
-              plan: {
-                select: {
-                  code: true,
-                  name: true,
-                },
-              },
-            },
-          },
         },
       },
     },
@@ -271,81 +220,44 @@ function mapPublicProduct(p) {
     p?.service?.vendor?.displayName ||
     "Magazin";
 
-  const storeSlug =
-    p?.service?.profile?.slug || null;
-
-  const unitPrice =
-    p.priceCents != null
-      ? p.priceCents / 100
-      : 0;
-
-  const sellerPlan =
-    p?.service?.vendor?.subscription?.plan?.code ||
-    "basic";
-
-  const promotionRank =
-    getPromotionRank(sellerPlan);
+  const storeSlug = p?.service?.profile?.slug || null;
+  const unitPrice = p.priceCents != null ? p.priceCents / 100 : 0;
 
   return {
     id: p.id,
     title: p.title,
 
-    images: Array.isArray(p.images)
-      ? p.images
-      : [],
-
+    images: Array.isArray(p.images) ? p.images : [],
     priceCents: p.priceCents ?? 0,
     price: unitPrice,
     currency: p.currency || "RON",
 
     isActive: p.isActive,
     isHidden: !!p.isHidden,
-
-    moderationStatus:
-      p.moderationStatus || "PENDING",
-
+    moderationStatus: p.moderationStatus || "PENDING",
     category: p.category || null,
     color: p.color || null,
 
     availability:
-      typeof p.availability === "string"
-        ? p.availability.toUpperCase()
-        : null,
-
+      typeof p.availability === "string" ? p.availability.toUpperCase() : null,
     leadTimeDays: p.leadTimeDays ?? null,
     readyQty: p.readyQty ?? null,
     nextShipDate: p.nextShipDate ?? null,
-
     acceptsCustom: !!p.acceptsCustom,
-
-    sellerPlan,
-    promotionRank,
-
-    isPromoted:
-      sellerPlan === "premium" ||
-      sellerPlan === "pro",
 
     service: p.service
       ? {
           id: p.service.id,
-
           profile: p.service.profile
             ? {
-                displayName:
-                  p.service.profile.displayName,
-
-                slug:
-                  p.service.profile.slug,
+                displayName: p.service.profile.displayName,
+                slug: p.service.profile.slug,
               }
             : null,
-
           vendor: p.service.vendor
             ? {
-                userId:
-                  p.service.vendor.userId,
-
-                displayName:
-                  p.service.vendor.displayName,
+                userId: p.service.vendor.userId,
+                displayName: p.service.vendor.displayName,
               }
             : null,
         }
@@ -644,15 +556,13 @@ router.get("/products", async (req, res, next) => {
       }
     }
 
-  const rowsMainRaw = await prisma.product.findMany({
-  where: whereMain,
-  skip,
-  take: takePlus,
-  orderBy: buildOrderBy(sort),
-  select: baseProductSelect,
-});
-
-const rowsMain = sortPromotedFirst(rowsMainRaw);
+    const rowsMain = await prisma.product.findMany({
+      where: whereMain,
+      skip,
+      take: takePlus,
+      orderBy: buildOrderBy(sort),
+      select: baseProductSelect,
+    });
 
     if (rowsMain.length > 0 || !qRaw) {
       const { items, hasMore } = finalizePaged(rowsMain);
@@ -671,15 +581,13 @@ const rowsMain = sortPromotedFirst(rowsMainRaw);
     const whereFallback = { ...baseWhere };
     applyPriceFilter(whereFallback);
 
-    const rowsFallbackRaw = await prisma.product.findMany({
-  where: whereFallback,
-  skip,
-  take: takePlus,
-  orderBy: buildOrderBy(sort),
-  select: baseProductSelect,
-});
-
-const rowsFallback = sortPromotedFirst(rowsFallbackRaw);
+    const rowsFallback = await prisma.product.findMany({
+      where: whereFallback,
+      skip,
+      take: takePlus,
+      orderBy: buildOrderBy(sort),
+      select: baseProductSelect,
+    });
 
     const { items, hasMore } = finalizePaged(rowsFallback);
 
@@ -739,40 +647,43 @@ router.get("/products/recommended", async (_req, res, next) => {
       select: baseProductSelect,
     });
 
-const latest = sortPromotedFirst(latestRaw).map(mapPublicProduct);
+    const latest = latestRaw.map(mapPublicProduct);
 
-const since = new Date();
-since.setDate(since.getDate() - 30);
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
 
-const popularAgg = await prisma.visitor.groupBy({
-  by: ["productId"],
-  where: { productId: { not: null }, createdAt: { gte: since } },
-  _count: { productId: true },
-  orderBy: { _count: { productId: "desc" } },
-  take: 12,
-});
+    const popularAgg = await prisma.visitor.groupBy({
+      by: ["productId"],
+      where: { productId: { not: null }, createdAt: { gte: since } },
+      _count: { productId: true },
+      orderBy: { _count: { productId: "desc" } },
+      take: 12,
+    });
 
-const popularIds = popularAgg.map((a) => a.productId).filter(Boolean);
+    const popularIds = popularAgg.map((a) => a.productId).filter(Boolean);
+    const pos = new Map(popularIds.map((id, i) => [String(id), i]));
 
-const popularRaw = popularIds.length
-  ? await prisma.product.findMany({
-      where: { ...baseWhere, id: { in: popularIds.map(String) } },
+    const popularRaw = popularIds.length
+      ? await prisma.product.findMany({
+          where: { ...baseWhere, id: { in: popularIds.map(String) } },
+          select: baseProductSelect,
+        })
+      : [];
+
+    const popular = popularRaw
+      .map(mapPublicProduct)
+      .sort((a, b) => (pos.get(a.id) ?? 9999) - (pos.get(b.id) ?? 9999));
+
+    const recommendedRaw = await prisma.product.findMany({
+      where: baseWhere,
+      take: 12,
+      orderBy: [{ Favorite: { _count: "desc" } }, { createdAt: "desc" }],
       select: baseProductSelect,
-    })
-  : [];
+    });
 
-const popular = sortPromotedFirst(popularRaw).map(mapPublicProduct);
+    const recommended = recommendedRaw.map(mapPublicProduct);
 
-const recommendedRaw = await prisma.product.findMany({
-  where: baseWhere,
-  take: 12,
-  orderBy: [{ Favorite: { _count: "desc" } }, { createdAt: "desc" }],
-  select: baseProductSelect,
-});
-
-const recommended = sortPromotedFirst(recommendedRaw).map(mapPublicProduct);
-
-res.json({ latest, popular, recommended });
+    res.json({ latest, popular, recommended });
   } catch (e) {
     next(e);
   }
