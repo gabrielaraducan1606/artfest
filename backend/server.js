@@ -422,7 +422,7 @@ app.use("/api/admin", adminProductsRoutes);
 app.use("/api", platformBillingRouter);
 
 // în app.js / routes index
-app.use("/api/admin", adminPolicyNotificationsRoutes);
+app.use("/api", adminPolicyNotificationsRoutes);
 
 /* ---------------- RUTE GUEST ---------------- */
 app.use("/api/upload", uploadRoutes);

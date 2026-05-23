@@ -95,6 +95,8 @@ export const CATEGORIES = [
   "marturii_obiecte-gravate",
 
   // Cadouri & personalizate
+   "cadouri_1-iunie",
+  "cadouri_final-an-scolar",
   "cadouri_pentru-miri",
   "cadouri_pentru-nasi",
   "cadouri_pentru-parinti",
@@ -246,6 +248,8 @@ export const CATEGORY_LABELS = {
 
   // Cadouri
   "cadouri": "Cadouri",
+  "cadouri_1-iunie": "Cadouri de 1 Iunie",
+  "cadouri_final-an-scolar": "Cadouri de final de an școlar",
   "cadouri_pentru-miri": "Cadouri pentru miri",
   "cadouri_pentru-nasi": "Cadouri pentru nași",
   "cadouri_pentru-parinti": "Cadouri pentru părinți",

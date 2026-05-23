@@ -255,6 +255,7 @@ model Vendor {
   entitySelfDeclaredUa   String?
   productLimitOverride   Int?
 
+emailOnNewOrder        Boolean   @default(true)
   stripeAccountId        String?             @unique
   stripeChargesEnabled   Boolean             @default(false)
   stripePayoutsEnabled   Boolean             @default(false)
@@ -895,6 +896,7 @@ model UserConsent {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, document, version], name: "userId_document_version")
   @@index([userId, document])
 }
 
@@ -1756,6 +1758,8 @@ enum ReviewStatus {
 enum ConsentDoc {
   TOS
   PRIVACY_ACK
+  COOKIES_ACK
+  RETURNS_POLICY_ACK
   MARKETING_EMAIL_OPTIN
 }
 
@@ -1765,6 +1769,7 @@ enum VendorDoc {
   VENDOR_PRIVACY_NOTICE
   SHIPPING_ADDENDUM
   PRODUCTS_ADDENDUM
+  PRODUCT_DECLARATION
 }
 
 enum OrderStatus {
@@ -2042,4 +2047,19 @@ enum NewsletterSource {
 enum InvoiceProvider {
   LOCAL
   SMARTBILL
+}
+
+model UserPolicy {
+  id          String     @id @default(cuid())
+  document    ConsentDoc
+  title       String
+  url         String
+  version     String
+  checksum    String?
+  isRequired  Boolean    @default(true)
+  isActive    Boolean    @default(true)
+  publishedAt DateTime   @default(now())
+
+  @@unique([document, version])
+  @@index([document, isActive])
 }

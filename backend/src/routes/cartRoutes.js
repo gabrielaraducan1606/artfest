@@ -8,6 +8,51 @@ import { authRequired } from "../api/auth.js";
 const router = Router();
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
+
+const CLIENT_PROMO = {
+  enabled: true,
+  category: "cadouri_1-iunie",
+  discountPercent: 5,
+};
+
+function normalizePromoCategory(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+}
+
+function getPromoPrice(priceCents, category) {
+  const originalPriceCents = Math.round(Number(priceCents || 0));
+
+  const productCategory = normalizePromoCategory(category);
+  const promoCategory = normalizePromoCategory(CLIENT_PROMO.category);
+
+  const hasPromo =
+    CLIENT_PROMO.enabled && productCategory.includes(promoCategory);
+
+  if (!hasPromo) {
+    return {
+      originalPriceCents,
+      finalPriceCents: originalPriceCents,
+      hasDiscount: false,
+      discountPercent: 0,
+    };
+  }
+
+  const finalPriceCents = Math.max(
+    0,
+    Math.round(originalPriceCents * (1 - CLIENT_PROMO.discountPercent / 100))
+  );
+
+  return {
+    originalPriceCents,
+    finalPriceCents,
+    hasDiscount: true,
+    discountPercent: CLIENT_PROMO.discountPercent,
+  };
+}
 
 function productIsPublicAvailable(p) {
   return (
@@ -22,8 +67,6 @@ function productIsPublicAvailable(p) {
 function getStockLimit(p) {
   const availability = String(p?.availability || "READY").toUpperCase();
 
-  // Doar produsele READY cu readyQty numeric au stoc limitat.
-  // readyQty null = stoc negestionat / nelimitat.
   if (availability !== "READY") return null;
   if (p.readyQty === null || p.readyQty === undefined) return null;
 
@@ -31,9 +74,6 @@ function getStockLimit(p) {
   return Number.isFinite(stock) ? Math.max(0, stock) : 0;
 }
 
-/**
- * Returnează cart items în formatul așteptat de frontend.
- */
 async function getCartForUser(userId) {
   const t0 = Date.now();
 
@@ -60,6 +100,7 @@ async function getCartForUser(userId) {
       title: true,
       images: true,
       priceCents: true,
+      category: true,
       currency: true,
 
       isActive: true,
@@ -95,6 +136,7 @@ async function getCartForUser(userId) {
 
     const service = p.service;
     const stockLimit = getStockLimit(p);
+    const promo = getPromoPrice(p.priceCents, p.category);
 
     return {
       productId: ci.productId,
@@ -103,13 +145,22 @@ async function getCartForUser(userId) {
         id: p.id,
         title: p.title,
         images: p.images,
-        price: (p.priceCents ?? 0) / 100,
+
+        price: dec(promo.finalPriceCents / 100),
+        originalPrice: promo.hasDiscount
+          ? dec(promo.originalPriceCents / 100)
+          : null,
+        hasDiscount: promo.hasDiscount,
+        discountPercent: promo.discountPercent,
+
         currency: p.currency || "RON",
 
         isActive: p.isActive,
         isHidden: !!p.isHidden,
         moderationStatus: p.moderationStatus || "PENDING",
-        availability: p.availability ? String(p.availability).toUpperCase() : null,
+        availability: p.availability
+          ? String(p.availability).toUpperCase()
+          : null,
         readyQty: p.readyQty ?? null,
         stockLimit,
         isAvailable: productIsPublicAvailable(p),
@@ -132,10 +183,6 @@ async function getCartForUser(userId) {
   };
 }
 
-/* ============================================================
-   POST /api/cart/add
-   body: { productId, qty? }
-============================================================ */
 router.post("/cart/add", authRequired, async (req, res) => {
   const { productId, qty = 1 } = req.body || {};
 
@@ -211,9 +258,6 @@ router.post("/cart/add", authRequired, async (req, res) => {
   res.json({ ok: true, item });
 });
 
-/* ============================================================
-   POST /api/cart/update
-============================================================ */
 router.post("/cart/update", authRequired, async (req, res) => {
   const { productId, qty } = req.body || {};
 
@@ -283,9 +327,6 @@ router.post("/cart/update", authRequired, async (req, res) => {
   res.json({ ok: true, item: updated });
 });
 
-/* ============================================================
-   DELETE /api/cart/remove
-============================================================ */
 router.delete("/cart/remove", authRequired, async (req, res) => {
   const { productId } = req.body || {};
 
@@ -302,9 +343,6 @@ router.delete("/cart/remove", authRequired, async (req, res) => {
   res.json({ ok: true });
 });
 
-/* ============================================================
-   POST /api/cart/remove-batch
-============================================================ */
 router.post("/cart/remove-batch", authRequired, async (req, res) => {
   const arr = Array.isArray(req.body?.productIds) ? req.body.productIds : [];
   if (!arr.length) return res.json({ ok: true });
@@ -319,9 +357,6 @@ router.post("/cart/remove-batch", authRequired, async (req, res) => {
   res.json({ ok: true });
 });
 
-/* ============================================================
-   POST /api/cart/clear
-============================================================ */
 router.post("/cart/clear", authRequired, async (req, res) => {
   await prisma.cartItem.deleteMany({
     where: { userId: req.user.sub },
@@ -330,10 +365,6 @@ router.post("/cart/clear", authRequired, async (req, res) => {
   res.json({ ok: true });
 });
 
-/* ============================================================
-   POST /api/cart/merge
-   body: { items: [{ productId, qty }] }
-============================================================ */
 router.post("/cart/merge", authRequired, async (req, res) => {
   const arr = Array.isArray(req.body?.items) ? req.body.items : [];
 
@@ -450,9 +481,6 @@ router.post("/cart/merge", authRequired, async (req, res) => {
   });
 });
 
-/* ============================================================
-   GET /api/cart/count
-============================================================ */
 router.get("/cart/count", authRequired, async (req, res) => {
   const agg = await prisma.cartItem.aggregate({
     where: { userId: req.user.sub },
@@ -462,9 +490,6 @@ router.get("/cart/count", authRequired, async (req, res) => {
   res.json({ count: agg._sum.qty ?? 0 });
 });
 
-/* ============================================================
-   GET /api/cart
-============================================================ */
 router.get("/cart", authRequired, async (req, res) => {
   const userId = req.user.sub;
 

@@ -13,11 +13,13 @@ const PAGE_SIZE = 50;
 
 function createDefaultUserFilters() {
   return {
-    q: "",
-    hasTos: "ALL",
-    hasPrivacy: "ALL",
-    hasMarketing: "ALL",
-  };
+  q: "",
+  hasTos: "ALL",
+  hasPrivacy: "ALL",
+  hasCookies: "ALL",
+  hasReturns: "ALL",
+  hasMarketing: "ALL",
+};
 }
 
 function createDefaultVendorFilters() {
@@ -38,24 +40,28 @@ const TABS = {
 const DOC_LABELS = {
   TOS: "Termeni și condiții",
   PRIVACY: "Politica de confidențialitate",
+  COOKIES: "Politica de Cookie-uri",
+  RETURNS_POLICY_ACK: "Politica de retur",
   MARKETING: "Preferințe marketing",
 
   VENDOR_TERMS: "Acord master vânzători",
-  RETURNS_POLICY_ACK: "Politică retur",
   VENDOR_PRIVACY_NOTICE: "Notă GDPR vendori",
   SHIPPING_ADDENDUM: "Politica de livrare",
+  PRODUCTS_ADDENDUM: "Anexa produse",
   PRODUCT_DECLARATION: "Declarație produse",
 };
 
 const DOC_URLS = {
   TOS: "/legal/tos",
   PRIVACY: "/legal/privacy",
+  COOKIES: "/legal/cookies",
+  RETURNS_POLICY_ACK: "/politica-retur",
   MARKETING: "/legal/marketing",
 
   VENDOR_TERMS: "/acord-vanzatori",
-  RETURNS_POLICY_ACK: "/politica-retur",
   VENDOR_PRIVACY_NOTICE: "/confidentialitate",
   SHIPPING_ADDENDUM: "/anexa-expediere",
+  PRODUCTS_ADDENDUM: "/politica-produse",
   PRODUCT_DECLARATION: "/vendor/legal/product-declaration",
 };
 
@@ -79,6 +85,14 @@ function normalizeUserConsents(userConsents = []) {
         privacyAccepted: false,
         privacyVersion: null,
         privacyGivenAt: null,
+
+        cookiesAccepted: false,
+        cookiesVersion: null,
+        cookiesGivenAt: null,
+
+        returnsAccepted: false,
+        returnsVersion: null,
+        returnsGivenAt: null,
 
         marketingOptIn: false,
         marketingVersion: null,
@@ -113,6 +127,19 @@ function normalizeUserConsents(userConsents = []) {
         row.privacyAccepted = true;
         row.privacyVersion = item?.version || null;
         row.privacyGivenAt = item?.givenAt || null;
+        break;
+
+      case "COOKIES_ACK":
+      case "COOKIES":
+        row.cookiesAccepted = true;
+        row.cookiesVersion = item?.version || null;
+        row.cookiesGivenAt = item?.givenAt || null;
+        break;
+
+      case "RETURNS_POLICY_ACK":
+        row.returnsAccepted = true;
+        row.returnsVersion = item?.version || null;
+        row.returnsGivenAt = item?.givenAt || null;
         break;
 
       case "MARKETING_EMAIL_OPTIN":
@@ -188,11 +215,23 @@ export default function AdminPoliciesTab({
       list = list.filter((r) => !r.privacyAccepted);
     }
 
-    if (userFilters.hasMarketing === "YES") {
-      list = list.filter((r) => r.marketingOptIn);
-    } else if (userFilters.hasMarketing === "NO") {
-      list = list.filter((r) => !r.marketingOptIn);
-    }
+    if (userFilters.hasCookies === "YES") {
+  list = list.filter((r) => r.cookiesAccepted);
+} else if (userFilters.hasCookies === "NO") {
+  list = list.filter((r) => !r.cookiesAccepted);
+}
+
+if (userFilters.hasReturns === "YES") {
+  list = list.filter((r) => r.returnsAccepted);
+} else if (userFilters.hasReturns === "NO") {
+  list = list.filter((r) => !r.returnsAccepted);
+}
+
+if (userFilters.hasMarketing === "YES") {
+  list = list.filter((r) => r.marketingOptIn);
+} else if (userFilters.hasMarketing === "NO") {
+  list = list.filter((r) => !r.marketingOptIn);
+}
 
     list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     return list;
@@ -536,19 +575,22 @@ function PolicyNotificationsTab() {
   const [scope, setScope] = useState("VENDORS");
 
   const DOCS_BY_SCOPE = {
-    VENDORS: {
-      VENDOR_TERMS: true,
-      RETURNS_POLICY_ACK: true,
-      SHIPPING_ADDENDUM: false,
-      VENDOR_PRIVACY_NOTICE: false,
-      PRODUCT_DECLARATION: false,
-    },
-    USERS: {
-      TOS: true,
-      PRIVACY: false,
-      MARKETING: false,
-    },
-  };
+  VENDORS: {
+  VENDOR_TERMS: true,
+  RETURNS_POLICY_ACK: true,
+  SHIPPING_ADDENDUM: false,
+  VENDOR_PRIVACY_NOTICE: false,
+  PRODUCTS_ADDENDUM: false,
+  PRODUCT_DECLARATION: true,
+},
+  USERS: {
+    TOS: true,
+    PRIVACY: true,
+    COOKIES: false,
+    RETURNS_POLICY_ACK: true,
+    MARKETING: false,
+  },
+};
 
   const [documents, setDocuments] = useState(DOCS_BY_SCOPE.VENDORS);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -569,9 +611,22 @@ function PolicyNotificationsTab() {
   const [emailSubject, setEmailSubject] = useState(
     "Actualizare documente legale"
   );
-  const [emailBody, setEmailBody] = useState(
-    "Salut! Am actualizat documentele legale. Te rugăm să intri în cont și să le accepți pentru a continua."
-  );
+  const [emailBody, setEmailBody] = useState(`
+<h2>Actualizare documente legale</h2>
+
+<p>
+Am actualizat unul sau mai multe documente legale asociate contului tău.
+</p>
+
+<p>
+Te rugăm să intri în platformă pentru a consulta și accepta noile versiuni.
+</p>
+
+<p>
+Mulțumim,<br />
+Echipa Marketplace
+</p>
+`);
 
   const [loading, setLoading] = useState(false);
   const [okMsg, setOkMsg] = useState("");
@@ -591,11 +646,13 @@ function PolicyNotificationsTab() {
       title: DOC_LABELS[k] || k,
       version: "X.Y.Z",
       url: DOC_URLS[k] || null,
-      required:
-        k === "VENDOR_TERMS" ||
-        k === "RETURNS_POLICY_ACK" ||
-        k === "TOS",
-      alreadyAccepted: false,
+    required: [
+  "TOS",
+  "PRIVACY",
+  "RETURNS_POLICY_ACK",
+  "VENDOR_TERMS",
+  "PRODUCT_DECLARATION",
+].includes(k),
     }));
 
     return {
@@ -641,10 +698,12 @@ function PolicyNotificationsTab() {
         }),
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "server_error");
-      }
+    if (!res.ok) {
+  const data = await res.json().catch(() => ({}));
+  console.log("POLICY NOTIFY ERROR DATA:", data);
+  setErrMsg(JSON.stringify(data, null, 2));
+  throw new Error(data?.error || "server_error");
+}
 
       const data = await res.json().catch(() => ({}));
       setOkMsg(
@@ -1037,9 +1096,12 @@ function UserConsentsTable({ rows, totalItems }) {
             <th>Creat la</th>
             <th>TOS</th>
             <th>Privacy</th>
+            <th>Cookies</th>
+            <th>Retur</th>
             <th>Marketing</th>
           </tr>
         </thead>
+
         <tbody>
           {rows.map((r) => (
             <tr key={r.email || r.userId}>
@@ -1059,13 +1121,33 @@ function UserConsentsTable({ rows, totalItems }) {
 
               <td>
                 {r.tosAccepted
-                  ? `Da (v${r.tosVersion || "?"}, ${formatDate(r.tosGivenAt)})`
+                  ? `Da (v${r.tosVersion || "?"}, ${formatDate(
+                      r.tosGivenAt
+                    )})`
                   : "Nu"}
               </td>
 
               <td>
                 {r.privacyAccepted
-                  ? `Da (v${r.privacyVersion || "?"}, ${formatDate(r.privacyGivenAt)})`
+                  ? `Da (v${r.privacyVersion || "?"}, ${formatDate(
+                      r.privacyGivenAt
+                    )})`
+                  : "Nu"}
+              </td>
+
+              <td>
+                {r.cookiesAccepted
+                  ? `Da (v${r.cookiesVersion || "?"}, ${formatDate(
+                      r.cookiesGivenAt
+                    )})`
+                  : "Nu"}
+              </td>
+
+              <td>
+                {r.returnsAccepted
+                  ? `Da (v${r.returnsVersion || "?"}, ${formatDate(
+                      r.returnsGivenAt
+                    )})`
                   : "Nu"}
               </td>
 

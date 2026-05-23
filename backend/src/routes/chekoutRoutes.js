@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-import { sendOrderConfirmationEmail } from "../lib/mailer.js";
+import {
+  sendOrderConfirmationEmail,
+  sendVendorNewOrderEmail,
+} from "../lib/mailer.js";
 import { createPaymentForOrder } from "../payments/orchestrator.js";
 import {
   createVendorNotification,
@@ -10,6 +13,74 @@ import {
 
 const router = Router();
 const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
+
+const CLIENT_PROMO = {
+  enabled: true,
+  category: "cadouri_1-iunie",
+  discountPercent: 5,
+};
+
+function normalizePromoCategory(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+}
+
+function getPromoPrice(priceCents, category) {
+  const originalPriceCents = Math.round(Number(priceCents || 0));
+
+  const productCategory = normalizePromoCategory(category);
+  const promoCategory = normalizePromoCategory(CLIENT_PROMO.category);
+
+  const hasPromo =
+    CLIENT_PROMO.enabled &&
+    productCategory.includes(promoCategory);
+
+  if (!hasPromo) {
+    return {
+      originalPriceCents,
+      finalPriceCents: originalPriceCents,
+      hasDiscount: false,
+      discountPercent: 0,
+    };
+  }
+
+  const finalPriceCents = Math.max(
+    0,
+    Math.round(
+      originalPriceCents *
+        (1 - CLIENT_PROMO.discountPercent / 100)
+    )
+  );
+
+  return {
+    originalPriceCents,
+    finalPriceCents,
+    hasDiscount: true,
+    discountPercent: CLIENT_PROMO.discountPercent,
+  };
+}
+
+function mapCartItemForCheckout(it) {
+  const promo = getPromoPrice(it.product?.priceCents, it.product?.category);
+
+  return {
+    productId: it.productId,
+    title: it.product?.title || "Produs",
+    qty: Number(it.qty || 0),
+    price: dec(promo.finalPriceCents / 100),
+    originalPrice: promo.hasDiscount
+      ? dec(promo.originalPriceCents / 100)
+      : null,
+    hasDiscount: promo.hasDiscount,
+    discountPercent: promo.discountPercent,
+    currency: it.product?.currency || "RON",
+    vendorId: it.product?.service?.vendorId || null,
+    serviceId: it.product?.service?.id || null,
+    category: it.product?.category || null,
+  };
+}
 
 const normalizeText = (v = "") => String(v || "").trim();
 const normalizeDigits = (v = "") => String(v || "").replace(/\D/g, "");
@@ -337,15 +408,7 @@ function buildCheckoutGroups(cart) {
       });
     }
 
-    map.get(serviceId).items.push({
-      productId: it.productId,
-      title: it.product.title,
-      qty: Number(it.qty || 0),
-      price: Math.round(Number(it.product.priceCents || 0)) / 100,
-      currency: it.product.currency || "RON",
-      vendorId,
-      serviceId,
-    });
+    map.get(serviceId).items.push(mapCartItemForCheckout(it));
   }
 
   return Array.from(map.values());
@@ -364,6 +427,8 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
           title: true,
           images: true,
           priceCents: true,
+          category: true,
+          category: true,
           currency: true,
           service: {
             select: {
@@ -404,6 +469,7 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
     const vendorBilling = service?.vendor?.billing
       ? mapPublicBilling(service.vendor.billing)
       : null;
+    const promo = getPromoPrice(i.product.priceCents, i.product.category);
 
     return {
       productId: i.productId,
@@ -415,7 +481,13 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
           ? i.product.images[0]
           : null,
       qty: i.qty,
-      price: Math.round(i.product.priceCents) / 100,
+      price: dec(promo.finalPriceCents / 100),
+      originalPrice: promo.hasDiscount
+        ? dec(promo.originalPriceCents / 100)
+        : null,
+      hasDiscount: promo.hasDiscount,
+      discountPercent: promo.discountPercent,
+      category: i.product.category || null,
       currency: i.product.currency || currency,
       vendorBilling,
       estimatedShippingFee:
@@ -543,6 +615,7 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
           id: true,
           title: true,
           priceCents: true,
+          category: true,
           currency: true,
           service: {
             select: {
@@ -624,6 +697,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
             id: true,
             title: true,
             priceCents: true,
+            category: true,
             currency: true,
             availability: true,
             readyQty: true,
@@ -654,14 +728,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
 
     const currency = cart[0]?.product?.currency || "RON";
 
-    const items = cart.map((i) => ({
-      productId: i.productId,
-      title: i.product.title,
-      qty: i.qty,
-      price: Math.round(i.product.priceCents) / 100,
-      vendorId: i.product.service?.vendorId || null,
-      serviceId: i.product.service?.id || null,
-    }));
+    const items = cart.map((i) => mapCartItemForCheckout(i));
 
     const subtotal = dec(items.reduce((s, it) => s + it.price * it.qty, 0));
 
@@ -677,11 +744,18 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     const vendors = await prisma.vendor.findMany({
       where: { id: { in: vendorIds } },
       select: {
-        id: true,
-        displayName: true,
-        address: true,
-        city: true,
-      },
+  id: true,
+  displayName: true,
+  address: true,
+  city: true,
+  email: true,
+  emailOnNewOrder: true,
+  user: {
+    select: {
+      email: true,
+    },
+  },
+},
     });
 
     const storeAddresses = {};
@@ -882,6 +956,24 @@ router.post("/checkout/place", authRequired, async (req, res) => {
             )} ${created.currency || "RON"}.`,
             link: `/vendor/orders`,
           });
+          const vendor = vendors.find((v) => String(v.id) === String(s.vendorId));
+const vendorEmail = vendor?.user?.email || vendor?.email || null;
+
+if (
+  vendorEmail &&
+  vendor?.emailOnNewOrder !== false
+) {
+  await sendVendorNewOrderEmail({
+    to: vendorEmail,
+    vendorName: vendor?.displayName || "vendor",
+    order: created,
+    items: itemsForVendor,
+    customerName,
+    total: totalVendor,
+    currency: created.currency || "RON",
+  });
+}
+
         })
       );
     } catch (err) {

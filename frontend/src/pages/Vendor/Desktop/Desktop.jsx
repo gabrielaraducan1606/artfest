@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../pages/Auth/Context/context.js";
 import styles from "./Desktop.module.css";
+import PolicyGate from "../../Admin/AdminDesktop/PolicyGate/PolicyGate.jsx";
 
 import {
   LayoutDashboard,
@@ -268,6 +269,14 @@ export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
+  const params = new URLSearchParams(window.location.search);
+
+const shouldOpenPolicyGate =
+  params.get("policyGate") === "1";
+
+const policyGateScope =
+  params.get("scope") || "VENDORS";
+
   const [theme, setTheme] = useState(() => {
     const saved =
       typeof window !== "undefined" ? localStorage.getItem("theme") : null;
@@ -334,7 +343,37 @@ const [payouts, setPayouts] = useState(() => cached?.payouts ?? null);
   const [supportUnread, setSupportUnread] = useState(
     () => cached?.counts?.supportUnread ?? 0
   );
+const [policyGateOpen, setPolicyGateOpen] = useState(
+  shouldOpenPolicyGate
+);
+const [policyBlocked, setPolicyBlocked] = useState(false);
 
+useEffect(() => {
+  if (!me) return;
+
+  let alive = true;
+
+  api("/api/policy-gate?scope=VENDORS")
+    .then((data) => {
+      if (!alive) return;
+
+      const hasPendingRequired =
+        !!data?.requiresAction &&
+        Array.isArray(data?.documents) &&
+        data.documents.some(
+          (d) => d.required && !d.alreadyAccepted
+        );
+
+     if (hasPendingRequired || shouldOpenPolicyGate) {
+  setPolicyGateOpen(true);
+}
+    })
+    .catch(() => {});
+
+  return () => {
+    alive = false;
+  };
+}, [me,shouldOpenPolicyGate]);
   const cacheTimerRef = useRef(null);
 
   useEffect(() => {
@@ -796,20 +835,47 @@ const [payouts, setPayouts] = useState(() => cached?.payouts ?? null);
   );
 
   if (authLoading) {
-    return (
-      <section className={styles.page}>
+   return (
+  <>
+
+    <section
+  className={styles.page}
+  style={{
+    opacity: policyBlocked ? 0.72 : 1,
+  }}
+>
         <HeaderSkeleton />
         <ServicesSkeleton />
-      </section>
-    );
-  }
+          </section>
+  </>
+);
+}
 
   if (!me || me.role !== "VENDOR") {
     return <div className={styles.page}>Acces doar pentru vendori.</div>;
   }
 
   return (
-    <section className={styles.page}>
+  <>
+    <PolicyGate
+  scope={policyGateScope}
+      isOpen={policyGateOpen}
+      onClose={() => {
+  if (!policyBlocked) {
+    setPolicyGateOpen(false);
+  }
+}}
+      onStatusChange={setPolicyBlocked}
+      closeOnOverlay={false}
+      closeOnEsc={false}
+    />
+
+   <section
+  className={styles.page}
+  style={{
+    opacity: policyBlocked ? 0.72 : 1,
+  }}
+>
       <Topbar
         me={me}
         completeness={completeness}
@@ -863,8 +929,9 @@ const [payouts, setPayouts] = useState(() => cached?.payouts ?? null);
       <LogoutCard
         onLogout={() => navigate("/autentificare", { replace: true })}
       />
-    </section>
-  );
+        </section>
+  </>
+);
 }
 
 function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {

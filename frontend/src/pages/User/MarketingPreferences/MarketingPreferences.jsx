@@ -14,7 +14,9 @@ const DEFAULT_STATE = {
   },
 };
 
-export default function MarketingPreferences() {
+export default function MarketingPreferences({
+  vendorExtra = null,
+}) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -183,13 +185,16 @@ export default function MarketingPreferences() {
   return (
     <section className={styles.pageWrapper}>
       <header>
-        <h1 className={styles.title}>Preferințe marketing</h1>
-        <p className={styles.subtitle}>
-          Alege ce fel de emailuri despre produse din magazinele Artfest vrei
-          să primești. Emailurile esențiale (comenzi, facturi, securitate)
-          vor fi trimise în continuare, indiferent de setări.
-        </p>
-      </header>
+  <h1 className={styles.title}>Preferințe marketing</h1>
+
+  <p className={styles.subtitle}>
+    Alege ce fel de emailuri despre produse din magazinele Artfest vrei
+    să primești. Emailurile esențiale (comenzi, facturi, securitate)
+    vor fi trimise în continuare, indiferent de setări.
+  </p>
+
+  {vendorExtra}
+</header>
 
       <form className={styles.card} onSubmit={handleSave}>
         {/* ==================== Master toggle ==================== */}

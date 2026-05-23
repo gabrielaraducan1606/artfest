@@ -90,7 +90,12 @@ async function getActivePlanForVendor(vendorId) {
 function round2(n) {
   return Number.parseFloat(Number(n || 0).toFixed(2));
 }
+const CLIENT_PROMO_BPS = 500;
 
+function getEffectiveCommissionBps(baseBps) {
+  const base = Number(baseBps || 0);
+  return Math.max(0, base - CLIENT_PROMO_BPS);
+}
 /**
  * Calculează earning-ul vendorului pe shipment, folosind aceeași logică ca în GET /orders/:id:
  * - items subtotal gross -> net în funcție de TVA vendor
@@ -119,8 +124,12 @@ async function computeVendorEarningForShipment({ vendorId, shipmentId }) {
     vatRate > 0 ? subtotalGross / (1 + vatRate / 100) : subtotalGross;
 
   const plan = await getActivePlanForVendor(vendorId);
-  let commissionBps = Number(plan?.commissionBps || 0);
-  if (!Number.isFinite(commissionBps) || commissionBps < 0) commissionBps = 0;
+  let baseCommissionBps = Number(plan?.commissionBps || 0);
+if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
+  baseCommissionBps = 0;
+}
+
+const commissionBps = getEffectiveCommissionBps(baseCommissionBps);
 
   const commissionNet = round2((itemsNet * commissionBps) / 10000);
   const vendorNet = round2(itemsNet - commissionNet);
@@ -602,7 +611,15 @@ router.get("/orders", requireVendor, async (req, res) => {
         returnedAt: true,
         cancelReason: true,
         cancelReasonNote: true,
-        items: { select: { qty: true, price: true } },
+        items: {
+  select: {
+    id: true,
+    productId: true,
+    title: true,
+    qty: true,
+    price: true,
+  },
+},
         service: {
           select: {
             id: true,
@@ -640,8 +657,12 @@ router.get("/orders", requireVendor, async (req, res) => {
   const vatStatus = billing?.vatStatus || null;
   const vatRate = vatStatus === "payer" ? Number(billing?.vatRate || 0) : 0;
 
-  let commissionBps = Number(activePlan?.commissionBps || 0);
-  if (!Number.isFinite(commissionBps) || commissionBps < 0) commissionBps = 0;
+ let baseCommissionBps = Number(activePlan?.commissionBps || 0);
+if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
+  baseCommissionBps = 0;
+}
+
+const commissionBps = getEffectiveCommissionBps(baseCommissionBps);
 
   let items = rows.map((s) => {
     const o = s.order || {};
@@ -679,6 +700,13 @@ router.get("/orders", requireVendor, async (req, res) => {
       serviceSlug: s.service?.profile?.slug || null,
       status: shipmentToUiStatus(s.status),
       total: shipmentTotal,
+      items: (s.items || []).map((it) => ({
+  id: it.id,
+  productId: it.productId,
+  title: it.title,
+  qty: it.qty,
+  price: Number(it.price || 0),
+})),
       shipmentId: s.id,
       shipmentStatus: s.status,
       courierProvider: s.courierProvider || null,
@@ -709,6 +737,8 @@ router.get("/orders", requireVendor, async (req, res) => {
         itemsNet: round2(itemsNet),
         commissionNet,
         vendorNetBeforeShipping,
+        baseCommissionBps,
+promoCommissionDiscountBps: CLIENT_PROMO_BPS,
       },
       messageThreadId: null,
       messageUnreadCount: 0,
@@ -862,17 +892,24 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
     gross: dec(shipmentTotal),
   };
 
-  let commissionBps = 0;
-  let activePlan = null;
+  let baseCommissionBps = 0;
+let commissionBps = 0;
+let activePlan = null;
 
-  try {
-    activePlan = await getActivePlanForVendor(vendorId);
-    commissionBps = Number(activePlan?.commissionBps || 0);
-    if (!Number.isFinite(commissionBps) || commissionBps < 0) commissionBps = 0;
-  } catch (e) {
-    console.error("getActivePlanForVendor failed:", e);
-    commissionBps = 0;
+try {
+  activePlan = await getActivePlanForVendor(vendorId);
+
+  baseCommissionBps = Number(activePlan?.commissionBps || 0);
+  if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
+    baseCommissionBps = 0;
   }
+
+  commissionBps = getEffectiveCommissionBps(baseCommissionBps);
+} catch (e) {
+  console.error("getActivePlanForVendor failed:", e);
+  baseCommissionBps = 0;
+  commissionBps = 0;
+}
 
   const itemsNet = Number(itemsBreakdown?.net || 0);
   const commissionNet = round2((itemsNet * commissionBps) / 10000);
@@ -887,6 +924,8 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
     itemsNet: round2(itemsNet),
     commissionNet,
     vendorNetBeforeShipping,
+    baseCommissionBps,
+promoCommissionDiscountBps: CLIENT_PROMO_BPS,
   };
 
   const messageThreads = o.messageThreads || [];
@@ -922,12 +961,13 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
     cancelReasonNote: s.cancelReasonNote || null,
     shippingAddress: addr,
     customerType,
-    items: s.items.map((it) => ({
-      id: it.id,
-      title: it.title,
-      qty: it.qty,
-      price: it.price,
-    })),
+   items: s.items.map((it) => ({
+  id: it.id,
+  productId: it.productId,
+  title: it.title,
+  qty: it.qty,
+  price: Number(it.price || 0),
+})),
     vendorNotes: o.vendorNotes || "",
     paymentMethod: o.paymentMethod || null,
     shipment: {

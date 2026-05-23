@@ -3,6 +3,7 @@ import { Router } from "express";
 import Stripe from "stripe";
 import { prisma } from "../db.js";
 import { authRequired /*, requireRole*/ } from "../api/auth.js";
+import { enforcePolicyGate } from "../middleware/enforcePolicyGate.js";
 
 const router = Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "");
@@ -1597,6 +1598,7 @@ router.delete(
 router.post(
   "/me/services/:id/activate",
   authRequired,
+  enforcePolicyGate("VENDORS"),
   vendorAccessRequired,
   async (req, res) => {
     const { id } = req.params;

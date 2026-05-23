@@ -1462,3 +1462,102 @@ export async function sendUserSupportReplyEmail({
     },
   });
 }
+export async function sendVendorNewOrderEmail({
+  to,
+  vendorName,
+  order,
+  items,
+  customerName,
+  total,
+  currency = "RON",
+}) {
+  if (!to || !order) return;
+
+  const displayNo = order.orderNumber || order.id;
+  const orderLink = APP_URL
+    ? `${APP_URL}/vendor/orders?order=${encodeURIComponent(order.id)}`
+    : null;
+
+  const subject = `Ai primit o comandă nouă #${displayNo} - ${BRAND_NAME}`;
+
+  const rows = (items || [])
+    .map(
+      (it) => `
+<tr>
+  <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;">${it.title}</td>
+  <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">x${it.qty}</td>
+  <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">
+    ${formatMoney(Number(it.price || 0) * Number(it.qty || 0), currency)}
+  </td>
+</tr>`
+    )
+    .join("");
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" style="display:block;margin:0 auto;">
+  </div>
+
+  <h2>Ai primit o comandă nouă</h2>
+  <p>Bună, <strong>${vendorName || "vendor"}</strong>,</p>
+  <p>Ai primit comanda <strong>#${displayNo}</strong> de la <strong>${customerName || "Client"}</strong>.</p>
+
+  <p><strong>Total vendor:</strong> ${formatMoney(total || 0, currency)}</p>
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;">
+    <thead>
+      <tr style="background:#f3f4f6;">
+        <th align="left" style="padding:8px;">Produs</th>
+        <th align="center" style="padding:8px;">Cantitate</th>
+        <th align="right" style="padding:8px;">Total</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  ${
+    orderLink
+      ? `<p style="text-align:center;margin:24px 0;">
+          <a href="${orderLink}" style="background:#111827;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">
+            Vezi comanda
+          </a>
+        </p>`
+      : ""
+  }
+
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin-top:28px;">
+    Email generat automat de ${BRAND_NAME}.
+  </p>
+</div>`.trim();
+
+  const text = [
+    `Ai primit o comandă nouă #${displayNo}`,
+    `Client: ${customerName || "Client"}`,
+    `Total vendor: ${formatMoney(total || 0, currency)}`,
+    "",
+    "Produse:",
+    ...(items || []).map(
+      (it) => `- ${it.title} x${it.qty} = ${formatMoney(Number(it.price || 0) * Number(it.qty || 0), currency)}`
+    ),
+    "",
+    orderLink ? `Vezi comanda: ${orderLink}` : "",
+  ].filter(Boolean).join("\n");
+
+  return sendMailLogged({
+    senderKey: "noreply",
+    to,
+    subject,
+    template: "vendor_new_order",
+    orderId: order.id,
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("noreply"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+    },
+  });
+}

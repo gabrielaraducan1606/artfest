@@ -157,6 +157,65 @@ router.get("/vendor/settings/account/change-email/confirm", async (req, res) => 
 router.use(authRequired, enforceTokenVersion, requireRole("VENDOR"));
 
 /* =========================
+   GET /api/vendor/settings/notifications
+========================= */
+router.get("/vendor/settings/notifications", async (req, res) => {
+  const userId = req.user.sub || req.user.id;
+
+  const vendor = await prisma.vendor.findUnique({
+    where: { userId },
+    select: {
+      emailOnNewOrder: true,
+    },
+  });
+
+  if (!vendor) {
+    return res.status(404).json({
+      error: "not_a_vendor",
+    });
+  }
+
+  return res.json({
+    emailOnNewOrder: vendor.emailOnNewOrder !== false,
+  });
+});
+
+/* =========================
+   PATCH /api/vendor/settings/notifications
+========================= */
+router.patch("/vendor/settings/notifications", async (req, res) => {
+  const userId = req.user.sub || req.user.id;
+  const { emailOnNewOrder } = req.body || {};
+
+  const vendor = await prisma.vendor.findUnique({
+    where: { userId },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!vendor) {
+    return res.status(404).json({
+      error: "not_a_vendor",
+    });
+  }
+
+  await prisma.vendor.update({
+    where: {
+      id: vendor.id,
+    },
+    data: {
+      emailOnNewOrder: emailOnNewOrder !== false,
+    },
+  });
+
+  return res.json({
+    ok: true,
+    emailOnNewOrder: emailOnNewOrder !== false,
+  });
+});
+
+/* =========================
    GET /api/vendor/settings/account
 ========================= */
 router.get("/vendor/settings/account", async (req, res) => {

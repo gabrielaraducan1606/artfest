@@ -178,6 +178,12 @@ function ProductCard({
       readyQty,
       acceptsCustom: !!p?.acceptsCustom,
       nextShipDate: p?.nextShipDate || null,
+      originalPrice:
+  Number.isFinite(Number(p?.originalPrice)) ? Number(p.originalPrice) : null,
+hasDiscount: !!p?.hasDiscount,
+discountPercent: Number.isFinite(Number(p?.discountPercent))
+  ? Number(p.discountPercent)
+  : 0,
     };
   }, [p]);
 
@@ -210,7 +216,18 @@ function ProductCard({
       return `${safe.price} ${safe.currency || "RON"}`;
     }
   }, [safe.price, safe.currency]);
-
+const originalPriceLabel = useMemo(() => {
+  if (!safe.hasDiscount || !Number.isFinite(safe.originalPrice)) return null;
+  try {
+    return new Intl.NumberFormat("ro-RO", {
+      style: "currency",
+      currency: safe.currency || "RON",
+      maximumFractionDigits: 2,
+    }).format(safe.originalPrice);
+  } catch {
+    return `${safe.originalPrice} ${safe.currency || "RON"}`;
+  }
+}, [safe.hasDiscount, safe.originalPrice, safe.currency]);
   const nextShipDateLabel = useMemo(() => {
     if (!safe.nextShipDate) return null;
     try {
@@ -524,7 +541,11 @@ function ProductCard({
               Inactiv
             </span>
           )}
-
+{safe.hasDiscount && (
+  <span className={`${styles.badge} ${styles.badgeSuccess}`}>
+    -{safe.discountPercent}% 1 Iunie
+  </span>
+)}
           {safe.isHidden && <span className={styles.badge}>Ascuns</span>}
 
           {viewMode === "vendor" && (
@@ -671,10 +692,16 @@ function ProductCard({
         <div className={styles.cardMetaRow}>
           <div className={styles.metaLeft}>
             {priceLabel != null && (
-              <p className={styles.price} aria-label={`Preț ${priceLabel}`}>
-                {priceLabel}
-              </p>
-            )}
+  <div className={styles.priceBox}>
+    {originalPriceLabel && (
+      <span className={styles.oldPrice}>{originalPriceLabel}</span>
+    )}
+
+    <p className={styles.price} aria-label={`Preț ${priceLabel}`}>
+      {priceLabel}
+    </p>
+  </div>
+)}
 
             {safe.availability === "READY" && safe.readyQty != null && (
               <span className={styles.metaHint}>

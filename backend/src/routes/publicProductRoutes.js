@@ -266,13 +266,22 @@ function shortText(s, max = 140) {
 }
 
 function mapPublicProduct(p) {
+ 
   const storeName =
     p?.service?.profile?.displayName ||
     p?.service?.vendor?.displayName ||
     "Magazin";
 
   const storeSlug = p?.service?.profile?.slug || null;
-  const unitPrice = p.priceCents != null ? p.priceCents / 100 : 0;
+  const promo = getPromoPrice(
+  p.priceCents,
+  p.category
+);
+
+const unitPrice =
+  promo.finalPriceCents != null
+    ? promo.finalPriceCents / 100
+    : 0;
 const sellerPlan =
   p?.service?.vendor?.subscriptions?.[0]?.plan?.code || "basic";
 
@@ -282,8 +291,19 @@ const promotionRank = getPromotionRank(sellerPlan);
     title: p.title,
 
     images: Array.isArray(p.images) ? p.images : [],
-    priceCents: p.priceCents ?? 0,
-    price: unitPrice,
+    priceCents: promo.finalPriceCents ?? 0,
+price: unitPrice,
+
+originalPriceCents: promo.hasDiscount
+  ? promo.originalPriceCents
+  : null,
+
+originalPrice: promo.hasDiscount
+  ? promo.originalPriceCents / 100
+  : null,
+
+hasDiscount: promo.hasDiscount,
+discountPercent: promo.discountPercent,
     currency: p.currency || "RON",
 
     isActive: p.isActive,
@@ -324,7 +344,38 @@ promotionRank,
 isPromoted: sellerPlan === "premium" || sellerPlan === "pro",
   };
 }
+ const CLIENT_PROMO = {
+  enabled: true,
+  category: "cadouri_1-iunie",
+  discountPercent: 5,
+};
 
+function getPromoPrice(priceCents, category) {
+  const original = Number(priceCents || 0);
+
+  if (
+    !CLIENT_PROMO.enabled ||
+    String(category || "") !== CLIENT_PROMO.category
+  ) {
+    return {
+      originalPriceCents: original,
+      finalPriceCents: original,
+      hasDiscount: false,
+      discountPercent: 0,
+    };
+  }
+
+  const finalPriceCents = Math.round(
+    original * (1 - CLIENT_PROMO.discountPercent / 100)
+  );
+
+  return {
+    originalPriceCents: original,
+    finalPriceCents,
+    hasDiscount: true,
+    discountPercent: CLIENT_PROMO.discountPercent,
+  };
+}
 /* -----------------------------------------
    SEARCH BY IMAGE (similaritate vizuală)
 ------------------------------------------*/
@@ -913,7 +964,15 @@ router.get("/products/:id", async (req, res, next) => {
         }
       : null;
 
-    const unitPrice = p.priceCents != null ? p.priceCents / 100 : 0;
+    const promo = getPromoPrice(
+  p.priceCents,
+  p.category
+);
+
+const unitPrice =
+  promo.finalPriceCents != null
+    ? promo.finalPriceCents / 100
+    : 0;
 
     res.json({
       ...p,
@@ -925,6 +984,19 @@ router.get("/products/:id", async (req, res, next) => {
       color: p.color || null,
       colorVariants: Array.isArray(p.colorVariants) ? p.colorVariants : [],
       price: unitPrice,
+
+priceCents: promo.finalPriceCents,
+
+originalPriceCents: promo.hasDiscount
+  ? promo.originalPriceCents
+  : null,
+
+originalPrice: promo.hasDiscount
+  ? promo.originalPriceCents / 100
+  : null,
+
+hasDiscount: promo.hasDiscount,
+discountPercent: promo.discountPercent,
       availability: p.availability ? String(p.availability).toUpperCase() : null,
       leadTimeDays: p.leadTimeDays ?? null,
       readyQty: p.readyQty ?? null,
@@ -1018,14 +1090,33 @@ router.get("/store/:slug/products", async (req, res) => {
   res.set("Cache-Control", "public, max-age=0, must-revalidate");
   res.json(
     items.map((p) => {
-      const unitPrice = p.priceCents != null ? p.priceCents / 100 : 0;
+      const promo = getPromoPrice(
+  p.priceCents,
+  p.category
+);
+
+const unitPrice =
+  promo.finalPriceCents != null
+    ? promo.finalPriceCents / 100
+    : 0;
 
       return {
         id: p.id,
         title: p.title,
         description: p.description || "",
-        priceCents: p.priceCents ?? 0,
-        price: unitPrice,
+        priceCents: promo.finalPriceCents ?? 0,
+price: unitPrice,
+
+originalPriceCents: promo.hasDiscount
+  ? promo.originalPriceCents
+  : null,
+
+originalPrice: promo.hasDiscount
+  ? promo.originalPriceCents / 100
+  : null,
+
+hasDiscount: promo.hasDiscount,
+discountPercent: promo.discountPercent,
         images: Array.isArray(p.images) ? p.images : [],
         currency: p.currency || "RON",
         createdAt: p.createdAt,

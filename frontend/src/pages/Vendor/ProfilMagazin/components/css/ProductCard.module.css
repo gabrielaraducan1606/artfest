@@ -687,3 +687,14 @@ html[data-theme="dark"] .card {
   line-height: 1.35;
   color: #92400e;
 }
+.priceBox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oldPrice {
+  font-size: 0.82rem;
+  color: #8a8a8a;
+  text-decoration: line-through;
+}

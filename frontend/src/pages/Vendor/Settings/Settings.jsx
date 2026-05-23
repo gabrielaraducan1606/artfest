@@ -21,7 +21,6 @@ import MarketingPreferences from "../../User/MarketingPreferences/MarketingPrefe
 
 const VANITY_BASE = "www.artfest.ro";
 const FORGOT_PASSWORD_URL = "/reset-parola";
-
 function cls(...xs) {
   return xs.filter(Boolean).join(" ");
 }
@@ -244,7 +243,16 @@ function EmbeddedOnboarding({ tab }) {
    =========================================================== */
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
+  
+const prefsLoadedRef = useRef(false);
   const [meEmail, setMeEmail] = useState("");
+
+  const [prefs, setPrefs] = useState({
+  emailOnNewOrder: true,
+});
+
+const [prefsSaving, setPrefsSaving] = useState(false);
+const [prefsSaved, setPrefsSaved] = useState(false);
 
   const tabs = [
     { key: "profile", label: "Profil magazin", icon: <UserIcon size={16} /> },
@@ -270,6 +278,14 @@ export default function SettingsPage() {
       const d = await api("/api/auth/me").catch(() => null);
       const email = d?.user?.email || d?.email || "";
       setMeEmail(email || "");
+      const notif = await api("/api/vendor/settings/notifications").catch(() => null);
+
+if (notif && typeof notif.emailOnNewOrder === "boolean") {
+  setPrefs({
+    emailOnNewOrder: notif.emailOnNewOrder,
+  });
+  prefsLoadedRef.current = true;
+}
     } finally {
       setLoading(false);
     }
@@ -278,6 +294,36 @@ export default function SettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+if (loading || !prefsLoadedRef.current) return;
+
+  const t = setTimeout(async () => {
+    try {
+      setPrefsSaving(true);
+
+      await api(
+        "/api/vendor/settings/notifications",
+        {
+          method: "PATCH",
+          body: prefs,
+        }
+      );
+
+      setPrefsSaved(true);
+
+      setTimeout(() => {
+        setPrefsSaved(false);
+      }, 2000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setPrefsSaving(false);
+    }
+  }, 500);
+
+  return () => clearTimeout(t);
+}, [prefs, loading]);
 
   /* ================== SECURITATE: SCHIMBĂ PAROLA ================== */
   const [oldPass, setOldPass] = useState("");
@@ -538,7 +584,75 @@ export default function SettingsPage() {
           </Section>
         )}
 
-        {!loading && active === "marketing" && <MarketingPreferences />}
+        {!loading && active === "marketing" && (
+  <MarketingPreferences
+    vendorExtra={
+      <div
+        className={settingsStyles.card}
+        style={{ marginBottom: 20 }}
+      >
+        <div className={settingsStyles.title}>
+          Preferințe email vendor
+        </div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginTop: 18,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={prefs.emailOnNewOrder}
+            onChange={(e) =>
+              setPrefs((p) => ({
+                ...p,
+                emailOnNewOrder: e.target.checked,
+              }))
+            }
+          />
+
+          <div>
+            <div style={{ fontWeight: 600 }}>
+              Email comandă nouă
+            </div>
+
+            <div
+              style={{
+                fontSize: 13,
+                opacity: 0.7,
+                marginTop: 2,
+              }}
+            >
+              Primești email când un client plasează o comandă.
+            </div>
+          </div>
+        </label>
+
+        {prefsSaving && (
+          <div
+            className={settingsStyles.subtitle}
+            style={{ marginTop: 12 }}
+          >
+            Se salvează preferințele…
+          </div>
+        )}
+
+        {prefsSaved && (
+          <div
+            className={settingsStyles.success}
+            style={{ marginTop: 12 }}
+          >
+            ✅ Preferințele au fost salvate.
+          </div>
+        )}
+      </div>
+    }
+  />
+)}
 
         {!loading && active === "billing" && <EmbeddedOnboarding tab="facturare" />}
 
