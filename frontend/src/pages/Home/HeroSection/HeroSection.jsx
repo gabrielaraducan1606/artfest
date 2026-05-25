@@ -14,6 +14,7 @@ import styles from "./HeroSection.module.css";
 import imageMain from "../../../assets/heroSectionImage.jpg";
 import { useTypeCycle } from "./hooks/useTypeCycle";
 import { useImageSearch } from "../../../hooks/useImageSearch";
+import NewsletterModal from "../NewsletterModal/NewsletterModal.jsx";
 
 function usePrefersReducedMotion() {
   const [reduce, setReduce] = useState(false);
@@ -641,7 +642,8 @@ export default function HeroSection() {
 
   return (
     <>
-      <script
+  <NewsletterModal />
+  <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({

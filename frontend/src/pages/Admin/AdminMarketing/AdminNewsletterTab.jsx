@@ -257,6 +257,7 @@ export default function AdminNewsletterSubscribersTab() {
           >
             <option value="">Toate sursele</option>
             <option value="FOOTER">FOOTER</option>
+            <option value="HOME_MODAL">HOME_MODAL</option>
             <option value="ADMIN">ADMIN</option>
             <option value="IMPORT">IMPORT</option>
             <option value="CHECKOUT">CHECKOUT</option>
@@ -406,6 +407,7 @@ export default function AdminNewsletterSubscribersTab() {
             >
               <option value="ADMIN">ADMIN</option>
               <option value="FOOTER">FOOTER</option>
+              <option value="HOME_MODAL">HOME_MODAL</option>
               <option value="IMPORT">IMPORT</option>
               <option value="CHECKOUT">CHECKOUT</option>
               <option value="CONTACT">CONTACT</option>

@@ -58,7 +58,15 @@ const UpdateNewsletterSubscriberSchema = z.object({
 const CreateNewsletterSubscriberSchema = z.object({
   email: z.string().email(),
   source: z
-    .enum(["FOOTER", "ADMIN", "IMPORT", "CHECKOUT", "CONTACT", "OTHER"])
+    .enum([
+  "FOOTER",
+  "HOME_MODAL",
+  "ADMIN",
+  "IMPORT",
+  "CHECKOUT",
+  "CONTACT",
+  "OTHER",
+])
     .default("ADMIN"),
   sourceLabel: z.string().optional(),
   notes: z.string().optional(),
@@ -94,6 +102,7 @@ const R2_PUBLIC_BASE_URL =
 
 const ALLOWED_NEWSLETTER_SOURCES = [
   "FOOTER",
+  "HOME_MODAL",
   "ADMIN",
   "IMPORT",
   "CHECKOUT",

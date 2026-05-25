@@ -2037,6 +2037,7 @@ enum NewsletterStatus {
 
 enum NewsletterSource {
   FOOTER
+  HOME_MODAL
   ADMIN
   IMPORT
   CHECKOUT

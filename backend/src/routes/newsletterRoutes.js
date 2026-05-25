@@ -4,17 +4,26 @@ import { prisma } from "../db.js";
 
 const router = Router();
 
+const NewsletterSourceEnum = z.enum([
+  "FOOTER",
+  "HOME_MODAL",
+  "ADMIN",
+  "IMPORT",
+  "CHECKOUT",
+  "CONTACT",
+  "OTHER",
+]);
+
 const SubscribeSchema = z.object({
-  email: z.string().email(),
-  source: z
-    .enum(["FOOTER", "ADMIN", "IMPORT", "CHECKOUT", "CONTACT", "OTHER"])
-    .optional(),
-  sourceLabel: z.string().optional(),
+  email: z.string().trim().toLowerCase().email(),
+  source: NewsletterSourceEnum.optional().default("FOOTER"),
+  sourceLabel: z.string().trim().max(120).optional().nullable(),
 });
 
 router.post("/subscribe", async (req, res) => {
   try {
     const parsed = SubscribeSchema.safeParse(req.body || {});
+
     if (!parsed.success) {
       return res.status(400).json({
         ok: false,
@@ -23,7 +32,7 @@ router.post("/subscribe", async (req, res) => {
       });
     }
 
-    const email = parsed.data.email.trim().toLowerCase();
+    const { email, source, sourceLabel } = parsed.data;
 
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -35,15 +44,15 @@ router.post("/subscribe", async (req, res) => {
       update: {
         status: "SUBSCRIBED",
         unsubscribedAt: null,
-        source: parsed.data.source || "FOOTER",
-        sourceLabel: parsed.data.sourceLabel || null,
+        source,
+        sourceLabel: sourceLabel || null,
         userId: existingUser?.id ?? null,
       },
       create: {
         email,
         status: "SUBSCRIBED",
-        source: parsed.data.source || "FOOTER",
-        sourceLabel: parsed.data.sourceLabel || null,
+        source,
+        sourceLabel: sourceLabel || null,
         userId: existingUser?.id ?? null,
       },
     });
@@ -51,7 +60,9 @@ router.post("/subscribe", async (req, res) => {
     if (existingUser?.id) {
       await prisma.user.update({
         where: { id: existingUser.id },
-        data: { marketingOptIn: true },
+        data: {
+          marketingOptIn: true,
+        },
       });
     }
 
@@ -61,10 +72,12 @@ router.post("/subscribe", async (req, res) => {
         id: item.id,
         email: item.email,
         status: item.status,
+        source: item.source,
       },
     });
   } catch (e) {
     console.error("POST /api/newsletter/subscribe error:", e);
+
     return res.status(500).json({
       ok: false,
       error: "newsletter_subscribe_failed",
