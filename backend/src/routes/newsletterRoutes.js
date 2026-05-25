@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
+import { authRequired } from "../api/auth.js";
 
 const router = Router();
 
@@ -81,6 +82,61 @@ router.post("/subscribe", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: "newsletter_subscribe_failed",
+    });
+  }
+});
+
+router.get("/me/status", authRequired, async (req, res) => {
+  try {
+    const userId = req.user?.sub;
+
+    if (!userId) {
+      return res.status(401).json({
+        ok: false,
+        error: "unauthorized",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        marketingOptIn: true,
+      },
+    });
+
+    if (!user?.email) {
+      return res.status(404).json({
+        ok: false,
+        error: "user_not_found",
+      });
+    }
+
+    const email = user.email.trim().toLowerCase();
+
+    const subscriber = await prisma.newsletterSubscriber.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      loggedIn: true,
+      email,
+      subscribed:
+        user.marketingOptIn === true ||
+        subscriber?.status === "SUBSCRIBED",
+    });
+  } catch (e) {
+    console.error("GET /api/newsletter/me/status error:", e);
+
+    return res.status(500).json({
+      ok: false,
+      error: "newsletter_status_failed",
     });
   }
 });

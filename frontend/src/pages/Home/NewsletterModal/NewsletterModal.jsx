@@ -8,19 +8,87 @@ function getApiBase() {
   return (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 }
 
+function buildApiUrl(path) {
+  const apiBase = getApiBase();
+  return apiBase ? `${apiBase}${path}` : path;
+}
+
 export default function NewsletterModal() {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [status, setStatus] = useState("idle");
 
   useEffect(() => {
-    const subscribed = localStorage.getItem(SUBSCRIBED_KEY) === "1";
-    const seen = localStorage.getItem(SEEN_KEY) === "1";
+    let alive = true;
+    let timer = null;
 
-    if (!subscribed && !seen) {
-      const timer = setTimeout(() => setOpen(true), 900);
-      return () => clearTimeout(timer);
+    async function initNewsletterModal() {
+      try {
+        const savedSubscribed = localStorage.getItem(SUBSCRIBED_KEY) === "1";
+        const savedSeen = localStorage.getItem(SEEN_KEY) === "1";
+
+        const res = await fetch(buildApiUrl("/api/newsletter/me/status"), {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        if (!alive) return;
+
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+
+          if (data?.ok && data.loggedIn) {
+            setIsLoggedIn(true);
+
+            if (data.email) {
+              setEmail(data.email);
+            }
+
+            if (data.subscribed) {
+              localStorage.setItem(SUBSCRIBED_KEY, "1");
+              localStorage.setItem(SEEN_KEY, "1");
+              return;
+            }
+
+            timer = setTimeout(() => {
+              if (alive) setOpen(true);
+            }, 900);
+
+            return;
+          }
+        }
+
+        setIsLoggedIn(false);
+
+        if (!savedSubscribed && !savedSeen) {
+          timer = setTimeout(() => {
+            if (alive) setOpen(true);
+          }, 900);
+        }
+      } catch (err) {
+        console.warn("Newsletter status check failed:", err);
+
+        const savedSubscribed = localStorage.getItem(SUBSCRIBED_KEY) === "1";
+        const savedSeen = localStorage.getItem(SEEN_KEY) === "1";
+
+        if (!savedSubscribed && !savedSeen) {
+          timer = setTimeout(() => {
+            if (alive) setOpen(true);
+          }, 900);
+        }
+      }
     }
+
+    initNewsletterModal();
+
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
   const closeModal = () => {
@@ -37,20 +105,18 @@ export default function NewsletterModal() {
     setStatus("loading");
 
     try {
-      const apiBase = getApiBase();
-      const url = apiBase
-        ? `${apiBase}/api/newsletter/subscribe`
-        : "/api/newsletter/subscribe";
-
-      const res = await fetch(url, {
+      const res = await fetch(buildApiUrl("/api/newsletter/subscribe"), {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           email: normalizedEmail,
           source: "HOME_MODAL",
-          sourceLabel: "Home newsletter modal",
+          sourceLabel: isLoggedIn
+            ? "Home newsletter modal - logged in user"
+            : "Home newsletter modal - guest",
         }),
       });
 
@@ -64,7 +130,6 @@ export default function NewsletterModal() {
       localStorage.setItem(SEEN_KEY, "1");
 
       setStatus("success");
-      setEmail("");
 
       setTimeout(() => {
         setOpen(false);
@@ -111,7 +176,9 @@ export default function NewsletterModal() {
             className={styles.input}
             placeholder="email@exemplu.ro"
             value={email}
+            readOnly={isLoggedIn}
             onChange={(e) => {
+              if (isLoggedIn) return;
               setEmail(e.target.value);
               if (status !== "idle") setStatus("idle");
             }}
