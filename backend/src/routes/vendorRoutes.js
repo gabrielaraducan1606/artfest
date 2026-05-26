@@ -1598,7 +1598,7 @@ router.delete(
 router.post(
   "/me/services/:id/activate",
   authRequired,
-  enforcePolicyGate("VENDORS"),
+  //enforcePolicyGate("VENDORS"),
   vendorAccessRequired,
   async (req, res) => {
     const { id } = req.params;

@@ -84,7 +84,9 @@ export default function ThankYou() {
 
         <p className={styles.muted} style={{ marginTop: 16 }}>
           Vei primi un email cu detaliile comenzii. Poți urmări statusul ei din
-          secțiunea <Link to="/comenzile-mele">„Comenzile mele”</Link>.
+          secțiunea <Link to={orderId ? `/comenzile-mele?order=${encodeURIComponent(orderId)}` : "/comenzile-mele"}>
+  „Comenzile mele”
+</Link>.
         </p>
 
         <div className={styles.thankYouActions}>
