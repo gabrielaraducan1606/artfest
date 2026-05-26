@@ -74,7 +74,8 @@ const STATUS_OPTIONS = [
   { value: "new", label: "Nouă" },
   { value: "preparing", label: "În pregătire" },
   { value: "confirmed", label: "Confirmată (gata de predare)" },
-  { value: "fulfilled", label: "Finalizată" },
+  { value: "shipped", label: "Predată curierului" },
+{ value: "fulfilled", label: "Finalizată" },
   { value: "cancelled", label: "Anulată" },
 ];
 
@@ -517,16 +518,18 @@ export default function VendorOrdersPage() {
                               <span
                                 className={`${styles.badge} ${
                                   o.status === "new"
-                                    ? styles.badgeNew
-                                    : o.status === "preparing"
-                                    ? styles.badgeWarning
-                                    : o.status === "confirmed"
-                                    ? styles.badgeConfirmed
-                                    : o.status === "fulfilled"
-                                    ? styles.badgeFulfilled
-                                    : o.status === "cancelled"
-                                    ? styles.badgeCancelled
-                                    : ""
+  ? styles.badgeNew
+  : o.status === "preparing"
+  ? styles.badgeWarning
+  : o.status === "confirmed"
+  ? styles.badgeConfirmed
+  : o.status === "shipped"
+  ? styles.badgeConfirmed
+  : o.status === "fulfilled"
+  ? styles.badgeFulfilled
+  : o.status === "cancelled"
+  ? styles.badgeCancelled
+  : ""
                                 }`}
                               >
                                 {STATUS_OPTIONS.find(
@@ -668,7 +671,7 @@ export default function VendorOrdersPage() {
                                           "Content-Type": "application/json",
                                         },
                                         body: JSON.stringify({
-                                          status: "fulfilled",
+                                          status: "shipped",
                                         }),
                                       })
                                     );
@@ -678,18 +681,58 @@ export default function VendorOrdersPage() {
                                       ...prev,
                                       items: prev.items.map((x) =>
                                         x.id === o.id
-                                          ? { ...x, status: "fulfilled" }
+                                          ? { ...x, status: "shipped", }
                                           : x
                                       ),
                                     }));
                                   } catch {
-                                    alert("Nu am putut marca finalizată.");
+                                    alert("Nu am putut marca predată curierului.");
                                   }
                                 }}
                               >
-                                Marchează ca finalizată
+                                Predată curierului
                               </button>
                             )}
+                            {o.status === "shipped" && (
+  <button
+    className={styles.secondaryBtn}
+    title="Marchează comanda ca finalizată"
+    onClick={async (e) => {
+      e.stopPropagation();
+
+      const okConfirm = window.confirm(
+        "Confirmi că această comandă a fost livrată/finalizată?"
+      );
+      if (!okConfirm) return;
+
+      try {
+        const ok = await withLockHandling(() =>
+          api(`/api/vendor/orders/${o.id}/status`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              status: "fulfilled",
+            }),
+          })
+        );
+        if (!ok) return;
+
+        setData((prev) => ({
+          ...prev,
+          items: prev.items.map((x) =>
+            x.id === o.id ? { ...x, status: "fulfilled" } : x
+          ),
+        }));
+      } catch {
+        alert("Nu am putut marca finalizată.");
+      }
+    }}
+  >
+    Marchează finalizată
+  </button>
+)}
                           </td>
                         </tr>
                       );

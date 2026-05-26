@@ -343,7 +343,7 @@ function shipmentToUiStatus(st) {
     case "AWB":
       return "confirmed";
     case "IN_TRANSIT":
-      return "fulfilled";
+      return "shipped";
     case "DELIVERED":
       return "fulfilled";
     case "REFUSED":
@@ -355,13 +355,17 @@ function shipmentToUiStatus(st) {
 }
 
 function shipmentToUserUiStatus(st) {
-  if (st === "DELIVERED") return "DELIVERED";
-  if (st === "RETURNED") return "RETURNED";
-  if (st === "REFUSED") return "CANCELED";
-  if (["AWB", "IN_TRANSIT"].includes(st)) return "SHIPPED";
-  if (["PREPARING", "READY_FOR_PICKUP", "PICKUP_SCHEDULED"].includes(st))
-    return "PROCESSING";
-  return "PENDING";
+  if (st === "DELIVERED") return "fulfilled";
+  if (st === "RETURNED") return "cancelled";
+  if (st === "REFUSED") return "cancelled";
+
+  if (st === "PREPARING") return "preparing";
+
+  if (["READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB", "IN_TRANSIT"].includes(st)) {
+    return "confirmed";
+  }
+
+  return "new";
 }
 
 /* ----------------------------------------------------
@@ -554,18 +558,20 @@ router.get("/orders", requireVendor, async (req, res) => {
   const cached = cacheGet(cacheKey);
   if (cached) return res.json(cached);
 
-  const where = {
-    vendorId,
-    ...(statusUi === "confirmed"
-      ? { status: { in: ["READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB"] } }
-      : statusUi === "fulfilled"
-      ? { status: { in: ["IN_TRANSIT", "DELIVERED"] } }
-      : statusUi === "cancelled"
-      ? { status: { in: ["RETURNED", "REFUSED"] } }
-      : statusUi
-      ? { status: uiToShipmentStatus(statusUi) }
-      : {}),
-  };
+const where = {
+  vendorId,
+  ...(statusUi === "confirmed"
+    ? { status: { in: ["READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB"] } }
+    : statusUi === "shipped"
+    ? { status: "IN_TRANSIT" }
+    : statusUi === "fulfilled"
+    ? { status: "DELIVERED" }
+    : statusUi === "cancelled"
+    ? { status: { in: ["RETURNED", "REFUSED"] } }
+    : statusUi
+    ? { status: uiToShipmentStatus(statusUi) }
+    : {}),
+};
 
   if (from || to) {
     where.createdAt = {
@@ -951,12 +957,13 @@ promoCommissionDiscountBps: CLIENT_PROMO_BPS,
     },
     status: shipmentToUiStatus(s.status),
     statusLabel: {
-      new: "Nouă",
-      preparing: "În pregătire",
-      confirmed: "Confirmată (gata de predare)",
-      fulfilled: "Finalizată",
-      cancelled: "Anulată",
-    }[shipmentToUiStatus(s.status)],
+  new: "Nouă",
+  preparing: "În pregătire",
+  confirmed: "Confirmată (gata de predare)",
+  shipped: "Predată curierului",
+  fulfilled: "Finalizată",
+  cancelled: "Anulată",
+}[shipmentToUiStatus(s.status)],
     cancelReason: s.cancelReason || null,
     cancelReasonNote: s.cancelReasonNote || null,
     shippingAddress: addr,
@@ -1016,6 +1023,9 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
       break;
     case "confirmed":
       next = "READY_FOR_PICKUP";
+      break;
+    case "shipped":
+      next = "IN_TRANSIT";
       break;
     case "fulfilled":
       next = "DELIVERED";
@@ -1099,7 +1109,7 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
 
   if (nextUi === "cancelled") {
     try {
-      const o = s.order;
+      const o = updatedShipment.order || s.order;
       const shippingAddress = o?.shippingAddress || {};
 
       await sendOrderCancelledMessage({
@@ -1118,13 +1128,47 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
   }
 
   try {
-    const o = s.order;
+    const o = updatedShipment.order || s.order;
+
     if (o?.userId) {
       const userUiStatus = shipmentToUserUiStatus(updatedShipment.status);
       await notifyUserOnOrderStatusChange(o.id, userUiStatus);
     }
+
+    if (updatedShipment.status === "IN_TRANSIT") {
+      const shippingAddress = o?.shippingAddress || {};
+      let to = shippingAddress.email || null;
+
+      if (!to && o?.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: o.userId },
+          select: { email: true },
+        });
+
+        to = user?.email || null;
+      }
+
+      if (to) {
+        await sendShipmentPickupEmail({
+          to,
+          orderId: o.id,
+          awb: updatedShipment.awb || null,
+          trackingUrl: updatedShipment.trackingUrl || null,
+          etaLabel: updatedShipment.pickupDate ? "azi/mâine" : null,
+          slotLabel:
+            updatedShipment.pickupSlotStart && updatedShipment.pickupSlotEnd
+              ? `${updatedShipment.pickupSlotStart
+                  .toISOString()
+                  .slice(11, 16)}-${updatedShipment.pickupSlotEnd
+                  .toISOString()
+                  .slice(11, 16)}`
+              : null,
+          userId: o.userId || null,
+        });
+      }
+    }
   } catch (e) {
-    console.error("notifyUserOnOrderStatusChange failed:", e);
+    console.error("notify/email user on order status failed:", e);
   }
 
   ordersCache.clear();
