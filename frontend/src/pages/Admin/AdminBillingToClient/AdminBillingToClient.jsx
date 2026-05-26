@@ -49,7 +49,7 @@ function getInvoiceNumber(row) {
 }
 
 export default function AdminBillingToClientPage() {
-  const [tab, setTab] = useState("vendorDue"); // vendorDue | invoices
+  const [tab, setTab] = useState("vendorDue"); // vendorDue | invoices | subscriptions
 
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
@@ -88,10 +88,19 @@ export default function AdminBillingToClientPage() {
           )
         ).toString();
 
-        const url =
-          tab === "vendorDue"
-            ? `/api/admin/billing/vendors-due?${qs}`
-            : `/api/admin/invoices?direction=PLATFORM_TO_VENDOR&${qs}`;
+        let url = "";
+
+        if (tab === "vendorDue") {
+          url = `/api/admin/billing/vendors-due?${qs}`;
+        } else if (tab === "subscriptions") {
+          url =
+            `/api/admin/invoices?` +
+            `direction=PLATFORM_TO_VENDOR&` +
+            `type=SUBSCRIPTION&` +
+            `provider=STRIPE&${qs}`;
+        } else {
+          url = `/api/admin/invoices?direction=PLATFORM_TO_VENDOR&${qs}`;
+        }
 
         const res = await api(url);
 
@@ -107,7 +116,9 @@ export default function AdminBillingToClientPage() {
         setErr(
           tab === "vendorDue"
             ? "Nu am putut încărca vendorii de facturat."
-            : "Nu am putut încărca facturile către vendori."
+            : tab === "subscriptions"
+              ? "Nu am putut încărca plățile abonamentelor."
+              : "Nu am putut încărca facturile către vendori."
         );
       } finally {
         if (alive) setLoading(false);
@@ -140,7 +151,7 @@ export default function AdminBillingToClientPage() {
     try {
       const res = await api(`/api/admin/billing/create-vendor-commission-invoice`, {
         method: "POST",
-        body: JSON.stringify({ vendorId, vatRate: 0}),
+        body: JSON.stringify({ vendorId, vatRate: 0 }),
       });
 
       const inv = res?.invoice;
@@ -169,9 +180,9 @@ export default function AdminBillingToClientPage() {
     <main className={styles.page}>
       <div className={styles.headerRow}>
         <div>
-          <h1 className={styles.h1}>Facturare vendori</h1>
+          <h1 className={styles.h1}>Facturare & Abonamente</h1>
           <div className={styles.muted} style={{ fontSize: 13, marginTop: 4 }}>
-            Platforma emite facturi către vendori pentru comisioanele acumulate.
+            Facturi către vendori, comisioane și plăți abonamente Stripe.
           </div>
         </div>
 
@@ -202,6 +213,17 @@ export default function AdminBillingToClientPage() {
         >
           Facturi emise către vendori
         </button>
+
+        <button
+          type="button"
+          className={`${styles.tab} ${tab === "subscriptions" ? styles.tabActive : ""}`}
+          onClick={() => {
+            setTab("subscriptions");
+            setPage(1);
+          }}
+        >
+          Abonamente Stripe
+        </button>
       </div>
 
       <div className={styles.filters}>
@@ -216,7 +238,9 @@ export default function AdminBillingToClientPage() {
             placeholder={
               tab === "vendorDue"
                 ? "Caută vendor, firmă, email, CUI…"
-                : "Caută nr factură, vendor, email…"
+                : tab === "subscriptions"
+                  ? "Caută abonament, vendor, email, Stripe invoice…"
+                  : "Caută nr factură, vendor, email…"
             }
             className={styles.input}
           />
@@ -273,9 +297,13 @@ export default function AdminBillingToClientPage() {
                 </tr>
               ) : (
                 <tr>
-                  <th className={styles.th}>Factură</th>
+                  <th className={styles.th}>
+                    {tab === "subscriptions" ? "Plată / Factură" : "Factură"}
+                  </th>
                   <th className={styles.th}>Vendor</th>
-                  <th className={styles.th}>Data</th>
+                  <th className={styles.th}>
+                    {tab === "subscriptions" ? "Data plății" : "Data"}
+                  </th>
                   <th className={styles.th}>Total</th>
                   <th className={styles.th}></th>
                 </tr>
@@ -337,9 +365,7 @@ export default function AdminBillingToClientPage() {
                         </td>
 
                         <td className={styles.td}>
-                          <div style={{ fontWeight: 800 }}>
-                            {row.entryCount || 0}
-                          </div>
+                          <div style={{ fontWeight: 800 }}>{row.entryCount || 0}</div>
                           <div className={styles.muted} style={{ fontSize: 12 }}>
                             Vânzări nete:{" "}
                             {formatMoney(row.totalSalesNet, row.currency || "RON")}
@@ -390,12 +416,21 @@ export default function AdminBillingToClientPage() {
                       <td className={styles.td}>
                         <div style={{ display: "grid", gap: 4 }}>
                           <div style={{ fontWeight: 800 }}>{getInvoiceNumber(row)}</div>
+
                           <div className={styles.muted} style={{ fontSize: 12 }}>
-                            Status: <code className={styles.code}>{row.status || "—"}</code>
+                            Status:{" "}
+                            <code className={styles.code}>{row.status || "—"}</code>
                           </div>
+
                           {row.provider === "SMARTBILL" && (
                             <div className={styles.muted} style={{ fontSize: 12 }}>
                               SmartBill
+                            </div>
+                          )}
+
+                          {row.provider === "STRIPE" && (
+                            <div className={styles.muted} style={{ fontSize: 12 }}>
+                              Stripe Subscription
                             </div>
                           )}
                         </div>
@@ -409,10 +444,19 @@ export default function AdminBillingToClientPage() {
                       </td>
 
                       <td className={styles.td}>
-                        <div>{row.issueDate ? formatDate(row.issueDate) : "—"}</div>
-                        <div className={styles.muted} style={{ fontSize: 12 }}>
-                          Scadență: {row.dueDate ? formatDate(row.dueDate) : "—"}
+                        <div>
+                          {row.paidAt
+                            ? formatDate(row.paidAt)
+                            : row.issueDate
+                              ? formatDate(row.issueDate)
+                              : "—"}
                         </div>
+
+                        {tab !== "subscriptions" && (
+                          <div className={styles.muted} style={{ fontSize: 12 }}>
+                            Scadență: {row.dueDate ? formatDate(row.dueDate) : "—"}
+                          </div>
+                        )}
                       </td>
 
                       <td className={styles.td}>

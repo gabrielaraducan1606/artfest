@@ -518,6 +518,115 @@ async function handleSubscriptionInvoiceSucceeded(invoice) {
     lastPaymentAt: new Date().toISOString(),
     billingReason: invoice.billing_reason || null,
   });
+
+  const sub = await prisma.vendorSubscription.findFirst({
+    where: { stripeSubscriptionId },
+    include: {
+      plan: true,
+      vendor: {
+        include: {
+          billing: true,
+        },
+      },
+    },
+  });
+
+  if (!sub) return;
+
+  const amountGross = Number(invoice.amount_paid || 0) / 100;
+  const currency = String(invoice.currency || "ron").toUpperCase();
+  const paidAt = invoice.status_transitions?.paid_at
+    ? stripeTsToDate(invoice.status_transitions.paid_at)
+    : new Date();
+
+  await prisma.invoice.upsert({
+    where: {
+      provider_providerInvoiceId: {
+        provider: "STRIPE",
+        providerInvoiceId: String(invoice.id),
+      },
+    },
+    update: {
+      status: "PAID",
+      paidAt,
+      providerStatus: invoice.status || "paid",
+      providerPdfUrl: invoice.invoice_pdf || null,
+      paymentUrl: invoice.hosted_invoice_url || null,
+      stripePaymentIntentId: invoice.payment_intent
+        ? String(invoice.payment_intent)
+        : null,
+      stripePaymentStatus: invoice.status || "paid",
+      providerPayload: invoice,
+      providerSyncedAt: new Date(),
+      meta: {
+        stripeSubscriptionId,
+        billingReason: invoice.billing_reason || null,
+      },
+    },
+    create: {
+      vendorId: sub.vendorId,
+      direction: "PLATFORM_TO_VENDOR",
+      type: "SUBSCRIPTION",
+
+      provider: "STRIPE",
+      providerInvoiceId: String(invoice.id),
+      providerStatus: invoice.status || "paid",
+      providerPdfUrl: invoice.invoice_pdf || null,
+      providerPayload: invoice,
+      providerSyncedAt: new Date(),
+
+      number: invoice.number || String(invoice.id),
+      issueDate: invoice.created ? stripeTsToDate(invoice.created) : paidAt,
+      dueDate: invoice.due_date ? stripeTsToDate(invoice.due_date) : null,
+
+      currency,
+      totalNet: amountGross,
+      totalVat: 0,
+      totalGross: amountGross,
+
+      status: "PAID",
+      paidAt,
+
+      paymentUrl: invoice.hosted_invoice_url || null,
+      stripePaymentIntentId: invoice.payment_intent
+        ? String(invoice.payment_intent)
+        : null,
+      stripePaymentStatus: invoice.status || "paid",
+
+      clientName:
+        sub.vendor.billing?.companyName ||
+        sub.vendor.billing?.vendorName ||
+        sub.vendor.displayName ||
+        null,
+      clientEmail: sub.vendor.billing?.email || sub.vendor.email || null,
+      clientPhone: sub.vendor.billing?.phone || sub.vendor.phone || null,
+      clientAddress: sub.vendor.billing?.address || sub.vendor.address || null,
+
+      meta: {
+        stripeSubscriptionId,
+        stripeCustomerId: invoice.customer ? String(invoice.customer) : null,
+        billingReason: invoice.billing_reason || null,
+        planCode: sub.plan?.code || null,
+        planName: sub.plan?.name || null,
+      },
+
+      lines: {
+        create: [
+          {
+            type: "SUBSCRIPTION",
+            description: `Abonament ${sub.plan?.name || sub.plan?.code || ""}`,
+            quantity: 1,
+            unitNet: amountGross,
+            vatRate: 0,
+            totalNet: amountGross,
+            totalVat: 0,
+            totalGross: amountGross,
+            vendorId: sub.vendorId,
+          },
+        ],
+      },
+    },
+  });
 }
 
 async function handleSubscriptionInvoiceFailed(invoice) {

@@ -342,6 +342,9 @@ router.get("/invoices", requireAdmin, async (req, res) => {
     const q = String(req.query.q || "").trim();
     const status = String(req.query.status || "").trim();
     const direction = String(req.query.direction || "PLATFORM_TO_VENDOR").trim();
+    const type = String(req.query.type || "").trim();
+    const provider = String(req.query.provider || "").trim();
+
     const from = req.query.from ? new Date(String(req.query.from)) : null;
     const to = req.query.to ? new Date(String(req.query.to)) : null;
 
@@ -366,6 +369,8 @@ router.get("/invoices", requireAdmin, async (req, res) => {
     const where = {
       direction,
       ...(status ? { status } : {}),
+      ...(type ? { type } : {}),
+      ...(provider ? { provider } : {}),
       ...(from || to
         ? {
             issueDate: {
@@ -398,6 +403,7 @@ router.get("/invoices", requireAdmin, async (req, res) => {
           totalGross: true,
           status: true,
           pdfUrl: true,
+          paymentUrl: true,
           clientName: true,
           clientEmail: true,
           clientPhone: true,
@@ -408,6 +414,7 @@ router.get("/invoices", requireAdmin, async (req, res) => {
           providerStatus: true,
           providerPdfUrl: true,
           providerSyncedAt: true,
+          paidAt: true,
         },
       }),
       prisma.invoice.count({ where }),
@@ -701,37 +708,40 @@ router.get("/invoices/:id/pdf", requireAdmin, async (req, res) => {
       return res.status(404).json({ error: "not_found" });
     }
 
-    // PDF SmartBill salvat local
+    // Facturi Stripe: PDF-ul este URL extern, nu fișier local
+    if (inv.provider === "STRIPE" && inv.providerPdfUrl) {
+      return res.redirect(inv.providerPdfUrl);
+    }
+
+    if (inv.provider === "STRIPE" && inv.paymentUrl) {
+      return res.redirect(inv.paymentUrl);
+    }
+
+    // PDF SmartBill/local salvat local
     if (inv.providerPdfUrl) {
       const absPath = path.join(process.cwd(), inv.providerPdfUrl.replace(/^\//, ""));
 
       try {
         await fs.access(absPath);
-
         return res.sendFile(absPath);
       } catch {
         console.warn("PDF local missing:", absPath);
       }
     }
 
-    // fallback local pdf
     if (inv.pdfUrl) {
       const absPath = path.join(process.cwd(), inv.pdfUrl.replace(/^\//, ""));
 
       try {
         await fs.access(absPath);
-
         return res.sendFile(absPath);
       } catch {
         console.warn("PDF local missing:", absPath);
       }
     }
 
-    // fallback regenerate
     const platform = await getPlatformBillingOrThrow();
-
     const billingProfile = toBillingProfileFromPlatform(platform, 0);
-
     const platformMeta = getPlatformMeta();
 
     const html = renderInvoiceHtml({
@@ -743,7 +753,6 @@ router.get("/invoices/:id/pdf", requireAdmin, async (req, res) => {
     const pdf = await htmlToPdfBuffer(html);
 
     res.setHeader("Content-Type", "application/pdf");
-
     res.setHeader(
       "Content-Disposition",
       `inline; filename="${inv.series || "FA"}-${inv.number || inv.id}.pdf"`
