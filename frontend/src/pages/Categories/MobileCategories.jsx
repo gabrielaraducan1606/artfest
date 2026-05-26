@@ -21,6 +21,7 @@ import {
   FaClock,
   FaTags,
   FaQrcode,
+  FaSearch,
   FaChair,
   FaMagic,
 } from "react-icons/fa";
@@ -561,48 +562,55 @@ export default function MobileCategories() {
           </>
         )}
 
-        {tab === "magazine" && (
-          <>
-            <h1 className={styles.heading}>Magazine</h1>
+       {tab === "magazine" && (
+  <>
+    <h1 className={styles.heading}>Magazine</h1>
 
-            {storesLoading && !stores?.length && (
-              <div className={styles.compactGrid} aria-busy="true">
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className={styles.compactTile} style={{ opacity: 0.55 }}>
-                    <span className={styles.compactIcon}>
-                      <FaStore size={16} />
-                    </span>
-                    <span className={styles.compactLabel}>Se încarcă…</span>
-                  </div>
-                ))}
-              </div>
-            )}
+    <div className={styles.mobileStoreSearch}>
+      <Link to="/magazine" className={styles.mobileStoreSearchBtn}>
+        <FaSearch size={14} />
+        <span>Caută magazine</span>
+      </Link>
+    </div>
 
-            {!storesLoading && stores.length === 0 && (
-              <div className={styles.emptyState}>Nu am putut încărca magazinele.</div>
-            )}
+    {storesLoading && !stores?.length && (
+      <div className={styles.compactGrid} aria-busy="true">
+        {Array.from({ length: 12 }).map((_, i) => (
+          <div key={i} className={styles.compactTile} style={{ opacity: 0.55 }}>
+            <span className={styles.compactIcon}>
+              <FaStore size={16} />
+            </span>
+            <span className={styles.compactLabel}>Se încarcă…</span>
+          </div>
+        ))}
+      </div>
+    )}
 
-            {stores.length > 0 && (
-              <div className={styles.compactGrid}>
-                {stores.map((s) => {
-                  const title = s.storeName || s.displayName || "Magazin";
-                  const to = s.profileSlug
-                    ? `/magazin/${encodeURIComponent(s.profileSlug)}`
-                    : `/magazin/${s.id}`;
+    {!storesLoading && stores.length === 0 && (
+      <div className={styles.emptyState}>Nu am putut încărca magazinele.</div>
+    )}
 
-                  return (
-                    <Link key={s.id} to={to} className={styles.compactTile} title={title}>
-                      <span className={styles.compactIcon}>
-                        <FaStore size={16} />
-                      </span>
-                      <span className={styles.compactLabel}>{title}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
+    {stores.length > 0 && (
+      <div className={styles.compactGrid}>
+        {stores.map((s) => {
+          const title = s.storeName || s.displayName || "Magazin";
+          const to = s.profileSlug
+            ? `/magazin/${encodeURIComponent(s.profileSlug)}`
+            : `/magazin/${s.id}`;
+
+          return (
+            <Link key={s.id} to={to} className={styles.compactTile} title={title}>
+              <span className={styles.compactIcon}>
+                <FaStore size={16} />
+              </span>
+              <span className={styles.compactLabel}>{title}</span>
+            </Link>
+          );
+        })}
+      </div>
+    )}
+  </>
+)}
       </main>
     </section>
   );

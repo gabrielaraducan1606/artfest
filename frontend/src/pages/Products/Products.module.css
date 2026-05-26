@@ -807,3 +807,54 @@
     margin-top: 16px;
   }
 }
+.seoSection {
+  margin-top: 48px;
+  padding: 28px;
+  border-radius: 24px;
+  background: #fff7ed;
+  line-height: 1.7;
+}
+
+.seoSection h2 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+
+.seoSection p {
+  margin: 0;
+  color: #444;
+}
+.seoSection {
+  margin-top: 48px;
+  padding: 28px;
+  border-radius: 24px;
+  background: #fff7ed;
+  line-height: 1.7;
+}
+
+.seoSection h2 {
+  margin: 0 0 14px;
+  font-size: 24px;
+}
+
+.seoSection p {
+  margin: 0;
+  color: #444;
+}
+
+.seoFaq {
+  margin-top: 28px;
+}
+
+.seoFaqItem {
+  margin-top: 18px;
+}
+
+.seoFaqItem h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.seoFaqItem p {
+  margin: 0;
+}

@@ -1383,7 +1383,35 @@ export default function ProductsPage() {
           ) : (
             <div className={styles.grid}>{productCards}</div>
           )}
+{currentSeoCategory && (
+  <>
+    <CategoryJsonLd category={currentSeoCategory} />
 
+    <section className={styles.seoSection}>
+      {currentSeoCategory.seoTitle && (
+        <h2>{currentSeoCategory.seoTitle}</h2>
+      )}
+
+      {currentSeoCategory.seoText && (
+        <p>{currentSeoCategory.seoText}</p>
+      )}
+
+      {Array.isArray(currentSeoCategory.faq) &&
+        currentSeoCategory.faq.length > 0 && (
+          <div className={styles.seoFaq}>
+            <h2>Întrebări frecvente</h2>
+
+            {currentSeoCategory.faq.map((item, index) => (
+              <div key={index} className={styles.seoFaqItem}>
+                <h3>{item.q}</h3>
+                <p>{item.a}</p>
+              </div>
+            ))}
+          </div>
+        )}
+    </section>
+  </>
+)}
           <div ref={sentinelRef} style={{ height: 1 }} />
 
           {isLoadingMore && (
@@ -1402,7 +1430,39 @@ export default function ProductsPage() {
     </section>
   );
 }
+function CategoryJsonLd({ category }) {
+  if (!category) return null;
 
+  const url = `https://artfest.ro/categorii/${category.slug}`;
+
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: category.h1 || category.title,
+    description: category.description,
+    url,
+    mainEntity:
+      Array.isArray(category.faq) && category.faq.length
+        ? category.faq.map((item) => ({
+            "@type": "Question",
+            name: item.q,
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: item.a,
+            },
+          }))
+        : undefined,
+  };
+
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{
+        __html: JSON.stringify(schema),
+      }}
+    />
+  );
+}
 function EmptyState() {
   return (
     <div className={styles.empty}>

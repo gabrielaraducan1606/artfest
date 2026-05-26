@@ -169,3 +169,29 @@
     padding-bottom: calc(12px + var(--mobile-bottom-bar-h, 64px) + env(safe-area-inset-bottom));
   }
 }
+
+.mobileStoreSearch {
+  margin-bottom: 14px;
+}
+
+.mobileStoreSearchBtn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 12px 14px;
+  border-radius: 14px;
+
+  background: var(--color-primary);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+
+  box-shadow: var(--shadow-md);
+}
+
+.mobileStoreSearchBtn:active {
+  transform: scale(0.98);
+}
