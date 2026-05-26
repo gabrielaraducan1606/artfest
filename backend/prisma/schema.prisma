@@ -1332,7 +1332,7 @@ model Invoice {
   @@unique([vendorId, type, periodFrom, periodTo], name: "vendor_monthly_invoice_unique")
   @@index([orderId])
   @@index([vendorId, direction, status, issueDate])
-  @@unique([provider, providerInvoiceId])
+  @@index([provider, providerInvoiceId])
   @@index([dueDate, status])
   @@index([stripeCheckoutSessionId])
   @@index([stripePaymentIntentId])
