@@ -113,9 +113,6 @@ export default function VendorOrdersPage() {
 
   const [activeTab, setActiveTab] = useState("vendor");
 
-  // mobil
-  const [isMobile, setIsMobile] = useState(false);
-  const [, setSelectedOrder] = useState(null);
 
   // list filters
   const [q, setQ] = useState("");
@@ -190,16 +187,6 @@ export default function VendorOrdersPage() {
     };
   }, [query, isVendor, activeTab]);
 
-  // detect mobile
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 720px)");
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-
   if (!isVendor) {
     return (
       <main className={styles.page}>
@@ -215,9 +202,9 @@ export default function VendorOrdersPage() {
   }
 
   function handleRowClick(order) {
-    if (isMobile) setSelectedOrder(order);
-    else navigate(`/vendor/orders/${order.id}`);
-  }
+  if (!order?.id) return;
+  navigate(`/vendor/orders/${order.id}`);
+}
 
   async function handleContactClient(order) {
     if (order.messageThreadId) {
