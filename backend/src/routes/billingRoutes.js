@@ -276,43 +276,34 @@ router.put(
     }
 
     if (input.sellerType === "verified_business") {
-      const cuiNorm = normalizeCui(input.cui);
-      const cuiDigits = cuiNorm.replace(/^RO/, "");
+  payload = {
+    sellerType: "verified_business",
 
-      if (!/^\d{2,10}$/.test(cuiDigits)) {
-        return sendError(res, "invalid_cui", 400, {
-          message: "Format CUI invalid.",
-        });
-      }
+    legalType: input.legalType,
+    vendorName: input.vendorName,
+    companyName: input.companyName,
+    cui: input.cui,
+    regCom: input.regCom,
 
-      payload = {
-        sellerType: "verified_business",
+    address: input.address,
+    email: input.email.toLowerCase(),
+    contactPerson: input.contactPerson,
+    phone: input.phone,
 
-        legalType: input.legalType,
-        vendorName: input.vendorName,
-        companyName: input.companyName,
-        cui: `RO${cuiDigits}`.replace(/^RORO/, "RO"),
-        regCom: input.regCom,
+    vatStatus: input.vatStatus,
+    vatRate: input.vatStatus === "payer" ? PLATFORM_VAT_RATE : null,
 
-        address: input.address,
-        email: input.email.toLowerCase(),
-        contactPerson: input.contactPerson,
-        phone: input.phone,
+    vatResponsibilityConfirmed: input.vatResponsibilityConfirmed,
+    vatLastResponsibilityConfirm: input.vatResponsibilityConfirmed
+      ? now
+      : null,
 
-        vatStatus: input.vatStatus,
-        vatRate: input.vatStatus === "payer" ? PLATFORM_VAT_RATE : null,
-
-        vatResponsibilityConfirmed: input.vatResponsibilityConfirmed,
-        vatLastResponsibilityConfirm: input.vatResponsibilityConfirmed
-          ? now
-          : null,
-
-        taxResponsibilityConfirmed: false,
-        taxResponsibilityConfirmedAt: null,
-        independentTermsConfirmed: false,
-        independentTermsConfirmedAt: null,
-      };
-    }
+    taxResponsibilityConfirmed: false,
+    taxResponsibilityConfirmedAt: null,
+    independentTermsConfirmed: false,
+    independentTermsConfirmedAt: null,
+  };
+}
 
     if (!payload) {
       return sendError(res, "invalid_seller_type", 400);

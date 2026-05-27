@@ -178,7 +178,7 @@ function validate(values) {
     legalType: (values.legalType || "").toUpperCase().trim(),
     vendorName: (values.vendorName || "").trim(),
     companyName: (values.companyName || "").trim(),
-    cui: (values.cui || "").toUpperCase().trim(),
+    cui: values.cui || "",
     regCom: (values.regCom || "").toUpperCase().trim(),
     address: (values.address || "").trim(),
     email: (values.email || "").trim(),
@@ -841,14 +841,8 @@ function BillingForm({ onSaved, onStatusChange }) {
                 className={`${styles.input} ${errors.cui ? styles.inputError : ""}`}
                 value={billing.cui}
                 onChange={onFieldChange("cui")}
-                onBlur={() => {
-                  onFieldBlur("cui")();
-                  setBilling((prev) => ({
-                    ...prev,
-                    cui: (prev.cui || "").toUpperCase().trim(),
-                  }));
-                }}
-                placeholder="Ex: RO12345678"
+                onBlur={onFieldBlur("cui")}
+                placeholder="Ex: 12345678 sau RO12345678"
               />
               {errors.cui && (
                 <small className={styles.fieldError}>{errors.cui}</small>
