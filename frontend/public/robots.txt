@@ -8,4 +8,4 @@ Disallow: /wishlist
 Disallow: /autentificare
 Disallow: /inregistrare
 
-Sitemap: https://www.artfest.ro/sitemap.xml
+Sitemap: https://artfest.ro/sitemap.xml
