@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/sitemap.xml",
+      "destination": "https://artfest.onrender.com/sitemap.xml"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "https://artfest.onrender.com/api/$1"
     },
