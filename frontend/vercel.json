@@ -5,6 +5,10 @@
       "destination": "https://artfest.onrender.com/sitemap.xml"
     },
     {
+      "source": "/google-shopping-feed.xml",
+      "destination": "https://artfest.onrender.com/google-shopping-feed.xml"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "https://artfest.onrender.com/api/$1"
     },

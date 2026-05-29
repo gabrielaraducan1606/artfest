@@ -89,6 +89,7 @@ import adminProductsRoutes from "./src/routes/adminProducts.js";
 import newsletterRoutes from "./src/routes/newsletterRoutes.js";
 import stripeWebhookRoutes from "./src/routes/stripeWebhookRoutes.js";
 import sitemapRoutes from "./src/routes/sitemap.js";
+import googleShoppingFeedRoutes from "./src/routes/googleShoppingFeed.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -425,6 +426,7 @@ app.use("/api", platformBillingRouter);
 // în app.js / routes index
 app.use("/api", adminPolicyNotificationsRoutes);
 app.use("/", sitemapRoutes);
+app.use("/", googleShoppingFeedRoutes);
 /* ---------------- RUTE GUEST ---------------- */
 app.use("/api/upload", uploadRoutes);
 app.use("/api/guest", GuestSupportRoutes);
