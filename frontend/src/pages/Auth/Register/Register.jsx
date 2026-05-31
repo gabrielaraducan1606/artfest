@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, AlertTriangle } from "lucide-react";
 import { api } from "../../../lib/api";
+import { trackSignup } from "../../../../services/analytics.js";
 import styles from "./Register.module.css";
 
 const OB_TICKET_PARAM = "obpf";
@@ -452,7 +453,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         headers: { "Idempotency-Key": idemRef.current },
         body,
       });
-
+trackSignup();
 
       if (res?.status === "pending_verification") {
         try {

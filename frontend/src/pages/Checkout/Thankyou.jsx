@@ -3,6 +3,7 @@ import React from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import styles from "./Checkout.module.css";
 import { api } from "../../lib/api";
+import { trackPurchase } from "../../../services/analytics.js";
 
 export default function ThankYou() {
   const [params] = useSearchParams();
@@ -27,7 +28,9 @@ export default function ThankYou() {
 
   React.useEffect(() => {
     if (!orderId) return;
-
+trackPurchase({
+  id: orderId,
+});
     // dacă avem deja orderNo (din URL sau cache), nu mai cerem backend
     if (displayNo) return;
 
@@ -40,7 +43,11 @@ export default function ThankYou() {
         // - api în proiectul tău pare a fi funcție (vezi AdminPickupsPage)
         // - include /api în path
         const data = await api(`/api/user/orders/${orderId}`);
-
+trackPurchase({
+  id: orderId,
+  total: data?.total || data?.totalPrice || 0,
+  currency: data?.currency || "RON",
+});
         const no = data?.orderNumber || null;
 
         if (!cancelled) {

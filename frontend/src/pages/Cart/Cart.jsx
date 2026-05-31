@@ -22,6 +22,10 @@ import {
   FaRegHeart,
 } from "react-icons/fa";
 import { guestCart } from "../../lib/guestCart";
+import {
+  trackAddToCart,
+  trackBeginCheckout,
+} from "../../../services/analytics.js";
 import styles from "./Cart.module.css";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -495,20 +499,24 @@ export default function Cart() {
     [rows, me, notifyCartChanged, withPending, announce]
   );
 
-  const inc = useCallback(
-    (productId, current) => {
-      const row = rows.find((r) => r.productId === productId);
-      const max = getMaxQty(row?.product);
+const inc = useCallback(
+  (productId, current) => {
+    const row = rows.find((r) => r.productId === productId);
+    const max = getMaxQty(row?.product);
 
-      if (current >= max) {
-        alert(`Avem doar ${max} buc. disponibile momentan.`);
-        return;
-      }
+    if (current >= max) {
+      alert(`Avem doar ${max} buc. disponibile momentan.`);
+      return;
+    }
 
-      return commitQty(productId, current + 1);
-    },
-    [rows, commitQty]
-  );
+    if (row?.product) {
+      trackAddToCart(row.product);
+    }
+
+    return commitQty(productId, current + 1);
+  },
+  [rows, commitQty]
+);
 
   const dec = useCallback(
     (productId, current) => commitQty(productId, Math.max(current - 1, 1)),
@@ -619,16 +627,18 @@ export default function Cart() {
     }
   }, [rows, me, notifyCartChanged, announce]);
 
-  const goCheckout = useCallback(() => {
-    if (!me) {
-      const redir = encodeURIComponent("/checkout");
-      return nav(`/autentificare?redirect=${redir}`);
-    }
+ const goCheckout = useCallback(() => {
+  if (!me) {
+    const redir = encodeURIComponent("/checkout");
+    return nav(`/autentificare?redirect=${redir}`);
+  }
 
-    if (hasOwnItems || hasUnavailableItems) return;
+  if (hasOwnItems || hasUnavailableItems) return;
 
-    nav("/checkout");
-  }, [me, hasOwnItems, hasUnavailableItems, nav]);
+  trackBeginCheckout(grandTotal);
+
+  nav("/checkout");
+}, [me, hasOwnItems, hasUnavailableItems, grandTotal, nav]);
 
   const isRowPending = useCallback((id) => pending.has(id), [pending]);
 
