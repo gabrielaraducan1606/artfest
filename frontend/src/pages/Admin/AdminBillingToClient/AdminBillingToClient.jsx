@@ -146,7 +146,7 @@ export default function AdminBillingToClientPage() {
 // ADAUGI AICI
 async function openInvoicePdf(invoiceId) {
   try {
-    const res = await fetch(`${API_URL}/api/admin/invoices/${invoiceId}/pdf`, {
+   const res = await fetch(`${API_URL}/admin/invoices/${invoiceId}/pdf`, {
       method: "GET",
       credentials: "include",
       headers: {
