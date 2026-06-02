@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../lib/api.js";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
@@ -18,12 +18,19 @@ export default function PublicCollectionPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
+  const loadMoreRef = useRef(null);
+  const loadingMoreRef = useRef(false);
+
   const loadCollection = useCallback(
     async (pageToLoad = 1, append = false) => {
-      if (!slug || loadingMore) return;
+      if (!slug || loadingMoreRef.current) return;
 
-      if (pageToLoad === 1) setLoading(true);
-      else setLoadingMore(true);
+      if (pageToLoad === 1) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+        loadingMoreRef.current = true;
+      }
 
       setError("");
 
@@ -45,9 +52,10 @@ export default function PublicCollectionPage() {
       } finally {
         setLoading(false);
         setLoadingMore(false);
+        loadingMoreRef.current = false;
       }
     },
-    [slug, loadingMore]
+    [slug]
   );
 
   useEffect(() => {
@@ -55,8 +63,29 @@ export default function PublicCollectionPage() {
     setPage(1);
     setHasMore(false);
     setCollection(null);
+    loadingMoreRef.current = false;
     loadCollection(1, false);
   }, [slug, loadCollection]);
+
+  useEffect(() => {
+    if (!hasMore || loading || loadingMore) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          loadCollection(page + 1, true);
+        }
+      },
+      { rootMargin: "350px" }
+    );
+
+    const el = loadMoreRef.current;
+    if (el) observer.observe(el);
+
+    return () => {
+      if (el) observer.unobserve(el);
+    };
+  }, [hasMore, loading, loadingMore, page, loadCollection]);
 
   const title = collection?.seoTitle || collection?.title || "Colecție Artfest";
 
@@ -150,6 +179,14 @@ export default function PublicCollectionPage() {
         </p>
       )}
 
+      <div ref={loadMoreRef} style={{ height: 1 }} />
+
+      {loadingMore ? (
+        <p style={{ textAlign: "center", marginTop: 24 }}>
+          Se încarcă mai multe produse…
+        </p>
+      ) : null}
+
       {collection.description ? (
         <section
           className={styles.categorySeoText}
@@ -191,8 +228,7 @@ export default function PublicCollectionPage() {
             >
               {loadingMore ? "Se încarcă…" : "Vezi mai multe produse"}
             </button>
-          ) : (""
-          )}
+          ) : null}
 
           <Link to="/produse" className={styles.btnPrimary}>
             Vezi toate produsele Artfest
