@@ -1582,7 +1582,7 @@ export async function sendVendorCommissionInvoiceEmail({
   const totalLabel = formatMoney(totalGross || 0, currency);
   const subject = `Factura comision Artfest ${invoiceNumber}`;
 
-  const html = `
+ const html = `
 <div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
   <div style="text-align:center;margin-bottom:20px;">
     <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
@@ -1599,6 +1599,23 @@ export async function sendVendorCommissionInvoiceEmail({
     Atașat găsești factura pentru comisionul Artfest aferent perioadei de facturare.
   </p>
 
+  <p style="color:#374151;margin:0 0 12px;">
+    Pentru achitare, intră în dashboard-ul tău de vendor, în pagina
+    <strong>Facturare și comisioane</strong>, apoi deschide tabul
+    <strong>Facturi emise de platformă</strong>.
+  </p>
+
+  ${
+    APP_URL
+      ? `<p style="text-align:center;margin:22px 0;">
+           <a href="${APP_URL}/vendor/invoices"
+              style="background:#111827;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
+             Vezi facturile în dashboard
+           </a>
+         </p>`
+      : ""
+  }
+
   <p style="color:#374151;margin:0 0 16px;">
     <strong>Număr factură:</strong> ${invoiceNumber}<br>
     <strong>Total factură:</strong> ${totalLabel}
@@ -1611,21 +1628,25 @@ export async function sendVendorCommissionInvoiceEmail({
 </div>`.trim();
 
   const text = [
-    `Bună${vendorName ? `, ${vendorName}` : ""},`,
-    "",
-    "Atașat găsești factura pentru comisionul Artfest aferent perioadei de facturare.",
-    `Număr factură: ${invoiceNumber}`,
-    `Total factură: ${totalLabel}`,
-  ].join("\n");
+  `Bună${vendorName ? `, ${vendorName}` : ""},`,
+  "",
+  "Atașat găsești factura pentru comisionul Artfest aferent perioadei de facturare.",
+  "",
+  "Pentru achitare, intră în dashboard-ul tău de vendor > Facturare și comisioane > Facturi emise de platformă.",
+  APP_URL ? `Link: ${APP_URL}/vendor/invoices` : "",
+  "",
+  `Număr factură: ${invoiceNumber}`,
+  `Total factură: ${totalLabel}`,
+].join("\n");
 
   return sendMailLogged({
-    senderKey: "admin",
+    senderKey: "noreply",
     to,
     subject,
     template: "vendor_commission_invoice",
     toName: vendorName || null,
     mailOptions: {
-      ...senderEnvelope("admin"),
+      ...senderEnvelope("noreply"),
       to,
       subject,
       html,

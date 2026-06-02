@@ -1145,14 +1145,14 @@ await sendVendorCommissionInvoiceEmail({
   totalGross: updatedInvoice.totalGross,
   currency: updatedInvoice.currency || "RON",
   attachments: pdfPath
-    ? [
-        {
-          filename: `Factura-comision-${invoiceNumber}.pdf`,
-          path: pdfPath,
-          contentType: "application/pdf",
-        },
-      ]
-    : [],
+  ? [
+      {
+        filename: `Factura-comision-${invoiceNumber}.pdf`,
+        content: await fs.readFile(pdfPath),
+        contentType: "application/pdf",
+      },
+    ]
+  : [],
 });
   }
 } catch (emailErr) {
