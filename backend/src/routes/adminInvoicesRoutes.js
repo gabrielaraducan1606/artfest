@@ -13,7 +13,7 @@ import {
   createSmartBillInvoice,
   getSmartBillInvoicePdfBuffer,
 } from "../lib/smartbill.js";
-import { sendInvoiceIssuedEmail } from "../lib/mailer.js";
+import { sendVendorCommissionInvoiceEmail } from "../lib/mailer.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -904,8 +904,11 @@ router.post("/billing/create-vendor-commission-invoice", requireAdmin, async (re
     const vendor = await prisma.vendor.findUnique({
       where: { id: vendorId },
       include: {
-        billing: true,
-        earningEntries: {
+  billing: true,
+  user: {
+    select: { email: true },
+  },
+  earningEntries: {
           where: {
             payoutId: null,
             type: { in: ["SALE", "REFUND", "ADJUSTMENT"] },
@@ -1123,19 +1126,37 @@ try {
     vendor.user?.email;
 
   if (to) {
-    await sendInvoiceIssuedEmail({
-      to,
-      orderId: null,
-      invoiceNumber: `${updatedInvoice.providerSeries || updatedInvoice.series}-${
-        updatedInvoice.providerNumber || updatedInvoice.number
-      }`,
-      totalGross: updatedInvoice.totalGross,
-      currency: updatedInvoice.currency || "RON",
-      invoiceFrontendPath: `/admin/invoices/${updatedInvoice.id}/pdf`,
-    });
+    const invoiceNumber = `${updatedInvoice.providerSeries || updatedInvoice.series}-${
+  updatedInvoice.providerNumber || updatedInvoice.number
+}`;
+
+const pdfPath =
+  updatedInvoice.providerPdfUrl || updatedInvoice.pdfUrl
+    ? path.join(
+        process.cwd(),
+        (updatedInvoice.providerPdfUrl || updatedInvoice.pdfUrl).replace(/^\//, "")
+      )
+    : null;
+
+await sendVendorCommissionInvoiceEmail({
+  to,
+  vendorName: vendor.displayName || vendor.billing?.vendorName || vendor.billing?.companyName,
+  invoiceNumber,
+  totalGross: updatedInvoice.totalGross,
+  currency: updatedInvoice.currency || "RON",
+  attachments: pdfPath
+    ? [
+        {
+          filename: `Factura-comision-${invoiceNumber}.pdf`,
+          path: pdfPath,
+          contentType: "application/pdf",
+        },
+      ]
+    : [],
+});
   }
 } catch (emailErr) {
-  console.error("Invoice email send failed:", emailErr);
+  console.error("Vendor commission invoice email send failed:", emailErr);
 }
 
     return res.json({

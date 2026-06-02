@@ -311,14 +311,17 @@ async function sendViaResend({ mailOptions }) {
   if (!mailOptions.from) throw new Error("Missing 'from'");
 
   const payload = {
-    from: mailOptions.from,
-    to,
-    subject: mailOptions.subject,
-    ...(mailOptions.replyTo ? { reply_to: mailOptions.replyTo } : {}),
-    ...(mailOptions.html ? { html: mailOptions.html } : {}),
-    ...(mailOptions.text ? { text: mailOptions.text } : {}),
-    ...(mailOptions.headers ? { headers: mailOptions.headers } : {}),
-  };
+  from: mailOptions.from,
+  to,
+  subject: mailOptions.subject,
+  ...(mailOptions.replyTo ? { reply_to: mailOptions.replyTo } : {}),
+  ...(mailOptions.html ? { html: mailOptions.html } : {}),
+  ...(mailOptions.text ? { text: mailOptions.text } : {}),
+  ...(mailOptions.headers ? { headers: mailOptions.headers } : {}),
+  ...(mailOptions.attachments
+    ? { attachments: mailOptions.attachments }
+    : {}),
+};
 
   const out = await resend.emails.send(payload);
 
@@ -1562,6 +1565,73 @@ export async function sendVendorNewOrderEmail({
       html,
       text,
       headers: AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendVendorCommissionInvoiceEmail({
+  to,
+  vendorName,
+  invoiceNumber,
+  totalGross,
+  currency = "RON",
+  attachments = [],
+}) {
+  if (!to) return;
+
+  const totalLabel = formatMoney(totalGross || 0, currency);
+  const subject = `Factura comision Artfest ${invoiceNumber}`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+  </div>
+
+  <h2 style="color:#111827;margin:0 0 8px;">A fost emisă factura de comision</h2>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Bună${vendorName ? `, ${vendorName}` : ""},
+  </p>
+
+  <p style="color:#374151;margin:0 0 12px;">
+    Atașat găsești factura pentru comisionul Artfest aferent perioadei de facturare.
+  </p>
+
+  <p style="color:#374151;margin:0 0 16px;">
+    <strong>Număr factură:</strong> ${invoiceNumber}<br>
+    <strong>Total factură:</strong> ${totalLabel}
+  </p>
+
+  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>`.trim();
+
+  const text = [
+    `Bună${vendorName ? `, ${vendorName}` : ""},`,
+    "",
+    "Atașat găsești factura pentru comisionul Artfest aferent perioadei de facturare.",
+    `Număr factură: ${invoiceNumber}`,
+    `Total factură: ${totalLabel}`,
+  ].join("\n");
+
+  return sendMailLogged({
+    senderKey: "admin",
+    to,
+    subject,
+    template: "vendor_commission_invoice",
+    toName: vendorName || null,
+    mailOptions: {
+      ...senderEnvelope("admin"),
+      to,
+      subject,
+      html,
+      text,
+      headers: AUTO_HEADERS,
+      attachments,
     },
   });
 }
