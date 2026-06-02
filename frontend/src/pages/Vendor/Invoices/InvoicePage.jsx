@@ -8,7 +8,14 @@ const BILLING_URL = "/onboarding/details?tab=facturare";
 function apiFileUrl(url) {
   if (!url) return "";
   if (/^https?:\/\//i.test(url)) return url;
-  return `${API_BASE}${url}`;
+
+  const base = String(API_BASE || "").replace(/\/+$/, "");
+
+  if (base.endsWith("/api") && url.startsWith("/api/")) {
+    return `${base}${url.replace(/^\/api/, "")}`;
+  }
+
+  return `${base}${url}`;
 }
 
 const TABS = {
