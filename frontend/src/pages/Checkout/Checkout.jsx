@@ -1277,31 +1277,64 @@ export default function Checkout() {
                       <div className={styles.itemQty}>x{it.qty}</div>
 
                       <div className={styles.itemPrice}>
-                        {customerType === "PJ" ? (
-                          <div style={{ textAlign: "right" }}>
-                            <div>
-                              <strong>
-                                {money(breakdown.net, it.currency || currency)}
-                              </strong>
-                            </div>
-                            <div style={{ fontSize: 12, opacity: 0.75 }}>
-                              TVA: {money(breakdown.vat, it.currency || currency)}
-                            </div>
-                            <div style={{ fontSize: 12, opacity: 0.85 }}>
-                              {money(breakdown.gross, it.currency || currency)}{" "}
-                              cu TVA
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{ textAlign: "right" }}>
-                            <div>
-                              <strong>
-                                {money(breakdown.gross, it.currency || currency)}
-                              </strong>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+  {customerType === "PJ" ? (
+    <div style={{ textAlign: "right" }}>
+      {it.hasDiscount && typeof it.originalPrice === "number" ? (
+        <div className={styles.oldPrice}>
+          {money(it.originalPrice * Number(it.qty || 0), it.currency || currency)}
+        </div>
+      ) : null}
+
+      <div>
+        <strong>
+          {money(breakdown.net, it.currency || currency)}
+        </strong>
+
+        {it.hasDiscount ? (
+          <span className={styles.discountBadge}>
+            -{it.discountPercent}%
+          </span>
+        ) : null}
+      </div>
+
+      <div style={{ fontSize: 12, opacity: 0.75 }}>
+        TVA: {money(breakdown.vat, it.currency || currency)}
+      </div>
+
+      <div style={{ fontSize: 12, opacity: 0.85 }}>
+        {money(breakdown.gross, it.currency || currency)} cu TVA
+      </div>
+
+      {it.hasDiscount && it.promoLabel ? (
+        <div className={styles.promoLabel}>{it.promoLabel}</div>
+      ) : null}
+    </div>
+  ) : (
+    <div style={{ textAlign: "right" }}>
+      {it.hasDiscount && typeof it.originalPrice === "number" ? (
+        <div className={styles.oldPrice}>
+          {money(it.originalPrice * Number(it.qty || 0), it.currency || currency)}
+        </div>
+      ) : null}
+
+      <div>
+        <strong>
+          {money(breakdown.gross, it.currency || currency)}
+        </strong>
+
+        {it.hasDiscount ? (
+          <span className={styles.discountBadge}>
+            -{it.discountPercent}%
+          </span>
+        ) : null}
+      </div>
+
+      {it.hasDiscount && it.promoLabel ? (
+        <div className={styles.promoLabel}>{it.promoLabel}</div>
+      ) : null}
+    </div>
+  )}
+</div>
                     </li>
                   );
                 })}

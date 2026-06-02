@@ -14,56 +14,148 @@ import {
 const router = Router();
 const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
 
-const CLIENT_PROMO = {
-  enabled: true,
-  category: "cadouri_1-iunie",
-  discountPercent: 5,
-};
+function isCollectionPromoActive(collection, now = new Date()) {
+  if (!collection?.promoEnabled) return false;
 
-function normalizePromoCategory(value = "") {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, "-");
+  const percent = Number(collection.promoPercent || 0);
+  if (!Number.isFinite(percent) || percent <= 0) return false;
+
+  if (collection.promoStartsAt && new Date(collection.promoStartsAt) > now) {
+    return false;
+  }
+
+  if (collection.promoEndsAt && new Date(collection.promoEndsAt) < now) {
+    return false;
+  }
+
+  return true;
 }
 
-function getPromoPrice(priceCents, category) {
+function productMatchesCollectionRules(product, rules = {}) {
+  if (!product) return false;
+
+  if (Array.isArray(rules.categories) && rules.categories.length) {
+    if (!rules.categories.includes(product.category)) return false;
+  }
+
+  if (rules.acceptsCustom === true && product.acceptsCustom !== true) {
+    return false;
+  }
+
+  const minPriceCents = Number(rules.minPriceCents);
+  const maxPriceCents = Number(rules.maxPriceCents);
+
+  if (Number.isFinite(minPriceCents) && product.priceCents < minPriceCents) {
+    return false;
+  }
+
+  if (Number.isFinite(maxPriceCents) && product.priceCents > maxPriceCents) {
+    return false;
+  }
+
+  if (Array.isArray(rules.occasionTags) && rules.occasionTags.length) {
+    const tags = Array.isArray(product.occasionTags) ? product.occasionTags : [];
+    if (!rules.occasionTags.some((tag) => tags.includes(String(tag)))) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(rules.styleTags) && rules.styleTags.length) {
+    const tags = Array.isArray(product.styleTags) ? product.styleTags : [];
+    if (!rules.styleTags.some((tag) => tags.includes(String(tag)))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getPromoPrice(priceCents, promo = null) {
   const originalPriceCents = Math.round(Number(priceCents || 0));
 
-  const productCategory = normalizePromoCategory(category);
-  const promoCategory = normalizePromoCategory(CLIENT_PROMO.category);
-
-  const hasPromo =
-    CLIENT_PROMO.enabled &&
-    productCategory.includes(promoCategory);
-
-  if (!hasPromo) {
+  if (!promo) {
     return {
       originalPriceCents,
       finalPriceCents: originalPriceCents,
       hasDiscount: false,
       discountPercent: 0,
+      promoLabel: null,
+      promoFundingSource: null,
+      promoCollectionId: null,
     };
   }
 
+  const discountPercent = Number(promo.promoPercent || 0);
+
   const finalPriceCents = Math.max(
     0,
-    Math.round(
-      originalPriceCents *
-        (1 - CLIENT_PROMO.discountPercent / 100)
-    )
+    Math.round(originalPriceCents * (1 - discountPercent / 100))
   );
 
   return {
     originalPriceCents,
     finalPriceCents,
     hasDiscount: true,
-    discountPercent: CLIENT_PROMO.discountPercent,
+    discountPercent,
+    promoLabel: promo.promoLabel || "Promoție Artfest",
+    promoFundingSource: promo.promoFundingSource || "PLATFORM_COMMISSION",
+    promoCollectionId: promo.id || null,
   };
 }
 
-function mapCartItemForCheckout(it) {
-  const promo = getPromoPrice(it.product?.priceCents, it.product?.category);
+async function getActiveCollectionPromosForProducts(products = []) {
+  if (!products.length) return new Map();
+
+  const now = new Date();
+
+  const collections = await prisma.collection.findMany({
+    where: {
+      isActive: true,
+      promoEnabled: true,
+      OR: [{ promoStartsAt: null }, { promoStartsAt: { lte: now } }],
+      AND: [
+        {
+          OR: [{ promoEndsAt: null }, { promoEndsAt: { gte: now } }],
+        },
+      ],
+    },
+    select: {
+      id: true,
+      rules: true,
+      promoEnabled: true,
+      promoPercent: true,
+      promoLabel: true,
+      promoFundingSource: true,
+      promoStartsAt: true,
+      promoEndsAt: true,
+    },
+  });
+
+  const activePromos = collections.filter((c) =>
+    isCollectionPromoActive(c, now)
+  );
+
+  const promoByProductId = new Map();
+
+  for (const product of products) {
+    const matchingPromos = activePromos.filter((collection) =>
+      productMatchesCollectionRules(product, collection.rules || {})
+    );
+
+    if (!matchingPromos.length) continue;
+
+    matchingPromos.sort(
+      (a, b) => Number(b.promoPercent || 0) - Number(a.promoPercent || 0)
+    );
+
+    promoByProductId.set(product.id, matchingPromos[0]);
+  }
+
+  return promoByProductId;
+}
+
+function mapCartItemForCheckout(it, promoCollection = null) {
+  const promo = getPromoPrice(it.product?.priceCents, promoCollection);
 
   return {
     productId: it.productId,
@@ -75,6 +167,9 @@ function mapCartItemForCheckout(it) {
       : null,
     hasDiscount: promo.hasDiscount,
     discountPercent: promo.discountPercent,
+    promoLabel: promo.promoLabel,
+    promoFundingSource: promo.promoFundingSource,
+    promoCollectionId: promo.promoCollectionId,
     currency: it.product?.currency || "RON",
     vendorId: it.product?.service?.vendorId || null,
     serviceId: it.product?.service?.id || null,
@@ -380,7 +475,7 @@ function validateContactPerson(contactPerson) {
 /**
  * Construiește grupurile de checkout pe service (magazin)
  */
-function buildCheckoutGroups(cart) {
+function buildCheckoutGroups(cart, promoByProductId = new Map()) {
   const map = new Map();
 
   for (const it of cart) {
@@ -408,7 +503,12 @@ function buildCheckoutGroups(cart) {
       });
     }
 
-    map.get(serviceId).items.push(mapCartItemForCheckout(it));
+    map.get(serviceId).items.push(
+      mapCartItemForCheckout(
+        it,
+        promoByProductId.get(it.product?.id) || null
+      )
+    );
   }
 
   return Array.from(map.values());
@@ -428,8 +528,10 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
           images: true,
           priceCents: true,
           category: true,
-          category: true,
           currency: true,
+          acceptsCustom: true,
+styleTags: true,
+occasionTags: true,
           service: {
             select: {
               id: true,
@@ -460,6 +562,10 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
     });
   }
 
+  const promoByProductId = await getActiveCollectionPromosForProducts(
+  items.map((i) => i.product).filter(Boolean)
+);
+
   const currency = items[0]?.product?.currency || "RON";
 
   const mapped = items.map((i) => {
@@ -469,7 +575,10 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
     const vendorBilling = service?.vendor?.billing
       ? mapPublicBilling(service.vendor.billing)
       : null;
-    const promo = getPromoPrice(i.product.priceCents, i.product.category);
+   const promo = getPromoPrice(
+  i.product.priceCents,
+  promoByProductId.get(i.product.id) || null
+);
 
     return {
       productId: i.productId,
@@ -487,6 +596,9 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
         : null,
       hasDiscount: promo.hasDiscount,
       discountPercent: promo.discountPercent,
+      promoLabel: promo.promoLabel,
+promoFundingSource: promo.promoFundingSource,
+promoCollectionId: promo.promoCollectionId,
       category: i.product.category || null,
       currency: i.product.currency || currency,
       vendorBilling,
@@ -502,7 +614,7 @@ router.get("/checkout/summary", authRequired, async (req, res) => {
     };
   });
 
-  const groups = buildCheckoutGroups(items).map((g) => ({
+  const groups = buildCheckoutGroups(items, promoByProductId).map((g) => ({
     serviceId: g.serviceId,
     vendorId: g.vendorId,
     serviceTitle: g.serviceTitle,
@@ -617,6 +729,9 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
           priceCents: true,
           category: true,
           currency: true,
+          acceptsCustom: true,
+styleTags: true,
+occasionTags: true,
           service: {
             select: {
               id: true,
@@ -638,8 +753,10 @@ router.post("/checkout/quote", authRequired, async (req, res) => {
       message: "Coșul este gol.",
     });
   }
-
-  const groups = buildCheckoutGroups(cart);
+const promoByProductId = await getActiveCollectionPromosForProducts(
+  cart.map((i) => i.product).filter(Boolean)
+);
+  const groups = buildCheckoutGroups(cart, promoByProductId);
   const q = await quoteShipping({ groups, selections });
 
   const quoteId = `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -699,6 +816,9 @@ router.post("/checkout/place", authRequired, async (req, res) => {
             priceCents: true,
             category: true,
             currency: true,
+            acceptsCustom: true,
+styleTags: true,
+occasionTags: true,
             availability: true,
             readyQty: true,
             isActive: true,
@@ -727,12 +847,16 @@ router.post("/checkout/place", authRequired, async (req, res) => {
     }
 
     const currency = cart[0]?.product?.currency || "RON";
-
-    const items = cart.map((i) => mapCartItemForCheckout(i));
+const promoByProductId = await getActiveCollectionPromosForProducts(
+  cart.map((i) => i.product).filter(Boolean)
+);
+    const items = cart.map((i) =>
+  mapCartItemForCheckout(i, promoByProductId.get(i.product?.id) || null)
+);
 
     const subtotal = dec(items.reduce((s, it) => s + it.price * it.qty, 0));
 
-    const groups = buildCheckoutGroups(cart);
+    const groups = buildCheckoutGroups(cart, promoByProductId);
     const quote = await quoteShipping({ groups, selections: selections || {} });
     const shippingTotal = dec(quote.totalShipping);
     const total = dec(subtotal + shippingTotal);
@@ -897,14 +1021,27 @@ router.post("/checkout/place", authRequired, async (req, res) => {
 
         if (its.length) {
           await tx.shipmentItem.createMany({
-            data: its.map((it) => ({
-              shipmentId: sh.id,
-              productId: it.productId,
-              title: it.title,
-              qty: it.qty,
-              price: dec(it.price),
-            })),
-          });
+  data: its.map((it) => ({
+    shipmentId: sh.id,
+    productId: it.productId,
+    title: it.title,
+    qty: it.qty,
+    price: dec(it.price),
+
+    originalPrice:
+      it.hasDiscount && it.originalPrice
+        ? dec(it.originalPrice)
+        : null,
+
+    discountAmount:
+      it.hasDiscount && it.originalPrice
+        ? dec((Number(it.originalPrice) - Number(it.price)) * Number(it.qty || 1))
+        : 0,
+
+    promoCollectionId: it.promoCollectionId || null,
+    promoFundingSource: it.promoFundingSource || null,
+  })),
+});
         }
       }
 

@@ -90,12 +90,21 @@ async function getActivePlanForVendor(vendorId) {
 function round2(n) {
   return Number.parseFloat(Number(n || 0).toFixed(2));
 }
-const CLIENT_PROMO_BPS = 500;
-
-function getEffectiveCommissionBps(baseBps) {
-  const base = Number(baseBps || 0);
-  return Math.max(0, base - CLIENT_PROMO_BPS);
+function getPaidGrossForItem(it) {
+  return Number(it.price || 0) * Number(it.qty || 0);
 }
+
+function getShipmentPaidGross(items = []) {
+  return items.reduce((sum, it) => sum + getPaidGrossForItem(it), 0);
+}
+
+function getPlatformDiscountGross(items = []) {
+  return items.reduce((sum, it) => {
+    if (it.promoFundingSource !== "PLATFORM_COMMISSION") return sum;
+    return sum + Number(it.discountAmount || 0);
+  }, 0);
+}
+
 /**
  * Calculează earning-ul vendorului pe shipment, folosind aceeași logică ca în GET /orders/:id:
  * - items subtotal gross -> net în funcție de TVA vendor
@@ -115,10 +124,8 @@ async function computeVendorEarningForShipment({ vendorId, shipmentId }) {
   const vatStatus = billing?.vatStatus || null;
   const vatRate = vatStatus === "payer" ? Number(billing?.vatRate || 0) : 0;
 
-  const subtotalGross = (shipment.items || []).reduce(
-    (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
-    0
-  );
+  const subtotalGross = getShipmentPaidGross(shipment.items || []);
+const platformDiscountGross = getPlatformDiscountGross(shipment.items || []);
 
   const itemsNet =
     vatRate > 0 ? subtotalGross / (1 + vatRate / 100) : subtotalGross;
@@ -129,10 +136,20 @@ if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
   baseCommissionBps = 0;
 }
 
-const commissionBps = getEffectiveCommissionBps(baseCommissionBps);
+const commissionBps = baseCommissionBps;
 
-  const commissionNet = round2((itemsNet * commissionBps) / 10000);
-  const vendorNet = round2(itemsNet - commissionNet);
+  const commissionBeforePromoNet = round2((itemsNet * commissionBps) / 10000);
+
+const platformDiscountNet =
+  vatRate > 0
+    ? platformDiscountGross / (1 + vatRate / 100)
+    : platformDiscountGross;
+
+const commissionNet = round2(
+  Math.max(0, commissionBeforePromoNet - platformDiscountNet)
+);
+
+const vendorNet = round2(itemsNet - commissionNet);
 
   return {
     currency: shipment.order?.currency || "RON",
@@ -624,6 +641,11 @@ const where = {
     title: true,
     qty: true,
     price: true,
+
+    originalPrice: true,
+    discountAmount: true,
+    promoCollectionId: true,
+    promoFundingSource: true,
   },
 },
         service: {
@@ -668,7 +690,7 @@ if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
   baseCommissionBps = 0;
 }
 
-const commissionBps = getEffectiveCommissionBps(baseCommissionBps);
+const commissionBps = baseCommissionBps;
 
   let items = rows.map((s) => {
     const o = s.order || {};
@@ -680,17 +702,25 @@ const commissionBps = getEffectiveCommissionBps(baseCommissionBps);
       s.service?.vendor?.displayName ||
       "Magazin";
 
-    const shipmentSubtotal = (s.items || []).reduce(
-      (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
-      0
-    );
+  const shipmentSubtotal = getShipmentPaidGross(s.items || []);
+const platformDiscountGross = getPlatformDiscountGross(s.items || []);
     const shipmentShipping = Number(s.price || 0);
     const shipmentTotal = shipmentSubtotal + shipmentShipping;
 
     const itemsNet =
       vatRate > 0 ? shipmentSubtotal / (1 + vatRate / 100) : shipmentSubtotal;
-    const commissionNet = round2((itemsNet * commissionBps) / 10000);
-    const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
+  const commissionBeforePromoNet = round2((itemsNet * commissionBps) / 10000);
+
+const platformDiscountNet =
+  vatRate > 0
+    ? platformDiscountGross / (1 + vatRate / 100)
+    : platformDiscountGross;
+
+const commissionNet = round2(
+  Math.max(0, commissionBeforePromoNet - platformDiscountNet)
+);
+
+const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
 
     return {
       id: s.orderId,
@@ -744,7 +774,6 @@ const commissionBps = getEffectiveCommissionBps(baseCommissionBps);
         commissionNet,
         vendorNetBeforeShipping,
         baseCommissionBps,
-promoCommissionDiscountBps: CLIENT_PROMO_BPS,
       },
       messageThreadId: null,
       messageUnreadCount: 0,
@@ -862,10 +891,8 @@ router.get("/orders/:id", requireVendor, async (req, res) => {
     s.service?.vendor?.displayName ||
     "Magazin";
 
-  const shipmentSubtotal = s.items.reduce(
-    (sum, it) => sum + Number(it.price || 0) * Number(it.qty || 0),
-    0
-  );
+  const shipmentSubtotal = getShipmentPaidGross(s.items || []);
+const platformDiscountGross = getPlatformDiscountGross(s.items || []);
   const shipmentShipping = Number(s.price || 0);
   const shipmentTotal = shipmentSubtotal + shipmentShipping;
 
@@ -910,7 +937,7 @@ try {
     baseCommissionBps = 0;
   }
 
-  commissionBps = getEffectiveCommissionBps(baseCommissionBps);
+  commissionBps = baseCommissionBps;
 } catch (e) {
   console.error("getActivePlanForVendor failed:", e);
   baseCommissionBps = 0;
@@ -918,8 +945,18 @@ try {
 }
 
   const itemsNet = Number(itemsBreakdown?.net || 0);
-  const commissionNet = round2((itemsNet * commissionBps) / 10000);
-  const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
+  const commissionBeforePromoNet = round2((itemsNet * commissionBps) / 10000);
+
+const platformDiscountNet =
+  vatRate > 0
+    ? platformDiscountGross / (1 + vatRate / 100)
+    : platformDiscountGross;
+
+const commissionNet = round2(
+  Math.max(0, commissionBeforePromoNet - platformDiscountNet)
+);
+
+const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
 
   const vendorFinancials = {
     planCode: activePlan?.code || null,
@@ -931,7 +968,6 @@ try {
     commissionNet,
     vendorNetBeforeShipping,
     baseCommissionBps,
-promoCommissionDiscountBps: CLIENT_PROMO_BPS,
   };
 
   const messageThreads = o.messageThreads || [];
@@ -1087,7 +1123,7 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
   }
 
   try {
-    if (updatedShipment.status === "DELIVERED") {
+    if (updatedShipment.status === "DELIVERED" || updatedShipment.status === "IN_TRANSIT") {
       await ensureSaleLedgerEntry({
         vendorId,
         shipmentId: updatedShipment.id,

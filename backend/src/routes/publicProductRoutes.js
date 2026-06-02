@@ -155,7 +155,10 @@ const baseProductSelect = {
   readyQty: true,
   nextShipDate: true,
   acceptsCustom: true,
-
+materialMain: true,
+technique: true,
+styleTags: true,
+occasionTags: true,
   createdAt: true,
 
   service: {
@@ -265,45 +268,41 @@ function shortText(s, max = 140) {
   return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
 }
 
-function mapPublicProduct(p) {
- 
+function mapPublicProduct(p, promoCollection = null) {
   const storeName =
     p?.service?.profile?.displayName ||
     p?.service?.vendor?.displayName ||
     "Magazin";
 
   const storeSlug = p?.service?.profile?.slug || null;
-  const promo = getPromoPrice(
-  p.priceCents,
-  p.category
-);
 
-const unitPrice =
-  promo.finalPriceCents != null
-    ? promo.finalPriceCents / 100
-    : 0;
-const sellerPlan =
-  p?.service?.vendor?.subscriptions?.[0]?.plan?.code || "basic";
+  const promo = getPromoPrice(p.priceCents, promoCollection);
 
-const promotionRank = getPromotionRank(sellerPlan);
+  const unitPrice =
+    promo.finalPriceCents != null ? promo.finalPriceCents / 100 : 0;
+
+  const sellerPlan =
+    p?.service?.vendor?.subscriptions?.[0]?.plan?.code || "basic";
+
+  const promotionRank = getPromotionRank(sellerPlan);
+
   return {
     id: p.id,
     title: p.title,
-
     images: Array.isArray(p.images) ? p.images : [],
+
     priceCents: promo.finalPriceCents ?? 0,
-price: unitPrice,
+    price: unitPrice,
 
-originalPriceCents: promo.hasDiscount
-  ? promo.originalPriceCents
-  : null,
+    originalPriceCents: promo.hasDiscount ? promo.originalPriceCents : null,
+    originalPrice: promo.hasDiscount ? promo.originalPriceCents / 100 : null,
 
-originalPrice: promo.hasDiscount
-  ? promo.originalPriceCents / 100
-  : null,
+    hasDiscount: promo.hasDiscount,
+    discountPercent: promo.discountPercent,
+    promoLabel: promo.promoLabel,
+    promoFundingSource: promo.promoFundingSource,
+    promoCollectionId: promo.promoCollectionId,
 
-hasDiscount: promo.hasDiscount,
-discountPercent: promo.discountPercent,
     currency: p.currency || "RON",
 
     isActive: p.isActive,
@@ -340,41 +339,173 @@ discountPercent: promo.discountPercent,
     storeName,
     storeSlug,
     sellerPlan,
-promotionRank,
-isPromoted: sellerPlan === "premium" || sellerPlan === "pro",
+    promotionRank,
+    isPromoted: sellerPlan === "premium" || sellerPlan === "pro",
   };
 }
- const CLIENT_PROMO = {
-  enabled: true,
-  category: "cadouri_1-iunie",
-  discountPercent: 5,
-};
 
-function getPromoPrice(priceCents, category) {
-  const original = Number(priceCents || 0);
+ function isCollectionPromoActive(collection, now = new Date()) {
+  if (!collection?.promoEnabled) return false;
 
-  if (
-    !CLIENT_PROMO.enabled ||
-    String(category || "") !== CLIENT_PROMO.category
-  ) {
+  const percent = Number(collection.promoPercent || 0);
+  if (!Number.isFinite(percent) || percent <= 0) return false;
+
+  if (collection.promoStartsAt && new Date(collection.promoStartsAt) > now) {
+    return false;
+  }
+
+  if (collection.promoEndsAt && new Date(collection.promoEndsAt) < now) {
+    return false;
+  }
+
+  return true;
+}
+
+function productMatchesCollectionRules(product, rules = {}) {
+  if (!product) return false;
+
+  if (Array.isArray(rules.categories) && rules.categories.length) {
+    const categories = rules.categories
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+
+    if (categories.length && !categories.includes(product.category)) {
+      return false;
+    }
+  }
+
+  if (rules.acceptsCustom === true && product.acceptsCustom !== true) {
+    return false;
+  }
+
+  const minPriceCents = Number(rules.minPriceCents);
+  const maxPriceCents = Number(rules.maxPriceCents);
+
+  if (Number.isFinite(minPriceCents) && product.priceCents < minPriceCents) {
+    return false;
+  }
+
+  if (Number.isFinite(maxPriceCents) && product.priceCents > maxPriceCents) {
+    return false;
+  }
+
+  if (Array.isArray(rules.occasionTags) && rules.occasionTags.length) {
+    const productTags = Array.isArray(product.occasionTags)
+      ? product.occasionTags
+      : [];
+
+    const hasAny = rules.occasionTags.some((tag) =>
+      productTags.includes(String(tag))
+    );
+
+    if (!hasAny) return false;
+  }
+
+  if (Array.isArray(rules.styleTags) && rules.styleTags.length) {
+    const productTags = Array.isArray(product.styleTags)
+      ? product.styleTags
+      : [];
+
+    const hasAny = rules.styleTags.some((tag) =>
+      productTags.includes(String(tag))
+    );
+
+    if (!hasAny) return false;
+  }
+
+  return true;
+}
+
+function getPromoPrice(priceCents, promo = null) {
+  const originalPriceCents = Math.round(Number(priceCents || 0));
+
+  if (!promo || !isCollectionPromoActive(promo)) {
     return {
-      originalPriceCents: original,
-      finalPriceCents: original,
+      originalPriceCents,
+      finalPriceCents: originalPriceCents,
       hasDiscount: false,
       discountPercent: 0,
+      promoLabel: null,
+      promoFundingSource: null,
+      promoCollectionId: null,
     };
   }
 
-  const finalPriceCents = Math.round(
-    original * (1 - CLIENT_PROMO.discountPercent / 100)
+  const discountPercent = Number(promo.promoPercent || 0);
+
+  const finalPriceCents = Math.max(
+    0,
+    Math.round(originalPriceCents * (1 - discountPercent / 100))
   );
 
   return {
-    originalPriceCents: original,
+    originalPriceCents,
     finalPriceCents,
     hasDiscount: true,
-    discountPercent: CLIENT_PROMO.discountPercent,
+    discountPercent,
+    promoLabel: promo.promoLabel || "Promoție Artfest",
+    promoFundingSource: promo.promoFundingSource || "PLATFORM_COMMISSION",
+    promoCollectionId: promo.id || null,
   };
+}
+
+async function getActiveCollectionPromosForProducts(products = []) {
+  if (!products.length) return new Map();
+
+  const now = new Date();
+
+  const collections = await prisma.collection.findMany({
+    where: {
+      isActive: true,
+      promoEnabled: true,
+      OR: [
+        { promoStartsAt: null },
+        { promoStartsAt: { lte: now } },
+      ],
+      AND: [
+        {
+          OR: [
+            { promoEndsAt: null },
+            { promoEndsAt: { gte: now } },
+          ],
+        },
+      ],
+    },
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      rules: true,
+      promoEnabled: true,
+      promoPercent: true,
+      promoLabel: true,
+      promoFundingSource: true,
+      promoStartsAt: true,
+      promoEndsAt: true,
+    },
+  });
+
+  const activePromos = collections.filter((c) =>
+    isCollectionPromoActive(c, now)
+  );
+
+  const promoByProductId = new Map();
+
+  for (const product of products) {
+    const matchingPromos = activePromos.filter((collection) =>
+      productMatchesCollectionRules(product, collection.rules || {})
+    );
+
+    if (!matchingPromos.length) continue;
+
+    matchingPromos.sort(
+      (a, b) => Number(b.promoPercent || 0) - Number(a.promoPercent || 0)
+    );
+
+    promoByProductId.set(product.id, matchingPromos[0]);
+  }
+
+  return promoByProductId;
 }
 /* -----------------------------------------
    SEARCH BY IMAGE (similaritate vizuală)
@@ -568,11 +699,19 @@ router.get("/products", async (req, res, next) => {
       if (acceptsCustomParam) whereObj.acceptsCustom = true;
     };
 
-    const finalizePaged = (rows) => {
-      const hasMore = rows.length > limit;
-      const slice = hasMore ? rows.slice(0, limit) : rows;
-      return { items: slice.map(mapPublicProduct), hasMore };
-    };
+   const finalizePaged = async (rows) => {
+  const hasMore = rows.length > limit;
+  const slice = hasMore ? rows.slice(0, limit) : rows;
+
+  const promoByProductId = await getActiveCollectionPromosForProducts(slice);
+
+  return {
+    items: slice.map((product) =>
+      mapPublicProduct(product, promoByProductId.get(product.id) || null)
+    ),
+    hasMore,
+  };
+};
 
     const buildAppliedFilters = () => ({
       category: effectiveCategory || null,
@@ -616,7 +755,7 @@ router.get("/products", async (req, res, next) => {
 
       const total = ordered.length;
       const pageSlice = ordered.slice(skip, skip + takePlus);
-      const { items, hasMore } = finalizePaged(pageSlice);
+      const { items, hasMore } = await finalizePaged(pageSlice);
 
       return res.json({
         total,
@@ -675,7 +814,7 @@ router.get("/products", async (req, res, next) => {
 const rowsMain = sortPromotedFirst(rowsMainRaw);
 
     if (rowsMain.length > 0 || !qRaw) {
-      const { items, hasMore } = finalizePaged(rowsMain);
+      const { items, hasMore } = await finalizePaged(rowsMain);
 
       return res.json({
         total: null,
@@ -701,7 +840,7 @@ const rowsMain = sortPromotedFirst(rowsMainRaw);
 
 const rowsFallback = sortPromotedFirst(rowsFallbackRaw);
 
-    const { items, hasMore } = finalizePaged(rowsFallback);
+    const { items, hasMore } = await finalizePaged(rowsFallback);
 
     return res.json({
       total: null,
@@ -736,13 +875,15 @@ const rowsFallback = sortPromotedFirst(rowsFallbackRaw);
 ------------------------------------------*/
 router.get("/products/recommended", async (_req, res, next) => {
   try {
-    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=180");
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+res.set("Pragma", "no-cache");
+res.set("Expires", "0");
 
-   const baseWhere = {
-  isActive: true,
-  isHidden: false,
-  moderationStatus: "APPROVED",
-  service: {
+    const baseWhere = {
+      isActive: true,
+      isHidden: false,
+      moderationStatus: "APPROVED",
+      service: {
         is: {
           isActive: true,
           status: "ACTIVE",
@@ -752,14 +893,21 @@ router.get("/products/recommended", async (_req, res, next) => {
       },
     };
 
+    async function mapWithPromos(rows) {
+      const sorted = sortPromotedFirst(rows);
+      const promoByProductId = await getActiveCollectionPromosForProducts(sorted);
+
+      return sorted.map((product) =>
+        mapPublicProduct(product, promoByProductId.get(product.id) || null)
+      );
+    }
+
     const latestRaw = await prisma.product.findMany({
       where: baseWhere,
       take: 12,
       orderBy: { createdAt: "desc" },
       select: baseProductSelect,
     });
-
-   const latest = sortPromotedFirst(latestRaw).map(mapPublicProduct);
 
     const since = new Date();
     since.setDate(since.getDate() - 30);
@@ -773,7 +921,6 @@ router.get("/products/recommended", async (_req, res, next) => {
     });
 
     const popularIds = popularAgg.map((a) => a.productId).filter(Boolean);
-    const pos = new Map(popularIds.map((id, i) => [String(id), i]));
 
     const popularRaw = popularIds.length
       ? await prisma.product.findMany({
@@ -782,8 +929,6 @@ router.get("/products/recommended", async (_req, res, next) => {
         })
       : [];
 
-    const popular = sortPromotedFirst(popularRaw).map(mapPublicProduct);
-
     const recommendedRaw = await prisma.product.findMany({
       where: baseWhere,
       take: 12,
@@ -791,7 +936,11 @@ router.get("/products/recommended", async (_req, res, next) => {
       select: baseProductSelect,
     });
 
-    const recommended = sortPromotedFirst(recommendedRaw).map(mapPublicProduct);
+    const [latest, popular, recommended] = await Promise.all([
+      mapWithPromos(latestRaw),
+      mapWithPromos(popularRaw),
+      mapWithPromos(recommendedRaw),
+    ]);
 
     res.json({ latest, popular, recommended });
   } catch (e) {
@@ -804,7 +953,9 @@ router.get("/products/recommended", async (_req, res, next) => {
 ------------------------------------------*/
 router.get("/products/suggest", async (req, res, next) => {
   try {
-    res.set("Cache-Control", "public, max-age=20, stale-while-revalidate=60");
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+res.set("Pragma", "no-cache");
+res.set("Expires", "0");
 
     let qRaw = req.query.q;
     if (Array.isArray(qRaw)) qRaw = qRaw[0];
@@ -899,6 +1050,185 @@ router.get("/products/suggest", async (req, res, next) => {
   }
 });
 
+function buildCollectionWhereFromRules(rules = {}, excludedIds = []) {
+  const where = {
+  isActive: true,
+  isHidden: false,
+  moderationStatus: "APPROVED",
+  service: {
+    is: {
+      isActive: true,
+      status: "ACTIVE",
+      vendor: { is: { isActive: true } },
+      type: { is: { code: "products" } },
+    },
+  },
+  ...(excludedIds.length ? { id: { notIn: excludedIds } } : {}),
+};
+
+  if (Array.isArray(rules.categories) && rules.categories.length) {
+    where.category = {
+      in: rules.categories.map((x) => String(x || "").trim()).filter(Boolean),
+    };
+  }
+
+  if (rules.acceptsCustom === true) {
+    where.acceptsCustom = true;
+  }
+
+  const minPriceCents = Number(rules.minPriceCents);
+  const maxPriceCents = Number(rules.maxPriceCents);
+
+  if (Number.isFinite(minPriceCents) || Number.isFinite(maxPriceCents)) {
+    where.priceCents = {};
+    if (Number.isFinite(minPriceCents)) where.priceCents.gte = minPriceCents;
+    if (Number.isFinite(maxPriceCents)) where.priceCents.lte = maxPriceCents;
+  }
+
+  if (Array.isArray(rules.occasionTags) && rules.occasionTags.length) {
+    where.occasionTags = {
+      hasSome: rules.occasionTags.map(String),
+    };
+  }
+
+  if (Array.isArray(rules.styleTags) && rules.styleTags.length) {
+    where.styleTags = {
+      hasSome: rules.styleTags.map(String),
+    };
+  }
+
+  return where;
+}
+router.get("/collections/:slug", async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(
+      60,
+      Math.max(1, parseInt(req.query.limit || "24", 10))
+    );
+    const skip = (page - 1) * limit;
+
+    if (!slug) {
+      return res.status(400).json({ error: "invalid_slug" });
+    }
+
+    const collection = await prisma.collection.findUnique({
+      where: { slug },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: baseProductSelect,
+            },
+          },
+          orderBy: [
+            { pinned: "desc" },
+            { position: "asc" },
+            { createdAt: "desc" },
+          ],
+        },
+      },
+    });
+
+    if (!collection || !collection.isActive) {
+      return res.status(404).json({ error: "collection_not_found" });
+    }
+
+    const excludedIds = collection.items
+      .filter((item) => item.excluded)
+      .map((item) => item.productId);
+
+    const pinnedProducts =
+      page === 1
+        ? collection.items
+            .filter((item) => item.pinned && !item.excluded && item.product)
+            .map((item) => item.product)
+            .filter(isPublicProduct)
+        : [];
+
+    const pinnedIds = pinnedProducts.map((p) => p.id);
+
+    const autoProductsRaw = await prisma.product.findMany({
+      where: buildCollectionWhereFromRules(collection.rules || {}, [
+        ...excludedIds,
+        ...pinnedIds,
+      ]),
+      select: baseProductSelect,
+      orderBy: buildOrderBy(collection.sort || "new"),
+      skip,
+      take: limit + 1,
+    });
+
+    const autoProducts = sortPromotedFirst(autoProductsRaw);
+
+    const merged = [...pinnedProducts, ...autoProducts];
+    const uniqueProducts = uniqueById(merged);
+
+    const hasMore = autoProductsRaw.length > limit;
+    const sliced = uniqueProducts.slice(0, limit);
+
+    const promoCollection = isCollectionPromoActive(collection)
+      ? collection
+      : null;
+
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+res.set("Pragma", "no-cache");
+res.set("Expires", "0");
+
+    return res.json({
+      collection: {
+        id: collection.id,
+        slug: collection.slug,
+        title: collection.title,
+        subtitle: collection.subtitle || "",
+        description: collection.description || "",
+        seoTitle: collection.seoTitle || collection.title,
+        seoDescription: collection.seoDescription || collection.subtitle || "",
+        heroImage: collection.heroImage || "",
+
+        promoEnabled: !!collection.promoEnabled,
+        promoPercent: collection.promoPercent || null,
+        promoLabel: collection.promoLabel || "",
+        promoFundingSource:
+          collection.promoFundingSource || "PLATFORM_COMMISSION",
+        promoStartsAt: collection.promoStartsAt || null,
+        promoEndsAt: collection.promoEndsAt || null,
+      },
+      items: sliced.map((product) =>
+        mapPublicProduct(product, promoCollection)
+      ),
+      page,
+      limit,
+      hasMore,
+    });
+  } catch (e) {
+    console.error("GET /api/public/collections/:slug error:", e);
+    next(e);
+  }
+});
+
+function isPublicProduct(p) {
+  return (
+    p?.isActive &&
+    !p?.isHidden &&
+    p?.moderationStatus === "APPROVED" &&
+    p?.service?.profile &&
+    p?.service?.vendor
+  );
+}
+
+function uniqueById(products = []) {
+  const map = new Map();
+
+  for (const product of products) {
+    if (product?.id) map.set(product.id, product);
+  }
+
+  return Array.from(map.values());
+}
+
 /* -----------------------------------------
    DETALII PRODUS (aici rămâne full)
 ------------------------------------------*/
@@ -964,10 +1294,9 @@ router.get("/products/:id", async (req, res, next) => {
         }
       : null;
 
-    const promo = getPromoPrice(
-  p.priceCents,
-  p.category
-);
+    const promoByProductId = await getActiveCollectionPromosForProducts([p]);
+const promoCollection = promoByProductId.get(p.id) || null;
+const promo = getPromoPrice(p.priceCents, promoCollection);
 
 const unitPrice =
   promo.finalPriceCents != null
@@ -1086,13 +1415,13 @@ router.get("/store/:slug/products", async (req, res) => {
 },
     orderBy: { createdAt: "desc" },
   });
-
+const promoByProductId = await getActiveCollectionPromosForProducts(items);
   res.set("Cache-Control", "public, max-age=0, must-revalidate");
   res.json(
     items.map((p) => {
       const promo = getPromoPrice(
   p.priceCents,
-  p.category
+  promoByProductId.get(p.id) || null
 );
 
 const unitPrice =

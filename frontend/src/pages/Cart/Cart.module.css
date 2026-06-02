@@ -625,3 +625,34 @@
   background: #eee;
   margin: 10px 0;
 }
+.priceWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.oldPrice {
+  font-size: 13px;
+  color: #8b8b8b;
+  text-decoration: line-through;
+}
+
+.priceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.discountBadge {
+  background: #ff4d6d;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.promoLabel {
+  font-size: 12px;
+  color: #666;
+}

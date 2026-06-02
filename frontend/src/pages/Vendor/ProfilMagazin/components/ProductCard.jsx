@@ -543,7 +543,7 @@ const originalPriceLabel = useMemo(() => {
           )}
 {safe.hasDiscount && (
   <span className={`${styles.badge} ${styles.badgeSuccess}`}>
-    -{safe.discountPercent}% 1 Iunie
+    -{safe.discountPercent}% {p?.promoLabel || "Promoție"}
   </span>
 )}
           {safe.isHidden && <span className={styles.badge}>Ascuns</span>}
@@ -693,13 +693,25 @@ const originalPriceLabel = useMemo(() => {
           <div className={styles.metaLeft}>
             {priceLabel != null && (
   <div className={styles.priceBox}>
-    {originalPriceLabel && (
+    {safe.hasDiscount && originalPriceLabel ? (
       <span className={styles.oldPrice}>{originalPriceLabel}</span>
-    )}
+    ) : null}
 
-    <p className={styles.price} aria-label={`Preț ${priceLabel}`}>
-      {priceLabel}
-    </p>
+    <div className={styles.priceRow}>
+      <p className={styles.price} aria-label={`Preț ${priceLabel}`}>
+        {priceLabel}
+      </p>
+
+      {safe.hasDiscount ? (
+        <span className={styles.discountBadge}>
+          -{safe.discountPercent}%
+        </span>
+      ) : null}
+    </div>
+
+    {safe.hasDiscount && p?.promoLabel ? (
+      <span className={styles.promoLabel}>{p.promoLabel}</span>
+    ) : null}
   </div>
 )}
 

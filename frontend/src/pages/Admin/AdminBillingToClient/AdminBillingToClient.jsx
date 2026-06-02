@@ -473,7 +473,7 @@ export default function AdminBillingToClientPage() {
                         >
                           <a
                             className={styles.secondaryBtn}
-                            href={`${API_URL}/api/admin/invoices/${row.id}/pdf`}
+                            href={`${API_URL}/admin/invoices/${row.id}/pdf`}
                             target="_blank"
                             rel="noreferrer"
                           >

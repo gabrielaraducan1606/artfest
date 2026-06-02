@@ -833,10 +833,36 @@ const inc = useCallback(
                           </h3>
 
                           {typeof p.price === "number" && (
-                            <div className={styles.price}>
-                              {money(p.price, p.currency)}
-                            </div>
-                          )}
+  <div className={styles.priceWrap}>
+    {p.hasDiscount && typeof p.originalPrice === "number" ? (
+      <>
+        <div className={styles.oldPrice}>
+          {money(p.originalPrice, p.currency)}
+        </div>
+
+        <div className={styles.priceRow}>
+          <div className={styles.price}>
+            {money(p.price, p.currency)}
+          </div>
+
+          <span className={styles.discountBadge}>
+            -{p.discountPercent}%
+          </span>
+        </div>
+
+        {p.promoLabel ? (
+          <div className={styles.promoLabel}>
+            {p.promoLabel}
+          </div>
+        ) : null}
+      </>
+    ) : (
+      <div className={styles.price}>
+        {money(p.price, p.currency)}
+      </div>
+    )}
+  </div>
+)}
 
                           {Number.isFinite(max) && max !== DEFAULT_MAX_QTY && (
                             <div className={styles.meta}>

@@ -561,6 +561,7 @@ model Product {
   ProductRatingStats       ProductRatingStats?
   reviews                  Review[]
   product_image_embeddings product_image_embeddings[]
+collectionItems CollectionItem[]
 
   @@index([serviceId, isActive, createdAt])
   @@index([category])
@@ -1045,10 +1046,16 @@ model ShipmentItem {
   qty        Int
   price      Decimal @db.Decimal(10, 2)
 
+  originalPrice      Decimal? @db.Decimal(10, 2)
+  discountAmount     Decimal  @default(0) @db.Decimal(10, 2)
+  promoCollectionId  String?
+  promoFundingSource String?
+
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId])
   @@index([productId])
+  @@index([promoCollectionId])
 }
 
 model SupportTicket {
@@ -2065,4 +2072,56 @@ model UserPolicy {
 
   @@unique([document, version])
   @@index([document, isActive])
+}
+
+model Collection {
+  id                 String   @id @default(cuid())
+  slug               String   @unique
+  title              String
+  subtitle           String?
+  description        String?
+  seoTitle           String?
+  seoDescription     String?
+  heroImage          String?
+  isActive           Boolean  @default(false)
+  showOnHomepage     Boolean  @default(false)
+  showInMenu         Boolean  @default(false)
+  rules              Json?
+  sort               String   @default("curated")
+
+  promoEnabled       Boolean  @default(false)
+  promoPercent       Int?
+  promoStartsAt      DateTime?
+  promoEndsAt        DateTime?
+  promoLabel         String?
+  promoFundingSource String   @default("PLATFORM_COMMISSION")
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  items CollectionItem[]
+
+  @@index([isActive])
+  @@index([showOnHomepage])
+  @@index([showInMenu])
+  @@index([promoEnabled])
+  @@index([promoStartsAt])
+  @@index([promoEndsAt])
+}
+
+model CollectionItem {
+  collectionId String
+  productId    String
+  position     Int?
+  pinned       Boolean @default(false)
+  excluded     Boolean @default(false)
+  createdAt    DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([collectionId, productId])
+  @@index([productId])
+  @@index([collectionId, pinned])
+  @@index([collectionId, excluded])
 }

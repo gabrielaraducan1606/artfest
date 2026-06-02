@@ -1183,34 +1183,38 @@ export async function sendVendorFollowUpReminderEmail({ to, contactName, followU
 ============================================================ */
 export async function sendInvoiceIssuedEmail({
   to,
-  orderId,
+  orderId = null,
   invoiceNumber,
   totalGross,
   currency = "RON",
   invoiceFrontendPath,
   userId = null,
 }) {
-  if (!to || !orderId) return;
+  if (!to) return;
 
-  // ✅ luăm orderNumber ca să-l afișăm în email
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    select: { id: true, orderNumber: true },
-  });
+  let order = null;
+
+  if (orderId) {
+    order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, orderNumber: true },
+    });
+  }
 
   const totalLabel = formatMoney(totalGross || 0, currency);
 
   const baseUrl = APP_URL ? APP_URL.replace(/\/+$/, "") : null;
+
   const link =
     baseUrl && invoiceFrontendPath
       ? `${baseUrl}${invoiceFrontendPath}`
-      : baseUrl
+      : baseUrl && orderId
         ? `${baseUrl}/comenzile-mele?order=${encodeURIComponent(orderId)}`
-        : undefined;
+        : baseUrl || undefined;
 
   const { html, text, subject } = await withLogo(invoiceIssuedEmailTemplate, {
     orderId,
-    orderNumber: order?.orderNumber || null, // ✅ NEW
+    orderNumber: order?.orderNumber || null,
     invoiceNumber,
     totalLabel,
     link,
@@ -1222,7 +1226,7 @@ export async function sendInvoiceIssuedEmail({
     subject,
     template: "invoice_issued",
     userId,
-    orderId,
+    orderId: orderId || null,
     mailOptions: {
       ...senderEnvelope("admin"),
       to,

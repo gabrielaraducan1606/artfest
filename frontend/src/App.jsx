@@ -23,7 +23,7 @@ import CookiesPolicy from "./pages/CookieBanner/CookiePolicy";
 import ReturnPolicy from "./pages/CookieBanner/ReturnPolicy";
 import CookiePreferences from "./pages/CookieBanner/CookiePreferences";
 import CookieBanner from "./pages/CookieBanner/CookieBanner";
-
+import PublicCollectionPage from "./pages/Collections/PublicCollections.jsx";
 import Login from "./pages/Auth/Login/Login";
 import Register from "./pages/Auth/Register/Register";
 import ForgotPassword from "./pages/Auth/ForgotPassword";
@@ -227,7 +227,7 @@ export default function App() {
 <Route path="/politica-de-retur" element={<ReturnPolicy />} />
 <Route path="/cookie-banner" element={<CookieBanner />} />
 <Route path="/preferinte-cookie" element={<CookiePreferences />} />
-
+<Route path="/colectii/:slug" element={<PublicCollectionPage />} />
 <Route
   path="/confidentialitate"
   element={

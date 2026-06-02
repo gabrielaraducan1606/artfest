@@ -13,6 +13,7 @@ import {
   createSmartBillInvoice,
   getSmartBillInvoicePdfBuffer,
 } from "../lib/smartbill.js";
+import { sendInvoiceIssuedEmail } from "../lib/mailer.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -1115,6 +1116,27 @@ router.post("/billing/create-vendor-commission-invoice", requireAdmin, async (re
     } catch (pdfErr) {
       console.error("SmartBill PDF save failed:", pdfErr);
     }
+try {
+  const to =
+    vendor.billing?.email ||
+    vendor.email ||
+    vendor.user?.email;
+
+  if (to) {
+    await sendInvoiceIssuedEmail({
+      to,
+      orderId: null,
+      invoiceNumber: `${updatedInvoice.providerSeries || updatedInvoice.series}-${
+        updatedInvoice.providerNumber || updatedInvoice.number
+      }`,
+      totalGross: updatedInvoice.totalGross,
+      currency: updatedInvoice.currency || "RON",
+      invoiceFrontendPath: `/admin/invoices/${updatedInvoice.id}/pdf`,
+    });
+  }
+} catch (emailErr) {
+  console.error("Invoice email send failed:", emailErr);
+}
 
     return res.json({
       ok: true,

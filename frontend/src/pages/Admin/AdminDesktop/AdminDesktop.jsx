@@ -1,4 +1,3 @@
-// src/pages/Admin/AdminDesktop/AdminDesktop.jsx
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../Auth/Context/context.js";
@@ -9,6 +8,7 @@ import AdminVendorsTab from "./tabs/AdminVendorsTab.jsx";
 import AdminVendorPlansTab from "./tabs/AdminVendorTabPlans.jsx";
 import AdminOrdersTab from "./tabs/AdminOrdersTab.jsx";
 import AdminProductsTab from "./tabs/AdminProductsTab.jsx";
+import AdminCollectionsTab from "./tabs/AdminCollectionsTab.jsx";
 import AdminPoliciesTab from "./tabs/AdminPoliciesTab.jsx";
 import AdminEmailLogsTab from "./tabs/AdminEmailLogsTab.jsx";
 
@@ -19,6 +19,7 @@ const TABS = [
   { id: "vendorPlans", label: "Abonamente (Vendori)" },
   { id: "orders", label: "Comenzi" },
   { id: "products", label: "Produse" },
+  { id: "collections", label: "Colecții" },
   { id: "policies", label: "Politici / consimțăminte" },
   { id: "emails", label: "Emailuri" },
 ];
@@ -49,6 +50,7 @@ export default function AdminDesktop() {
     vendorPlans: false,
     orders: false,
     products: false,
+    collections: false,
     policies: false,
     emails: false,
   });
@@ -125,6 +127,11 @@ export default function AdminDesktop() {
 
       if (tabId === TAB_IDS.products) {
         setLoadedTabs((prev) => ({ ...prev, products: true }));
+        return;
+      }
+
+      if (tabId === TAB_IDS.collections) {
+        setLoadedTabs((prev) => ({ ...prev, collections: true }));
         return;
       }
 
@@ -286,6 +293,10 @@ export default function AdminDesktop() {
 
     if (activeTab === TAB_IDS.products) {
       return <AdminProductsTab />;
+    }
+
+    if (activeTab === TAB_IDS.collections) {
+      return <AdminCollectionsTab />;
     }
 
     if (activeTab === TAB_IDS.policies) {
