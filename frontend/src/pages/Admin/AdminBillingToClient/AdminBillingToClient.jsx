@@ -143,7 +143,31 @@ export default function AdminBillingToClientPage() {
     setPage((p) => p);
     setData((prev) => ({ ...prev }));
   }
+// ADAUGI AICI
+async function openInvoicePdf(invoiceId) {
+  try {
+    const res = await fetch(`${API_URL}/api/admin/invoices/${invoiceId}/pdf`, {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        Authorization: localStorage.getItem("token")
+          ? `Bearer ${localStorage.getItem("token")}`
+          : "",
+      },
+    });
 
+    if (!res.ok) throw new Error("pdf_failed");
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    window.open(url, "_blank", "noopener,noreferrer");
+
+    setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+  } catch {
+    alert("Nu am putut deschide PDF-ul.");
+  }
+}
   async function createVendorCommissionInvoice(vendorId) {
     setCreatingId(vendorId);
     setCreateErr("");
@@ -471,14 +495,13 @@ export default function AdminBillingToClientPage() {
                             justifyContent: "flex-end",
                           }}
                         >
-                          <a
-                            className={styles.secondaryBtn}
-                            href={`${API_URL}/admin/invoices/${row.id}/pdf`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <ExternalLink size={16} /> PDF
-                          </a>
+                          <button
+  type="button"
+  className={styles.secondaryBtn}
+  onClick={() => openInvoicePdf(row.id)}
+>
+  <ExternalLink size={16} /> PDF
+</button>
                         </div>
                       </td>
                     </tr>
