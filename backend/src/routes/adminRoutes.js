@@ -756,9 +756,7 @@ router.get("/products", async (req, res) => {
     }
 
     if (moderationStatus) {
-      where.moderationStatus = String(moderationStatus)
-        .trim()
-        .toUpperCase();
+      where.moderationStatus = String(moderationStatus).trim().toUpperCase();
     }
 
     if (isActive === "true") where.isActive = true;
@@ -768,12 +766,12 @@ router.get("/products", async (req, res) => {
     if (isHidden === "false") where.isHidden = false;
 
     if (serviceStatus) {
-  where.service = {
-    is: {
-      status: String(serviceStatus).trim().toUpperCase(),
-    },
-  };
-}
+      where.service = {
+        is: {
+          status: String(serviceStatus).trim().toUpperCase(),
+        },
+      };
+    }
 
     const qstr = String(q || "").trim();
 
@@ -785,19 +783,47 @@ router.get("/products", async (req, res) => {
         { category: { contains: qstr, mode: "insensitive" } },
         { color: { contains: qstr, mode: "insensitive" } },
         {
-  service: {
-    is: {
-      vendor: {
-        is: {
-          displayName: {
-            contains: qstr,
-            mode: "insensitive",
+          service: {
+            is: {
+              vendor: {
+                is: {
+                  displayName: {
+                    contains: qstr,
+                    mode: "insensitive",
+                  },
+                },
+              },
+            },
           },
         },
-      },
-    },
-  },
-},
+        {
+          service: {
+            is: {
+              profile: {
+                is: {
+                  displayName: {
+                    contains: qstr,
+                    mode: "insensitive",
+                  },
+                },
+              },
+            },
+          },
+        },
+        {
+          service: {
+            is: {
+              profile: {
+                is: {
+                  slug: {
+                    contains: qstr,
+                    mode: "insensitive",
+                  },
+                },
+              },
+            },
+          },
+        },
       ];
     }
 
@@ -812,16 +838,11 @@ router.get("/products", async (req, res) => {
         orderBy: { createdAt: "desc" },
         include: {
           service: {
-            select: {
-              id: true,
-              title: true,
-              city: true,
-              status: true,
-              isActive: true,
+            include: {
+              type: true,
+              profile: true,
               vendor: {
-                select: {
-                  id: true,
-                  displayName: true,
+                include: {
                   VendorAcceptance: {
                     select: {
                       document: true,
@@ -847,8 +868,59 @@ router.get("/products", async (req, res) => {
       prisma.product.count({ where }),
     ]);
 
+    const items = products.map((p) => {
+      const service = p.service;
+      const vendor = service?.vendor;
+      const profile = service?.profile;
+
+      return {
+        ...p,
+
+        price: Math.round(Number(p.priceCents || 0)) / 100,
+
+        service: {
+          id: service?.id || null,
+          vendorId: service?.vendorId || null,
+          title: service?.title || null,
+          type: service?.type?.code || null,
+          status: service?.status || null,
+          isActive: !!service?.isActive,
+          city: profile?.city || service?.city || vendor?.city || "",
+          slug: profile?.slug || null,
+          displayName: profile?.displayName || vendor?.displayName || service?.title || "",
+          email: profile?.email || vendor?.email || "",
+          phone: profile?.phone || vendor?.phone || "",
+          logoUrl: profile?.logoUrl || vendor?.logoUrl || "",
+          coverUrl: profile?.coverUrl || vendor?.coverUrl || "",
+          address: profile?.address || vendor?.address || "",
+          website: profile?.website || vendor?.website || "",
+        },
+
+        vendor: {
+          id: vendor?.id || service?.vendorId || null,
+          userId: vendor?.userId || null,
+          displayName: vendor?.displayName || profile?.displayName || "",
+          email: vendor?.email || profile?.email || "",
+          phone: vendor?.phone || profile?.phone || "",
+          city: vendor?.city || profile?.city || service?.city || "",
+          logoUrl: vendor?.logoUrl || profile?.logoUrl || "",
+          coverUrl: vendor?.coverUrl || profile?.coverUrl || "",
+          address: vendor?.address || profile?.address || "",
+          website: vendor?.website || profile?.website || "",
+          isActive: !!vendor?.isActive,
+          createdAt: vendor?.createdAt || null,
+          stripeConnectStatus: vendor?.stripeConnectStatus || null,
+          stripeChargesEnabled: !!vendor?.stripeChargesEnabled,
+          stripePayoutsEnabled: !!vendor?.stripePayoutsEnabled,
+          stripeDetailsSubmitted: !!vendor?.stripeDetailsSubmitted,
+          VendorAcceptance: vendor?.VendorAcceptance || [],
+        },
+      };
+    });
+
     res.json({
-      products,
+      items,
+      products: items,
       total,
       take: pageSize,
       skip: offset,

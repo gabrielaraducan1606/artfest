@@ -155,26 +155,47 @@ function mapProduct(p) {
 }
 
 function mapAdminProduct(p) {
+  const service = p.service;
+  const vendor = service?.vendor;
+  const profile = service?.profile;
+
   return {
     ...mapProduct(p),
+
     service: {
-      id: p.service?.id || null,
-      vendorId: p.service?.vendorId || null,
-      type: p.service?.type?.code || null,
-      status: p.service?.status || null,
-      isActive: !!p.service?.isActive,
-      slug: p.service?.profile?.slug || null,
-      displayName:
-        p.service?.profile?.displayName ||
-        p.service?.vendor?.displayName ||
-        "",
+      id: service?.id || null,
+      vendorId: service?.vendorId || null,
+      type: service?.type?.code || null,
+      status: service?.status || null,
+      isActive: !!service?.isActive,
+      slug: profile?.slug || null,
+      displayName: profile?.displayName || vendor?.displayName || "",
+      city: profile?.city || service?.city || vendor?.city || "",
+      email: profile?.email || vendor?.email || "",
+      phone: profile?.phone || vendor?.phone || "",
+      logoUrl: profile?.logoUrl || vendor?.logoUrl || "",
+      coverUrl: profile?.coverUrl || vendor?.coverUrl || "",
+      address: profile?.address || vendor?.address || "",
+      website: profile?.website || vendor?.website || "",
     },
+
     vendor: {
-      id: p.service?.vendor?.id || null,
-      userId: p.service?.vendor?.userId || null,
-      displayName: p.service?.vendor?.displayName || "",
-      city: p.service?.vendor?.city || "",
-      isActive: !!p.service?.vendor?.isActive,
+      id: vendor?.id || service?.vendorId || null,
+      userId: vendor?.userId || null,
+      displayName: vendor?.displayName || profile?.displayName || "",
+      email: vendor?.email || profile?.email || "",
+      phone: vendor?.phone || profile?.phone || "",
+      city: vendor?.city || profile?.city || service?.city || "",
+      logoUrl: vendor?.logoUrl || profile?.logoUrl || "",
+      coverUrl: vendor?.coverUrl || profile?.coverUrl || "",
+      address: vendor?.address || profile?.address || "",
+      website: vendor?.website || profile?.website || "",
+      isActive: vendor?.isActive ?? false,
+      createdAt: vendor?.createdAt || null,
+      stripeConnectStatus: vendor?.stripeConnectStatus || null,
+      stripeChargesEnabled: !!vendor?.stripeChargesEnabled,
+      stripePayoutsEnabled: !!vendor?.stripePayoutsEnabled,
+      stripeDetailsSubmitted: !!vendor?.stripeDetailsSubmitted,
     },
   };
 }

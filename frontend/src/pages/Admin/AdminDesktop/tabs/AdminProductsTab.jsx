@@ -528,27 +528,38 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
                     </td>
 
                     <td>
-                      <div className={styles.vendorBlock}>
-                        <div className={styles.vendorName}>
-                          {p.vendor?.displayName ||
-                            p.service?.displayName ||
-                            "—"}
-                        </div>
+  <div className={styles.vendorBlock}>
+    <div className={styles.vendorName}>
+      {p.vendor?.displayName ||
+        p.service?.displayName ||
+        "—"}
+    </div>
 
-                        <div className={styles.vendorMeta}>
-                          slug: {p.service?.slug || "—"}
-                        </div>
+    <div className={styles.vendorMeta}>
+      email: {p.vendor?.email || p.service?.email || "—"}
+    </div>
 
-                        <div className={styles.vendorMeta}>
-                          vendorId:{" "}
-                          {p.vendor?.id || p.service?.vendorId || "—"}
-                        </div>
+    <div className={styles.vendorMeta}>
+      telefon: {p.vendor?.phone || p.service?.phone || "—"}
+    </div>
 
-                        <div className={styles.vendorMeta}>
-                          serviceId: {p.service?.id || "—"}
-                        </div>
-                      </div>
-                    </td>
+    <div className={styles.vendorMeta}>
+      oraș: {p.vendor?.city || p.service?.city || "—"}
+    </div>
+
+    <div className={styles.vendorMeta}>
+      slug: {p.service?.slug || "—"}
+    </div>
+
+    <div className={styles.vendorMeta}>
+      vendorId: {p.vendor?.id || p.service?.vendorId || "—"}
+    </div>
+
+    <div className={styles.vendorMeta}>
+      serviceId: {p.service?.id || "—"}
+    </div>
+  </div>
+</td>
 
                     <td className={styles.nowrap}>
                       {formatPrice(p.price, p.currency)}
@@ -838,21 +849,55 @@ function ProductReviewModal({
             <hr className={styles.modalSep} />
 
             <Detail label="Vendor" value={product.vendor?.displayName || "—"} />
-            <Detail
-              label="Vendor ID"
-              value={product.vendor?.id || product.service?.vendorId || "—"}
-            />
-            <Detail label="Store" value={product.service?.displayName || "—"} />
-            <Detail label="Slug store" value={product.service?.slug || "—"} />
-            <Detail label="Service ID" value={product.service?.id || "—"} />
-            <Detail
-              label="Status store"
-              value={product.service?.status || "—"}
-            />
-            <Detail
-              label="Store activ"
-              value={product.service?.isActive ? "Da" : "Nu"}
-            />
+
+<Detail
+  label="Vendor ID"
+  value={product.vendor?.id || product.service?.vendorId || "—"}
+/>
+
+<Detail
+  label="Email vendor"
+  value={product.vendor?.email || product.service?.email || "—"}
+/>
+
+<Detail
+  label="Telefon vendor"
+  value={product.vendor?.phone || product.service?.phone || "—"}
+/>
+
+<Detail
+  label="Oraș vendor"
+  value={product.vendor?.city || product.service?.city || "—"}
+/>
+
+<Detail
+  label="Adresă vendor"
+  value={product.vendor?.address || product.service?.address || "—"}
+/>
+
+<Detail
+  label="Website vendor"
+  value={product.vendor?.website || product.service?.website || "—"}
+/>
+
+<Detail
+  label="Vendor activ"
+  value={product.vendor?.isActive ? "Da" : "Nu"}
+/>
+
+<Detail label="Store" value={product.service?.displayName || "—"} />
+<Detail label="Slug store" value={product.service?.slug || "—"} />
+<Detail label="Service ID" value={product.service?.id || "—"} />
+
+<Detail
+  label="Status store"
+  value={product.service?.status || "—"}
+/>
+
+<Detail
+  label="Store activ"
+  value={product.service?.isActive ? "Da" : "Nu"}
+/>
 
             <hr className={styles.modalSep} />
 
