@@ -1,3 +1,6 @@
+export const GOOGLE_ADS_PURCHASE_CONVERSION_ID =
+  "AW-18196187164/MUkKCJu2u7YcEJyQz-RD";
+
 export const trackEvent = (eventName, params = {}) => {
   if (typeof window === "undefined") return;
   if (!window.gtag) return;
@@ -34,9 +37,22 @@ export const trackSignup = () => {
 };
 
 export const trackPurchase = (order) => {
+  const value = Number(order?.total || 0);
+  const currency = order?.currency || "RON";
+  const transactionId = order?.id || "";
+
+  // GA4 purchase event
   trackEvent("purchase", {
-    transaction_id: order?.id,
-    value: Number(order?.total || 0),
-    currency: order?.currency || "RON",
+    transaction_id: transactionId,
+    value,
+    currency,
+  });
+
+  // Google Ads purchase conversion
+  trackEvent("conversion", {
+    send_to: GOOGLE_ADS_PURCHASE_CONVERSION_ID,
+    value,
+    currency,
+    transaction_id: transactionId,
   });
 };

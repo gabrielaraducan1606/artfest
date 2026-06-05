@@ -12,10 +12,8 @@ export default function ThankYou() {
   const orderNoFromUrl = params.get("orderNo");
 
   const [displayNo, setDisplayNo] = React.useState(() => {
-    // 1) din URL
     if (orderNoFromUrl) return orderNoFromUrl;
 
-    // 2) fallback din sessionStorage (setat la place order)
     if (orderId) {
       const cached = sessionStorage.getItem(`orderNo:${orderId}`);
       if (cached) return cached;
@@ -28,10 +26,7 @@ export default function ThankYou() {
 
   React.useEffect(() => {
     if (!orderId) return;
-trackPurchase({
-  id: orderId,
-});
-    // dacă avem deja orderNo (din URL sau cache), nu mai cerem backend
+
     if (displayNo) return;
 
     let cancelled = false;
@@ -39,15 +34,14 @@ trackPurchase({
 
     (async () => {
       try {
-        // ✅ IMPORTANT:
-        // - api în proiectul tău pare a fi funcție (vezi AdminPickupsPage)
-        // - include /api în path
         const data = await api(`/api/user/orders/${orderId}`);
-trackPurchase({
-  id: orderId,
-  total: data?.total || data?.totalPrice || 0,
-  currency: data?.currency || "RON",
-});
+
+        trackPurchase({
+          id: orderId,
+          total: data?.total || data?.totalPrice || 0,
+          currency: data?.currency || "RON",
+        });
+
         const no = data?.orderNumber || null;
 
         if (!cancelled) {
@@ -55,7 +49,6 @@ trackPurchase({
             setDisplayNo(no);
             sessionStorage.setItem(`orderNo:${orderId}`, no);
           } else {
-            // fallback dacă nu vine orderNumber (safety)
             setDisplayNo(orderId);
           }
         }
@@ -91,9 +84,17 @@ trackPurchase({
 
         <p className={styles.muted} style={{ marginTop: 16 }}>
           Vei primi un email cu detaliile comenzii. Poți urmări statusul ei din
-          secțiunea <Link to={orderId ? `/comenzile-mele?order=${encodeURIComponent(orderId)}` : "/comenzile-mele"}>
-  „Comenzile mele”
-</Link>.
+          secțiunea{" "}
+          <Link
+            to={
+              orderId
+                ? `/comenzile-mele?order=${encodeURIComponent(orderId)}`
+                : "/comenzile-mele"
+            }
+          >
+            „Comenzile mele”
+          </Link>
+          .
         </p>
 
         <div className={styles.thankYouActions}>
