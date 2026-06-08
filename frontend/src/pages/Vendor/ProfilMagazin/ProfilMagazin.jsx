@@ -211,6 +211,29 @@ export default function ProfilMagazinPage() {
     }
   }
 
+  async function handleVendorMessage() {
+  if (!vendorId) {
+    alert("Nu am găsit vendorul pentru acest magazin.");
+    return;
+  }
+
+  try {
+    const d = await api("/api/inbox/ensure-vendor-thread", {
+      method: "POST",
+      body: { recipientVendorId: vendorId },
+    });
+
+    if (!d?.threadId) {
+      throw new Error("Lipsește threadId din răspuns.");
+    }
+
+    navigate(`/mesaje?vendorThreadId=${d.threadId}`);
+  } catch (err) {
+    console.error("ensure-vendor-thread error:", err);
+    alert("Nu am putut deschide conversația cu acest vendor.");
+  }
+}
+
   const tabs = useStoreTabs({
     showAboutSection,
     ensureReviewsLoaded: reviews.ensureReviewsLoaded,
@@ -669,7 +692,11 @@ export default function ProfilMagazinPage() {
           canAddProduct={owner.canAddProduct}
           prodLimits={owner.prodLimits}
           handleAddProduct={handleAddProduct}
-          handleContactVendor={follow.handleContactVendor}
+          handleContactVendor={
+  me?.role === "VENDOR" && !isOwner
+    ? handleVendorMessage
+    : follow.handleContactVendor
+}
           following={follow.following}
           followLoading={follow.followLoading}
           toggleFollow={follow.toggleFollow}

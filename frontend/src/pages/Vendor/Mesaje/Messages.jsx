@@ -110,12 +110,11 @@ const TEMPLATES = [
 ];
 
 /* ========= Hooks ========= */
-function useThreads({ scope, q, status, eventType, period, groupByUser }) {
+function useThreads({ scope, q, status, eventType, period, groupByUser, conversationMode }) {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
 
-  // debounced query
   const [dq, setDq] = useState(q);
   useEffect(() => {
     const id = setTimeout(() => setDq(q), 300);
@@ -124,26 +123,42 @@ function useThreads({ scope, q, status, eventType, period, groupByUser }) {
 
   const reload = useCallback(async () => {
     setLoading((items.length || 0) === 0);
-setError(null);
+    setError(null);
+
     try {
       const params = new URLSearchParams();
       params.set("scope", scope || "all");
       if (dq) params.set("q", dq);
-      if (status && status !== "all") params.set("status", status);
-      if (eventType && eventType !== "all") params.set("eventType", eventType);
-      if (period && period !== "all") params.set("period", period);
-      if (groupByUser) params.set("groupBy", "user");
 
-      const url = `/api/inbox/threads?${params.toString()}`;
-     const d = await api(url); // fără .catch(() => null)
-      if (d?.items) setItems(d.items);
-      else setItems([]);
+      if (conversationMode === "customer") {
+        if (status && status !== "all") params.set("status", status);
+        if (eventType && eventType !== "all") params.set("eventType", eventType);
+        if (period && period !== "all") params.set("period", period);
+        if (groupByUser) params.set("groupBy", "user");
+      }
+
+      const url =
+        conversationMode === "vendor"
+          ? `/api/inbox/vendor-threads?${params.toString()}`
+          : `/api/inbox/threads?${params.toString()}`;
+
+      const d = await api(url);
+      setItems(d?.items || []);
     } catch (e) {
       setError(e?.message || "Eroare la încărcarea conversațiilor");
     } finally {
       setLoading(false);
     }
-  }, [scope, dq, status, eventType, period, groupByUser, items.length]);
+  }, [
+    scope,
+    dq,
+    status,
+    eventType,
+    period,
+    groupByUser,
+    conversationMode,
+    items.length,
+  ]);
 
   useEffect(() => {
     reload();
@@ -160,22 +175,28 @@ setError(null);
 /**
  * Mesaje pentru un singur thread (comandă)
  */
-function useMessages(threadId) {
+function useMessages(threadId, conversationMode) {
   const [loading, setLoading] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [error, setError] = useState(null);
 
   const reload = useCallback(async () => {
     if (!threadId) return;
-    setLoading((msgs.length || 0) === 0);
-setError(null);
-    try {
-      const d = await api(`/api/inbox/threads/${threadId}/messages`);
 
-      if (d?.items) setMsgs(d.items);
-      else setMsgs([]);
-      // mark as read (best-effort)
-      await api(`/api/inbox/threads/${threadId}/read`, {
+    setLoading((msgs.length || 0) === 0);
+    setError(null);
+
+    try {
+      const base =
+        conversationMode === "vendor"
+          ? `/api/inbox/vendor-threads/${threadId}`
+          : `/api/inbox/threads/${threadId}`;
+
+      const d = await api(`${base}/messages`);
+
+      setMsgs(d?.items || []);
+
+      await api(`${base}/read`, {
         method: "PATCH",
       }).catch(() => {});
     } catch (e) {
@@ -183,7 +204,7 @@ setError(null);
     } finally {
       setLoading(false);
     }
-}, [threadId, msgs.length]);
+  }, [threadId, conversationMode, msgs.length]);
 
   useEffect(() => {
     reload();
@@ -210,6 +231,10 @@ function autoResize(el) {
 export default function MessagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const [conversationMode, setConversationMode] = useState(() =>
+  searchParams.get("vendorThreadId") ? "vendor" : "customer"
+);
+// customer | vendor
   const [scope, setScope] = useState("all"); // all | unread | archived
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -218,7 +243,30 @@ export default function MessagesPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [groupByUser, setGroupByUser] = useState(false);
 const [chatBlocked, setChatBlocked] = useState(null);
+const [customerUnread, setCustomerUnread] = useState(0);
+const [vendorUnread, setVendorUnread] = useState(0);
 
+const reloadUnreadTabs = useCallback(async () => {
+  try {
+    const [customerData, vendorData] = await Promise.all([
+      api("/api/inbox/unread-count").catch(() => ({ count: 0 })),
+      api("/api/inbox/vendor-threads?scope=unread").catch(() => ({ items: [] })),
+    ]);
+
+    const vendorCount = Array.isArray(vendorData?.items)
+      ? vendorData.items.reduce(
+          (sum, t) => sum + (Number(t.unreadCount) || 0),
+          0
+        )
+      : 0;
+
+    setCustomerUnread(Number(customerData?.count) || 0);
+    setVendorUnread(vendorCount);
+  } catch {
+    setCustomerUnread(0);
+    setVendorUnread(0);
+  }
+}, []);
   const {
     loading: loadingThreads,
     items: threads,
@@ -226,14 +274,20 @@ const [chatBlocked, setChatBlocked] = useState(null);
     reload: reloadThreads,
     setItems: setThreads,
   } = useThreads({
-    scope,
-    q,
-    status: statusFilter,
-    eventType: typeFilter,
-    period: periodFilter,
-    groupByUser,
-  });
+  scope,
+  q,
+  status: statusFilter,
+  eventType: typeFilter,
+  period: periodFilter,
+  groupByUser,
+  conversationMode,
+});
+useEffect(() => {
+  reloadUnreadTabs();
 
+  const id = setInterval(reloadUnreadTabs, 15000);
+  return () => clearInterval(id);
+}, [reloadUnreadTabs]);
   const [selectedId, setSelectedId] = useState(null); // poate fi threadId sau "user:xxx"
   const [activeThreadId, setActiveThreadId] = useState(null); // mereu threadId real
 
@@ -243,33 +297,37 @@ const [chatBlocked, setChatBlocked] = useState(null);
   const dragStartRef = useRef(null);
 
   // Sincronizare cu ?threadId=...
-  useEffect(() => {
-    if (!threads.length) return;
+ useEffect(() => {
+  if (!threads.length) return;
 
-    const paramId = searchParams.get("threadId");
-    const isBrowser = typeof window !== "undefined";
-    const isMobile =
-      isBrowser &&
-      window.matchMedia &&
-      window.matchMedia("(max-width: 768px)").matches;
+  const paramKey =
+    conversationMode === "vendor" ? "vendorThreadId" : "threadId";
 
-    if (paramId) {
-      const found = threads.find((t) => t.id === paramId);
-      if (found && selectedId !== paramId) {
-        setSelectedId(paramId);
-      }
-      return;
+  const paramId = searchParams.get(paramKey);
+
+  const isBrowser = typeof window !== "undefined";
+  const isMobile =
+    isBrowser &&
+    window.matchMedia &&
+    window.matchMedia("(max-width: 768px)").matches;
+
+  if (paramId) {
+    const found = threads.find((t) => t.id === paramId);
+    if (found && selectedId !== paramId) {
+      setSelectedId(paramId);
     }
+    return;
+  }
 
-    // dacă nu avem paramId și suntem pe DESKTOP -> auto-selectăm primul
-    if (!selectedId && !isMobile && threads[0]) {
-      const firstId = threads[0].id;
-      setSelectedId(firstId);
-      const sp = new URLSearchParams(searchParams);
-      sp.set("threadId", firstId);
-      setSearchParams(sp, { replace: true });
-    }
-  }, [threads, selectedId, searchParams, setSearchParams]);
+  if (!selectedId && !isMobile && threads[0]) {
+    const firstId = threads[0].id;
+    setSelectedId(firstId);
+
+    const sp = new URLSearchParams(searchParams);
+    sp.set(paramKey, firstId);
+    setSearchParams(sp, { replace: true });
+  }
+}, [threads, selectedId, searchParams, setSearchParams, conversationMode]);
 
   const current = useMemo(
     () => threads.find((t) => t.id === selectedId) || null,
@@ -319,7 +377,7 @@ useEffect(() => {
     error: errMsgs,
     setMsgs,
     reload: reloadMsgs,
-  } = useMessages(currentThreadId);
+  } = useMessages(currentThreadId, conversationMode);
 
   const listRef = useRef(null);
   useEffect(() => {
@@ -387,50 +445,56 @@ function normalizeChatError(err) {
   return { status, code, message, details: data, shouldBlock };
 }
 
-  async function handleSend() {
-    const content = text.trim();
-    if (!content || !currentThreadId) return;
-    const optimistic = {
-      id: `local_${Date.now()}`,
-      threadId: currentThreadId,
-      from: "me",
-      body: content,
-      createdAt: nowIso(),
-      pending: true,
-      readByPeer: false,
-    };
-    setMsgs((m) => [...m, optimistic]);
-setSending(true);
+ async function handleSend() {
+  const content = text.trim();
+  if (!content || !currentThreadId) return;
 
-try {
-  await api(`/api/inbox/threads/${currentThreadId}/messages`, {
-    method: "POST",
-    body: { body: content },
-  });
+  const optimistic = {
+    id: `local_${Date.now()}`,
+    threadId: currentThreadId,
+    from: "me",
+    body: content,
+    createdAt: nowIso(),
+    pending: true,
+    readByPeer: false,
+  };
 
-  // ✅ golim input doar după succes
-  setText("");
+  setMsgs((m) => [...m, optimistic]);
+  setSending(true);
 
-  await reloadMsgs();
-  await reloadThreads();
-} catch (err) {
-  const info = normalizeChatError(err);
+  try {
+    const base =
+      conversationMode === "vendor"
+        ? `/api/inbox/vendor-threads/${currentThreadId}`
+        : `/api/inbox/threads/${currentThreadId}`;
 
-  setMsgs((m) =>
-    m.map((x) =>
-      x.id === optimistic.id ? { ...x, failed: true, pending: false } : x
-    )
-  );
+    await api(`${base}/messages`, {
+      method: "POST",
+      body: { body: content },
+    });
 
-  // ✅ punem textul înapoi ca user-ul să nu-l piardă
-  setText(content);
+    setText("");
 
-  if (info.shouldBlock) setChatBlocked(info);
-  else alert(info.message);
-} finally {
-  setSending(false);
-}
+    await reloadMsgs();
+    await reloadThreads();
+    await reloadUnreadTabs();
+  } catch (err) {
+    const info = normalizeChatError(err);
+
+    setMsgs((m) =>
+      m.map((x) =>
+        x.id === optimistic.id ? { ...x, failed: true, pending: false } : x
+      )
+    );
+
+    setText(content);
+
+    if (info.shouldBlock) setChatBlocked(info);
+    else alert(info.message);
+  } finally {
+    setSending(false);
   }
+}
 
   function handleKey(e) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -556,20 +620,32 @@ async function handleFilesChange(e) {
     }
   }
 
-  const selectThread = (id) => {
-    setSelectedId(id);
-    const sp = new URLSearchParams(searchParams);
+const selectThread = (id) => {
+  setSelectedId(id);
+
+  const sp = new URLSearchParams(searchParams);
+
+  if (conversationMode === "vendor") {
+    sp.delete("threadId");
+    sp.set("vendorThreadId", id);
+  } else {
+    sp.delete("vendorThreadId");
     sp.set("threadId", id);
-    setSearchParams(sp, { replace: true });
-  };
+  }
+
+  setSearchParams(sp, { replace: true });
+};
 
   const clearSelection = () => {
-    setSelectedId(null);
-    setActiveThreadId(null);
-    const sp = new URLSearchParams(searchParams);
-    sp.delete("threadId");
-    setSearchParams(sp, { replace: true });
-  };
+  setSelectedId(null);
+  setActiveThreadId(null);
+
+  const sp = new URLSearchParams(searchParams);
+  sp.delete("threadId");
+  sp.delete("vendorThreadId");
+
+  setSearchParams(sp, { replace: true });
+};
 
   const hasCurrent = !!current;
 
@@ -611,25 +687,37 @@ async function handleFilesChange(e) {
   if (!window.confirm("Sigur vrei să ștergi această conversație?")) return;
 
   try {
-    await api(`/api/inbox/threads/${threadId}`, { method: "DELETE" });
+    if (conversationMode === "vendor") {
+      await api(`/api/inbox/vendor-threads/${threadId}/archive`, {
+        method: "PATCH",
+        body: { archived: true },
+      });
+    } else {
+      await api(`/api/inbox/threads/${threadId}`, { method: "DELETE" });
+    }
 
     setThreads((items) =>
       items
         .map((t) => {
-          // mod normal: thread direct
           if (!Array.isArray(t.threads)) {
             return t.id === threadId ? null : t;
           }
 
-          // mod groupByUser: scoatem thread-ul din grup
-          const remaining = (t.threads || []).filter((th) => th.threadId !== threadId);
+          const remaining = (t.threads || []).filter(
+            (th) => th.threadId !== threadId
+          );
+
           if (!remaining.length) return null;
 
-          // recalculăm sumarul grupului (primary = cel mai recent)
-          const sorted = remaining.slice().sort((a, b) => (+b.lastAt || 0) - (+a.lastAt || 0));
-          const primary = sorted[0];
+          const sorted = remaining
+            .slice()
+            .sort((a, b) => (+b.lastAt || 0) - (+a.lastAt || 0));
 
-          const totalUnread = sorted.reduce((s, x) => s + (x.unreadCount || 0), 0);
+          const primary = sorted[0];
+          const totalUnread = sorted.reduce(
+            (s, x) => s + (x.unreadCount || 0),
+            0
+          );
 
           return {
             ...t,
@@ -644,7 +732,6 @@ async function handleFilesChange(e) {
         .filter(Boolean)
     );
 
-    // dacă ștergeai thread-ul activ, curățăm selecția
     if (currentThreadId === threadId) clearSelection();
 
     await reloadThreads();
@@ -732,7 +819,7 @@ async function handleFilesChange(e) {
             </button>
           </div>
 
-          {filtersOpen && (
+          {conversationMode === "customer" && filtersOpen && (
             <div className={styles.filterPanel}>
               <div className={styles.filterRow}>
                 <label>Status lead</label>
@@ -778,7 +865,8 @@ async function handleFilesChange(e) {
           )}
 
           {/* 🔀 Toggle grupare pe client */}
-          <div className={styles.groupToggleRow}>
+         {conversationMode === "customer" && (
+  <div className={styles.groupToggleRow}>
             <label className={styles.groupToggle}>
               <input
                 type="checkbox"
@@ -795,8 +883,56 @@ async function handleFilesChange(e) {
               />
               Grupare conversații pe client
             </label>
-          </div>
+          </div>)}
+<div className={styles.scopeTabs}>
+  <button
+    className={`${styles.tab} ${
+      conversationMode === "customer" ? styles.active : ""
+    }`}
+    onClick={() => {
+      setConversationMode("customer");
+      setSelectedId(null);
+      setActiveThreadId(null);
+      setGroupByUser(false);
+      setChatBlocked(null);
 
+      const sp = new URLSearchParams(searchParams);
+      sp.delete("vendorThreadId");
+sp.delete("threadId");
+      setSearchParams(sp, { replace: true });
+    }}
+    type="button"
+  >
+    Clienți
+{customerUnread > 0 && (
+  <span className={styles.unreadBadge}>{customerUnread}</span>
+)}
+  </button>
+
+  <button
+    className={`${styles.tab} ${
+      conversationMode === "vendor" ? styles.active : ""
+    }`}
+    onClick={() => {
+      setConversationMode("vendor");
+      setSelectedId(null);
+      setActiveThreadId(null);
+      setGroupByUser(false);
+      setChatBlocked(null);
+
+      const sp = new URLSearchParams(searchParams);
+      sp.delete("threadId");
+sp.delete("vendorThreadId");
+      setSearchParams(sp, { replace: true });
+    }}
+    type="button"
+  >
+    Vendori
+{vendorUnread > 0 && (
+  <span className={styles.unreadBadge}>{vendorUnread}</span>
+)}
+  </button>
+</div>
           <div className={styles.scopeTabs}>
             <button
               className={`${styles.tab} ${
@@ -938,13 +1074,15 @@ const lastMsg = t.lastMsg || "Fără mesaje recente";
                             onClick={async (e) => {
                               e.stopPropagation();
                               try {
-                                await api(
-                                  `/api/inbox/threads/${t.id}/archive`,
-                                  {
-                                    method: "PATCH",
-                                    body: { archived: !t.archived },
-                                  }
-                                );
+                                const archiveUrl =
+  conversationMode === "vendor"
+    ? `/api/inbox/vendor-threads/${t.id}/archive`
+    : `/api/inbox/threads/${t.id}/archive`;
+
+await api(archiveUrl, {
+  method: "PATCH",
+  body: { archived: !t.archived },
+});
                                 setThreads((items) =>
                                   items.map((it) =>
                                     it.id === t.id
@@ -1095,8 +1233,8 @@ const lastMsg = t.lastMsg || "Fără mesaje recente";
                             : "?"}
                         </span>
                       )}
-                      {currentThreadId && (
-                        <StatusSelect
+                      {conversationMode === "customer" && currentThreadId && (
+  <StatusSelect
                           value={activeThread.status || "nou"}
                           onChange={async (value) => {
                             try {
@@ -1168,8 +1306,8 @@ const lastMsg = t.lastMsg || "Fără mesaje recente";
                     </button>
                   </div>
 
-                  {currentThreadId && (
-                    <FollowUpControl
+                  {conversationMode === "customer" && currentThreadId && (
+  <FollowUpControl
                       thread={activeThread}
                       onChange={async (followUpAt) => {
                         try {
@@ -1218,9 +1356,12 @@ const lastMsg = t.lastMsg || "Fără mesaje recente";
                     onClick={async () => {
                       if (!currentThreadId) return;
                       try {
-                        await api(
-                          `/api/inbox/threads/${currentThreadId}/archive`,
-                          {
+                        const archiveUrl =
+  conversationMode === "vendor"
+    ? `/api/inbox/vendor-threads/${currentThreadId}/archive`
+    : `/api/inbox/threads/${currentThreadId}/archive`;
+
+await api(archiveUrl, {
                             method: "PATCH",
                             body: {
                               archived: !activeThread.archived,
@@ -1288,7 +1429,8 @@ const lastMsg = t.lastMsg || "Fără mesaje recente";
                   </div>
                 )}
 
-              <div className={styles.internalNote}>
+             {conversationMode === "customer" && (
+  <div className={styles.internalNote}>
                 <label>
                   <TagIcon size={14} /> Notă internă (invitatul nu o vede)
                 </label>
@@ -1327,7 +1469,7 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
   </div>
 )}
               </div>
-
+)}
               <div className={styles.msgList} ref={listRef}>
                 {loadingMsgs && (
                   <div className={styles.loading}>Se încarcă…</div>
@@ -1339,12 +1481,12 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
                 )}
                 {msgs.map((m) => (
                   <MessageBubble
-                    key={m.id}
-                    mine={m.from === "me"}
-                    msg={m}
-                    onEdit={(body) => editMessage(m.id, body)}
-                    onDelete={() => deleteMessage(m.id)}
-                  />
+  key={m.id}
+  mine={m.from === "me"}
+  msg={m}
+  onEdit={conversationMode === "customer" ? (body) => editMessage(m.id, body) : undefined}
+  onDelete={conversationMode === "customer" ? () => deleteMessage(m.id) : undefined}
+/>
                 ))}
               </div>
 
@@ -1356,7 +1498,14 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
   title="Atașează fișiere"
   type="button"
   onClick={handleAttachClick}
-  disabled={uploading || sending || !currentThreadId || !!chatBlocked || activeThread?.archived}
+  disabled={
+  uploading ||
+  sending ||
+  !currentThreadId ||
+  !!chatBlocked ||
+  activeThread?.archived ||
+  conversationMode === "vendor"
+}
 >
   <Paperclip size={18} />
 </button>
@@ -1572,7 +1721,7 @@ const startPress = () => {
     setIsEditing(false);
   }
 
-  const canShowActions = !isPending && (hasAttachments || mine);
+  const canShowActions = !isPending && (hasAttachments || (mine && onEdit && onDelete));
 
   return (
     <>

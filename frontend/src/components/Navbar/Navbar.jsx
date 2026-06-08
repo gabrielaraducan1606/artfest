@@ -354,10 +354,17 @@ export default function Navbar() {
       }
 
       if (me.role === "VENDOR") {
-        const msgs = await api("/api/inbox/unread-count").catch(() => ({ count: 0 }));
+        const [customerMsgs, vendorThreads] = await Promise.all([
+  api("/api/inbox/unread-count").catch(() => ({ count: 0 })),
+  api("/api/inbox/vendor-threads?scope=unread").catch(() => ({ items: [] })),
+]);
+
+const vendorUnreadCount = Array.isArray(vendorThreads?.items)
+  ? vendorThreads.items.reduce((sum, t) => sum + (t.unreadCount || 0), 0)
+  : 0;
         const ob = await api("/api/vendors/me/onboarding-status").catch(() => null);
         if (!alive) return;
-        setUnreadMsgs(msgs?.count || 0);
+        setUnreadMsgs((customerMsgs?.count || 0) + vendorUnreadCount);
         setOnboarding(ob || null);
         return;
       }

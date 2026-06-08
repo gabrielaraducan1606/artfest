@@ -149,19 +149,60 @@ function leadEnumToUi(leadStatus) {
   }
 }
 
+function otherVendorFromThread(thread, myVendorId) {
+  if (!thread) return null;
+
+  return String(thread.vendorId) === String(myVendorId)
+    ? thread.recipientVendor
+    : thread.vendor;
+}
+
+function vendorThreadAccessWhere(threadId, vendorId) {
+  return {
+    id: threadId,
+    type: "VENDOR_TO_VENDOR",
+    OR: [
+      {
+        vendorId,
+        deletedByVendorAt: null,
+      },
+      {
+        recipientVendorId: vendorId,
+        deletedByRecipientVendorAt: null,
+      },
+    ],
+  };
+}
+
+function currentVendorReadUpdate(thread, vendorId) {
+  return String(thread.vendorId) === String(vendorId)
+    ? { vendorLastReadAt: new Date() }
+    : { recipientVendorLastReadAt: new Date() };
+}
+
 /**
  * Helper: verifică thread-ul vendorului și mesajul din thread
  * (doar dacă nu e șters pt vendor)
  */
 async function getVendorThreadAndMessageOr404({ vendorId, threadId, messageId }) {
   const thread = await prisma.messageThread.findFirst({
-    where: { id: threadId, vendorId, deletedByVendorAt: null },
+    where: {
+      id: threadId,
+      type: "CUSTOMER",
+      vendorId,
+      deletedByVendorAt: null,
+    },
     select: { id: true, followUpAt: true },
   });
+
   if (!thread) return { thread: null, message: null };
 
   const message = await prisma.message.findFirst({
-    where: { id: messageId, threadId, deletedByVendorAt: null },
+    where: {
+      id: messageId,
+      threadId,
+      deletedByVendorAt: null,
+    },
     select: { id: true, authorType: true, createdAt: true },
   });
 
@@ -180,7 +221,8 @@ router.get("/unread-count", async (req, res) => {
     SELECT COUNT(m.*)::int as "count"
     FROM "MessageThread" t
     JOIN "Message" m ON m."threadId" = t.id
-    WHERE t."vendorId" = ${vendorId}
+    WHERE t."type" = 'CUSTOMER'
+      AND t."vendorId" = ${vendorId}
       AND t.archived = false
       AND t."deletedByVendorAt" IS NULL
       AND m."deletedByVendorAt" IS NULL
@@ -208,43 +250,44 @@ router.get("/threads", async (req, res) => {
     groupBy = "order",
   } = req.query;
 
-  const where = {
-    vendorId,
-    deletedByVendorAt: null,
-    archived: scope === "archived" ? true : false,
-    OR: q
-      ? [
-          { contactName: { contains: String(q), mode: "insensitive" } },
-          { contactEmail: { contains: String(q), mode: "insensitive" } },
-          { contactPhone: { contains: String(q), mode: "insensitive" } },
-          { lastMsg: { contains: String(q), mode: "insensitive" } },
-          {
-            user: {
-              OR: [
-                { firstName: { contains: String(q), mode: "insensitive" } },
-                { lastName: { contains: String(q), mode: "insensitive" } },
-                { email: { contains: String(q), mode: "insensitive" } },
-              ],
-            },
+ const where = {
+  type: "CUSTOMER",
+  vendorId,
+  deletedByVendorAt: null,
+  archived: scope === "archived" ? true : false,
+  OR: q
+    ? [
+        { contactName: { contains: String(q), mode: "insensitive" } },
+        { contactEmail: { contains: String(q), mode: "insensitive" } },
+        { contactPhone: { contains: String(q), mode: "insensitive" } },
+        { lastMsg: { contains: String(q), mode: "insensitive" } },
+        {
+          user: {
+            OR: [
+              { firstName: { contains: String(q), mode: "insensitive" } },
+              { lastName: { contains: String(q), mode: "insensitive" } },
+              { email: { contains: String(q), mode: "insensitive" } },
+            ],
           },
-          {
-            service: {
-              OR: [
-                { title: { contains: String(q), mode: "insensitive" } },
-                {
-                  profile: {
-                    displayName: {
-                      contains: String(q),
-                      mode: "insensitive",
-                    },
+        },
+        {
+          service: {
+            OR: [
+              { title: { contains: String(q), mode: "insensitive" } },
+              {
+                profile: {
+                  displayName: {
+                    contains: String(q),
+                    mode: "insensitive",
                   },
                 },
-              ],
-            },
+              },
+            ],
           },
-        ]
-      : undefined,
-  };
+        },
+      ]
+    : undefined,
+};
 
   const statusEnum = mapStatusFilterToEnum(status);
   if (statusEnum) where.leadStatus = statusEnum;
@@ -596,31 +639,36 @@ router.get("/threads/:id/messages", async (req, res) => {
   const { id } = req.params;
 
   const thread = await prisma.messageThread.findFirst({
-    where: { id, vendorId, deletedByVendorAt: null },
-    select: {
-      id: true,
-      userLastReadAt: true,
-      serviceId: true,
-      vendor: {
-        select: {
-          displayName: true,
-        },
+  where: {
+    id,
+    type: "CUSTOMER",
+    vendorId,
+    deletedByVendorAt: null,
+  },
+  select: {
+    id: true,
+    userLastReadAt: true,
+    serviceId: true,
+    vendor: {
+      select: {
+        displayName: true,
       },
-      service: {
-        select: {
-          id: true,
-          title: true,
-          profile: {
-            select: {
-              displayName: true,
-              slug: true,
-              logoUrl: true,
-            },
+    },
+    service: {
+      select: {
+        id: true,
+        title: true,
+        profile: {
+          select: {
+            displayName: true,
+            slug: true,
+            logoUrl: true,
           },
         },
       },
     },
-  });
+  },
+});
 
   if (!thread) return res.status(404).json({ error: "Thread not found" });
 
@@ -702,13 +750,18 @@ router.get("/user-conversations/:userId/messages", async (req, res) => {
   if (!userId) return res.status(400).json({ error: "missing_user_id" });
 
   const threads = await prisma.messageThread.findMany({
-    where: { vendorId, userId, deletedByVendorAt: null },
-    select: {
-      id: true,
-      userLastReadAt: true,
-      order: { select: { id: true, shipments: { select: { id: true } } } },
-    },
-  });
+  where: {
+    type: "CUSTOMER",
+    vendorId,
+    userId,
+    deletedByVendorAt: null,
+  },
+  select: {
+    id: true,
+    userLastReadAt: true,
+    order: { select: { id: true, shipments: { select: { id: true } } } },
+  },
+});
 
   if (!threads.length) return res.json({ items: [] });
 
@@ -792,9 +845,14 @@ router.patch("/threads/:id/read", async (req, res) => {
   const { id } = req.params;
 
   const thread = await prisma.messageThread.findFirst({
-    where: { id, vendorId, deletedByVendorAt: null },
-    select: { id: true },
-  });
+  where: {
+    id,
+    type: "CUSTOMER",
+    vendorId,
+    deletedByVendorAt: null,
+  },
+  select: { id: true },
+});
   if (!thread) return res.status(404).json({ error: "Thread not found" });
 
   await prisma.messageThread.update({
@@ -832,29 +890,34 @@ router.post(
 
     try {
       const out = await prisma.$transaction(async (tx) => {
-        const thread = await tx.messageThread.findFirst({
-          where: { id, vendorId, deletedByVendorAt: null },
+       const thread = await tx.messageThread.findFirst({
+  where: {
+    id,
+    type: "CUSTOMER",
+    vendorId,
+    deletedByVendorAt: null,
+  },
+  select: {
+    id: true,
+    userId: true,
+    serviceId: true,
+    vendor: {
+      select: {
+        displayName: true,
+      },
+    },
+    service: {
+      select: {
+        title: true,
+        profile: {
           select: {
-            id: true,
-            userId: true,
-            serviceId: true,
-            vendor: {
-              select: {
-                displayName: true,
-              },
-            },
-            service: {
-              select: {
-                title: true,
-                profile: {
-                  select: {
-                    displayName: true,
-                  },
-                },
-              },
-            },
+            displayName: true,
           },
-        });
+        },
+      },
+    },
+  },
+});
 
         if (!thread) {
           return { error: { status: 404, payload: { error: "Thread not found" } } };
@@ -1030,10 +1093,15 @@ router.patch("/threads/:id/archive", async (req, res) => {
   const { id } = req.params;
   const { archived = true } = req.body || {};
 
-  const thread = await prisma.messageThread.findFirst({
-    where: { id, vendorId, deletedByVendorAt: null },
-    select: { id: true },
-  });
+ const thread = await prisma.messageThread.findFirst({
+  where: {
+    id,
+    type: "CUSTOMER",
+    vendorId,
+    deletedByVendorAt: null,
+  },
+  select: { id: true },
+});
   if (!thread) return res.status(404).json({ error: "Thread not found" });
 
   await prisma.messageThread.update({
@@ -1071,12 +1139,13 @@ router.get(
     const toDate = to ? new Date(to) : defaultTo;
 
     const threads = await prisma.messageThread.findMany({
-      where: {
-        vendorId,
-        deletedByVendorAt: null,
-        eventDate: { gte: fromDate, lte: toDate },
-        archived: false,
-      },
+     where: {
+  type: "CUSTOMER",
+  vendorId,
+  deletedByVendorAt: null,
+  eventDate: { gte: fromDate, lte: toDate },
+  archived: false,
+},
       orderBy: [{ eventDate: "asc" }, { lastAt: "desc" }],
       select: {
         id: true,
@@ -1162,14 +1231,26 @@ router.post("/ensure-thread-from-order/:orderId", async (req, res) => {
   const userId = order.userId || null;
 
   let thread = await prisma.messageThread.findFirst({
-    where: { vendorId, orderId: order.id, userId, deletedByVendorAt: null },
-  });
+  where: {
+    type: "CUSTOMER",
+    vendorId,
+    orderId: order.id,
+    userId,
+    deletedByVendorAt: null,
+  },
+});
 
   if (!thread) {
     const deletedThread = await prisma.messageThread.findFirst({
-      where: { vendorId, orderId: order.id, userId, deletedByVendorAt: { not: null } },
-      select: { id: true },
-    });
+  where: {
+    type: "CUSTOMER",
+    vendorId,
+    orderId: order.id,
+    userId,
+    deletedByVendorAt: { not: null },
+  },
+  select: { id: true },
+});
 
     if (deletedThread) {
       await prisma.messageThread.update({
@@ -1183,16 +1264,17 @@ router.post("/ensure-thread-from-order/:orderId", async (req, res) => {
 
   if (!thread) {
     thread = await prisma.messageThread.create({
-      data: {
-        vendorId,
-        userId,
-        orderId: order.id,
-        contactName: shipping.name || null,
-        contactEmail: shipping.email || null,
-        contactPhone: shipping.phone || null,
-        deletedByVendorAt: null,
-      },
-    });
+  data: {
+    type: "CUSTOMER",
+    vendorId,
+    userId,
+    orderId: order.id,
+    contactName: shipping.name || null,
+    contactEmail: shipping.email || null,
+    contactPhone: shipping.phone || null,
+    deletedByVendorAt: null,
+  },
+});
   }
 
   return res.json({ ok: true, threadId: thread.id });
@@ -1221,28 +1303,33 @@ router.post(
     if (!threadId) return res.status(400).json({ error: "missing_thread_id" });
 
     const thread = await prisma.messageThread.findFirst({
-      where: { id: threadId, vendorId, deletedByVendorAt: null },
+  where: {
+    id: threadId,
+    type: "CUSTOMER",
+    vendorId,
+    deletedByVendorAt: null,
+  },
+  select: {
+    id: true,
+    userId: true,
+    serviceId: true,
+    vendor: {
       select: {
-        id: true,
-        userId: true,
-        serviceId: true,
-        vendor: {
+        displayName: true,
+      },
+    },
+    service: {
+      select: {
+        title: true,
+        profile: {
           select: {
             displayName: true,
           },
         },
-        service: {
-          select: {
-            title: true,
-            profile: {
-              select: {
-                displayName: true,
-              },
-            },
-          },
-        },
       },
-    });
+    },
+  },
+});
 
     if (!thread) return res.status(404).json({ error: "Thread not found" });
 
@@ -1385,7 +1472,13 @@ router.get("/attachments/:attId/download", async (req, res) => {
           select: {
             deletedByVendorAt: true,
             deletedByUserAt: true,
-            thread: { select: { vendorId: true } },
+           thread: {
+  select: {
+    vendorId: true,
+    recipientVendorId: true,
+    type: true,
+  },
+},
           },
         },
       },
@@ -1393,9 +1486,18 @@ router.get("/attachments/:attId/download", async (req, res) => {
 
     if (!att || !att.url) return res.status(404).json({ error: "not_found" });
 
-    if (String(att.message?.thread?.vendorId || "") !== String(vendorId)) {
-      return res.status(403).json({ error: "forbidden" });
-    }
+    const thread = att.message?.thread;
+
+const canAccess =
+  thread?.type === "CUSTOMER"
+    ? String(thread.vendorId || "") === String(vendorId)
+    : thread?.type === "VENDOR_TO_VENDOR" &&
+      (String(thread.vendorId || "") === String(vendorId) ||
+        String(thread.recipientVendorId || "") === String(vendorId));
+
+if (!canAccess) {
+  return res.status(403).json({ error: "forbidden" });
+}
 
     if (att.message?.deletedByVendorAt || att.message?.deletedByUserAt) {
       return res.status(404).json({ error: "not_found" });
@@ -1442,9 +1544,15 @@ router.patch(
     const { tags, eventDate, eventType, eventLocation, budgetMin, budgetMax } = req.body || {};
 
     const thread = await prisma.messageThread.findFirst({
-      where: { id, vendorId, deletedByVendorAt: null },
-      select: { id: true },
-    });
+  where: {
+    id,
+    type: "CUSTOMER",
+    vendorId,
+    deletedByVendorAt: null,
+  },
+  select: { id: true },
+});
+
     if (!thread) return res.status(404).json({ error: "Thread not found" });
 
     const data = {};
@@ -1485,9 +1593,14 @@ router.patch(
     const { status, followUpAt, internalNote } = req.body || {};
 
     const thread = await prisma.messageThread.findFirst({
-      where: { id, vendorId, deletedByVendorAt: null },
-      select: { id: true, followUpAt: true },
-    });
+  where: {
+    id,
+    type: "CUSTOMER",
+    vendorId,
+    deletedByVendorAt: null,
+  },
+  select: { id: true, followUpAt: true },
+});
     if (!thread) return res.status(404).json({ error: "Thread not found" });
 
     const data = {};
@@ -1517,5 +1630,434 @@ router.patch(
     return res.json({ ok: true });
   }
 );
+
+/* =========================
+   Vendor ↔ Vendor threads
+========================= */
+
+router.post("/ensure-vendor-thread", async (req, res) => {
+  const vendorId = await getVendorIdForUser(req);
+  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+
+  const recipientVendorId = String(req.body?.recipientVendorId || "");
+
+  if (!recipientVendorId) {
+    return res.status(400).json({ error: "missing_recipient_vendor_id" });
+  }
+
+  if (recipientVendorId === vendorId) {
+    return res.status(400).json({ error: "cannot_message_self" });
+  }
+
+  const recipient = await prisma.vendor.findFirst({
+    where: { id: recipientVendorId, isActive: true },
+    select: { id: true },
+  });
+
+  if (!recipient) {
+    return res.status(404).json({ error: "recipient_vendor_not_found" });
+  }
+
+  let thread = await prisma.messageThread.findFirst({
+    where: {
+      type: "VENDOR_TO_VENDOR",
+      userId: null,
+      OR: [
+        { vendorId, recipientVendorId },
+        { vendorId: recipientVendorId, recipientVendorId: vendorId },
+      ],
+    },
+    select: {
+      id: true,
+      vendorId: true,
+      recipientVendorId: true,
+    },
+  });
+
+  if (!thread) {
+    thread = await prisma.messageThread.create({
+      data: {
+        type: "VENDOR_TO_VENDOR",
+        vendorId,
+        recipientVendorId,
+        userId: null,
+        archived: false,
+      },
+      select: { id: true },
+    });
+  } else {
+    await prisma.messageThread.update({
+      where: { id: thread.id },
+      data:
+        String(thread.vendorId) === String(vendorId)
+          ? { deletedByVendorAt: null }
+          : { deletedByRecipientVendorAt: null },
+    });
+  }
+
+  return res.json({ ok: true, threadId: thread.id });
+});
+
+router.get("/vendor-threads", async (req, res) => {
+  const vendorId = await getVendorIdForUser(req);
+  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+
+  const { scope = "all", q = "" } = req.query;
+
+  const threads = await prisma.messageThread.findMany({
+    where: {
+      type: "VENDOR_TO_VENDOR",
+      OR: [
+        { vendorId, deletedByVendorAt: null },
+        { recipientVendorId: vendorId, deletedByRecipientVendorAt: null },
+      ],
+      ...(q
+        ? {
+            AND: [
+              {
+                OR: [
+                  { lastMsg: { contains: String(q), mode: "insensitive" } },
+                  {
+                    vendor: {
+                      displayName: { contains: String(q), mode: "insensitive" },
+                    },
+                  },
+                  {
+                    recipientVendor: {
+                      displayName: { contains: String(q), mode: "insensitive" },
+                    },
+                  },
+                ],
+              },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [{ lastAt: "desc" }, { createdAt: "desc" }],
+    select: {
+      id: true,
+      vendorId: true,
+      recipientVendorId: true,
+      lastMsg: true,
+      lastAt: true,
+      vendorLastReadAt: true,
+      recipientVendorLastReadAt: true,
+      vendor: {
+        select: { id: true, displayName: true, logoUrl: true },
+      },
+      recipientVendor: {
+        select: { id: true, displayName: true, logoUrl: true },
+      },
+    },
+  });
+
+  const threadIds = threads.map((t) => t.id);
+  const unreadByThreadId = new Map();
+
+  if (threadIds.length) {
+    const unreadRows = await prisma.$queryRaw`
+      SELECT
+        t.id as "threadId",
+        COUNT(m.*)::int as "unreadCount"
+      FROM "MessageThread" t
+      LEFT JOIN "Message" m
+        ON m."threadId" = t.id
+       AND m."deletedByVendorAt" IS NULL
+       AND m."authorType" = 'VENDOR'
+       AND m."senderVendorId" IS NOT NULL
+       AND m."senderVendorId" <> ${vendorId}
+       AND m."createdAt" > CASE
+          WHEN t."vendorId" = ${vendorId}
+            THEN COALESCE(t."vendorLastReadAt", to_timestamp(0))
+          ELSE COALESCE(t."recipientVendorLastReadAt", to_timestamp(0))
+       END
+      WHERE t.id = ANY(${threadIds})
+      GROUP BY t.id
+    `;
+
+    for (const r of unreadRows || []) {
+      unreadByThreadId.set(r.threadId, r.unreadCount);
+    }
+  }
+
+  let items = threads.map((t) => {
+    const other = otherVendorFromThread(t, vendorId);
+
+    return {
+      id: t.id,
+      threadId: t.id,
+      type: "vendor_vendor",
+      vendorId: other?.id || null,
+      name: other?.displayName || "Vendor",
+      logoUrl: other?.logoUrl || null,
+      lastMsg: t.lastMsg || null,
+      lastAt: t.lastAt,
+      unreadCount: unreadByThreadId.get(t.id) || 0,
+    };
+  });
+
+  if (scope === "unread") {
+    items = items.filter((item) => item.unreadCount > 0);
+  }
+
+  return res.json({ items });
+});
+
+router.get("/vendor-threads/:id/messages", async (req, res) => {
+  const vendorId = await getVendorIdForUser(req);
+  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+
+  const threadId = String(req.params.id || "");
+
+  const thread = await prisma.messageThread.findFirst({
+    where: vendorThreadAccessWhere(threadId, vendorId),
+    select: {
+      id: true,
+      vendorId: true,
+      recipientVendorId: true,
+      vendorLastReadAt: true,
+      recipientVendorLastReadAt: true,
+      vendor: {
+        select: { id: true, displayName: true, logoUrl: true },
+      },
+      recipientVendor: {
+        select: { id: true, displayName: true, logoUrl: true },
+      },
+    },
+  });
+
+  if (!thread) return res.status(404).json({ error: "Thread not found" });
+
+  const msgs = await prisma.message.findMany({
+    where: {
+      threadId,
+      deletedByVendorAt: null,
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      body: true,
+      createdAt: true,
+      authorType: true,
+      vendorId: true,
+      senderVendorId: true,
+      attachments: {
+        select: { id: true, filename: true, url: true, size: true, mime: true },
+      },
+    },
+  });
+
+  const peerReadAt =
+    String(thread.vendorId) === String(vendorId)
+      ? thread.recipientVendorLastReadAt
+      : thread.vendorLastReadAt;
+
+  const items = msgs.map((m) => {
+    const fromMe = String(m.senderVendorId || m.vendorId) === String(vendorId);
+
+    return {
+      id: m.id,
+      threadId,
+      from: fromMe ? "me" : "them",
+      body: m.body,
+      createdAt: m.createdAt,
+      readByPeer: fromMe && peerReadAt && m.createdAt <= peerReadAt,
+      attachments: (m.attachments || []).map((a) => ({
+        id: a.id,
+        name: a.filename,
+        url: a.url,
+        size: a.size,
+        mime: a.mime,
+      })),
+    };
+  });
+
+  const other = otherVendorFromThread(thread, vendorId);
+
+  return res.json({
+    items,
+    threadMeta: {
+      id: thread.id,
+      type: "vendor_vendor",
+      vendorId: other?.id || null,
+      name: other?.displayName || "Vendor",
+      logoUrl: other?.logoUrl || null,
+    },
+  });
+});
+
+router.patch("/vendor-threads/:id/read", async (req, res) => {
+  const vendorId = await getVendorIdForUser(req);
+  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+
+  const threadId = String(req.params.id || "");
+
+  const thread = await prisma.messageThread.findFirst({
+    where: vendorThreadAccessWhere(threadId, vendorId),
+    select: {
+      id: true,
+      vendorId: true,
+      recipientVendorId: true,
+    },
+  });
+
+  if (!thread) return res.status(404).json({ error: "Thread not found" });
+
+  await prisma.messageThread.update({
+    where: { id: thread.id },
+    data: currentVendorReadUpdate(thread, vendorId),
+  });
+
+  return res.json({ ok: true });
+});
+
+router.post(
+  "/vendor-threads/:id/messages",
+  requireActiveSubscriptionForChat(),
+  requireChatEntitlement(),
+  async (req, res) => {
+    const vendorId = await getVendorIdForUser(req);
+    if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+
+    const threadId = String(req.params.id || "");
+    const body = String(req.body?.body || "").trim();
+
+    if (!body) {
+      return res.status(400).json({ error: "Mesajul nu poate fi gol" });
+    }
+
+    const quotaErr = await assertChatQuotaOrThrow({
+      vendorId,
+      subscription: req.subscription,
+    });
+
+    if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
+
+    try {
+      const out = await prisma.$transaction(async (tx) => {
+        const thread = await tx.messageThread.findFirst({
+          where: vendorThreadAccessWhere(threadId, vendorId),
+          select: {
+            id: true,
+            vendorId: true,
+            recipientVendorId: true,
+            vendor: { select: { id: true, displayName: true } },
+            recipientVendor: { select: { id: true, displayName: true } },
+          },
+        });
+
+        if (!thread) {
+          return {
+            error: {
+              status: 404,
+              payload: { error: "Thread not found" },
+            },
+          };
+        }
+
+        const recipientVendorId =
+          String(thread.vendorId) === String(vendorId)
+            ? thread.recipientVendorId
+            : thread.vendorId;
+
+        const msg = await tx.message.create({
+          data: {
+            threadId,
+            vendorId: recipientVendorId,
+            senderVendorId: vendorId,
+            authorType: "VENDOR",
+            body,
+          },
+          select: {
+            id: true,
+            body: true,
+            createdAt: true,
+          },
+        });
+
+        await tx.messageThread.update({
+          where: { id: threadId },
+          data: {
+            lastMsg: msg.body,
+            lastAt: msg.createdAt,
+            ...currentVendorReadUpdate(thread, vendorId),
+          },
+        });
+
+        await bumpChatUsage({ tx, vendorId, incSent: 1 });
+
+        return { thread, msg, recipientVendorId };
+      });
+
+      if (out?.error) {
+        return res.status(out.error.status).json(out.error.payload);
+      }
+
+      try {
+        const senderName =
+          String(out.thread.vendorId) === String(vendorId)
+            ? out.thread.vendor?.displayName
+            : out.thread.recipientVendor?.displayName;
+
+        await prisma.notification.create({
+  data: {
+    vendorId: out.recipientVendorId,
+    threadId,
+    type: "message",
+    title: `Mesaj nou de la ${senderName || "vendor"}`,
+    body: out.msg.body.slice(0, 140),
+    link: `/mesaje?vendorThreadId=${threadId}`,
+  },
+});
+      } catch (e) {
+        console.error("Nu am putut crea notificarea pentru vendor:", e);
+      }
+
+      return res.status(201).json({
+        ok: true,
+        id: out.msg.id,
+        createdAt: out.msg.createdAt,
+      });
+    } catch (e) {
+      console.error("vendor-to-vendor send message error:", e);
+      return res.status(500).json({
+        error: "server_error",
+        message:
+          "Ups… a apărut o problemă tehnică. Te rog încearcă din nou în câteva secunde.",
+      });
+    }
+  }
+);
+
+router.patch("/vendor-threads/:id/archive", async (req, res) => {
+  const vendorId = await getVendorIdForUser(req);
+  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+
+  const threadId = String(req.params.id || "");
+  const { archived = true } = req.body || {};
+
+  const thread = await prisma.messageThread.findFirst({
+    where: vendorThreadAccessWhere(threadId, vendorId),
+    select: {
+      id: true,
+      vendorId: true,
+      recipientVendorId: true,
+    },
+  });
+
+  if (!thread) return res.status(404).json({ error: "Thread not found" });
+
+  const data =
+    String(thread.vendorId) === String(vendorId)
+      ? { deletedByVendorAt: archived ? new Date() : null }
+      : { deletedByRecipientVendorAt: archived ? new Date() : null };
+
+  await prisma.messageThread.update({
+    where: { id: thread.id },
+    data,
+  });
+
+  return res.json({ ok: true });
+});
 
 export default router;

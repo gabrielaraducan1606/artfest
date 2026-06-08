@@ -255,7 +255,7 @@ model Vendor {
   entitySelfDeclaredUa   String?
   productLimitOverride   Int?
 
-emailOnNewOrder        Boolean   @default(true)
+  emailOnNewOrder        Boolean             @default(true)
   stripeAccountId        String?             @unique
   stripeChargesEnabled   Boolean             @default(false)
   stripePayoutsEnabled   Boolean             @default(false)
@@ -265,31 +265,35 @@ emailOnNewOrder        Boolean   @default(true)
   stripeDisabledReason   String?             @db.VarChar(255)
   stripeOnboardedAt      DateTime?
 
-  commentReplies     Comment[]                 @relation("VendorCommentReplies")
-  events             Event[]
-  invoices           Invoice[]
-  MessageThread      MessageThread[]
-  Notification       Notification[]
-  ReviewReply        ReviewReply[]
-  searches           Search[]
-  shipments          Shipment[]
-  storeRatingStats   StoreRatingStats[]
-  storeReviews       StoreReview[]
-  storeReviewReplies StoreReviewReply[]
-  supportTickets     SupportTicket[]
-  blocks             UserVendorBlock[]
-  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  VendorAcceptance   VendorAcceptance[]
-  billing            VendorBilling?
-  productDeclaration VendorProductDeclaration?
-  services           VendorService[]
-  stats              VendorStats?
-  subscriptions      VendorSubscription[]
-  visitors           Visitor[]
-  earningEntries     VendorEarningEntry[]
-  payouts            VendorPayout[]
-  chatUsage          ChatUsage[]
-  returnRequests     ReturnRequest[]
+  commentReplies        Comment[]       @relation("VendorCommentReplies")
+  events                Event[]
+  invoices              Invoice[]
+
+  MessageThread         MessageThread[]
+  receivedVendorThreads MessageThread[] @relation("RecipientVendorThreads")
+  sentVendorMessages    Message[]       @relation("SenderVendorMessages")
+
+  Notification          Notification[]
+  ReviewReply           ReviewReply[]
+  searches              Search[]
+  shipments             Shipment[]
+  storeRatingStats      StoreRatingStats[]
+  storeReviews          StoreReview[]
+  storeReviewReplies    StoreReviewReply[]
+  supportTickets        SupportTicket[]
+  blocks                UserVendorBlock[]
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  VendorAcceptance      VendorAcceptance[]
+  billing               VendorBilling?
+  productDeclaration    VendorProductDeclaration?
+  services              VendorService[]
+  stats                 VendorStats?
+  subscriptions         VendorSubscription[]
+  visitors              Visitor[]
+  earningEntries        VendorEarningEntry[]
+  payouts               VendorPayout[]
+  chatUsage             ChatUsage[]
+  returnRequests        ReturnRequest[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -561,7 +565,7 @@ model Product {
   ProductRatingStats       ProductRatingStats?
   reviews                  Review[]
   product_image_embeddings product_image_embeddings[]
-collectionItems CollectionItem[]
+  collectionItems          CollectionItem[]
 
   @@index([serviceId, isActive, createdAt])
   @@index([category])
@@ -1150,42 +1154,49 @@ model SupportFaq {
 }
 
 model MessageThread {
-  id                 String     @id @default(cuid())
-  vendorId           String
-  serviceId          String?
-  userId             String?
-  contactName        String?
-  contactEmail       String?
-  contactPhone       String?
-  orderId            String?
-  archived           Boolean    @default(false)
-  archivedByUser     Boolean    @default(false)
-  lastMsg            String?
-  lastAt             DateTime   @default(now())
-  vendorLastReadAt   DateTime?
-  visitorLastReadAt  DateTime?
-  userLastReadAt     DateTime?
-  eventDate          DateTime?
-  eventType          String?
-  eventLocation      String?
-  budgetMin          Int?
-  budgetMax          Int?
-  leadStatus         LeadStatus @default(NEW)
-  tags               String[]
-  followUpAt         DateTime?
-  internalNote       String?
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
-  followUpNotifiedAt DateTime?
-  deletedByUserAt    DateTime?
-  deletedByVendorAt  DateTime?
+  id                         String            @id @default(cuid())
+  vendorId                   String
+  serviceId                  String?
+  userId                     String?
+  contactName                String?
+  contactEmail               String?
+  contactPhone               String?
+  orderId                    String?
+  archived                   Boolean           @default(false)
+  archivedByUser             Boolean           @default(false)
+  lastMsg                    String?
+  lastAt                     DateTime          @default(now())
+  vendorLastReadAt           DateTime?
+  visitorLastReadAt          DateTime?
+  userLastReadAt             DateTime?
+  eventDate                  DateTime?
+  eventType                  String?
+  eventLocation              String?
+  budgetMin                  Int?
+  budgetMax                  Int?
+  leadStatus                 LeadStatus        @default(NEW)
+  tags                       String[]
+  followUpAt                 DateTime?
+  internalNote               String?
+  createdAt                  DateTime          @default(now())
+  updatedAt                  DateTime          @updatedAt
+  followUpNotifiedAt         DateTime?
+  deletedByUserAt            DateTime?
+  deletedByVendorAt          DateTime?
 
-  messages      Message[]
-  user          User?          @relation(fields: [userId], references: [id])
-  vendor        Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  service       VendorService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  notifications Notification[]
-  order         Order?         @relation(fields: [orderId], references: [id])
+  // Vendor ↔ Vendor
+  type                       MessageThreadType @default(CUSTOMER)
+  recipientVendorId          String?
+  recipientVendorLastReadAt  DateTime?
+  deletedByRecipientVendorAt DateTime?
+
+  messages        Message[]
+  user            User?          @relation(fields: [userId], references: [id])
+  vendor          Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  recipientVendor Vendor?        @relation("RecipientVendorThreads", fields: [recipientVendorId], references: [id], onDelete: SetNull)
+  service         VendorService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  notifications   Notification[]
+  order           Order?         @relation(fields: [orderId], references: [id])
 
   @@index([userId, deletedByUserAt])
   @@index([vendorId, deletedByVendorAt])
@@ -1201,12 +1212,18 @@ model MessageThread {
   @@index([userId, serviceId, deletedByUserAt], map: "thread_user_service_deleted_idx")
   @@index([vendorId, serviceId, deletedByVendorAt], map: "thread_vendor_service_deleted_idx")
   @@index([vendorId, archived, lastAt], map: "thread_vendor_arch_lastAt_idx")
+
+  @@index([type])
+  @@index([recipientVendorId, lastAt])
+  @@index([recipientVendorId, deletedByRecipientVendorAt])
+  @@index([vendorId, recipientVendorId])
 }
 
 model Message {
   id                String            @id @default(cuid())
   threadId          String
   vendorId          String
+  senderVendorId    String?
   authorType        MessageAuthorType
   authorUserId      String?
   authorName        String?
@@ -1215,14 +1232,16 @@ model Message {
   deletedByUserAt   DateTime?
   deletedByVendorAt DateTime?
 
-  authorUser  User?               @relation(fields: [authorUserId], references: [id])
-  thread      MessageThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  attachments MessageAttachment[]
+  authorUser   User?               @relation(fields: [authorUserId], references: [id])
+  senderVendor Vendor?             @relation("SenderVendorMessages", fields: [senderVendorId], references: [id], onDelete: SetNull)
+  thread       MessageThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  attachments  MessageAttachment[]
 
   @@index([vendorId, authorType, createdAt])
   @@index([threadId, createdAt])
   @@index([threadId, deletedByUserAt])
   @@index([threadId, deletedByVendorAt])
+  @@index([senderVendorId, createdAt])
 }
 
 model MessageAttachment {
@@ -2075,29 +2094,29 @@ model UserPolicy {
 }
 
 model Collection {
-  id                 String   @id @default(cuid())
-  slug               String   @unique
-  title              String
-  subtitle           String?
-  description        String?
-  seoTitle           String?
-  seoDescription     String?
-  heroImage          String?
-  isActive           Boolean  @default(false)
-  showOnHomepage     Boolean  @default(false)
-  showInMenu         Boolean  @default(false)
-  rules              Json?
-  sort               String   @default("curated")
+  id             String  @id @default(cuid())
+  slug           String  @unique
+  title          String
+  subtitle       String?
+  description    String?
+  seoTitle       String?
+  seoDescription String?
+  heroImage      String?
+  isActive       Boolean @default(false)
+  showOnHomepage Boolean @default(false)
+  showInMenu     Boolean @default(false)
+  rules          Json?
+  sort           String  @default("curated")
 
-  promoEnabled       Boolean  @default(false)
+  promoEnabled       Boolean   @default(false)
   promoPercent       Int?
   promoStartsAt      DateTime?
   promoEndsAt        DateTime?
   promoLabel         String?
-  promoFundingSource String   @default("PLATFORM_COMMISSION")
+  promoFundingSource String    @default("PLATFORM_COMMISSION")
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   items CollectionItem[]
 
@@ -2113,8 +2132,8 @@ model CollectionItem {
   collectionId String
   productId    String
   position     Int?
-  pinned       Boolean @default(false)
-  excluded     Boolean @default(false)
+  pinned       Boolean  @default(false)
+  excluded     Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
@@ -2124,4 +2143,9 @@ model CollectionItem {
   @@index([productId])
   @@index([collectionId, pinned])
   @@index([collectionId, excluded])
+}
+
+enum MessageThreadType {
+  CUSTOMER
+  VENDOR_TO_VENDOR
 }
