@@ -422,9 +422,11 @@ function normalizeChatError(err) {
     "UNKNOWN_ERROR";
 
   const message =
-    code === "CHAT_LIMIT_REACHED"
-      ? `Ai atins limita de mesaje pentru luna curentă (${data?.used ?? "?"}/${data?.limit ?? "?"}).`
-      : code === "subscription_required"
+  code === "CHAT_LIMIT_REACHED"
+    ? `Ai atins limita de mesaje pentru luna curentă (${data?.used ?? "?"}/${data?.limit ?? "?"}).`
+    : code === "attachments_limit_reached"
+    ? `Ai atins limita de atașamente pentru luna curentă. Mai ai ${data?.remaining ?? 0} disponibile din ${data?.limit ?? "?"}.`
+    : code === "subscription_required"
       ? "Ai nevoie de un abonament activ pentru a folosi chat-ul."
       : code === "CHAT_ATTACHMENTS_NOT_ALLOWED"
       ? "Planul tău nu permite atașamente."
@@ -437,10 +439,11 @@ function normalizeChatError(err) {
         "Nu am putut trimite mesajul.";
 
   const shouldBlock =
-    status === 402 ||
-    code === "CHAT_LIMIT_REACHED" ||
-    code === "subscription_required" ||
-    code === "CHAT_NOT_ALLOWED";
+  status === 402 ||
+  code === "CHAT_LIMIT_REACHED" ||
+  code === "attachments_limit_reached" ||
+  code === "subscription_required" ||
+  code === "CHAT_NOT_ALLOWED";
 
   return { status, code, message, details: data, shouldBlock };
 }

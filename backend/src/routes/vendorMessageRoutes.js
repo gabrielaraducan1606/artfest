@@ -59,7 +59,52 @@ const r2 = new S3Client({
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
 });
+function getMonthlyLimit(subscription, key) {
+  const value = subscription?.plan?.meta?.limits?.[key];
 
+  if (value === -1) return null; // nelimitat
+  if (typeof value === "number") return value;
+
+  return null;
+}
+
+function startOfCurrentMonth() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+async function assertAttachmentQuotaOrThrow({ vendorId, subscription, filesCount }) {
+  const limit = getMonthlyLimit(subscription, "attachmentsPerMonth");
+
+  if (limit == null) return null;
+
+  const used = await prisma.messageAttachment.count({
+    where: {
+      message: {
+        vendorId,
+        authorType: "VENDOR",
+        createdAt: {
+          gte: startOfCurrentMonth(),
+        },
+      },
+    },
+  });
+
+  if (used + filesCount > limit) {
+    return {
+      status: 402,
+      payload: {
+        error: "attachments_limit_reached",
+        reason: "attachments_limit_reached",
+        limit,
+        used,
+        remaining: Math.max(0, limit - used),
+      },
+    };
+  }
+
+  return null;
+}
 /* =========================
    Helpers
 ========================= */
@@ -1335,7 +1380,15 @@ router.post(
 
     const files = Array.isArray(req.files) ? req.files : [];
     if (!files.length) return res.status(400).json({ error: "no_files" });
+const attachmentQuotaErr = await assertAttachmentQuotaOrThrow({
+  vendorId,
+  subscription: req.subscription,
+  filesCount: files.length,
+});
 
+if (attachmentQuotaErr) {
+  return res.status(attachmentQuotaErr.status).json(attachmentQuotaErr.payload);
+}
     const publicBase = getPublicBase();
 
     if (!publicBase) {

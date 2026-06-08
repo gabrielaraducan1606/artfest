@@ -12,6 +12,7 @@ export async function seedSubscriptionPlans(prisma) {
         "1 magazin inclus",
         "Max. 25 produse",
         "Chat cu clienții (max. 50 mesaje / lună)",
+        "Atașamente (max. 5 / lună)",
         "Recenzii",
         "Profil public",
         "3 lead-uri / lună",
@@ -19,7 +20,7 @@ export async function seedSubscriptionPlans(prisma) {
       ],
       entitlements: {
         chat: true,
-        attachments: false,
+        attachments: true,
         advancedChat: false,
       },
       meta: {
@@ -28,6 +29,7 @@ export async function seedSubscriptionPlans(prisma) {
           products: 25,
           leadsPerMonth: 3,
           chatMessagesPerMonth: 50,
+          attachmentsPerMonth: 5,
         },
         commissions: {
           productsBps: 1200,
@@ -36,7 +38,7 @@ export async function seedSubscriptionPlans(prisma) {
         capabilities: {
           shareLink: true,
           chat: true,
-          attachments: false,
+          attachments: true,
           advancedChat: false,
           serviceSalesEnabled: false,
         },
@@ -61,7 +63,7 @@ export async function seedSubscriptionPlans(prisma) {
         "2 magazine incluse",
         "Produse nelimitate",
         "Chat cu clienții nelimitat",
-        "Atașamente",
+        "Atașamente nelimitate",
         "10 lead-uri / lună",
         "Suport prioritar",
       ],
@@ -76,6 +78,7 @@ export async function seedSubscriptionPlans(prisma) {
           products: -1,
           leadsPerMonth: 10,
           chatMessagesPerMonth: -1,
+          attachmentsPerMonth: -1,
         },
         commissions: {
           productsBps: 800,
@@ -126,6 +129,7 @@ export async function seedSubscriptionPlans(prisma) {
           products: -1,
           leadsPerMonth: -1,
           chatMessagesPerMonth: -1,
+          attachmentsPerMonth: -1,
         },
         commissions: {
           productsBps: 500,
