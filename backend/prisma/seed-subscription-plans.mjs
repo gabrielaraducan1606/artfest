@@ -6,11 +6,11 @@ export async function seedSubscriptionPlans(prisma) {
       priceCents: 0,
       currency: "RON",
       interval: "month",
-      maxProducts: 15,
+      maxProducts: 25,
       commissionBps: 1200,
       features: [
         "1 magazin inclus",
-        "Max. 15 produse",
+        "Max. 25 produse",
         "Chat cu clienții (max. 50 mesaje / lună)",
         "Recenzii",
         "Profil public",
@@ -25,7 +25,7 @@ export async function seedSubscriptionPlans(prisma) {
       meta: {
         limits: {
           stores: 1,
-          products: 15,
+          products: 25,
           leadsPerMonth: 3,
           chatMessagesPerMonth: 50,
         },

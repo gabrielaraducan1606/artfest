@@ -278,7 +278,7 @@ async function getActivePlanForVendor(vendorId) {
     basic ?? {
       code: "basic",
       name: "Basic",
-      maxProducts: 15,
+      maxProducts: 25,
       commissionBps: 1200,
     }
   );
