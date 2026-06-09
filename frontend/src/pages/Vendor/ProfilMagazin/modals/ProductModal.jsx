@@ -1567,7 +1567,6 @@ return (
   id="product-images-input"
   type="file"
   accept="image/*"
-  capture="environment"
   multiple
                   className={styles.fileInputHidden}
                   onChange={async (e) => {
