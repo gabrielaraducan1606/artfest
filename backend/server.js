@@ -91,7 +91,7 @@ import stripeWebhookRoutes from "./src/routes/stripeWebhookRoutes.js";
 import sitemapRoutes from "./src/routes/sitemap.js";
 import googleShoppingFeedRoutes from "./src/routes/googleShoppingFeed.js";
 import adminCollectionsRoutes from "./src/routes/adminCollectionsroutes.js";
-
+import aiRoutes from "./src/routes/aiRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -424,6 +424,7 @@ app.use("/api/admin", adminInvoicesRoutes);
 app.use("/api/admin", adminProductsRoutes);
 app.use("/api/admin", adminCollectionsRoutes);
 app.use("/api", platformBillingRouter);
+app.use("/api/ai", aiRoutes);
 
 // în app.js / routes index
 app.use("/api", adminPolicyNotificationsRoutes);

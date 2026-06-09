@@ -642,3 +642,16 @@
 .sectionBodyCollapsed {
   display: none;
 }
+.aiActions {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.aiActions button {
+  flex: 1 1 180px;
+  min-height: 40px;
+  white-space: nowrap;
+}

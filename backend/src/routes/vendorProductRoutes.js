@@ -580,6 +580,191 @@ async function getProductPricing(req, res) {
     return res.status(500).json({ error: "server_error" });
   }
 }
+function calcMedian(values) {
+  if (!values.length) return 0;
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid];
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function parseDimensionScore(dimensions = "") {
+  const nums = String(dimensions || "")
+    .match(/\d+([.,]\d+)?/g)
+    ?.map((n) => Number(String(n).replace(",", ".")))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  if (!nums?.length) return null;
+
+  return nums.reduce((a, b) => a * b, 1);
+}
+
+function similarityScore(product, target) {
+  let score = 0;
+
+  if (product.category === target.category) score += 50;
+
+  const pMaterial = normalizeText(product.materialMain);
+  const tMaterial = normalizeText(target.materialMain);
+  if (pMaterial && tMaterial && pMaterial.includes(tMaterial)) score += 15;
+  else if (pMaterial && tMaterial && tMaterial.includes(pMaterial)) score += 15;
+
+  const pTechnique = normalizeText(product.technique);
+  const tTechnique = normalizeText(target.technique);
+  if (pTechnique && tTechnique && pTechnique.includes(tTechnique)) score += 10;
+  else if (pTechnique && tTechnique && tTechnique.includes(pTechnique)) score += 10;
+
+  const pDim = parseDimensionScore(product.dimensions);
+  const tDim = parseDimensionScore(target.dimensions);
+
+  if (pDim && tDim) {
+    const ratio = Math.min(pDim, tDim) / Math.max(pDim, tDim);
+
+    if (ratio > 0.75) score += 20;
+    else if (ratio > 0.5) score += 12;
+    else if (ratio > 0.3) score += 6;
+  }
+
+  return score;
+}
+
+async function suggestProductPrice(req, res) {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+
+    const { service, error, status } = await getOwnedProductsServiceBySlug(
+      slug,
+      req.user.sub
+    );
+
+    if (error) return res.status(status).json({ error });
+
+    const {
+      category,
+      materialMain = "",
+      technique = "",
+      dimensions = "",
+    } = req.body || {};
+
+    if (!category) {
+      return res.status(400).json({
+        error: "category_required",
+        message: "Alege o categorie înainte de recomandarea de preț.",
+      });
+    }
+
+    const candidates = await prisma.product.findMany({
+      where: {
+        category: String(category),
+        priceCents: { gt: 0 },
+        moderationStatus: "APPROVED",
+      },
+      select: {
+        priceCents: true,
+        category: true,
+        materialMain: true,
+        technique: true,
+        dimensions: true,
+        title: true,
+      },
+      take: 120,
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!candidates.length) {
+      return res.json({
+        ok: true,
+        hasEnoughData: false,
+        confidence: "low",
+        shouldWarn: false,
+        message:
+          "Nu avem încă suficiente produse similare pentru o recomandare sigură.",
+      });
+    }
+
+    const target = {
+      category: String(category),
+      materialMain,
+      technique,
+      dimensions,
+    };
+
+    const scored = candidates
+      .map((p) => ({
+        ...p,
+        score: similarityScore(p, target),
+        price: Math.round(p.priceCents / 100),
+      }))
+      .filter((p) => p.score >= 50)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 40);
+
+    const used = scored.length >= 3 ? scored : candidates.map((p) => ({
+      ...p,
+      score: 50,
+      price: Math.round(p.priceCents / 100),
+    }));
+
+    const prices = used.map((p) => p.price).filter((p) => p > 0);
+
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const avg = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
+    const median = calcMedian(prices);
+
+    const recommendedMin = Math.max(1, Math.round(median * 0.85));
+    const recommendedMax = Math.round(median * 1.25);
+
+    const confidence =
+      scored.length >= 8 ? "high" : scored.length >= 3 ? "medium" : "low";
+
+    return res.json({
+      ok: true,
+      hasEnoughData: used.length >= 3,
+      confidence,
+      basedOn: used.length,
+      shouldWarn: confidence !== "low",
+      platformStats: {
+        min,
+        max,
+        avg,
+        median,
+      },
+      recommendation: {
+        min: recommendedMin,
+        max: recommendedMax,
+        competitive: median,
+        premium: Math.round(median * 1.2),
+      },
+      warningRules: {
+        tooLowBelow: Math.round(recommendedMin * 0.75),
+        tooHighAbove: Math.round(recommendedMax * 1.4),
+      },
+      message:
+        confidence === "low"
+          ? "Recomandarea este orientativă, pentru că nu avem destule produse foarte similare."
+          : `Preț recomandat: ${recommendedMin} - ${recommendedMax} RON, bazat pe ${used.length} produse similare.`,
+    });
+  } catch (e) {
+    console.error(
+      "POST /vendors/store/:slug/products/price-suggestion error:",
+      e
+    );
+
+    return res.status(500).json({ error: "server_error" });
+  }
+}
 
 async function createProduct(req, res) {
   try {
@@ -920,7 +1105,12 @@ function registerProductRoutes(prefix) {
     vendorAccessRequired,
     getProductPricing
   );
-
+router.post(
+  `/${prefix}/store/:slug/products/price-suggestion`,
+  authRequired,
+  vendorAccessRequired,
+  suggestProductPrice
+);
   router.put(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, updateProduct);
 
   router.delete(`/${prefix}/products/:id`, authRequired, vendorAccessRequired, deleteProduct);

@@ -36,9 +36,30 @@ import {
 } from "../../../../../../backend/src/constants/careInstructions.js";
 
 // ====== Mic component de acordeon pentru secțiuni ======
-function AccordionSection({ id, title, open, onToggle, children }) {
+function AccordionSection({ id, title, open, onToggle, complete, children }) {
+  const isIncomplete = complete === false;
+const sectionRef = useRef(null);
+
+useEffect(() => {
+  if (!open) return;
+
+  setTimeout(() => {
+    sectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, 120);
+}, [open]);
   return (
-    <section className={styles.section} aria-labelledby={`${id}-header`}>
+    <section
+  ref={sectionRef}
+  className={styles.section}
+      aria-labelledby={`${id}-header`}
+      style={{
+        border: isIncomplete ? "1px solid #dc2626" : undefined,
+        borderRadius: isIncomplete ? 10 : undefined,
+      }}
+    >
       <button
         type="button"
         className={styles.sectionHeader}
@@ -47,16 +68,36 @@ function AccordionSection({ id, title, open, onToggle, children }) {
         aria-controls={`${id}-body`}
         id={`${id}-header`}
       >
-        <span className={styles.sectionTitle}>{title}</span>
+       <span
+  className={styles.sectionTitle}
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "nowrap",
+    whiteSpace: "nowrap",
+  }}
+>
+  <span>{title}</span>
+
+  <span
+    style={{
+      color: isIncomplete ? "#dc2626" : "#16a34a",
+      fontSize: "0.8rem",
+      whiteSpace: "nowrap",
+    }}
+  >
+    {isIncomplete ? "● incomplet" : "● complet"}
+  </span>
+</span>
         <span className={styles.sectionToggleIcon}>
           {open ? "−" : "+"}
         </span>
       </button>
+
       <div
         id={`${id}-body`}
-        className={
-          open ? styles.sectionBody : styles.sectionBodyCollapsed
-        }
+        className={open ? styles.sectionBody : styles.sectionBodyCollapsed}
       >
         {children}
       </div>
@@ -594,6 +635,18 @@ export default function ProductModal({
   return uploadFile || ((file) => uploadFileHelper(file, "/api/upload/products"));
 }, [uploadFile]);
 
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiImageLoading, setAiImageLoading] = useState(false);
+const [aiImagePreview, setAiImagePreview] = useState("");
+const [aiImageVariant, setAiImageVariant] = useState(1);
+const [priceSuggestion, setPriceSuggestion] = useState(null);
+const [priceSuggestionLoading, setPriceSuggestionLoading] = useState(false);
+const [priceWarningConfirmed, setPriceWarningConfirmed] = useState(false);
+
+const draftKey = useMemo(() => {
+  return `artfest-product-draft-${storeSlug || "default"}`;
+}, [storeSlug]);
+
   const updateField = useCallback(
     (field) => (e) => {
       const value = e?.target?.value ?? e;
@@ -601,30 +654,221 @@ export default function ProductModal({
     },
     [setForm]
   );
+const handleAiAnalyze = useCallback(async () => {
+  if (!form.images?.length) {
+    alert("Încarcă mai întâi cel puțin o imagine.");
+    return;
+  }
+
+  try {
+    setAiLoading(true);
+
+    const result = await api("/ai/product-analyze", {
+      method: "POST",
+      body: {
+        images: form.images.slice(0, 4),
+      },
+    });
+
+    setForm((prev) => ({
+      ...prev,
+
+      title: result.title || prev.title,
+      description: result.description || prev.description,
+
+      category:
+        result.category && !prev.category
+          ? result.category
+          : prev.category,
+
+      materialMain:
+        result.materialMain || prev.materialMain,
+
+      technique:
+        result.technique || prev.technique,
+
+      color:
+        result.color || prev.color,
+
+      styleTags: Array.isArray(result.styleTags)
+        ? result.styleTags.join(", ")
+        : prev.styleTags,
+
+      occasionTags: Array.isArray(result.occasionTags)
+        ? result.occasionTags.join(", ")
+        : prev.occasionTags,
+
+      careInstructions:
+        result.careInstructions || prev.careInstructions,
+
+      specialNotes:
+        result.specialNotes || prev.specialNotes,
+    }));
+  } catch (err) {
+    console.error(err);
+    alert(
+      err?.message ||
+        "Nu am putut analiza imaginile."
+    );
+  } finally {
+    setAiLoading(false);
+  }
+}, [form.images, setForm]);
+
+const handleAiEnhanceImage = useCallback(async () => {
+  const imageUrl = form.images?.[0];
+
+  if (!imageUrl) {
+    alert("Încarcă mai întâi o imagine.");
+    return;
+  }
+
+  try {
+    setAiImageLoading(true);
+
+    const result = await api("/ai/product-image-enhance", {
+      method: "POST",
+      body: {
+        imageUrl,
+        variant: aiImageVariant,
+      },
+    });
+
+    setAiImagePreview(result.dataUrl);
+    setAiImageVariant((v) => v + 1);
+  } catch (err) {
+    console.error(err);
+    alert(err?.message || "Nu am putut edita imaginea cu AI.");
+  } finally {
+    setAiImageLoading(false);
+  }
+}, [form.images, aiImageVariant]);
+
+const useAiImage = useCallback(async () => {
+  if (!aiImagePreview) return;
+
+  try {
+    const response = await fetch(aiImagePreview);
+    const blob = await response.blob();
+
+    const file = new File([blob], `produs-ai-${Date.now()}.png`, {
+      type: "image/png",
+    });
+
+    const url = await doUpload(file);
+
+    setForm((s) => ({
+      ...s,
+      images: [url, ...(s.images || [])],
+    }));
+
+    setAiImagePreview("");
+  } catch (err) {
+    console.error(err);
+    alert(err?.message || "Nu am putut salva imaginea AI.");
+  }
+}, [aiImagePreview, doUpload, setForm]);
+
+useEffect(() => {
+  if (!open || !storeSlug || !form.category) {
+    setPriceSuggestion(null);
+    return;
+  }
+
+  let alive = true;
+
+  const timer = setTimeout(async () => {
+    try {
+      setPriceSuggestionLoading(true);
+
+      const result = await api(
+        `/vendors/store/${encodeURIComponent(storeSlug)}/products/price-suggestion`,
+        {
+          method: "POST",
+          body: {
+            category: form.category,
+            materialMain: form.materialMain,
+            technique: form.technique,
+            dimensions: form.dimensions,
+          },
+        }
+      );
+
+      if (!alive) return;
+      setPriceSuggestion(result);
+    } catch (err) {
+      console.error(err);
+      if (alive) setPriceSuggestion(null);
+    } finally {
+      if (alive) setPriceSuggestionLoading(false);
+    }
+  }, 700);
+
+  return () => {
+    alive = false;
+    clearTimeout(timer);
+  };
+}, [
+  open,
+  storeSlug,
+  form.category,
+  form.materialMain,
+  form.technique,
+  form.dimensions,
+]);
 
   const [openSections, setOpenSections] = useState({
-    basic: true,
-    details: false,
-    category: true,
-    availability: false,
-    images: false,
-  });
+  images: true,
+  basic: false,
+  details: false,
+  category: false,
+  availability: false,
+  customization: false,
+});
 
   const toggleSection = useCallback((key) => {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   }, []);
 
-  useEffect(() => {
-    if (open) {
-      setOpenSections({
-        basic: true,
-        details: false,
-        category: true,
-        availability: false,
-        images: false,
-      });
-    }
-  }, [open]);
+ useEffect(() => {
+  if (!open) return;
+
+  setOpenSections({
+    images: true,
+    basic: false,
+    details: false,
+    category: false,
+    availability: false,
+    customization: false,
+  });
+
+  if (!editingProduct) {
+  try {
+    const saved = localStorage.getItem(draftKey);
+
+    if (saved) {
+      setForm((s) => ({
+        ...s,
+        ...JSON.parse(saved),
+      }));
+     } else {
+  setForm((s) => ({
+    ...s,
+    acceptsCustom: null,
+    availability: s.availability || "READY",
+    readyQty: s.readyQty ?? 1,
+  }));
+}
+  } catch {
+  setForm((s) => ({
+    ...s,
+    acceptsCustom: null,
+    availability: s.availability || "READY",
+    readyQty: s.readyQty ?? 1,
+  }));
+}
+}
+}, [open, editingProduct, setForm, draftKey]);
 
   const [vatState, setVatState] = useState({
     loading: false,
@@ -1064,34 +1308,54 @@ export default function ProductModal({
     [moveImage]
   );
 
-  const onFilesPicked = useCallback(
-    async (files) => {
-      if (!files?.length) return;
-      for (const f of files) {
-       const isImage =
-  /^image\//i.test(f.type || "") ||
-  /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "");
+ const onFilesPicked = useCallback(
+  async (files) => {
+    if (!files?.length) return;
 
-if (!isImage) {
-  alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`);
-  continue;
-}
-        let url;
-        try {
-          url = await doUpload(f);
-        } catch (er) {
-          console.error(er);
-          alert(er?.message || "Upload eșuat.");
-          continue;
-        }
+    for (const f of files) {
+      const isImage =
+        /^image\//i.test(f.type || "") ||
+        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "");
+
+      if (!isImage) {
+        alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`);
+        continue;
+      }
+
+      const previewUrl = URL.createObjectURL(f);
+
+      setForm((s) => ({
+        ...s,
+        images: [...(s.images || []), previewUrl],
+      }));
+
+      try {
+        const finalUrl = await doUpload(f);
+
         setForm((s) => ({
           ...s,
-          images: [...(s.images || []), url],
+          images: (s.images || []).map((img) =>
+            img === previewUrl ? finalUrl : img
+          ),
         }));
+
+        URL.revokeObjectURL(previewUrl);
+      } catch (er) {
+        console.error(er);
+
+        setForm((s) => ({
+          ...s,
+          images: (s.images || []).filter((img) => img !== previewUrl),
+        }));
+
+        URL.revokeObjectURL(previewUrl);
+
+        alert(er?.message || "Upload eșuat.");
       }
-    },
-    [doUpload, setForm]
-  );
+    }
+  },
+  [doUpload, setForm]
+);
 
 const onPasteImages = useCallback(
   async (e) => {
@@ -1158,7 +1422,56 @@ const onPasteImages = useCallback(
 
   const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
 
-  return (
+const sectionStatus = {
+  images: !!form.images?.length,
+  basic:
+    Number(form.price) > 0 &&
+    (form.isActive || form.isHidden),
+  details: !!form.title?.trim() && !!form.description?.trim(),
+  category: !!form.category,
+  customization:
+    form.acceptsCustom === true ||
+    form.acceptsCustom === false,
+  availability:
+    form.availability === "READY" ||
+    form.availability === "SOLD_OUT" ||
+    (form.availability === "MADE_TO_ORDER" &&
+      Number(form.leadTimeDays) > 0) ||
+    (form.availability === "PREORDER" &&
+      !!form.nextShipDate),
+};
+
+const priceNum = Number(form.price) || 0;
+
+const priceTooLow =
+  priceSuggestion?.shouldWarn &&
+  priceNum > 0 &&
+  priceSuggestion?.warningRules?.tooLowBelow &&
+  priceNum < priceSuggestion.warningRules.tooLowBelow;
+
+const priceTooHigh =
+  priceSuggestion?.shouldWarn &&
+  priceNum > 0 &&
+  priceSuggestion?.warningRules?.tooHighAbove &&
+  priceNum > priceSuggestion.warningRules.tooHighAbove;
+
+const hasPriceWarning = priceTooLow || priceTooHigh;
+
+useEffect(() => {
+  setPriceWarningConfirmed(false);
+}, [form.price, priceSuggestion]);
+
+useEffect(() => {
+  if (!open || editingProduct) return;
+
+  try {
+    localStorage.setItem(draftKey, JSON.stringify(form));
+  } catch (err) {
+    console.warn("Nu am putut salva draftul produsului.", err);
+  }
+}, [open, editingProduct, draftKey, form]);
+
+return (
     <Modal
       open={open}
       onClose={() => (!saving ? onClose() : null)}
@@ -1177,15 +1490,219 @@ const onPasteImages = useCallback(
         >
           ×
         </button>
+        
       </div>
 
       <div className={styles.modalBody}>
         <form onSubmit={onSave} className={styles.formGrid}>
           <AccordionSection
-            id="basic"
-            title="Informații de bază"
-            open={openSections.basic}
-            onToggle={() => toggleSection("basic")}
+            id="images"
+            title="Începe cu poza produsului"
+            open={openSections.images}
+            onToggle={() => toggleSection("images")}
+            complete={sectionStatus.images}
+          >
+            <label className={styles.label}>Imagini produs</label>
+
+{aiImagePreview && (
+  <div style={{ marginBottom: 14 }}>
+    <label className={styles.label}>Variantă AI propusă</label>
+
+   <img
+  src={aiImagePreview}
+  alt="Variantă editată cu AI"
+  style={{
+    width: "100%",
+    maxWidth: 350,
+    borderRadius: 12,
+    display: "block",
+    margin: "0 auto 12px",
+  }}
+/>
+
+<div
+  style={{
+    display: "flex",
+    gap: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+  }}
+>
+ <button
+  type="button"
+  onClick={useAiImage}
+  className={styles.primaryBtn}
+  style={{
+    width: "auto",
+    whiteSpace: "nowrap",
+    flex: "1 1 220px",
+    maxWidth: 260,
+  }}
+>
+  ✅ Folosește poza asta
+</button>
+
+ <button
+  type="button"
+  onClick={handleAiEnhanceImage}
+  disabled={aiImageLoading}
+  className={styles.smallBtn}
+  style={{
+    whiteSpace: "nowrap",
+    flex: "1 1 220px",
+    maxWidth: 260,
+  }}
+>
+    {aiImageLoading
+      ? "Generez..."
+      : "🔁 Generează altă variantă"}
+  </button>
+</div>
+  </div>
+)}
+            <div className={styles.imagesRow} onPaste={onPasteImages}>
+              <div className={styles.fileUploadWrapper}>
+                <input
+  id="product-images-input"
+  type="file"
+  accept="image/*"
+  capture="environment"
+  multiple
+                  className={styles.fileInputHidden}
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+
+                    if (files.length === 0) {
+                      setUploadInfo("Niciun fișier ales");
+                    } else if (files.length === 1) {
+                      setUploadInfo(files[0].name);
+                    } else {
+                      setUploadInfo(
+                        `${files.length} fișiere selectate`
+                      );
+                    }
+
+                    e.target.value = "";
+                    await onFilesPicked(files);
+                  }}
+                />
+
+                <label
+                  htmlFor="product-images-input"
+                  className={styles.fileUploadButton}
+                >
+                  📷 Fă poză sau încarcă imagine
+                </label>
+
+                <span className={styles.fileUploadInfo}>
+                  {uploadInfo}
+                </span>
+              </div>
+
+              {!!form.images?.length && (
+                <div className={styles.thumbGrid}>
+                  {form.images.map((img, idx) => (
+                    <div
+                      key={`${img}-${idx}`}
+                      className={styles.thumbItem}
+                      draggable
+                      onDragStart={onDragStart(idx)}
+                      onDragOver={onDragOver}
+                      onDrop={onDrop(idx)}
+                      title={
+                        idx === 0
+                          ? "Imagine principală"
+                          : "Trage pentru a reordona"
+                      }
+                    >
+                      <img
+                        src={resolveFileUrl(img)}
+                        alt={`Imagine produs ${idx + 1}`}
+                        className={styles.thumbImg}
+                      />
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          marginTop: 6,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setMainImage(idx)}
+                          title={
+  idx === 0
+    ? "Imagine principală (folosită de AI)"
+    : "Setează ca imagine principală"
+}
+                          className={styles.smallBtn}
+                          style={{
+                            fontWeight: idx === 0 ? 800 : 500,
+                          }}
+                        >
+                          {idx === 0 ? "★ " : "☆ "}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeImage(idx)}
+                          title="Șterge imagine"
+                          className={styles.smallBtn}
+                        >
+                          Șterge
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+{!!form.images?.length && (
+  <div className={styles.aiActions}>
+    <button
+      type="button"
+      onClick={handleAiAnalyze}
+      disabled={aiLoading}
+      className={styles.primaryBtn}
+    >
+      {aiLoading ? "Analizez..." : "✨ Completează cu AI"}
+    </button>
+
+    <button
+      type="button"
+      onClick={handleAiEnhanceImage}
+      disabled={aiImageLoading}
+      className={styles.smallBtn}
+    >
+      {aiImageLoading ? "Editez poza..." : "📸 Editează poza cu AI"}
+    </button>
+  </div>
+)}
+              <div className={styles.tip}>
+                <div
+  style={{
+    marginTop: 8,
+    fontSize: "0.75rem",
+    opacity: 0.75,
+  }}
+>
+  AI folosește imaginea marcată cu ★.
+  Dacă dorești altă fotografie, apasă ★ pe ea înainte de a folosi funcțiile AI.
+</div>
+                • Poți încărca imagini (input sau paste din clipboard).
+                <br />
+                • Reordonează cu drag &amp; drop. ★ marchează imaginea
+                principală (prima în listă).
+              </div>
+            </div>
+          </AccordionSection>
+          
+
+          <AccordionSection
+            id="details"
+            title="Detalii produs"
+            open={openSections.details}
+            onToggle={() => toggleSection("details")}
+            complete={sectionStatus.details}
           >
             <label className={styles.label} htmlFor="product-title">
               Titlu
@@ -1198,189 +1715,6 @@ const onPasteImages = useCallback(
               placeholder="Ex: Coroniță florală din lavandă"
               required
             />
-
-            <label className={styles.label} htmlFor="product-price">
-              Preț (RON)
-            </label>
-            <input
-              id="product-price"
-              type="number"
-              step="0.01"
-              min="0"
-              className={styles.input}
-              value={
-                form.price === "" || form.price == null
-                  ? ""
-                  : String(form.price)
-              }
-              onChange={(e) => {
-                const raw = e.target.value;
-                setForm((s) => ({
-                  ...s,
-                  price: raw === "" ? "" : Math.max(0, Number(raw)),
-                }));
-              }}
-              placeholder="0.00"
-              required
-            />
-
-            {hasValidPrice && (
-              <div
-                style={{
-                  fontSize: "0.78rem",
-                  marginTop: 6,
-                  marginBottom: 8,
-                  color: "#4B5563",
-                  lineHeight: 1.4,
-                }}
-              >
-                {commissionState.loading ? (
-                  <span>Se încarcă comisionul planului…</span>
-                ) : commissionState.error ? (
-                  <span style={{ color: "#B91C1C" }}>{commissionState.error}</span>
-                ) : (
-                  <>
-                    <div>
-                      Comision platformă{" "}
-                      <strong>
-                        {commissionComputed.pct ? `${commissionComputed.pct.toFixed(2)}%` : "0%"}
-                      </strong>
-                      {commissionState.plan ? (
-                        <span style={{ opacity: 0.75 }}>
-                          {" "}
-                          · plan: <strong>{commissionState.plan.name}</strong>
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div style={{ marginTop: 2 }}>
-                      Bază comision: <strong>{commissionComputed.base.toFixed(2)} RON</strong>{" "}
-                      → comision: <strong>{commissionComputed.commissionAmount.toFixed(2)} RON</strong>{" "}
-                      → încasare estimată (fără TVA):{" "}
-                      <strong>{commissionComputed.vendorReceives.toFixed(2)} RON</strong>
-                    </div>
-
-                    <div style={{ marginTop: 2, opacity: 0.75 }}>
-                      Notă: comisionul se aplică pe prețul fără TVA (dacă ești plătitor de TVA).
-                      Calculul final se confirmă la comandă.
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {hasValidPrice && (
-              <div
-                style={{
-                  fontSize: "0.78rem",
-                  marginTop: 4,
-                  marginBottom: 8,
-                  color: "#4B5563",
-                  lineHeight: 1.4,
-                }}
-              >
-                {vatState.loading ? (
-                  <span>Se încarcă setările de TVA ale magazinului…</span>
-                ) : vatState.status === "payer" && vatRateNum ? (
-                  <>
-                    <div>
-                      Conform datelor de facturare, magazinul este{" "}
-                      <strong>plătitor de TVA</strong>, cotă{" "}
-                      <strong>{vatRateNum}%</strong>.
-                    </div>
-                    <div style={{ marginTop: 2 }}>
-                      Pentru prețul introdus:{" "}
-                      <strong>{net.toFixed(2)} RON</strong> (fără TVA) +{" "}
-                      <strong>{vatAmount.toFixed(2)} RON</strong> TVA ({vatRateNum}%)
-                      {" = "}
-                      <strong>{gross.toFixed(2)} RON</strong> (preț final).
-                    </div>
-                  </>
-                ) : vatState.status === "non_payer" ? (
-                  <div>
-                    Conform datelor de facturare, <strong>nu ești plătitor de TVA</strong>.
-                    Prețul introdus este tratat ca sumă finală.
-                  </div>
-                ) : (
-                  <div>
-                    Nu am găsit informații despre statutul tău de TVA în{" "}
-                    <strong>Date facturare</strong>. Completează acea secțiune pentru a
-                    vedea detaliat TVA-ul aferent produselor.
-                  </div>
-                )}
-
-                {vatState.error && (
-                  <div
-                    style={{
-                      marginTop: 2,
-                      color: "#B91C1C",
-                    }}
-                  >
-                    {vatState.error}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <label className={styles.label}>Status vizibilitate</label>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 4,
-                marginBottom: 8,
-              }}
-            >
-              <label className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={!!form.isActive}
-                  onChange={(e) =>
-                    setForm((s) => {
-                      const checked = e.target.checked;
-                      return {
-                        ...s,
-                        isActive: checked,
-                        isHidden: checked ? false : s.isHidden,
-                      };
-                    })
-                  }
-                />
-                Activ
-                <small style={{ marginLeft: 8, opacity: 0.7 }}>
-                  Produsul poate fi cumpărat (dacă este vizibil).
-                </small>
-              </label>
-
-              <label className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={!!form.isHidden}
-                  onChange={(e) =>
-                    setForm((s) => {
-                      const checked = e.target.checked;
-                      return {
-                        ...s,
-                        isHidden: checked,
-                        isActive: checked ? false : s.isActive,
-                      };
-                    })
-                  }
-                />
-                Ascuns
-                <small style={{ marginLeft: 8, opacity: 0.7 }}>
-                  Nu apare public în magazin, chiar dacă este activ.
-                </small>
-              </label>
-            </div>
-          </AccordionSection>
-
-          <AccordionSection
-            id="details"
-            title="Detalii produs"
-            open={openSections.details}
-            onToggle={() => toggleSection("details")}
-          >
             <label className={styles.label} htmlFor="product-description">
               Descriere
             </label>
@@ -1489,19 +1823,7 @@ const onPasteImages = useCallback(
               note="Poți alege o culoare din sugestii sau poți scrie exact nuanța pe care o folosești."
             />
 
-            <label className={styles.checkbox}>
-              <input
-                type="checkbox"
-                checked={!!form.acceptsCustom}
-                onChange={(e) =>
-                  setForm((s) => ({
-                    ...s,
-                    acceptsCustom: e.target.checked,
-                  }))
-                }
-              />
-              Acceptă personalizare
-            </label>
+            
           </AccordionSection>
 
           <AccordionSection
@@ -1509,6 +1831,7 @@ const onPasteImages = useCallback(
             title="Categorie"
             open={openSections.category}
             onToggle={() => toggleSection("category")}
+            complete={sectionStatus.category}
           >
             <label
               className={styles.label}
@@ -1664,12 +1987,343 @@ const onPasteImages = useCallback(
               </select>
             </div>
           </AccordionSection>
+          <AccordionSection
+  id="customization"
+  title="Personalizare"
+  open={openSections.customization}
+  onToggle={() => toggleSection("customization")}
+  complete={sectionStatus.customization}
+>
+  <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+    <button
+      type="button"
+      className={styles.smallBtn}
+      onClick={() =>
+        setForm((s) => ({
+          ...s,
+          acceptsCustom: true,
+        }))
+      }
+      style={{
+        fontWeight: form.acceptsCustom === true ? 800 : 500,
+        border:
+          form.acceptsCustom === true
+            ? "1px solid #16a34a"
+            : undefined,
+      }}
+    >
+      Da
+    </button>
 
+    <button
+      type="button"
+      className={styles.smallBtn}
+      onClick={() =>
+        setForm((s) => ({
+          ...s,
+          acceptsCustom: false,
+        }))
+      }
+      style={{
+        fontWeight: form.acceptsCustom === false ? 800 : 500,
+        border:
+          form.acceptsCustom === false
+            ? "1px solid #16a34a"
+            : undefined,
+      }}
+    >
+      Nu
+    </button>
+  </div>
+
+  <small style={{ opacity: 0.7 }}>
+    Clientul poate cere modificări: nume, mesaj, culoare, dimensiune sau alte detalii.
+  </small>
+</AccordionSection>
+<AccordionSection
+            id="basic"
+           title="Preț"
+            open={openSections.basic}
+            onToggle={() => toggleSection("basic")}
+            complete={sectionStatus.basic}
+          >
+            
+
+            <label className={styles.label} htmlFor="product-price">
+              Preț (RON)
+            </label>
+            <input
+              id="product-price"
+              type="number"
+              step="0.01"
+              min="0"
+              className={styles.input}
+              value={
+                form.price === "" || form.price == null
+                  ? ""
+                  : String(form.price)
+              }
+              onChange={(e) => {
+                const raw = e.target.value;
+                setForm((s) => ({
+                  ...s,
+                  price: raw === "" ? "" : Math.max(0, Number(raw)),
+                }));
+              }}
+              placeholder="0.00"
+              required
+            />
+{priceSuggestionLoading && (
+  <div style={{ fontSize: "0.78rem", marginTop: 6, opacity: 0.7 }}>
+    Calculăm prețul recomandat…
+  </div>
+)}
+
+{priceSuggestion?.recommendation && (
+  <div
+    style={{
+      fontSize: "0.8rem",
+      marginTop: 8,
+      marginBottom: 8,
+      padding: 10,
+      borderRadius: 10,
+      background: "#f8fafc",
+      border: "1px solid #e5e7eb",
+      lineHeight: 1.45,
+    }}
+  >
+    <strong>
+      Interval orientativ: {priceSuggestion.recommendation.min} -{" "}
+      {priceSuggestion.recommendation.max} RON
+    </strong>
+
+    <div style={{ marginTop: 4 }}>
+      Preț competitiv:{" "}
+      <strong>{priceSuggestion.recommendation.competitive} RON</strong>
+      {" · "}
+      Preț premium:{" "}
+      <strong>{priceSuggestion.recommendation.premium} RON</strong>
+    </div>
+
+    <div style={{ marginTop: 4, opacity: 0.75 }}>
+  Bazat pe produse similare existente în ArtFest.
+  Acesta este doar un reper orientativ, tu alegi prețul final.
+</div>
+  </div>
+)}
+
+{priceSuggestion && !priceSuggestion.recommendation && (
+  <div
+    style={{
+      fontSize: "0.8rem",
+      marginTop: 8,
+      marginBottom: 8,
+      padding: 10,
+      borderRadius: 10,
+      background: "#fffbeb",
+      border: "1px solid #fde68a",
+      color: "#92400e",
+      lineHeight: 1.45,
+    }}
+  >
+  </div>
+)}
+
+{hasPriceWarning && (
+  <div
+    style={{
+      fontSize: "0.8rem",
+      marginTop: 8,
+      marginBottom: 8,
+      padding: 10,
+      borderRadius: 10,
+      background: "#fef2f2",
+      border: "1px solid #fecaca",
+      color: "#991b1b",
+      lineHeight: 1.45,
+    }}
+  >
+    <strong>
+  {priceTooLow
+  ? "Prețul ales este sub intervalul orientativ."
+  : "Prețul ales este peste intervalul orientativ."}
+</strong>
+
+<div style={{ marginTop: 4 }}>
+  Recomandarea este {priceSuggestion.recommendation.min} -{" "}
+  {priceSuggestion.recommendation.max} RON, iar tu ai introdus{" "}
+  {priceNum} RON.
+</div>
+
+    <label
+      className={styles.checkbox}
+      style={{ marginTop: 8, display: "flex" }}
+    >
+      <input
+        type="checkbox"
+        checked={priceWarningConfirmed}
+        onChange={(e) => setPriceWarningConfirmed(e.target.checked)}
+      />
+      Am verificat prețul și doresc să continui.
+    </label>
+  </div>
+)}
+            {hasValidPrice && (
+              <div
+                style={{
+                  fontSize: "0.78rem",
+                  marginTop: 6,
+                  marginBottom: 8,
+                  color: "#4B5563",
+                  lineHeight: 1.4,
+                }}
+              >
+                {commissionState.loading ? (
+                  <span>Se încarcă comisionul planului…</span>
+                ) : commissionState.error ? (
+                  <span style={{ color: "#B91C1C" }}>{commissionState.error}</span>
+                ) : (
+                  <>
+                    <div>
+                      Comision platformă{" "}
+                      <strong>
+                        {commissionComputed.pct ? `${commissionComputed.pct.toFixed(2)}%` : "0%"}
+                      </strong>
+                      {commissionState.plan ? (
+                        <span style={{ opacity: 0.75 }}>
+                          {" "}
+                          · plan: <strong>{commissionState.plan.name}</strong>
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div style={{ marginTop: 2 }}>
+                      Bază comision: <strong>{commissionComputed.base.toFixed(2)} RON</strong>{" "}
+                      → comision: <strong>{commissionComputed.commissionAmount.toFixed(2)} RON</strong>{" "}
+                      → încasare estimată (fără TVA):{" "}
+                      <strong>{commissionComputed.vendorReceives.toFixed(2)} RON</strong>
+                    </div>
+
+                    <div style={{ marginTop: 2, opacity: 0.75 }}>
+                      Notă: comisionul se aplică pe prețul fără TVA (dacă ești plătitor de TVA).
+                      Calculul final se confirmă la comandă.
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {hasValidPrice && (
+              <div
+                style={{
+                  fontSize: "0.78rem",
+                  marginTop: 4,
+                  marginBottom: 8,
+                  color: "#4B5563",
+                  lineHeight: 1.4,
+                }}
+              >
+                {vatState.loading ? (
+                  <span>Se încarcă setările de TVA ale magazinului…</span>
+                ) : vatState.status === "payer" && vatRateNum ? (
+                  <>
+                    <div>
+                      Conform datelor de facturare, magazinul este{" "}
+                      <strong>plătitor de TVA</strong>, cotă{" "}
+                      <strong>{vatRateNum}%</strong>.
+                    </div>
+                    <div style={{ marginTop: 2 }}>
+                      Pentru prețul introdus:{" "}
+                      <strong>{net.toFixed(2)} RON</strong> (fără TVA) +{" "}
+                      <strong>{vatAmount.toFixed(2)} RON</strong> TVA ({vatRateNum}%)
+                      {" = "}
+                      <strong>{gross.toFixed(2)} RON</strong> (preț final).
+                    </div>
+                  </>
+                ) : vatState.status === "non_payer" ? (
+                  <div>
+                    Conform datelor de facturare, <strong>nu ești plătitor de TVA</strong>.
+                    Prețul introdus este tratat ca sumă finală.
+                  </div>
+                ) : (
+                  <div>
+                    Nu am găsit informații despre statutul tău de TVA în{" "}
+                    <strong>Date facturare</strong>. Completează acea secțiune pentru a
+                    vedea detaliat TVA-ul aferent produselor.
+                  </div>
+                )}
+
+                {vatState.error && (
+                  <div
+                    style={{
+                      marginTop: 2,
+                      color: "#B91C1C",
+                    }}
+                  >
+                    {vatState.error}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <label className={styles.label}>Status vizibilitate</label>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                marginBottom: 8,
+              }}
+            >
+              <label className={styles.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={!!form.isActive}
+                  onChange={(e) =>
+                    setForm((s) => {
+                      const checked = e.target.checked;
+                      return {
+                        ...s,
+                        isActive: checked,
+                        isHidden: checked ? false : s.isHidden,
+                      };
+                    })
+                  }
+                />
+                Activ
+                <small style={{ marginLeft: 8, opacity: 0.7 }}>
+                  Produsul poate fi cumpărat (dacă este vizibil).
+                </small>
+              </label>
+
+              <label className={styles.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={!!form.isHidden}
+                  onChange={(e) =>
+                    setForm((s) => {
+                      const checked = e.target.checked;
+                      return {
+                        ...s,
+                        isHidden: checked,
+                        isActive: checked ? false : s.isActive,
+                      };
+                    })
+                  }
+                />
+                Ascuns
+                <small style={{ marginLeft: 8, opacity: 0.7 }}>
+                  Nu apare public în magazin, chiar dacă este activ.
+                </small>
+              </label>
+            </div>
+          </AccordionSection>
           <AccordionSection
             id="availability"
             title="Disponibilitate & stoc"
             open={openSections.availability}
             onToggle={() => toggleSection("availability")}
+            complete={sectionStatus.availability}
           >
             <label
               className={styles.label}
@@ -1680,7 +2334,7 @@ const onPasteImages = useCallback(
             <select
               id="product-availability"
               className={styles.input}
-              value={form.availability}
+              value={form.availability || "READY"}
               onChange={updateField("availability")}
             >
               <option value="READY">Gata de livrare</option>
@@ -1689,7 +2343,7 @@ const onPasteImages = useCallback(
               <option value="SOLD_OUT">Epuizat</option>
             </select>
 
-            {form.availability === "READY" && (
+            {(form.availability || "READY") === "READY" && (
               <>
                 <label
                   className={styles.label}
@@ -1771,132 +2425,81 @@ const onPasteImages = useCallback(
             )}
           </AccordionSection>
 
-          <AccordionSection
-            id="images"
-            title="Imagini"
-            open={openSections.images}
-            onToggle={() => toggleSection("images")}
-          >
-            <label className={styles.label}>Imagini produs</label>
+          
 
-            <div className={styles.imagesRow} onPaste={onPasteImages}>
-              <div className={styles.fileUploadWrapper}>
-                <input
-                  id="product-images-input"
-                  type="file"
-                 accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif"
-                  multiple
-                  className={styles.fileInputHidden}
-                  onChange={async (e) => {
-                    const files = Array.from(e.target.files || []);
+         <div
+  className={styles.modalFooter}
+  style={{
+    flexWrap: "wrap",
+  }}
+>
+  <button
+    type="button"
+    className={styles.linkBtn}
+    style={{
+    marginRight: "auto",
+  }}
+    onClick={() => {
+      if (
+        !confirm(
+          "Sigur vrei să resetezi formularul? Draftul local va fi șters."
+        )
+      ) {
+        return;
+      }
 
-                    if (files.length === 0) {
-                      setUploadInfo("Niciun fișier ales");
-                    } else if (files.length === 1) {
-                      setUploadInfo(files[0].name);
-                    } else {
-                      setUploadInfo(
-                        `${files.length} fișiere selectate`
-                      );
-                    }
+      localStorage.removeItem(draftKey);
 
-                    e.target.value = "";
-                    await onFilesPicked(files);
-                  }}
-                />
+      setForm((s) => ({
+        ...s,
+        title: "",
+        description: "",
+        price: "",
+        images: [],
+        category: "",
+        color: "",
+        materialMain: "",
+        technique: "",
+        styleTags: "",
+        occasionTags: "",
+        dimensions: "",
+        careInstructions: "",
+        specialNotes: "",
+        acceptsCustom: null,
+        availability: "READY",
+readyQty: 1,
+        leadTimeDays: "",
+        nextShipDate: "",
+      }));
 
-                <label
-                  htmlFor="product-images-input"
-                  className={styles.fileUploadButton}
-                >
-                  Alegeți fișierele
-                </label>
+      setAiImagePreview("");
+      setPriceSuggestion(null);
+      setPriceWarningConfirmed(false);
+    }}
+    disabled={saving || editingProduct}
+  >
+    Resetează formularul
+  </button>
 
-                <span className={styles.fileUploadInfo}>
-                  {uploadInfo}
-                </span>
-              </div>
-
-              {!!form.images?.length && (
-                <div className={styles.thumbGrid}>
-                  {form.images.map((img, idx) => (
-                    <div
-                      key={`${img}-${idx}`}
-                      className={styles.thumbItem}
-                      draggable
-                      onDragStart={onDragStart(idx)}
-                      onDragOver={onDragOver}
-                      onDrop={onDrop(idx)}
-                      title={
-                        idx === 0
-                          ? "Imagine principală"
-                          : "Trage pentru a reordona"
-                      }
-                    >
-                      <img
-                        src={resolveFileUrl(img)}
-                        alt={`Imagine produs ${idx + 1}`}
-                        className={styles.thumbImg}
-                      />
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 6,
-                          marginTop: 6,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setMainImage(idx)}
-                          title={
-                            idx === 0
-                              ? "Deja principală"
-                              : "Setează ca principală"
-                          }
-                          className={styles.smallBtn}
-                          style={{
-                            fontWeight: idx === 0 ? 800 : 500,
-                          }}
-                        >
-                          {idx === 0 ? "★ " : "☆ "}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeImage(idx)}
-                          title="Șterge imagine"
-                          className={styles.smallBtn}
-                        >
-                          Șterge
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className={styles.tip}>
-                • Poți încărca imagini (input sau paste din clipboard).
-                <br />
-                • Reordonează cu drag &amp; drop. ★ marchează imaginea
-                principală (prima în listă).
-              </div>
-            </div>
-          </AccordionSection>
-
-          <div className={styles.modalFooter}>
-            <button
-              type="button"
-              className={styles.linkBtn}
-              onClick={() => (!saving ? onClose() : null)}
-              disabled={saving}
-            >
-              Anulează
-            </button>
-            <button
-              className={styles.primaryBtn}
-              type="submit"
-              disabled={saving}
-            >
+ <button
+  type="button"
+  className={styles.linkBtn}
+  style={{
+    flex: "1 1 120px",
+  }}
+    onClick={() => (!saving ? onClose() : null)}
+    disabled={saving}
+  >
+    Anulează
+  </button>
+           <button
+  className={styles.primaryBtn}
+  style={{
+    flex: "1 1 120px",
+  }}
+  type="submit"
+  disabled={saving || (hasPriceWarning && !priceWarningConfirmed)}
+>
               {saving ? "Se salvează…" : "Salvează"}
             </button>
           </div>
