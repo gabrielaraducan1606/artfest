@@ -1420,7 +1420,7 @@ const onPasteImages = useCallback(
     });
   }, [setForm, form.availability]);
 
-  const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
+  const [uploadInfo] = useState("Niciun fișier ales");
 
 const sectionStatus = {
   images: !!form.images?.length,
@@ -1564,36 +1564,52 @@ return (
             <div className={styles.imagesRow} onPaste={onPasteImages}>
               <div className={styles.fileUploadWrapper}>
                 <input
-  id="product-images-input"
+  id="product-camera-input"
+  type="file"
+  accept="image/*"
+  capture="environment"
+  className={styles.fileInputHidden}
+  onChange={async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    await onFilesPicked(files);
+  }}
+/>
+
+<input
+  id="product-gallery-input"
   type="file"
   accept="image/*"
   multiple
-                  className={styles.fileInputHidden}
-                  onChange={async (e) => {
-                    const files = Array.from(e.target.files || []);
+  className={styles.fileInputHidden}
+  onChange={async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    await onFilesPicked(files);
+  }}
+/>
 
-                    if (files.length === 0) {
-                      setUploadInfo("Niciun fișier ales");
-                    } else if (files.length === 1) {
-                      setUploadInfo(files[0].name);
-                    } else {
-                      setUploadInfo(
-                        `${files.length} fișiere selectate`
-                      );
-                    }
+               <div
+  style={{
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+  }}
+>
+  <label
+    htmlFor="product-camera-input"
+    className={styles.fileUploadButton}
+  >
+    📷 Fă poză
+  </label>
 
-                    e.target.value = "";
-                    await onFilesPicked(files);
-                  }}
-                />
-
-                <label
-                  htmlFor="product-images-input"
-                  className={styles.fileUploadButton}
-                >
-                  📷 Fă poză sau încarcă imagine
-                </label>
-
+  <label
+    htmlFor="product-gallery-input"
+    className={styles.fileUploadButton}
+  >
+    🖼️ Alege din galerie
+  </label>
+</div>
                 <span className={styles.fileUploadInfo}>
                   {uploadInfo}
                 </span>
