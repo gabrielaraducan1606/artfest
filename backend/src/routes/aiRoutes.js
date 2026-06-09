@@ -200,29 +200,74 @@ router.post("/product-image-enhance", aiVendorAccess, async (req, res) => {
 
     const imageFile = await imageUrlToFile(imageUrl);
 
-    const prompt = `
-Transformă fotografia într-o imagine profesională de produs, ca și cum ar fi făcută cu un aparat foto profesional într-un studio.
+   const prompt = `
+PRODUCT PRESERVATION IS THE HIGHEST PRIORITY.
 
-Păstrează produsul fidel:
-- nu schimba produsul
-- nu schimba forma, materialul sau culorile reale
-- nu adăuga text, logo, watermark sau etichete
-- produsul trebuie să rămână subiectul principal
+The product itself is LOCKED and must remain visually identical.
 
-Îmbunătățește prezentarea:
-- fundal simplu, curat, ales automat de AI
-- stil premium, potrivit pentru marketplace handmade
-- lumină naturală sau studio light soft
-- umbre fine și realiste
-- produs centrat, clar, bine încadrat
-- fotografie square 1:1 pentru magazin online
-- aspect ca fotografie de catalog / e-commerce
+DO NOT:
+- redesign the product
+- regenerate the product
+- improve the product
+- beautify the product
+- change the shape
+- change proportions
+- change dimensions
+- change colors
+- change texture
+- change fabric weave
+- change crochet patterns
+- change knitting patterns
+- change stitching
+- change embroidery
+- change brush strokes
+- change ceramic details
+- change wood grain
+- change resin effects
+- change surface details
+- remove imperfections from the product
+- add details to the product
+- smooth the product
+- sharpen product details artificially
+- replace any part of the product
 
-Dacă fundalul original este aglomerat, înlocuiește-l cu un fundal minimalist, cald și elegant.
+The product must remain exactly the same object from the original photo.
 
-Variantă creativă: ${variant}.
+Treat the product as READ ONLY.
+Treat only the environment around the product as editable.
+
+You may modify ONLY:
+- background
+- lighting
+- exposure
+- white balance
+- shadows
+- overall photo cleanliness
+
+Background rules:
+- use a clean minimalist e-commerce background
+- neutral and elegant
+- no props
+- no decorations
+- no additional objects
+- no text
+- no logo
+- no watermark
+
+Style:
+- realistic studio photography
+- realistic catalog photography
+- soft natural light
+- centered product
+- square 1:1 composition
+
+Final requirement:
+The result must look like the SAME PHOTO taken by a professional photographer.
+It must NOT look AI generated.
+It must NOT look like a newly generated product image.
+
+Variant: ${variant}
 `;
-
     const result = await openai.images.edit({
       model: "gpt-image-1",
       image: imageFile,
