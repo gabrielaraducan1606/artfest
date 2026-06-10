@@ -162,19 +162,20 @@ const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
         <h3 className={styles.title}>Încasări prin platformă</h3>
 
         <p className={styles.subtitle}>
-          Activează Stripe Connect pentru a primi transferuri către contul tău
-          bancar.
-        </p>
+  Opțional: activează Stripe Connect doar dacă vrei să primești plăți online
+  cu cardul.
+</p>
       </div>
 
       <div className={`${styles.card} ${styles.cardSoft}`}>
         <span className={styles.badge}>Stripe Connect</span>
 
-        <p className={styles.text}>
-          Platforma va folosi <strong>Stripe Connect</strong> pentru plățile
-          online. Ca să primești bani din comenzile plătite online, trebuie să
-          ai activat contul de încasări Stripe.
-        </p>
+      <p className={styles.text}>
+  Platforma folosește <strong>Stripe Connect</strong> pentru plățile online.
+  Activarea este opțională. Magazinul tău poate fi publicat și fără Stripe,
+  însă clienții nu vor putea plăti online cu cardul până nu activezi
+  încasările.
+</p>
 
         <p className={styles.text}>
           În Stripe vei completa datele necesare pentru verificare și pentru
@@ -212,9 +213,10 @@ const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
             <h4 className={styles.cardTitle}>Stripe nu este conectat</h4>
 
             <p className={styles.text}>
-              Pentru a primi plăți online după lansarea încasărilor, trebuie să
-              activezi contul Stripe.
-            </p>
+  Activarea Stripe Connect este opțională. Fără Stripe, magazinul rămâne
+  activ și vizibil în platformă, însă plata online cu cardul nu va fi
+  disponibilă pentru clienți.
+</p>
           </div>
 
           <div className={styles.buttonRow}>
@@ -331,9 +333,9 @@ const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
             <h4>Încasările sunt active</h4>
 
             <p>
-              Contul tău Stripe este activ. Poți primi transferuri către contul
-              bancar.
-            </p>
+  Contul tău Stripe este activ. Acum poți accepta plăți online cu cardul,
+  iar încasările vor fi transferate în contul tău bancar.
+</p>
           </div>
 
           <div className={styles.card}>

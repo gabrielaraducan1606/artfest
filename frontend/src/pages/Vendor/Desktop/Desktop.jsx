@@ -1044,19 +1044,20 @@ function PayoutsWarning({ payouts }) {
   return (
     <div className={`${styles.card} ${styles.cardWarning}`}>
       <div className={styles.cardHead}>
-        <h3>Activează încasările</h3>
+        <h3>Plățile online sunt opționale</h3>
       </div>
 
       <p className={styles.subtle}>
-        {payouts.warning}
+        Magazinul tău poate fi activ și vizibil fără Stripe Connect. Activează
+        încasările doar dacă vrei să permiți clienților plata online cu cardul.
       </p>
 
       <div className={styles.actionsRow}>
         <Link
-          className={`${styles.btn} ${styles.btnPrimary}`}
+          className={`${styles.btn} ${styles.btnGhost}`}
           to={payouts.ctaUrl || "/onboarding/details?tab=incasari&solo=1"}
         >
-          Activează încasările
+          Activează plata online cu cardul
         </Link>
       </div>
     </div>

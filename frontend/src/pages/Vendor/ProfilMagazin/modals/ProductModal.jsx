@@ -647,6 +647,12 @@ const draftKey = useMemo(() => {
   return `artfest-product-draft-${storeSlug || "default"}`;
 }, [storeSlug]);
 
+const mainImageUrl = form.images?.[0] || "";
+
+const mainImageReadyForAi = /^https?:\/\//i.test(String(mainImageUrl));
+const allImagesReadyForAi = (form.images || []).every((img) =>
+  /^https?:\/\//i.test(String(img))
+);
   const updateField = useCallback(
     (field) => (e) => {
       const value = e?.target?.value ?? e;
@@ -722,7 +728,10 @@ const handleAiEnhanceImage = useCallback(async () => {
     alert("Încarcă mai întâi o imagine.");
     return;
   }
-
+if (!/^https?:\/\//i.test(String(imageUrl))) {
+  alert("Imaginea încă se încarcă. Te rog așteaptă câteva secunde.");
+  return;
+}
   try {
     setAiImageLoading(true);
 
@@ -1676,19 +1685,27 @@ return (
     <button
       type="button"
       onClick={handleAiAnalyze}
-      disabled={aiLoading}
+      disabled={aiLoading || !allImagesReadyForAi}
       className={styles.primaryBtn}
     >
-      {aiLoading ? "Analizez..." : "✨ Completează cu AI"}
+      {aiLoading
+  ? "Analizez..."
+  : !allImagesReadyForAi
+  ? "Se încarcă imaginile..."
+  : "✨ Completează cu AI"}
     </button>
 
     <button
       type="button"
       onClick={handleAiEnhanceImage}
-      disabled={aiImageLoading}
+      disabled={aiImageLoading || !mainImageReadyForAi}
       className={styles.smallBtn}
     >
-      {aiImageLoading ? "Editez poza..." : "📸 Editează poza cu AI"}
+      {aiImageLoading
+  ? "Editez poza..."
+  : !mainImageReadyForAi
+  ? "Se încarcă imaginea..."
+  : "📸 Editează poza cu AI"}
     </button>
   </div>
 )}

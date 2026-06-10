@@ -85,15 +85,7 @@ function getPayoutsWarning(vendor, now = new Date()) {
   if (!vendor) return null;
   if (vendor.stripePayoutsEnabled) return null;
 
-  if (isPayoutsGracePeriod(now)) {
-    return "Activează încasările Stripe Connect până la 1 iunie pentru ca magazinul să rămână activ.";
-  }
-
-  if (arePayoutsRequired(now)) {
-    return "Încasările Stripe Connect sunt obligatorii pentru activarea magazinului.";
-  }
-
-  return null;
+  return "Încasările online nu sunt active. Magazinul poate fi publicat, dar clienții nu vor putea plăti cu cardul până activezi Stripe Connect.";
 }
 
 async function refreshVendorStripeStatus(vendor) {
@@ -608,9 +600,9 @@ router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res)
         },
         payouts: {
           activationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
-          requiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
-          gracePeriod: isPayoutsGracePeriod(now),
-          required: arePayoutsRequired(now),
+          requiredAt: null,
+gracePeriod: false,
+required: false,
           enabled: false,
           status: "not_started",
           warning: null,
@@ -733,9 +725,9 @@ router.get("/me/dashboard", authRequired, vendorAccessRequired, async (req, res)
       },
       payouts: {
         activationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
-        requiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
-        gracePeriod: isPayoutsGracePeriod(now),
-        required: arePayoutsRequired(now),
+        requiredAt: null,
+gracePeriod: false,
+required: false,
         enabled: !!meVendor.stripePayoutsEnabled,
         status: meVendor.stripeConnectStatus || "not_started",
         warning: getPayoutsWarning(meVendor, now),
@@ -1657,21 +1649,6 @@ router.post(
       () => meVendor
     );
 
-    if (arePayoutsRequired(now) && !vendorWithStripe.stripePayoutsEnabled) {
-      return error(res, "stripe_payouts_required", 400, {
-        missing: ["Activarea încasărilor Stripe Connect"],
-        upgradeUrl: "/onboarding/details?tab=incasari&solo=1",
-        payoutsRequired: true,
-        payoutsActivationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
-        payoutsRequiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
-        stripeConnectStatus:
-          vendorWithStripe.stripeConnectStatus || "not_started",
-        stripePayoutsEnabled: !!vendorWithStripe.stripePayoutsEnabled,
-        hint:
-          "Pentru a activa magazinul trebuie să finalizezi activarea încasărilor Stripe Connect.",
-      });
-    }
-
     const billingLocked = isBillingLocked(now);
 
     if (!billingLocked) {
@@ -1779,12 +1756,12 @@ if (!p.logoUrl && !p.coverUrl) missing.push("O imagine (logo/copertă)");
       billingLocked,
       billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
 
-      payoutsGracePeriod: isPayoutsGracePeriod(now),
-      payoutsRequired: arePayoutsRequired(now),
-      payoutsActivationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
-      payoutsRequiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
-      stripePayoutsEnabled: !!vendorWithStripe.stripePayoutsEnabled,
-      payoutsWarning: getPayoutsWarning(vendorWithStripe, now),
+      payoutsGracePeriod: false,
+payoutsRequired: false,
+payoutsActivationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
+payoutsRequiredAt: null,
+stripePayoutsEnabled: !!vendorWithStripe.stripePayoutsEnabled,
+payoutsWarning: getPayoutsWarning(vendorWithStripe, now),
 
       storeName:
         activated.profile?.displayName ||
@@ -2007,15 +1984,15 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
       record: billingRecord || null,
     },
     payouts: {
-      activationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
-      requiredAt: PAYOUTS_REQUIRED_AT.toISOString(),
-      gracePeriod: isPayoutsGracePeriod(now),
-      required: arePayoutsRequired(now),
-      enabled: !!v.stripePayoutsEnabled,
-      status: v.stripeConnectStatus || "not_started",
-      warning: getPayoutsWarning(v, now),
-      ctaUrl: "/onboarding/details?tab=incasari&solo=1",
-    },
+  activationAt: PAYOUTS_ACTIVATION_AT.toISOString(),
+  requiredAt: null,
+  gracePeriod: false,
+  required: false,
+  enabled: !!v.stripePayoutsEnabled,
+  status: v.stripeConnectStatus || "not_started",
+  warning: getPayoutsWarning(v, now),
+  ctaUrl: "/onboarding/details?tab=incasari&solo=1",
+},
   });
 });
 
