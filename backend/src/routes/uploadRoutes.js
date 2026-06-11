@@ -40,9 +40,15 @@ const ALLOWED_IMAGE_MIME_TYPES = [
   "image/png",
   "image/webp",
   "image/gif",
-  "image/heic",
-  "image/heif",
 ];
+
+const ALLOWED_IMAGE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+]);
 
 const ALLOWED_SUPPORT_MIME_TYPES = [
   ...ALLOWED_IMAGE_MIME_TYPES,
@@ -52,11 +58,26 @@ const ALLOWED_SUPPORT_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
+function getFileExtension(name = "") {
+  const match = String(name).toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match ? match[1] : "";
+}
+
+function isAllowedImageFile(file) {
+  const ext = getFileExtension(file.originalname || "");
+
+  return (
+    ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype) &&
+    ALLOWED_IMAGE_EXTENSIONS.has(ext)
+  );
+}
+
 function imageFileFilter(req, file, cb) {
-  if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
+  if (!isAllowedImageFile(file)) {
     console.warn("[UPLOAD] Format imagine respins:", {
       mimetype: file.mimetype,
       originalname: file.originalname,
+      extension: getFileExtension(file.originalname || ""),
     });
 
     return cb(new Error("INVALID_IMAGE_TYPE"));
@@ -86,7 +107,7 @@ const uploadImage = multer({
 
 const uploadProductImages = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 12 * 1024 * 1024 },
   fileFilter: imageFileFilter,
 });
 
@@ -126,7 +147,7 @@ function handleUploadError(err, res, context = "upload") {
         context === "support"
           ? "Fișierul este prea mare (max 10MB)."
           : context === "products"
-          ? "Imaginea este prea mare (max 8MB)."
+          ? "Imaginea este prea mare (max 12MB)."
           : "Fișierul este prea mare (max 5MB).",
     });
   }
@@ -135,7 +156,7 @@ function handleUploadError(err, res, context = "upload") {
     return res.status(415).json({
       error: "invalid_file_type",
       message:
-        "Format invalid. Acceptăm JPG, JPEG, PNG, WEBP, GIF, HEIC sau HEIF.",
+        "Format invalid. Acceptăm JPG, JPEG, PNG, WEBP sau GIF. Dacă ai poză HEIC/HEIF de pe iPhone, te rugăm să o convertești în JPG înainte de upload.",
     });
   }
 
@@ -143,7 +164,7 @@ function handleUploadError(err, res, context = "upload") {
     return res.status(415).json({
       error: "invalid_file_type",
       message:
-        "Format invalid. Acceptăm imagini JPG, PNG, WEBP, GIF, HEIC, HEIF, PDF, TXT, DOC sau DOCX.",
+        "Format invalid. Acceptăm imagini JPG, PNG, WEBP, GIF, PDF, TXT, DOC sau DOCX.",
     });
   }
 
@@ -168,9 +189,25 @@ async function uploadToR2({ file, folder, userId, index = null }) {
     Key: key,
     Body: file.buffer,
     ContentType: mime,
+    CacheControl: "public, max-age=31536000, immutable",
+  });
+
+  console.info("[UPLOAD] Start R2 upload:", {
+    folder,
+    userId,
+    key,
+    mime,
+    size: file.size,
+    originalname: file.originalname,
   });
 
   await r2Client.send(putCommand);
+
+  console.info("[UPLOAD] R2 upload success:", {
+    folder,
+    userId,
+    key,
+  });
 
   return {
     url: buildPublicUrl(key),
@@ -280,6 +317,13 @@ router.post("/products", authRequired, (req, res) => {
 
       return res.json({
         ok: true,
+
+        url: uploaded[0]?.url || null,
+        key: uploaded[0]?.key || null,
+        name: uploaded[0]?.name || null,
+        size: uploaded[0]?.size || null,
+        mimeType: uploaded[0]?.mimeType || null,
+
         items: uploaded,
         urls: uploaded.map((x) => x.url),
       });

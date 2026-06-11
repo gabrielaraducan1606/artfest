@@ -251,6 +251,15 @@ function normalizeTags(value) {
   return [];
 }
 
+function normalizeProductImages(images) {
+  if (!Array.isArray(images)) return [];
+
+  return images
+    .map((s) => String(s || "").trim())
+    .filter((url) => /^https?:\/\//i.test(url))
+    .slice(0, 12);
+}
+
 /* ================= Subscription / plan helpers ================= */
 
 async function getActivePlanForVendor(vendorId) {
@@ -814,7 +823,7 @@ async function createProduct(req, res) {
     }
 
     const priceCents = Math.round(priceNum * 100);
-    const imgs = Array.isArray(images) ? images.slice(0, 12).map((s) => String(s)) : [];
+    const imgs = normalizeProductImages(images);
 
     let cat = null;
     if (category != null && String(category).trim() !== "") {
@@ -844,6 +853,19 @@ async function createProduct(req, res) {
     if (availNorm.error) {
       return res.status(400).json({ error: availNorm.error });
     }
+
+    if (imgs.length === 0) {
+  return res.status(400).json({
+    error: "product_image_required",
+    message: "Adaugă cel puțin o imagine validă.",
+  });
+}
+
+console.info("[PRODUCT CREATE]", {
+  title,
+  imagesReceived: images?.length || 0,
+  imagesSaved: imgs.length,
+});
 
     const created = await prisma.product.create({
       data: {
@@ -931,8 +953,18 @@ async function updateProduct(req, res) {
     }
 
     if (Array.isArray(req.body.images)) {
-      patch.images = req.body.images.slice(0, 12).map((s) => String(s));
-    }
+  patch.images = normalizeProductImages(req.body.images);
+}
+
+if (
+  Array.isArray(req.body.images) &&
+  patch.images.length === 0
+) {
+  return res.status(400).json({
+    error: "product_image_required",
+    message: "Produsul trebuie să aibă cel puțin o imagine validă.",
+  });
+}
 
     if (req.body.category !== undefined) {
       const v = req.body.category;
@@ -1028,6 +1060,12 @@ if (contentFieldsChanged) {
   patch.reviewedByUserId = null;
   patch.approvedAt = null;
 }
+
+console.info("[PRODUCT UPDATE]", {
+  productId: id,
+  imagesReceived: req.body.images?.length || 0,
+  imagesSaved: patch.images?.length ?? product.images?.length ?? 0,
+});
 
     const updated = await prisma.product.update({
       where: { id },

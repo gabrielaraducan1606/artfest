@@ -642,6 +642,7 @@ const [aiImageVariant, setAiImageVariant] = useState(1);
 const [priceSuggestion, setPriceSuggestion] = useState(null);
 const [priceSuggestionLoading, setPriceSuggestionLoading] = useState(false);
 const [priceWarningConfirmed, setPriceWarningConfirmed] = useState(false);
+const [uploadingImages, setUploadingImages] = useState(0);
 
 const draftKey = useMemo(() => {
   return `artfest-product-draft-${storeSlug || "default"}`;
@@ -1324,13 +1325,16 @@ useEffect(() => {
     for (const f of files) {
       const isImage =
         /^image\//i.test(f.type || "") ||
-        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "");
+        /\.(jpe?g|png|webp|gif)$/i.test(f.name || "");
 
       if (!isImage) {
-        alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`);
+        alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP sau GIF.`);
         continue;
       }
-
+if (f.size > 12 * 1024 * 1024) {
+  alert(`Fișierul ${f.name} este prea mare. Maxim 12MB.`);
+  continue;
+}
       const previewUrl = URL.createObjectURL(f);
 
       setForm((s) => ({
@@ -1339,28 +1343,32 @@ useEffect(() => {
       }));
 
       try {
-        const finalUrl = await doUpload(f);
+  setUploadingImages((n) => n + 1);
 
-        setForm((s) => ({
-          ...s,
-          images: (s.images || []).map((img) =>
-            img === previewUrl ? finalUrl : img
-          ),
-        }));
+  const finalUrl = await doUpload(f);
 
-        URL.revokeObjectURL(previewUrl);
-      } catch (er) {
-        console.error(er);
+  setForm((s) => ({
+    ...s,
+    images: (s.images || []).map((img) =>
+      img === previewUrl ? finalUrl : img
+    ),
+  }));
 
-        setForm((s) => ({
-          ...s,
-          images: (s.images || []).filter((img) => img !== previewUrl),
-        }));
+  URL.revokeObjectURL(previewUrl);
+} catch (er) {
+  console.error(er);
 
-        URL.revokeObjectURL(previewUrl);
+  setForm((s) => ({
+    ...s,
+    images: (s.images || []).filter((img) => img !== previewUrl),
+  }));
 
-        alert(er?.message || "Upload eșuat.");
-      }
+  URL.revokeObjectURL(previewUrl);
+
+  alert(er?.message || "Upload eșuat.");
+} finally {
+  setUploadingImages((n) => Math.max(0, n - 1));
+}
     }
   },
   [doUpload, setForm]
@@ -1381,7 +1389,7 @@ const onPasteImages = useCallback(
     const files = Array.from(e.clipboardData?.files || []).filter((f) => {
       return (
         /^image\//i.test(f.type || "") ||
-        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "")
+        /\.(jpe?g|png|webp|gif)$/i.test(f.name || "")
       );
     });
 
@@ -1474,11 +1482,36 @@ useEffect(() => {
   if (!open || editingProduct) return;
 
   try {
-    localStorage.setItem(draftKey, JSON.stringify(form));
+    const safeForm = {
+  ...form,
+  images: (form.images || []).filter((img) =>
+    /^https?:\/\//i.test(String(img))
+  ),
+};
+
+localStorage.setItem(draftKey, JSON.stringify(safeForm));
   } catch (err) {
     console.warn("Nu am putut salva draftul produsului.", err);
   }
 }, [open, editingProduct, draftKey, form]);
+
+const handleSubmit = useCallback(
+  (e) => {
+    if (uploadingImages > 0) {
+      e.preventDefault();
+      alert("Te rog așteaptă să se termine încărcarea pozelor.");
+      return;
+    }
+
+    if (hasPriceWarning && !priceWarningConfirmed) {
+      e.preventDefault();
+      return;
+    }
+
+    onSave(e);
+  },
+  [uploadingImages, hasPriceWarning, priceWarningConfirmed, onSave]
+);
 
 return (
     <Modal
@@ -1503,7 +1536,7 @@ return (
       </div>
 
       <div className={styles.modalBody}>
-        <form onSubmit={onSave} className={styles.formGrid}>
+        <form onSubmit={handleSubmit} className={styles.formGrid}>
           <AccordionSection
             id="images"
             title="Începe cu poza produsului"
@@ -1575,7 +1608,7 @@ return (
                 <input
   id="product-camera-input"
   type="file"
-  accept="image/*"
+  accept="image/jpeg,image/png,image/webp,image/gif"
   capture="environment"
   className={styles.fileInputHidden}
   onChange={async (e) => {
@@ -1588,7 +1621,7 @@ return (
 <input
   id="product-gallery-input"
   type="file"
-  accept="image/*"
+  accept="image/jpeg,image/png,image/webp,image/gif"
   multiple
   className={styles.fileInputHidden}
   onChange={async (e) => {
@@ -2530,9 +2563,17 @@ readyQty: 1,
     flex: "1 1 120px",
   }}
   type="submit"
-  disabled={saving || (hasPriceWarning && !priceWarningConfirmed)}
+  disabled={
+  saving ||
+  uploadingImages > 0 ||
+  (hasPriceWarning && !priceWarningConfirmed)
+}
 >
-              {saving ? "Se salvează…" : "Salvează"}
+              {uploadingImages > 0
+  ? "Se încarcă pozele…"
+  : saving
+  ? "Se salvează…"
+  : "Salvează"}
             </button>
           </div>
         </form>
