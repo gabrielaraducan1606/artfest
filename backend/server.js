@@ -95,7 +95,6 @@ import aiRoutes from "./src/routes/aiRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
-import { deactivateStoresWithoutPayouts } from "./src/jobs/deactivateStoresWithoutPayouts.js";
 // Încarcă .env DOAR în development
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override
@@ -565,9 +564,6 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.error("followUpNotificationJob (startup) failed:", err)
 );
 
-deactivateStoresWithoutPayouts().catch((err) =>
-  console.error("deactivateStoresWithoutPayouts (startup) failed:", err)
-);
 
 const intervalMs = 10 * 60 * 1000;
 
@@ -577,17 +573,6 @@ setInterval(() => {
   );
 }, intervalMs);
 
-/*
-  verificăm magazinele fără Stripe payouts
-  o dată pe zi
-*/
-const payoutsIntervalMs = 24 * 60 * 60 * 1000;
-
-setInterval(() => {
-  deactivateStoresWithoutPayouts().catch((err) =>
-    console.error("deactivateStoresWithoutPayouts (interval) failed:", err)
-  );
-}, payoutsIntervalMs);
 });
 
 /* ---------------- ENV REQUIRED ---------------- */
@@ -604,8 +589,6 @@ must("JWT_SECRET");
 must("ADMIN_MONITOR_TOKEN");
 
 must("STRIPE_SECRET_KEY");
-must("PAYOUTS_REQUIRED_AT");
-must("PAYOUTS_ACTIVATION_AT");
 
 must("STRIPE_WEBHOOK_SECRET");
 must("APP_ORIGIN");

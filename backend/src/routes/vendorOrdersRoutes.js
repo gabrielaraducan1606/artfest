@@ -682,6 +682,30 @@ const where = {
     getActivePlanForVendor(vendorId).catch(() => null),
   ]);
 
+    const productIdSet = new Set();
+
+  for (const s of rows) {
+    for (const it of s.items || []) {
+      if (it.productId) productIdSet.add(it.productId);
+    }
+  }
+
+  let imageMap = new Map();
+
+  if (productIdSet.size) {
+    const products = await prisma.product.findMany({
+      where: { id: { in: Array.from(productIdSet) } },
+      select: { id: true, images: true },
+    });
+
+    imageMap = new Map(
+      products.map((p) => [
+        p.id,
+        Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
+      ])
+    );
+  }
+
   const vatStatus = billing?.vatStatus || null;
   const vatRate = vatStatus === "payer" ? Number(billing?.vatRate || 0) : 0;
 
@@ -736,13 +760,14 @@ const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
       serviceSlug: s.service?.profile?.slug || null,
       status: shipmentToUiStatus(s.status),
       total: shipmentTotal,
-      items: (s.items || []).map((it) => ({
-  id: it.id,
-  productId: it.productId,
-  title: it.title,
-  qty: it.qty,
-  price: Number(it.price || 0),
-})),
+            items: (s.items || []).map((it) => ({
+        id: it.id,
+        productId: it.productId,
+        title: it.title,
+        qty: it.qty,
+        price: Number(it.price || 0),
+        image: it.productId ? imageMap.get(it.productId) || null : null,
+      })),
       shipmentId: s.id,
       shipmentStatus: s.status,
       courierProvider: s.courierProvider || null,
@@ -970,6 +995,28 @@ const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
     baseCommissionBps,
   };
 
+    const productIdSet = new Set();
+
+  for (const it of s.items || []) {
+    if (it.productId) productIdSet.add(it.productId);
+  }
+
+  let imageMap = new Map();
+
+  if (productIdSet.size) {
+    const products = await prisma.product.findMany({
+      where: { id: { in: Array.from(productIdSet) } },
+      select: { id: true, images: true },
+    });
+
+    imageMap = new Map(
+      products.map((p) => [
+        p.id,
+        Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
+      ])
+    );
+  }
+
   const messageThreads = o.messageThreads || [];
 
   res.json({
@@ -1004,13 +1051,14 @@ const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
     cancelReasonNote: s.cancelReasonNote || null,
     shippingAddress: addr,
     customerType,
-   items: s.items.map((it) => ({
-  id: it.id,
-  productId: it.productId,
-  title: it.title,
-  qty: it.qty,
-  price: Number(it.price || 0),
-})),
+       items: (s.items || []).map((it) => ({
+      id: it.id,
+      productId: it.productId,
+      title: it.title,
+      qty: it.qty,
+      price: Number(it.price || 0),
+      image: it.productId ? imageMap.get(it.productId) || null : null,
+    })),
     vendorNotes: o.vendorNotes || "",
     paymentMethod: o.paymentMethod || null,
     shipment: {

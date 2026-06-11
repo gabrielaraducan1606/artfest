@@ -69,18 +69,6 @@ const PAYOUTS_ACTIVATION_AT = new Date(
   process.env.PAYOUTS_ACTIVATION_AT || "2026-05-17T00:00:00.000Z"
 );
 
-const PAYOUTS_REQUIRED_AT = new Date(
-  process.env.PAYOUTS_REQUIRED_AT || "2026-06-01T00:00:00.000Z"
-);
-
-function isPayoutsGracePeriod(now = new Date()) {
-  return now >= PAYOUTS_ACTIVATION_AT && now < PAYOUTS_REQUIRED_AT;
-}
-
-function arePayoutsRequired(now = new Date()) {
-  return now >= PAYOUTS_REQUIRED_AT;
-}
-
 function getPayoutsWarning(vendor, now = new Date()) {
   if (!vendor) return null;
   if (vendor.stripePayoutsEnabled) return null;

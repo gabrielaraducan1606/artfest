@@ -68,6 +68,7 @@ export default function OrderDetailsPage() {
   const [invoiceOrder, setInvoiceOrder] = useState(null);
   const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
   const [cancelOrder, setCancelOrder] = useState(null);
+const [imagePreview, setImagePreview] = useState(null);
 
   // 🔹 mesaje
   const [startingMessage, setStartingMessage] = useState(false);
@@ -512,15 +513,43 @@ export default function OrderDetailsPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((it) => (
-                <tr key={it.id}>
-                  <td>{it.title}</td>
-                  <td>{it.qty}</td>
-                  <td>{formatMoney(it.price)}</td>
-                  <td>{formatMoney(Number(it.price) * Number(it.qty))}</td>
-                </tr>
-              ))}
-            </tbody>
+  {items.map((it) => (
+    <tr key={it.id}>
+      <td>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          {it.image && (
+           <img
+  src={it.image}
+  alt={it.title}
+  onClick={() => setImagePreview(it.image)}
+  style={{
+    width: 60,
+    height: 60,
+    objectFit: "cover",
+    borderRadius: 8,
+    border: "1px solid #e5e7eb",
+    flexShrink: 0,
+    cursor: "zoom-in",
+  }}
+/>
+          )}
+
+          <div>{it.title}</div>
+        </div>
+      </td>
+
+      <td>{it.qty}</td>
+      <td>{formatMoney(it.price)}</td>
+      <td>{formatMoney(Number(it.price) * Number(it.qty))}</td>
+    </tr>
+  ))}
+</tbody>
           </table>
         </div>
 
@@ -664,6 +693,34 @@ export default function OrderDetailsPage() {
             setCancelOrder(null);
           }}
         />
+      )}
+            {imagePreview && (
+        <div
+          onClick={() => setImagePreview(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.9)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+            cursor: "zoom-out",
+          }}
+        >
+          <img
+            src={imagePreview}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: "95vw",
+              maxHeight: "95vh",
+              objectFit: "contain",
+              borderRadius: 12,
+            }}
+          />
+        </div>
       )}
     </main>
   );

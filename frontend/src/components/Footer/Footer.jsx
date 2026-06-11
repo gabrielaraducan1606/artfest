@@ -28,6 +28,9 @@ function absLegalUrl(pathname) {
     "/legal/products_addendum.html": "/anexa-produse",
   };
 
+  return map[rel] || rel;
+}
+
   const normalized = map[rel] || rel;
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
