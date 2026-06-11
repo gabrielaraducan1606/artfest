@@ -30,14 +30,6 @@ function absLegalUrl(pathname) {
 
   return map[rel] || rel;
 }
-
-  const normalized = map[rel] || rel;
-  const base = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-
-  if (base) return `${base}${normalized}`;
-  return normalized;
-}
-
 function getApiBase() {
   return (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 }
