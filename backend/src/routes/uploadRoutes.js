@@ -2,6 +2,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import sharp from "sharp";
 import { authRequired } from "../api/auth.js";
 
 const router = Router();
@@ -40,6 +41,8 @@ const ALLOWED_IMAGE_MIME_TYPES = [
   "image/png",
   "image/webp",
   "image/gif",
+  "image/heic",
+  "image/heif",
 ];
 
 const ALLOWED_IMAGE_EXTENSIONS = new Set([
@@ -48,6 +51,8 @@ const ALLOWED_IMAGE_EXTENSIONS = new Set([
   "png",
   "webp",
   "gif",
+  "heic",
+  "heif",
 ]);
 
 const ALLOWED_SUPPORT_MIME_TYPES = [
@@ -107,7 +112,7 @@ const uploadImage = multer({
 
 const uploadProductImages = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 12 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: imageFileFilter,
 });
 
@@ -147,7 +152,7 @@ function handleUploadError(err, res, context = "upload") {
         context === "support"
           ? "Fișierul este prea mare (max 10MB)."
           : context === "products"
-          ? "Imaginea este prea mare (max 12MB)."
+         ? "Imaginea este prea mare (max 25MB)."
           : "Fișierul este prea mare (max 5MB).",
     });
   }
@@ -156,7 +161,7 @@ function handleUploadError(err, res, context = "upload") {
     return res.status(415).json({
       error: "invalid_file_type",
       message:
-        "Format invalid. Acceptăm JPG, JPEG, PNG, WEBP sau GIF. Dacă ai poză HEIC/HEIF de pe iPhone, te rugăm să o convertești în JPG înainte de upload.",
+       "Format invalid. Acceptăm JPG, JPEG, PNG, WEBP, GIF, HEIC sau HEIF.",
     });
   }
 
@@ -164,7 +169,7 @@ function handleUploadError(err, res, context = "upload") {
     return res.status(415).json({
       error: "invalid_file_type",
       message:
-        "Format invalid. Acceptăm imagini JPG, PNG, WEBP, GIF, PDF, TXT, DOC sau DOCX.",
+        "Format invalid. Acceptăm imagini JPG, PNG, WEBP, GIF, HEIC, HEIF, PDF, TXT, DOC sau DOCX.",
     });
   }
 
@@ -177,17 +182,43 @@ function handleUploadError(err, res, context = "upload") {
 }
 
 async function uploadToR2({ file, folder, userId, index = null }) {
-  const mime = file.mimetype || "application/octet-stream";
-  const safeOriginalName = sanitizeFileName(file.originalname || "file");
-  const timestamp = Date.now();
+  const originalMime = file.mimetype || "application/octet-stream";
+  const originalName = file.originalname || "file";
+  const originalExt = getFileExtension(originalName);
 
-  const indexPart = index === null || index === undefined ? "" : `${index}-`;
+  const isHeic =
+    originalMime === "image/heic" ||
+    originalMime === "image/heif" ||
+    originalExt === "heic" ||
+    originalExt === "heif";
+
+  let body = file.buffer;
+  let mime = originalMime;
+  let safeOriginalName = sanitizeFileName(originalName);
+
+  if (isHeic) {
+    body = await sharp(file.buffer)
+      .rotate()
+      .jpeg({ quality: 88 })
+      .toBuffer();
+
+    mime = "image/jpeg";
+
+    safeOriginalName = sanitizeFileName(
+      originalName.replace(/\.(heic|heif)$/i, ".jpg")
+    );
+  }
+
+  const timestamp = Date.now();
+  const indexPart =
+    index === null || index === undefined ? "" : `${index}-`;
+
   const key = `${folder}/${userId}/${timestamp}-${indexPart}${safeOriginalName}`;
 
   const putCommand = new PutObjectCommand({
     Bucket: R2_BUCKET_NAME,
     Key: key,
-    Body: file.buffer,
+    Body: body,
     ContentType: mime,
     CacheControl: "public, max-age=31536000, immutable",
   });
@@ -196,9 +227,12 @@ async function uploadToR2({ file, folder, userId, index = null }) {
     folder,
     userId,
     key,
-    mime,
-    size: file.size,
+    originalMime,
+    finalMime: mime,
+    originalSize: file.size,
+    finalSize: body.length,
     originalname: file.originalname,
+    convertedFromHeic: isHeic,
   });
 
   await r2Client.send(putCommand);
@@ -212,12 +246,11 @@ async function uploadToR2({ file, folder, userId, index = null }) {
   return {
     url: buildPublicUrl(key),
     key,
-    name: file.originalname || safeOriginalName,
-    size: file.size || null,
+    name: safeOriginalName,
+    size: body.length,
     mimeType: mime,
   };
 }
-
 /**
  * POST /api/upload
  * Pentru avatar / imagine simplă

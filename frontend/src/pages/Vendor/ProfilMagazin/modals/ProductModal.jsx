@@ -863,19 +863,23 @@ useEffect(() => {
       }));
      } else {
   setForm((s) => ({
-    ...s,
-    acceptsCustom: null,
-    availability: s.availability || "READY",
-    readyQty: s.readyQty ?? 1,
-  }));
+  ...s,
+  acceptsCustom: null,
+  availability: "",
+  readyQty: "",
+  leadTimeDays: "",
+  nextShipDate: "",
+}));
 }
   } catch {
   setForm((s) => ({
-    ...s,
-    acceptsCustom: null,
-    availability: s.availability || "READY",
-    readyQty: s.readyQty ?? 1,
-  }));
+  ...s,
+  acceptsCustom: null,
+  availability: "",
+  readyQty: "",
+  leadTimeDays: "",
+  nextShipDate: "",
+}));
 }
 }
 }, [open, editingProduct, setForm, draftKey]);
@@ -1325,14 +1329,14 @@ useEffect(() => {
     for (const f of files) {
       const isImage =
         /^image\//i.test(f.type || "") ||
-        /\.(jpe?g|png|webp|gif)$/i.test(f.name || "");
+        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "");
 
       if (!isImage) {
-        alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP sau GIF.`);
+        alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`);
         continue;
       }
-if (f.size > 12 * 1024 * 1024) {
-  alert(`Fișierul ${f.name} este prea mare. Maxim 12MB.`);
+if (f.size > 25 * 1024 * 1024) {
+  alert(`Fișierul ${f.name} este prea mare. Maxim 25MB.`);
   continue;
 }
       const previewUrl = URL.createObjectURL(f);
@@ -1389,7 +1393,7 @@ const onPasteImages = useCallback(
     const files = Array.from(e.clipboardData?.files || []).filter((f) => {
       return (
         /^image\//i.test(f.type || "") ||
-        /\.(jpe?g|png|webp|gif)$/i.test(f.name || "")
+        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "")
       );
     });
 
@@ -1450,7 +1454,10 @@ const sectionStatus = {
     form.acceptsCustom === true ||
     form.acceptsCustom === false,
   availability:
-    form.availability === "READY" ||
+    (form.availability === "READY" &&
+      form.readyQty !== "" &&
+      form.readyQty !== null &&
+      Number(form.readyQty) > 0) ||
     form.availability === "SOLD_OUT" ||
     (form.availability === "MADE_TO_ORDER" &&
       Number(form.leadTimeDays) > 0) ||
@@ -1496,21 +1503,69 @@ localStorage.setItem(draftKey, JSON.stringify(safeForm));
 }, [open, editingProduct, draftKey, form]);
 
 const handleSubmit = useCallback(
-  (e) => {
+  async (e) => {
+    e.preventDefault();
+
     if (uploadingImages > 0) {
-      e.preventDefault();
       alert("Te rog așteaptă să se termine încărcarea pozelor.");
       return;
     }
 
     if (hasPriceWarning && !priceWarningConfirmed) {
-      e.preventDefault();
       return;
     }
 
-    onSave(e);
+    try {
+      await onSave(e);
+
+      if (!editingProduct) {
+        localStorage.removeItem(draftKey);
+        setAiImagePreview("");
+setAiImageVariant(1);
+setPriceSuggestion(null);
+setPriceWarningConfirmed(false);
+setForm((s) => ({
+  ...s,
+  title: "",
+  description: "",
+  price: "",
+  images: [],
+  category: "",
+  color: "",
+  materialMain: "",
+  technique: "",
+  styleTags: "",
+  occasionTags: "",
+  dimensions: "",
+  careInstructions: "",
+  specialNotes: "",
+  acceptsCustom: null,
+  availability: "",
+  readyQty: "",
+  leadTimeDays: "",
+  nextShipDate: "",
+}));
+setOpenSections({
+  images: true,
+  basic: false,
+  details: false,
+  category: false,
+  availability: false,
+  customization: false,
+});
+      }
+    } catch (err) {
+      console.error(err);
+    }
   },
-  [uploadingImages, hasPriceWarning, priceWarningConfirmed, onSave]
+  [
+    uploadingImages,
+    hasPriceWarning,
+    priceWarningConfirmed,
+    onSave,
+    editingProduct,
+    draftKey, setForm
+  ]
 );
 
 return (
@@ -1608,7 +1663,7 @@ return (
                 <input
   id="product-camera-input"
   type="file"
-  accept="image/jpeg,image/png,image/webp,image/gif"
+  accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
   capture="environment"
   className={styles.fileInputHidden}
   onChange={async (e) => {
@@ -1621,7 +1676,7 @@ return (
 <input
   id="product-gallery-input"
   type="file"
-  accept="image/jpeg,image/png,image/webp,image/gif"
+  accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
   multiple
   className={styles.fileInputHidden}
   onChange={async (e) => {
@@ -2397,18 +2452,20 @@ return (
               Disponibilitate
             </label>
             <select
-              id="product-availability"
-              className={styles.input}
-              value={form.availability || "READY"}
-              onChange={updateField("availability")}
-            >
-              <option value="READY">Gata de livrare</option>
-              <option value="MADE_TO_ORDER">La comandă</option>
-              <option value="PREORDER">Precomandă</option>
-              <option value="SOLD_OUT">Epuizat</option>
-            </select>
+  id="product-availability"
+  className={styles.input}
+  value={form.availability || ""}
+  onChange={updateField("availability")}
+  required
+>
+  <option value="">Selectează disponibilitatea</option>
+  <option value="READY">Gata de livrare</option>
+  <option value="MADE_TO_ORDER">La comandă</option>
+  <option value="PREORDER">Precomandă</option>
+  <option value="SOLD_OUT">Epuizat</option>
+</select>
 
-            {(form.availability || "READY") === "READY" && (
+            {form.availability === "READY" && (
               <>
                 <label
                   className={styles.label}

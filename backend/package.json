@@ -68,7 +68,7 @@
     "puppeteer": "^24.34.0",
     "resend": "^6.6.0",
     "response-time": "^2.3.4",
-    "sharp": "^0.34.4",
+    "sharp": "^0.34.5",
     "slugify": "^1.6.6",
     "socket.io": "^4.8.1",
     "stripe": "^19.3.1",
