@@ -943,26 +943,69 @@ const loadAll = useCallback(async () => {
 
   const displayPriceForLd = displayPrice ?? undefined;
 
-  const jsonLd = useMemo(
-    () => ({
-      "@context": "https://schema.org",
-      "@type": "Product",
-      name: product?.title || "",
-      description: product?.description || "",
-      image: imagesForLd,
-      brand:
-        product?.vendor?.displayName ||
-        product?.service?.profile?.displayName ||
-        "",
-      offers: {
-        "@type": "Offer",
-        priceCurrency: product?.currency || "RON",
-        price: displayPriceForLd,
-        availability: schemaAvailability,
-      },
-    }),
-    [product, imagesForLd, displayPriceForLd, schemaAvailability]
-  );
+  const storeName =
+  product?.service?.profile?.displayName ||
+  product?.vendor?.displayName ||
+  "Artfest";
+
+const productUrl =
+  typeof window !== "undefined"
+    ? window.location.href
+    : `https://artfest.ro/produs/${product?.id}`;
+
+  const jsonLd = useMemo(() => {
+  const data = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "@id": productUrl,
+
+    name: product?.title || "",
+    description: product?.description || "",
+    image: imagesForLd,
+
+    sku: product?.id,
+
+    brand: {
+      "@type": "Brand",
+      name: storeName,
+    },
+
+    seller: {
+      "@type": "Organization",
+      name: storeName,
+    },
+
+    offers: {
+      "@type": "Offer",
+      url: productUrl,
+      priceCurrency: product?.currency || "RON",
+      price:
+        displayPriceForLd !== undefined
+          ? String(displayPriceForLd)
+          : undefined,
+      availability: schemaAvailability,
+      itemCondition: "https://schema.org/NewCondition",
+    },
+  };
+
+  if (avg?.count > 0) {
+    data.aggregateRating = {
+      "@type": "AggregateRating",
+      ratingValue: Number(avg.average).toFixed(1),
+      reviewCount: avg.count,
+    };
+  }
+
+  return data;
+}, [
+  product,
+  productUrl,
+  imagesForLd,
+  displayPriceForLd,
+  schemaAvailability,
+  storeName,
+  avg,
+]);
 
   const onTouchStart = useCallback((e) => {
     if (!e.touches || e.touches.length === 0) return;
