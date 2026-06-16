@@ -936,7 +936,7 @@ export default function HeroSection() {
                   className={styles.btnIcon}
                   aria-hidden="true"
                 />
-                <span>Începe organizarea</span>
+                <span>Organizare</span>
               </Link>
 
               <Link
@@ -948,7 +948,7 @@ export default function HeroSection() {
                   className={styles.btnIcon}
                   aria-hidden="true"
                 />
-                <span>Descoperă colecțiile</span>
+                <span>Colecții</span>
               </Link>
             </div>
 
