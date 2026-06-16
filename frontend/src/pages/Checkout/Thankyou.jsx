@@ -23,11 +23,13 @@ export default function ThankYou() {
   });
 
   const [loading, setLoading] = React.useState(false);
+  const purchaseTrackedRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!orderId) return;
+    if (purchaseTrackedRef.current) return;
 
-    if (displayNo) return;
+    purchaseTrackedRef.current = true;
 
     let cancelled = false;
     setLoading(true);
@@ -36,24 +38,24 @@ export default function ThankYou() {
       try {
         const data = await api(`/api/user/orders/${orderId}`);
 
+        const total = Number(data?.total || data?.totalPrice || 0);
+        const currency = data?.currency || "RON";
+        const orderNumber = data?.orderNumber || orderNoFromUrl || orderId;
+
         trackPurchase({
           id: orderId,
-          total: data?.total || data?.totalPrice || 0,
-          currency: data?.currency || "RON",
+          total,
+          currency,
         });
 
-        const no = data?.orderNumber || null;
-
         if (!cancelled) {
-          if (no) {
-            setDisplayNo(no);
-            sessionStorage.setItem(`orderNo:${orderId}`, no);
-          } else {
-            setDisplayNo(orderId);
-          }
+          setDisplayNo(orderNumber);
+          sessionStorage.setItem(`orderNo:${orderId}`, orderNumber);
         }
       } catch {
-        if (!cancelled) setDisplayNo(orderId);
+        if (!cancelled) {
+          setDisplayNo(orderNoFromUrl || orderId);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -62,7 +64,7 @@ export default function ThankYou() {
     return () => {
       cancelled = true;
     };
-  }, [orderId, displayNo]);
+  }, [orderId, orderNoFromUrl]);
 
   const shownNo = loading ? "..." : displayNo || orderId || "-";
 
@@ -101,6 +103,7 @@ export default function ThankYou() {
           <Link to="/comenzile-mele" className={styles.primaryBtn}>
             Vezi comanda
           </Link>
+
           <Link to="/produse" className={styles.secondaryBtn}>
             Continuă cumpărăturile
           </Link>
