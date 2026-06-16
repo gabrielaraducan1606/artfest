@@ -1128,23 +1128,31 @@ if (
       console.error("Eroare la trimiterea emailului de confirmare:", err);
     }
 
-    if (pm === "COD") {
-      return res.json({
-        ok: true,
-        orderId: created.id,
-        orderNumber: created.orderNumber,
-      });
-    }
+   if (pm === "COD") {
+  return res.json({
+    ok: true,
+    orderId: created.id,
+    orderNumber: created.orderNumber,
+    total: Number(created.total),
+    subtotal: Number(created.subtotal),
+    shippingTotal: Number(created.shippingTotal),
+    currency: created.currency || "RON",
+  });
+}
 
     try {
       const payment = await createPaymentForOrder(created);
 
       return res.json({
-        ok: true,
-        orderId: created.id,
-        orderNumber: created.orderNumber,
-        payment,
-      });
+  ok: true,
+  orderId: created.id,
+  orderNumber: created.orderNumber,
+  total: Number(created.total),
+  subtotal: Number(created.subtotal),
+  shippingTotal: Number(created.shippingTotal),
+  currency: created.currency || "RON",
+  payment,
+});
     } catch (err) {
       console.error("Eroare la inițierea plății pentru comandă:", err);
 
