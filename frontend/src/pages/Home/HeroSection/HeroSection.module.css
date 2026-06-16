@@ -915,3 +915,81 @@
     gap: 0.35rem;
   }
 }
+
+.servicePills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.servicePill {
+  text-decoration: none;
+  color: var(--color-primary);
+  font-weight: 700;
+
+  background: color-mix(
+    in oklab,
+    var(--color-primary) 8%,
+    white
+  );
+
+  border: 1px solid color-mix(
+    in oklab,
+    var(--color-primary) 20%,
+    var(--color-border)
+  );
+
+  padding: 0.4rem 0.7rem;
+  border-radius: 9999px;
+}
+
+.servicePill:hover {
+  background: color-mix(
+    in oklab,
+    var(--color-primary) 15%,
+    white
+  );
+}
+
+.quickServices {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.quickServices::-webkit-scrollbar {
+  display: none;
+}
+
+.quickService {
+  flex-shrink: 0;
+
+  padding: 0.38rem 0.65rem;
+  border-radius: 999px;
+
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1;
+
+  white-space: nowrap;
+
+  text-decoration: none;
+
+  background: color-mix(
+    in oklab,
+    var(--color-primary) 8%,
+    white
+  );
+
+  border: 1px solid
+    color-mix(
+      in oklab,
+      var(--color-primary) 20%,
+      var(--color-border)
+    );
+
+  color: var(--color-primary);
+}

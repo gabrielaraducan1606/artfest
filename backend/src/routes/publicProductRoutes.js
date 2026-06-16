@@ -167,13 +167,16 @@ occasionTags: true,
       profile: {
         select: {
           displayName: true,
-          slug: true,
+slug: true,
+logoUrl: true,
         },
       },
       vendor: {
   select: {
-    userId: true,
-    displayName: true,
+    id: true,
+userId: true,
+displayName: true,
+logoUrl: true,
 
     subscriptions: {
       where: {
@@ -203,6 +206,11 @@ occasionTags: true,
 },
     },
   },
+  _count: {
+  select: {
+    Favorite: true,
+  },
+},
 };
 
 function expandTokenForSearch(t) {
@@ -268,7 +276,16 @@ function shortText(s, max = 140) {
   return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
 }
 
-function mapPublicProduct(p, promoCollection = null) {
+function getViewerId(req) {
+  return (
+    req.user?.sub ||
+    req.user?.id ||
+    req.auth?.userId ||
+    req.session?.user?.id ||
+    null
+  );
+}
+function mapPublicProduct(p, promoCollection = null, viewerState = null) {
   const storeName =
     p?.service?.profile?.displayName ||
     p?.service?.vendor?.displayName ||
@@ -276,8 +293,12 @@ function mapPublicProduct(p, promoCollection = null) {
 
   const storeSlug = p?.service?.profile?.slug || null;
 
-  const promo = getPromoPrice(p.priceCents, promoCollection);
+  const storeLogo =
+    p?.service?.profile?.logoUrl ||
+    p?.service?.vendor?.logoUrl ||
+    null;
 
+  const promo = getPromoPrice(p.priceCents, promoCollection);
   const unitPrice =
     promo.finalPriceCents != null ? promo.finalPriceCents / 100 : 0;
 
@@ -290,19 +311,15 @@ function mapPublicProduct(p, promoCollection = null) {
     id: p.id,
     title: p.title,
     images: Array.isArray(p.images) ? p.images : [],
-
     priceCents: promo.finalPriceCents ?? 0,
     price: unitPrice,
-
     originalPriceCents: promo.hasDiscount ? promo.originalPriceCents : null,
     originalPrice: promo.hasDiscount ? promo.originalPriceCents / 100 : null,
-
     hasDiscount: promo.hasDiscount,
     discountPercent: promo.discountPercent,
     promoLabel: promo.promoLabel,
     promoFundingSource: promo.promoFundingSource,
     promoCollectionId: promo.promoCollectionId,
-
     currency: p.currency || "RON",
 
     isActive: p.isActive,
@@ -310,6 +327,10 @@ function mapPublicProduct(p, promoCollection = null) {
     moderationStatus: p.moderationStatus || "PENDING",
     category: p.category || null,
     color: p.color || null,
+    createdAt: p.createdAt,
+
+    favoriteCount: p?._count?.Favorite || 0,
+    viewerFavorited: !!viewerState?.favorited,
 
     availability:
       typeof p.availability === "string" ? p.availability.toUpperCase() : null,
@@ -325,12 +346,15 @@ function mapPublicProduct(p, promoCollection = null) {
             ? {
                 displayName: p.service.profile.displayName,
                 slug: p.service.profile.slug,
+                logoUrl: p.service.profile.logoUrl,
               }
             : null,
           vendor: p.service.vendor
             ? {
+                id: p.service.vendor.id,
                 userId: p.service.vendor.userId,
                 displayName: p.service.vendor.displayName,
+                logoUrl: p.service.vendor.logoUrl,
               }
             : null,
         }
@@ -338,6 +362,7 @@ function mapPublicProduct(p, promoCollection = null) {
 
     storeName,
     storeSlug,
+    storeLogo,
     sellerPlan,
     promotionRank,
     isPromoted: sellerPlan === "premium" || sellerPlan === "pro",
@@ -1229,115 +1254,359 @@ function uniqueById(products = []) {
   return Array.from(map.values());
 }
 
+router.get("/products/feed", async (req, res, next) => {
+  try {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.min(30, Math.max(1, parseInt(req.query.limit || "8", 10)));
+    const skip = (page - 1) * limit;
+    const takePlus = limit + 1;
+
+    const viewerId = getViewerId(req);
+
+    const rows = await prisma.product.findMany({
+      where: {
+        isActive: true,
+        isHidden: false,
+        moderationStatus: "APPROVED",
+        service: {
+          is: {
+            isActive: true,
+            status: "ACTIVE",
+            vendor: { is: { isActive: true } },
+            type: { is: { code: "products" } },
+          },
+        },
+      },
+      skip,
+      take: takePlus,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: baseProductSelect,
+    });
+
+    const hasMore = rows.length > limit;
+    const slice = hasMore ? rows.slice(0, limit) : rows;
+
+    const promoByProductId = await getActiveCollectionPromosForProducts(slice);
+
+    let favoriteIds = new Set();
+
+    if (viewerId && slice.length) {
+      const ids = slice.map((p) => p.id);
+
+      const favorites = await prisma.favorite.findMany({
+        where: {
+          userId: viewerId,
+          productId: { in: ids },
+        },
+        select: { productId: true },
+      });
+
+      favoriteIds = new Set(favorites.map((x) => x.productId));
+    }
+
+    const items = slice.map((product) =>
+      mapPublicProduct(product, promoByProductId.get(product.id) || null, {
+        favorited: favoriteIds.has(product.id),
+      })
+    );
+
+    res.json({
+      items,
+      page,
+      limit,
+      hasMore,
+    });
+  } catch (e) {
+    console.error("ERROR /api/public/products/feed", e);
+    next(e);
+  }
+});
+
+router.post("/products/:id/favorite", async (req, res, next) => {
+  try {
+    const userId = getViewerId(req);
+    const productId = String(req.params.id || "").trim();
+
+    if (!userId) {
+      return res.status(401).json({
+        error: "AUTH_REQUIRED",
+        message: "Trebuie să fii autentificat pentru a salva produsul la favorite.",
+      });
+    }
+
+    const product = await prisma.product.findFirst({
+      where: {
+        id: productId,
+        isActive: true,
+        isHidden: false,
+        moderationStatus: "APPROVED",
+      },
+      select: {
+  id: true,
+  service: {
+    select: {
+      vendor: {
+        select: {
+          userId: true,
+        },
+      },
+    },
+  },
+},
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: "PRODUCT_NOT_FOUND" });
+    }
+
+    const ownerUserId = product?.service?.vendor?.userId;
+
+if (ownerUserId && ownerUserId === userId) {
+  return res.status(403).json({
+    error: "CANNOT_FAVORITE_OWN_PRODUCT",
+    message: "Nu poți adăuga propriul produs la favorite.",
+  });
+}
+
+    const existing = await prisma.favorite.findUnique({
+      where: {
+        userId_productId: {
+          userId,
+          productId,
+        },
+      },
+    });
+
+    let favorited = false;
+
+    if (existing) {
+      await prisma.favorite.delete({
+        where: {
+          userId_productId: {
+            userId,
+            productId,
+          },
+        },
+      });
+    } else {
+      await prisma.favorite.create({
+        data: {
+          userId,
+          productId,
+        },
+      });
+
+      favorited = true;
+    }
+
+    const favoriteCount = await prisma.favorite.count({
+      where: { productId },
+    });
+
+  if (favorited) {
+  await prisma.product.update({
+    where: { id: productId },
+    data: {
+      popularityScore: {
+        increment: 3,
+      },
+    },
+  });
+}
+
+    res.json({
+      ok: true,
+      favorited,
+      favoriteCount,
+    });
+  } catch (e) {
+    console.error("ERROR /api/public/products/:id/favorite", e);
+    next(e);
+  }
+});
+
 /* -----------------------------------------
-   DETALII PRODUS (aici rămâne full)
+   DETALII PRODUS
 ------------------------------------------*/
 router.get("/products/:id", async (req, res, next) => {
   try {
     const id = String(req.params.id || "").trim();
     if (!id) return res.status(400).json({ error: "invalid_id" });
 
-    const p = await prisma.product.findUnique({
-      where: { id },
-      include: {
+    const p = await prisma.product.findFirst({
+      where: {
+        id,
+        isActive: true,
+        isHidden: false,
+        moderationStatus: "APPROVED",
         service: {
-          include: {
-            type: true,
-            vendor: { include: { billing: true } },
-            profile: true,
-          },
-        },
-        reviews: {
-          include: {
-            user: {
-              select: { id: true, firstName: true, lastName: true, name: true },
+          is: {
+            isActive: true,
+            status: "ACTIVE",
+            vendor: {
+              is: { isActive: true },
+            },
+            type: {
+              is: { code: "products" },
             },
           },
-          orderBy: { createdAt: "desc" },
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        priceCents: true,
+        currency: true,
+        images: true,
+        category: true,
+        color: true,
+        colorVariants: true,
+        availability: true,
+        leadTimeDays: true,
+        readyQty: true,
+        nextShipDate: true,
+        acceptsCustom: true,
+        materialMain: true,
+        technique: true,
+        styleTags: true,
+        occasionTags: true,
+        dimensions: true,
+        careInstructions: true,
+        specialNotes: true,
+        createdAt: true,
+        updatedAt: true,
+
+        ProductRatingStats: {
+          select: {
+            avg: true,
+            c1: true,
+            c2: true,
+            c3: true,
+            c4: true,
+            c5: true,
+          },
+        },
+
+        service: {
+          select: {
+            id: true,
+            isActive: true,
+            status: true,
+            profile: {
+              select: {
+                displayName: true,
+                slug: true,
+                logoUrl: true,
+                city: true,
+              },
+            },
+            vendor: {
+              select: {
+                id: true,
+                userId: true,
+                displayName: true,
+                logoUrl: true,
+                city: true,
+                isActive: true,
+                billing: {
+                  select: {
+                    tvaActive: true,
+                    vatRate: true,
+                    vatStatus: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
     });
 
-    if (
-  !p ||
-  !p.isActive ||
-  p.isHidden ||
-  p.moderationStatus !== "APPROVED"
-) {
-  return res.status(404).json({ error: "not_found" });
-}
-    if (
-      !p.service?.isActive ||
-      p.service?.status !== "ACTIVE" ||
-      !p.service?.vendor?.isActive
-    ) {
+    if (!p) {
       return res.status(404).json({ error: "not_found" });
     }
 
-    const avg =
-      p.reviews.length === 0
-        ? null
-        : Math.round(
-            (p.reviews.reduce((s, r) => s + (r.rating || 0), 0) / p.reviews.length) * 10
-          ) / 10;
+    const ratingStats = p.ProductRatingStats;
+
+    const reviewCount =
+      (ratingStats?.c1 || 0) +
+      (ratingStats?.c2 || 0) +
+      (ratingStats?.c3 || 0) +
+      (ratingStats?.c4 || 0) +
+      (ratingStats?.c5 || 0);
+
+    const averageRating = ratingStats ? Number(ratingStats.avg) : 0;
 
     const storeName =
-      p?.service?.profile?.displayName || p?.service?.vendor?.displayName || "Magazin";
+      p?.service?.profile?.displayName ||
+      p?.service?.vendor?.displayName ||
+      "Magazin";
+
     const storeSlug = p?.service?.profile?.slug || null;
 
-    const serviceSafe = p.service
-      ? {
-          ...p.service,
-          vendor: p.service.vendor
-            ? { ...p.service.vendor, billing: mapPublicBilling(p.service.vendor.billing) }
-            : null,
-        }
-      : null;
-
     const promoByProductId = await getActiveCollectionPromosForProducts([p]);
-const promoCollection = promoByProductId.get(p.id) || null;
-const promo = getPromoPrice(p.priceCents, promoCollection);
+    const promoCollection = promoByProductId.get(p.id) || null;
+    const promo = getPromoPrice(p.priceCents, promoCollection);
 
-const unitPrice =
-  promo.finalPriceCents != null
-    ? promo.finalPriceCents / 100
-    : 0;
+    const unitPrice =
+      promo.finalPriceCents != null ? promo.finalPriceCents / 100 : 0;
 
-    res.json({
-      ...p,
-      service: serviceSafe,
+    const { ProductRatingStats, ...safeProduct } = p;
+
+    res.set(
+  "Cache-Control",
+  "public, max-age=300, stale-while-revalidate=3600"
+);
+
+    return res.json({
+      ...safeProduct,
       storeName,
       storeSlug,
-      averageRating: avg,
-      category: p.category || null,
-      color: p.color || null,
-      colorVariants: Array.isArray(p.colorVariants) ? p.colorVariants : [],
+
+      averageRating,
+      avgRating: averageRating,
+      reviewCount,
+
+      service: {
+        ...safeProduct.service,
+        vendor: safeProduct.service?.vendor
+          ? {
+              ...safeProduct.service.vendor,
+              billing: mapPublicBilling(safeProduct.service.vendor.billing),
+            }
+          : null,
+      },
+
       price: unitPrice,
+      priceCents: promo.finalPriceCents,
 
-priceCents: promo.finalPriceCents,
+      originalPriceCents: promo.hasDiscount ? promo.originalPriceCents : null,
+      originalPrice: promo.hasDiscount ? promo.originalPriceCents / 100 : null,
 
-originalPriceCents: promo.hasDiscount
-  ? promo.originalPriceCents
-  : null,
+      hasDiscount: promo.hasDiscount,
+      discountPercent: promo.discountPercent,
 
-originalPrice: promo.hasDiscount
-  ? promo.originalPriceCents / 100
-  : null,
+      availability:
+        typeof safeProduct.availability === "string"
+          ? safeProduct.availability.toUpperCase()
+          : null,
 
-hasDiscount: promo.hasDiscount,
-discountPercent: promo.discountPercent,
-      availability: p.availability ? String(p.availability).toUpperCase() : null,
-      leadTimeDays: p.leadTimeDays ?? null,
-      readyQty: p.readyQty ?? null,
-      nextShipDate: p.nextShipDate ?? null,
-      acceptsCustom: !!p.acceptsCustom,
-      materialMain: p.materialMain || null,
-      technique: p.technique || null,
-      styleTags: p.styleTags || [],
-      occasionTags: p.occasionTags || [],
-      dimensions: p.dimensions || null,
-      careInstructions: p.careInstructions || null,
-      specialNotes: p.specialNotes || null,
+      colorVariants: Array.isArray(safeProduct.colorVariants)
+        ? safeProduct.colorVariants
+        : [],
+
+      styleTags: Array.isArray(safeProduct.styleTags)
+        ? safeProduct.styleTags
+        : [],
+
+      occasionTags: Array.isArray(safeProduct.occasionTags)
+        ? safeProduct.occasionTags
+        : [],
     });
   } catch (e) {
     next(e);
@@ -1397,6 +1666,11 @@ router.get("/store/:slug/products", async (req, res) => {
   const slug = String(req.params.slug || "").trim().toLowerCase();
   if (!slug) return res.status(400).json({ error: "invalid_slug" });
 
+  const take = Math.min(
+  12,
+  Math.max(1, parseInt(String(req.query.take || "12"), 10))
+);
+
   const profile = await prisma.serviceProfile.findUnique({
     where: { slug },
     include: { service: { include: { type: true, vendor: true } } },
@@ -1407,14 +1681,17 @@ router.get("/store/:slug/products", async (req, res) => {
   }
 
   const items = await prisma.product.findMany({
-    where: {
-  serviceId: profile.serviceId,
-  isActive: true,
-  isHidden: false,
-  moderationStatus: "APPROVED",
-},
-    orderBy: { createdAt: "desc" },
-  });
+  where: {
+    serviceId: profile.serviceId,
+    isActive: true,
+    isHidden: false,
+    moderationStatus: "APPROVED",
+  },
+  orderBy: { createdAt: "desc" },
+  take,
+  select: baseProductSelect,
+});
+
 const promoByProductId = await getActiveCollectionPromosForProducts(items);
   res.set("Cache-Control", "public, max-age=0, must-revalidate");
   res.json(

@@ -229,6 +229,8 @@ export default function ProductDetails() {
   useEffect(() => {
     setActiveIdx(0);
     setQty(1);
+    setMe(null);
+setFavorites(new Set());
     setZoomOpen(false);
 
     setEditOpen(false);
@@ -573,7 +575,7 @@ export default function ProductDetails() {
 
     try {
       const items = await api(
-        `/api/public/store/${encodeURIComponent(p.service.profile.slug)}/products`
+        `/api/public/store/${encodeURIComponent(p.service.profile.slug)}/products?take=12`
       );
 
       if (!mountedRef.current) return;
@@ -647,57 +649,70 @@ export default function ProductDetails() {
     }
   }, []);
 
-const loadAll = useCallback(async () => {
+const loadProduct = useCallback(async () => {
   const seq = ++requestSeqRef.current;
 
   setLoading(true);
   setError(null);
 
   try {
-    const [meRes, favRes] = await Promise.allSettled([
-      api("/api/auth/me"),
-      api("/api/favorites/ids"),
-    ]);
+    const productData = await api(
+      `/api/public/products/${encodeURIComponent(id)}`
+    );
 
     if (!mountedRef.current || requestSeqRef.current !== seq) return;
 
-    const user =
-      meRes.status === "fulfilled" ? meRes.value?.user || null : null;
-
-    let p = null;
-
-    try {
-      p = await api(`/api/public/products/${encodeURIComponent(id)}`);
-    } catch (publicErr) {
-      if (!user) {
-        throw publicErr;
-      }
-
-      p = await api(`/api/vendors/products/${encodeURIComponent(id)}`);
-    }
-
-    if (!mountedRef.current || requestSeqRef.current !== seq) return;
-
-    setProduct(p);
-    setMe(user);
-
-    const favItems =
-      favRes.status === "fulfilled" && Array.isArray(favRes.value?.items)
-        ? favRes.value.items
-        : [];
-
-    setFavorites(new Set(favItems));
+    setProduct(productData);
     setLoading(false);
   } catch (e) {
     if (!mountedRef.current || requestSeqRef.current !== seq) return;
+
     setError(e?.message || "Nu am putut încărca produsul.");
     setLoading(false);
   }
 }, [id]);
 
-  useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+useEffect(() => {
+  loadProduct();
+}, [loadProduct]);
+
+useEffect(() => {
+  window.scrollTo({
+    top: 0,
+    left: 0,
+    behavior: "instant",
+  });
+}, [id]);
+
+useEffect(() => {
+  let alive = true;
+
+  const loadUserContext = async () => {
+    const [meRes, favRes] = await Promise.allSettled([
+      api("/api/auth/me"),
+      api("/api/favorites/ids"),
+    ]);
+
+    if (!alive || !mountedRef.current) return;
+
+    if (meRes.status === "fulfilled") {
+      setMe(meRes.value?.user || null);
+    }
+
+    if (
+      favRes.status === "fulfilled" &&
+      Array.isArray(favRes.value?.items)
+    ) {
+      setFavorites(new Set(favRes.value.items));
+    }
+  };
+
+  loadUserContext();
+
+  return () => {
+    alive = false;
+  };
+}, [id]);
 
   useEffect(() => {
     if (!product) return;

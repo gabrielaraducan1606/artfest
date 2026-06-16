@@ -857,11 +857,20 @@ useEffect(() => {
     const saved = localStorage.getItem(draftKey);
 
     if (saved) {
-      setForm((s) => ({
-        ...s,
-        ...JSON.parse(saved),
-      }));
-     } else {
+  const parsed = JSON.parse(saved);
+
+  setForm((s) => ({
+    ...s,
+    ...parsed,
+
+    // nu păstrăm imaginile și disponibilitatea de la produsul anterior
+    images: [],
+    availability: "",
+    readyQty: "",
+    leadTimeDays: "",
+    nextShipDate: "",
+  }));
+} else {
   setForm((s) => ({
   ...s,
   acceptsCustom: null,
@@ -1491,12 +1500,17 @@ useEffect(() => {
   try {
     const safeForm = {
   ...form,
-  images: (form.images || []).filter((img) =>
-    /^https?:\/\//i.test(String(img))
-  ),
+
+  // nu salvăm imaginile și disponibilitatea în draft
+  images: [],
+  availability: "",
+  readyQty: "",
+  leadTimeDays: "",
+  nextShipDate: "",
 };
 
 localStorage.setItem(draftKey, JSON.stringify(safeForm));
+
   } catch (err) {
     console.warn("Nu am putut salva draftul produsului.", err);
   }

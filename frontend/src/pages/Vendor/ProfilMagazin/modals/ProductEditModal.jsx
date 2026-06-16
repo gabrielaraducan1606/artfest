@@ -1669,13 +1669,13 @@ const onFilesPicked = useCallback(async (files) => {
                 Anulează
               </button>
               <button
-                className={styles.primaryBtn}
-                type="submit"
-                disabled={saving || loading || !changed}
-                title={!changed ? "Nicio modificare" : "Salvează"}
-              >
-                {saving ? "Se salvează…" : "Salvează"}
-              </button>
+  className={styles.primaryBtn}
+  type="submit"
+  disabled={saving || loading}
+  title={changed ? "Salvează modificările" : "Salvează din nou"}
+>
+  {saving ? "Se salvează…" : changed ? "Salvează" : "Salvează din nou"}
+</button>
             </div>
           </form>
         )}

@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import styles from "./CategoryGrid.module.css";
-import { api } from "../../../lib/api";
 import {
   FaEnvelopeOpenText,
   FaGift,
@@ -13,124 +12,110 @@ import {
   FaImage,
 } from "react-icons/fa";
 
-/**
- * Categorii "curated" (ALINIATE cu Product.category din backend/constants/categories.js)
- * Cheia (code) trebuie să fie exact slug-ul salvat în DB.
- */
 const FEATURED = [
-  // Invitații
-  { code: "papetarie_invitatii-nunta", label: "Invitații nuntă", icon: FaEnvelopeOpenText },
-  { code: "papetarie_invitatii-botez", label: "Invitații botez", icon: FaEnvelopeOpenText },
-  { code: "papetarie_invitatii-petrecere", label: "Invitații petrecere", icon: FaEnvelopeOpenText },
-
-  // Papetărie populară
-  { code: "papetarie_meniuri", label: "Meniuri", icon: FaRegAddressCard },
-  { code: "papetarie_place-cards", label: "Place cards", icon: FaRegAddressCard },
-  { code: "papetarie_plicuri-bani", label: "Plicuri de bani", icon: FaRegAddressCard },
-
-  // Mărturii
-  { code: "marturii_nunta", label: "Mărturii nuntă", icon: FaGift },
-  { code: "marturii_botez", label: "Mărturii botez", icon: FaGift },
-
-  // Cadouri
-  { code: "cadouri_pentru-miri", label: "Cadouri pentru miri", icon: FaGift },
-  { code: "cadouri_pentru-nasi", label: "Cadouri pentru nași", icon: FaGift },
-  { code: "cadouri_pentru-parinti", label: "Cadouri pentru părinți", icon: FaGift },
-
-  // Extra (opțional, dar de obicei merg bine)
-  { code: "bijuterii_seturi", label: "Seturi bijuterii", icon: FaGem },
-  { code: "home_ceramica-lut", label: "Ceramică / lut", icon: FaMugHot },
-  { code: "decor_lumini-decorative", label: "Lumini decorative", icon: FaLightbulb },
-  { code: "arta_tablouri", label: "Tablouri", icon: FaImage },
-  { code: "party_cake-toppers", label: "Cake toppers", icon: FaBirthdayCake },
+  {
+    label: "Invitații",
+    description: "Nuntă, botez, petrecere",
+    icon: FaEnvelopeOpenText,
+    to: "/produse?categorie=papetarie_invitatii-nunta&page=1",
+  },
+  {
+    label: "Mărturii",
+    description: "Cadouri mici pentru invitați",
+    icon: FaGift,
+    to: "/produse?categorie=marturii_nunta&page=1",
+  },
+  {
+    label: "Papetărie eveniment",
+    description: "Meniuri, place cards, plicuri",
+    icon: FaRegAddressCard,
+    to: "/produse?categorie=papetarie_meniuri&page=1",
+  },
+  {
+    label: "Cadouri speciale",
+    description: "Pentru miri, nași și părinți",
+    icon: FaGem,
+    to: "/produse?categorie=cadouri_pentru-nasi&page=1",
+  },
+  {
+    label: "Decor & lumini",
+    description: "Detalii pentru atmosferă",
+    icon: FaLightbulb,
+    to: "/produse?categorie=decor_lumini-decorative&page=1",
+  },
+  {
+    label: "Cake toppers",
+    description: "Pentru tort și candy bar",
+    icon: FaBirthdayCake,
+    to: "/produse?categorie=party_cake-toppers&page=1",
+  },
+  {
+    label: "Ceramică & lut",
+    description: "Obiecte handmade pentru casă",
+    icon: FaMugHot,
+    to: "/produse?categorie=home_ceramica-lut&page=1",
+  },
+  {
+    label: "Artă & tablouri",
+    description: "Cadouri și decor artistic",
+    icon: FaImage,
+    to: "/produse?categorie=arta_tablouri&page=1",
+  },
 ];
 
-export default function CategoryGrid({ limit = 12 }) {
-  const [stats, setStats] = useState(null);
-
-  // slider refs + state
+export default function CategoryGrid() {
   const trackRef = useRef(null);
+
   const [atStart, setAtStart] = useState(true);
   const [atEnd, setAtEnd] = useState(false);
 
-  // drag-to-scroll state
   const isDragging = useRef(false);
   const dragStarted = useRef(false);
   const startX = useRef(0);
   const startScrollLeft = useRef(0);
+
   const DRAG_THRESHOLD = 6;
 
-  // OPTIONAL: ia counts, dacă endpoint-ul există (îl ai deja în codul tău)
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const s = await api("/api/public/products/categories/stats");
-        if (alive) setStats(Array.isArray(s) ? s : []);
-      } catch {
-        setStats(null);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const items = useMemo(() => {
-    const base = FEATURED.slice(0, limit);
-
-    if (!Array.isArray(stats)) return base;
-
-    const counts = new Map(
-      stats.map((s) => [String(s.category), Number(s?._count?.category || 0)])
-    );
-
-    // atașăm count dacă există, dar NU reordonăm după count (fiind listă curated)
-    return base.map((c) => ({ ...c, count: counts.get(c.code) ?? 0 }));
-  }, [stats, limit]);
-
-  // nav state
   const updateArrows = () => {
     const el = trackRef.current;
     if (!el) return;
-    const start = el.scrollLeft <= 2;
-    const end = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2;
-    setAtStart(start);
-    setAtEnd(end);
+
+    setAtStart(el.scrollLeft <= 2);
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
   };
 
   useEffect(() => {
     updateArrows();
+
     const el = trackRef.current;
     if (!el) return;
 
-    const onScroll = () => updateArrows();
-    const onResize = () => updateArrows();
-
-    el.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onResize);
+    el.addEventListener("scroll", updateArrows, { passive: true });
+    window.addEventListener("resize", updateArrows);
 
     return () => {
-      el.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onResize);
+      el.removeEventListener("scroll", updateArrows);
+      window.removeEventListener("resize", updateArrows);
     };
-  }, [items.length]);
+  }, []);
 
   const scrollByAmount = (dir = 1) => {
     const el = trackRef.current;
     if (!el) return;
+
     const amount = Math.round(el.clientWidth * 0.9);
     el.scrollBy({ left: dir * amount, behavior: "smooth" });
   };
 
-  // drag-to-scroll handlers
   const onPointerDown = (e) => {
     const el = trackRef.current;
     if (!el) return;
+
     isDragging.current = true;
     dragStarted.current = false;
     startX.current = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
     startScrollLeft.current = el.scrollLeft;
+
     el.classList.add(styles.dragging);
   };
 
@@ -144,6 +129,7 @@ export default function CategoryGrid({ limit = 12 }) {
     if (!dragStarted.current && Math.abs(dx) >= DRAG_THRESHOLD) {
       dragStarted.current = true;
     }
+
     if (dragStarted.current) {
       el.scrollLeft = startScrollLeft.current - dx;
     }
@@ -152,6 +138,7 @@ export default function CategoryGrid({ limit = 12 }) {
   const onPointerUp = () => {
     const el = trackRef.current;
     if (!el) return;
+
     isDragging.current = false;
     dragStarted.current = false;
     el.classList.remove(styles.dragging);
@@ -164,14 +151,19 @@ export default function CategoryGrid({ limit = 12 }) {
     }
   };
 
-  if (!items.length) return null;
-
   return (
     <section className={styles.section} aria-labelledby="cat-title">
       <div className={styles.header}>
-        <h2 id="cat-title" className={styles.heading}>
-          Categorii populare
-        </h2>
+        <div>
+          <h2 id="cat-title" className={styles.heading}>
+            Ce cauți pentru evenimentul tău?
+          </h2>
+
+          <p className={styles.subheading}>
+            Alege rapid zona care te interesează.
+          </p>
+        </div>
+
         <Link to="/produse" className={styles.viewAll}>
           Vezi toate
         </Link>
@@ -189,7 +181,7 @@ export default function CategoryGrid({ limit = 12 }) {
         </button>
 
         <div
-          className={`${styles.track}`}
+          className={styles.track}
           ref={trackRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -198,16 +190,15 @@ export default function CategoryGrid({ limit = 12 }) {
           onMouseLeave={onPointerUp}
           onClickCapture={onClickCaptureTrack}
         >
-          {items.map((c) => {
+          {FEATURED.map((c) => {
             const Icon = c.icon;
-            const hasCount = typeof c.count === "number" && c.count > 0;
 
             return (
               <Link
-                key={c.code}
-                to={`/produse?categorie=${encodeURIComponent(c.code)}`}
+                key={c.label}
+                to={c.to}
                 className={styles.card}
-                aria-label={`Vezi produse din categoria ${c.label}`}
+                aria-label={`Vezi ${c.label}`}
               >
                 <div className={styles.iconWrap} aria-hidden="true">
                   <span className={styles.pill} />
@@ -218,11 +209,7 @@ export default function CategoryGrid({ limit = 12 }) {
 
                 <div className={styles.textCol}>
                   <div className={styles.name}>{c.label}</div>
-
-                  {hasCount && (
-                    <div className={styles.countRow}>{c.count} produse</div>
-                  )}
-
+                  <div className={styles.countRow}>{c.description}</div>
                   <div className={styles.ctaRow}>Explorează →</div>
                 </div>
               </Link>

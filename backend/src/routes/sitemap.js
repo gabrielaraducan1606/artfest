@@ -27,7 +27,7 @@ const IMPORTANT_SLUGS = new Set([
 ]);
 
 function escapeXml(value) {
-  return String(value)
+  return String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -37,6 +37,19 @@ function escapeXml(value) {
 
 function categoryKeyToSlug(key) {
   return key.split("_").slice(1).join("_");
+}
+
+function formatDate(value) {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function renderUrl(u, today) {
+  return `  <url>
+    <loc>${escapeXml(BASE_URL + u.loc)}</loc>
+    <lastmod>${u.lastmod || today}</lastmod>
+    <priority>${u.priority}</priority>
+  </url>`;
 }
 
 router.get("/sitemap.xml", async (req, res) => {
@@ -84,27 +97,96 @@ router.get("/sitemap.xml", async (req, res) => {
       .map((c) => ({
         loc: `/colectii/${c.slug}`,
         priority: "0.85",
-        lastmod: c.updatedAt
-          ? new Date(c.updatedAt).toISOString().slice(0, 10)
-          : today,
+        lastmod: formatDate(c.updatedAt),
       }));
 
-    const urls = [...staticUrls, ...categoryUrls, ...collectionUrls];
+    const products = await prisma.product.findMany({
+      where: {
+        isActive: true,
+        isHidden: false,
+        moderationStatus: "APPROVED",
+        service: {
+          is: {
+            isActive: true,
+            status: "ACTIVE",
+            vendor: {
+              is: {
+                isActive: true,
+              },
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        updatedAt: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+      take: 50000,
+    });
+
+    const productUrls = products.map((p) => ({
+      loc: `/produs/${p.id}`,
+      priority: "0.75",
+      lastmod: formatDate(p.updatedAt),
+    }));
+
+    const stores = await prisma.serviceProfile.findMany({
+      where: {
+        slug: {
+          not: null,
+        },
+        service: {
+          is: {
+            isActive: true,
+            status: "ACTIVE",
+            type: {
+              is: {
+                code: "products",
+              },
+            },
+            vendor: {
+              is: {
+                isActive: true,
+              },
+            },
+          },
+        },
+      },
+      select: {
+        slug: true,
+        updatedAt: true,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+      take: 50000,
+    });
+
+    const storeUrls = stores
+      .filter((s) => s.slug)
+      .map((s) => ({
+        loc: `/magazin/${s.slug}`,
+        priority: "0.8",
+        lastmod: formatDate(s.updatedAt),
+      }));
+
+    const urls = [
+      ...staticUrls,
+      ...categoryUrls,
+      ...collectionUrls,
+      ...productUrls,
+      ...storeUrls,
+    ];
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls
-  .map(
-    (u) => `  <url>
-    <loc>${escapeXml(BASE_URL + u.loc)}</loc>
-    <lastmod>${u.lastmod || today}</lastmod>
-    <priority>${u.priority}</priority>
-  </url>`
-  )
-  .join("\n")}
+${urls.map((u) => renderUrl(u, today)).join("\n")}
 </urlset>`;
 
-    res.setHeader("Content-Type", "application/xml");
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
     res.status(200).send(xml);
   } catch (e) {
     console.error("GET /sitemap.xml error:", e);

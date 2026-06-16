@@ -84,7 +84,6 @@ function buildFavoritesQuery({ userId, sort, cursorObj }) {
   return { where, orderBy };
 }
 
-/** GET /api/favorites/ids */
 router.get("/ids", authRequired, async (req, res) => {
   try {
     const { limit, sort, cursor } = ListQuery.parse(req.query);
@@ -94,7 +93,12 @@ router.get("/ids", authRequired, async (req, res) => {
       return res.status(400).json({ error: "invalid_cursor" });
     }
 
-    const userId = req.user.sub;
+    const userId = req.user?.sub || req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "auth_user_missing" });
+    }
+
     const { where, orderBy } = buildFavoritesQuery({
       userId,
       sort,
@@ -123,7 +127,10 @@ router.get("/ids", authRequired, async (req, res) => {
     });
   } catch (err) {
     console.error("GET /api/favorites/ids FAILED:", err);
-    res.status(500).json({ error: "favorites_ids_failed" });
+    res.status(500).json({
+      error: "favorites_ids_failed",
+      message: err?.message,
+    });
   }
 });
 

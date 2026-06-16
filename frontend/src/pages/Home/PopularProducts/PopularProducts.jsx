@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { FaStar } from "react-icons/fa";
+import { Link } from "react-router-dom";
+import { FaHeart, FaRegHeart, FaShoppingBag } from "react-icons/fa";
 import styles from "./PopularProducts.module.css";
 import { api } from "../../../lib/api";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 8;
 
 function getTimestamp(p) {
   const ts =
@@ -22,24 +22,25 @@ function getTimestamp(p) {
 }
 
 function getImageSrc(p) {
-  if (Array.isArray(p?.images) && p.images.length > 0) {
-    const firstImage = p.images[0];
-
-    if (typeof firstImage === "string" && firstImage.trim()) {
-      return firstImage;
-    }
-
-    if (
-      firstImage &&
-      typeof firstImage === "object" &&
-      typeof firstImage.url === "string" &&
-      firstImage.url.trim()
-    ) {
-      return firstImage.url;
-    }
-  }
-
+  const firstImage = Array.isArray(p?.images) ? p.images[0] : null;
+  if (typeof firstImage === "string" && firstImage.trim()) return firstImage;
+  if (firstImage?.url) return firstImage.url;
   return null;
+}
+
+async function loadFavoriteIds() {
+  try {
+    const r = await api("/api/favorites/ids?limit=50");
+
+    const ids = Array.isArray(r?.items)
+      ? r.items.map((x) => x.productId).filter(Boolean)
+      : [];
+
+    return new Set(ids);
+  } catch (err) {
+    console.error("loadFavoriteIds failed:", err);
+    return null;
+  }
 }
 
 function dedupeProducts(list) {
@@ -53,6 +54,74 @@ function dedupeProducts(list) {
   });
 }
 
+function getStoreName(p) {
+  return (
+    p?.storeName ||
+    p?.service?.profile?.displayName ||
+    p?.service?.vendor?.displayName ||
+    "Un magazin"
+  );
+}
+
+function getStoreLogo(p) {
+  return (
+    p?.storeLogo ||
+    p?.service?.profile?.logoUrl ||
+    p?.service?.vendor?.logoUrl ||
+    p?.vendorLogoUrl ||
+    null
+  );
+}
+
+function getStoreLink(p) {
+  const slug = p?.storeSlug || p?.service?.profile?.slug || null;
+  const vid = p?.service?.vendor?.id || p?.service?.vendorId || null;
+
+  return slug
+    ? `/magazin/${encodeURIComponent(slug)}`
+    : vid
+    ? `/magazin/${vid}`
+    : "/magazine";
+}
+
+function priceFmt(p) {
+  const cur = p?.currency || "RON";
+
+  if (typeof p?.priceCents === "number") {
+    return new Intl.NumberFormat("ro-RO", {
+      style: "currency",
+      currency: cur,
+    }).format(p.priceCents / 100);
+  }
+
+  if (typeof p?.price === "number") {
+    return new Intl.NumberFormat("ro-RO", {
+      style: "currency",
+      currency: cur,
+    }).format(p.price);
+  }
+
+  return "";
+}
+
+function timeAgo(p) {
+  const ts = getTimestamp(p);
+  if (!ts) return "";
+
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+
+  if (m < 1) return "tocmai acum";
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} zile`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo} luni`;
+  return `${Math.floor(mo / 12)} ani`;
+}
+
 export default function PopularProducts() {
   const [items, setItems] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -60,81 +129,11 @@ export default function PopularProducts() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [brokenImages, setBrokenImages] = useState({});
+  const [saved, setSaved] = useState({});
 
-  const navigate = useNavigate();
   const loadingRef = useRef(false);
   const didInitRef = useRef(false);
   const loadMoreRef = useRef(null);
-
-  const priceFmt = (p) => {
-    const cur = p?.currency || "RON";
-
-    if (typeof p?.priceCents === "number") {
-      return new Intl.NumberFormat("ro-RO", {
-        style: "currency",
-        currency: cur,
-      }).format(p.priceCents / 100);
-    }
-
-    if (typeof p?.price === "number") {
-      return new Intl.NumberFormat("ro-RO", {
-        style: "currency",
-        currency: cur,
-      }).format(p.price);
-    }
-
-    return "";
-  };
-
-  const storeLink = (p) => {
-    const slug = p?.service?.profile?.slug || null;
-    const vid = p?.service?.vendor?.id || p?.service?.vendorId || null;
-
-    return slug
-      ? `/magazin/${encodeURIComponent(slug)}`
-      : vid
-      ? `/magazin/${vid}`
-      : "/magazine";
-  };
-
-  const storeName = (p) =>
-    p?.storeName ||
-    p?.service?.profile?.displayName ||
-    p?.service?.vendor?.displayName ||
-    "Magazin";
-
-  const avgRating = (p) => {
-    if (typeof p?.averageRating === "number") return p.averageRating;
-
-    const revs = Array.isArray(p?.reviews) ? p.reviews : [];
-    if (!revs.length) return null;
-
-    const sum = revs.reduce((s, r) => s + (r.rating || 0), 0);
-    return Math.round((sum / revs.length) * 10) / 10;
-  };
-
-  const timeAgo = (p) => {
-    const ts = getTimestamp(p);
-    if (!ts) return "";
-
-    const diff = Date.now() - ts;
-    const m = Math.floor(diff / 60000);
-
-    if (m < 1) return "tocmai acum";
-    if (m < 60) return `${m} min`;
-
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h} h`;
-
-    const d = Math.floor(h / 24);
-    if (d < 30) return `${d} zile`;
-
-    const mo = Math.floor(d / 30);
-    if (mo < 12) return `${mo} luni`;
-
-    const y = Math.floor(mo / 12);
-    return `${y} ani`;
-  };
 
   const fetchPage = useCallback(
     async (nextPage = 1) => {
@@ -152,54 +151,42 @@ export default function PopularProducts() {
       }
 
       try {
-        let list = [];
+        const r = await api(
+          `/api/public/products/feed?limit=${PAGE_SIZE}&page=${nextPage}`
+        );
 
-        if (nextPage === 1) {
-          try {
-            const r = await api(
-              `/api/public/products/recommended?limit=${PAGE_SIZE}&page=${nextPage}`
-            );
+        const pageItems = Array.isArray(r?.items) ? r.items : [];
 
-            const pageItems = Array.isArray(r?.items) ? r.items : [];
+        const favoriteIds = await loadFavoriteIds();
 
-            if (pageItems.length) list = pageItems;
-            else if (Array.isArray(r?.popular) && r.popular.length) {
-              list = r.popular;
-            } else if (Array.isArray(r?.recommended) && r.recommended.length) {
-              list = r.recommended;
-            } else if (Array.isArray(r?.latest) && r.latest.length) {
-              list = r.latest;
-            }
-          } catch {
-            // fallback below
-          }
-        }
+setSaved((prev) => {
+  const next = { ...prev };
 
-        if (!list.length || nextPage > 1) {
-          const r2 = await api(
-            `/api/public/products?sort=new&limit=${PAGE_SIZE}&page=${nextPage}`
-          );
+  for (const item of pageItems) {
+    if (!item?.id) continue;
 
-          const pageItems = Array.isArray(r2?.items) ? r2.items : [];
+    next[item.id] =
+      favoriteIds instanceof Set
+        ? favoriteIds.has(item.id) || !!item.viewerFavorited
+        : !!item.viewerFavorited || !!prev[item.id];
+  }
 
-          list = nextPage === 1 ? (list.length ? list : pageItems) : pageItems;
+  return next;
+});
 
-          setHasMore(pageItems.length >= PAGE_SIZE);
-        } else if (nextPage === 1) {
-          setHasMore(list.length >= PAGE_SIZE);
-        }
+        setHasMore(!!r?.hasMore || pageItems.length >= PAGE_SIZE);
 
-        list.sort((a, b) => getTimestamp(b) - getTimestamp(a));
+        const sorted = [...pageItems].sort(
+          (a, b) => getTimestamp(b) - getTimestamp(a)
+        );
 
-        setItems((prev) => {
-          const merged = nextPage === 1 ? list : [...prev, ...list];
-          return dedupeProducts(merged);
-        });
+        setItems((prev) =>
+          dedupeProducts(nextPage === 1 ? sorted : [...prev, ...sorted])
+        );
 
         setPage(nextPage);
       } catch (err) {
-        console.error("PopularProducts fetch:", err);
-
+        console.error("Community feed fetch:", err);
         if (nextPage === 1) setItems([]);
         setHasMore(false);
       } finally {
@@ -219,48 +206,138 @@ export default function PopularProducts() {
 
   useEffect(() => {
     const el = loadMoreRef.current;
-
-    if (!el) return;
-    if (!hasMore || initialLoading || loadingMore) return;
+    if (!el || !hasMore || initialLoading || loadingMore) return;
 
     const observer = new IntersectionObserver(
-      (entries) => {
-        const first = entries[0];
-
-        if (first.isIntersecting && !loadingRef.current && hasMore) {
+      ([entry]) => {
+        if (entry.isIntersecting && !loadingRef.current && hasMore) {
           fetchPage(page + 1);
         }
       },
-      {
-        root: null,
-        rootMargin: "300px",
-        threshold: 0,
-      }
+      { rootMargin: "300px", threshold: 0 }
     );
 
     observer.observe(el);
-
     return () => observer.disconnect();
   }, [fetchPage, hasMore, initialLoading, loadingMore, page]);
 
+  useEffect(() => {
+  const handleFavoriteChange = (e) => {
+    const { productId, favorited } = e.detail;
+
+    setSaved((prev) => ({
+      ...prev,
+      [productId]: favorited,
+    }));
+  };
+
+  window.addEventListener(
+    "favorites-changed",
+    handleFavoriteChange
+  );
+
+  return () =>
+    window.removeEventListener(
+      "favorites-changed",
+      handleFavoriteChange
+    );
+}, []);
+
+const toggleFavorite = async (e, productId) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const previous = !!saved[productId];
+  const optimistic = !previous;
+
+  setSaved((prev) => ({
+    ...prev,
+    [productId]: optimistic,
+  }));
+
+  try {
+    const result = await api("/api/favorites/toggle", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ productId }),
+    });
+
+    const confirmedFavorited =
+      typeof result?.favorited === "boolean"
+        ? result.favorited
+        : typeof result?.data?.favorited === "boolean"
+        ? result.data.favorited
+        : optimistic;
+
+    setSaved((prev) => ({
+      ...prev,
+      [productId]: confirmedFavorited,
+    }));
+
+    setItems((prev) =>
+  prev.map((item) => {
+    if (item.id !== productId) return item;
+
+    const oldCount = Number(item.favoriteCount || 0);
+
+    return {
+      ...item,
+      viewerFavorited: confirmedFavorited,
+      favoriteCount: confirmedFavorited
+        ? oldCount + 1
+        : Math.max(0, oldCount - 1),
+    };
+  })
+);
+    window.dispatchEvent(
+  new CustomEvent("favorites-changed", {
+    detail: {
+      productId,
+      favorited: confirmedFavorited,
+      delta: confirmedFavorited ? 1 : -1,
+    },
+  })
+);
+  } catch (err) {
+    console.warn("Favorite failed:", err);
+
+    setSaved((prev) => ({
+      ...prev,
+      [productId]: previous,
+    }));
+  }
+};
+
   if (initialLoading && items.length === 0) {
     return (
-      <section className={styles.section} aria-labelledby="pp-heading">
+      <section className={styles.section} aria-labelledby="community-heading">
         <div className={styles.header}>
-          <h2 id="pp-heading" className={styles.heading}>
-            Produse populare
-          </h2>
+          <div>
+            <h2 id="community-heading" className={styles.heading}>
+              Activitate recentă
+            </h2>
+            <p className={styles.subheading}>
+              Produse noi adăugate de artizani.
+            </p>
+          </div>
         </div>
 
-        <div className={styles.grid} aria-busy="true">
-          {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-            <article className={`${styles.card} ${styles.skeleton}`} key={i}>
-              <div className={`${styles.thumb} ${styles.skelBox}`} />
-              <div className={styles.body}>
-                <div className={styles.skelLine} style={{ width: "70%" }} />
-                <div className={styles.skelLine} style={{ width: "40%" }} />
-                <div className={styles.skelMeta} />
+        <div className={styles.feed}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <article
+              className={`${styles.postCard} ${styles.skeleton}`}
+              key={i}
+            >
+              <div className={styles.postHeader}>
+                <div className={styles.avatarSkeleton} />
+                <div className={styles.headerText}>
+                  <div className={styles.skelLine} style={{ width: "60%" }} />
+                  <div className={styles.skelLine} style={{ width: "35%" }} />
+                </div>
               </div>
+              <div className={styles.skelImage} />
             </article>
           ))}
         </div>
@@ -271,114 +348,130 @@ export default function PopularProducts() {
   if (!items.length) return null;
 
   return (
-    <section className={styles.section} aria-labelledby="pp-heading">
+    <section className={styles.section} aria-labelledby="community-heading">
       <div className={styles.header}>
-        <h2 id="pp-heading" className={styles.heading}>
-          Produse populare
-        </h2>
+        <div>
+          <h2 id="community-heading" className={styles.heading}>
+            Activitate recentă
+          </h2>
+          <p className={styles.subheading}>
+            Vezi ce produse noi adaugă artizanii și salvează ce îți place.
+          </p>
+        </div>
+
+        <Link to="/produse?sort=new&page=1" className={styles.viewAll}>
+          Vezi toate
+        </Link>
       </div>
 
-      <div className={styles.grid} aria-busy={loadingMore}>
+      <div className={styles.feed}>
         {items.map((p, index) => {
-          const rating = avgRating(p);
           const img = getImageSrc(p);
-          const addedAgo = timeAgo(p);
           const hasImageError = !img || brokenImages[p.id];
+          const storeName = getStoreName(p);
+          const storeLogo = getStoreLogo(p);
+          const storeHref = getStoreLink(p);
+          const addedAgo = timeAgo(p);
+          const productHref = `/produs/${encodeURIComponent(p.id)}`;
+          const isSaved = saved[p.id] ?? !!p.viewerFavorited;
+          const favoriteCount = Number(p.favoriteCount || 0);
+
           const safeKey =
             p?.id ?? `${p?.title ?? "produs"}-${getTimestamp(p)}-${index}`;
 
           return (
-            <article
-              key={safeKey}
-              className={styles.card}
-              role="button"
-              tabIndex={0}
-              onClick={() => navigate(`/produs/${p.id}`)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  navigate(`/produs/${p.id}`);
-                }
-              }}
-            >
-              <Link
-                to={`/produs/${p.id}`}
-                className={`${styles.thumbLink} ${
-                  hasImageError ? styles.noImage : ""
-                }`}
-                onClick={(e) => e.stopPropagation()}
-                aria-label={`Vezi ${p.title}`}
-              >
-                {!hasImageError && (
-                  <img
-                    src={img}
-                    alt={p.title}
-                    className={styles.thumb}
-                    loading="lazy"
-                    onError={() => {
-                      if (!p?.id) return;
-
-                      setBrokenImages((prev) => {
-                        if (prev[p.id]) return prev;
-                        return {
-                          ...prev,
-                          [p.id]: true,
-                        };
-                      });
-                    }}
-                  />
-                )}
-              </Link>
-
-              <div className={styles.body}>
-                <h3 className={styles.name} title={p.title}>
-                  {p.title}
-                </h3>
-
-                <div className={styles.subRow}>
-                  <Link
-                    to={storeLink(p)}
-                    className={styles.shop}
-                    onClick={(e) => e.stopPropagation()}
-                    title={storeName(p)}
-                  >
-                    {storeName(p)}
-                  </Link>
-
-                  {addedAgo && (
-                    <span className={styles.dot} aria-hidden="true">
-                      •
+            <article key={safeKey} className={styles.postCard}>
+              <div className={styles.postHeader}>
+                <Link to={storeHref} className={styles.avatarLink}>
+                  {storeLogo ? (
+                    <img
+                      src={storeLogo}
+                      alt={storeName}
+                      className={styles.avatar}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className={styles.avatarFallback}>
+                      {storeName?.charAt(0)?.toUpperCase() || "M"}
                     </span>
                   )}
-                  {addedAgo && <span className={styles.time}>{addedAgo}</span>}
-                </div>
+                </Link>
 
-                <div className={styles.metaRow}>
-                  <div
-                    className={styles.rating}
-                    aria-label={
-                      rating != null
-                        ? `Rating ${rating} din 5`
-                        : "Fără recenzii"
-                    }
-                  >
-                    {[...Array(5)].map((_, i) => (
-                      <FaStar
-                        key={i}
-                        color={
-                          rating != null && i < Math.round(rating)
-                            ? "var(--color-warning)"
-                            : "var(--color-border)"
-                        }
-                      />
-                    ))}
-                    {rating != null && (
-                      <span className={styles.ratingVal}>{rating}</span>
-                    )}
+                <div className={styles.postMeta}>
+                  <div className={styles.postTitle}>
+                    <Link to={storeHref} className={styles.storeName}>
+                      {storeName}
+                    </Link>{" "}
+                    <span>a adăugat un produs nou</span>
                   </div>
 
-                  <p className={styles.price}>{priceFmt(p)}</p>
+                  <div className={styles.postTime}>
+                    {addedAgo ? `${addedAgo} în urmă` : "recent"}
+                  </div>
                 </div>
+              </div>
+
+              <div className={styles.productImageWrap}>
+                <button
+  type="button"
+  className={`${styles.productFavorite} ${
+    isSaved ? styles.productFavoriteSaved : ""
+  }`}
+  onClick={(e) => toggleFavorite(e, p.id)}
+  aria-pressed={isSaved}
+  aria-label={
+    isSaved
+      ? "Elimină produsul de la favorite"
+      : "Adaugă produsul la favorite"
+  }
+>
+  {isSaved ? <FaHeart /> : <FaRegHeart />}
+</button>
+
+                <Link to={productHref} className={styles.imageLink}>
+                  {!hasImageError && (
+                    <img
+                      src={img}
+                      alt={p.title}
+                      className={styles.productImage}
+                      loading="lazy"
+                      onError={() => {
+                        if (!p?.id) return;
+                        setBrokenImages((prev) => ({
+                          ...prev,
+                          [p.id]: true,
+                        }));
+                      }}
+                    />
+                  )}
+
+                  {hasImageError && (
+                    <span className={styles.noImageText}>Fără imagine</span>
+                  )}
+                </Link>
+              </div>
+
+              <Link to={productHref} className={styles.productBlock}>
+                <div className={styles.productInfo}>
+                  <h3 className={styles.productName}>{p.title}</h3>
+
+                  <div className={styles.productInfoRow}>
+                    <p className={styles.productPrice}>{priceFmt(p)}</p>
+
+                    {favoriteCount > 0 && (
+                      <p className={styles.favoriteCount}>
+                        ❤️ {favoriteCount} salvări
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </Link>
+
+              <div className={styles.engagementBar}>
+                <Link to={productHref} className={styles.buyBtn}>
+                  <FaShoppingBag />
+                  <span>Vezi produsul</span>
+                </Link>
               </div>
             </article>
           );
@@ -392,21 +485,13 @@ export default function PopularProducts() {
             type="button"
             className={styles.loadMore}
             onClick={() => {
-              if (!loadingMore && hasMore) {
-                fetchPage(page + 1);
-              }
+              if (!loadingMore && hasMore) fetchPage(page + 1);
             }}
             disabled={loadingMore}
             aria-busy={loadingMore}
           >
-            {loadingMore ? "Se încarcă..." : "Vezi mai mult"}
+            {loadingMore ? "Se încarcă..." : "Vezi mai multe noutăți"}
           </button>
-        </div>
-      )}
-
-      {!hasMore && items.length > 0 && (
-        <div className={styles.loadMoreWrap}>
-          <span className={styles.endMessage}>Ai ajuns la final.</span>
         </div>
       )}
     </section>

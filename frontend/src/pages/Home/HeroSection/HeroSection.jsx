@@ -912,6 +912,20 @@ export default function HeroSection() {
               ))}
             </div>
 
+<div className={styles.servicePills}>
+  <Link to="/servicii-digitale" className={styles.servicePill}>
+    ✨ Invitație digitală
+  </Link>
+
+  <Link to="/servicii-digitale" className={styles.servicePill}>
+    📱 Seating & SMS
+  </Link>
+
+  <Link to="/servicii-digitale" className={styles.servicePill}>
+    📸 Album QR
+  </Link>
+</div>
+
             <div className={styles.buttons}>
               <Link
                 to="/servicii-digitale"

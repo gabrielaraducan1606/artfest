@@ -704,6 +704,30 @@ export default function ProductsPage() {
     }
   }, [me]);
 
+  useEffect(() => {
+  const q = (localFilters.q || "").trim();
+  const currentQ = qParam.trim();
+
+  if (q === currentQ) return;
+
+  const handle = setTimeout(() => {
+  const p = new URLSearchParams(params);
+
+  if (q) p.set("q", q);
+  else p.delete("q");
+
+  p.set("page", "1");
+
+  setSuggestions(null);
+
+  navigate(`/produse?${p.toString()}`, {
+    replace: true,
+  });
+}, 450);
+
+  return () => clearTimeout(handle);
+}, [localFilters.q, qParam, params, navigate]);
+
   const categoryLabelMap = useMemo(() => {
     const map = {};
     for (const p of items) {
@@ -924,10 +948,11 @@ export default function ProductsPage() {
         <form
           ref={searchRef}
           className={styles.searchRow}
-          onSubmit={(e) => {
-            e.preventDefault();
-            applyFilters();
-          }}
+         onSubmit={(e) => {
+  e.preventDefault();
+  setSuggestions(null);
+  applyFilters();
+}}
           style={{ position: "relative" }}
           onKeyDown={(e) => {
             if (e.key === "Escape") setSuggestions(null);

@@ -309,6 +309,26 @@ export default function Navbar() {
     };
   }, [me]);
 
+  useEffect(() => {
+  const handleFavoritesChanged = (e) => {
+    const delta = Number(e.detail?.delta || 0);
+
+    setWishCount((prev) =>
+      Math.max(0, prev + delta)
+    );
+  };
+
+  window.addEventListener(
+    "favorites-changed",
+    handleFavoritesChanged
+  );
+
+  return () =>
+    window.removeEventListener(
+      "favorites-changed",
+      handleFavoritesChanged
+    );
+}, []);
   /* ===== vendor services ===== */
   useEffect(() => {
     let alive = true;
