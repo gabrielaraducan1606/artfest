@@ -32,6 +32,8 @@ const SORTS = [
 
 const LIMIT = 12;
 
+const PRODUCTS_SCROLL_KEY = "productsPageScrollState";
+
 const humanizeSlug = (slug = "") =>
   slug.replace(/[_-]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 
@@ -187,6 +189,8 @@ export default function ProductsPage() {
   const suggestRequestIdRef = useRef(0);
   const suggestCacheRef = useRef(new Map());
 
+  const shouldRestoreScrollRef = useRef(false);
+
   const {
     searching: imageSearching,
     fileInputRef: imageInputRef,
@@ -305,6 +309,27 @@ export default function ProductsPage() {
       leadTimeMaxParam,
     ]
   );
+
+  const saveProductsScrollState = useCallback(() => {
+  try {
+    sessionStorage.setItem(
+      PRODUCTS_SCROLL_KEY,
+      JSON.stringify({
+        path: window.location.pathname + window.location.search,
+        scrollY: window.scrollY,
+        items,
+        page,
+        hasMore,
+        total,
+        facets,
+        smartInfo,
+        appliedFiltersInfo,
+      })
+    );
+  } catch {
+    // ignore
+  }
+}, [items, page, hasMore, total, facets, smartInfo, appliedFiltersInfo]);
 
   const openAuthModal = useCallback(() => {
     const current = window.location.pathname + window.location.search;
@@ -509,9 +534,52 @@ export default function ProductsPage() {
     };
   }, [me]);
 
-  useEffect(() => {
+useEffect(() => {
+  try {
+    const raw = sessionStorage.getItem(PRODUCTS_SCROLL_KEY);
+    if (!raw) {
+      loadProducts(1, false);
+      return;
+    }
+
+    const saved = JSON.parse(raw);
+    const currentPath = window.location.pathname + window.location.search;
+
+    if (saved?.path !== currentPath || !Array.isArray(saved.items)) {
+      loadProducts(1, false);
+      return;
+    }
+
+    setItems(saved.items);
+    setPage(saved.page || 1);
+    setHasMore(saved.hasMore ?? true);
+    setTotal(saved.total ?? null);
+    setFacets(saved.facets || {
+      categories: [],
+      colors: [],
+      materials: [],
+      techniques: [],
+      styleTags: [],
+      occasionTags: [],
+      priceMin: "",
+      priceMax: "",
+    });
+    setSmartInfo(saved.smartInfo || null);
+    setAppliedFiltersInfo(saved.appliedFiltersInfo || null);
+
+    initialLoadDoneRef.current = true;
+    shouldRestoreScrollRef.current = true;
+    setLoading(false);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.scrollTo(0, Number(saved.scrollY || 0));
+      });
+    });
+  } catch {
     loadProducts(1, false);
-  }, [productsQueryKey, loadProducts]);
+  }
+}, [productsQueryKey, loadProducts]);
 
   useEffect(() => {
     if (page === 1) return;
@@ -810,12 +878,13 @@ export default function ProductsPage() {
     [localFilters.q, navigate]
   );
 
-  const handleSuggestionProductClick = useCallback(
+ const handleSuggestionProductClick = useCallback(
   (id) => {
+    saveProductsScrollState();
     setSuggestions(null);
     navigate(`/produs/${id}`);
   },
-  [navigate]
+  [navigate, saveProductsScrollState]
 );
 
   const handleApplySmartCategory = useCallback(
@@ -1406,7 +1475,14 @@ export default function ProductsPage() {
           {items.length === 0 ? (
             <EmptyState />
           ) : (
-            <div className={styles.grid}>{productCards}</div>
+            <div
+  className={styles.grid}
+  onClickCapture={() => {
+    saveProductsScrollState();
+  }}
+>
+  {productCards}
+</div>
           )}
 {currentSeoCategory && (
   <>
