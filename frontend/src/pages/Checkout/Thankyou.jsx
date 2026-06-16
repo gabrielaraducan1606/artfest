@@ -39,17 +39,35 @@ export default function ThankYou() {
         const data = await api(`/api/user/orders/${orderId}`);
 
         console.log("FULL ORDER API DATA", data);
-        
-       const total = Number(
+
+       const items = Array.isArray(data?.items) ? data.items : [];
+
+const total = Number(
   data?.total ||
   data?.totalPrice ||
+  data?.totalAmount ||
   data?.grandTotal ||
-  data?.amount ||
   data?.finalTotal ||
+  data?.amount ||
+  data?.totals?.total ||
+  data?.pricing?.total ||
   data?.order?.total ||
   data?.order?.totalPrice ||
-  0
+  items.reduce((sum, item) => {
+    const price = Number(
+      item?.price ||
+        item?.unitPrice ||
+        item?.product?.price ||
+        item?.productPrice ||
+        0
+    );
+
+    const quantity = Number(item?.quantity || item?.qty || 1);
+
+    return sum + price * quantity;
+  }, 0)
 );
+
         const currency = data?.currency || "RON";
         const orderNumber = data?.orderNumber || orderNoFromUrl || orderId;
 
