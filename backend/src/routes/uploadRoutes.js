@@ -53,6 +53,10 @@ const ALLOWED_IMAGE_EXTENSIONS = new Set([
   "gif",
   "heic",
   "heif",
+  "bmp",
+  "tif",
+  "tiff",
+  "avif",
 ]);
 
 const ALLOWED_SUPPORT_MIME_TYPES = [
@@ -72,7 +76,7 @@ function isAllowedImageFile(file) {
   const ext = getFileExtension(file.originalname || "");
 
   return (
-    ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype) &&
+    String(file.mimetype || "").startsWith("image/") ||
     ALLOWED_IMAGE_EXTENSIONS.has(ext)
   );
 }
@@ -112,7 +116,7 @@ const uploadImage = multer({
 
 const uploadProductImages = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: imageFileFilter,
 });
 
@@ -152,7 +156,7 @@ function handleUploadError(err, res, context = "upload") {
         context === "support"
           ? "Fișierul este prea mare (max 10MB)."
           : context === "products"
-         ? "Imaginea este prea mare (max 25MB)."
+         ? "Imaginea este prea mare (max 50MB)."
           : "Fișierul este prea mare (max 5MB).",
     });
   }
@@ -161,7 +165,7 @@ function handleUploadError(err, res, context = "upload") {
     return res.status(415).json({
       error: "invalid_file_type",
       message:
-       "Format invalid. Acceptăm JPG, JPEG, PNG, WEBP, GIF, HEIC sau HEIF.",
+      "Format invalid. Acceptăm JPG, JPEG, PNG, WEBP, GIF, HEIC, HEIF, BMP, TIFF și AVIF.",
     });
   }
 
@@ -184,29 +188,40 @@ function handleUploadError(err, res, context = "upload") {
 async function uploadToR2({ file, folder, userId, index = null }) {
   const originalMime = file.mimetype || "application/octet-stream";
   const originalName = file.originalname || "file";
-  const originalExt = getFileExtension(originalName);
-
-  const isHeic =
-    originalMime === "image/heic" ||
-    originalMime === "image/heif" ||
-    originalExt === "heic" ||
-    originalExt === "heif";
 
   let body = file.buffer;
   let mime = originalMime;
-  let safeOriginalName = sanitizeFileName(originalName);
 
-  if (isHeic) {
-    body = await sharp(file.buffer)
+  let safeOriginalName = sanitizeFileName(
+    originalName.replace(/\.[^.]+$/, ".jpg")
+  );
+
+  try {
+    body = await sharp(file.buffer, {
+      failOn: "none",
+      animated: false,
+      limitInputPixels: false,
+    })
       .rotate()
-      .jpeg({ quality: 88 })
+      .resize({
+        width: 2400,
+        height: 2400,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({
+        quality: 88,
+        mozjpeg: true,
+      })
       .toBuffer();
 
     mime = "image/jpeg";
+    } catch (err) {
+    console.error("Sharp convert failed, uploading original file:", err);
 
-    safeOriginalName = sanitizeFileName(
-      originalName.replace(/\.(heic|heif)$/i, ".jpg")
-    );
+    body = file.buffer;
+    mime = originalMime;
+    safeOriginalName = sanitizeFileName(originalName);
   }
 
   const timestamp = Date.now();
@@ -232,7 +247,7 @@ async function uploadToR2({ file, folder, userId, index = null }) {
     originalSize: file.size,
     finalSize: body.length,
     originalname: file.originalname,
-    convertedFromHeic: isHeic,
+    convertedToJpeg: mime === "image/jpeg",
   });
 
   await r2Client.send(putCommand);

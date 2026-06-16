@@ -859,17 +859,17 @@ useEffect(() => {
     if (saved) {
   const parsed = JSON.parse(saved);
 
-  setForm((s) => ({
-    ...s,
-    ...parsed,
+setForm((s) => ({
+  ...s,
+  ...parsed,
 
-    // nu păstrăm imaginile și disponibilitatea de la produsul anterior
-    images: [],
-    availability: "",
-    readyQty: "",
-    leadTimeDays: "",
-    nextShipDate: "",
-  }));
+  // păstrăm imaginile din draft, dar nu păstrăm disponibilitatea
+  images: parsed.images || [],
+  availability: "",
+  readyQty: "",
+  leadTimeDays: "",
+  nextShipDate: "",
+}));
 } else {
   setForm((s) => ({
   ...s,
@@ -1344,8 +1344,8 @@ useEffect(() => {
         alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`);
         continue;
       }
-if (f.size > 25 * 1024 * 1024) {
-  alert(`Fișierul ${f.name} este prea mare. Maxim 25MB.`);
+if (f.size > 50 * 1024 * 1024) {
+  alert(`Fișierul ${f.name} este prea mare. Maxim 50MB.`);
   continue;
 }
       const previewUrl = URL.createObjectURL(f);
@@ -1498,11 +1498,10 @@ useEffect(() => {
   if (!open || editingProduct) return;
 
   try {
-    const safeForm = {
+  const safeForm = {
   ...form,
 
-  // nu salvăm imaginile și disponibilitatea în draft
-  images: [],
+  // nu salvăm disponibilitatea în draft
   availability: "",
   readyQty: "",
   leadTimeDays: "",
