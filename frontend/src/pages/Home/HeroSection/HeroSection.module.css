@@ -993,3 +993,29 @@
 
   color: var(--color-primary);
 }
+
+@media (max-width: 620px) {
+  .servicePills {
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .servicePill {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0.28rem 0.25rem;
+    font-size: 0.68rem;
+    line-height: 1.1;
+    text-align: center;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .servicePill {
+    font-size: 0.62rem;
+    padding: 0.24rem 0.18rem;
+  }
+}
