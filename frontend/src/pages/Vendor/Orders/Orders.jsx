@@ -1,6 +1,6 @@
 // frontend/src/pages/Vendor/Orders/VendorOrdersPage.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../Auth/Context/context.js";
 import {
@@ -111,8 +111,20 @@ export default function VendorOrdersPage() {
   const isVendor = me?.role === "VENDOR";
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState("vendor");
+  const [searchParams, setSearchParams] = useSearchParams();
 
+ const [activeTab, setActiveTab] = useState(
+  searchParams.get("tab") === "client" ? "client" : "vendor"
+);
+
+function changeTab(tab) {
+  setActiveTab(tab);
+  setSearchParams(tab === "client" ? { tab: "client" } : {});
+}
+
+useEffect(() => {
+  setActiveTab(searchParams.get("tab") === "client" ? "client" : "vendor");
+}, [searchParams]);
 
   // list filters
   const [q, setQ] = useState("");
@@ -329,7 +341,7 @@ export default function VendorOrdersPage() {
           className={`${styles.tab} ${
             activeTab === "vendor" ? styles.tabActive : ""
           }`}
-          onClick={() => setActiveTab("vendor")}
+          onClick={() => changeTab("vendor")}
         >
           Comenzi primite
         </button>
@@ -339,7 +351,7 @@ export default function VendorOrdersPage() {
           className={`${styles.tab} ${
             activeTab === "client" ? styles.tabActive : ""
           }`}
-          onClick={() => setActiveTab("client")}
+          onClick={() => changeTab("client")}
         >
           Comenzi plasate de mine
         </button>

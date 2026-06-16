@@ -4,13 +4,31 @@ import { useSearchParams, Link } from "react-router-dom";
 import styles from "./Checkout.module.css";
 import { api } from "../../lib/api";
 import { trackPurchase } from "../../../services/analytics.js";
+import { useAuth } from "../Auth/Context/context.js";
 
 export default function ThankYou() {
   const [params] = useSearchParams();
+  const { me } = useAuth();
 
   const orderId = params.get("order");
   const orderNoFromUrl = params.get("orderNo");
 
+const ordersListPath =
+  me?.role === "VENDOR"
+    ? `/vendor/orders?tab=client${
+        orderId ? `&order=${encodeURIComponent(orderId)}` : ""
+      }`
+    : `/comenzile-mele${
+        orderId ? `?order=${encodeURIComponent(orderId)}` : ""
+      }`;
+
+const orderDetailsPath =
+  me?.role === "VENDOR"
+    ? ordersListPath
+    : orderId
+    ? `/comanda/${encodeURIComponent(orderId)}`
+    : "/comenzile-mele";
+    
   const [displayNo, setDisplayNo] = React.useState(() => {
     if (orderNoFromUrl) return orderNoFromUrl;
 
@@ -114,25 +132,13 @@ export default function ThankYou() {
         <p className={styles.muted} style={{ marginTop: 16 }}>
           Vei primi un email cu detaliile comenzii. Poți urmări statusul ei din
           secțiunea{" "}
-          <Link
-            to={
-              orderId
-                ? `/comenzile-mele?order=${encodeURIComponent(orderId)}`
-                : "/comenzile-mele"
-            }
-          >
-            „Comenzile mele”
-          </Link>
-          .
+          <Link to={ordersListPath}>„Comenzile mele”</Link>.
         </p>
 
         <div className={styles.thankYouActions}>
-         <Link
-  to={orderId ? `/comanda/${encodeURIComponent(orderId)}` : "/comenzile-mele"}
-  className={styles.primaryBtn}
->
-  Vezi comanda
-</Link>
+          <Link to={orderDetailsPath} className={styles.primaryBtn}>
+            Vezi comanda
+          </Link>
 
           <Link to="/produse" className={styles.secondaryBtn}>
             Continuă cumpărăturile
