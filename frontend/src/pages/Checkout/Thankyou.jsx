@@ -38,44 +38,36 @@ export default function ThankYou() {
       try {
         const data = await api(`/api/user/orders/${orderId}`);
 
-        console.log("FULL ORDER API DATA", data);
+        const items = Array.isArray(data?.items) ? data.items : [];
 
-       const items = Array.isArray(data?.items) ? data.items : [];
+        const total = Number(
+          data?.total ||
+            data?.totalPrice ||
+            data?.totalAmount ||
+            data?.grandTotal ||
+            data?.finalTotal ||
+            data?.amount ||
+            data?.totals?.total ||
+            data?.pricing?.total ||
+            data?.order?.total ||
+            data?.order?.totalPrice ||
+            items.reduce((sum, item) => {
+              const price = Number(
+                item?.price ||
+                  item?.unitPrice ||
+                  item?.product?.price ||
+                  item?.productPrice ||
+                  0
+              );
 
-const total = Number(
-  data?.total ||
-  data?.totalPrice ||
-  data?.totalAmount ||
-  data?.grandTotal ||
-  data?.finalTotal ||
-  data?.amount ||
-  data?.totals?.total ||
-  data?.pricing?.total ||
-  data?.order?.total ||
-  data?.order?.totalPrice ||
-  items.reduce((sum, item) => {
-    const price = Number(
-      item?.price ||
-        item?.unitPrice ||
-        item?.product?.price ||
-        item?.productPrice ||
-        0
-    );
+              const quantity = Number(item?.quantity || item?.qty || 1);
 
-    const quantity = Number(item?.quantity || item?.qty || 1);
-
-    return sum + price * quantity;
-  }, 0)
-);
+              return sum + price * quantity;
+            }, 0)
+        );
 
         const currency = data?.currency || "RON";
         const orderNumber = data?.orderNumber || orderNoFromUrl || orderId;
-
-        console.log("ORDER DATA", {
-  orderId,
-  total,
-  currency,
-});
 
         trackPurchase({
           id: orderId,
@@ -135,9 +127,12 @@ const total = Number(
         </p>
 
         <div className={styles.thankYouActions}>
-          <Link to="/comenzile-mele" className={styles.primaryBtn}>
-            Vezi comanda
-          </Link>
+         <Link
+  to={orderId ? `/comanda/${encodeURIComponent(orderId)}` : "/comenzile-mele"}
+  className={styles.primaryBtn}
+>
+  Vezi comanda
+</Link>
 
           <Link to="/produse" className={styles.secondaryBtn}>
             Continuă cumpărăturile
