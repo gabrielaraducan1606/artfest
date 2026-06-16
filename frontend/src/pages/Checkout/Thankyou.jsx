@@ -38,7 +38,18 @@ export default function ThankYou() {
       try {
         const data = await api(`/api/user/orders/${orderId}`);
 
-        const total = Number(data?.total || data?.totalPrice || 0);
+        console.log("FULL ORDER API DATA", data);
+        
+       const total = Number(
+  data?.total ||
+  data?.totalPrice ||
+  data?.grandTotal ||
+  data?.amount ||
+  data?.finalTotal ||
+  data?.order?.total ||
+  data?.order?.totalPrice ||
+  0
+);
         const currency = data?.currency || "RON";
         const orderNumber = data?.orderNumber || orderNoFromUrl || orderId;
 
