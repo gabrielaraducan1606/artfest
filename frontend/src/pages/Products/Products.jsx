@@ -269,6 +269,7 @@ export default function ProductsPage() {
 
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
+const [suggestionsClosed, setSuggestionsClosed] = useState(false);
 
   const deferredQ = useDeferredValue(localFilters.q || "");
 
@@ -448,6 +449,7 @@ export default function ProductsPage() {
   );
 
   useEffect(() => {
+    
     setLocalFilters({
       q: qParam,
       category: categoryParam,
@@ -484,6 +486,12 @@ export default function ProductsPage() {
     acceptsCustomParam,
     leadTimeMaxParam,
   ]);
+
+  useEffect(() => {
+  setSuggestionsClosed(true);
+  setSuggestions(null);
+  setSuggestLoading(false);
+}, []);
 
   useEffect(() => {
     let alive = true;
@@ -589,6 +597,12 @@ useEffect(() => {
   useEffect(() => {
     const q = deferredQ.trim();
 
+    if (suggestionsClosed) {
+  setSuggestions(null);
+  setSuggestLoading(false);
+  return;
+}
+
     if (!q || q.length < 2) {
       setSuggestions(null);
       setSuggestLoading(false);
@@ -625,7 +639,7 @@ useEffect(() => {
     }, 220);
 
     return () => clearTimeout(handle);
-  }, [deferredQ]);
+  }, [deferredQ, suggestionsClosed]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -1014,14 +1028,18 @@ useEffect(() => {
     </button>
   </div>
 </div>
-        <form
-          ref={searchRef}
-          className={styles.searchRow}
-         onSubmit={(e) => {
-  e.preventDefault();
-  setSuggestions(null);
-  applyFilters();
-}}
+       <form
+  ref={searchRef}
+  className={styles.searchRow}
+  onSubmit={(e) => {
+    e.preventDefault();
+
+    setSuggestionsClosed(true);
+    setSuggestions(null);
+    setSuggestLoading(false);
+
+    applyFilters();
+  }}
           style={{ position: "relative" }}
           onKeyDown={(e) => {
             if (e.key === "Escape") setSuggestions(null);
@@ -1040,9 +1058,13 @@ useEffect(() => {
               className={`${styles.input} ${styles.searchInput}`}
               placeholder="Caută: invitații, mărturii, lumini decor…"
               value={localFilters.q}
-              onChange={(e) =>
-                setLocalFilters((f) => ({ ...f, q: e.target.value }))
-              }
+              onChange={(e) => {
+  setSuggestionsClosed(false);
+  setLocalFilters((f) => ({
+    ...f,
+    q: e.target.value,
+  }));
+}}
               autoComplete="off"
             />
 
@@ -1065,9 +1087,10 @@ useEffect(() => {
             onChange={handleImageFileChange}
           />
 
-          {localFilters.q &&
-            localFilters.q.length >= 2 &&
-            (suggestLoading || suggestions) && (
+          {!suggestionsClosed &&
+  localFilters.q &&
+  localFilters.q.length >= 2 &&
+  (suggestLoading || suggestions) && (
               <div
                 role="listbox"
                 aria-label="Sugestii de căutare"
