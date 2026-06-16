@@ -1078,20 +1078,31 @@ const productUrl =
     }
   }, [categories.length]);
 
-  const uploadFile = useCallback(async (f) => {
-    const fd = new FormData();
-    fd.append("file", f);
+ const uploadFile = useCallback(async (f) => {
+  const fd = new FormData();
+  fd.append("file", f);
 
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      body: fd,
-    });
+  const res = await fetch("/api/upload/products", {
+    method: "POST",
+    body: fd,
+  });
 
-    if (!res.ok) throw new Error("Upload eșuat");
+  if (!res.ok) {
+    let message = "Upload eșuat";
 
-    const { url } = await res.json();
-    return url;
-  }, []);
+    try {
+      const err = await res.json();
+      message = err?.message || message;
+    } catch {
+      // ignore
+    }
+
+    throw new Error(message);
+  }
+
+  const data = await res.json();
+  return data.url;
+}, []);
 
   const openEditModal = useCallback(async () => {
     if (!product?.id) return;

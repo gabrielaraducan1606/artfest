@@ -15,14 +15,11 @@ function pushToDataLayer(eventName, params = {}) {
 export const trackEvent = (eventName, params = {}) => {
   if (typeof window === "undefined") return;
 
-  // Dacă există gtag, trimitem direct către GA4 / Ads
+  pushToDataLayer(eventName, params);
+
   if (typeof window.gtag === "function") {
     window.gtag("event", eventName, params);
-    return;
   }
-
-  // Dacă site-ul folosește GTM, trimitem în dataLayer
-  pushToDataLayer(eventName, params);
 };
 
 export const trackAddToCart = (product) => {
@@ -58,16 +55,26 @@ export const trackPurchase = (order) => {
   const currency = order?.currency || "RON";
   const transactionId = order?.id || "";
 
+  console.log("PURCHASE EVENT", {
+    transactionId,
+    value,
+    currency,
+  });
+
   trackEvent("purchase", {
     transaction_id: transactionId,
     value,
     currency,
   });
 
-  trackEvent("conversion", {
-    send_to: GOOGLE_ADS_PURCHASE_CONVERSION_ID,
-    value,
-    currency,
-    transaction_id: transactionId,
-  });
+  if (typeof window !== "undefined" && typeof window.gtag === "function") {
+    window.gtag("event", "conversion", {
+      send_to: GOOGLE_ADS_PURCHASE_CONVERSION_ID,
+      value,
+      currency,
+      transaction_id: transactionId,
+    });
+
+    console.log("GOOGLE ADS CONVERSION FIRED");
+  }
 };

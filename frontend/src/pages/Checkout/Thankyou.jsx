@@ -42,6 +42,12 @@ export default function ThankYou() {
         const currency = data?.currency || "RON";
         const orderNumber = data?.orderNumber || orderNoFromUrl || orderId;
 
+        console.log("ORDER DATA", {
+  orderId,
+  total,
+  currency,
+});
+
         trackPurchase({
           id: orderId,
           total,
