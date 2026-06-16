@@ -520,7 +520,8 @@
   transform: translateY(1px);
 }
 .btnIcon {
-  font-size: 1.05em;
+  font-size: 1.25rem;
+  flex-shrink: 0;
 }
 .btnPrimary {
   background: var(--color-primary);
@@ -833,7 +834,7 @@
   }
 
   .btnIcon {
-    font-size: 1em;
+    font-size: 1.35rem;
   }
 
   .badges {
