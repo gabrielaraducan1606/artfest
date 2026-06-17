@@ -654,6 +654,21 @@ const mainImageReadyForAi = /^https?:\/\//i.test(String(mainImageUrl));
 const allImagesReadyForAi = (form.images || []).every((img) =>
   /^https?:\/\//i.test(String(img))
 );
+
+const resolveProductImageUrl = useCallback((img) => {
+  const value = String(img || "");
+
+  if (
+    value.startsWith("blob:") ||
+    value.startsWith("data:") ||
+    /^https?:\/\//i.test(value)
+  ) {
+    return value;
+  }
+
+  return resolveFileUrl(value);
+}, []);
+
   const updateField = useCallback(
     (field) => (e) => {
       const value = e?.target?.value ?? e;
@@ -1841,7 +1856,7 @@ return (
                       }
                     >
                       <img
-                        src={resolveFileUrl(img)}
+                        src={resolveProductImageUrl(img)}
                         alt={`Imagine produs ${idx + 1}`}
                         className={styles.thumbImg}
                       />
