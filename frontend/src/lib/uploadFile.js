@@ -1,5 +1,7 @@
 // client/src/lib/uploadFile.js
 
+const API_URL = import.meta.env.VITE_API_URL || "";
+
 /**
  * Upload generic de fișier
  * @param {File} file
@@ -9,38 +11,40 @@
 export async function uploadFile(file, endpoint = "/api/upload") {
   const fd = new FormData();
 
-  // suport pentru endpoint-uri diferite
   if (endpoint.includes("/support")) {
-    fd.append("files", file); // backend așteaptă array
+    fd.append("files", file);
   } else {
-    fd.append("file", file); // avatar / products
+    fd.append("file", file);
   }
 
-  const res = await fetch(endpoint, {
+  const url = endpoint.startsWith("http")
+    ? endpoint
+    : `${API_URL}${endpoint}`;
+
+  const res = await fetch(url, {
     method: "POST",
     body: fd,
     credentials: "include",
   });
 
+  const data = await res.json().catch(() => ({}));
+
   if (!res.ok) {
-    const j = await res.json().catch(() => ({}));
-    throw new Error(j?.message || "Upload eșuat.");
+    throw new Error(
+      data?.message ||
+        "Nu am putut încărca fișierul. Încearcă din nou."
+    );
   }
 
-  const data = await res.json();
-
-  // avatar
   if (data?.url) return data.url;
 
-  // products
   if (Array.isArray(data?.urls) && data.urls.length > 0) {
     return data.urls[0];
   }
 
-  // support
   if (Array.isArray(data?.items) && data.items.length > 0) {
     return data.items[0].url;
   }
 
-  throw new Error("Răspuns invalid de la server.");
+  throw new Error("Uploadul a reușit, dar serverul nu a returnat URL-ul fișierului.");
 }

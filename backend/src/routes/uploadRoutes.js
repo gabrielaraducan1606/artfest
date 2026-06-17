@@ -43,11 +43,16 @@ const ALLOWED_IMAGE_MIME_TYPES = [
   "image/gif",
   "image/heic",
   "image/heif",
+  "image/bmp",
+  "image/tiff",
+  "image/avif",
+  "application/octet-stream",
 ];
 
 const ALLOWED_IMAGE_EXTENSIONS = new Set([
   "jpg",
   "jpeg",
+  "jfif",
   "png",
   "webp",
   "gif",
@@ -74,9 +79,11 @@ function getFileExtension(name = "") {
 
 function isAllowedImageFile(file) {
   const ext = getFileExtension(file.originalname || "");
+  const mime = String(file.mimetype || "").toLowerCase();
 
   return (
-    String(file.mimetype || "").startsWith("image/") ||
+    mime.startsWith("image/") ||
+    ALLOWED_IMAGE_MIME_TYPES.includes(mime) ||
     ALLOWED_IMAGE_EXTENSIONS.has(ext)
   );
 }
@@ -96,10 +103,18 @@ function imageFileFilter(req, file, cb) {
 }
 
 function supportFileFilter(req, file, cb) {
-  if (!ALLOWED_SUPPORT_MIME_TYPES.includes(file.mimetype)) {
+  const mime = String(file.mimetype || "").toLowerCase();
+  const ext = getFileExtension(file.originalname || "");
+
+  const isAllowedSupport =
+    ALLOWED_SUPPORT_MIME_TYPES.includes(mime) ||
+    ALLOWED_IMAGE_EXTENSIONS.has(ext);
+
+  if (!isAllowedSupport) {
     console.warn("[UPLOAD] Format atașament respins:", {
       mimetype: file.mimetype,
       originalname: file.originalname,
+      extension: ext,
     });
 
     return cb(new Error("INVALID_SUPPORT_FILE_TYPE"));
@@ -110,19 +125,19 @@ function supportFileFilter(req, file, cb) {
 
 const uploadImage = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: imageFileFilter,
 });
 
 const uploadProductImages = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: imageFileFilter,
 });
 
 const uploadSupport = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: supportFileFilter,
 });
 
@@ -154,10 +169,10 @@ function handleUploadError(err, res, context = "upload") {
       error: "file_too_large",
       message:
         context === "support"
-          ? "Fișierul este prea mare (max 10MB)."
+          ? "Fișierul este prea mare (max 20MB)."
           : context === "products"
-         ? "Imaginea este prea mare (max 50MB)."
-          : "Fișierul este prea mare (max 5MB).",
+          ? "Imaginea este prea mare (max 100MB)."
+          : "Fișierul este prea mare (max 10MB).",
     });
   }
 
@@ -165,7 +180,7 @@ function handleUploadError(err, res, context = "upload") {
     return res.status(415).json({
       error: "invalid_file_type",
       message:
-      "Format invalid. Acceptăm JPG, JPEG, PNG, WEBP, GIF, HEIC, HEIF, BMP, TIFF și AVIF.",
+        "Format invalid. Acceptăm JPG, JPEG, JFIF, PNG, WEBP, GIF, HEIC, HEIF, BMP, TIFF și AVIF.",
     });
   }
 
@@ -181,7 +196,10 @@ function handleUploadError(err, res, context = "upload") {
 
   return res.status(500).json({
     error: "upload_failed",
-    message: "Upload eșuat. Încearcă din nou.",
+    message:
+      context === "products"
+        ? "Nu am putut încărca imaginea. Încearcă din nou sau folosește o poză JPG/PNG."
+        : "Upload eșuat. Încearcă din nou.",
   });
 }
 
@@ -216,8 +234,13 @@ async function uploadToR2({ file, folder, userId, index = null }) {
       .toBuffer();
 
     mime = "image/jpeg";
-    } catch (err) {
-    console.error("Sharp convert failed, uploading original file:", err);
+  } catch (err) {
+    console.error("[UPLOAD] Sharp convert failed, uploading original file:", {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+      error: err?.message || err,
+    });
 
     body = file.buffer;
     mime = originalMime;
@@ -266,6 +289,7 @@ async function uploadToR2({ file, folder, userId, index = null }) {
     mimeType: mime,
   };
 }
+
 /**
  * POST /api/upload
  * Pentru avatar / imagine simplă

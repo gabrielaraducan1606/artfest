@@ -1331,23 +1331,100 @@ setForm((s) => ({
     [moveImage]
   );
 
+ async function compressImageBeforeUpload(file) {
+  try {
+    const fileType = String(file.type || "").toLowerCase();
+    const fileName = String(file.name || "").toLowerCase();
+
+    if (!/^image\//i.test(fileType)) return file;
+
+    // Nu comprimăm formatele care pot da probleme în browser.
+    if (
+      /image\/gif/i.test(fileType) ||
+      /heic|heif|avif|tiff|bmp/i.test(fileType) ||
+      /\.(heic|heif|avif|tiff?|bmp|gif)$/i.test(fileName)
+    ) {
+      return file;
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+
+    try {
+      const img = await Promise.race([
+        new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = reject;
+          image.src = imageUrl;
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("IMAGE_COMPRESSION_TIMEOUT")), 4000)
+        ),
+      ]);
+
+      const maxSize = 1800;
+      const ratio = Math.min(1, maxSize / Math.max(img.width, img.height));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * ratio);
+      canvas.height = Math.round(img.height * ratio);
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return file;
+
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const blob = await Promise.race([
+        new Promise((resolve) => {
+          canvas.toBlob(resolve, "image/jpeg", 0.82);
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("CANVAS_COMPRESSION_TIMEOUT")), 4000)
+        ),
+      ]);
+
+      if (!blob) return file;
+      if (blob.size >= file.size * 0.95) return file;
+
+      return new File(
+        [blob],
+        `${file.name.replace(/\.[^.]+$/, "") || "imagine"}.jpg`,
+        { type: "image/jpeg" }
+      );
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  } catch (err) {
+    console.warn("Compresia imaginii a fost ignorată:", err);
+    return file;
+  }
+}
+
  const onFilesPicked = useCallback(
   async (files) => {
     if (!files?.length) return;
 
     for (const f of files) {
+      const fileName = f.name || "imagine";
+      const fileType = String(f.type || "").toLowerCase();
+
       const isImage =
-        /^image\//i.test(f.type || "") ||
-        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "");
+        /^image\//i.test(fileType) ||
+        fileType === "application/octet-stream" ||
+        /\.(jpe?g|jfif|png|webp|gif|heic|heif|bmp|tiff?|avif)$/i.test(fileName);
 
       if (!isImage) {
-        alert(`Fișier ignorat: ${f.name}. Acceptăm JPG, PNG, WEBP, GIF, HEIC sau HEIF.`);
+        alert(
+          `Fișier ignorat: ${fileName}. Acceptăm JPG, PNG, WEBP, GIF, HEIC, HEIF, BMP, TIFF sau AVIF.`
+        );
         continue;
       }
-if (f.size > 50 * 1024 * 1024) {
-  alert(`Fișierul ${f.name} este prea mare. Maxim 50MB.`);
-  continue;
-}
+
+      if (f.size > 100 * 1024 * 1024) {
+        alert(`Fișierul ${fileName} este prea mare. Maxim 100MB.`);
+        continue;
+      }
+
       const previewUrl = URL.createObjectURL(f);
 
       setForm((s) => ({
@@ -1356,32 +1433,43 @@ if (f.size > 50 * 1024 * 1024) {
       }));
 
       try {
-  setUploadingImages((n) => n + 1);
+        setUploadingImages((n) => n + 1);
 
-  const finalUrl = await doUpload(f);
+        let finalUrl = "";
 
-  setForm((s) => ({
-    ...s,
-    images: (s.images || []).map((img) =>
-      img === previewUrl ? finalUrl : img
-    ),
-  }));
-
-  URL.revokeObjectURL(previewUrl);
-} catch (er) {
-  console.error(er);
-
-  setForm((s) => ({
-    ...s,
-    images: (s.images || []).filter((img) => img !== previewUrl),
-  }));
-
-  URL.revokeObjectURL(previewUrl);
-
-  alert(er?.message || "Upload eșuat.");
-} finally {
-  setUploadingImages((n) => Math.max(0, n - 1));
+try {
+  const fileToUpload = await compressImageBeforeUpload(f);
+  finalUrl = await doUpload(fileToUpload);
+} catch (firstErr) {
+  console.warn("Upload cu imagine procesată a eșuat, încerc originalul:", firstErr);
+  finalUrl = await doUpload(f);
 }
+
+        setForm((s) => ({
+          ...s,
+          images: (s.images || []).map((img) =>
+            img === previewUrl ? finalUrl : img
+          ),
+        }));
+
+        URL.revokeObjectURL(previewUrl);
+      } catch (er) {
+        console.error(er);
+
+        setForm((s) => ({
+          ...s,
+          images: (s.images || []).filter((img) => img !== previewUrl),
+        }));
+
+        URL.revokeObjectURL(previewUrl);
+
+        alert(
+          er?.message ||
+            "Nu am putut încărca poza. Încearcă din nou sau fă screenshot la imagine și încarcă screenshot-ul."
+        );
+      } finally {
+        setUploadingImages((n) => Math.max(0, n - 1));
+      }
     }
   },
   [doUpload, setForm]
@@ -1400,11 +1488,15 @@ const onPasteImages = useCallback(
     }
 
     const files = Array.from(e.clipboardData?.files || []).filter((f) => {
-      return (
-        /^image\//i.test(f.type || "") ||
-        /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || "")
-      );
-    });
+  const fileType = String(f.type || "").toLowerCase();
+  const fileName = f.name || "";
+
+  return (
+    /^image\//i.test(fileType) ||
+    fileType === "application/octet-stream" ||
+    /\.(jpe?g|jfif|png|webp|gif|heic|heif|bmp|tiff?|avif)$/i.test(fileName)
+  );
+});
 
     if (!files.length) return;
 
@@ -1523,7 +1615,14 @@ const handleSubmit = useCallback(
       alert("Te rog așteaptă să se termine încărcarea pozelor.");
       return;
     }
-
+if (
+  (form.images || []).some((img) =>
+    String(img).startsWith("blob:")
+  )
+) {
+  alert("Mai există imagini care nu s-au încărcat complet.");
+  return;
+}
     if (hasPriceWarning && !priceWarningConfirmed) {
       return;
     }
@@ -1577,7 +1676,7 @@ setOpenSections({
     priceWarningConfirmed,
     onSave,
     editingProduct,
-    draftKey, setForm
+    draftKey, setForm, form.images
   ]
 );
 
@@ -1676,7 +1775,7 @@ return (
                 <input
   id="product-camera-input"
   type="file"
-  accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
+  accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,.avif"
   capture="environment"
   className={styles.fileInputHidden}
   onChange={async (e) => {
@@ -1689,7 +1788,7 @@ return (
 <input
   id="product-gallery-input"
   type="file"
-  accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
+  accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,.avif"
   multiple
   className={styles.fileInputHidden}
   onChange={async (e) => {
