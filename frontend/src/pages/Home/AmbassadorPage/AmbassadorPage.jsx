@@ -42,37 +42,37 @@ export default function AmbassadorsPage() {
     {
       title: "Founding Creator",
       minInvites: 0,
-      benefits: ["Badge pe profil", "Apari printre creatorii de început ArtFest"],
+      benefits: ["Badge pe profil", "Apari printre creatorii de început Artfest"],
     },
     {
       title: "Ambasador",
       minInvites: 3,
-      benefits: ["Badge Ambasador", "Promovare pe canalele ArtFest"],
+      benefits: ["Badge Ambasador", "Promovare pe canalele Artfest"],
     },
     {
       title: "Ambasador Gold",
       minInvites: 10,
       benefits: [
         "Prioritate la promovare",
-        "Posibilitatea de a apărea în reclame ArtFest",
+        "Posibilitatea de a apărea în reclame Artfest",
       ],
     },
     {
       title: "Ambasador Elite",
       minInvites: 25,
-      benefits: ["Homepage spotlight", "Acces prioritar la evenimente ArtFest"],
+      benefits: ["Homepage spotlight", "Acces prioritar la evenimente Artfest"],
     },
   ];
 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
-        <span className={styles.badge}>🇷🇴 Programul Ambasadorilor ArtFest</span>
+        <span className={styles.badge}>🇷🇴 Programul Ambasadorilor Artfest</span>
 
         <h1>Ajută-ne să ajungem la 1000 de creatori români</h1>
 
         <p>
-          Invită creatori în ArtFest, construiește comunitatea și deblochează
+          Invită creatori în Artfest, construiește comunitatea și deblochează
           beneficii de vizibilitate, promovare și apariții în campanii.
         </p>
 
@@ -108,7 +108,7 @@ export default function AmbassadorsPage() {
         )}
 
         <Link to="/?auth=register&as=partner" className={styles.cta}>
-          Devino creator ArtFest
+          Devino creator Artfest
         </Link>
       </section>
 
@@ -139,7 +139,7 @@ export default function AmbassadorsPage() {
             <h3>Deblochezi beneficii</h3>
             <p>
               Primești badge-uri, promovare și șanse de apariție în reclame
-              ArtFest.
+              Artfest.
             </p>
           </div>
         </div>
@@ -167,7 +167,7 @@ export default function AmbassadorsPage() {
       <section className={styles.finalCta}>
         <h2>Nu construim doar un marketplace.</h2>
         <p>Construim comunitatea creatorilor români.</p>
-        <Link to="/?auth=register&as=partner">Alătură-te ArtFest</Link>
+        <Link to="/?auth=register&as=partner">Alătură-te Artfest</Link>
       </section>
     </main>
   );

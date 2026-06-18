@@ -153,7 +153,7 @@ function useAdRotator({ placement = "hero_top", interval = 7000 }) {
             {
               id: "fallback1",
               image: { desktop: imageMain, mobile: imageMain },
-              title: "ArtFest",
+              title: "Artfest",
               updatedAt: String(Date.now()),
             },
           ]);
@@ -248,7 +248,7 @@ function PromoStrip() {
         {
           id: "fallback",
           image: { desktop: imageMain, mobile: imageMain },
-          title: "ArtFest",
+          title: "Artfest",
           updatedAt: String(Date.now()),
         },
       ];
@@ -370,7 +370,7 @@ function AmbassadorBadge({ ambassador, onCopy }) {
     <div className={styles.storeAmbassadorStrip}>
       <div className={styles.storeAmbassadorInfo}>
         <div className={styles.storeAmbassadorTitle}>
-          🚀 Programul Ambasadorilor ArtFest
+          🚀 Programul Ambasadorilor Artfest
         </div>
 
         <div className={styles.storeAmbassadorSubtitle}>
@@ -523,7 +523,7 @@ const [ambassador, setAmbassador] = useState(null);
 const copyAmbassadorLink = useCallback(async () => {
   if (!ambassador?.referralLink) return;
 
-  const text = `Fac parte din ArtFest, comunitatea creatorilor români. ❤️
+  const text = `Fac parte din Artfest, comunitatea creatorilor români. ❤️
 Hai să ajungem împreună la 1000 de creatori!
 Înscrie-te aici: ${ambassador.referralLink}`;
 
@@ -741,7 +741,7 @@ Hai să ajungem împreună la 1000 de creatori!
             },
             publisher: {
               "@type": "Organization",
-              name: "ArtFest",
+              name: "Artfest",
               url: "https://artfest.ro/",
             },
           }),

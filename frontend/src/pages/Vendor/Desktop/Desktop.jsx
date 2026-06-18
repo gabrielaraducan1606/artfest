@@ -1134,7 +1134,7 @@ function AmbassadorBanner({ ambassador }) {
   if (!ambassador?.referralLink) return null;
 
   async function copyAmbassadorLink() {
-    const text = `Fac parte din ArtFest, comunitatea creatorilor români. ❤️
+    const text = `Fac parte din Artfest, comunitatea creatorilor români. ❤️
 Hai să ajungem împreună la 1000 de creatori!
 Înscrie-te aici: ${ambassador.referralLink}`;
 
@@ -1150,7 +1150,7 @@ Hai să ajungem împreună la 1000 de creatori!
     <div className={styles.storeAmbassadorStrip}>
       <div className={styles.storeAmbassadorInfo}>
         <div className={styles.storeAmbassadorTitle}>
-          🚀 Programul Ambasadorilor ArtFest
+          🚀 Programul Ambasadorilor Artfest
         </div>
 
         <div className={styles.storeAmbassadorSubtitle}>
