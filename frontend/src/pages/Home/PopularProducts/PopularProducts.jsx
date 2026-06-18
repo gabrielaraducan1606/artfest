@@ -28,21 +28,6 @@ function getImageSrc(p) {
   return null;
 }
 
-async function loadFavoriteIds() {
-  try {
-    const r = await api("/api/favorites/ids?limit=50");
-
-    const ids = Array.isArray(r?.items)
-      ? r.items.map((x) => x.productId).filter(Boolean)
-      : [];
-
-    return new Set(ids);
-  } catch (err) {
-    console.error("loadFavoriteIds failed:", err);
-    return null;
-  }
-}
-
 function dedupeProducts(list) {
   const seen = new Set();
 
@@ -157,18 +142,13 @@ export default function PopularProducts() {
 
         const pageItems = Array.isArray(r?.items) ? r.items : [];
 
-        const favoriteIds = await loadFavoriteIds();
 
 setSaved((prev) => {
   const next = { ...prev };
 
   for (const item of pageItems) {
     if (!item?.id) continue;
-
-    next[item.id] =
-      favoriteIds instanceof Set
-        ? favoriteIds.has(item.id) || !!item.viewerFavorited
-        : !!item.viewerFavorited || !!prev[item.id];
+    next[item.id] = !!item.viewerFavorited || !!prev[item.id];
   }
 
   return next;
@@ -388,7 +368,8 @@ const toggleFavorite = async (e, productId) => {
                       src={storeLogo}
                       alt={storeName}
                       className={styles.avatar}
-                      loading="lazy"
+                      loading={index < 2 ? "eager" : "lazy"}
+decoding="async"
                     />
                   ) : (
                     <span className={styles.avatarFallback}>
@@ -434,7 +415,9 @@ const toggleFavorite = async (e, productId) => {
                       src={img}
                       alt={p.title}
                       className={styles.productImage}
-                      loading="lazy"
+                      loading={index < 2 ? "eager" : "lazy"}
+decoding="async"
+fetchPriority={index < 2 ? "high" : "auto"}
                       onError={() => {
                         if (!p?.id) return;
                         setBrokenImages((prev) => ({
