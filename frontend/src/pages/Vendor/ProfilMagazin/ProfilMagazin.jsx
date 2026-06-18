@@ -606,25 +606,25 @@ export default function ProfilMagazinPage() {
     );
   }
 
-  if (err || !_sellerData) {
-    return (
-      <div style={{ padding: "2rem" }}>
-        {err || "Magazinul nu a fost găsit."}
+ if (!loading && (err || !_sellerData)) {
+  return (
+    <div style={{ padding: "2rem" }}>
+      {err || "Magazinul nu a fost găsit."}
 
-        {isOwner && (
-          <div style={{ marginTop: 16 }}>
-            <button
-              type="button"
-              className={styles.followBtn}
-              onClick={() => navigate("/onboarding")}
-            >
-              Continuă crearea magazinului
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
+      {isOwner && (
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            className={styles.followBtn}
+            onClick={() => navigate("/onboarding")}
+          >
+            Continuă crearea magazinului
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
   return (
     <>
