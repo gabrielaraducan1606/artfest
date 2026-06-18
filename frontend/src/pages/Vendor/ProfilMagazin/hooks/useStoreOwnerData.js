@@ -369,7 +369,12 @@ export default function useStoreOwnerData({
     navigate(`/magazin/${encodeURIComponent(store.slug)}`);
   }
 
-  const hasData = !!(sellerData?.slug || sellerData?.profile?.slug || slug);
+  const hasData = !!(
+  sellerData?.slug ||
+  sellerData?.profile?.slug ||
+  sellerData?.serviceId ||
+  sellerData?.vendorId
+);
   const hasAnyStoreOrService =
     Array.isArray(ownerStores) && ownerStores.length > 0;
 
