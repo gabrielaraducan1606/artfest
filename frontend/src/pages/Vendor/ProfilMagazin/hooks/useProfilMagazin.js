@@ -626,44 +626,60 @@ export default function useProfilMagazin(slug, opts = {}) {
       normalizedShop = normalizeSellerTypeForProfile(initial?.shop || null);
       itemsRaw = Array.isArray(initial?.products) ? initial.products : [];
     } catch (publicError) {
-      if (!isCurrent()) return;
+  if (!isCurrent()) return;
 
-      if (![404, 400].includes(publicError?.status)) {
-        throw publicError;
-      }
+  if (![404, 400].includes(publicError?.status)) {
+    throw publicError;
+  }
 
-      if (meNow) {
-        try {
-          const shop = await api(
-            `/api/vendors/store/${encodeURIComponent(currentSlug)}`
-          );
+  // fallback la rutele publice vechi
+  try {
+    const shop = await api(
+      `/api/public/store/${encodeURIComponent(currentSlug)}`
+    );
 
-          if (!isCurrent()) return;
+    if (!isCurrent()) return;
 
-          ownerFromPrivateRoute = true;
-          normalizedShop = normalizeSellerTypeForProfile(shop);
+    normalizedShop = normalizeSellerTypeForProfile(shop);
 
-          const productsResp = await api(
-            `/api/vendors/store/${encodeURIComponent(currentSlug)}/products`
-          );
+    const productsResp = await api(
+      `/api/public/store/${encodeURIComponent(currentSlug)}/products`
+    );
 
-          if (!isCurrent()) return;
+    if (!isCurrent()) return;
 
-          itemsRaw = Array.isArray(productsResp?.items)
-            ? productsResp.items
-            : Array.isArray(productsResp)
-            ? productsResp
-            : [];
-        } catch {
-          setErr("Magazinul nu a fost găsit.");
-          setSellerData(null);
-          setProducts([]);
-          setReviews([]);
-          setRating(0);
-          setLoading(false);
-          return;
-        }
-      } else {
+    itemsRaw = Array.isArray(productsResp?.items)
+      ? productsResp.items
+      : Array.isArray(productsResp)
+      ? productsResp
+      : [];
+
+  } catch {
+
+    // dacă e owner, încearcă ruta privată
+    if (meNow) {
+      try {
+        const shop = await api(
+          `/api/vendors/store/${encodeURIComponent(currentSlug)}`
+        );
+
+        if (!isCurrent()) return;
+
+        ownerFromPrivateRoute = true;
+        normalizedShop = normalizeSellerTypeForProfile(shop);
+
+        const productsResp = await api(
+          `/api/vendors/store/${encodeURIComponent(currentSlug)}/products`
+        );
+
+        if (!isCurrent()) return;
+
+        itemsRaw = Array.isArray(productsResp?.items)
+          ? productsResp.items
+          : Array.isArray(productsResp)
+          ? productsResp
+          : [];
+      } catch {
         setErr("Magazinul nu a fost găsit.");
         setSellerData(null);
         setProducts([]);
@@ -672,7 +688,17 @@ export default function useProfilMagazin(slug, opts = {}) {
         setLoading(false);
         return;
       }
+    } else {
+      setErr("Magazinul nu a fost găsit.");
+      setSellerData(null);
+      setProducts([]);
+      setReviews([]);
+      setRating(0);
+      setLoading(false);
+      return;
     }
+  }
+}
 
     if (!isCurrent()) return;
 
