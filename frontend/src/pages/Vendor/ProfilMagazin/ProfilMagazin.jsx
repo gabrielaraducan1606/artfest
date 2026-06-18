@@ -141,6 +141,16 @@ export default function ProfilMagazinPage() {
     serviceId,
   });
 
+  const [ambassador, setAmbassador] = useState(null);
+
+useEffect(() => {
+  if (!isOwner) return;
+
+  api("/api/ambassadors/me")
+    .then(setAmbassador)
+    .catch(() => setAmbassador(null));
+}, [isOwner]);
+
   const owner = useStoreOwnerData({
     isOwner,
     sellerData,
@@ -702,6 +712,7 @@ if (!loading && !hasData && err) {
     ? handleVendorMessage
     : follow.handleContactVendor
 }
+  ambassador={ambassador}
           following={follow.following}
           followLoading={follow.followLoading}
           toggleFollow={follow.toggleFollow}

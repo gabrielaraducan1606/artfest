@@ -363,43 +363,51 @@ function PromoStrip() {
   );
 }
 
-function AmbassadorBadge({ mission, ambassador, onCopy }) {
-  if (!ambassador) return null;
-
-  const current = mission?.currentCreators || 170;
-  const target = mission?.targetCreators || 1000;
-  const progress = mission?.progress || Math.round((current / target) * 100);
+function AmbassadorBadge({ ambassador, onCopy }) {
+  if (!ambassador?.referralLink) return null;
 
   return (
-    <div className={styles.ambassadorBox}>
-      <div className={styles.ambassadorTop}>
-        <span>🇷🇴 Misiunea ArtFest</span>
-        <strong>{progress}%</strong>
+    <div className={styles.storeAmbassadorStrip}>
+      <div className={styles.storeAmbassadorInfo}>
+        <div className={styles.storeAmbassadorTitle}>
+          🚀 Programul Ambasadorilor ArtFest
+        </div>
+
+        <div className={styles.storeAmbassadorSubtitle}>
+          Ai invitat <strong>{ambassador.invitedCount || 0}</strong>{" "}
+          creatori prin linkul tău
+        </div>
+
+        <div className={styles.storeAmbassadorProgress}>
+          {ambassador.level === "FOUNDING" &&
+            "Mai ai 2 invitații până la nivelul Ambasador"}
+
+          {ambassador.level === "AMBASSADOR" &&
+            `Mai ai ${Math.max(
+              0,
+              10 - (ambassador.invitedCount || 0)
+            )} invitații până la Gold`}
+
+          {ambassador.level === "GOLD" &&
+            `Mai ai ${Math.max(
+              0,
+              25 - (ambassador.invitedCount || 0)
+            )} invitații până la Elite`}
+
+          {ambassador.level === "ELITE" &&
+            "Ai atins cel mai înalt nivel 🎉"}
+        </div>
       </div>
 
-      <h3>{current} / {target} creatori români</h3>
-
-      <div className={styles.ambassadorProgress}>
-        <div style={{ width: `${progress}%` }} />
-      </div>
-
-      <p>
-        Distribuie linkul tău și ajută-ne să construim comunitatea creatorilor români.
-      </p>
-
-      <div className={styles.ambassadorActions}>
+      <div className={styles.storeAmbassadorActions}>
         <button type="button" onClick={onCopy}>
           Copiază linkul
         </button>
 
         <Link to="/ambasadori">
-          Vezi beneficiile →
+          Vezi beneficiile
         </Link>
       </div>
-
-      <small>
-        Ai invitat {ambassador.invitedCount || 0} creatori • Nivel: {ambassador.level}
-      </small>
     </div>
   );
 }

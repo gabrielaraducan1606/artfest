@@ -343,6 +343,7 @@ const [payouts, setPayouts] = useState(() => cached?.payouts ?? null);
   const [supportUnread, setSupportUnread] = useState(
     () => cached?.counts?.supportUnread ?? 0
   );
+  const [ambassador, setAmbassador] = useState(null);
 const [policyGateOpen, setPolicyGateOpen] = useState(
   shouldOpenPolicyGate
 );
@@ -375,6 +376,14 @@ useEffect(() => {
   };
 }, [me,shouldOpenPolicyGate]);
   const cacheTimerRef = useRef(null);
+
+  useEffect(() => {
+  if (!me || me.role !== "VENDOR") return;
+
+  api("/api/ambassadors/me")
+    .then(setAmbassador)
+    .catch(() => setAmbassador(null));
+}, [me]);
 
   useEffect(() => {
     if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
@@ -891,7 +900,7 @@ useEffect(() => {
       />
 
       {error ? <div className={styles.errorBar}>{error}</div> : null}
-
+<AmbassadorBanner ambassador={ambassador} />
       <IdentityCard me={me} roleLabel={roleLabel} billing={billing} />
       <QuickCard quick={quick} />
 
@@ -1116,6 +1125,68 @@ function TrialBanner({ sub }) {
         >
           Reîncarcă status
         </button>
+      </div>
+    </div>
+  );
+}
+
+function AmbassadorBanner({ ambassador }) {
+  if (!ambassador?.referralLink) return null;
+
+  async function copyAmbassadorLink() {
+    const text = `Fac parte din ArtFest, comunitatea creatorilor români. ❤️
+Hai să ajungem împreună la 1000 de creatori!
+Înscrie-te aici: ${ambassador.referralLink}`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Textul și linkul de invitație au fost copiate.");
+    } catch {
+      window.prompt("Copiază mesajul:", text);
+    }
+  }
+
+  return (
+    <div className={styles.storeAmbassadorStrip}>
+      <div className={styles.storeAmbassadorInfo}>
+        <div className={styles.storeAmbassadorTitle}>
+          🚀 Programul Ambasadorilor ArtFest
+        </div>
+
+        <div className={styles.storeAmbassadorSubtitle}>
+          Ai invitat <strong>{ambassador.invitedCount || 0}</strong>{" "}
+          creatori prin linkul tău
+        </div>
+
+        <div className={styles.storeAmbassadorProgress}>
+          {ambassador.level === "FOUNDING" &&
+            "Mai ai 2 invitații până la nivelul Ambasador"}
+
+          {ambassador.level === "AMBASSADOR" &&
+            `Mai ai ${Math.max(
+              0,
+              10 - (ambassador.invitedCount || 0)
+            )} invitații până la Gold`}
+
+          {ambassador.level === "GOLD" &&
+            `Mai ai ${Math.max(
+              0,
+              25 - (ambassador.invitedCount || 0)
+            )} invitații până la Elite`}
+
+          {ambassador.level === "ELITE" &&
+            "Ai atins cel mai înalt nivel 🎉"}
+        </div>
+      </div>
+
+      <div className={styles.storeAmbassadorActions}>
+        <button type="button" onClick={copyAmbassadorLink}>
+          Copiază linkul
+        </button>
+
+        <Link to="/ambasadori">
+          Vezi beneficiile
+        </Link>
       </div>
     </div>
   );

@@ -479,3 +479,115 @@
     padding: 4px 8px;
   }
 }
+
+.cover {
+  position: relative;
+}
+.storeAmbassadorStrip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 16px 20px;
+  margin-bottom: 14px;
+
+  border-radius: 18px;
+
+  background: #ffffff;
+
+  border: 2px solid #a855f7;
+
+  box-shadow:
+    0 6px 18px rgba(124, 58, 237, 0.05);
+
+  color: #111827;
+}
+
+.storeAmbassadorInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.storeAmbassadorTitle {
+  font-size: 16px;
+  font-weight: 800;
+  color: #7c3aed;
+}
+
+.storeAmbassadorSubtitle {
+  font-size: 14px;
+  color: #374151;
+}
+
+.storeAmbassadorProgress {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.storeAmbassadorActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.storeAmbassadorActions button {
+  background: #7c3aed;
+  color: #fff;
+
+  border: 0;
+  border-radius: 999px;
+
+  padding: 10px 16px;
+
+  font-weight: 700;
+  cursor: pointer;
+
+  transition: all 0.2s ease;
+}
+
+.storeAmbassadorActions button:hover {
+  background: #6d28d9;
+  transform: translateY(-1px);
+}
+
+.storeAmbassadorActions a {
+  background: transparent;
+
+  color: #7c3aed;
+
+  text-decoration: none;
+
+  border: 1px solid #d8b4fe;
+
+  border-radius: 999px;
+
+  padding: 10px 16px;
+
+  font-weight: 700;
+
+  transition: all 0.2s ease;
+}
+
+.storeAmbassadorActions a:hover {
+  background: rgba(124, 58, 237, 0.06);
+}
+
+@media (max-width: 700px) {
+  .storeAmbassadorStrip {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .storeAmbassadorActions {
+    width: 100%;
+  }
+
+  .storeAmbassadorActions button,
+  .storeAmbassadorActions a {
+    flex: 1;
+    text-align: center;
+  }
+}

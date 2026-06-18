@@ -42,6 +42,7 @@ export default function StoreHero({
   followLoading,
   toggleFollow,
   trackCTA,
+  ambassador,
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -78,6 +79,21 @@ export default function StoreHero({
     }
   }
 
+  async function handleCopyAmbassadorLink() {
+  if (!ambassador?.referralLink) return;
+
+  const text = `Fac parte din ArtFest, comunitatea creatorilor români. ❤️
+Hai să ajungem împreună la 1000 de creatori!
+Înscrie-te aici: ${ambassador.referralLink}`;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    alert("Textul și linkul de invitație au fost copiate.");
+  } catch {
+    window.prompt("Copiază mesajul:", text);
+  }
+}
+
   function onActivationClick() {
     if (activationDisabled) return;
     handleToggleActive?.();
@@ -85,7 +101,52 @@ export default function StoreHero({
 
   return (
     <>
+    {isOwner && ambassador?.referralLink && (
+  <div className={styles.storeAmbassadorStrip}>
+    <div className={styles.storeAmbassadorInfo}>
+  <div className={styles.storeAmbassadorTitle}>
+    🚀 Programul Ambasadorilor ArtFest
+  </div>
+
+  <div className={styles.storeAmbassadorSubtitle}>
+    Ai invitat <strong>{ambassador.invitedCount || 0}</strong>{" "}
+    creatori prin linkul tău
+  </div>
+
+  <div className={styles.storeAmbassadorProgress}>
+    {ambassador.level === "FOUNDING" &&
+      "Mai ai 2 invitații până la nivelul Ambasador"}
+
+    {ambassador.level === "AMBASSADOR" &&
+      `Mai ai ${Math.max(
+        0,
+        10 - (ambassador.invitedCount || 0)
+      )} invitații până la Gold`}
+
+    {ambassador.level === "GOLD" &&
+      `Mai ai ${Math.max(
+        0,
+        25 - (ambassador.invitedCount || 0)
+      )} invitații până la Elite`}
+
+    {ambassador.level === "ELITE" &&
+      "Ai atins cel mai înalt nivel 🎉"}
+  </div>
+</div>
+
+    <div className={styles.storeAmbassadorActions}>
+      <button type="button" onClick={handleCopyAmbassadorLink}>
+        Copiază linkul
+      </button>
+
+      <a href="/ambasadori">
+        Vezi beneficiile
+      </a>
+    </div>
+  </div>
+)}
       <div className={styles.cover}>
+        
         {coverUrl ? (
           <img
             src={coverUrl}
@@ -164,21 +225,21 @@ export default function StoreHero({
           <div>
             <h1 className={styles.title}>{shopName}</h1>
 
-            {sellerTypeLabel && (
-              <div style={{ marginTop: 6, marginBottom: 6 }}>
-                <span
-                  className={styles.sellerTypeBadge}
-                  title={
-                    sellerType === "independent_creator"
-                      ? "Acest magazin este operat de un Creator Independent."
-                      : "Acest magazin este operat de un Business Verificat."
-                  }
-                >
-                  {sellerType === "independent_creator" ? "🌱" : "✓"}{" "}
-                  {sellerTypeLabel}
-                </span>
-              </div>
-            )}
+          {sellerTypeLabel && (
+  <div style={{ marginTop: 6, marginBottom: 6 }}>
+    <span
+      className={styles.sellerTypeBadge}
+      title={
+        sellerType === "independent_creator"
+          ? "Acest magazin este operat de un Creator Independent."
+          : "Acest magazin este operat de un Business Verificat."
+      }
+    >
+      {sellerType === "independent_creator" ? "🌱" : "✓"}{" "}
+      {sellerTypeLabel}
+    </span>
+  </div>
+)}
 
             {shortText && <p className={styles.subtitle}>{shortText}</p>}
 

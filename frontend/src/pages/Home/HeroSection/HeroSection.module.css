@@ -1059,84 +1059,92 @@
     white-space: nowrap;
   }
 }
+.storeAmbassadorStrip {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
 
-.ambassadorBox {
-  margin: 18px 0;
-  padding: 16px;
+  margin: 14px 0 0;
+  padding: 14px;
+
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
-  position: relative;
-  z-index: 2;
+  background: rgba(255, 255, 255, 0.96);
+  border: 2px solid #a855f7;
+  box-shadow: 0 12px 28px rgba(124, 58, 237, 0.14);
+
+  color: #111827;
 }
 
-.ambassadorTop {
+.storeAmbassadorInfo {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.storeAmbassadorTitle {
+  font-size: 15px;
+  font-weight: 900;
+  color: #7c3aed;
+  line-height: 1.25;
+}
+
+.storeAmbassadorSubtitle {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.35;
+}
+
+.storeAmbassadorProgress {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  line-height: 1.35;
+}
+
+.storeAmbassadorActions {
+  display: flex;
+  gap: 8px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+}
+
+.storeAmbassadorActions button,
+.storeAmbassadorActions a {
+  min-width: 98px;
+  border-radius: 999px;
+  padding: 10px 13px;
   font-size: 13px;
   font-weight: 800;
-  margin-bottom: 8px;
-}
-
-.ambassadorBox h3 {
-  margin: 0 0 10px;
-  font-size: 19px;
-  line-height: 1.2;
-}
-
-.ambassadorProgress {
-  height: 9px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgba(0, 0, 0, 0.08);
-  margin-bottom: 12px;
-}
-
-.ambassadorProgress > div {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #ff7a59, #ff3f8b);
-}
-
-.ambassadorBox p {
-  margin: 0 0 12px;
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.ambassadorActions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ambassadorActions button,
-.ambassadorActions a {
-  border: 0;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 14px;
-  font-weight: 800;
+  text-align: center;
   text-decoration: none;
+  line-height: 1.1;
   cursor: pointer;
 }
 
-.ambassadorActions button {
-  background: #111;
-  color: white;
+.storeAmbassadorActions button {
+  border: 0;
+  background: #7c3aed;
+  color: #fff;
 }
 
-.ambassadorActions a {
-  background: rgba(255, 255, 255, 0.9);
-  color: #111;
+.storeAmbassadorActions a {
+  border: 1px solid #d8b4fe;
+  background: #fff;
+  color: #7c3aed;
 }
 
-.ambassadorBox small {
-  display: block;
-  margin-top: 10px;
-  font-size: 12px;
-  opacity: 0.7;
+@media (max-width: 700px) {
+  .storeAmbassadorStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .storeAmbassadorActions {
+    width: 100%;
+  }
+
+  .storeAmbassadorActions button,
+  .storeAmbassadorActions a {
+    flex: 1;
+  }
 }
