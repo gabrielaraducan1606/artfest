@@ -561,85 +561,100 @@ export default function useProfilMagazin(slug, opts = {}) {
     }
   }, []);
 
-  const fetchEverything = useCallback(async () => {
-    if (!slug) return;
+ const fetchEverything = useCallback(async () => {
+  if (!slug) return;
 
-    const requestId = ++requestIdRef.current;
-    const currentSlug = slug;
-    const currentCacheKey = `pm:v6:${currentSlug}`;
+  const requestId = ++requestIdRef.current;
+  const currentSlug = slug;
+  const currentCacheKey = `pm:v7:${currentSlug}`;
 
-    const isCurrent = () => requestIdRef.current === requestId;
+  const isCurrent = () => requestIdRef.current === requestId;
 
+  setErr(null);
+  setNeedsOnboarding(false);
+  setReviews([]);
+  setFavorites(new Set());
+
+  const cached = readCache(currentCacheKey);
+
+  if (cached?.sellerData && isCurrent()) {
+    setSellerData(normalizeSellerTypeForProfile(cached.sellerData));
+    setProducts(Array.isArray(cached.products) ? cached.products : []);
+    setRating(Number(cached.rating || 0));
+    setLoading(false);
+  } else {
     setLoading(true);
-    setErr(null);
-    setNeedsOnboarding(false);
-
     setSellerData(null);
     setProducts([]);
-    setReviews([]);
     setRating(0);
     setIsOwner(false);
-    setFavorites(new Set());
+  }
 
-    const cached = readCache(currentCacheKey);
+  try {
+    loadCategoriesOnce();
 
-    if (cached?.sellerData && isCurrent()) {
-      setSellerData(normalizeSellerTypeForProfile(cached.sellerData));
-      setProducts(Array.isArray(cached.products) ? cached.products : []);
-      setRating(Number(cached.rating || 0));
+    if (!isCurrent()) return;
+
+    let meNow = meFromProps;
+
+    if (!meFromProps) {
+      try {
+        const d = await api("/api/auth/me");
+        if (!isCurrent()) return;
+
+        meNow = d?.user || null;
+        setMe(meNow);
+      } catch {
+        if (!isCurrent()) return;
+
+        meNow = null;
+        setMe(null);
+      }
     }
 
+    let normalizedShop = null;
+    let itemsRaw = [];
+    let ownerFromPrivateRoute = false;
+
     try {
-      await loadCategoriesOnce();
+      const initial = await api(
+        `/api/public/store/${encodeURIComponent(currentSlug)}/initial`
+      );
 
       if (!isCurrent()) return;
 
-      let meNow = meFromProps;
+      normalizedShop = normalizeSellerTypeForProfile(initial?.shop || null);
+      itemsRaw = Array.isArray(initial?.products) ? initial.products : [];
+    } catch (publicError) {
+      if (!isCurrent()) return;
 
-      if (!meFromProps) {
-        try {
-          const d = await api("/api/auth/me");
-
-          if (!isCurrent()) return;
-
-          meNow = d?.user || null;
-          setMe(meNow);
-        } catch {
-          if (!isCurrent()) return;
-
-          meNow = null;
-          setMe(null);
-        }
+      if (![404, 400].includes(publicError?.status)) {
+        throw publicError;
       }
 
-      let shop = null;
-      let ownerFromPrivateRoute = false;
+      if (meNow) {
+        try {
+          const shop = await api(
+            `/api/vendors/store/${encodeURIComponent(currentSlug)}`
+          );
 
-      try {
-        shop = await api(`/api/public/store/${encodeURIComponent(currentSlug)}`);
-      } catch (publicError) {
-        if (!isCurrent()) return;
+          if (!isCurrent()) return;
 
-        if (![404, 400].includes(publicError?.status)) {
-          throw publicError;
-        }
+          ownerFromPrivateRoute = true;
+          normalizedShop = normalizeSellerTypeForProfile(shop);
 
-        if (meNow) {
-          try {
-            shop = await api(
-              `/api/vendors/store/${encodeURIComponent(currentSlug)}`
-            );
-            ownerFromPrivateRoute = true;
-          } catch {
-            setErr("Magazinul nu a fost găsit.");
-            setSellerData(null);
-            setProducts([]);
-            setReviews([]);
-            setRating(0);
-            setLoading(false);
-            return;
-          }
-        } else {
+          const productsResp = await api(
+            `/api/vendors/store/${encodeURIComponent(currentSlug)}/products`
+          );
+
+          if (!isCurrent()) return;
+
+          itemsRaw = Array.isArray(productsResp?.items)
+            ? productsResp.items
+            : Array.isArray(productsResp)
+            ? productsResp
+            : [];
+        } catch {
           setErr("Magazinul nu a fost găsit.");
           setSellerData(null);
           setProducts([]);
@@ -648,152 +663,127 @@ export default function useProfilMagazin(slug, opts = {}) {
           setLoading(false);
           return;
         }
+      } else {
+        setErr("Magazinul nu a fost găsit.");
+        setSellerData(null);
+        setProducts([]);
+        setReviews([]);
+        setRating(0);
+        setLoading(false);
+        return;
       }
-
-      if (!isCurrent()) return;
-
-      let normalizedShop = normalizeSellerTypeForProfile(shop);
-
-      const owner =
-        ownerFromPrivateRoute ||
-        (!!meNow &&
-          !!normalizedShop?.userId &&
-          (meNow.id === normalizedShop.userId ||
-            meNow.sub === normalizedShop.userId));
-
-      if (owner && !normalizedShop.sellerType) {
-        try {
-          const billingResp = await api("/api/vendors/me/billing", {
-            method: "GET",
-          });
-
-          const billing = billingResp?.billing || {};
-          const sellerType =
-            billing.sellerType ||
-            billing.vendorType ||
-            billing.accountType ||
-            "";
-
-          normalizedShop = normalizeSellerTypeForProfile({
-            ...normalizedShop,
-            sellerType,
-            sellerTypeLabel:
-              sellerType === "independent_creator"
-                ? "Creator independent la început de drum"
-                : sellerType === "verified_business"
-                ? "Business verificat"
-                : "",
-          });
-        } catch {
-          // ignore
-        }
-      }
-
-      setSellerData(normalizedShop);
-      setIsOwner(owner);
-      setLoading(false);
-
-      writeCache(currentCacheKey, {
-        sellerData: normalizedShop,
-        products: [],
-        rating: 0,
-      });
-
-      const productsPromise = (async () => {
-        try {
-          const productsPath = owner
-            ? `/api/vendors/store/${encodeURIComponent(currentSlug)}/products`
-            : `/api/public/store/${encodeURIComponent(currentSlug)}/products`;
-
-          const resp = await api(productsPath);
-
-          if (!isCurrent()) return;
-
-          const itemsRaw = Array.isArray(resp?.items)
-            ? resp.items
-            : Array.isArray(resp)
-            ? resp
-            : [];
-
-          setProducts(itemsRaw);
-
-          writeCache(currentCacheKey, {
-            sellerData: normalizedShop,
-            products: itemsRaw,
-            rating: Number(rating || 0),
-          });
-        } catch {
-          if (!isCurrent()) return;
-          setProducts([]);
-        }
-      })();
-
-      const favoritesPromise = (async () => {
-        if (!meNow) return;
-
-        try {
-          const fav = await api("/api/vendors/favorites");
-
-          if (!isCurrent()) return;
-
-          const ids = new Set(
-            (Array.isArray(fav?.items) ? fav.items : []).map((x) => x.productId)
-          );
-
-          setFavorites(ids);
-        } catch {
-          // ignore
-        }
-      })();
-
-      const ratingPromise = (async () => {
-        try {
-          const avg = await api(
-            `/api/public/store/${encodeURIComponent(currentSlug)}/reviews/average`
-          );
-
-          if (!isCurrent()) return;
-
-          const nextRating = Number(avg?.average || 0);
-
-          setRating(nextRating);
-          setReviews([]);
-
-          const latestCache = readCache(currentCacheKey);
-
-          writeCache(currentCacheKey, {
-            sellerData: normalizedShop,
-            products: Array.isArray(latestCache?.products)
-              ? latestCache.products
-              : [],
-            rating: nextRating,
-          });
-        } catch {
-          if (!isCurrent()) return;
-
-          setRating(0);
-          setReviews([]);
-        }
-      })();
-
-      Promise.allSettled([
-        productsPromise,
-        favoritesPromise,
-        ratingPromise,
-      ]).catch(() => {});
-    } catch (error) {
-      if (!isCurrent()) return;
-
-      console.error("Eroare încărcare profil magazin:", error);
-
-      setErr("Nu am putut încărca magazinul.");
-      setSellerData(null);
-      setProducts([]);
-      setReviews([]);
-      setRating(0);
-      setLoading(false);
     }
-  }, [slug, meFromProps, loadCategoriesOnce, rating]);
+
+    if (!isCurrent()) return;
+
+    const owner =
+      ownerFromPrivateRoute ||
+      (!!meNow &&
+        !!normalizedShop?.userId &&
+        (meNow.id === normalizedShop.userId ||
+          meNow.sub === normalizedShop.userId));
+
+    if (owner && !normalizedShop.sellerType) {
+      try {
+        const billingResp = await api("/api/vendors/me/billing", {
+          method: "GET",
+        });
+
+        const billing = billingResp?.billing || {};
+        const sellerType =
+          billing.sellerType ||
+          billing.vendorType ||
+          billing.accountType ||
+          "";
+
+        normalizedShop = normalizeSellerTypeForProfile({
+          ...normalizedShop,
+          sellerType,
+          sellerTypeLabel:
+            sellerType === "independent_creator"
+              ? "Creator independent la început de drum"
+              : sellerType === "verified_business"
+              ? "Business verificat"
+              : "",
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    setSellerData(normalizedShop);
+    setProducts(itemsRaw);
+    setIsOwner(owner);
+    setLoading(false);
+
+    writeCache(currentCacheKey, {
+      sellerData: normalizedShop,
+      products: itemsRaw,
+      rating: Number(cached?.rating || 0),
+    });
+
+    const favoritesPromise = (async () => {
+      if (!meNow) return;
+
+      try {
+        const fav = await api("/api/vendors/favorites");
+
+        if (!isCurrent()) return;
+
+        const ids = new Set(
+          (Array.isArray(fav?.items) ? fav.items : []).map((x) => x.productId)
+        );
+
+        setFavorites(ids);
+      } catch {
+        // ignore
+      }
+    })();
+
+    const ratingPromise = (async () => {
+      try {
+        const avg = await api(
+          `/api/public/store/${encodeURIComponent(currentSlug)}/reviews/average`
+        );
+
+        if (!isCurrent()) return;
+
+        const nextRating = Number(avg?.average || 0);
+
+        setRating(nextRating);
+        setReviews([]);
+
+        const latestCache = readCache(currentCacheKey);
+
+        writeCache(currentCacheKey, {
+          sellerData: normalizedShop,
+          products: Array.isArray(latestCache?.products)
+            ? latestCache.products
+            : itemsRaw,
+          rating: nextRating,
+        });
+      } catch {
+        if (!isCurrent()) return;
+
+        setRating(0);
+        setReviews([]);
+      }
+    })();
+
+    Promise.allSettled([favoritesPromise, ratingPromise]).catch(() => {});
+  } catch (error) {
+    if (!isCurrent()) return;
+
+    console.error("Eroare încărcare profil magazin:", error);
+
+    setErr("Nu am putut încărca magazinul.");
+    setSellerData(null);
+    setProducts([]);
+    setReviews([]);
+    setRating(0);
+    setLoading(false);
+  }
+}, [slug, meFromProps, loadCategoriesOnce]);
 
   useEffect(() => {
     fetchEverything();

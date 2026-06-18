@@ -472,6 +472,248 @@ router.get("/store/:slug", async (req, res, next) => {
 });
 
 /**
+ * GET /api/public/store/:slug/initial
+ * Profil + produse într-un singur request
+ */
+router.get("/store/:slug/initial", async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+
+    if (!slug) {
+      return res.status(400).json({ error: "invalid_slug" });
+    }
+
+    const profile = await prisma.serviceProfile.findUnique({
+      where: { slug },
+      include: {
+        service: {
+          include: {
+            type: true,
+            vendor: {
+              include: {
+                billing: {
+                  select: {
+                    sellerType: true,
+                    legalType: true,
+                    companyName: true,
+                    cui: true,
+                    regCom: true,
+                    vatStatus: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (
+      !profile ||
+      !profile.service?.isActive ||
+      profile.service?.status !== "ACTIVE" ||
+      !profile.service?.vendor?.isActive ||
+      profile.service?.type?.code !== "products"
+    ) {
+      return res.status(404).json({
+        error: "store_not_found",
+      });
+    }
+
+    const service = profile.service;
+    const vendor = service.vendor;
+
+    const sellerTypeInfo = publicSellerTypeFromBilling(
+      vendor.billing
+    );
+
+    const products = await prisma.product.findMany({
+      where: {
+        serviceId: profile.serviceId,
+        isActive: true,
+        isHidden: false,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 24,
+    });
+
+    res.set(
+      "Cache-Control",
+      "public, max-age=30, stale-while-revalidate=300"
+    );
+
+    return res.json({
+      shop: {
+        serviceId: service.id,
+        vendorId: vendor.id,
+        userId: vendor.userId,
+
+        slug: profile.slug,
+        shopName:
+          profile.displayName ||
+          vendor.displayName ||
+          "Magazin",
+
+        displayName:
+          profile.displayName ||
+          vendor.displayName ||
+          "Magazin",
+
+        shortDescription:
+          profile.shortDescription || "",
+
+        tagline:
+          profile.tagline || "",
+
+        about:
+          profile.about ||
+          vendor.about ||
+          "",
+
+        city:
+          profile.city ||
+          service.city ||
+          vendor.city ||
+          "",
+
+        citySlug:
+          profile.citySlug ||
+          service.citySlug ||
+          vendor.citySlug ||
+          null,
+
+        country: "România",
+
+        address:
+          profile.address ||
+          vendor.address ||
+          "",
+
+        publicEmail:
+          profile.email ||
+          vendor.email ||
+          "",
+
+        email:
+          profile.email ||
+          vendor.email ||
+          "",
+
+        phone:
+          profile.phone ||
+          vendor.phone ||
+          "",
+
+        website:
+          profile.website ||
+          vendor.website ||
+          "",
+
+        delivery: Array.isArray(profile.delivery)
+          ? profile.delivery
+          : [],
+
+        logoUrl:
+          profile.logoUrl ||
+          vendor.logoUrl ||
+          "",
+
+        coverUrl:
+          profile.coverUrl ||
+          vendor.coverUrl ||
+          "",
+
+        profileImageUrl:
+          profile.logoUrl ||
+          vendor.logoUrl ||
+          "",
+
+        coverImageUrl:
+          profile.coverUrl ||
+          vendor.coverUrl ||
+          "",
+
+        leadTimes:
+          service.attributes?.leadTimes || "",
+
+        status: "active",
+
+        sellerType:
+          sellerTypeInfo.sellerType,
+
+        sellerTypeLabel:
+          sellerTypeInfo.sellerTypeLabel,
+
+        updatedAt: profile.updatedAt,
+      },
+
+      products: products.map((p) => ({
+        id: p.id,
+        title: p.title,
+        description: p.description || "",
+        price: Number.isFinite(p.priceCents)
+          ? p.priceCents / 100
+          : null,
+        priceCents: p.priceCents,
+        currency: p.currency || "RON",
+        images: Array.isArray(p.images)
+          ? p.images
+          : [],
+        category: p.category || null,
+        isActive: p.isActive,
+        isHidden: !!p.isHidden,
+
+        availability:
+          p.availability || "READY",
+
+        leadTimeDays:
+          p.leadTimeDays ?? null,
+
+        readyQty:
+          p.readyQty ?? 0,
+
+        nextShipDate:
+          p.nextShipDate || null,
+
+        acceptsCustom:
+          !!p.acceptsCustom,
+
+        color: p.color || "",
+        materialMain:
+          p.materialMain || "",
+
+        technique:
+          p.technique || "",
+
+        styleTags: Array.isArray(p.styleTags)
+          ? p.styleTags
+          : [],
+
+        occasionTags: Array.isArray(p.occasionTags)
+          ? p.occasionTags
+          : [],
+
+        dimensions:
+          p.dimensions || "",
+
+        careInstructions:
+          p.careInstructions || "",
+
+        specialNotes:
+          p.specialNotes || "",
+
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * GET /api/public/store/:slug/products
  */
 router.get("/store/:slug/products", async (req, res, next) => {
