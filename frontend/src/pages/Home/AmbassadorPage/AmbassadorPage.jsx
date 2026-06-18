@@ -8,19 +8,19 @@ export default function AmbassadorsPage() {
   const [benefits, setBenefits] = useState(null);
   const [ambassador, setAmbassador] = useState(null);
 
- useEffect(() => {
-  api("/api/ambassadors/mission")
-    .then(setMission)
-    .catch(() => setMission(null));
+  useEffect(() => {
+    api("/api/ambassadors/mission")
+      .then(setMission)
+      .catch(() => setMission(null));
 
-  api("/api/ambassadors/benefits")
-    .then(setBenefits)
-    .catch(() => setBenefits(null));
+    api("/api/ambassadors/benefits")
+      .then(setBenefits)
+      .catch(() => setBenefits(null));
 
-  api("/api/ambassadors/me")
-    .then(setAmbassador)
-    .catch(() => setAmbassador(null));
-}, []);
+    api("/api/ambassadors/me")
+      .then(setAmbassador)
+      .catch(() => setAmbassador(null));
+  }, []);
 
   const current = mission?.currentCreators ?? 0;
   const target = mission?.targetCreators ?? 1000;
@@ -30,11 +30,15 @@ export default function AmbassadorsPage() {
   const copyReferralLink = async () => {
     if (!ambassador?.referralLink) return;
 
+    const text = `Fac parte din Artfest, comunitatea creatorilor români. ❤️
+Hai să ajungem împreună la 1000 de creatori!
+Înscrie-te aici: ${ambassador.referralLink}`;
+
     try {
-      await navigator.clipboard.writeText(ambassador.referralLink);
-      alert("Linkul tău a fost copiat.");
+      await navigator.clipboard.writeText(text);
+      alert("Textul și linkul tău au fost copiate.");
     } catch {
-      window.prompt("Copiază linkul tău:", ambassador.referralLink);
+      window.prompt("Copiază mesajul:", text);
     }
   };
 
@@ -42,43 +46,60 @@ export default function AmbassadorsPage() {
     {
       title: "Founding Creator",
       minInvites: 0,
-      benefits: ["Badge pe profil", "Apari printre creatorii de început Artfest"],
+      benefits: [
+        "Badge pe profil",
+        "Apari printre creatorii de început Artfest",
+      ],
     },
     {
       title: "Ambasador",
       minInvites: 3,
-      benefits: ["Badge Ambasador", "Promovare pe canalele Artfest"],
+      benefits: [
+        "Badge Ambasador",
+        "1 lună gratuită dacă cei 3 creatori invitați devin vendori activi",
+        "Promovare pe canalele Artfest",
+      ],
     },
     {
       title: "Ambasador Gold",
       minInvites: 10,
       benefits: [
         "Prioritate la promovare",
+        "2 luni gratuite dacă invitații validați sunt vendori activi",
         "Posibilitatea de a apărea în reclame Artfest",
       ],
     },
     {
       title: "Ambasador Elite",
       minInvites: 25,
-      benefits: ["Homepage spotlight", "Acces prioritar la evenimente Artfest"],
+      benefits: [
+        "Homepage spotlight",
+        "3 luni gratuite dacă invitații validați sunt vendori activi",
+        "Acces prioritar la evenimente Artfest",
+        "Campanii speciale Artfest",
+      ],
     },
   ];
 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
-        <span className={styles.badge}>🇷🇴 Programul Ambasadorilor Artfest</span>
+        <span className={styles.badge}>
+          🇷🇴 Programul Ambasadorilor Artfest
+        </span>
 
-        <h1>Ajută-ne să ajungem la 1000 de creatori români</h1>
+        <h1>Construim împreună comunitatea creatorilor români</h1>
 
         <p>
           Invită creatori în Artfest, construiește comunitatea și deblochează
-          beneficii de vizibilitate, promovare și apariții în campanii.
+          beneficii de vizibilitate, promovare și luni gratuite.
         </p>
 
         <div className={styles.progressCard}>
           <div className={styles.progressTop}>
-            <strong>{current} / {target} creatori</strong>
+            <strong>
+              {current} / {target} creatori
+            </strong>
             <span>{progress}%</span>
           </div>
 
@@ -92,13 +113,17 @@ export default function AmbassadorsPage() {
             <h3>Statusul tău de ambasador</h3>
 
             <p>
-              Ai invitat{" "}
-              <strong>{ambassador.invitedCount || 0}</strong>{" "}
+              Ai invitat <strong>{ambassador.invitedCount || 0}</strong>{" "}
               creatori prin linkul tău.
             </p>
 
             <p>
               Nivel actual: <strong>{ambassador.level}</strong>
+            </p>
+
+            <p>
+              La <strong>3 creatori invitați care devin vendori activi</strong>,
+              primești <strong>1 lună gratuită</strong> pe Artfest.
             </p>
 
             <button type="button" onClick={copyReferralLink}>
@@ -138,8 +163,8 @@ export default function AmbassadorsPage() {
             <strong>4</strong>
             <h3>Deblochezi beneficii</h3>
             <p>
-              Primești badge-uri, promovare și șanse de apariție în reclame
-              Artfest.
+              Dacă invitații tăi devin vendori activi, primești luni gratuite,
+              badge-uri și promovare.
             </p>
           </div>
         </div>
@@ -161,6 +186,36 @@ export default function AmbassadorsPage() {
               </ul>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <h2>Condiții pentru lunile gratuite</h2>
+
+        <div className={styles.steps}>
+          <div>
+            <strong>✓</strong>
+            <h3>Invitații trebuie să vină prin linkul tău</h3>
+            <p>Doar înscrierile făcute prin linkul personal sunt contorizate.</p>
+          </div>
+
+          <div>
+            <strong>✓</strong>
+            <h3>Creatorii invitați trebuie să fie activi</h3>
+            <p>
+              Bonusul se acordă când creatorii invitați își activează magazinul
+              pe Artfest.
+            </p>
+          </div>
+
+          <div>
+            <strong>✓</strong>
+            <h3>Bonusul se acordă pentru contribuție reală</h3>
+            <p>
+              Scopul este să creștem comunitatea cu creatori reali, activi și
+              vizibili.
+            </p>
+          </div>
         </div>
       </section>
 
