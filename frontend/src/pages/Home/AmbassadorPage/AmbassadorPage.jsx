@@ -1,30 +1,26 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import styles from "./AmbassadorPage.module.css";
+import { api } from "../../../lib/api.js";
 
 export default function AmbassadorsPage() {
   const [mission, setMission] = useState(null);
   const [benefits, setBenefits] = useState(null);
   const [ambassador, setAmbassador] = useState(null);
 
-  useEffect(() => {
-    fetch("/api/ambassadors/mission")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setMission)
-      .catch(() => setMission(null));
+ useEffect(() => {
+  api("/api/ambassadors/mission")
+    .then(setMission)
+    .catch(() => setMission(null));
 
-    fetch("/api/ambassadors/benefits")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setBenefits)
-      .catch(() => setBenefits(null));
+  api("/api/ambassadors/benefits")
+    .then(setBenefits)
+    .catch(() => setBenefits(null));
 
-    fetch("/api/ambassadors/me", {
-      credentials: "include",
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setAmbassador)
-      .catch(() => setAmbassador(null));
-  }, []);
+  api("/api/ambassadors/me")
+    .then(setAmbassador)
+    .catch(() => setAmbassador(null));
+}, []);
 
   const current = mission?.currentCreators ?? 0;
   const target = mission?.targetCreators ?? 1000;
