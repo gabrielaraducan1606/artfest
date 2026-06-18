@@ -580,11 +580,16 @@ export default function ProfilMagazinPage() {
     }
   }
 
-  const hasData = !!(sellerData?.slug || sellerData?.profile?.slug || slug);
+const hasData = !!(
+  _sellerData?.slug ||
+  _sellerData?.profile?.slug ||
+  _sellerData?.serviceId ||
+  _sellerData?.vendorId
+);
 
-  if (!hasData && loading) {
-    return <ProfilMagazinSkeleton />;
-  }
+if (loading && !hasData) {
+  return <ProfilMagazinSkeleton />;
+}
 
   if (owner.shouldShowOnboardingGate) {
     return (
@@ -606,10 +611,10 @@ export default function ProfilMagazinPage() {
     );
   }
 
- if (!loading && (err || !_sellerData)) {
+if (!loading && !hasData && err) {
   return (
     <div style={{ padding: "2rem" }}>
-      {err || "Magazinul nu a fost găsit."}
+      {err}
 
       {isOwner && (
         <div style={{ marginTop: 16 }}>
