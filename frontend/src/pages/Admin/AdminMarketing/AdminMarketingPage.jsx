@@ -5,6 +5,7 @@ import AdminDigitalWaitlistTab from "./AdminDigitalWaitListTab";
 import AdminMarketplaceWaitlistTab from "./AdminMarketplaceWaitlistTab";
 import AdminNewsletterSubscribersTab from "./AdminNewsletterTab";
 import AdminAccountEmailTab from "./AdminAccountEmailTab";
+import AdminAmbassadorsTab from "./AdminAmbassadorsTab";
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -187,6 +188,16 @@ export default function AdminMarketingTab() {
           >
             Waitlist marketplace
           </button>
+          <button
+  type="button"
+  className={cx(
+    styles.tabBtn,
+    tab === "ambassadors" && styles.tabBtnActive
+  )}
+  onClick={() => setTab("ambassadors")}
+>
+  Ambasadori
+</button>
         </div>
 
         {tab === "campaign" && <AdminAccountEmailTab />}
@@ -196,6 +207,8 @@ export default function AdminMarketingTab() {
         {tab === "digitalWaitlist" && <AdminDigitalWaitlistTab />}
 
         {tab === "marketplaceWaitlist" && <AdminMarketplaceWaitlistTab />}
+
+{tab === "ambassadors" && <AdminAmbassadorsTab />}
 
         {tab === "prefs" && (
           <div className={styles.cardMuted}>

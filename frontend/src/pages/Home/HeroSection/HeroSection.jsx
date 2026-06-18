@@ -363,12 +363,50 @@ function PromoStrip() {
   );
 }
 
-function PartnerCard({ onCta }) {
+function AmbassadorBadge({ mission, ambassador, onCopy }) {
+  if (!ambassador) return null;
+
+  const current = mission?.currentCreators || 170;
+  const target = mission?.targetCreators || 1000;
+  const progress = mission?.progress || Math.round((current / target) * 100);
+
   return (
-    <aside
-      className={styles.partnerCard}
-      aria-label="Devino partener Artfest"
-    >
+    <div className={styles.ambassadorBox}>
+      <div className={styles.ambassadorTop}>
+        <span>🇷🇴 Misiunea ArtFest</span>
+        <strong>{progress}%</strong>
+      </div>
+
+      <h3>{current} / {target} creatori români</h3>
+
+      <div className={styles.ambassadorProgress}>
+        <div style={{ width: `${progress}%` }} />
+      </div>
+
+      <p>
+        Distribuie linkul tău și ajută-ne să construim comunitatea creatorilor români.
+      </p>
+
+      <div className={styles.ambassadorActions}>
+        <button type="button" onClick={onCopy}>
+          Copiază linkul
+        </button>
+
+        <Link to="/ambasadori">
+          Vezi beneficiile →
+        </Link>
+      </div>
+
+      <small>
+        Ai invitat {ambassador.invitedCount || 0} creatori • Nivel: {ambassador.level}
+      </small>
+    </div>
+  );
+}
+
+function PartnerCard({ onCta, mission, ambassador, onCopyAmbassadorLink }) {
+  return (
+    <aside className={styles.partnerCard} aria-label="Devino partener Artfest">
       <div className={styles.partnerBadge}>Pentru artizani</div>
 
       <h2 className={styles.partnerTitle}>
@@ -389,6 +427,12 @@ function PartnerCard({ onCta }) {
         <li>📣 Promovare & trafic către listările tale</li>
         <li>✅ Tu creezi. Noi te ajutăm să vinzi.</li>
       </ul>
+
+      <AmbassadorBadge
+        mission={mission}
+        ambassador={ambassador}
+        onCopy={onCopyAmbassadorLink}
+      />
 
       <div className={styles.partnerActions}>
         <Link
@@ -446,11 +490,43 @@ export default function HeroSection() {
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const searchRef = useRef(null);
+const [mission, setMission] = useState(null);
+const [ambassador, setAmbassador] = useState(null);
 
   const log = useCallback(
     (name, data = {}) => window.gtag?.("event", name, data),
     []
   );
+
+  useEffect(() => {
+  fetch("/api/ambassadors/mission")
+    .then((r) => (r.ok ? r.json() : null))
+    .then(setMission)
+    .catch(() => setMission(null));
+
+  fetch("/api/ambassadors/me", {
+    credentials: "include",
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then(setAmbassador)
+    .catch(() => setAmbassador(null));
+}, []);
+
+const copyAmbassadorLink = useCallback(async () => {
+  if (!ambassador?.referralLink) return;
+
+  const text = `Fac parte din ArtFest, comunitatea creatorilor români. ❤️
+Hai să ajungem împreună la 1000 de creatori!
+Înscrie-te aici: ${ambassador.referralLink}`;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    log("ambassador_link_copy");
+    alert("Textul și linkul au fost copiate.");
+  } catch {
+    window.prompt("Copiază mesajul:", text);
+  }
+}, [ambassador, log]);
 
   const onSearch = useCallback(
     (e) => {
@@ -960,25 +1036,31 @@ export default function HeroSection() {
 
             {isMobile && (
               <div className={styles.mobilePartnerWrap}>
-                <PartnerCard
-                  onCta={() =>
-                    log("hero_partner_cta", {
-                      placement: "hero_mobile_card",
-                    })
-                  }
-                />
+               <PartnerCard
+  mission={mission}
+  ambassador={ambassador}
+  onCopyAmbassadorLink={copyAmbassadorLink}
+  onCta={() =>
+    log("hero_partner_cta", {
+      placement: "hero_mobile_card",
+    })
+  }
+/>
               </div>
             )}
           </div>
 
           <div className={styles.images}>
             <PartnerCard
-              onCta={() =>
-                log("hero_partner_cta", {
-                  placement: "hero_right_card",
-                })
-              }
-            />
+  mission={mission}
+  ambassador={ambassador}
+  onCopyAmbassadorLink={copyAmbassadorLink}
+  onCta={() =>
+    log("hero_partner_cta", {
+      placement: "hero_right_card",
+    })
+  }
+/>
           </div>
         </div>
       </section>

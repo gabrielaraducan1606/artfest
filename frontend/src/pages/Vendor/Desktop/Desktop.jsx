@@ -830,6 +830,11 @@ useEffect(() => {
         label: "Comenzi",
         icon: <Package size={20} />,
       },
+      {
+  to: "/vendor/visitors",
+  label: "Vizitatori",
+  icon: <Users size={20} />,
+},
     ],
     [unreadNotif, unreadMsgs, favCount, cartCount, supportUnread]
   );

@@ -265,35 +265,36 @@ model Vendor {
   stripeDisabledReason   String?             @db.VarChar(255)
   stripeOnboardedAt      DateTime?
 
-  commentReplies        Comment[]       @relation("VendorCommentReplies")
-  events                Event[]
-  invoices              Invoice[]
+  ambassadorProfile AmbassadorProfile?
+  commentReplies    Comment[]          @relation("VendorCommentReplies")
+  events            Event[]
+  invoices          Invoice[]
 
   MessageThread         MessageThread[]
   receivedVendorThreads MessageThread[] @relation("RecipientVendorThreads")
   sentVendorMessages    Message[]       @relation("SenderVendorMessages")
 
-  Notification          Notification[]
-  ReviewReply           ReviewReply[]
-  searches              Search[]
-  shipments             Shipment[]
-  storeRatingStats      StoreRatingStats[]
-  storeReviews          StoreReview[]
-  storeReviewReplies    StoreReviewReply[]
-  supportTickets        SupportTicket[]
-  blocks                UserVendorBlock[]
-  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  VendorAcceptance      VendorAcceptance[]
-  billing               VendorBilling?
-  productDeclaration    VendorProductDeclaration?
-  services              VendorService[]
-  stats                 VendorStats?
-  subscriptions         VendorSubscription[]
-  visitors              Visitor[]
-  earningEntries        VendorEarningEntry[]
-  payouts               VendorPayout[]
-  chatUsage             ChatUsage[]
-  returnRequests        ReturnRequest[]
+  Notification       Notification[]
+  ReviewReply        ReviewReply[]
+  searches           Search[]
+  shipments          Shipment[]
+  storeRatingStats   StoreRatingStats[]
+  storeReviews       StoreReview[]
+  storeReviewReplies StoreReviewReply[]
+  supportTickets     SupportTicket[]
+  blocks             UserVendorBlock[]
+  user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  VendorAcceptance   VendorAcceptance[]
+  billing            VendorBilling?
+  productDeclaration VendorProductDeclaration?
+  services           VendorService[]
+  stats              VendorStats?
+  subscriptions      VendorSubscription[]
+  visitors           Visitor[]
+  earningEntries     VendorEarningEntry[]
+  payouts            VendorPayout[]
+  chatUsage          ChatUsage[]
+  returnRequests     ReturnRequest[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -1154,35 +1155,35 @@ model SupportFaq {
 }
 
 model MessageThread {
-  id                         String            @id @default(cuid())
-  vendorId                   String
-  serviceId                  String?
-  userId                     String?
-  contactName                String?
-  contactEmail               String?
-  contactPhone               String?
-  orderId                    String?
-  archived                   Boolean           @default(false)
-  archivedByUser             Boolean           @default(false)
-  lastMsg                    String?
-  lastAt                     DateTime          @default(now())
-  vendorLastReadAt           DateTime?
-  visitorLastReadAt          DateTime?
-  userLastReadAt             DateTime?
-  eventDate                  DateTime?
-  eventType                  String?
-  eventLocation              String?
-  budgetMin                  Int?
-  budgetMax                  Int?
-  leadStatus                 LeadStatus        @default(NEW)
-  tags                       String[]
-  followUpAt                 DateTime?
-  internalNote               String?
-  createdAt                  DateTime          @default(now())
-  updatedAt                  DateTime          @updatedAt
-  followUpNotifiedAt         DateTime?
-  deletedByUserAt            DateTime?
-  deletedByVendorAt          DateTime?
+  id                 String     @id @default(cuid())
+  vendorId           String
+  serviceId          String?
+  userId             String?
+  contactName        String?
+  contactEmail       String?
+  contactPhone       String?
+  orderId            String?
+  archived           Boolean    @default(false)
+  archivedByUser     Boolean    @default(false)
+  lastMsg            String?
+  lastAt             DateTime   @default(now())
+  vendorLastReadAt   DateTime?
+  visitorLastReadAt  DateTime?
+  userLastReadAt     DateTime?
+  eventDate          DateTime?
+  eventType          String?
+  eventLocation      String?
+  budgetMin          Int?
+  budgetMax          Int?
+  leadStatus         LeadStatus @default(NEW)
+  tags               String[]
+  followUpAt         DateTime?
+  internalNote       String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  followUpNotifiedAt DateTime?
+  deletedByUserAt    DateTime?
+  deletedByVendorAt  DateTime?
 
   // Vendor ↔ Vendor
   type                       MessageThreadType @default(CUSTOMER)
@@ -1212,7 +1213,6 @@ model MessageThread {
   @@index([userId, serviceId, deletedByUserAt], map: "thread_user_service_deleted_idx")
   @@index([vendorId, serviceId, deletedByVendorAt], map: "thread_vendor_service_deleted_idx")
   @@index([vendorId, archived, lastAt], map: "thread_vendor_arch_lastAt_idx")
-
   @@index([type])
   @@index([recipientVendorId, lastAt])
   @@index([recipientVendorId, deletedByRecipientVendorAt])
@@ -2148,4 +2148,59 @@ model CollectionItem {
 enum MessageThreadType {
   CUSTOMER
   VENDOR_TO_VENDOR
+}
+
+model AmbassadorProfile {
+  id           String          @id @default(cuid())
+  vendorId     String          @unique
+  referralCode String          @unique
+  invitedCount Int             @default(0)
+  city         String?
+  citySlug     String?
+  level        AmbassadorLevel @default(FOUNDING)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  vendor    Vendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  referrals AmbassadorReferral[]
+
+  @@index([referralCode])
+  @@index([citySlug])
+  @@index([level])
+}
+
+model AmbassadorReferral {
+  id              String         @id @default(cuid())
+  ambassadorId    String
+  invitedVendorId String?        @unique
+  invitedUserId   String?
+  status          ReferralStatus @default(PENDING)
+  createdAt       DateTime       @default(now())
+  convertedAt     DateTime?
+
+  ambassador AmbassadorProfile @relation(fields: [ambassadorId], references: [id], onDelete: Cascade)
+
+  @@index([ambassadorId])
+  @@index([status])
+}
+
+enum AmbassadorLevel {
+  FOUNDING
+  AMBASSADOR
+  GOLD
+  ELITE
+}
+
+enum ReferralStatus {
+  PENDING
+  CONVERTED
+  REJECTED
+}
+
+model AmbassadorSettings {
+  id            Int      @id @default(1)
+  ambassadorMin Int     @default(3)
+  goldMin       Int     @default(10)
+  eliteMin      Int     @default(25)
+  updatedAt     DateTime @updatedAt
 }

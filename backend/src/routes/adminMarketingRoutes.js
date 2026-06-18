@@ -2009,4 +2009,140 @@ router.post("/account-send", authRequired, adminOnly, async (req, res) => {
   }
 });
 
+async function getAmbassadorSettings() {
+  return prisma.ambassadorSettings.upsert({
+    where: { id: 1 },
+    update: {},
+    create: {
+      id: 1,
+      ambassadorMin: 3,
+      goldMin: 10,
+      eliteMin: 25,
+    },
+  });
+}
+
+function levelFromInvites(count, settings) {
+  if (count >= settings.eliteMin) return "ELITE";
+  if (count >= settings.goldMin) return "GOLD";
+  if (count >= settings.ambassadorMin) return "AMBASSADOR";
+  return "FOUNDING";
+}
+
+router.get("/ambassadors/overview", authRequired, adminOnly, async (_req, res) => {
+  try {
+    const [totalVendors, totalInvites, activeAmbassadors, eliteCount] =
+      await Promise.all([
+        prisma.vendor.count(),
+        prisma.ambassadorReferral.count({ where: { status: "CONVERTED" } }),
+        prisma.ambassadorProfile.count({ where: { invitedCount: { gt: 0 } } }),
+        prisma.ambassadorProfile.count({ where: { level: "ELITE" } }),
+      ]);
+
+    res.json({
+      totalVendors,
+      totalInvites,
+      activeAmbassadors,
+      eliteCount,
+    });
+  } catch (e) {
+    console.error("ambassadors overview error:", e);
+    res.status(500).json({ error: "ambassadors_overview_failed" });
+  }
+});
+
+router.get("/ambassadors/list", authRequired, adminOnly, async (_req, res) => {
+  try {
+    const items = await prisma.ambassadorProfile.findMany({
+      orderBy: [{ invitedCount: "desc" }, { createdAt: "desc" }],
+      take: 200,
+      include: {
+        vendor: {
+          select: {
+            displayName: true,
+            city: true,
+            user: {
+              select: {
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    res.json({
+      items: items.map((x) => ({
+        id: x.id,
+        vendorName: x.vendor?.displayName || "",
+        email: x.vendor?.user?.email || "",
+        city: x.city || x.vendor?.city || "",
+        referralCode: x.referralCode,
+        invitedCount: x.invitedCount,
+        level: x.level,
+        createdAt: x.createdAt,
+      })),
+    });
+  } catch (e) {
+    console.error("ambassadors list error:", e);
+    res.status(500).json({ error: "ambassadors_list_failed" });
+  }
+});
+
+router.get("/ambassadors/settings", authRequired, adminOnly, async (_req, res) => {
+  try {
+    const settings = await getAmbassadorSettings();
+    res.json({ settings });
+  } catch (e) {
+    console.error("ambassadors settings error:", e);
+    res.status(500).json({ error: "ambassadors_settings_failed" });
+  }
+});
+
+router.put("/ambassadors/settings", authRequired, adminOnly, async (req, res) => {
+  try {
+    const ambassadorMin = Math.max(1, Number(req.body?.ambassadorMin || 3));
+    const goldMin = Math.max(ambassadorMin + 1, Number(req.body?.goldMin || 10));
+    const eliteMin = Math.max(goldMin + 1, Number(req.body?.eliteMin || 25));
+
+    const settings = await prisma.ambassadorSettings.upsert({
+      where: { id: 1 },
+      update: {
+        ambassadorMin,
+        goldMin,
+        eliteMin,
+      },
+      create: {
+        id: 1,
+        ambassadorMin,
+        goldMin,
+        eliteMin,
+      },
+    });
+
+    const profiles = await prisma.ambassadorProfile.findMany({
+      select: {
+        id: true,
+        invitedCount: true,
+      },
+    });
+
+    await Promise.all(
+      profiles.map((profile) =>
+        prisma.ambassadorProfile.update({
+          where: { id: profile.id },
+          data: {
+            level: levelFromInvites(profile.invitedCount, settings),
+          },
+        })
+      )
+    );
+
+    res.json({ ok: true, settings });
+  } catch (e) {
+    console.error("ambassadors settings update error:", e);
+    res.status(500).json({ error: "ambassadors_settings_update_failed" });
+  }
+});
+
 export default router;

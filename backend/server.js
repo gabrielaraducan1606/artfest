@@ -92,6 +92,7 @@ import sitemapRoutes from "./src/routes/sitemap.js";
 import googleShoppingFeedRoutes from "./src/routes/googleShoppingFeed.js";
 import adminCollectionsRoutes from "./src/routes/adminCollectionsroutes.js";
 import aiRoutes from "./src/routes/aiRoutes.js";
+import ambassadorRoutes from "./src/routes/ambassadorRoutes.js"
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -404,6 +405,7 @@ app.use("/api/public", publicAdsRoutes);
 app.use("/api/public", publicCategories);
 
 app.use(adminEmailLogsRoutes);
+app.use("/api/ambassadors", ambassadorRoutes);
 app.use("/api/admin/maintenance", adminMaintenanceRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminOrdersRoutes);

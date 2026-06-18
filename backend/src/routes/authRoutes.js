@@ -110,6 +110,7 @@ const SignupSchema = z.object({
 
   consents: z.array(ConsentSchema).optional().default([]),
   noExternalLinks: z.boolean().optional(),
+  ref: z.string().trim().optional().nullable(),
 });
 
 const LoginSchema = z.object({
@@ -188,6 +189,7 @@ router.post("/signup", async (req, res) => {
       entityMeta,
       consents = [],
       noExternalLinks,
+      ref,
     } = parsed.data;
 
     const hasMarketingOptIn = Array.isArray(consents)
@@ -285,25 +287,61 @@ router.post("/signup", async (req, res) => {
         });
       }
 
-      if (asVendor) {
-        const isDeclared = !!entitySelfDeclared;
+if (asVendor) {
+  const isDeclared = !!entitySelfDeclared;
 
-        await tx.vendor.create({
-          data: {
-            userId: user.id,
-            isActive: false,
-            displayName: "",
+  const vendor = await tx.vendor.create({
+    data: {
+      userId: user.id,
+      isActive: false,
+      displayName: "",
 
-            entitySelfDeclared: isDeclared,
-            entitySelfDeclaredAt: isDeclared ? new Date() : null,
+      entitySelfDeclared: isDeclared,
+      entitySelfDeclaredAt: isDeclared ? new Date() : null,
 
-            entitySelfDeclaredIp: isDeclared ? reqIp : null,
-            entitySelfDeclaredUa: isDeclared ? reqUa : null,
-            entitySelfDeclaredMeta: isDeclared ? (entityMeta ?? null) : null,
-          },
-        });
+      entitySelfDeclaredIp: isDeclared ? reqIp : null,
+      entitySelfDeclaredUa: isDeclared ? reqUa : null,
+      entitySelfDeclaredMeta: isDeclared ? (entityMeta ?? null) : null,
+    },
+  });
+
+  const referralCode = ref || req.query?.ref || null;
+
+  if (referralCode) {
+    const ambassador = await tx.ambassadorProfile.findUnique({
+      where: { referralCode },
+    });
+
+    if (ambassador && ambassador.vendorId !== vendor.id) {
+      const existingReferral = await tx.ambassadorReferral.findUnique({
+        where: {
+          invitedVendorId: vendor.id,
+        },
+      });
+
+      if (!existingReferral) {
+       await tx.ambassadorReferral.create({
+  data: {
+    ambassadorId: ambassador.id,
+    invitedVendorId: vendor.id,
+    invitedUserId: user.id,
+    status: "CONVERTED",
+    convertedAt: new Date(),
+  },
+});
+
+await tx.ambassadorProfile.update({
+  where: { id: ambassador.id },
+  data: {
+    invitedCount: {
+      increment: 1,
+    },
+  },
+});
       }
-
+    }
+  }
+}
       return user;
     });
 

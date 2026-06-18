@@ -82,7 +82,7 @@ import RouteIncidentsPage from "./pages/Admin/AdminIncidentsPage/AdminIncidentsP
 
 import UserSettingsPage from "./pages/User/UserSettings/UserSettingsPage.jsx";
 import UserNotificationsPage from "./pages/User/Notification/UserNotaificationPage.jsx";
-
+import AmbassadorsPage from "./pages/Home/AmbassadorPage/AmbassadorPage.jsx";
 import ServiciiDigitale from "./pages/ServiciiDigitale/ServiciiDigitale.jsx";
 
 import { SEOProvider } from "./components/Seo/SeoProvider";
@@ -350,7 +350,7 @@ export default function App() {
               }
             />
             <Route path="/desktop-user" element={<UserDesktop />} />
-
+<Route path="/ambasadori" element={<AmbassadorsPage />} />
             {/* Vendor */}
             <Route
               path="/desktop"

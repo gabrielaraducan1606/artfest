@@ -5,6 +5,7 @@ import { trackSignup } from "../../../../services/analytics.js";
 import styles from "./Register.module.css";
 
 const OB_TICKET_PARAM = "obpf";
+const REFERRAL_STORAGE_KEY = "artfest.referralCode";
 const OB_TICKET_PREFIX = "onboarding.ticket.";
 
 function appendTicket(urlLike, ticket) {
@@ -227,6 +228,15 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
   const legalTypes = useMemo(() => ["tos", "privacy"], []);
   const { meta: legal, error: legalError } = useLegalMeta(legalTypes);
 
+  useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const ref = params.get("ref");
+
+  if (ref) {
+    localStorage.setItem(REFERRAL_STORAGE_KEY, ref);
+  }
+}, []);
+
   const [email, setEmail] = useState("");
   const [emailHint, setEmailHint] = useState("");
   const [emailSuggestion, setEmailSuggestion] = useState("");
@@ -429,24 +439,29 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
 
       const normalizedEmail = email.trim().toLowerCase();
 
+  const searchParams = new URLSearchParams(window.location.search);
+const ref =
+  searchParams.get("ref") || localStorage.getItem(REFERRAL_STORAGE_KEY);
       const body = {
-        email: normalizedEmail,
-        password,
-        firstName: firstName.trim() || undefined,
-        lastName: lastName.trim() || undefined,
-        name: fullName || undefined,
-        asVendor,
-        entitySelfDeclared: asVendor ? !!vendorEntityConfirm : false,
-        entityMeta:
-          asVendor && vendorEntityConfirm
-            ? {
-                pageUrl: window.location.href,
-                referrer: document.referrer || null,
-              }
-            : undefined,
-        consents,
-        noExternalLinks: true,
-      };
+  email: normalizedEmail,
+  password,
+  firstName: firstName.trim() || undefined,
+  lastName: lastName.trim() || undefined,
+  name: fullName || undefined,
+  asVendor,
+  entitySelfDeclared: asVendor ? !!vendorEntityConfirm : false,
+  entityMeta:
+    asVendor && vendorEntityConfirm
+      ? {
+          pageUrl: window.location.href,
+          referrer: document.referrer || null,
+        }
+      : undefined,
+  consents,
+  noExternalLinks: true,
+
+  ref: ref || undefined,
+};
 
       const res = await api("/api/auth/signup", {
         method: "POST",
@@ -454,7 +469,9 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
         body,
       });
 trackSignup();
-
+if (ref) {
+  localStorage.removeItem(REFERRAL_STORAGE_KEY);
+}
       if (res?.status === "pending_verification") {
         try {
           sessionStorage.setItem("onboarding.intent", asVendor ? "vendor" : "");
