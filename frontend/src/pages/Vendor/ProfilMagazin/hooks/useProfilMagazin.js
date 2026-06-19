@@ -566,7 +566,7 @@ export default function useProfilMagazin(slug, opts = {}) {
 
   const requestId = ++requestIdRef.current;
   const currentSlug = slug;
-  const currentCacheKey = `pm:v7:${currentSlug}`;
+  const currentCacheKey = `pm:v8:${currentSlug}`;
 
   const isCurrent = () => requestIdRef.current === requestId;
 
@@ -623,10 +623,12 @@ export default function useProfilMagazin(slug, opts = {}) {
 
       if (!isCurrent()) return;
 
-      normalizedShop = normalizeSellerTypeForProfile(initial?.shop || null);
-      itemsRaw = Array.isArray(initial?.products) ? initial.products : [];
-      console.log("SHOP", normalizedShop);
-console.log("PRODUCTS", itemsRaw);
+      if (Array.isArray(initial)) {
+  throw { status: 404 };
+}
+
+normalizedShop = normalizeSellerTypeForProfile(initial?.shop || null);
+itemsRaw = Array.isArray(initial?.products) ? initial.products : [];
     } catch (publicError) {
   if (!isCurrent()) return;
 

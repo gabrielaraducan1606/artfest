@@ -1613,6 +1613,77 @@ router.get("/products/:id", async (req, res, next) => {
   }
 });
 
+router.get("/store/:slug/initial", async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    if (!slug) return res.status(400).json({ error: "invalid_slug" });
+
+    const profile = await prisma.serviceProfile.findUnique({
+      where: { slug },
+      include: { service: { include: { type: true, vendor: true } } },
+    });
+
+    if (!profile || profile?.service?.type?.code !== "products") {
+      return res.status(404).json({ error: "store_not_found" });
+    }
+
+    const svc = profile.service;
+    const vendor = svc.vendor;
+    const isActive = svc.status === "ACTIVE" && svc.isActive && vendor.isActive;
+
+    const shop = {
+      _id: svc.id,
+      id: svc.id,
+      serviceId: svc.id,
+      vendorId: vendor.id,
+      userId: vendor.userId,
+      slug: profile.slug,
+      shopName: profile.displayName || vendor.displayName || "Magazin",
+      shortDescription:
+        profile.shortDescription ||
+        profile.tagline ||
+        shortText(profile.about || vendor.about || "", 160),
+      brandStory: profile.about || null,
+      city: profile.city || vendor.city || "",
+      country: "",
+      address: profile.address || "",
+      coverImageUrl: profile.coverUrl || "",
+      profileImageUrl: profile.logoUrl || "",
+      tags: [],
+      publicEmail: profile.email || vendor.email || "",
+      phone: profile.phone || vendor.phone || "",
+      website: profile.website || "",
+      status: isActive ? "active" : "inactive",
+      onboardingStep: isActive ? 3 : 1,
+      updatedAt: profile.updatedAt,
+      delivery: Array.isArray(profile.delivery) ? profile.delivery : [],
+    };
+
+    const productsRaw = await prisma.product.findMany({
+      where: {
+        serviceId: profile.serviceId,
+        isActive: true,
+        isHidden: false,
+        moderationStatus: "APPROVED",
+      },
+      orderBy: { createdAt: "desc" },
+      take: 24,
+      select: baseProductSelect,
+    });
+
+    const promoByProductId = await getActiveCollectionPromosForProducts(productsRaw);
+
+    const products = productsRaw.map((p) =>
+      mapPublicProduct(p, promoByProductId.get(p.id) || null)
+    );
+
+    res.set("Cache-Control", "public, max-age=0, must-revalidate");
+    res.json({ shop, products });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* -----------------------------------------
    STORE PROFILE + PRODUCTS + REVIEWS
 ------------------------------------------*/
