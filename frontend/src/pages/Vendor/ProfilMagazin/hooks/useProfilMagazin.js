@@ -738,41 +738,14 @@ export default function useProfilMagazin(slug, opts = {}) {
     }
 
     setSellerData(normalizedShop);
-    const shopProductId =
-  normalizedShop?.serviceId ||
-  normalizedShop?.service?.id ||
-  normalizedShop?.id ||
-  normalizedShop?._id ||
-  normalizedShop?.slug ||
-  currentSlug;
-
-const scopedItems = itemsRaw.filter((p) => {
-  const productShopId =
-    p?.shopId ||
-    p?.storeId ||
-    p?.vendorStoreId ||
-    p?.serviceId ||
-    p?.shop?.id ||
-    p?.shop?._id ||
-    p?.store?.id ||
-    p?.store?._id ||
-    p?.service?.id ||
-    p?.service?._id ||
-    p?.storeSlug ||
-    p?.shopSlug ||
-    p?.slugStore;
-
-  if (!productShopId) return false;
-
-  return String(productShopId) === String(shopProductId);
-});
-    setProducts(scopedItems);
+    
+    setProducts(itemsRaw);
     setIsOwner(owner);
     setLoading(false);
 
     writeCache(currentCacheKey, {
       sellerData: normalizedShop,
-      products: scopedItems,
+      products: itemsRaw,
       rating: Number(cached?.rating || 0),
     });
 
