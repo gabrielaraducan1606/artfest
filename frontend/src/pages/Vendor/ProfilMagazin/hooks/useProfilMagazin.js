@@ -625,6 +625,8 @@ export default function useProfilMagazin(slug, opts = {}) {
 
       normalizedShop = normalizeSellerTypeForProfile(initial?.shop || null);
       itemsRaw = Array.isArray(initial?.products) ? initial.products : [];
+      console.log("SHOP", normalizedShop);
+console.log("PRODUCTS", itemsRaw);
     } catch (publicError) {
   if (!isCurrent()) return;
 

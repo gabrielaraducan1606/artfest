@@ -96,25 +96,15 @@ export default function ProductList({
       ),
     [products]
   );
-const scopedProducts = React.useMemo(() => {
-  if (!shopId) return normalized;
 
-  return normalized.filter((p) => {
-    const productShopId = getProductShopId(p);
-    if (!productShopId) return false;
-
-    return String(productShopId) === String(shopId);
-  });
-}, [normalized, shopId]);
-
-const [list, setList] = React.useState(scopedProducts);
-
-React.useEffect(() => {
-  setList(scopedProducts);
-}, [scopedProducts]);
+  const [list, setList] = React.useState(normalized);
   const [imgCacheNonce, setImgCacheNonce] = React.useState(
     () => productsCacheT || Date.now()
   );
+
+  React.useEffect(() => {
+    setList(normalized);
+  }, [normalized, shopId]);
 
   React.useEffect(() => {
     if (productsCacheT) setImgCacheNonce(productsCacheT);
