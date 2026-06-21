@@ -17,22 +17,12 @@
 */
 .tabsWrap {
   position: relative;
-  z-index: 7;
+  z-index: 1;
   margin: auto;
   max-width: min(1180px, 70vw);
   border: none;
   backdrop-filter: blur(8px) saturate(120%);
   -webkit-backdrop-filter: blur(8px) saturate(120%);
-}
-
-/* când sentinel-ul iese din viewport, React pune .isStuck => devine FIX sub navbar */
-.tabsWrap.isStuck {
-  position: fixed;
-  top: var(--appbar-h); /* exact sub Navbar (care e fixed top:0, height: var(--appbar-h)) */
-  left: 0;
-  right: 0;
-  z-index: 900;         /* sub navbar (1000), peste conținut */
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
 }
 
 /* listă orizontală */
