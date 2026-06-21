@@ -566,7 +566,7 @@ export default function useProfilMagazin(slug, opts = {}) {
 
   const requestId = ++requestIdRef.current;
   const currentSlug = slug;
-  const currentCacheKey = `pm:v8:${currentSlug}`;
+ const currentCacheKey = `pm:v12:${currentSlug}`;
 
   const isCurrent = () => requestIdRef.current === requestId;
 
@@ -575,20 +575,13 @@ export default function useProfilMagazin(slug, opts = {}) {
   setReviews([]);
   setFavorites(new Set());
 
-  const cached = readCache(currentCacheKey);
+ const cached = readCache(currentCacheKey);
 
-  if (cached?.sellerData && isCurrent()) {
-    setSellerData(normalizeSellerTypeForProfile(cached.sellerData));
-    setProducts(Array.isArray(cached.products) ? cached.products : []);
-    setRating(Number(cached.rating || 0));
-    setLoading(false);
-  } else {
-    setLoading(true);
-    setSellerData(null);
-    setProducts([]);
-    setRating(0);
-    setIsOwner(false);
-  }
+setLoading(true);
+setErr(null);
+setNeedsOnboarding(false);
+setReviews([]);
+setFavorites(new Set());
 
   try {
     loadCategoriesOnce();
@@ -741,11 +734,28 @@ itemsRaw = Array.isArray(initial?.products) ? initial.products : [];
       }
     }
 
-    setSellerData(normalizedShop);
-    
-    setProducts(itemsRaw);
-    setIsOwner(owner);
-    setLoading(false);
+   if (owner) {
+  try {
+    const privateProductsResp = await api(
+      `/api/vendors/store/${encodeURIComponent(currentSlug)}/products`
+    );
+
+    if (!isCurrent()) return;
+
+    itemsRaw = Array.isArray(privateProductsResp?.items)
+      ? privateProductsResp.items
+      : Array.isArray(privateProductsResp)
+      ? privateProductsResp
+      : [];
+  } catch (e) {
+    console.warn("Nu am putut încărca produsele owner:", e);
+  }
+}
+
+setSellerData(normalizedShop);
+setProducts(itemsRaw);
+setIsOwner(owner);
+setLoading(false);
 
     writeCache(currentCacheKey, {
       sellerData: normalizedShop,
