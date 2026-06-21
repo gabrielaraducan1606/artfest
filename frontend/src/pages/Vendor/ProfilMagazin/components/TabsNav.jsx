@@ -10,9 +10,24 @@ import styles from "./css/TabsNav.module.css";
 export default function TabsNav({ items = [], activeKey, onJump }) {
   const wrapRef = useRef(null);
   const listRef = useRef(null);
+  const sentinelRef = useRef(null);
 
+  const [isStuck, setIsStuck] = useState(false);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(false);
+
+  // Detectează când bara devine sticky (pentru shadow)
+  useEffect(() => {
+    const s = sentinelRef.current;
+    if (!s) return;
+
+    const io = new IntersectionObserver(([entry]) => {
+      setIsStuck(!entry.isIntersecting);
+    });
+
+    io.observe(s);
+    return () => io.disconnect();
+  }, []);
 
   // Actualizează starea săgeților + variabile CSS dinamice (hover, edge fade)
   const updateArrows = useCallback(() => {
@@ -77,9 +92,12 @@ export default function TabsNav({ items = [], activeKey, onJump }) {
 
   return (
     <>
+      {/* sentinel care dispare când tabsWrap devine sticky */}
+      <div ref={sentinelRef} style={{ height: 1, marginTop: -1 }} />
+
       <div
         ref={wrapRef}
-        className={styles.tabsWrap}
+        className={`${styles.tabsWrap} ${isStuck ? styles.isStuck : ""}`}
         role="tablist"
         aria-label="Secțiuni magazin"
       >
