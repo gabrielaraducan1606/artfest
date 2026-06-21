@@ -21,12 +21,10 @@ import {
   FaClock,
   FaTags,
   FaQrcode,
-  FaSearch,
   FaChair,
   FaMagic,
 } from "react-icons/fa";
 
-/* Tabs (stânga) */
 const ROOT_TABS = [
   { key: "digitale", label: "Digitale" },
   { key: "produse", label: "Produse" },
@@ -34,21 +32,15 @@ const ROOT_TABS = [
   { key: "magazine", label: "Magazine" },
 ];
 
-/* ✅ Servicii digitale — ICON-uri */
 const DIGITAL = [
   { key: "invitatia", label: "Invitație", to: "/digitale/invitatie", icon: FaMagic },
   { key: "seating", label: "Seating", to: "/digitale/asezare-mese", icon: FaChair },
   { key: "albumqr", label: "Album QR", to: "/digitale/album-qr", icon: FaQrcode },
 ];
 
-/**
- * Endpoint-uri
- */
 const SERVICE_TYPES_ENDPOINT = "/api/service-types";
 const PRODUCT_CATEGORIES_ENDPOINT = "/api/public/categories";
-const STORES_ENDPOINT = "/api/public/stores";
 
-/* icon per grup pentru PRODUSE */
 const GROUP_ICON = {
   decor: FaLightbulb,
   papetarie: FaEnvelopeOpenText,
@@ -63,7 +55,6 @@ const GROUP_ICON = {
   alte: FaTags,
 };
 
-/* icon per code pentru SERVICII */
 const SERVICE_ICON_BY_CODE = {
   bakery_bar: FaBirthdayCake,
   restaurant: FaUtensils,
@@ -76,23 +67,14 @@ const SERVICE_ICON_BY_CODE = {
   products: FaStore,
 };
 
-/* =========================
-   ✅ cache în memorie
-========================= */
-let MEM_CATS = null; // [{key,label,group,groupLabel}]
-let MEM_SERVICES = null; // [{code,name}]
-let MEM_STORES = null; // [{...store}]
+let MEM_CATS = null;
+let MEM_SERVICES = null;
 let INFLIGHT_CATS = null;
 let INFLIGHT_SERVICES = null;
-let INFLIGHT_STORES = null;
 
-/* =========================
-   ✅ cache în sessionStorage
-========================= */
 const SS_KEYS = {
   cats: "mobileCats_v1",
   services: "mobileServiceTypes_v1",
-  stores: "mobileStores_v1",
 };
 
 function readSession(key) {
@@ -113,9 +95,6 @@ function writeSession(key, value) {
   }
 }
 
-/* =========================
-   ✅ fetch helpers
-========================= */
 async function fetchProductCategories(signal) {
   const res = await fetch(PRODUCT_CATEGORIES_ENDPOINT, {
     signal,
@@ -126,8 +105,7 @@ async function fetchProductCategories(signal) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   const json = await res.json().catch(() => ({}));
-  const items = Array.isArray(json?.items) ? json.items : [];
-  return items;
+  return Array.isArray(json?.items) ? json.items : [];
 }
 
 async function fetchServiceTypes(signal) {
@@ -147,29 +125,8 @@ async function fetchServiceTypes(signal) {
     .filter((x) => x.code && x.name);
 }
 
-async function fetchStores(signal) {
-  const p = new URLSearchParams();
-  p.set("page", "1");
-  p.set("limit", "24");
-  p.set("sort", "popular");
-
-  const res = await fetch(`${STORES_ENDPOINT}?${p.toString()}`, {
-    signal,
-    headers: { Accept: "application/json" },
-    cache: "force-cache",
-  });
-
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-  const json = await res.json().catch(() => ({}));
-  return Array.isArray(json?.items) ? json.items : [];
-}
-
-/* =========================
-   ✅ prefetch (rulează o dată)
-========================= */
 function warmCaches() {
-  if (MEM_CATS && MEM_SERVICES && MEM_STORES) return;
+  if (MEM_CATS && MEM_SERVICES) return;
 
   if (!MEM_CATS) {
     const ssCats = readSession(SS_KEYS.cats);
@@ -179,11 +136,6 @@ function warmCaches() {
   if (!MEM_SERVICES) {
     const ssServices = readSession(SS_KEYS.services);
     if (Array.isArray(ssServices)) MEM_SERVICES = ssServices;
-  }
-
-  if (!MEM_STORES) {
-    const ssStores = readSession(SS_KEYS.stores);
-    if (Array.isArray(ssStores)) MEM_STORES = ssStores;
   }
 
   if (!MEM_CATS && !INFLIGHT_CATS) {
@@ -213,45 +165,26 @@ function warmCaches() {
         INFLIGHT_SERVICES = null;
       });
   }
-
-  if (!MEM_STORES && !INFLIGHT_STORES) {
-    const ac = new AbortController();
-    INFLIGHT_STORES = fetchStores(ac.signal)
-      .then((items) => {
-        MEM_STORES = items;
-        writeSession(SS_KEYS.stores, items);
-        return items;
-      })
-      .catch(() => null)
-      .finally(() => {
-        INFLIGHT_STORES = null;
-      });
-  }
 }
 
 export default function MobileCategories() {
   const [tab, setTab] = useState("digitale");
 
-  // seed state instant din cache (memorie / sessionStorage)
   const [productCats, setProductCats] = useState(
     () => MEM_CATS || readSession(SS_KEYS.cats) || []
   );
+
   const [serviceTypes, setServiceTypes] = useState(
     () => MEM_SERVICES || readSession(SS_KEYS.services) || []
-  );
-  const [stores, setStores] = useState(
-    () => MEM_STORES || readSession(SS_KEYS.stores) || []
   );
 
   const [catsLoading, setCatsLoading] = useState(false);
   const [serviceLoading, setServiceLoading] = useState(false);
-  const [storesLoading, setStoresLoading] = useState(false);
 
   useEffect(() => {
     warmCaches();
   }, []);
 
-  /* asigurăm --header-h corect */
   useEffect(() => {
     const header = document.querySelector("header, .header, [data-header]");
     if (!header) return;
@@ -259,6 +192,7 @@ export default function MobileCategories() {
     const setVar = () => {
       const h = Math.round(header.offsetHeight || 64);
       const cur = getComputedStyle(document.documentElement).getPropertyValue("--header-h");
+
       if (!cur || cur.trim() === "" || parseInt(cur, 10) !== h) {
         document.documentElement.style.setProperty("--header-h", `${h}px`);
       }
@@ -276,21 +210,28 @@ export default function MobileCategories() {
     };
   }, []);
 
-  // tab din querystring
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     const t = usp.get("tab");
-    if (t && ROOT_TABS.some((r) => r.key === t)) setTab(t);
+
+    if (t && ROOT_TABS.some((r) => r.key === t)) {
+      setTab(t);
+    }
   }, []);
 
   const onPickTab = (key) => {
     setTab(key);
+
     const usp = new URLSearchParams(window.location.search);
     usp.set("tab", key);
-    window.history.replaceState(null, "", `${window.location.pathname}?${usp.toString()}`);
+
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}?${usp.toString()}`
+    );
   };
 
-  // fetch produse
   useEffect(() => {
     if (tab !== "produse") return;
 
@@ -327,7 +268,6 @@ export default function MobileCategories() {
     };
   }, [tab, productCats?.length]);
 
-  // fetch servicii
   useEffect(() => {
     if (tab !== "servicii") return;
 
@@ -364,44 +304,6 @@ export default function MobileCategories() {
     };
   }, [tab, serviceTypes?.length]);
 
-  // fetch magazine
-  useEffect(() => {
-    if (tab !== "magazine") return;
-
-    let alive = true;
-    const ac = new AbortController();
-
-    (async () => {
-      try {
-        if (!stores?.length) setStoresLoading(true);
-
-        if (INFLIGHT_STORES) {
-          const items = await INFLIGHT_STORES;
-          if (alive && Array.isArray(items)) setStores(items);
-          return;
-        }
-
-        const items = await fetchStores(ac.signal);
-        if (!alive) return;
-
-        MEM_STORES = items;
-        writeSession(SS_KEYS.stores, items);
-        setStores(items);
-      } catch (e) {
-        if (!alive) return;
-        console.warn("[mobile categories] stores fetch failed:", e?.message || e);
-      } finally {
-        if (alive) setStoresLoading(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-      ac.abort();
-    };
-  }, [tab, stores?.length]);
-
-  // grupare pe groupLabel (produse)
   const grouped = useMemo(() => {
     const map = new Map();
 
@@ -420,14 +322,15 @@ export default function MobileCategories() {
   }, [productCats]);
 
   return (
-    <section className={styles.page} aria-label="Categorii (mobil)">
-      {/* Rail stânga */}
+    <section className={styles.page} aria-label="Categorii mobil">
       <aside className={styles.rail} aria-label="Secțiuni">
         {ROOT_TABS.map((r) => (
           <button
             key={r.key}
             type="button"
-            className={`${styles.railItem} ${tab === r.key ? styles.railItemActive : ""}`}
+            className={`${styles.railItem} ${
+              tab === r.key ? styles.railItemActive : ""
+            }`}
             onClick={() => onPickTab(r.key)}
             aria-current={tab === r.key ? "true" : "false"}
           >
@@ -436,16 +339,22 @@ export default function MobileCategories() {
         ))}
       </aside>
 
-      {/* Panel dreapta */}
       <main className={styles.panel}>
         {tab === "digitale" && (
           <>
             <h1 className={styles.heading}>Servicii digitale</h1>
+
             <div className={styles.compactGrid} aria-label="Servicii digitale">
               {DIGITAL.map((d) => {
                 const Icon = d.icon || FaTags;
+
                 return (
-                  <Link key={d.key} to={d.to} className={styles.compactTile} title={d.label}>
+                  <Link
+                    key={d.key}
+                    to={d.to}
+                    className={styles.compactTile}
+                    title={d.label}
+                  >
                     <span className={styles.compactIcon}>
                       <Icon size={16} />
                     </span>
@@ -460,11 +369,19 @@ export default function MobileCategories() {
         {tab === "produse" && (
           <>
             <h1 className={styles.heading}>Produse</h1>
-
+<div className={styles.mobileStoreSearch}>
+  <Link to="/produse" className={styles.mobileStoreSearchBtn}>
+    Vezi toate produsele
+  </Link>
+</div>
             {catsLoading && !productCats?.length && (
               <div className={styles.compactGrid} aria-busy="true">
                 {Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className={styles.compactTile} style={{ opacity: 0.55 }}>
+                  <div
+                    key={i}
+                    className={styles.compactTile}
+                    style={{ opacity: 0.55 }}
+                  >
                     <span className={styles.compactIcon}>
                       <FaTags size={16} />
                     </span>
@@ -475,7 +392,9 @@ export default function MobileCategories() {
             )}
 
             {!catsLoading && grouped.length === 0 && (
-              <div className={styles.emptyState}>Nu am putut încărca categoriile.</div>
+              <div className={styles.emptyState}>
+                Nu am putut încărca categoriile.
+              </div>
             )}
 
             {grouped.map((g) => {
@@ -495,18 +414,19 @@ export default function MobileCategories() {
                   <div className={styles.compactGrid}>
                     {g.items.map((c) => {
                       const IconComp = GROUP_ICON[c.group] || FaTags;
+                      const slug = getSlugByCategoryKey(c.key);
 
                       return (
-                       <Link
-  key={c.key}
-  to={
-    getSlugByCategoryKey(c.key)
-      ? `/categorii/${getSlugByCategoryKey(c.key)}`
-      : `/produse?categorie=${encodeURIComponent(c.key)}&page=1`
-  }
-  className={styles.compactTile}
-  title={c.label}
->
+                        <Link
+                          key={c.key}
+                          to={
+                            slug
+                              ? `/categorii/${slug}`
+                              : `/produse?categorie=${encodeURIComponent(c.key)}&page=1`
+                          }
+                          className={styles.compactTile}
+                          title={c.label}
+                        >
                           <span className={styles.compactIcon}>
                             <IconComp size={16} />
                           </span>
@@ -528,7 +448,11 @@ export default function MobileCategories() {
             {serviceLoading && !serviceTypes?.length && (
               <div className={styles.compactGrid} aria-busy="true">
                 {Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className={styles.compactTile} style={{ opacity: 0.55 }}>
+                  <div
+                    key={i}
+                    className={styles.compactTile}
+                    style={{ opacity: 0.55 }}
+                  >
                     <span className={styles.compactIcon}>
                       <FaClock size={16} />
                     </span>
@@ -539,17 +463,23 @@ export default function MobileCategories() {
             )}
 
             {!serviceLoading && serviceTypes.length === 0 && (
-              <div className={styles.emptyState}>Nu am putut încărca serviciile.</div>
+              <div className={styles.emptyState}>
+                Nu am putut încărca serviciile.
+              </div>
             )}
 
             {serviceTypes.length > 0 && (
               <div className={styles.compactGrid}>
                 {serviceTypes.map((s) => {
                   const IconComp = SERVICE_ICON_BY_CODE[s.code] || FaTags;
-                  const to = `/servicii?type=${encodeURIComponent(s.code)}`;
 
                   return (
-                    <Link key={s.code} to={to} className={styles.compactTile} title={s.name}>
+                    <Link
+                      key={s.code}
+                      to={`/servicii?type=${encodeURIComponent(s.code)}`}
+                      className={styles.compactTile}
+                      title={s.name}
+                    >
                       <span className={styles.compactIcon}>
                         <IconComp size={16} />
                       </span>
@@ -562,55 +492,28 @@ export default function MobileCategories() {
           </>
         )}
 
-       {tab === "magazine" && (
-  <>
-    <h1 className={styles.heading}>Magazine</h1>
+        {tab === "magazine" && (
+          <>
+            <h1 className={styles.heading}>Magazine Artfest</h1>
 
-    <div className={styles.mobileStoreSearch}>
-      <Link to="/magazine" className={styles.mobileStoreSearchBtn}>
-        <FaSearch size={14} />
-        <span>Caută magazine</span>
-      </Link>
-    </div>
-
-    {storesLoading && !stores?.length && (
-      <div className={styles.compactGrid} aria-busy="true">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div key={i} className={styles.compactTile} style={{ opacity: 0.55 }}>
-            <span className={styles.compactIcon}>
-              <FaStore size={16} />
-            </span>
-            <span className={styles.compactLabel}>Se încarcă…</span>
-          </div>
-        ))}
-      </div>
-    )}
-
-    {!storesLoading && stores.length === 0 && (
-      <div className={styles.emptyState}>Nu am putut încărca magazinele.</div>
-    )}
-
-    {stores.length > 0 && (
-      <div className={styles.compactGrid}>
-        {stores.map((s) => {
-          const title = s.storeName || s.displayName || "Magazin";
-          const to = s.profileSlug
-            ? `/magazin/${encodeURIComponent(s.profileSlug)}`
-            : `/magazin/${s.id}`;
-
-          return (
-            <Link key={s.id} to={to} className={styles.compactTile} title={title}>
-              <span className={styles.compactIcon}>
-                <FaStore size={16} />
+            <div className={styles.storePreviewBox}>
+              <span className={styles.storePreviewIcon}>
+                <FaStore size={30} />
               </span>
-              <span className={styles.compactLabel}>{title}</span>
-            </Link>
-          );
-        })}
-      </div>
-    )}
-  </>
-)}
+
+              <h2>Descoperă magazinele Artfest</h2>
+
+              <p>
+                Vezi toți vânzătorii, caută după nume și explorează produsele
+                lor.
+              </p>
+
+              <Link to="/magazine" className={styles.storePreviewBtn}>
+                Vezi toate magazinele
+              </Link>
+            </div>
+          </>
+        )}
       </main>
     </section>
   );
