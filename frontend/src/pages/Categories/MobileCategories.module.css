@@ -1,197 +1,312 @@
 /* frontend/src/pages/MobileCategories/MobileCategories.module.css */
 @import "../../styles/variables.css";
 
-/* Pagina e doar pe mobil — densitate mare */
+/* ===== PAGE ===== */
+
 .page {
   display: grid;
-  grid-template-columns: clamp(78px, 24vw, 104px) 1fr;
+  grid-template-columns: 92px 1fr;
   min-height: calc(100vh - var(--header-h, 64px));
-  background: var(--color-bg);
+  background: #faf8f5;
   overscroll-behavior: contain;
 }
 
 /* ===== RAIL ===== */
+
 .rail {
   position: sticky;
   top: var(--header-h, 64px);
   align-self: start;
+
   height: calc(100vh - var(--header-h, 64px));
-  overflow: auto;
+
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 
-  background: var(--surface);
-  border-right: 1px solid var(--color-border);
-  padding: 6px 4px;
+  background: #fff;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+
+  padding: 10px 6px;
 }
 
 .railItem {
   width: 100%;
-  text-align: left;
-  border: 0;
+  border: none;
   background: transparent;
-  font-weight: 900;
+
+  padding: 12px 8px;
+  margin-bottom: 6px;
+
+  border-radius: 14px;
+
   font-size: 0.82rem;
+  font-weight: 800;
+
   color: var(--color-text);
-  padding: 8px 8px;
-  margin: 2px 0;
-  border-radius: 10px;
+
   cursor: pointer;
-  transition: background .15s ease, color .15s ease, border-color .15s ease;
-  line-height: 1.05;
+
+  transition: all .15s ease;
 }
 
 .railItem:hover {
-  background: color-mix(in oklab, var(--color-primary) 9%, transparent);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .railItemActive {
-  background: color-mix(in oklab, var(--color-primary) 16%, transparent);
-  color: var(--color-primary);
-  border: 1px solid color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(0,0,0,.12);
 }
 
 /* ===== PANEL ===== */
+
 .panel {
-  padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
+  padding: 14px;
+  padding-bottom:
+    calc(
+      24px +
+      var(--mobile-bottom-bar-h, 64px) +
+      env(safe-area-inset-bottom)
+    );
 }
 
 .heading {
-  margin: 0 0 6px;
+  margin: 0 0 18px;
+
   font-family: var(--font-title);
+
+  font-size: 1.35rem;
   font-weight: 900;
-  font-size: 1.02rem;
+  line-height: 1.05;
+
   color: var(--color-text);
+
+  letter-spacing: -0.03em;
 }
 
 /* ===== GROUPS ===== */
+
 .groupSection {
-  margin-bottom: 10px;
+  margin-bottom: 22px;
 }
 
 .groupHeading {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 4px 2px 6px;
-  color: var(--color-text-muted);
-  font-size: 0.70rem;
+  gap: 8px;
+
+  margin-bottom: 10px;
+
+  font-size: .72rem;
   font-weight: 900;
-  letter-spacing: 0.05em;
+
   text-transform: uppercase;
+  letter-spacing: .08em;
+
+  color: var(--color-text-muted);
 }
 
-/* ===== GRID COMPACT (4 col pe majoritatea telefoanelor) ===== */
+/* ===== GRID ===== */
+
 .compactGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
-/* dacă e îngust: 3 col */
-@media (max-width: 390px) {
+@media (max-width: 360px) {
   .compactGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 7px;
+    grid-template-columns: 1fr;
   }
 }
 
-/* foarte îngust: 2 col */
-@media (max-width: 320px) {
-  .compactGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-}
+/* ===== CARD ===== */
 
-/* ===== TILE SUPER COMPACT ===== */
 .compactTile {
-  display: grid;
-  place-items: center;
-  gap: 5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+
+  min-height: 108px;
+
+  padding: 14px;
+
   text-decoration: none;
   color: inherit;
 
-  background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 9px 6px;
-  min-height: 72px;
+  background: #fff;
 
-  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
-  box-sizing: border-box;
-}
+  border-radius: 20px;
 
-.compactTile:active {
-  transform: translateY(1px);
+  border: 1px solid rgba(0,0,0,.06);
+
+  box-shadow:
+    0 10px 25px rgba(0,0,0,.05);
+
+  transition:
+    transform .15s ease,
+    box-shadow .15s ease,
+    border-color .15s ease;
 }
 
 .compactTile:hover {
-  border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
-  box-shadow: var(--shadow-xs);
+  transform: translateY(-2px);
+
+  border-color:
+    color-mix(
+      in oklab,
+      var(--color-primary) 25%,
+      rgba(0,0,0,.06)
+    );
+
+  box-shadow:
+    0 16px 35px rgba(0,0,0,.08);
+}
+
+.compactTile:active {
+  transform: scale(.98);
 }
 
 .compactIcon {
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
+  width: 42px;
+  height: 42px;
+
+  border-radius: 14px;
 
   display: grid;
   place-items: center;
 
-  background: color-mix(in oklab, var(--color-primary) 14%, var(--surface));
+  background:
+    color-mix(
+      in oklab,
+      var(--color-primary) 12%,
+      white
+    );
+
   color: var(--color-primary);
-  border: 1px solid color-mix(in oklab, var(--color-primary) 26%, var(--color-border));
+
+  border: 1px solid
+    color-mix(
+      in oklab,
+      var(--color-primary) 18%,
+      transparent
+    );
 }
 
 .compactLabel {
-  text-align: center;
+  font-size: .84rem;
   font-weight: 800;
-  font-size: 0.74rem;
-  line-height: 1.05;
+
+  line-height: 1.15;
+
   color: var(--color-text);
 
-  /* 2 rânduri max, ca să rămână compact */
+  text-align: left;
+
   display: -webkit-box;
   -webkit-box-orient: vertical;
+
   overflow: hidden;
 }
 
-/* empty state */
+/* ===== EMPTY ===== */
+
 .emptyState {
-  padding: 8px 2px;
+  padding: 18px;
+
+  background: #fff;
+
+  border-radius: 18px;
+
   color: var(--color-text-muted);
-  font-size: 0.86rem;
+
+  text-align: center;
 }
 
-/* spațiu pentru bottom bar (dacă ai) */
-@media (max-width: 768px) {
-  .panel {
-    padding-bottom: calc(12px + var(--mobile-bottom-bar-h, 64px) + env(safe-area-inset-bottom));
-  }
-}
+/* ===== MAGAZINE CTA ===== */
 
 .mobileStoreSearch {
-  margin-bottom: 14px;
+  margin-bottom: 18px;
 }
 
 .mobileStoreSearchBtn {
   width: 100%;
+
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
 
-  padding: 12px 14px;
-  border-radius: 14px;
+  padding: 14px;
+
+  border-radius: 18px;
 
   background: var(--color-primary);
-  color: #fff;
-  text-decoration: none;
-  font-weight: 700;
 
-  box-shadow: var(--shadow-md);
+  color: #fff;
+
+  text-decoration: none;
+
+  font-weight: 800;
+
+  box-shadow:
+    0 12px 28px rgba(0,0,0,.15);
+
+  transition: transform .15s ease;
 }
 
 .mobileStoreSearchBtn:active {
-  transform: scale(0.98);
+  transform: scale(.98);
+}
+
+.storePreviewBox {
+  margin-top: 8px;
+  padding: 24px 18px;
+  border-radius: 24px;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.06);
+  box-shadow: 0 12px 30px rgba(0,0,0,.07);
+  text-align: center;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.storePreviewIcon {
+  width: 58px;
+  height: 58px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--color-primary) 12%, white);
+  color: var(--color-primary);
+}
+
+.storePreviewBox h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.15;
+  font-weight: 900;
+  color: var(--color-text);
+}
+
+.storePreviewBox p {
+  margin: 0;
+  font-size: .86rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.storePreviewBtn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--color-primary);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 900;
 }
