@@ -260,17 +260,3 @@
     font-size: 0.9rem;
   }
 }
-.tabsWrap {
-  position: sticky;
-  top: var(--appbar-h);
-  z-index: 10;
-  margin: auto;
-  max-width: min(1180px, 70vw);
-  border: none;
-  backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
-}
-
-.tabsWrap.isStuck {
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
-}
