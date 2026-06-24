@@ -1344,19 +1344,23 @@ router.put(
         mirrorVendor = false,
       } = req.body || {};
 
-      const payload = {
-        logoUrl: cleanOrNull(logoUrl),
-        coverUrl: cleanOrNull(coverUrl),
-       phone: normalizePhone(phone),
-email: normalizeEmail(email),
-address: cleanOrNull(address),
-        delivery: Array.isArray(delivery) ? delivery : [],
-        city: cleanOrNull(city),
-        tagline: cleanOrNull(tagline),
-        about: cleanOrNull(about),
-        website: cleanOrNull(website),
-        shortDescription: cleanOrNull(shortDescription),
-      };
+     const payload = {};
+
+if ("logoUrl" in req.body) payload.logoUrl = cleanOrNull(logoUrl);
+if ("coverUrl" in req.body) payload.coverUrl = cleanOrNull(coverUrl);
+if ("phone" in req.body) payload.phone = normalizePhone(phone);
+if ("email" in req.body) payload.email = normalizeEmail(email);
+if ("address" in req.body) payload.address = cleanOrNull(address);
+if ("delivery" in req.body) {
+  payload.delivery = Array.isArray(delivery) ? delivery : [];
+}
+if ("city" in req.body) payload.city = cleanOrNull(city);
+if ("tagline" in req.body) payload.tagline = cleanOrNull(tagline);
+if ("about" in req.body) payload.about = cleanOrNull(about);
+if ("website" in req.body) payload.website = cleanOrNull(website);
+if ("shortDescription" in req.body) {
+  payload.shortDescription = cleanOrNull(shortDescription);
+}
 
       if (typeof displayName === "string" && displayName.trim()) {
         payload.displayName = displayName.trim();
