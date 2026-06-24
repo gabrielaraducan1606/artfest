@@ -186,101 +186,63 @@ const missingBilling = [];
   }, [isOwner]);
 
   async function handleToggleActive(onJumpToInfo) {
-    if (!isOwner || !serviceId || activationBusy) return;
+  if (!isOwner || !serviceId || activationBusy) return;
 
-    if (!serviceIsActive) {
-     let hasActiveSubNow = ownerChecks.hasActiveSub;
+  if (!serviceIsActive) {
+    const blocking = [];
 
-try {
-  const sub = await api("/api/vendors/me/subscription/status", {
-    method: "GET",
-  });
-
-  hasActiveSubNow = !!sub?.ok || sub?.kind === "free_basic";
-} catch {
-  hasActiveSubNow = false;
-}
-
-if (hasActiveSubNow === false) {
-  alert(
-    "Pentru a activa magazinul, ai nevoie de un abonament activ. Vei fi dus la pagina de abonament."
-  );
-
-  navigate("/setari?tab=subscription");
-  return;
-}
-
-      const blocking = [];
-
-      if (missingProfile.length) {
-        blocking.push("Profil magazin: " + missingProfile.join(", "));
-      }
-
-      if (blocking.length) {
-    alert(
-  `Pentru a activa magazinul, trebuie să completezi:\n- ${blocking.join(
-    "\n- "
-  )}\n\nPoți completa din onboarding, tab-ul Profil.`
-);
-
-        onJumpToInfo?.();
-        return;
-      }
+    if (missingProfile.length) {
+      blocking.push("Profil magazin: " + missingProfile.join(", "));
     }
 
-    try {
-      setActivationBusy(true);
-      setActivationError("");
+    if (blocking.length) {
+      alert(
+        `Pentru a activa magazinul, trebuie să completezi:\n- ${blocking.join(
+          "\n- "
+        )}\n\nPoți completa din onboarding, tab-ul Profil.`
+      );
 
-      if (serviceIsActive) {
-        await api(
-          `/api/vendors/me/services/${encodeURIComponent(
-            serviceId
-          )}/deactivate`,
-          { method: "POST" }
-        );
-
-        setProfilePatch((p) => ({
-          ...p,
-          isActive: false,
-          status: "INACTIVE",
-          profile: {
-            ...(sellerData?.profile || {}),
-            ...(p.profile || {}),
-            serviceIsActive: false,
-            status: "INACTIVE",
-          },
-        }));
-      } else {
-        await api(
-          `/api/vendors/me/services/${encodeURIComponent(serviceId)}/activate`,
-          { method: "POST" }
-        );
-
-        setProfilePatch((p) => ({
-          ...p,
-          isActive: true,
-          status: "ACTIVE",
-          profile: {
-            ...(sellerData?.profile || {}),
-            ...(p.profile || {}),
-            serviceIsActive: true,
-            status: "ACTIVE",
-          },
-        }));
-      }
-
-      setLocalCacheT(Date.now());
-      broadcastProfileUpdated(storeSlug || slug);
-    } catch (e) {
-      const msg = humanizeActivateError(e);
-
-      alert(msg);
-      setActivationError(msg);
-    } finally {
-      setActivationBusy(false);
+      onJumpToInfo?.();
+      return;
     }
   }
+
+  try {
+    setActivationBusy(true);
+    setActivationError("");
+
+    const endpoint = serviceIsActive ? "deactivate" : "activate";
+
+    await api(
+      `/api/vendors/me/services/${encodeURIComponent(serviceId)}/${endpoint}`,
+      { method: "POST" }
+    );
+
+    const nextActive = !serviceIsActive;
+
+    setProfilePatch((p) => ({
+      ...p,
+      isActive: nextActive,
+      status: nextActive ? "ACTIVE" : "INACTIVE",
+      profile: {
+        ...(sellerData?.profile || {}),
+        ...(p.profile || {}),
+        serviceIsActive: nextActive,
+        status: nextActive ? "ACTIVE" : "INACTIVE",
+      },
+    }));
+
+    setLocalCacheT(Date.now());
+    broadcastProfileUpdated(storeSlug || slug);
+  } catch (e) {
+    const msg = humanizeActivateError(e);
+
+    alert(msg);
+    setActivationError(msg);
+  } finally {
+    setActivationBusy(false);
+  }
+}
 
   async function handleCreateNewStoreFromProfile() {
     try {
