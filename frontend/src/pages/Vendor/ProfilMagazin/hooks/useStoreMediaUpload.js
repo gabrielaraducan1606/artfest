@@ -25,9 +25,16 @@ export default function useStoreMediaUpload({
   const [localCacheT, setLocalCacheT] = useState(Date.now());
   const avatarInputRef = useRef(null);
   const coverInputRef = useRef(null);
+const storeSlug = sellerData?.slug || sellerData?.profile?.slug || slug;
+  const coverRaw =
+  sellerData?.coverImageUrl ||
+  sellerData?.coverUrl ||
+  sellerData?.profile?.coverUrl;
 
-  const coverRaw = sellerData?.coverImageUrl;
-  const avatarRaw = sellerData?.profileImageUrl;
+const avatarRaw =
+  sellerData?.profileImageUrl ||
+  sellerData?.logoUrl ||
+  sellerData?.profile?.logoUrl;
 
   const coverUrl = useMemo(
     () =>
@@ -45,17 +52,17 @@ export default function useStoreMediaUpload({
     [avatarRaw, localCacheT, cacheT]
   );
 
-  async function saveStorePatch(patch) {
-    const sd = sellerData?.slug || sellerData?.profile?.slug || slug;
-    if (!sd) throw new Error("Slug lipsă la salvare.");
+async function saveStorePatch(patch) {
+  const sd = storeSlug;
+  if (!sd) throw new Error("Slug lipsă la salvare.");
 
-    const data = await api(`/api/vendors/store/${encodeURIComponent(sd)}`, {
-      method: "PUT",
-      body: { ...patch, mirrorVendor: true },
-    });
+  const data = await api(`/api/vendors/store/${encodeURIComponent(sd)}`, {
+    method: "PUT",
+    body: { ...patch, mirrorVendor: true },
+  });
 
-    return data?.profile || {};
-  }
+  return data?.profile || {};
+}
 
   async function onAvatarChange(e) {
     const f = e.target.files?.[0];
@@ -75,14 +82,19 @@ export default function useStoreMediaUpload({
       const { url } = await up.json();
       await saveStorePatch({ logoUrl: url });
 
-      setProfilePatch((p) => ({
-        ...p,
-        profileImageUrl: url,
-        logoUrl: url,
-      }));
+   setProfilePatch((p) => ({
+  ...p,
+  profileImageUrl: url,
+  logoUrl: url,
+  profile: {
+    ...(sellerData?.profile || {}),
+    ...(p.profile || {}),
+    logoUrl: url,
+  },
+}));
 
       setLocalCacheT(Date.now());
-      broadcastProfileUpdated(slug);
+      broadcastProfileUpdated(storeSlug);
     } catch (er) {
       alert(er?.message || "Nu am putut salva avatarul");
     } finally {
@@ -109,13 +121,18 @@ export default function useStoreMediaUpload({
       await saveStorePatch({ coverUrl: url });
 
       setProfilePatch((p) => ({
-        ...p,
-        coverImageUrl: url,
-        coverUrl: url,
-      }));
+  ...p,
+  coverImageUrl: url,
+  coverUrl: url,
+  profile: {
+    ...(sellerData?.profile || {}),
+    ...(p.profile || {}),
+    coverUrl: url,
+  },
+}));
 
       setLocalCacheT(Date.now());
-      broadcastProfileUpdated(slug);
+      broadcastProfileUpdated(storeSlug);
     } catch (er) {
       alert(er?.message || "Nu am putut salva coperta");
     } finally {
