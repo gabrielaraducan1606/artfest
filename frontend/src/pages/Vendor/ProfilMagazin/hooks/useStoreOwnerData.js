@@ -159,7 +159,7 @@ export default function useStoreOwnerData({
         } catch {
           hasActiveSub = false;
         }
-        
+
 const missingBilling = [];
 
         if (!alive) return;
@@ -190,13 +190,13 @@ const missingBilling = [];
 
     if (!serviceIsActive) {
       if (ownerChecks.hasActiveSub === false) {
-        alert(
-          "Pentru a activa magazinul, ai nevoie de un abonament activ. Vei fi dus la pagina de abonament."
-        );
+  alert(
+    "Pentru a activa magazinul, ai nevoie de un abonament activ. Vei fi dus la pagina de abonament."
+  );
 
-        navigate("/onboarding/details?tab=plata&solo=1");
-        return;
-      }
+  navigate("/setari?tab=subscription");
+  return;
+}
 
       const blocking = [];
 
