@@ -155,7 +155,7 @@ export default function useStoreOwnerData({
             method: "GET",
           });
 
-          hasActiveSub = !!sub?.ok;
+          hasActiveSub = !!sub?.ok || sub?.kind === "free_basic";
         } catch {
           hasActiveSub = false;
         }
@@ -189,7 +189,19 @@ const missingBilling = [];
     if (!isOwner || !serviceId || activationBusy) return;
 
     if (!serviceIsActive) {
-      if (ownerChecks.hasActiveSub === false) {
+     let hasActiveSubNow = ownerChecks.hasActiveSub;
+
+try {
+  const sub = await api("/api/vendors/me/subscription/status", {
+    method: "GET",
+  });
+
+  hasActiveSubNow = !!sub?.ok || sub?.kind === "free_basic";
+} catch {
+  hasActiveSubNow = false;
+}
+
+if (hasActiveSubNow === false) {
   alert(
     "Pentru a activa magazinul, ai nevoie de un abonament activ. Vei fi dus la pagina de abonament."
   );
