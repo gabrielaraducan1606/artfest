@@ -9,6 +9,7 @@ import {
   Loader2,
   Bell,
   Megaphone,
+  CreditCard,
 } from "lucide-react";
 import settingsStyles from "./Settings.module.css";
 
@@ -16,11 +17,13 @@ import onboardingStyles from "../Onboarding/OnBoardingDetails/OnBoardingDetails.
 import ProfileTab from "../Onboarding/OnBoardingDetails/tabs/ProfileTabBoarding.jsx";
 import BillingTab from "../Onboarding/OnBoardingDetails/tabs/BillingTab.jsx";
 import PaymentTab from "../Onboarding/OnBoardingDetails/tabs/PaymentTab.jsx";
+import ConnectPayoutsTab from "../Onboarding/OnBoardingDetails/tabs/ConnectPayoutsTab.jsx";
 
 import MarketingPreferences from "../../User/MarketingPreferences/MarketingPreferences.jsx";
 
 const VANITY_BASE = "www.artfest.ro";
 const FORGOT_PASSWORD_URL = "/reset-parola";
+
 function cls(...xs) {
   return xs.filter(Boolean).join(" ");
 }
@@ -38,14 +41,12 @@ function Section({ icon, title, subtitle, children, right }) {
         </div>
         <div>{right}</div>
       </header>
+
       <div className={settingsStyles.cardBody}>{children}</div>
     </section>
   );
 }
 
-/* ===========================================================
-   EmbeddedOnboarding
-   =========================================================== */
 const slugify = (s = "") =>
   String(s)
     .toLowerCase()
@@ -65,9 +66,11 @@ function EmbeddedOnboarding({ tab }) {
   const timers = useRef({});
 
   const fetchMyServices = useCallback(async () => {
-    const d = await api("/api/vendors/me/services?includeProfile=1", { method: "GET" });
+    const d = await api("/api/vendors/me/services?includeProfile=1", {
+      method: "GET",
+    });
 
-    const items = (d.items || []).map((s) => ({
+    return (d.items || []).map((s) => ({
       ...s,
       attributes: s.attributes || {},
       profile: {
@@ -86,8 +89,6 @@ function EmbeddedOnboarding({ tab }) {
         shortDescription: s.profile?.shortDescription || "",
       },
     }));
-
-    return items;
   }, []);
 
   useEffect(() => {
@@ -128,12 +129,17 @@ function EmbeddedOnboarding({ tab }) {
       const serviceId = s.id;
       if (serviceId) {
         setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+
         schedule(serviceId, async () => {
           try {
-            await api(`/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`, {
-              method: "PUT",
-              body: { ...p, mirrorVendor: true },
-            });
+            await api(
+              `/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`,
+              {
+                method: "PUT",
+                body: { ...p, mirrorVendor: true },
+              }
+            );
+
             setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
@@ -164,9 +170,11 @@ function EmbeddedOnboarding({ tab }) {
       const serviceId = s.id;
       if (serviceId) {
         setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+
         schedule(serviceId, async () => {
           try {
             const current = next[idx];
+
             await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
               method: "PATCH",
               body: {
@@ -174,6 +182,7 @@ function EmbeddedOnboarding({ tab }) {
                 attributes: current?.attributes || {},
               },
             });
+
             setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
@@ -193,7 +202,12 @@ function EmbeddedOnboarding({ tab }) {
   const uploadFile = useCallback(async (file) => {
     const fd = new FormData();
     fd.append("file", file);
-    const d = await api("/api/upload", { method: "POST", body: fd });
+
+    const d = await api("/api/upload", {
+      method: "POST",
+      body: fd,
+    });
+
     if (!d?.url) throw new Error("Upload eșuat");
     return d.url;
   }, []);
@@ -202,8 +216,6 @@ function EmbeddedOnboarding({ tab }) {
     () => Object.values(saveState).some((s) => s === "saving"),
     [saveState]
   );
-
-  const hasNameConflict = false;
 
   return (
     <section className={onboardingStyles.wrap}>
@@ -217,7 +229,7 @@ function EmbeddedOnboarding({ tab }) {
           updateServiceBasics={updateServiceBasics}
           uploadFile={uploadFile}
           isSavingAny={isSavingAny}
-          hasNameConflict={hasNameConflict}
+          hasNameConflict={false}
           onContinue={() => {}}
           err={err}
           setErr={setErr}
@@ -238,21 +250,18 @@ function EmbeddedOnboarding({ tab }) {
   );
 }
 
-/* ===========================================================
-   SettingsPage (vendor)
-   =========================================================== */
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
-  
-const prefsLoadedRef = useRef(false);
+
+  const prefsLoadedRef = useRef(false);
   const [meEmail, setMeEmail] = useState("");
 
   const [prefs, setPrefs] = useState({
-  emailOnNewOrder: true,
-});
+    emailOnNewOrder: true,
+  });
 
-const [prefsSaving, setPrefsSaving] = useState(false);
-const [prefsSaved, setPrefsSaved] = useState(false);
+  const [prefsSaving, setPrefsSaving] = useState(false);
+  const [prefsSaved, setPrefsSaved] = useState(false);
 
   const tabs = [
     { key: "profile", label: "Profil magazin", icon: <UserIcon size={16} /> },
@@ -261,31 +270,57 @@ const [prefsSaved, setPrefsSaved] = useState(false);
     { key: "security", label: "Securitate", icon: <Shield size={16} /> },
     { key: "billing", label: "Date facturare", icon: <UserIcon size={16} /> },
     { key: "subscription", label: "Abonament", icon: <UserIcon size={16} /> },
+    { key: "payouts", label: "Încasări Stripe", icon: <CreditCard size={16} /> },
     { key: "danger", label: "Ștergere cont", icon: <Trash2 size={16} /> },
+  ];
+
+  const allowedTabs = [
+    "profile",
+    "notifications",
+    "marketing",
+    "security",
+    "billing",
+    "subscription",
+    "payouts",
+    "danger",
   ];
 
   const [active, setActive] = useState(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
+
     if (t === "facturare") return "billing";
-    if (t && ["profile", "notifications", "marketing", "security", "billing", "subscription", "danger"].includes(t))
-      return t;
+    if (t === "plata" || t === "abonament") return "subscription";
+    if (t === "incasari" || t === "stripe") return "payouts";
+
+    if (t && allowedTabs.includes(t)) return t;
+
     return "profile";
   });
 
+  const setTab = useCallback((key) => {
+    setActive(key);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", key);
+    window.history.replaceState(null, "", url.toString());
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
+
     try {
       const d = await api("/api/auth/me").catch(() => null);
       const email = d?.user?.email || d?.email || "";
       setMeEmail(email || "");
+
       const notif = await api("/api/vendor/settings/notifications").catch(() => null);
 
-if (notif && typeof notif.emailOnNewOrder === "boolean") {
-  setPrefs({
-    emailOnNewOrder: notif.emailOnNewOrder,
-  });
-  prefsLoadedRef.current = true;
-}
+      if (notif && typeof notif.emailOnNewOrder === "boolean") {
+        setPrefs({
+          emailOnNewOrder: notif.emailOnNewOrder,
+        });
+        prefsLoadedRef.current = true;
+      }
     } finally {
       setLoading(false);
     }
@@ -296,36 +331,32 @@ if (notif && typeof notif.emailOnNewOrder === "boolean") {
   }, [load]);
 
   useEffect(() => {
-if (loading || !prefsLoadedRef.current) return;
+    if (loading || !prefsLoadedRef.current) return;
 
-  const t = setTimeout(async () => {
-    try {
-      setPrefsSaving(true);
+    const t = setTimeout(async () => {
+      try {
+        setPrefsSaving(true);
 
-      await api(
-        "/api/vendor/settings/notifications",
-        {
+        await api("/api/vendor/settings/notifications", {
           method: "PATCH",
           body: prefs,
-        }
-      );
+        });
 
-      setPrefsSaved(true);
+        setPrefsSaved(true);
 
-      setTimeout(() => {
-        setPrefsSaved(false);
-      }, 2000);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setPrefsSaving(false);
-    }
-  }, 500);
+        setTimeout(() => {
+          setPrefsSaved(false);
+        }, 2000);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setPrefsSaving(false);
+      }
+    }, 500);
 
-  return () => clearTimeout(t);
-}, [prefs, loading]);
+    return () => clearTimeout(t);
+  }, [prefs, loading]);
 
-  /* ================== SECURITATE: SCHIMBĂ PAROLA ================== */
   const [oldPass, setOldPass] = useState("");
   const [newPass, setNewPass] = useState("");
   const [newPass2, setNewPass2] = useState("");
@@ -350,12 +381,14 @@ if (loading || !prefsLoadedRef.current) return;
       setPassErr(`Parola trebuie să aibă cel puțin ${MIN_LEN} caractere.`);
       return;
     }
+
     if (newPass !== newPass2) {
       setPassErr("Parolele nu se potrivesc.");
       return;
     }
 
     setSavingPass(true);
+
     try {
       await api("/api/account/change-password", {
         method: "POST",
@@ -369,11 +402,15 @@ if (loading || !prefsLoadedRef.current) return;
     } catch (e) {
       const serverMsg =
         e?.data?.message ||
-        (e?.data?.error === "invalid_current_password" && "Parola curentă nu este corectă.") ||
-        (e?.data?.error === "same_as_current" && "Parola nouă nu poate fi identică cu parola curentă.") ||
-        (e?.data?.error === "password_reused" && "Nu poți reutiliza una dintre ultimele parole.") ||
+        (e?.data?.error === "invalid_current_password" &&
+          "Parola curentă nu este corectă.") ||
+        (e?.data?.error === "same_as_current" &&
+          "Parola nouă nu poate fi identică cu parola curentă.") ||
+        (e?.data?.error === "password_reused" &&
+          "Nu poți reutiliza una dintre ultimele parole.") ||
         e?.message ||
         "Nu am putut schimba parola.";
+
       setPassErr(serverMsg);
       setPassOk(false);
     } finally {
@@ -381,7 +418,6 @@ if (loading || !prefsLoadedRef.current) return;
     }
   }, [oldPass, newPass, newPass2]);
 
-  /* ================== RESET PAROLĂ (trimite link pe email) ================== */
   const [fpSending, setFpSending] = useState(false);
   const [fpOk, setFpOk] = useState(false);
   const [fpErr, setFpErr] = useState("");
@@ -390,21 +426,26 @@ if (loading || !prefsLoadedRef.current) return;
     setFpErr("");
     setFpOk(false);
     setFpSending(true);
+
     try {
       await api("/api/vendor/settings/security/password-reset/request", {
         method: "POST",
         body: {},
       });
+
       setFpOk(true);
     } catch (e) {
-      setFpErr(e?.data?.message || e?.message || "Nu am putut trimite linkul de resetare. Încearcă din nou.");
+      setFpErr(
+        e?.data?.message ||
+          e?.message ||
+          "Nu am putut trimite linkul de resetare. Încearcă din nou."
+      );
       setFpOk(false);
     } finally {
       setFpSending(false);
     }
   }, []);
 
-  /* ================== SCHIMBARE EMAIL (vendor) ================== */
   const [newEmail, setNewEmail] = useState("");
   const [emailCurrentPass, setEmailCurrentPass] = useState("");
   const [emailSaving, setEmailSaving] = useState(false);
@@ -412,7 +453,10 @@ if (loading || !prefsLoadedRef.current) return;
   const [emailErr, setEmailErr] = useState("");
   const [pendingEmailInfo, setPendingEmailInfo] = useState("");
 
-  const canSaveEmail = newEmail.trim().length > 0 && emailCurrentPass.trim().length > 0 && !emailSaving;
+  const canSaveEmail =
+    newEmail.trim().length > 0 &&
+    emailCurrentPass.trim().length > 0 &&
+    !emailSaving;
 
   const changeEmail = useCallback(async () => {
     setEmailErr("");
@@ -432,6 +476,7 @@ if (loading || !prefsLoadedRef.current) return;
     }
 
     setEmailSaving(true);
+
     try {
       const d = await api("/api/vendor/settings/account/change-email", {
         method: "POST",
@@ -442,6 +487,7 @@ if (loading || !prefsLoadedRef.current) return;
       });
 
       const pending = d?.pendingEmail || emailTrimmed;
+
       setPendingEmailInfo(pending);
       setNewEmail("");
       setEmailCurrentPass("");
@@ -449,11 +495,15 @@ if (loading || !prefsLoadedRef.current) return;
     } catch (e) {
       const msg =
         e?.data?.message ||
-        (e?.data?.error === "invalid_current_password" && "Parola curentă nu este corectă.") ||
-        (e?.data?.error === "email_taken" && "Există deja un cont cu acest email.") ||
-        (e?.data?.error === "same_email" && "Emailul nou este identic cu cel curent.") ||
+        (e?.data?.error === "invalid_current_password" &&
+          "Parola curentă nu este corectă.") ||
+        (e?.data?.error === "email_taken" &&
+          "Există deja un cont cu acest email.") ||
+        (e?.data?.error === "same_email" &&
+          "Emailul nou este identic cu cel curent.") ||
         e?.message ||
         "Nu am putut schimba emailul.";
+
       setEmailErr(msg);
       setEmailOk(false);
     } finally {
@@ -461,7 +511,6 @@ if (loading || !prefsLoadedRef.current) return;
     }
   }, [newEmail, emailCurrentPass, meEmail]);
 
-  /* ================== DEZACTIVARE CONT VENDOR (SAFE) ================== */
   const [deactivateSending, setDeactivateSending] = useState(false);
   const [deactivateOk, setDeactivateOk] = useState(false);
   const [deactivateErr, setDeactivateErr] = useState("");
@@ -473,17 +522,24 @@ if (loading || !prefsLoadedRef.current) return;
     const confirmed = window.confirm(
       "Vrei să dezactivezi contul de vendor? Magazinul și produsele vor fi ascunse. Confirmarea se face prin email."
     );
+
     if (!confirmed) return;
 
     setDeactivateSending(true);
+
     try {
       await api("/api/vendor/settings/account/deactivate/request", {
         method: "POST",
         body: { reason: "" },
       });
+
       setDeactivateOk(true);
     } catch (e) {
-      setDeactivateErr(e?.data?.message || e?.message || "Nu am putut trimite emailul de confirmare. Încearcă din nou.");
+      setDeactivateErr(
+        e?.data?.message ||
+          e?.message ||
+          "Nu am putut trimite emailul de confirmare. Încearcă din nou."
+      );
     } finally {
       setDeactivateSending(false);
     }
@@ -494,12 +550,12 @@ if (loading || !prefsLoadedRef.current) return;
       <aside className={settingsStyles.sidebar}>
         <div className={settingsStyles.sideHead}>
           <div className={settingsStyles.sideTitle}>Setări cont</div>
+
           <button
             className={settingsStyles.iconBtn}
-            onClick={() => {
-              load();
-            }}
+            onClick={load}
             title="Reîncarcă"
+            type="button"
           >
             <RefreshCcw size={16} />
           </button>
@@ -509,8 +565,12 @@ if (loading || !prefsLoadedRef.current) return;
           {tabs.map((t) => (
             <button
               key={t.key}
-              className={cls(settingsStyles.tab, active === t.key && settingsStyles.active)}
-              onClick={() => setActive(t.key)}
+              type="button"
+              className={cls(
+                settingsStyles.tab,
+                active === t.key && settingsStyles.active
+              )}
+              onClick={() => setTab(t.key)}
             >
               {t.icon} {t.label}
             </button>
@@ -527,7 +587,6 @@ if (loading || !prefsLoadedRef.current) return;
 
         {!loading && active === "profile" && <EmbeddedOnboarding tab="profil" />}
 
-        {/* ================== NOTIFICĂRI (informativ) ================== */}
         {!loading && active === "notifications" && (
           <Section
             icon={<Bell size={18} />}
@@ -537,46 +596,38 @@ if (loading || !prefsLoadedRef.current) return;
             <div className={settingsStyles.grid1}>
               <div className={settingsStyles.card} style={{ padding: 12 }}>
                 <div className={settingsStyles.title}>Primești notificări când:</div>
-                <ul style={{ margin: "10px 0 0 18px" }}>
-                  <li>Ai activitate pe comenzi / rezervări (creare, confirmare, modificări, anulare, livrare).</li>
-                  <li>Primești recenzii noi (magazin sau produse) și când există răspunsuri la recenzii.</li>
-                  <li>Primești comentarii noi la produse și răspunsuri la comentarii.</li>
-                  <li>Primești mesaje / lead-uri din conversațiile cu clienții.</li>
-                  <li>Primești urmăritori noi (când e activ event-ul în sistem).</li>
-                </ul>
 
-                <div className={settingsStyles.subtitle} style={{ marginTop: 10 }}>
-                  Unele notificări sunt destinate clientului (ex: facturi, livrare, suport). Pentru vendor afișăm cele
-                  relevante activității magazinului.
-                </div>
+                <ul style={{ margin: "10px 0 0 18px" }}>
+                  <li>Ai activitate pe comenzi / rezervări.</li>
+                  <li>Primești recenzii noi la magazin sau produse.</li>
+                  <li>Primești comentarii noi la produse.</li>
+                  <li>Primești mesaje / lead-uri de la clienți.</li>
+                  <li>Primești urmăritori noi.</li>
+                </ul>
               </div>
 
               <div className={settingsStyles.card} style={{ padding: 12 }}>
-                <div className={settingsStyles.title}>Detalii (mapare după backend)</div>
+                <div className={settingsStyles.title}>Detalii notificări</div>
+
                 <ul style={{ margin: "10px 0 0 18px" }}>
                   <li>
-                    <strong>Recenzii magazin:</strong> recenzie nouă (vendor) + reply la recenzie (user) —{" "}
+                    <strong>Recenzii magazin:</strong>{" "}
                     <code>/magazin/:slug#review-:id</code>
                   </li>
                   <li>
-                    <strong>Recenzii produs:</strong> recenzie nouă (vendor) + reply la recenzie (user) —{" "}
+                    <strong>Recenzii produs:</strong>{" "}
                     <code>/produs/:id#review-:id</code>
                   </li>
                   <li>
-                    <strong>Comentarii produs:</strong> comentariu nou (vendor) + reply la comentariu (user) —{" "}
+                    <strong>Comentarii produs:</strong>{" "}
                     <code>/produs/:id#comment-:id</code>
                   </li>
                   <li>
-                    <strong>Mesaje:</strong> mesaj nou în conversație (user) — <code>/cont/mesaje?threadId=:id</code>
+                    <strong>Mesaje:</strong>{" "}
+                    <code>/cont/mesaje?threadId=:id</code>
                   </li>
                   <li>
-                    <strong>Comenzi:</strong> status actualizat (user) — <code>/comanda/:id</code>
-                  </li>
-                  <li>
-                    <strong>Facturi / livrare:</strong> factură emisă, AWB/curier (user) — <code>/comanda/:id</code>
-                  </li>
-                  <li>
-                    <strong>Suport:</strong> reply/status ticket (user) — <code>/account/support/tickets/:id</code>
+                    <strong>Comenzi:</strong> <code>/comanda/:id</code>
                   </li>
                 </ul>
               </div>
@@ -585,80 +636,62 @@ if (loading || !prefsLoadedRef.current) return;
         )}
 
         {!loading && active === "marketing" && (
-  <MarketingPreferences
-    vendorExtra={
-      <div
-        className={settingsStyles.card}
-        style={{ marginBottom: 20 }}
-      >
-        <div className={settingsStyles.title}>
-          Preferințe email vendor
-        </div>
+          <MarketingPreferences
+            vendorExtra={
+              <div className={settingsStyles.card} style={{ marginBottom: 20 }}>
+                <div className={settingsStyles.title}>Preferințe email vendor</div>
 
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            marginTop: 18,
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={prefs.emailOnNewOrder}
-            onChange={(e) =>
-              setPrefs((p) => ({
-                ...p,
-                emailOnNewOrder: e.target.checked,
-              }))
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    marginTop: 18,
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={prefs.emailOnNewOrder}
+                    onChange={(e) =>
+                      setPrefs((p) => ({
+                        ...p,
+                        emailOnNewOrder: e.target.checked,
+                      }))
+                    }
+                  />
+
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Email comandă nouă</div>
+
+                    <div style={{ fontSize: 13, opacity: 0.7, marginTop: 2 }}>
+                      Primești email când un client plasează o comandă.
+                    </div>
+                  </div>
+                </label>
+
+                {prefsSaving && (
+                  <div className={settingsStyles.subtitle} style={{ marginTop: 12 }}>
+                    Se salvează preferințele…
+                  </div>
+                )}
+
+                {prefsSaved && (
+                  <div className={settingsStyles.success} style={{ marginTop: 12 }}>
+                    ✅ Preferințele au fost salvate.
+                  </div>
+                )}
+              </div>
             }
           />
-
-          <div>
-            <div style={{ fontWeight: 600 }}>
-              Email comandă nouă
-            </div>
-
-            <div
-              style={{
-                fontSize: 13,
-                opacity: 0.7,
-                marginTop: 2,
-              }}
-            >
-              Primești email când un client plasează o comandă.
-            </div>
-          </div>
-        </label>
-
-        {prefsSaving && (
-          <div
-            className={settingsStyles.subtitle}
-            style={{ marginTop: 12 }}
-          >
-            Se salvează preferințele…
-          </div>
         )}
-
-        {prefsSaved && (
-          <div
-            className={settingsStyles.success}
-            style={{ marginTop: 12 }}
-          >
-            ✅ Preferințele au fost salvate.
-          </div>
-        )}
-      </div>
-    }
-  />
-)}
 
         {!loading && active === "billing" && <EmbeddedOnboarding tab="facturare" />}
 
         {!loading && active === "subscription" && <EmbeddedOnboarding tab="plata" />}
 
-        {/* SECURITATE */}
+        {!loading && active === "payouts" && <ConnectPayoutsTab />}
+
         {!loading && active === "security" && (
           <>
             <Section
@@ -666,7 +699,12 @@ if (loading || !prefsLoadedRef.current) return;
               title="Securitate – Parolă"
               subtitle="Schimbă parola sau trimite un link de resetare pe email."
               right={
-                <button className={settingsStyles.primary} onClick={changePassword} disabled={!canSavePass}>
+                <button
+                  className={settingsStyles.primary}
+                  onClick={changePassword}
+                  disabled={!canSavePass}
+                  type="button"
+                >
                   {savingPass ? "Se salvează…" : "Salvează parola"}
                 </button>
               }
@@ -708,7 +746,9 @@ if (loading || !prefsLoadedRef.current) return;
                 </div>
 
                 {newPass && newPass.length < MIN_LEN && (
-                  <div className={settingsStyles.warn}>Parola trebuie să aibă cel puțin {MIN_LEN} caractere.</div>
+                  <div className={settingsStyles.warn}>
+                    Parola trebuie să aibă cel puțin {MIN_LEN} caractere.
+                  </div>
                 )}
 
                 {newPass2 && newPass && newPass !== newPass2 && (
@@ -720,13 +760,19 @@ if (loading || !prefsLoadedRef.current) return;
                     {passErr}
                   </div>
                 )}
-                {passOk && <div className={settingsStyles.success}>✅ Parola a fost schimbată cu succes.</div>}
 
-                {/* reset password row */}
+                {passOk && (
+                  <div className={settingsStyles.success}>
+                    ✅ Parola a fost schimbată cu succes.
+                  </div>
+                )}
+
                 <div className={settingsStyles.fpBox}>
                   <div>
                     <div className={settingsStyles.fpTitle}>Ai uitat parola?</div>
-                    <div className={settingsStyles.subtitle}>Trimitem un link de resetare pe emailul contului tău.</div>
+                    <div className={settingsStyles.subtitle}>
+                      Trimitem un link de resetare pe emailul contului tău.
+                    </div>
                   </div>
 
                   <button
@@ -762,7 +808,12 @@ if (loading || !prefsLoadedRef.current) return;
               title="Email de conectare"
               subtitle="Schimbă adresa de email folosită pentru login. Confirmarea se face prin email."
               right={
-                <button className={settingsStyles.primary} onClick={changeEmail} disabled={!canSaveEmail}>
+                <button
+                  className={settingsStyles.primary}
+                  onClick={changeEmail}
+                  disabled={!canSaveEmail}
+                  type="button"
+                >
                   {emailSaving ? "Se salvează…" : "Salvează emailul"}
                 </button>
               }
@@ -770,7 +821,12 @@ if (loading || !prefsLoadedRef.current) return;
               <div className={settingsStyles.grid1}>
                 <label className={settingsStyles.field}>
                   <span>Email curent</span>
-                  <input className={settingsStyles.input} type="email" value={meEmail || ""} disabled />
+                  <input
+                    className={settingsStyles.input}
+                    type="email"
+                    value={meEmail || ""}
+                    disabled
+                  />
                 </label>
 
                 <label className={settingsStyles.field}>
@@ -803,8 +859,9 @@ if (loading || !prefsLoadedRef.current) return;
 
                 {emailOk && (
                   <div className={settingsStyles.success}>
-                    ✅ Ți-am trimis un email de confirmare la <strong>{pendingEmailInfo}</strong>. Accesează linkul din
-                    email pentru a finaliza schimbarea.
+                    ✅ Ți-am trimis un email de confirmare la{" "}
+                    <strong>{pendingEmailInfo}</strong>. Accesează linkul din email pentru a
+                    finaliza schimbarea.
                   </div>
                 )}
               </div>
@@ -812,15 +869,21 @@ if (loading || !prefsLoadedRef.current) return;
           </>
         )}
 
-        {/* ZONĂ PERICULOASĂ */}
         {!loading && active === "danger" && (
-          <Section icon={<Trash2 size={18} />} title="Zonă periculoasă" subtitle="Acțiuni ireversibile (safe)">
+          <Section
+            icon={<Trash2 size={18} />}
+            title="Zonă periculoasă"
+            subtitle="Acțiuni ireversibile."
+          >
             <div className={settingsStyles.danger}>
               <div>
-                <div className={settingsStyles.title}>Dezactivează cont vendor (safe)</div>
+                <div className={settingsStyles.title}>
+                  Dezactivează cont vendor
+                </div>
+
                 <div className={settingsStyles.subtitle}>
-                  Magazinul și produsele vor fi ascunse. Datele sensibile (facturi, comenzi, billing) rămân în sistem
-                  pentru conformitate/audit. Confirmarea se face prin email.
+                  Magazinul și produsele vor fi ascunse. Datele sensibile rămân în
+                  sistem pentru conformitate.
                 </div>
               </div>
 
@@ -836,7 +899,7 @@ if (loading || !prefsLoadedRef.current) return;
 
             {deactivateOk && (
               <div className={settingsStyles.success} style={{ marginTop: 12 }}>
-                ✅ Ți-am trimis un email cu linkul de confirmare. Verifică Inbox / Spam.
+                ✅ Ți-am trimis un email cu linkul de confirmare.
               </div>
             )}
 

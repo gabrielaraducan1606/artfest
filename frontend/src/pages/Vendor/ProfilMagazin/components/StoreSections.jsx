@@ -1,7 +1,6 @@
 import React, { Suspense, lazy } from "react";
 import TabsNav from "./TabsNav.jsx";
 import AboutSection from "./AboutSection";
-import InfoSection from "./InfoSection";
 
 const ReviewsSection = lazy(() => import("./ReviewsSection.jsx"));
 const ProductList = lazy(() => import("./ProductList"));
@@ -24,22 +23,6 @@ export default function StoreSections({
   onChangeAbout,
   onSaveAbout,
   savingAbout,
-  tags,
-  niceCity,
-  country,
-  website,
-  prettyDelivery,
-  editInfo,
-  savingInfo,
-  infoErr,
-  infoDraft,
-  onChangeInfoDraft,
-  countySuggestions,
-  countiesLoading,
-  countiesErr,
-  onCountiesChange,
-  saveInfoNow,
-  trackCTA,
   products,
   viewMode,
   favorites,
@@ -89,35 +72,6 @@ export default function StoreSections({
         data-tab-key="informatii"
         className="sectionAnchorPad"
       >
-        <InfoSection
-          tags={tags}
-          city={niceCity}
-          country={country}
-          website={website}
-          prettyDelivery={prettyDelivery}
-          editInfo={editInfo}
-          savingInfo={savingInfo}
-          infoErr={infoErr}
-          infoDraft={infoDraft}
-          onChangeInfoDraft={onChangeInfoDraft}
-          countySuggestions={countySuggestions}
-          countiesLoading={countiesLoading}
-          countiesErr={countiesErr}
-          onCountiesChange={onCountiesChange}
-          canEdit={isOwner}
-          onToggleEditInfo={() => {
-  const qs = new URLSearchParams({
-    tab: "profil",
-    solo: "1",
-  });
-
-  if (serviceId) qs.set("serviceId", serviceId);
-
-  navigate(`/onboarding/details?${qs.toString()}`);
-}}
-          onSaveInfo={saveInfoNow}
-          onTrackCTA={trackCTA}
-        />
       </section>
 
       <section

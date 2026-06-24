@@ -13,7 +13,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { sendVerificationEmail } from "../lib/mailer.js";
 import { signToken, authRequired, enforceTokenVersion } from "../api/auth.js";
-
+import { ensureBasicSubscriptionForVendor } from "./subscriptionRoutes.js";
 import forgotPassword from "./forgot-passwordRoutes.js";
 import resetPassword from "./resetPassword.js";
 
@@ -86,7 +86,12 @@ function hashOtp(email, code) {
 /* ----------------------------- Schemas (Zod) ----------------------------- */
 
 const ConsentSchema = z.object({
-  type: z.enum(["tos", "privacy_ack", "marketing_email_optin"]),
+  type: z.enum([
+    "tos",
+    "privacy_ack",
+    "marketing_email_optin",
+    "vendor_terms",
+  ]),
   version: z.string().trim().optional(),
   checksum: z.string().trim().optional().nullable(),
 });
@@ -188,13 +193,23 @@ router.post("/signup", async (req, res) => {
       entitySelfDeclared,
       entityMeta,
       consents = [],
-      noExternalLinks,
       ref,
     } = parsed.data;
 
     const hasMarketingOptIn = Array.isArray(consents)
       ? consents.some((c) => c?.type === "marketing_email_optin")
       : false;
+
+    const hasVendorTermsConsent = Array.isArray(consents)
+      ? consents.some((c) => c?.type === "vendor_terms")
+      : false;
+
+    if (asVendor && !hasVendorTermsConsent) {
+      return res.status(400).json({
+        error: "vendor_terms_required",
+        message: "Acordul Master pentru Vânzători este obligatoriu.",
+      });
+    }
 
     const idemKey = getIdemKey(req);
     const prev = await idemFind(idemKey);
@@ -204,6 +219,7 @@ router.post("/signup", async (req, res) => {
       where: { email },
       select: { id: true, emailVerifiedAt: true },
     });
+
     if (exists) {
       const unverified = !exists.emailVerifiedAt;
       return res.status(409).json({
@@ -249,20 +265,24 @@ router.post("/signup", async (req, res) => {
             ? "TOS"
             : t === "privacy_ack"
             ? "PRIVACY_ACK"
+            : t === "vendor_terms"
+            ? "VENDOR_TERMS"
             : "MARKETING_EMAIL_OPTIN";
 
-        for (const c of consents) {
-          await tx.userConsent.create({
-            data: {
-              userId: user.id,
-              document: mapDoc(c.type),
-              version: c.version || "1.0.0",
-              checksum: c.checksum || null,
-              ip,
-              ua,
-            },
-          });
-        }
+       for (const c of consents) {
+  if (c.type === "vendor_terms") continue;
+
+  await tx.userConsent.create({
+    data: {
+      userId: user.id,
+      document: mapDoc(c.type),
+      version: c.version || "1.0.0",
+      checksum: c.checksum || null,
+      ip,
+      ua,
+    },
+  });
+}
       }
 
       if (hasMarketingOptIn) {
@@ -287,64 +307,92 @@ router.post("/signup", async (req, res) => {
         });
       }
 
-if (asVendor) {
-  const isDeclared = !!entitySelfDeclared;
+      let vendorId = null;
 
-  const vendor = await tx.vendor.create({
-    data: {
-      userId: user.id,
-      isActive: false,
-      displayName: "",
+      if (asVendor) {
+        const isDeclared = !!entitySelfDeclared;
 
-      entitySelfDeclared: isDeclared,
-      entitySelfDeclaredAt: isDeclared ? new Date() : null,
+        const vendor = await tx.vendor.create({
+          data: {
+            userId: user.id,
+            isActive: false,
+            displayName: "",
+            entitySelfDeclared: isDeclared,
+            entitySelfDeclaredAt: isDeclared ? new Date() : null,
+            entitySelfDeclaredIp: isDeclared ? reqIp : null,
+            entitySelfDeclaredUa: isDeclared ? reqUa : null,
+            entitySelfDeclaredMeta: isDeclared ? entityMeta ?? null : null,
+          },
+        });
 
-      entitySelfDeclaredIp: isDeclared ? reqIp : null,
-      entitySelfDeclaredUa: isDeclared ? reqUa : null,
-      entitySelfDeclaredMeta: isDeclared ? (entityMeta ?? null) : null,
-    },
-  });
+        vendorId = vendor.id;
 
-  const referralCode = ref || req.query?.ref || null;
+        const vendorTermsConsent = consents.find(
+          (c) => c?.type === "vendor_terms"
+        );
 
-  if (referralCode) {
-    const ambassador = await tx.ambassadorProfile.findUnique({
-      where: { referralCode },
+        if (vendorTermsConsent) {
+          await tx.vendorAcceptance.create({
+  data: {
+    vendorId: vendor.id,
+    userId: user.id,
+    document: "VENDOR_TERMS",
+    version: vendorTermsConsent.version || "1.0.0",
+    checksum: vendorTermsConsent.checksum || null,
+    acceptedAt: new Date(),
+    ip: reqIp,
+    ua: reqUa,
+    source: "register",
+  },
+});
+        }
+
+        const referralCode = ref || req.query?.ref || null;
+
+        if (referralCode) {
+          const ambassador = await tx.ambassadorProfile.findUnique({
+            where: { referralCode },
+          });
+
+          if (ambassador && ambassador.vendorId !== vendor.id) {
+            const existingReferral = await tx.ambassadorReferral.findUnique({
+              where: { invitedVendorId: vendor.id },
+            });
+
+            if (!existingReferral) {
+              await tx.ambassadorReferral.create({
+                data: {
+                  ambassadorId: ambassador.id,
+                  invitedVendorId: vendor.id,
+                  invitedUserId: user.id,
+                  status: "CONVERTED",
+                  convertedAt: new Date(),
+                },
+              });
+
+              await tx.ambassadorProfile.update({
+                where: { id: ambassador.id },
+                data: {
+                  invitedCount: {
+                    increment: 1,
+                  },
+                },
+              });
+            }
+          }
+        }
+      }
+
+      return { ...user, vendorId };
     });
 
-    if (ambassador && ambassador.vendorId !== vendor.id) {
-      const existingReferral = await tx.ambassadorReferral.findUnique({
-        where: {
-          invitedVendorId: vendor.id,
-        },
-      });
-
-      if (!existingReferral) {
-       await tx.ambassadorReferral.create({
-  data: {
-    ambassadorId: ambassador.id,
-    invitedVendorId: vendor.id,
-    invitedUserId: user.id,
-    status: "CONVERTED",
-    convertedAt: new Date(),
-  },
-});
-
-await tx.ambassadorProfile.update({
-  where: { id: ambassador.id },
-  data: {
-    invitedCount: {
-      increment: 1,
-    },
-  },
-});
-      }
-    }
+   if (created.vendorId) {
+  try {
+    await ensureBasicSubscriptionForVendor(created.vendorId);
+  } catch (subErr) {
+    console.error("AUTO BASIC SUBSCRIPTION FAILED:", subErr);
   }
 }
-      return user;
-    });
-
     await prisma.emailVerificationToken.deleteMany({
       where: { userId: created.id, purpose: "verify_email", usedAt: null },
     });
@@ -390,6 +438,7 @@ await tx.ambassadorProfile.update({
     if (e?.code === "P2002") {
       return res.status(409).json({ error: "email_deja_folosit" });
     }
+
     console.error("SIGNUP error:", e);
     return res.status(500).json({ error: "signup_failed" });
   }

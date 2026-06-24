@@ -167,8 +167,8 @@ export async function createSubscriptionCheckoutSession({
     },
   });
 
-  const successUrl = `${APP_ORIGIN}/onboarding/details?tab=plata&success=1&session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = `${APP_ORIGIN}/onboarding/details?tab=plata&canceled=1`;
+  const successUrl = `${APP_ORIGIN}/setari?tab=subscription&subscription=success&session_id={CHECKOUT_SESSION_ID}`;
+const cancelUrl = `${APP_ORIGIN}/setari?tab=subscription&subscription=cancelled`;
 
   const metadata = {
     vendorId,

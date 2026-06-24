@@ -455,3 +455,13 @@
   .togglePw { padding: 12px; min-width: 44px; min-height: 44px; }
   .hasToggle .field { padding-right: 64px; }
 }
+
+.vendorTermsRow {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.vendorTermsRow span {
+  display: block;
+  line-height: 1.6;
+}

@@ -385,37 +385,53 @@ function BillingForm({ onSaved, onStatusChange }) {
   useEffect(() => {
     onStatusChange?.(status);
   }, [status, onStatusChange]);
+  
+useEffect(() => {
+  let alive = true;
 
-  useEffect(() => {
-    let alive = true;
+  (async () => {
+    try {
+      const d = await api("/api/vendors/me/billing", { method: "GET" });
+      if (!alive) return;
 
-    (async () => {
-      try {
-        const d = await api("/api/vendors/me/billing", { method: "GET" });
-        if (!alive) return;
+      if (d?.vendorId) setVendorId(d.vendorId);
 
-        if (d?.vendorId) setVendorId(d.vendorId);
+      const fromApi = pickBillingFromApi(d?.billing);
 
-        const fromApi = pickBillingFromApi(d?.billing);
-
-        if (fromApi) {
-          setBilling(fromApi);
-          setInitialBilling(fromApi);
-          setAnnounce("Am încărcat datele de facturare salvate în contul tău.");
-        } else {
-          setInitialBilling(null);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (alive) setHydrated(true);
+      if (fromApi) {
+        setBilling(fromApi);
+        setInitialBilling(fromApi);
+        setAnnounce("Am încărcat datele de facturare salvate în contul tău.");
+        return;
       }
-    })();
 
-    return () => {
-      alive = false;
-    };
-  }, []);
+      const me = await api("/api/vendors/me", { method: "GET" });
+      const sellerType = me?.billing?.sellerType;
+
+      if (SELLER_TYPES.includes(sellerType)) {
+        setBilling((prev) => ({
+          ...prev,
+          sellerType,
+        }));
+
+        setInitialBilling({
+          ...EMPTY_BILLING,
+          sellerType,
+        });
+      } else {
+        setInitialBilling(null);
+      }
+    } catch {
+      // ignore
+    } finally {
+      if (alive) setHydrated(true);
+    }
+  })();
+
+  return () => {
+    alive = false;
+  };
+}, []);
 
   useEffect(() => {
     if (billing.vatStatus === "payer") {

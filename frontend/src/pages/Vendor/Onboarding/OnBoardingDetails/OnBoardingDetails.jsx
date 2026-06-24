@@ -4,12 +4,9 @@ import { api } from "../../../../lib/api";
 import styles from "./OnBoardingDetails.module.css";
 
 import ProfileTab from "./tabs/ProfileTabBoarding.jsx";
-import BillingTab from "./tabs/BillingTab.jsx";
-import PaymentTab from "./tabs/PaymentTab.jsx";
-import ConnectPayoutsTab from "./tabs/ConnectPayoutsTab.jsx";
 
 const VANITY_BASE = "www.artfest.ro";
-const ALLOWED_TABS = ["profil", "facturare", "incasari", "plata"];
+const SELLER_TYPES = ["independent_creator", "verified_business"];
 
 const slugify = (s = "") =>
   String(s)
@@ -19,85 +16,67 @@ const slugify = (s = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
+function getStorePath(service) {
+  const slug = service?.profile?.slug?.trim();
+  if (!slug) return "/dashboard";
+  return `/magazin/${encodeURIComponent(slug)}?onboarding=products`;
+}
+
 export default function OnBoardingDetails() {
   const navigate = useNavigate();
   const location = useLocation();
 
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
-  const qpTab = (params.get("tab") || "").toLowerCase();
   const qpServiceId = (params.get("serviceId") || "").trim();
   const solo = params.get("solo") === "1";
-
   const profileOnlyMode = solo && !!qpServiceId;
-  const initialTab = profileOnlyMode
-    ? "profil"
-    : ALLOWED_TABS.includes(qpTab)
-    ? qpTab
-    : "profil";
 
   const [services, setServices] = useState([]);
-  const [activeTab, setActiveTab] = useState(initialTab);
   const [err, setErr] = useState("");
-
   const [saveState, setSaveState] = useState({});
   const [saveError, setSaveError] = useState({});
-  const [billingStatus, setBillingStatus] = useState("idle");
 
-  // URL -> state
-  useEffect(() => {
-    if (profileOnlyMode) {
-      setActiveTab("profil");
-      return;
-    }
-
-    if (ALLOWED_TABS.includes(qpTab)) setActiveTab(qpTab);
-    else setActiveTab("profil");
-  }, [qpTab, profileOnlyMode]);
-
-  // state -> URL
-  useEffect(() => {
-    const curr = new URLSearchParams(location.search);
-    const currTab = (curr.get("tab") || "").toLowerCase();
-    const currSolo = curr.get("solo") === "1";
-    const currServiceId = (curr.get("serviceId") || "").trim();
-
-    const forcedTab = profileOnlyMode ? "profil" : activeTab;
-
-    if (
-      currTab === forcedTab &&
-      currSolo === solo &&
-      currServiceId === qpServiceId
-    ) {
-      return;
-    }
-
-    curr.set("tab", forcedTab);
-
-    if (solo) curr.set("solo", "1");
-    else curr.delete("solo");
-
-    if (qpServiceId) curr.set("serviceId", qpServiceId);
-    else curr.delete("serviceId");
-
-    navigate({ search: `?${curr.toString()}` }, { replace: true });
-  }, [activeTab, solo, qpServiceId, profileOnlyMode, location.search, navigate]);
+  const [sellerType, setSellerType] = useState("");
+  const [sellerTypeErr, setSellerTypeErr] = useState("");
+  const [savingSellerType, setSavingSellerType] = useState(false);
 
   useEffect(() => {
-    if (profileOnlyMode) {
-      navigate(
-        {
-          search: `?serviceId=${encodeURIComponent(qpServiceId)}&tab=profil&solo=1`,
-        },
-        { replace: true }
-      );
-      return;
-    }
+    const legacyTab = params.get("tab");
+    if (!legacyTab) return;
 
-    if (solo && !ALLOWED_TABS.includes(qpTab)) {
-      navigate({ search: "?tab=profil&solo=1" }, { replace: true });
+    const next = new URLSearchParams(location.search);
+    next.delete("tab");
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: next.toString() ? `?${next.toString()}` : "",
+      },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate, params]);
+
+  const fetchSellerType = useCallback(async () => {
+    try {
+      const d = await api("/api/vendors/me", { method: "GET" });
+      const fromBilling = d?.billing?.sellerType;
+
+      if (SELLER_TYPES.includes(fromBilling)) {
+        setSellerType(fromBilling);
+        return;
+      }
+
+      if (d?.billing?.legalType || d?.billing?.companyName || d?.billing?.cui) {
+        setSellerType("verified_business");
+      }
+    } catch {
+      // seller type rămâne gol pentru conturile noi
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    fetchSellerType();
+  }, [fetchSellerType]);
 
   const fetchMyServices = useCallback(async () => {
     const d = await api("/api/vendors/me/services?includeProfile=1", { method: "GET" });
@@ -173,12 +152,14 @@ export default function OnBoardingDetails() {
       const serviceId = s.id;
       if (serviceId) {
         setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+
         schedule(serviceId, async () => {
           try {
             await api(`/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`, {
               method: "PUT",
               body: { ...p, mirrorVendor: true },
             });
+
             setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
             setSaveError((m) => ({ ...m, [serviceId]: "" }));
           } catch (e) {
@@ -196,63 +177,62 @@ export default function OnBoardingDetails() {
   }, []);
 
   const updateServiceBasics = useCallback((idx, patch) => {
-  setServices((prev) => {
-    const next = [...prev];
-    const s = { ...next[idx] };
+    setServices((prev) => {
+      const next = [...prev];
+      const s = { ...next[idx] };
 
-    next[idx] = {
-      ...s,
-      ...patch,
-      attributes: { ...(s.attributes || {}), ...(patch.attributes || {}) },
-    };
+      next[idx] = {
+        ...s,
+        ...patch,
+        attributes: { ...(s.attributes || {}), ...(patch.attributes || {}) },
+      };
 
-    const serviceId = s.id;
-    if (serviceId) {
-      setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
+      const serviceId = s.id;
+      if (serviceId) {
+        setSaveState((m) => ({ ...m, [serviceId]: "saving" }));
 
-      schedule(serviceId, async () => {
-        try {
-          const current = next[idx];
+        schedule(serviceId, async () => {
+          try {
+            const current = next[idx];
 
-          await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
-            method: "PATCH",
-            body: {
-              title: current?.title || "",
-              description: current?.description || "",
-              basePriceCents: current?.basePriceCents ?? null,
-              currency: current?.currency || "RON",
-              city: current?.city || "",
-              coverageAreas: Array.isArray(current?.coverageAreas)
-                ? current.coverageAreas
-                : [],
-              mediaUrls: Array.isArray(current?.mediaUrls)
-                ? current.mediaUrls
-                : [],
-              attributes: current?.attributes || {},
+            await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
+              method: "PATCH",
+              body: {
+                title: current?.title || "",
+                description: current?.description || "",
+                basePriceCents: current?.basePriceCents ?? null,
+                currency: current?.currency || "RON",
+                city: current?.city || "",
+                coverageAreas: Array.isArray(current?.coverageAreas)
+                  ? current.coverageAreas
+                  : [],
+                mediaUrls: Array.isArray(current?.mediaUrls)
+                  ? current.mediaUrls
+                  : [],
+                attributes: current?.attributes || {},
+                estimatedShippingFeeCents:
+                  current?.estimatedShippingFeeCents ?? null,
+                freeShippingThresholdCents:
+                  current?.freeShippingThresholdCents ?? null,
+                shippingNotes: current?.shippingNotes ?? null,
+              },
+            });
 
-              estimatedShippingFeeCents:
-                current?.estimatedShippingFeeCents ?? null,
-              freeShippingThresholdCents:
-                current?.freeShippingThresholdCents ?? null,
-              shippingNotes: current?.shippingNotes ?? null,
-            },
-          });
+            setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
+            setSaveError((m) => ({ ...m, [serviceId]: "" }));
+          } catch (e) {
+            setSaveState((m) => ({ ...m, [serviceId]: "error" }));
+            setSaveError((m) => ({
+              ...m,
+              [serviceId]: e?.message || "Eroare la salvare",
+            }));
+          }
+        });
+      }
 
-          setSaveState((m) => ({ ...m, [serviceId]: "saved" }));
-          setSaveError((m) => ({ ...m, [serviceId]: "" }));
-        } catch (e) {
-          setSaveState((m) => ({ ...m, [serviceId]: "error" }));
-          setSaveError((m) => ({
-            ...m,
-            [serviceId]: e?.message || "Eroare la salvare",
-          }));
-        }
-      });
-    }
-
-    return next;
-  });
-}, []);
+      return next;
+    });
+  }, []);
 
   const uploadFile = useCallback(async (file) => {
     const fd = new FormData();
@@ -265,143 +245,148 @@ export default function OnBoardingDetails() {
   }, []);
 
   const isSavingAny = useMemo(
-    () => Object.values(saveState).some((s) => s === "saving"),
-    [saveState]
+    () =>
+      savingSellerType ||
+      Object.values(saveState).some((s) => s === "saving"),
+    [saveState, savingSellerType]
   );
 
-  const hasNameConflict = false;
-
-  // PROFILE-ONLY MODE: magazin nou creat din dashboard/profil
-  if (profileOnlyMode) {
-    return (
-      <section className={styles.wrap}>
-        <ProfileTab
-          services={visibleServices}
-          vanityBase={VANITY_BASE}
-          saveState={saveState}
-          saveError={saveError}
-          updateProfile={updateProfile}
-          updateServiceBasics={updateServiceBasics}
-          uploadFile={uploadFile}
-          isSavingAny={isSavingAny}
-          hasNameConflict={hasNameConflict}
-          onContinue={() => {}}
-          err={err}
-          setErr={setErr}
-        />
-      </section>
-    );
+const saveSellerType = useCallback(async () => {
+  if (!SELLER_TYPES.includes(sellerType)) {
+    setSellerTypeErr("Alege cum vinzi pe Artfest.");
+    return false;
   }
 
-  // SOLO MODE generic
-  if (solo) {
-    return (
-      <section className={styles.wrap}>
-        {activeTab === "profil" && (
-          <ProfileTab
-            services={services}
-            vanityBase={VANITY_BASE}
-            saveState={saveState}
-            saveError={saveError}
-            updateProfile={updateProfile}
-            updateServiceBasics={updateServiceBasics}
-            uploadFile={uploadFile}
-            isSavingAny={isSavingAny}
-            hasNameConflict={hasNameConflict}
-            onContinue={() => {}}
-            err={err}
-            setErr={setErr}
-          />
-        )}
+  try {
+    setSavingSellerType(true);
+    setSellerTypeErr("");
 
-        {activeTab === "facturare" && (
-          <BillingTab
-            onSaved={() => {}}
-            onStatusChange={() => {}}
-            canContinue={false}
-            onContinue={() => {}}
-          />
-        )}
+    await api("/api/vendors/me/seller-type", {
+      method: "PUT",
+      body: { sellerType },
+    });
 
-        {activeTab === "incasari" && <ConnectPayoutsTab />}
-        {activeTab === "plata" && <PaymentTab />}
-      </section>
-    );
+    return true;
+  } catch (e) {
+    setSellerTypeErr(e?.message || "Nu am putut salva tipul de vânzător.");
+    return false;
+  } finally {
+    setSavingSellerType(false);
   }
+}, [sellerType]);
 
-  // NORMAL MODE
+  const handlePublished = useCallback(async () => {
+    const sellerTypeOk = await saveSellerType();
+    if (!sellerTypeOk) return;
+
+    let fresh = [];
+
+    try {
+      fresh = await fetchMyServices();
+      setServices(fresh);
+    } catch {
+      fresh = visibleServices;
+    }
+
+    const target =
+      (profileOnlyMode
+        ? fresh.find((s) => s.id === qpServiceId)
+        : fresh.find((s) => s.status === "ACTIVE" && s.isActive) || fresh[0]) ||
+      visibleServices[0];
+
+    navigate(getStorePath(target), { replace: false });
+  }, [
+    fetchMyServices,
+    navigate,
+    profileOnlyMode,
+    qpServiceId,
+    visibleServices,
+    saveSellerType
+  ]);
+
   return (
     <section className={styles.wrap}>
-      <nav className={styles.tabsBar} role="tablist" aria-label="Onboarding tabs">
-        <button
-          role="tab"
-          aria-selected={activeTab === "profil"}
-          className={`${styles.tab} ${activeTab === "profil" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("profil")}
-          type="button"
-        >
-          Profil servicii
-        </button>
+      <header className={styles.onboardingHero}>
+        <span className={styles.stepBadge}>Start magazin</span>
+        <h1 className={styles.title}>Creează-ți magazinul Artfest</h1>
+        <p className={styles.subtitle}>
+          Completează profilul public al magazinului. După activare vei putea adăuga primele produse.
+        </p>
 
-        <button
-          role="tab"
-          aria-selected={activeTab === "facturare"}
-          className={`${styles.tab} ${activeTab === "facturare" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("facturare")}
-          type="button"
-        >
-          Date facturare
-        </button>
+        <div className={styles.commissionNote}>
+          <strong>Publicarea magazinului este gratuită.</strong>
+          <span>
+            Comisionul se aplică doar comenzilor finalizate prin Artfest. Detaliile
+            despre planuri și limite le poți vedea ulterior în dashboard.
+          </span>
+        </div>
+      </header>
 
-        <button
-          role="tab"
-          aria-selected={activeTab === "incasari"}
-          className={`${styles.tab} ${activeTab === "incasari" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("incasari")}
-          type="button"
-        >
-          Activează încasări
-        </button>
+      <div className={styles.sellerTypeBox}>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionTitle}>Cum vinzi pe Artfest?</h2>
+          <p className={styles.sectionSubtitle}>
+            Alegerea apare pe profilul magazinului. Datele fiscale complete le poți
+            completa mai târziu, când vrei să accepți comenzi.
+          </p>
+        </div>
 
-        <button
-          role="tab"
-          aria-selected={activeTab === "plata"}
-          className={`${styles.tab} ${activeTab === "plata" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("plata")}
-          type="button"
-        >
-          Plată abonament
-        </button>
-      </nav>
+        <div className={styles.sellerTypeCards}>
+          <button
+            type="button"
+            className={`${styles.sellerTypeCard} ${
+              sellerType === "independent_creator"
+                ? styles.sellerTypeCardActive
+                : ""
+            }`}
+            onClick={() => {
+              setSellerType("independent_creator");
+              setSellerTypeErr("");
+            }}
+          >
+            <strong>🌱 Creator Independent</strong>
+            <span>Nu am încă PFA/SRL și vreau să testez vânzarea pe platformă.</span>
+          </button>
 
-      {activeTab === "profil" && (
-        <ProfileTab
-          services={services}
-          vanityBase={VANITY_BASE}
-          saveState={saveState}
-          saveError={saveError}
-          updateProfile={updateProfile}
-          updateServiceBasics={updateServiceBasics}
-          uploadFile={uploadFile}
-          isSavingAny={isSavingAny}
-          hasNameConflict={hasNameConflict}
-          onContinue={() => setActiveTab("facturare")}
-          err={err}
-          setErr={setErr}
-        />
-      )}
+          <button
+            type="button"
+            className={`${styles.sellerTypeCard} ${
+              sellerType === "verified_business"
+                ? styles.sellerTypeCardActive
+                : ""
+            }`}
+            onClick={() => {
+              setSellerType("verified_business");
+              setSellerTypeErr("");
+            }}
+          >
+            <strong>✓ Business Verificat</strong>
+            <span>Am PFA, SRL, II sau IF.</span>
+          </button>
+        </div>
 
-      {activeTab === "facturare" && (
-        <BillingTab
-          onSaved={() => setActiveTab("incasari")}
-          onStatusChange={setBillingStatus}
-          canContinue={billingStatus === "saved"}
-          onContinue={() => setActiveTab("incasari")}
-        />
-      )}
+        {sellerTypeErr && (
+          <div className={styles.error} role="alert">
+            {sellerTypeErr}
+          </div>
+        )}
+      </div>
 
-      {activeTab === "incasari" && <ConnectPayoutsTab />}
-      {activeTab === "plata" && <PaymentTab />}
+      <ProfileTab
+        services={visibleServices}
+        vanityBase={VANITY_BASE}
+        saveState={saveState}
+        saveError={saveError}
+        updateProfile={updateProfile}
+        updateServiceBasics={updateServiceBasics}
+        uploadFile={uploadFile}
+        isSavingAny={isSavingAny}
+        hasNameConflict={false}
+        onContinue={handlePublished}
+        continueLabel="Creează magazinul"
+        err={err}
+        setErr={setErr}
+      />
     </section>
   );
 }

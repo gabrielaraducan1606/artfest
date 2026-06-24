@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./ProfilMagazin.module.css";
 import { SEO } from "../../../components/Seo/SeoProvider.jsx";
 import { useAuth } from "../../Auth/Context/context.js";
@@ -24,6 +24,11 @@ import { extractCode, extractHttpStatus } from "./utils/activationErrors";
 export default function ProfilMagazinPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const onboardingProducts = searchParams.get("onboarding") === "products";
+  const [showAddProductHint, setShowAddProductHint] = useState(false);
+const heroActionsRef = useRef(null);
   const { me } = useAuth();
   const isUser = me?.role === "USER";
 
@@ -48,12 +53,6 @@ export default function ProfilMagazinPage() {
     infoDraft,
     onChangeInfoDraft,
     saveInfoNow,
-
-    countySuggestions,
-    countiesLoading,
-    countiesErr,
-    onCountiesChange,
-
     prodModalOpen,
     setProdModalOpen,
     savingProd,
@@ -62,6 +61,43 @@ export default function ProfilMagazinPage() {
     setProdForm,
     openNewProduct,
   } = useProfilMagazin(slug, { me });
+
+  useEffect(() => {
+    if (!onboardingProducts) return;
+    if (!isOwner) return;
+    if (loading) return;
+
+    const hasProducts = Array.isArray(products) && products.length > 0;
+    if (hasProducts) return;
+
+    setShowAddProductHint(true);
+  }, [onboardingProducts, isOwner, loading, products]);
+
+  useEffect(() => {
+  if (!showAddProductHint) return;
+
+  const t = setTimeout(() => {
+    heroActionsRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, 350);
+
+  return () => clearTimeout(t);
+}, [showAddProductHint]);
+
+  function dismissAddProductHint() {
+    setShowAddProductHint(false);
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("onboarding");
+        return next;
+      },
+      { replace: true }
+    );
+  }
 
   const [profilePatch, setProfilePatch] = useState({});
   const [editingOverride, setEditingOverride] = useState(null);
@@ -96,7 +132,6 @@ export default function ProfilMagazinPage() {
     citySlug: rawCitySlug,
     country,
     tags = [],
-    delivery = [],
     website,
     slug: sdSlug,
     profile,
@@ -143,13 +178,13 @@ export default function ProfilMagazinPage() {
 
   const [ambassador, setAmbassador] = useState(null);
 
-useEffect(() => {
-  if (!isOwner) return;
+  useEffect(() => {
+    if (!isOwner) return;
 
-  api("/api/ambassadors/me")
-    .then(setAmbassador)
-    .catch(() => setAmbassador(null));
-}, [isOwner]);
+    api("/api/ambassadors/me")
+      .then(setAmbassador)
+      .catch(() => setAmbassador(null));
+  }, [isOwner]);
 
   const owner = useStoreOwnerData({
     isOwner,
@@ -222,27 +257,27 @@ useEffect(() => {
   }
 
   async function handleVendorMessage() {
-  if (!vendorId) {
-    alert("Nu am găsit vendorul pentru acest magazin.");
-    return;
-  }
-
-  try {
-    const d = await api("/api/inbox/ensure-vendor-thread", {
-      method: "POST",
-      body: { recipientVendorId: vendorId },
-    });
-
-    if (!d?.threadId) {
-      throw new Error("Lipsește threadId din răspuns.");
+    if (!vendorId) {
+      alert("Nu am găsit vendorul pentru acest magazin.");
+      return;
     }
 
-    navigate(`/mesaje?vendorThreadId=${d.threadId}`);
-  } catch (err) {
-    console.error("ensure-vendor-thread error:", err);
-    alert("Nu am putut deschide conversația cu acest vendor.");
+    try {
+      const d = await api("/api/inbox/ensure-vendor-thread", {
+        method: "POST",
+        body: { recipientVendorId: vendorId },
+      });
+
+      if (!d?.threadId) {
+        throw new Error("Lipsește threadId din răspuns.");
+      }
+
+      navigate(`/mesaje?vendorThreadId=${d.threadId}`);
+    } catch (err) {
+      console.error("ensure-vendor-thread error:", err);
+      alert("Nu am putut deschide conversația cu acest vendor.");
+    }
   }
-}
 
   const tabs = useStoreTabs({
     showAboutSection,
@@ -310,34 +345,39 @@ useEffect(() => {
   const shareImage =
     coverUrl || avatarUrl || `${origin}/img/share-fallback.jpg`;
 
-  const prettyDelivery =
-    Array.isArray(delivery) && delivery.length
-      ? (delivery[0] === "counties" ? delivery.slice(1) : delivery).join(", ")
-      : "";
 
   const seoPreloads = coverUrl
     ? [{ href: coverUrl, as: "image", useInDom: true }]
     : [];
-
-  const [gateState, setGateState] = useState({
-    open: false,
-    loading: false,
-    error: "",
-    docs: null,
-    checks: {
-      declaration: false,
-      vendorTermsRead: false,
-    },
-  });
+const gateServiceId =
+  serviceId ||
+  sellerData?.service?.id ||
+  sellerData?.serviceId ||
+  sellerData?.id ||
+  _sellerData?.service?.id ||
+  _sellerData?.serviceId ||
+  _sellerData?.id ||
+  null;
+const [gateState, setGateState] = useState({
+  open: false,
+  loading: false,
+  error: "",
+  docs: null,
+  serviceId: null,
+  profile: null,
+  sellerData: null,
+});
 
   async function handleAddProduct() {
+    dismissAddProductHint();
+
     if (!isOwner) return;
 
     if (owner.prodLimits?.canAdd === false) {
       alert(
         `Ai atins limita de produse (${owner.prodLimits.currentProducts}/${owner.prodLimits.maxProducts}). Upgradează planul ca să adaugi mai multe.`
       );
-      navigate("/onboarding/details?tab=plata&solo=1");
+      navigate("/setari?tab=subscription");
       return;
     }
 
@@ -356,39 +396,45 @@ useEffect(() => {
       });
 
       if (resp?.accepted) {
-        setGateState((s) => ({
-          ...s,
-          loading: false,
-          open: false,
-          docs: {
-            vendor_terms: {
-              doc_key: "VENDOR_TERMS",
-              url: resp.docUrl || "/legal/vendor/terms",
-              version: resp.version || null,
-            },
-          },
-        }));
+  setGateState((s) => ({
+    ...s,
+    loading: false,
+    open: false,
+  }));
 
-        openNewProduct();
-        return;
-      }
+  openNewProduct();
+  return;
+}
 
       setGateState({
-        open: true,
-        loading: false,
-        error: "",
-        docs: {
-          vendor_terms: {
-            doc_key: "VENDOR_TERMS",
-            url: resp?.docUrl || "/legal/vendor/terms",
-            version: resp?.version || null,
-          },
-        },
-        checks: {
-          declaration: false,
-          vendorTermsRead: false,
-        },
-      });
+  open: true,
+  loading: false,
+  error: "",
+  docs: {
+    products_addendum: {
+      doc_key: "PRODUCTS_ADDENDUM",
+      url: resp?.productsAddendumUrl || "/anexa-produse",
+      version: resp?.productsAddendumVersion || null,
+    },
+    returns_policy_ack: {
+      doc_key: "RETURNS_POLICY_ACK",
+      url: resp?.returnsPolicyUrl || "/politica-retur",
+      version: resp?.returnsPolicyVersion || null,
+    },
+    shipping_addendum: {
+      doc_key: "SHIPPING_ADDENDUM",
+      url: resp?.shippingAddendumUrl || "/anexa-expediere",
+      version: resp?.shippingAddendumVersion || null,
+    },
+    product_declaration: {
+      doc_key: "PRODUCT_DECLARATION",
+      version: resp?.version || "1.0.0",
+    },
+  },
+ serviceId: gateServiceId,
+  profile,
+  sellerData,
+});
     } catch (e) {
       console.error("product-declaration/status error", e);
 
@@ -403,52 +449,16 @@ useEffect(() => {
       openNewProduct();
     }
   }
+async function handleAcceptGate() {
+  setGateState((s) => ({
+    ...s,
+    open: false,
+    loading: false,
+    error: "",
+  }));
 
-  async function handleAcceptGate() {
-    const { docs, checks } = gateState;
-    const vendorTerms = docs?.vendor_terms;
-
-    if (!vendorTerms) return;
-
-    if (!checks.declaration) {
-      setGateState((s) => ({
-        ...s,
-        error:
-          "Trebuie să confirmi declarația de conformitate pentru a continua.",
-      }));
-      return;
-    }
-
-    setGateState((s) => ({ ...s, loading: true, error: "" }));
-
-    try {
-      await api("/api/vendor/product-declaration/accept", {
-        method: "POST",
-        body: {
-          version: vendorTerms.version || "v1.0",
-        },
-      });
-
-      setGateState((s) => ({
-        ...s,
-        open: false,
-        loading: false,
-        error: "",
-      }));
-
-      openNewProduct();
-    } catch (e) {
-      console.error("product-declaration/accept error", e);
-
-      setGateState((s) => ({
-        ...s,
-        loading: false,
-        error:
-          e?.message ||
-          "Nu am putut salva acceptarea declarației. Încearcă din nou.",
-      }));
-    }
-  }
+  openNewProduct();
+}
 
   async function openEditProduct(p) {
     if (!p) return;
@@ -580,7 +590,7 @@ useEffect(() => {
         alert(
           "Ai atins limita de produse pentru abonamentul curent. Upgradează planul ca să adaugi mai multe produse."
         );
-        navigate("/onboarding/details?tab=plata&solo=1");
+       navigate("/setari?tab=subscription");
         return;
       }
 
@@ -590,16 +600,16 @@ useEffect(() => {
     }
   }
 
-const hasData = !!(
-  _sellerData?.slug ||
-  _sellerData?.profile?.slug ||
-  _sellerData?.serviceId ||
-  _sellerData?.vendorId
-);
+  const hasData = !!(
+    _sellerData?.slug ||
+    _sellerData?.profile?.slug ||
+    _sellerData?.serviceId ||
+    _sellerData?.vendorId
+  );
 
-if (loading && !hasData) {
-  return <ProfilMagazinSkeleton />;
-}
+  if (loading && !hasData) {
+    return <ProfilMagazinSkeleton />;
+  }
 
   if (owner.shouldShowOnboardingGate) {
     return (
@@ -621,25 +631,25 @@ if (loading && !hasData) {
     );
   }
 
-if (!loading && !hasData && err) {
-  return (
-    <div style={{ padding: "2rem" }}>
-      {err}
+  if (!loading && !hasData && err) {
+    return (
+      <div style={{ padding: "2rem" }}>
+        {err}
 
-      {isOwner && (
-        <div style={{ marginTop: 16 }}>
-          <button
-            type="button"
-            className={styles.followBtn}
-            onClick={() => navigate("/onboarding")}
-          >
-            Continuă crearea magazinului
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+        {isOwner && (
+          <div style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              className={styles.followBtn}
+              onClick={() => navigate("/onboarding")}
+            >
+              Continuă crearea magazinului
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -707,12 +717,15 @@ if (!loading && !hasData && err) {
           canAddProduct={owner.canAddProduct}
           prodLimits={owner.prodLimits}
           handleAddProduct={handleAddProduct}
+          showAddProductHint={showAddProductHint}
+heroActionsRef={heroActionsRef}
+onDismissAddProductHint={dismissAddProductHint}
           handleContactVendor={
-  me?.role === "VENDOR" && !isOwner
-    ? handleVendorMessage
-    : follow.handleContactVendor
-}
-  ambassador={ambassador}
+            me?.role === "VENDOR" && !isOwner
+              ? handleVendorMessage
+              : follow.handleContactVendor
+          }
+          ambassador={ambassador}
           following={follow.following}
           followLoading={follow.followLoading}
           toggleFollow={follow.toggleFollow}
@@ -741,16 +754,11 @@ if (!loading && !hasData && err) {
             niceCity={niceCity}
             country={country}
             website={website}
-            prettyDelivery={prettyDelivery}
             editInfo={editInfo}
             savingInfo={savingInfo}
             infoErr={infoErr}
             infoDraft={infoDraft}
             onChangeInfoDraft={onChangeInfoDraft}
-            countySuggestions={countySuggestions}
-            countiesLoading={countiesLoading}
-            countiesErr={countiesErr}
-            onCountiesChange={onCountiesChange}
             setEditInfo={setEditInfo}
             saveInfoNow={saveInfoNow}
             trackCTA={trackCTA}

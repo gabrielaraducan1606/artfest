@@ -48,21 +48,10 @@ export default function useStoreOwnerData({
       profile.logoUrl ||
       profile.coverUrl
     );
-    const hasAddress = s.address || profile.address;
-
-    const deliveryArr = Array.isArray(s.delivery)
-      ? s.delivery
-      : Array.isArray(profile.delivery)
-      ? profile.delivery
-      : [];
 
     if (!String(hasName || "").trim()) m.push("Nume brand");
     if (!String(hasSlug || "").trim()) m.push("Slug");
     if (!hasImage) m.push("Logo/Copertă");
-    if (!String(hasAddress || "").trim()) {
-      m.push("Adresă retururi / punct de lucru");
-    }
-    if (!deliveryArr.length) m.push("Zonă acoperire");
 
     return m;
   }, [sellerData]);
@@ -170,59 +159,8 @@ export default function useStoreOwnerData({
         } catch {
           hasActiveSub = false;
         }
-
-        let missingBilling = [];
-
-        try {
-          const b = await api("/api/vendors/me/billing", {
-            method: "GET",
-          });
-
-          const v = b?.billing || {};
-          const sellerType = v?.sellerType || "";
-
-          const need = (k) => !String(v[k] ?? "").trim();
-
-          if (!sellerType) {
-            missingBilling.push("Tip vendor");
-          }
-
-          if (need("vendorName")) missingBilling.push("Numele vendorului");
-          if (need("address")) missingBilling.push("Adresă facturare");
-          if (need("email")) missingBilling.push("Email facturare");
-          if (need("contactPerson")) missingBilling.push("Persoană contact");
-          if (need("phone")) missingBilling.push("Telefon");
-
-          if (sellerType === "independent_creator") {
-            if (!v?.taxResponsibilityConfirmed) {
-              missingBilling.push("Confirmarea responsabilității fiscale");
-            }
-
-            if (!v?.independentTermsConfirmed) {
-              missingBilling.push(
-                "Acceptarea condițiilor pentru Creator Independent"
-              );
-            }
-          }
-
-          if (sellerType === "verified_business") {
-            if (need("legalType")) missingBilling.push("Tip entitate");
-            if (need("companyName")) missingBilling.push("Denumire entitate");
-            if (need("cui")) missingBilling.push("CUI");
-            if (need("regCom")) missingBilling.push("Nr. Reg. Com.");
-            if (need("vatStatus")) missingBilling.push("Status TVA");
-
-            if (v?.vatStatus === "payer" && need("vatRate")) {
-              missingBilling.push("Cotă TVA");
-            }
-
-            if (!v?.vatResponsibilityConfirmed) {
-              missingBilling.push("Confirmarea responsabilității TVA");
-            }
-          }
-        } catch {
-          missingBilling = ["Date facturare"];
-        }
+        
+const missingBilling = [];
 
         if (!alive) return;
 
@@ -266,18 +204,12 @@ export default function useStoreOwnerData({
         blocking.push("Profil magazin: " + missingProfile.join(", "));
       }
 
-      if (ownerChecks.missingBilling?.length) {
-        blocking.push(
-          "Date facturare: " + ownerChecks.missingBilling.join(", ")
-        );
-      }
-
       if (blocking.length) {
-        alert(
-          `Pentru a activa magazinul, trebuie să completezi:\n- ${blocking.join(
-            "\n- "
-          )}\n\nPoți completa din secțiunea „Informații” și din onboarding (tab-urile Profil / Facturare).`
-        );
+    alert(
+  `Pentru a activa magazinul, trebuie să completezi:\n- ${blocking.join(
+    "\n- "
+  )}\n\nPoți completa din onboarding, tab-ul Profil.`
+);
 
         onJumpToInfo?.();
         return;

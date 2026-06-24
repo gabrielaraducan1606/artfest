@@ -787,10 +787,20 @@ async function createProduct(req, res) {
       vendorId: service.vendorId,
     });
 
-    if (!limitCheck.ok) {
-      return res.status(402).json(limitCheck);
-    }
-
+   if (!limitCheck.ok) {
+  return res.status(402).json({
+    ...limitCheck,
+    title: "Ai atins limita de produse",
+    message:
+      limitCheck.limit == null
+        ? "Nu mai poți adăuga produse pe planul curent."
+        : `Planul tău permite maximum ${limitCheck.limit} produse. Ai deja ${limitCheck.current}. Pentru a adăuga mai multe produse, modifică abonamentul.`,
+    cta: {
+      label: "Modifică abonamentul",
+      url: "/setari?tab=subscription",
+    },
+  });
+}
     const {
       title,
       description = "",

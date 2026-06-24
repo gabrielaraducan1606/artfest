@@ -168,10 +168,21 @@ router.get(
   vendorAccessRequired,
   async (req, res) => {
     const meVendor =
-      req.meVendor ||
-      (await prisma.vendor.findUnique({
+  req.meVendor?.id
+    ? await prisma.vendor.findUnique({
+        where: { id: req.meVendor.id },
+        select: {
+          id: true,
+          entitySelfDeclaredMeta: true,
+        },
+      })
+    : await prisma.vendor.findUnique({
         where: { userId: req.user.sub },
-      }));
+        select: {
+          id: true,
+          entitySelfDeclaredMeta: true,
+        },
+      });
 
     if (!meVendor) return sendError(res, "vendor_profile_missing", 404);
 
@@ -179,13 +190,19 @@ router.get(
       where: { vendorId: meVendor.id },
     });
 
-    if (!billing) {
-      return res.json({
-        ok: true,
-        vendorId: meVendor.id,
-        billing: null,
-      });
-    }
+  if (!billing) {
+  const sellerType = meVendor.entitySelfDeclaredMeta?.sellerType || "";
+
+  return res.json({
+    ok: true,
+    vendorId: meVendor.id,
+    billing: sellerType
+      ? {
+          sellerType,
+        }
+      : null,
+  });
+}
 
     const sellerType = normalizeSellerTypeFromBilling(billing);
 

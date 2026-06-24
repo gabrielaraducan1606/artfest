@@ -268,16 +268,30 @@ router.get(
       orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
     });
 
-    if (!current) {
-      return res.json({
-        ok: false,
-        code: "subscription_required",
-        upgradeUrl: "/onboarding/details?tab=plata&solo=1",
-        billingLocked: isBillingLocked(),
-        billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-      });
-    }
+ if (!current) {
+  const autoSub = await ensureBasicSubscriptionForVendor(meVendor.id);
 
+  if (autoSub) {
+    return res.json({
+      ok: true,
+      kind: "free_basic",
+      plan: autoSub.plan,
+      endAt: autoSub.endAt ?? null,
+      trialEndsAt: autoSub.trialEndsAt ?? null,
+      status: autoSub.status,
+      billingLocked: isBillingLocked(),
+      billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
+    });
+  }
+
+  return res.json({
+    ok: false,
+    code: "subscription_required",
+    upgradeUrl: "/setari?tab=subscription",
+    billingLocked: isBillingLocked(),
+    billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
+  });
+}
     const isTrial = !!(current.trialEndsAt && current.trialEndsAt > now);
 
     return res.json({
@@ -470,12 +484,12 @@ router.post(
         },
       });
 
-      return res.json({
-        ok: true,
-        kind: "free_activated",
-        subscription: sub,
-        url: "/onboarding/details?tab=plata&activated=1",
-      });
+     return res.json({
+  ok: true,
+  kind: "free_activated",
+  subscription: sub,
+  url: "/setari?tab=subscription&subscription=success",
+});
     }
 
     try {
@@ -572,5 +586,45 @@ router.post(
     });
   })
 );
+
+export async function ensureBasicSubscriptionForVendor(vendorId) {
+  if (!vendorId) return null;
+
+  const existing = await getCurrentVendorSubscription(vendorId, {
+    includePlan: true,
+  });
+
+  if (existing) return existing;
+
+  const basicPlan = await prisma.subscriptionPlan.findUnique({
+    where: { code: "basic" },
+  });
+
+  if (!basicPlan || basicPlan.isActive === false) {
+    return null;
+  }
+
+  const now = new Date();
+  const endAt = new Date(now);
+  endAt.setFullYear(endAt.getFullYear() + 10);
+
+  return prisma.vendorSubscription.create({
+    data: {
+      vendorId,
+      planId: basicPlan.id,
+      status: "active",
+      startAt: now,
+      endAt,
+      meta: {
+        activatedBy: "auto_basic_on_register",
+      },
+    },
+    include: {
+      plan: {
+        select: PLAN_SELECT_INTERNAL,
+      },
+    },
+  });
+}
 
 export default router;

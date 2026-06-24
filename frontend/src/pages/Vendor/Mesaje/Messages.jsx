@@ -445,7 +445,22 @@ function normalizeChatError(err) {
   code === "subscription_required" ||
   code === "CHAT_NOT_ALLOWED";
 
-  return { status, code, message, details: data, shouldBlock };
+  const cta =
+  data?.cta ||
+  (shouldBlock
+    ? {
+        label: "Modifică abonamentul",
+        url: "/setari?tab=subscription",
+      }
+    : null);
+ return {
+  status,
+  code,
+  message,
+  details: data,
+  shouldBlock,
+  cta,
+};
 }
 
  async function handleSend() {
@@ -1442,7 +1457,7 @@ await api(archiveUrl, {
   rows={2}
   placeholder={
    chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"
-     ? "Disponibil doar pe planul Advanced."
+     ? "Disponibil doar pe planul PRO."
      : "Ex: client foarte hotărât..."
   }
   value={internalNote}
@@ -1462,12 +1477,18 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
         Am înțeles
       </button>
 
-      {/* dacă backend trimite upgradeUrl în payload, folosește-l */}
-      {chatBlocked?.details?.upgradeUrl && (
-        <a className={styles.smallBtnPrimary} href={chatBlocked.details.upgradeUrl}>
-          Upgrade
-        </a>
-      )}
+      {(chatBlocked?.cta?.url ||
+  chatBlocked?.details?.upgradeUrl) && (
+  <a
+    className={styles.smallBtnPrimary}
+    href={
+      chatBlocked?.cta?.url ||
+      chatBlocked?.details?.upgradeUrl
+    }
+  >
+    {chatBlocked?.cta?.label || "Modifică abonamentul"}
+  </a>
+)}
     </div>
   </div>
 )}

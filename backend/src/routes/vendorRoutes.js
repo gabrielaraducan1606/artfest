@@ -50,18 +50,6 @@ const isEmail = (v) =>
 
 const MULTI_INSTANCE_SERVICE_CODES = new Set(["products"]);
 
-/* ===================== Legal constants ===================== */
-
-const REQUIRED_VENDOR_DOCS = [
-  "VENDOR_TERMS",
-  "RETURNS_POLICY_ACK",
-];
-
-const VENDOR_DOC_LABELS = {
-  VENDOR_TERMS: "Acordul Master pentru Vânzători",
-  RETURNS_POLICY_ACK: "Politica de retur pentru vânzători",
-};
-
 const BILLING_ACTIVATION_AT = new Date(
   process.env.BILLING_ACTIVATION_AT || "2026-05-17T00:00:00.000Z"
 );
@@ -134,6 +122,16 @@ function getSellerTypeFromBilling(b) {
   if (hasBusinessBillingData(b)) {
     return "verified_business";
   }
+
+  return "";
+}
+
+function getSellerTypeFromVendor(vendor, billing = null) {
+  const fromBilling = getSellerTypeFromBilling(billing);
+  if (fromBilling) return fromBilling;
+
+  const fromMeta = vendor?.entitySelfDeclaredMeta?.sellerType;
+  if (ALLOWED_SELLER_TYPES.includes(fromMeta)) return fromMeta;
 
   return "";
 }
@@ -303,67 +301,6 @@ async function computeOnboardingStatus(vendor) {
   };
 }
 
-async function getActiveVendorPolicies(documents = REQUIRED_VENDOR_DOCS) {
-  const policies = await prisma.vendorPolicy.findMany({
-    where: {
-      isActive: true,
-      isRequired: true,
-      document: { in: documents },
-    },
-    orderBy: [{ document: "asc" }, { publishedAt: "desc" }],
-  });
-
-  const latestByDoc = new Map();
-  for (const p of policies) {
-    if (!latestByDoc.has(p.document)) {
-      latestByDoc.set(p.document, p);
-    }
-  }
-
-  return Array.from(latestByDoc.values());
-}
-
-async function getVendorAcceptanceStatus(vendorId, documents = REQUIRED_VENDOR_DOCS) {
-  const [policies, acceptances] = await Promise.all([
-    getActiveVendorPolicies(documents),
-    prisma.vendorAcceptance.findMany({
-      where: {
-        vendorId,
-        document: { in: documents },
-      },
-      orderBy: [{ acceptedAt: "desc" }],
-    }),
-  ]);
-
-  const acceptanceByDocVersion = new Map();
-  for (const a of acceptances) {
-    acceptanceByDocVersion.set(`${a.document}:${a.version}`, a);
-  }
-
-  const docs = policies.map((policy) => {
-    const key = `${policy.document}:${policy.version}`;
-    const acceptance = acceptanceByDocVersion.get(key) || null;
-
-    return {
-      doc_key: policy.document,
-      label: VENDOR_DOC_LABELS[policy.document] || policy.title,
-      version: policy.version,
-      checksum: policy.checksum || null,
-      url: policy.url,
-      required: !!policy.isRequired,
-      accepted: !!acceptance,
-      acceptedAt: acceptance?.acceptedAt || null,
-    };
-  });
-
-  const allOK = docs.every((d) => !d.required || d.accepted);
-
-  return {
-    docs,
-    allOK,
-  };
-}
-
 /* ===================== Brand checks (public) ===================== */
 
 router.get("/vendor-services/brand/check", async (req, res) => {
@@ -444,35 +381,37 @@ router.get("/me/services", authRequired, async (req, res) => {
 
   const includeProfile = String(req.query.includeProfile || "") === "1";
 
-  const list = await prisma.vendorService.findMany({
-    where: { vendorId: meVendor.id },
-    include: {
-      type: true,
-      vendor: {
-        select: {
-          id: true,
-          displayName: true,
-        },
-      },
-      ...(includeProfile ? { profile: true } : {}),
-      _count: {
-        select: {
-          ServiceFollow: true,
-        },
+ const list = await prisma.vendorService.findMany({
+  where: { vendorId: meVendor.id },
+  include: {
+    type: true,
+    vendor: {
+      select: {
+        id: true,
+        displayName: true,
       },
     },
-    orderBy: { createdAt: "desc" },
-  });
+    ...(includeProfile ? { profile: true } : {}),
+    _count: {
+      select: {
+        ServiceFollow: true,
+        products: true,
+      },
+    },
+  },
+  orderBy: { createdAt: "desc" },
+});
 
-  const items = list.map((svc) => ({
-    ...svc,
-    followersCount: svc._count?.ServiceFollow || 0,
-    storeName:
-      svc.profile?.displayName ||
-      svc.title ||
-      svc.vendor?.displayName ||
-      "Magazin",
-  }));
+const items = list.map((svc) => ({
+  ...svc,
+  productsCount: svc._count?.products || 0,
+  followersCount: svc._count?.ServiceFollow || 0,
+  storeName:
+    svc.profile?.displayName ||
+    svc.title ||
+    svc.vendor?.displayName ||
+    "Magazin",
+}));
 
   res.json({ items });
 });
@@ -594,7 +533,7 @@ required: false,
           enabled: false,
           status: "not_started",
           warning: null,
-          ctaUrl: "/onboarding/details?tab=incasari&solo=1",
+         ctaUrl: "/setari?tab=payouts",
         },
       });
     }
@@ -719,7 +658,7 @@ required: false,
         enabled: !!meVendor.stripePayoutsEnabled,
         status: meVendor.stripeConnectStatus || "not_started",
         warning: getPayoutsWarning(meVendor, now),
-        ctaUrl: "/onboarding/details?tab=incasari&solo=1",
+        ctaUrl: "/setari?tab=payouts",
       },
     });
   } catch (e) {
@@ -1235,7 +1174,6 @@ router.patch("/me/services/:id", authRequired, vendorAccessRequired, async (req,
       basePriceCents,
       currency,
       city,
-      coverageAreas,
       mediaUrls,
       attributes,
       estimatedShippingFeeCents,
@@ -1289,10 +1227,6 @@ router.patch("/me/services/:id", authRequired, vendorAccessRequired, async (req,
 
     if (typeof currency === "string") data.currency = currency;
     if (typeof city === "string") data.city = city.trim();
-
-    if (Array.isArray(coverageAreas)) {
-      data.coverageAreas = coverageAreas.map(String);
-    }
 
     if (Array.isArray(mediaUrls)) {
       data.mediaUrls = mediaUrls.map(String);
@@ -1610,110 +1544,35 @@ router.post(
       return error(res, "service_not_found", 404);
     }
 
-    const now = new Date();
+   const now = new Date();
 
-    const activeSubscription = await prisma.vendorSubscription.findFirst({
-      where: {
-        vendorId: meVendor.id,
-        OR: [
-          { status: "active", endAt: { gt: now } },
-          { trialEndsAt: { gt: now } },
-        ],
-      },
-      include: { plan: true },
-      orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
-    });
+const vendorWithStripe = await refreshVendorStripeStatus(meVendor).catch(
+  () => meVendor
+);
 
-    if (!activeSubscription) {
-      return error(res, "subscription_required", 402, {
-        missing: ["Abonament activ sau trial activ"],
-        upgradeUrl: "/onboarding/details?tab=plata&solo=1",
-        hint:
-          "Ai nevoie de un abonament activ sau de un trial activ pentru a activa magazinul.",
-      });
-    }
+const billingLocked = isBillingLocked(now);
 
-    const vendorWithStripe = await refreshVendorStripeStatus(meVendor).catch(
-      () => meVendor
-    );
+const billing = await prisma.vendorBilling.findUnique({
+  where: { vendorId: meVendor.id },
+});
 
-    const billingLocked = isBillingLocked(now);
+const sellerType = getSellerTypeFromVendor(meVendor, billing);
 
-    if (!billingLocked) {
-      const billing = await prisma.vendorBilling.findUnique({
-        where: { vendorId: meVendor.id },
-      });
+const p = svc.profile || {};
+const missing = [];
 
-      const billingCheck = validateBillingForActivation(billing);
-
-      if (!billingCheck.ok) {
-        return error(res, "missing_required_fields_billing", 400, {
-          sellerType: billingCheck.sellerType || null,
-          missing: billingCheck.missing,
-          billingLocked: false,
-          billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-        });
-      }
-    }
-
-    const p = svc.profile || {};
-    const missing = [];
-
-   if (!p.displayName?.trim()) missing.push("Nume brand");
+if (!p.displayName?.trim()) missing.push("Nume magazin");
 if (!p.slug?.trim()) missing.push("Slug");
-if (!p.address?.trim()) missing.push("Adresă retururi / punct de lucru");
-if (!p.phone?.trim()) missing.push("Telefon pentru retururi");
-if (!p.email?.trim()) missing.push("Email pentru retururi");
+if (!p.logoUrl?.trim()) missing.push("Logo");
 
-if (p.phone?.trim() && !isPhoneIntl(p.phone)) {
-  missing.push("Telefon retur invalid");
+
+if (missing.length) {
+  return error(res, "missing_required_fields_profile", 400, {
+    missing,
+    billingLocked,
+    billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
+  });
 }
-
-if (p.email?.trim() && !isEmail(p.email)) {
-  missing.push("Email retur invalid");
-}
-
-if (!p.logoUrl && !p.coverUrl) missing.push("O imagine (logo/copertă)");
-
-    if (!Array.isArray(p.delivery) || p.delivery.length === 0) {
-      missing.push("Zonă acoperire");
-    }
-
-    const hasEstimatedShipping =
-      svc.estimatedShippingFeeCents !== null &&
-      svc.estimatedShippingFeeCents !== undefined;
-
-    const hasFreeShippingThreshold =
-      svc.freeShippingThresholdCents !== null &&
-      svc.freeShippingThresholdCents !== undefined;
-
-    if (!hasEstimatedShipping) {
-      missing.push("Cost estimativ livrare");
-    }
-
-    if (!hasFreeShippingThreshold) {
-      missing.push("Prag transport gratuit");
-    }
-
-    const { docs: legalDocs } = await getVendorAcceptanceStatus(meVendor.id);
-    const legalByKey = new Map(legalDocs.map((d) => [d.doc_key, d]));
-
-    if (!legalByKey.get("VENDOR_TERMS")?.accepted) {
-      missing.push("Acceptarea Acordului Master pentru Vânzători");
-    }
-
-    if (!legalByKey.get("RETURNS_POLICY_ACK")?.accepted) {
-      missing.push("Acceptarea Politicii de retur pentru vânzători");
-    }
-
-    if (missing.length) {
-      return error(res, "missing_required_fields_profile", 400, {
-        missing,
-        billingLocked,
-        billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-      });
-    }
-
     const activated = await prisma.$transaction(async (tx) => {
       const updatedSvc = await tx.vendorService.update({
         where: { id },
@@ -1904,6 +1763,51 @@ router.post("/favorites/toggle", authRequired, async (req, res) => {
 
 /* ===================== Vendor /me ===================== */
 
+router.put("/me/seller-type", authRequired, async (req, res) => {
+  try {
+    const sellerType = String(req.body?.sellerType || "").trim();
+
+    if (!ALLOWED_SELLER_TYPES.includes(sellerType)) {
+      return error(res, "invalid_seller_type", 400, {
+        message: "Tipul de vânzător este invalid.",
+      });
+    }
+
+    const vendor = await ensureVendorAndRole(req.user.sub);
+
+    const existingBilling = await prisma.vendorBilling.findUnique({
+  where: { vendorId: vendor.id },
+});
+
+if (existingBilling) {
+  await prisma.vendorBilling.update({
+    where: { vendorId: vendor.id },
+    data: { sellerType },
+  });
+}
+
+    await prisma.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        entitySelfDeclared: sellerType === "verified_business",
+        entitySelfDeclaredAt: new Date(),
+        entitySelfDeclaredMeta: {
+          ...(vendor.entitySelfDeclaredMeta || {}),
+          sellerType,
+        },
+      },
+    });
+
+    return res.json({ ok: true, sellerType });
+  } catch (e) {
+    console.error("PUT /api/vendors/me/seller-type error:", e);
+    return res.status(500).json({
+      error: "seller_type_save_failed",
+      message: "Nu am putut salva tipul de vânzător.",
+    });
+  }
+});
+
 router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
   const vendorSelect = {
     id: true,
@@ -1917,6 +1821,7 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
     website: true,
     entitySelfDeclared: true,
     entitySelfDeclaredAt: true,
+entitySelfDeclaredMeta: true,
 
     stripeAccountId: true,
     stripeChargesEnabled: true,
@@ -1968,7 +1873,7 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
       locked: isBillingLocked(now),
       activationAt: BILLING_ACTIVATION_AT.toISOString(),
       hasBilling: !!billingRecord,
-      sellerType: getSellerTypeFromBilling(billingRecord) || null,
+      sellerType: getSellerTypeFromVendor(vendor, billingRecord) || null,
       record: billingRecord || null,
     },
     payouts: {
@@ -1979,7 +1884,7 @@ router.get("/me", authRequired, vendorAccessRequired, async (req, res) => {
   enabled: !!v.stripePayoutsEnabled,
   status: v.stripeConnectStatus || "not_started",
   warning: getPayoutsWarning(v, now),
-  ctaUrl: "/onboarding/details?tab=incasari&solo=1",
+  ctaUrl: "/setari?tab=payouts",
 },
   });
 });

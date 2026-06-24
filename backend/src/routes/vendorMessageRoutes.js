@@ -92,15 +92,23 @@ async function assertAttachmentQuotaOrThrow({ vendorId, subscription, filesCount
 
   if (used + filesCount > limit) {
     return {
-      status: 402,
-      payload: {
-        error: "attachments_limit_reached",
-        reason: "attachments_limit_reached",
-        limit,
-        used,
-        remaining: Math.max(0, limit - used),
-      },
-    };
+  status: 402,
+  payload: {
+    error: "attachments_limit_reached",
+    reason: "attachments_limit_reached",
+    limit,
+    used,
+    remaining: Math.max(0, limit - used),
+
+    title: "Ai atins limita de atașamente",
+    message:
+      "Planul tău nu mai permite trimiterea altor atașamente în această lună.",
+    cta: {
+      label: "Modifică abonamentul",
+      url: "/setari?tab=subscription",
+    },
+  },
+};
   }
 
   return null;

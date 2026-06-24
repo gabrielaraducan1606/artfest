@@ -140,7 +140,7 @@ useEffect(() => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [data, setData] = useState({ items: [], total: 0 });
-
+const [billingGate, setBillingGate] = useState(null);
   // modals state
   const [cancelOrder, setCancelOrder] = useState(null);
 
@@ -179,12 +179,16 @@ useEffect(() => {
         ).toString();
 
         const res = await api(`/api/vendor/orders?${qs}`);
-        if (!alive) return;
+if (!alive) return;
 
-        setData({
-          items: Array.isArray(res?.items) ? res.items : [],
-          total: Number(res?.total || 0),
-        });
+setBillingGate(
+  res?.billingRequired ? res.billingGate : null
+);
+
+setData({
+  items: Array.isArray(res?.items) ? res.items : [],
+  total: Number(res?.total || 0),
+});
       } catch {
         if (!alive) return;
         setErr("Nu am putut încărca comenzile. Încearcă din nou.");
@@ -265,7 +269,7 @@ useEffect(() => {
       <div className={styles.headerRow}>
         <h1 className={styles.h1}>Comenzile mele</h1>
 
-        {activeTab === "vendor" && (
+        {activeTab === "vendor" && !billingGate && (
           <div className={styles.headerActions}>
             <button
               className={styles.primaryBtn}
@@ -403,12 +407,28 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className={styles.card}>
-            <div
-              className={styles.tableWrap}
-              role="region"
-              aria-label="Tabel comenzi"
-            >
+         {billingGate ? (
+  <div className={styles.card}>
+    <h3>{billingGate.title}</h3>
+
+    <p className={styles.muted}>
+      {billingGate.message}
+    </p>
+
+    <Link
+      className={styles.primaryBtn}
+      to={billingGate?.cta?.url || "/setari?tab=billing"}
+    >
+      {billingGate?.cta?.label || "Completează datele de facturare"}
+    </Link>
+  </div>
+) : (
+  <div className={styles.card}>
+    <div
+      className={styles.tableWrap}
+      role="region"
+      aria-label="Tabel comenzi"
+    >
               <table className={styles.table}>
                 <thead>
                   <tr>
@@ -761,14 +781,14 @@ useEffect(() => {
                 </button>
               </div>
             )}
-          </div>
+                    </div>
+        )}
 
-          {err && (
-            <p className={styles.muted} style={{ marginTop: 8 }}>
-              {err}
-            </p>
-          )}
-
+      {err && (
+        <p className={styles.muted} style={{ marginTop: 8 }}>
+          {err}
+        </p>
+      )}
           {manualOrderOpen && (
             <VendorManualOrderModal
               onClose={() => setManualOrderOpen(false)}

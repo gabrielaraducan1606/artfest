@@ -225,7 +225,10 @@ function useLegalMeta(types = []) {
 }
 
 export default function Register({ defaultAsVendor = false, inModal = false }) {
-  const legalTypes = useMemo(() => ["tos", "privacy"], []);
+  const legalTypes = useMemo(
+  () => ["tos", "privacy", "vendor_terms"],
+  []
+);
   const { meta: legal, error: legalError } = useLegalMeta(legalTypes);
 
   useEffect(() => {
@@ -252,6 +255,7 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
   const [lastName, setLastName] = useState("");
   const [asVendor, setAsVendor] = useState(defaultAsVendor);
   const [vendorEntityConfirm, setVendorEntityConfirm] = useState(false);
+const [vendorTermsAccepted, setVendorTermsAccepted] = useState(false);
 
   const [tosAccepted, setTosAccepted] = useState(false);
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
@@ -292,7 +296,8 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
     score >= 3 &&
     tosAccepted &&
     privacyAcknowledged &&
-    (!asVendor || vendorEntityConfirm);
+    (!asVendor ||
+  (vendorEntityConfirm && vendorTermsAccepted));
 
   useEffect(() => {
     const up = () => setOffline(false);
@@ -429,6 +434,17 @@ export default function Register({ defaultAsVendor = false, inModal = false }) {
           checksum: cs === null ? null : String(cs),
         });
       }
+
+      if (asVendor && vendorTermsAccepted) {
+  const v = legal?.vendor_terms?.version ?? "1.0.0";
+  const cs = legal?.vendor_terms?.checksum ?? null;
+
+  consents.push({
+    type: "vendor_terms",
+    version: String(v),
+    checksum: cs === null ? null : String(cs),
+  });
+}
 
       if (marketingOptIn) {
         consents.push({
@@ -567,6 +583,11 @@ if (ref) {
       ? legal.privacy.url
       : "/confidentialitate";
 
+      const vendorTermsUrl =
+  legal?.vendor_terms?.url && legal.vendor_terms.url !== "#"
+    ? legal.vendor_terms.url
+    : "/acord-vanzatori";
+
   const form = (
     <form className={styles.body} onSubmit={onSubmit} noValidate>
       <div
@@ -601,7 +622,10 @@ if (ref) {
             onChange={(e) => {
               const checked = e.target.checked;
               setAsVendor(checked);
-              if (!checked) setVendorEntityConfirm(false);
+              if (!checked) {
+  setVendorEntityConfirm(false);
+  setVendorTermsAccepted(false);
+}
               try {
                 sessionStorage.setItem("onboarding.intent", checked ? "vendor" : "");
               } catch {
@@ -622,20 +646,43 @@ if (ref) {
           </span>
         </p>
 
-       {asVendor && (
-  <label className={styles.entityConfirmRow}>
-    <input
-      type="checkbox"
-      checked={vendorEntityConfirm}
-      onChange={(e) => setVendorEntityConfirm(e.target.checked)}
-      aria-required="true"
-    />
-    <span className={styles.spanConfirm}>
-      Declar că sunt responsabil(ă) pentru obligațiile fiscale și pentru
-      legalitatea activităților desfășurate prin platformă, fie ca persoană
-      fizică, fie printr-o entitate juridică.
-    </span>
-  </label>
+     {asVendor && (
+  <>
+    <label className={styles.entityConfirmRow}>
+      <input
+        type="checkbox"
+        checked={vendorEntityConfirm}
+        onChange={(e) => setVendorEntityConfirm(e.target.checked)}
+        aria-required="true"
+      />
+      <span className={styles.spanConfirm}>
+        Declar că sunt responsabil(ă) pentru obligațiile fiscale și pentru
+        legalitatea activităților desfășurate prin platformă, fie ca persoană
+        fizică, fie printr-o entitate juridică.
+      </span>
+    </label>
+
+  <label className={`${styles.legalRow} ${styles.vendorTermsRow}`}>
+      <input
+        type="checkbox"
+        checked={vendorTermsAccepted}
+        onChange={(e) => setVendorTermsAccepted(e.target.checked)}
+        required
+      />
+      <span>
+        Accept{" "}
+        <a
+          className={styles.legalLink}
+          href={absLegalUrl(vendorTermsUrl)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Acordul Master pentru Vânzători
+        </a>
+        .
+      </span>
+    </label>
+  </>
 )}
       </div>
 

@@ -1,555 +1,527 @@
 /* src/pages/Desktop/Desktop.module.css */
 @import "../../../styles/variables.css";
 
-/* ============ Layout de bază ============ */
 .page {
-  max-width: 1200px;
+  width: min(1220px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 24px 16px 40px;
+  padding: 32px 0 56px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-/* ============ Typography ============ */
-.h1 {
-  margin: 0;
-  font-size: 26px;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  gap: 18px;
   color: var(--color-text);
 }
 
+.topbar {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid color-mix(in oklab, var(--color-border) 78%, transparent);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary) 14%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in oklab, var(--surface) 96%, white), var(--surface));
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.topbarActions {
+  display: flex;
+  gap: 10px;
+}
+
+.h1 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+  font-weight: 900;
+}
+
 .meta {
-  color: var(--color-muted);
+  margin-top: 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 6px;
   flex-wrap: wrap;
+  gap: 8px;
+  color: var(--color-muted);
   font-size: 13px;
 }
 
 .metaBlock {
   display: inline-flex;
-  align-items: center;
   gap: 4px;
 }
 
-/* ============ Badge-uri ============ */
-.badge {
-  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
-  color: var(--color-primary);
-  padding: 2px 10px;
+.dot {
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  background: color-mix(in oklab, var(--color-muted) 42%, transparent);
 }
 
-.badgeWait {
-  background: color-mix(in oklab, var(--color-warning) 10%, transparent);
-  color: var(--color-warning);
-  padding: 2px 10px;
+.badge,
+.badgeOk,
+.badgeWait,
+.badgeWarn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.badge {
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
 }
 
 .badgeOk {
-  background: color-mix(in oklab, var(--color-success) 10%, transparent);
   color: var(--color-success);
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
+  background: color-mix(in oklab, var(--color-success) 12%, transparent);
 }
 
+.badgeWait,
 .badgeWarn {
-  background: color-mix(in oklab, var(--color-warning) 10%, transparent);
   color: var(--color-warning);
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-  text-decoration: none;
-  border: 1px solid color-mix(in oklab, var(--color-warning) 35%, var(--color-border));
-}
-
-.badgeWarn:hover {
-  background: color-mix(in oklab, var(--color-warning) 16%, transparent);
-}
-
-.dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--color-border);
-}
-
-/* ============ Topbar ============ */
-.topbar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 8px;
+  background: color-mix(in oklab, var(--color-warning) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-warning) 32%, var(--color-border));
 }
 
 .profileCompletion {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  margin-top: 14px;
+  display: grid;
+  gap: 7px;
 }
 
 .progressBar {
-  width: 100%;
-  height: 6px;
+  height: 8px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--color-border) 22%, transparent);
+  background: color-mix(in oklab, var(--color-border) 35%, transparent);
   overflow: hidden;
-  position: relative;
 }
 
 .progressFill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    var(--color-primary),
-    color-mix(in oklab, var(--color-primary) 25%, var(--color-warning))
-  );
-  transition: width 0.25s ease-out;
+  background: linear-gradient(90deg, var(--color-primary), color-mix(in oklab, var(--color-primary) 35%, var(--color-warning)));
+  transition: width 0.25s ease;
 }
 
-.progressLabel {
-  font-size: 12px;
-  color: var(--color-muted);
-}
-
-/* ============ Error bar ============ */
-.errorBar {
-  background: color-mix(in oklab, var(--color-danger) 10%, var(--surface));
-  border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border));
-  color: var(--color-danger);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  font-size: 13px;
-}
-
-/* ============ KPI-uri ============ */
-.kpiRow {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.kpi {
-  background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 4px);
-  padding: 14px 12px;
-  box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.kpiVal {
-  font-size: 22px;
-  font-weight: 800;
-  line-height: 1.1;
-  color: var(--color-text);
-}
-
-.kpiLabel {
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-/* ============ Grid principal ============ */
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 0.9fr;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.colMain {
-  display: grid;
-  gap: 12px;
-}
-
-.colSide {
-  display: grid;
-  gap: 12px;
-}
-
-/* ============ Carduri ============ */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--color-border);
-  border-radius: calc(var(--radius) + 2px);
-  padding: 14px 14px 16px;
-  box-shadow: var(--shadow-sm);
-  color: var(--color-text);
-}
-
-.cardHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.cardHead h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
+.progressLabel,
 .subtle {
   color: var(--color-muted);
   font-size: 13px;
 }
 
-/* avatar (în loc de inline style) */
-.avatarCircle {
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  background: color-mix(in oklab, var(--color-border) 22%, transparent);
-  border: 1px solid var(--color-border);
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.85fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.colMain,
+.colSide {
+  display: grid;
+  gap: 14px;
+}
+
+.colSide .card {
+  position: sticky;
+  top: 16px;
+}
+
+.card {
+  position: relative;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid color-mix(in oklab, var(--color-border) 78%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--surface) 96%, white), var(--surface));
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.055);
   color: var(--color-text);
 }
 
-/* ============ Acțiuni ============ */
+.card:hover {
+  border-color: color-mix(in oklab, var(--color-primary) 22%, var(--color-border));
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.cardHead h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+
+.btn,
+.iconBtn {
+  border: 1px solid color-mix(in oklab, var(--color-border) 90%, transparent);
+  background: var(--surface);
+  color: var(--color-text);
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 800;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn {
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.iconBtn {
+  width: 42px;
+  height: 42px;
+  border-radius: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn:hover:not(:disabled),
+.iconBtn:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--color-primary) 28%, var(--color-border));
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-hover));
+  border-color: transparent;
+  box-shadow: 0 12px 24px color-mix(in oklab, var(--color-primary) 24%, transparent);
+}
+
+.btnGhost {
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+}
+
+.btnWarn {
+  color: var(--color-warning);
+  background: color-mix(in oklab, var(--color-warning) 11%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-warning) 35%, var(--color-border));
+}
+
+.btnDanger {
+  color: var(--color-danger);
+  background: color-mix(in oklab, var(--color-danger) 10%, var(--surface));
+  border-color: color-mix(in oklab, var(--color-danger) 34%, var(--color-border));
+}
+
 .actionsRow {
   display: flex;
-  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 9px;
 }
 
 .actionsCol {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
-/* ============ Butoane ============ */
-.btn {
+.identityRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.avatarCircle {
+  width: 48px;
+  height: 48px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  background:
+    radial-gradient(circle at 30% 20%, color-mix(in oklab, var(--color-primary) 22%, white), transparent),
+    color-mix(in oklab, var(--color-primary) 10%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--color-primary) 20%, var(--color-border));
+}
+
+.identityNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 850;
+}
+
+.verifiedPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
   border-radius: 999px;
-  padding: 7px 14px;
-  border: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-success);
+  background: color-mix(in oklab, var(--color-success) 11%, transparent);
+}
+
+.recommendationList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.recommendationItem {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
   text-decoration: none;
-  font-weight: 700;
-  font-size: 13px;
-  cursor: pointer;
-
-  background: color-mix(in oklab, var(--surface) 92%, transparent);
   color: var(--color-text);
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-
-  transition:
-    background 0.15s ease-out,
-    border-color 0.15s ease-out,
-    transform 0.1s ease-out,
-    box-shadow 0.1s ease-out;
+  background: color-mix(in oklab, var(--color-border) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-border) 75%, transparent);
 }
 
-.btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-  box-shadow: none;
-  transform: none;
+.recommendationItem strong {
+  display: block;
+  font-size: 13px;
 }
 
-.btn:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--color-primary) 6%, var(--surface));
-  border-color: color-mix(in oklab, var(--color-primary) 16%, var(--color-border));
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
+.recommendationItem small {
+  color: var(--color-muted);
 }
 
-.btnPrimary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: #fff;
+.recommendationDone {
+  background: color-mix(in oklab, var(--color-success) 8%, transparent);
+  border-color: color-mix(in oklab, var(--color-success) 25%, var(--color-border));
 }
 
-.btnPrimary:hover:not(:disabled) {
-  background: var(--color-hover);
-  border-color: var(--color-hover);
-}
-
-.btnGhost {
-  background: var(--surface);
-}
-
-.btnWarn {
-  background: color-mix(in oklab, var(--color-warning) 12%, var(--surface));
-  border-color: color-mix(in oklab, var(--color-warning) 40%, var(--color-border));
-  color: var(--color-warning);
-}
-
-.btnWarn:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--color-warning) 18%, var(--surface));
-}
-
-.btnDanger {
-  background: color-mix(in oklab, var(--color-danger) 12%, var(--surface));
-  border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border));
-  color: var(--color-danger);
-}
-
-.btnDanger:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--color-danger) 18%, var(--surface));
-}
-
-/* full-width logout button */
-.logoutBtn {
-  width: 100%;
-  justify-content: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* ============ Servicii ============ */
 .serviceList {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .serviceItem {
-  border: 1px dashed var(--color-border);
-  border-radius: calc(var(--radius) + 2px);
-  padding: 12px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, transparent);
+  background:
+    radial-gradient(circle at top left, color-mix(in oklab, var(--color-primary) 8%, transparent), transparent 48%),
+    color-mix(in oklab, var(--surface) 96%, transparent);
   display: grid;
-  gap: 10px;
-  background: radial-gradient(
-    circle at top left,
-    color-mix(in oklab, var(--color-primary) 4%, transparent),
-    transparent 55%
-  );
-}
-
-.serviceMain {
-  display: grid;
-  gap: 4px;
+  gap: 12px;
 }
 
 .serviceTitle {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 900;
 }
 
 .serviceMeta {
+  margin-top: 5px;
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
-.serviceWarning {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--color-warning);
-  background: color-mix(in oklab, var(--color-warning) 12%, var(--surface));
-  border: 1px solid color-mix(in oklab, var(--color-warning) 30%, var(--color-border));
-  border-radius: 8px;
-  padding: 6px 8px;
-}
-
-/* ============ Empty state ============ */
 .empty {
-  background: color-mix(in oklab, var(--color-primary) 6%, transparent);
-  border: 1px dashed color-mix(in oklab, var(--color-primary) 60%, var(--color-border));
-  border-radius: calc(var(--radius) + 4px);
-  padding: 16px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px dashed color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+  background: color-mix(in oklab, var(--color-primary) 7%, transparent);
   display: grid;
   gap: 8px;
 }
 
 .emptyTitle {
-  font-weight: 800;
-  font-size: 14px;
-  color: var(--color-text);
+  font-weight: 900;
 }
 
-/* ============ Timeline / Activitate recentă ============ */
-.timeline {
-  margin: 0;
-  padding-left: 0;
-  list-style: none;
-}
-
-.timelineItem {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px dashed color-mix(in oklab, var(--color-border) 55%, transparent);
-}
-
-.timelineItem:last-child {
-  border-bottom: none;
-}
-
-.timelineMain {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.timelineType {
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  color: var(--color-muted);
-}
-
-.timelineText {
-  font-size: 13px;
-  color: var(--color-text);
-}
-
-.timelineTime {
-  font-size: 11px;
-  color: var(--color-muted);
-  white-space: nowrap;
-}
-
-/* fallback */
-.timeline li {
-  margin: 4px 0;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
-/* ============ Sidebar ============ */
-.colSide .card {
-  position: sticky;
-  top: 12px;
-}
-
-/* ============ Bannere (critical / warning) ============ */
-.cardCritical {
-  border-color: color-mix(in oklab, var(--color-danger) 45%, var(--color-border));
-  background:
-    radial-gradient(circle at 0 0, color-mix(in oklab, var(--color-danger) 14%, transparent), transparent 55%),
-    radial-gradient(circle at 100% 0, color-mix(in oklab, var(--color-danger) 10%, transparent), transparent 50%),
-    var(--surface);
-  box-shadow: var(--shadow-md);
-  position: relative;
+.cardWarning,
+.cardCritical,
+.cardOk {
   overflow: hidden;
-}
-
-.cardCritical::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border-top: 3px solid var(--color-danger);
-  pointer-events: none;
-}
-
-.cardCritical .cardHead h3 {
-  color: var(--color-danger);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cardCritical .cardHead h3::before {
-  content: "⚠";
-  font-size: 16px;
 }
 
 .cardWarning {
   border-color: color-mix(in oklab, var(--color-warning) 45%, var(--color-border));
   background:
-    radial-gradient(circle at 0 0, color-mix(in oklab, var(--color-warning) 14%, transparent), transparent 55%),
-    radial-gradient(circle at 100% 0, color-mix(in oklab, var(--color-warning) 10%, transparent), transparent 50%),
+    radial-gradient(circle at 0 0, color-mix(in oklab, var(--color-warning) 16%, transparent), transparent 48%),
     var(--surface);
-  box-shadow: var(--shadow-md);
-  position: relative;
-  overflow: hidden;
 }
 
-.cardWarning::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border-top: 3px solid var(--color-warning);
-  pointer-events: none;
+.cardCritical {
+  border-color: color-mix(in oklab, var(--color-danger) 45%, var(--color-border));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in oklab, var(--color-danger) 14%, transparent), transparent 48%),
+    var(--surface);
 }
 
-.cardWarning .cardHead h3 {
-  color: var(--color-warning);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.cardOk {
+  border-color: color-mix(in oklab, var(--color-success) 38%, var(--color-border));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in oklab, var(--color-success) 13%, transparent), transparent 48%),
+    var(--surface);
 }
 
-.cardWarning .cardHead h3::before {
-  content: "ℹ";
-  font-size: 16px;
-}
-
-/* ============ Badge bubble ============ */
-.btnWithBadge {
+.btnWithBadge,
+.iconWrap {
   position: relative;
 }
 
 .iconWrap {
-  position: relative;
   display: inline-flex;
   align-items: center;
 }
 
 .badgeBubble {
   position: absolute;
-  top: -6px;
-  right: -10px;
-
-  min-width: 18px;
-  height: 18px;
+  top: -8px;
+  right: -12px;
+  min-width: 19px;
+  height: 19px;
   padding: 0 5px;
-
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 18px;
-  text-align: center;
-
   background: var(--color-danger);
   color: #fff;
-
   border: 2px solid var(--surface);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 17px;
+  text-align: center;
 }
 
-/* ============ Responsivitate ============ */
-@media (min-width: 1280px) {
-  .page {
-    padding-top: 32px;
-  }
+.storeAmbassadorStrip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 24px;
+  border: 1px solid color-mix(in oklab, #8b5cf6 42%, var(--color-border));
+  background:
+    radial-gradient(circle at top left, rgba(168, 85, 247, 0.18), transparent 45%),
+    var(--surface);
+  box-shadow: 0 16px 34px rgba(124, 58, 237, 0.1);
+}
+
+.storeAmbassadorInfo {
+  display: grid;
+  gap: 4px;
+}
+
+.storeAmbassadorTitle {
+  color: #7c3aed;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.storeAmbassadorSubtitle {
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.storeAmbassadorProgress {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.storeAmbassadorActions {
+  display: flex;
+  gap: 10px;
+}
+
+.storeAmbassadorActions button,
+.storeAmbassadorActions a {
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.storeAmbassadorActions button {
+  border: 0;
+  background: #7c3aed;
+  color: #fff;
+  cursor: pointer;
+}
+
+.storeAmbassadorActions a {
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+}
+
+.errorBar {
+  padding: 12px 14px;
+  border-radius: 18px;
+  color: var(--color-danger);
+  background: color-mix(in oklab, var(--color-danger) 9%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--color-danger) 34%, var(--color-border));
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.logoutBtn {
+  width: 100%;
+}
+
+.metaSkeletonRow {
+  display: grid;
+  gap: 8px;
+}
+
+.skelLine,
+.skelBtn {
+  display: block;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-border) 35%, transparent),
+    color-mix(in oklab, var(--color-border) 18%, transparent),
+    color-mix(in oklab, var(--color-border) 35%, transparent)
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.25s infinite linear;
+}
+
+.skelLine {
+  height: 12px;
+  width: 100%;
+}
+
+.skelBtn {
+  width: 92px;
+  height: 36px;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
 }
 
 @media (max-width: 1000px) {
@@ -561,325 +533,58 @@
     position: static;
   }
 
-  .kpiRow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 700px) {
   .topbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .topbar > a {
-    align-self: stretch;
-    justify-content: center;
-  }
-
-  .h1 {
-    font-size: 22px;
-  }
-
-  .kpiRow {
     grid-template-columns: 1fr;
   }
 
-  .card {
-    padding: 12px;
-  }
-
-  .timelineItem {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .timelineTime {
-    white-space: normal;
+  .topbarActions {
+    order: -1;
   }
 }
 
-@media (max-width: 480px) {
-  .page {
-    padding-inline: 12px;
-  }
-
-  .btn {
-    width: 100%;
-  }
-
-  .actionsRow {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-.serviceMeta {
-  min-height: 16px; /* păstrează spațiu pentru meta */
-}
-.actionsRow {
-  min-height: 34px; /* păstrează spațiu pentru butoane */
-}
-/* ===================== Mobile compact KPIs + spacing ===================== */
-
-/* Tablet/mobil: mai puțin spațiu vertical */
 @media (max-width: 700px) {
   .page {
-    gap: 12px;
-    padding: 16px 12px 28px;
+    width: min(100% - 24px, 1220px);
+    padding: 18px 0 36px;
+    gap: 14px;
   }
 
+  .topbar,
   .card {
-    padding: 10px 10px 12px;
-    border-radius: calc(var(--radius) + 1px);
+    border-radius: 20px;
+    padding: 14px;
   }
 
   .cardHead {
-    margin-bottom: 6px;
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .cardHead h3 {
-    font-size: 14px;
+  .h1 {
+    font-size: 24px;
   }
 
-  .subtle {
-    font-size: 12px;
-  }
-}
-
-/* KPI: 2 coloane pe mobil, mai mic, mai “scund” */
-@media (max-width: 700px) {
-  .kpiRow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .kpi {
-    padding: 10px 10px;
-    border-radius: calc(var(--radius) + 2px);
-    gap: 2px;
-    box-shadow: var(--shadow-sm);
-  }
-
-  .kpiVal {
-    font-size: 18px;
-    line-height: 1.05;
-  }
-
-  .kpiLabel {
-    font-size: 11px;
-    line-height: 1.2;
-  }
-}
-
-/* Extra-small: dacă e foarte îngust, 1 coloană, dar tot compact */
-@media (max-width: 420px) {
-  .kpiRow {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .kpi {
-    padding: 10px 10px;
-  }
-
-  .kpiVal {
-    font-size: 17px;
-  }
-}
-
-/* Quick actions pe mobil: butoane mai mici, nu full-width prea devreme */
-@media (max-width: 480px) {
   .btn {
-    width: auto;           /* NU le întinde automat */
-    padding: 6px 12px;     /* mai mic */
+    min-height: 36px;
+    padding: 7px 12px;
     font-size: 12px;
-  }
-
-  /* Doar în anumite zone le facem full-width (ex: coloane de acțiuni) */
-  .actionsCol .btn,
-  .logoutBtn {
-    width: 100%;
-    justify-content: center;
-  }
-
-  /* în rows: păstrăm wrap și gap mic */
-  .actionsRow {
-    flex-direction: row;
-    gap: 8px;
-  }
-}
-
-/* Topbar: butonul mare să fie full width, dar restul compact */
-@media (max-width: 700px) {
-  .topbar {
-    gap: 10px;
   }
 
   .topbar > a {
     width: 100%;
-    justify-content: center;
   }
 
-  .meta {
-    font-size: 12px;
-    gap: 6px;
+  .recommendationList {
+    grid-template-columns: 1fr;
   }
 
-  .badge,
-  .badgeOk,
-  .badgeWait,
-  .badgeWarn {
-    padding: 2px 8px;
-    font-size: 10px;
-  }
-}
-
-/* Servicii: elemente mai compacte pe mobil */
-@media (max-width: 700px) {
-  .serviceItem {
-    padding: 10px;
-    gap: 8px;
+  .serviceItem .actionsRow {
+    align-items: stretch;
   }
 
-  .serviceTitle {
-    font-size: 13px;
-  }
-
-  .serviceMeta {
-    font-size: 11px;
-  }
-
-  .serviceWarning {
-    font-size: 11px;
-    padding: 6px 8px;
-  }
-}
-.cardOk {
-  border: 1px solid rgba(34, 197, 94, 0.35);
-  background: rgba(34, 197, 94, 0.06);
-}
-.topbarActions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.iconBtn {
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--border, #e5e7eb);
-  background: var(--card, #fff);
-  color: var(--text, inherit);
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: 0.2s ease;
-}
-
-.iconBtn:hover {
-  transform: translateY(-1px);
-  opacity: 0.95;
-}
-
-.storeAmbassadorStrip {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-
-  padding: 16px 20px;
-  margin-bottom: 14px;
-
-  border-radius: 18px;
-
-  background: #ffffff;
-
-  border: 2px solid #a855f7;
-
-  box-shadow:
-    0 6px 18px rgba(124, 58, 237, 0.05);
-
-  color: #111827;
-}
-
-.storeAmbassadorInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.storeAmbassadorTitle {
-  font-size: 16px;
-  font-weight: 800;
-  color: #7c3aed;
-}
-
-.storeAmbassadorSubtitle {
-  font-size: 14px;
-  color: #374151;
-}
-
-.storeAmbassadorProgress {
-  font-size: 13px;
-  font-weight: 600;
-  color: #6b7280;
-}
-
-.storeAmbassadorActions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.storeAmbassadorActions button {
-  background: #7c3aed;
-  color: #fff;
-
-  border: 0;
-  border-radius: 999px;
-
-  padding: 10px 16px;
-
-  font-weight: 700;
-  cursor: pointer;
-
-  transition: all 0.2s ease;
-}
-
-.storeAmbassadorActions button:hover {
-  background: #6d28d9;
-  transform: translateY(-1px);
-}
-
-.storeAmbassadorActions a {
-  background: transparent;
-
-  color: #7c3aed;
-
-  text-decoration: none;
-
-  border: 1px solid #d8b4fe;
-
-  border-radius: 999px;
-
-  padding: 10px 16px;
-
-  font-weight: 700;
-
-  transition: all 0.2s ease;
-}
-
-.storeAmbassadorActions a:hover {
-  background: rgba(124, 58, 237, 0.06);
-}
-
-@media (max-width: 700px) {
   .storeAmbassadorStrip {
     flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
+    align-items: stretch;
   }
 
   .storeAmbassadorActions {
@@ -890,5 +595,26 @@
   .storeAmbassadorActions a {
     flex: 1;
     text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .actionsRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btn,
+  .storeAmbassadorActions button,
+  .storeAmbassadorActions a {
+    width: 100%;
+  }
+
+  .identityRow {
+    align-items: flex-start;
+  }
+
+  .meta {
+    font-size: 12px;
   }
 }

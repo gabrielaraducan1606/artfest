@@ -84,6 +84,56 @@ async function getActivePlanForVendor(vendorId) {
   return { code: "basic", name: "Basic", commissionBps: 0 };
 }
 
+function validateBillingGate(billing) {
+  const missing = [];
+  const isEmpty = (v) => !v || !String(v).trim();
+
+  if (!billing) {
+    return {
+      ok: false,
+      missing: ["datele de facturare"],
+    };
+  }
+
+  if (isEmpty(billing.sellerType)) missing.push("tipul de vendor");
+  if (isEmpty(billing.vendorName)) missing.push("numele vendorului");
+  if (isEmpty(billing.address)) missing.push("adresa");
+  if (isEmpty(billing.email)) missing.push("emailul de facturare");
+  if (isEmpty(billing.contactPerson)) missing.push("persoana de contact");
+  if (isEmpty(billing.phone)) missing.push("telefonul de contact");
+
+  if (billing.sellerType === "independent_creator") {
+    if (!billing.taxResponsibilityConfirmed) {
+      missing.push("confirmarea responsabilității fiscale");
+    }
+
+    if (!billing.independentTermsConfirmed) {
+      missing.push("acceptarea condițiilor pentru Creator Independent");
+    }
+  }
+
+  if (billing.sellerType === "verified_business") {
+    if (isEmpty(billing.legalType)) missing.push("tip entitate");
+    if (isEmpty(billing.companyName)) missing.push("denumirea entității");
+    if (isEmpty(billing.cui)) missing.push("CUI");
+    if (isEmpty(billing.regCom)) missing.push("Nr. Registrul Comerțului");
+    if (isEmpty(billing.vatStatus)) missing.push("status TVA");
+
+    if (billing.vatStatus === "payer" && isEmpty(billing.vatRate)) {
+      missing.push("cota TVA");
+    }
+
+    if (!billing.vatResponsibilityConfirmed) {
+      missing.push("confirmarea responsabilității fiscale");
+    }
+  }
+
+  return {
+    ok: missing.length === 0,
+    missing,
+  };
+}
+
 /* ----------------------------------------------------
    ✅ Ledger helpers (earnings)
 ----------------------------------------------------- */
@@ -556,6 +606,34 @@ async function getThreadMetaByOrderId({ vendorId, orderIds }) {
 ----------------------------------------------------- */
 router.get("/orders", requireVendor, async (req, res) => {
   const vendorId = req.user.vendorId;
+const billingGate = await prisma.vendorBilling.findUnique({
+  where: { vendorId },
+});
+
+const billingStatus = validateBillingGate(billingGate);
+
+const ordersCount = await prisma.shipment.count({
+  where: { vendorId },
+});
+
+if (!billingStatus.ok) {
+  return res.json({
+    total: ordersCount,
+    items: [],
+    billingRequired: true,
+    billingGate: {
+      title: "Completează datele de facturare",
+      message:
+        ordersCount > 0
+          ? "Ai primit comenzi. Pentru a vedea datele clienților și detaliile comenzilor trebuie să completezi mai întâi informațiile de facturare."
+          : "Pentru a putea primi și administra comenzile, completează mai întâi informațiile de facturare.",
+      cta: {
+        label: "Completează datele de facturare",
+        url: "/setari?tab=billing",
+      },
+    },
+  });
+}
 
   const q = String(req.query.q || "").trim();
   const statusUi = String(req.query.status || "");
@@ -863,6 +941,25 @@ router.get("/orders/stream", requireVendor, (req, res) => {
 ----------------------------------------------------- */
 router.get("/orders/:id", requireVendor, async (req, res) => {
   const vendorId = req.user.vendorId;
+const billingGate = await prisma.vendorBilling.findUnique({
+  where: { vendorId },
+});
+
+const billingStatus = validateBillingGate(billingGate);
+
+if (!billingStatus.ok) {
+  return res.status(423).json({
+    error: "billing_required",
+    title: "Completează datele de facturare",
+    message:
+      "Nu poți vedea detaliile comenzii până nu completezi datele de facturare.",
+    missing: billingStatus.missing,
+    cta: {
+      label: "Completează datele de facturare",
+      url: "/setari?tab=billing",
+    },
+  });
+}
   const orderId = String(req.params.id);
 
   const s = await findShipmentByOrderRef({

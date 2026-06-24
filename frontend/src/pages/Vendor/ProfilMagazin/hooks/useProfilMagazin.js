@@ -218,64 +218,6 @@ export function useDebouncedCallback(fn, delay = 600) {
   return call;
 }
 
-/* ====== hook: județe din API ====== */
-function useRoCounties() {
-  const [list, setList] = useState([]);
-  const [all, setAll] = useState({
-    code: "RO-ALL",
-    name: "Toată țara",
-  });
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
-
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        setLoading(true);
-        setErr("");
-
-        const d = await api("/api/geo/ro/counties", {
-          method: "GET",
-        });
-
-        if (!alive) return;
-
-        const items = Array.isArray(d?.items) ? d.items : [];
-        items.sort((a, b) => a.name.localeCompare(b.name, "ro"));
-
-        setList(items);
-
-        if (d?.all) setAll(d.all);
-      } catch (e) {
-        if (!alive) return;
-
-        setErr(e?.message || "Nu am putut încărca județele.");
-        setList([{ code: "B", name: "București" }]);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const suggestions = useMemo(
-    () => [all.name, ...list.map((c) => c.name)],
-    [list, all]
-  );
-
-  return {
-    suggestions,
-    all,
-    loading,
-    err,
-  };
-}
-
 /* ===== Utils ===== */
 const normalizePhone = (v) => {
   const raw = String(v || "").replace(/\s+/g, "");
@@ -374,7 +316,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     address: "",
     phone: "",
     email: "",
-    deliveryArr: [],
   });
 
   const serviceId =
@@ -383,13 +324,6 @@ export default function useProfilMagazin(slug, opts = {}) {
     sellerData?.profile?.serviceId ||
     sellerData?.id ||
     null;
-
-  const {
-    suggestions: countySuggestions,
-    all: allCountry,
-    loading: countiesLoading,
-    err: countiesErr,
-  } = useRoCounties();
 
   useEffect(() => {
     setMe(meFromProps);
@@ -419,9 +353,6 @@ export default function useProfilMagazin(slug, opts = {}) {
               ...(patch.email !== undefined
                 ? { email: patch.email || null }
                 : {}),
-              ...(patch.deliveryArr !== undefined
-                ? { delivery: patch.deliveryArr || [] }
-                : {}),
             },
           }
         );
@@ -438,10 +369,6 @@ export default function useProfilMagazin(slug, opts = {}) {
                     : s.phone,
                 publicEmail:
                   patch.email !== undefined ? patch.email || "" : s.publicEmail,
-                delivery:
-                  patch.deliveryArr !== undefined
-                    ? patch.deliveryArr || []
-                    : s.delivery,
               }
             : s
         );
@@ -458,46 +385,11 @@ export default function useProfilMagazin(slug, opts = {}) {
 
   const debouncedAutoSave = useDebouncedCallback((draft) => {
     saveProfilePart({
-      address: draft.address,
-      phone: draft.phone,
-      email: draft.email,
-      deliveryArr: draft.deliveryArr,
-    });
+  address: draft.address,
+  phone: draft.phone,
+  email: draft.email,
+});
   }, 600);
-
-  const onCountiesChange = (arr) => {
-    const clean = Array.isArray(arr) ? arr.filter(Boolean) : [];
-
-    if (clean.includes(allCountry.name)) {
-      const one = [allCountry.name];
-
-      setInfoDraft((d) => ({
-        ...d,
-        deliveryArr: one,
-      }));
-
-      debouncedAutoSave({
-        ...infoDraft,
-        deliveryArr: one,
-      });
-
-      return;
-    }
-
-    const uniq = [...new Set(clean)]
-      .filter((n) => n !== allCountry.name)
-      .sort((a, b) => a.localeCompare(b, "ro"));
-
-    setInfoDraft((d) => ({
-      ...d,
-      deliveryArr: uniq,
-    }));
-
-    debouncedAutoSave({
-      ...infoDraft,
-      deliveryArr: uniq,
-    });
-  };
 
   const loadCategoriesOnce = useCallback(async () => {
     if (categoriesLoadedRef.current) return;
@@ -837,16 +729,11 @@ setLoading(false);
   useEffect(() => {
     if (!sellerData) return;
 
-    const deliveryArr = Array.isArray(sellerData.delivery)
-      ? sellerData.delivery
-      : [];
-
     setInfoDraft({
-      address: sellerData.address || "",
-      phone: sellerData.phone || "",
-      email: sellerData.publicEmail || "",
-      deliveryArr,
-    });
+  address: sellerData.address || "",
+  phone: sellerData.phone || "",
+  email: sellerData.publicEmail || "",
+});
   }, [sellerData]);
 
   const cacheT = useMemo(
@@ -894,11 +781,10 @@ setLoading(false);
     const d = infoDraft;
 
     await saveProfilePart({
-      address: d.address,
-      phone: d.phone,
-      email: d.email,
-      deliveryArr: d.deliveryArr,
-    });
+  address: d.address,
+  phone: d.phone,
+  email: d.email,
+});
 
     setEditInfo(false);
   }, [infoDraft, saveProfilePart]);
@@ -1054,10 +940,6 @@ setLoading(false);
     infoDraft,
     setInfoDraft,
     onChangeInfoDraft,
-    countySuggestions,
-    countiesLoading,
-    countiesErr,
-    onCountiesChange,
     saveInfoNow,
 
     prodModalOpen,

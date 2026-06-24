@@ -7,8 +7,6 @@ export default function InfoSection({
   city,
   country,
   website,
-  prettyDelivery,
-
   editInfo,
   savingInfo,
   infoErr,
@@ -17,11 +15,6 @@ export default function InfoSection({
   onChangeInfoDraft,
   onSaveInfo,
   canEdit = false,
-
-  countySuggestions,
-  countiesLoading,
-  countiesErr,
-  onCountiesChange,
 
   onTrackCTA = () => {},
 }) {
@@ -87,33 +80,6 @@ export default function InfoSection({
               }
               placeholder="Str. Exemplu 10, București, jud. X"
             />
-          </div>
-        )}
-
-        {(editInfo || prettyDelivery) && (
-          <div className={s.metaRow}>
-            <span className={s.metaLabel}>Zonă acoperire</span>
-
-            {!editInfo ? (
-              <span className={s.metaValue}>{prettyDelivery || "—"}</span>
-            ) : (
-              <div className={s.metaValue} style={{ width: "100%" }}>
-                <ChipsInput
-                  value={infoDraft?.deliveryArr || []}
-                  onChange={onCountiesChange}
-                  suggestions={countySuggestions}
-                  placeholder={
-                    countiesLoading
-                      ? "Se încarcă județele…"
-                      : "Toată țara, București, Ilfov, Prahova…"
-                  }
-                />
-
-                {countiesErr && (
-                  <small className={s.errorField}>{countiesErr}</small>
-                )}
-              </div>
-            )}
           </div>
         )}
 

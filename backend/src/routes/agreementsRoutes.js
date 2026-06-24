@@ -6,16 +6,13 @@ import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
 const router = Router();
 
 const ONBOARDING_VENDOR_DOCS = [
-  "VENDOR_TERMS",
   "RETURNS_POLICY_ACK",
 ];
 
 const typeToVendorDoc = {
-  vendor_terms: "VENDOR_TERMS",
   returns: "RETURNS_POLICY_ACK",
   returns_policy_ack: "RETURNS_POLICY_ACK",
 };
-
 function getRequestIp(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {

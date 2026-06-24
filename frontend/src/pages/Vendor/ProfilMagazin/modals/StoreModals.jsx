@@ -21,27 +21,18 @@ export default function StoreModals({
   return (
     <Suspense fallback={null}>
       <VendorGateModal
-        open={gateState.open}
+        open={!!gateState.open}
         onClose={() =>
           setGateState((s) => ({
             ...s,
             open: false,
           }))
         }
-        gateLoading={gateState.loading}
-        gateErr={gateState.error}
         gateDocs={gateState.docs}
-        gateChecks={gateState.checks}
-        setGateChecks={(updater) =>
-          setGateState((s) => ({
-            ...s,
-            checks:
-              typeof updater === "function"
-                ? updater(s.checks)
-                : updater,
-          }))
-        }
         onAccept={handleAcceptGate}
+        serviceId={gateState.serviceId}
+        profile={gateState.profile}
+        sellerData={gateState.sellerData}
       />
 
       <ProductModal
@@ -56,10 +47,12 @@ export default function StoreModals({
         uploadFile={async (f) => {
           const fd = new FormData();
           fd.append("file", f);
+
           const res = await fetch("/api/upload", {
             method: "POST",
             body: fd,
           });
+
           const { url } = await res.json();
           return url;
         }}

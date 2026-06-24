@@ -265,6 +265,36 @@ function getServiceStats(stats, serviceId) {
   );
 }
 
+function isBillingComplete(b) {
+  if (!b?.sellerType) return false;
+
+  const hasBase =
+    !!b.vendorName?.trim() &&
+    !!b.address?.trim() &&
+    !!b.email?.trim() &&
+    !!b.contactPerson?.trim() &&
+    !!b.phone?.trim();
+
+  if (!hasBase) return false;
+
+  if (b.sellerType === "independent_creator") {
+    return !!b.taxResponsibilityConfirmed && !!b.independentTermsConfirmed;
+  }
+
+  if (b.sellerType === "verified_business") {
+    return (
+      !!b.legalType?.trim() &&
+      !!b.companyName?.trim() &&
+      !!b.cui?.trim() &&
+      !!b.regCom?.trim() &&
+      !!b.vatStatus?.trim() &&
+      !!b.vatResponsibilityConfirmed
+    );
+  }
+
+  return false;
+}
+
 export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -590,15 +620,63 @@ useEffect(() => {
     }
   }, [authLoading, me, loadAllVendor]);
 
-  const completeness = useMemo(() => {
-    if (!services.length) return 0;
+const dashboardHealth = useMemo(() => {
+  const firstStore = services[0] || null;
+  const p = firstStore?.profile || {};
 
-    const filled = services.filter(
-      (s) => s?.profile && (s.profile.displayName || s.title)
-    ).length;
+  const checks = [
+    {
+      key: "profile",
+      label: "Profil magazin",
+      done: !!(p.displayName && p.slug && (p.logoUrl || p.coverUrl)),
+      action: "Editează profilul",
+      to: firstStore?.id
+        ? `/onboarding/details?serviceId=${encodeURIComponent(firstStore.id)}`
+        : "/onboarding/details",
+    },
+    {
+      key: "products",
+      label: "Primul produs",
+      done: Number(firstStore?.productsCount || firstStore?._count?.products || 0) > 0,
+      action: "Adaugă produs",
+      to: p.slug ? `/magazin/${p.slug}?onboarding=products` : "/magazine",
+    },
+    {
+      key: "active",
+      label: "Magazin activ",
+      done: !!(firstStore?.isActive && firstStore?.status === "ACTIVE"),
+      action: "Activează magazin",
+      to: p.slug ? `/magazin/${p.slug}` : "/magazine",
+    },
+    {
+  key: "billing",
+  label: "Date facturare",
+  done: isBillingComplete(billing?.record),
+  optional: true,
+  action: "Completează opțional",
+  to: "/setari?tab=billing",
+},
+    {
+  key: "payouts",
+  label: "Plăți online cu cardul",
+  done: !!payouts?.enabled,
+  optional: true,
+  action: "Activează opțional",
+to: payouts?.ctaUrl || "/setari?tab=payouts",
+},
+  ];
 
-    return Math.round((filled / services.length) * 100);
-  }, [services]);
+  const doneCount = checks.filter((c) => c.done).length;
+
+  return {
+    firstStore,
+    checks,
+    percent: checks.length ? Math.round((doneCount / checks.length) * 100) : 0,
+    next: checks.find((c) => !c.done) || null,
+  };
+}, [services, billing, payouts]);
+
+const completeness = dashboardHealth.percent;
 
   const nextStep = useMemo(() => {
     if (!onboarding?.exists) {
@@ -902,11 +980,11 @@ useEffect(() => {
       {error ? <div className={styles.errorBar}>{error}</div> : null}
 <AmbassadorBanner ambassador={ambassador} />
       <IdentityCard me={me} roleLabel={roleLabel} billing={billing} />
+      <DashboardHealthCard health={dashboardHealth} />
       <QuickCard quick={quick} />
 
       <TrialBanner sub={sub} />
       <SubscriptionAlert sub={sub} />
-<PayoutsWarning payouts={payouts} />
 
       <div className={styles.grid}>
         <div className={styles.colMain}>
@@ -985,7 +1063,7 @@ function Topbar({ me, completeness, sub, nextStep, theme, setTheme }) {
     return (
       <Link
         className={styles.badgeWarn}
-        to="/onboarding/details?tab=plata&solo=1"
+        to="/setari?tab=subscription"
         title="Activează abonamentul"
       >
         Fără abonament activ — Activează abonament
@@ -1069,7 +1147,7 @@ function PayoutsWarning({ payouts }) {
       <div className={styles.actionsRow}>
         <Link
           className={`${styles.btn} ${styles.btnGhost}`}
-          to={payouts.ctaUrl || "/onboarding/details?tab=incasari&solo=1"}
+         to={payouts.ctaUrl || "/setari?tab=payouts"}
         >
           Activează plata online cu cardul
         </Link>
@@ -1113,7 +1191,7 @@ function TrialBanner({ sub }) {
       <div className={styles.actionsRow}>
         <Link
           className={`${styles.btn} ${styles.btnGhost}`}
-          to="/onboarding/details?tab=plata&solo=1"
+          to="/setari?tab=subscription"
         >
           Vezi abonamentul
         </Link>
@@ -1231,6 +1309,58 @@ function IdentityCard({ me, roleLabel, billing }) {
     </div>
   );
 }
+function DashboardHealthCard({ health }) {
+  if (!health?.checks?.length) return null;
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <div>
+          <h3>Pregătirea magazinului</h3>
+          <div className={styles.subtle}>
+            {health.percent}% complet • următorul pas:{" "}
+            <b>{health.next?.label || "Totul este pregătit"}</b>
+          </div>
+        </div>
+
+        {health.next && (
+          <Link className={`${styles.btn} ${styles.btnPrimary}`} to={health.next.to}>
+            {health.next.action}
+          </Link>
+        )}
+      </div>
+
+      <div className={styles.profileCompletion}>
+        <div className={styles.progressBar}>
+          <div
+            className={styles.progressFill}
+            style={{ width: `${health.percent}%` }}
+          />
+        </div>
+      </div>
+
+      <div className={styles.recommendationList}>
+        {health.checks.map((item) => (
+          <Link
+            key={item.key}
+            to={item.to}
+            className={`${styles.recommendationItem} ${
+              item.done ? styles.recommendationDone : ""
+            }`}
+          >
+            <span>{item.done ? "✅" : "○"}</span>
+            <div>
+              <strong>{item.label}</strong>
+              <small>
+  {item.done ? "Completat" : item.optional ? `${item.action} · opțional` : item.action}
+</small>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function QuickCard({ quick }) {
   if (!quick.length) return null;
@@ -1277,14 +1407,13 @@ function SubscriptionAlert({ sub }) {
       </div>
 
       <p className={styles.subtle}>
-        Pentru a activa magazine și a apărea în căutări, ai nevoie de un
-        abonament activ.
+        Ești configurat ca <b>Creator Independent</b>. Datele de facturare vor fi folosite pentru documente și încasări.
       </p>
 
       <div className={styles.actionsRow}>
         <Link
           className={`${styles.btn} ${styles.btnPrimary}`}
-          to="/onboarding/details?tab=plata&solo=1"
+          to="/setari?tab=subscription"
         >
           Activează abonament
         </Link>
@@ -1548,13 +1677,13 @@ function Sidebar({ sub, billing }) {
       </>
     ) : billing?.sellerType === "verified_business" ? (
       <>
-        Ești configurat ca <b>Business Verificat</b>. Pentru activare sunt necesare
-        datele firmei/PFA și confirmarea fiscală.
+        Ești configurat ca Business Verificat.
+Datele de facturare vor fi folosite pentru documente și încasări.
       </>
     ) : (
       <>
-        Nu ai configurat încă tipul de vendor. Completează datele de facturare
-        înainte de activare.
+        Nu ai configurat încă tipul de vendor.
+Poți completa datele de facturare oricând.
       </>
     )}
   </p>
@@ -1611,7 +1740,7 @@ function Sidebar({ sub, billing }) {
 
             <Link
               className={`${styles.btn} ${styles.btnGhost}`}
-              to="/onboarding/details?tab=plata&solo=1"
+              to="/setari?tab=subscription"
             >
               Gestionează abonamentul
             </Link>
@@ -1633,7 +1762,7 @@ function Sidebar({ sub, billing }) {
 
             <Link
               className={`${styles.btn} ${styles.btnPrimary}`}
-              to="/onboarding/details?tab=plata&solo=1"
+              to="/setari?tab=subscription"
             >
               Activează abonament
             </Link>

@@ -438,9 +438,11 @@ router.post("/vendor/settings/account/deactivate/request", async (req, res) => {
   return res.json({ ok: true });
 });
 
-/* =========================
-   POST /api/vendor/settings/account/deactivate/confirm
-========================= */
+// backend/src/routes/vendorSettingsRoutes.js
+// Înlocuiește în fișierul tău DOAR blocul:
+// POST /api/vendor/settings/account/deactivate/confirm
+// cu varianta asta:
+
 router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
   const userId = req.user.sub || req.user.id;
 
@@ -466,6 +468,7 @@ router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
   if (!user?.vendorDeactivateToken || user.vendorDeactivateToken !== incomingHash) {
     return res.status(400).json({ error: "invalid_token" });
   }
+
   if (!user.vendorDeactivateExpiresAt || user.vendorDeactivateExpiresAt < now) {
     return res.status(400).json({ error: "token_expired" });
   }
@@ -474,20 +477,11 @@ router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          vendorDeactivateToken: null,
-          vendorDeactivateExpiresAt: null,
-        },
-      });
-
       await tx.vendor.update({
         where: { id: vendor.id },
         data: {
           isActive: false,
           displayName: anonName,
-
           about: null,
           logoUrl: null,
           coverUrl: null,
@@ -544,8 +538,11 @@ router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
       await tx.user.update({
         where: { id: userId },
         data: {
-          status: "SUSPENDED",
+          status: "DELETED",
           tokenVersion: { increment: 1 },
+
+          email: `deleted-${userId}@deleted.local`,
+          passwordHash: sha256(`deleted:${userId}:${Date.now()}`),
 
           firstName: null,
           lastName: null,
@@ -555,6 +552,14 @@ router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
           avatarUrl: null,
           preferences: null,
           marketingOptIn: false,
+
+          emailVerifiedAt: null,
+          emailChangeToken: null,
+          emailChangeNewEmail: null,
+          emailChangeExpiresAt: null,
+          vendorDeactivateToken: null,
+          vendorDeactivateExpiresAt: null,
+          locked: true,
         },
       });
 
@@ -573,15 +578,15 @@ router.post("/vendor/settings/account/deactivate/confirm", async (req, res) => {
       ok: true,
       vendorId: vendor.id,
       vendorDisplayName: anonName,
-      message: "Contul de vendor a fost dezactivat (safe). Datele sensibile au rămas intacte.",
+      message:
+        "Contul a fost șters și anonimizat. Datele necesare legal/contabil au fost păstrate.",
     });
   } catch (e) {
-    console.error("Deactivate vendor account failed:", e);
+    console.error("Delete/anonymize vendor account failed:", e);
     return res.status(500).json({
-      error: "deactivate_failed",
-      message: e?.message || "Nu am putut dezactiva contul de vendor.",
+      error: "delete_account_failed",
+      message: e?.message || "Nu am putut șterge și anonimiza contul.",
     });
   }
 });
-
 export default router;

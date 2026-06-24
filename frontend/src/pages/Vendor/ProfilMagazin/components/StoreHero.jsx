@@ -37,6 +37,9 @@ export default function StoreHero({
   canAddProduct,
   prodLimits,
   handleAddProduct,
+showAddProductHint = false,
+heroActionsRef,
+onDismissAddProductHint,
   handleContactVendor,
   following,
   followLoading,
@@ -45,6 +48,7 @@ export default function StoreHero({
   ambassador,
 }) {
   const [copied, setCopied] = useState(false);
+  const [showActivationHint, setShowActivationHint] = useState(false);
 
   const activationDisabled =
     activationBusy ||
@@ -80,73 +84,83 @@ export default function StoreHero({
   }
 
   async function handleCopyAmbassadorLink() {
-  if (!ambassador?.referralLink) return;
+    if (!ambassador?.referralLink) return;
 
-  const text = `Fac parte din Artfest, comunitatea creatorilor români. ❤️
+    const text = `Fac parte din Artfest, comunitatea creatorilor români. ❤️
 Hai să ajungem împreună la 1000 de creatori!
 Înscrie-te aici: ${ambassador.referralLink}`;
 
-  try {
-    await navigator.clipboard.writeText(text);
-    alert("Textul și linkul de invitație au fost copiate.");
-  } catch {
-    window.prompt("Copiază mesajul:", text);
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Textul și linkul de invitație au fost copiate.");
+    } catch {
+      window.prompt("Copiază mesajul:", text);
+    }
   }
-}
 
   function onActivationClick() {
     if (activationDisabled) return;
+    setShowActivationHint(false);
     handleToggleActive?.();
+  }
+
+  function onAddProductClick() {
+    setShowActivationHint(false);
+    onDismissAddProductHint?.();
+    handleAddProduct?.();
+  }
+
+  function onSkipAddProductHint() {
+    onDismissAddProductHint?.();
+    setShowActivationHint(true);
   }
 
   return (
     <>
-    {isOwner && ambassador?.referralLink && (
-  <div className={styles.storeAmbassadorStrip}>
-    <div className={styles.storeAmbassadorInfo}>
-  <div className={styles.storeAmbassadorTitle}>
-    🚀 Programul Ambasadorilor Artfest
-  </div>
+      {isOwner && ambassador?.referralLink && (
+        <div className={styles.storeAmbassadorStrip}>
+          <div className={styles.storeAmbassadorInfo}>
+            <div className={styles.storeAmbassadorTitle}>
+              🚀 Programul Ambasadorilor Artfest
+            </div>
 
-  <div className={styles.storeAmbassadorSubtitle}>
-    Ai invitat <strong>{ambassador.invitedCount || 0}</strong>{" "}
-    creatori prin linkul tău
-  </div>
+            <div className={styles.storeAmbassadorSubtitle}>
+              Ai invitat <strong>{ambassador.invitedCount || 0}</strong>{" "}
+              creatori prin linkul tău
+            </div>
 
-  <div className={styles.storeAmbassadorProgress}>
-    {ambassador.level === "FOUNDING" &&
-      "Mai ai 2 invitații până la nivelul Ambasador"}
+            <div className={styles.storeAmbassadorProgress}>
+              {ambassador.level === "FOUNDING" &&
+                "Mai ai 2 invitații până la nivelul Ambasador"}
 
-    {ambassador.level === "AMBASSADOR" &&
-      `Mai ai ${Math.max(
-        0,
-        10 - (ambassador.invitedCount || 0)
-      )} invitații până la Gold`}
+              {ambassador.level === "AMBASSADOR" &&
+                `Mai ai ${Math.max(
+                  0,
+                  10 - (ambassador.invitedCount || 0)
+                )} invitații până la Gold`}
 
-    {ambassador.level === "GOLD" &&
-      `Mai ai ${Math.max(
-        0,
-        25 - (ambassador.invitedCount || 0)
-      )} invitații până la Elite`}
+              {ambassador.level === "GOLD" &&
+                `Mai ai ${Math.max(
+                  0,
+                  25 - (ambassador.invitedCount || 0)
+                )} invitații până la Elite`}
 
-    {ambassador.level === "ELITE" &&
-      "Ai atins cel mai înalt nivel 🎉"}
-  </div>
-</div>
+              {ambassador.level === "ELITE" &&
+                "Ai atins cel mai înalt nivel 🎉"}
+            </div>
+          </div>
 
-    <div className={styles.storeAmbassadorActions}>
-      <button type="button" onClick={handleCopyAmbassadorLink}>
-        Copiază linkul
-      </button>
+          <div className={styles.storeAmbassadorActions}>
+            <button type="button" onClick={handleCopyAmbassadorLink}>
+              Copiază linkul
+            </button>
 
-      <a href="/ambasadori">
-        Vezi beneficiile
-      </a>
-    </div>
-  </div>
-)}
+            <a href="/ambasadori">Vezi beneficiile</a>
+          </div>
+        </div>
+      )}
+
       <div className={styles.cover}>
-        
         {coverUrl ? (
           <img
             src={coverUrl}
@@ -225,21 +239,21 @@ Hai să ajungem împreună la 1000 de creatori!
           <div>
             <h1 className={styles.title}>{shopName}</h1>
 
-          {sellerTypeLabel && (
-  <div style={{ marginTop: 6, marginBottom: 6 }}>
-    <span
-      className={styles.sellerTypeBadge}
-      title={
-        sellerType === "independent_creator"
-          ? "Acest magazin este operat de un Creator Independent."
-          : "Acest magazin este operat de un Business Verificat."
-      }
-    >
-      {sellerType === "independent_creator" ? "🌱" : "✓"}{" "}
-      {sellerTypeLabel}
-    </span>
-  </div>
-)}
+            {sellerTypeLabel && (
+              <div style={{ marginTop: 6, marginBottom: 6 }}>
+                <span
+                  className={styles.sellerTypeBadge}
+                  title={
+                    sellerType === "independent_creator"
+                      ? "Acest magazin este operat de un Creator Independent."
+                      : "Acest magazin este operat de un Business Verificat."
+                  }
+                >
+                  {sellerType === "independent_creator" ? "🌱" : "✓"}{" "}
+                  {sellerTypeLabel}
+                </span>
+              </div>
+            )}
 
             {shortText && <p className={styles.subtitle}>{shortText}</p>}
 
@@ -286,10 +300,11 @@ Hai să ajungem împreună la 1000 de creatori!
             )}
           </div>
 
-          <div
-            className={styles.actions}
-            style={{ display: "flex", flexDirection: "column", gap: 4 }}
-          >
+         <div
+  ref={heroActionsRef}
+  className={styles.actions}
+  style={{ display: "flex", flexDirection: "column", gap: 4 }}
+>
             <div
               style={{
                 display: "flex",
@@ -304,55 +319,97 @@ Hai să ajungem împreună la 1000 de creatori!
 
               {isOwner ? (
                 <>
-                  <button
-                    className={styles.followBtn}
-                    onClick={handleAddProduct}
-                    type="button"
-                    disabled={!canAddProduct}
-                    title={
-                      canAddProduct
-                        ? "Adaugă produs"
-                        : `Ai atins limita (${prodLimits?.currentProducts}/${prodLimits?.maxProducts}). Upgrade necesar.`
-                    }
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      opacity: canAddProduct ? 1 : 0.6,
-                      cursor: canAddProduct ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    <FaPlus /> Adaugă produs
-                  </button>
+                  <div className={styles.actionWithHint}>
+                    <button
+                      className={styles.followBtn}
+                      onClick={onAddProductClick}
+                      type="button"
+                      disabled={!canAddProduct}
+                      title={
+                        canAddProduct
+                          ? "Adaugă produs"
+                          : `Ai atins limita (${prodLimits?.currentProducts}/${prodLimits?.maxProducts}). Upgrade necesar.`
+                      }
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        opacity: canAddProduct ? 1 : 0.6,
+                        cursor: canAddProduct ? "pointer" : "not-allowed",
+                      }}
+                    >
+                      <FaPlus /> Adaugă produs
+                    </button>
 
-                  <button
-                    className={styles.followBtn}
-                    type="button"
-                    onClick={onActivationClick}
-                    disabled={activationDisabled}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      opacity: activationDisabled ? 0.6 : 1,
-                      cursor: activationDisabled ? "not-allowed" : "pointer",
-                    }}
-                    title={
-                      !serviceId
-                        ? "Magazinul nu are încă un serviceId valid."
+                    {showAddProductHint && (
+                      <div className={`${styles.coachmark} ${styles.coachmarkLeft}`}>
+                        <strong>Adaugă primul produs</strong>
+                        <p>
+                          Adaugă primul produs pentru a începe să primești vizitatori și comenzi.
+Poți modifica sau șterge produsele oricând.
+                        </p>
+
+                        <div className={styles.coachmarkActions}>
+                          <button type="button" onClick={onAddProductClick}>
+                            Adaugă acum
+                          </button>
+
+                          <button type="button" onClick={onSkipAddProductHint}>
+                            Mai târziu
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={styles.actionWithHint}>
+                    <button
+                      className={styles.followBtn}
+                      type="button"
+                      onClick={onActivationClick}
+                      disabled={activationDisabled}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        opacity: activationDisabled ? 0.6 : 1,
+                        cursor: activationDisabled ? "not-allowed" : "pointer",
+                      }}
+                      title={
+                        !serviceId
+                          ? "Magazinul nu are încă un serviceId valid."
+                          : serviceIsActive
+                          ? "Dezactivează magazinul."
+                          : "Activează magazinul."
+                      }
+                    >
+                      {activationBusy
+                        ? serviceIsActive
+                          ? "Se dezactivează…"
+                          : "Se activează…"
                         : serviceIsActive
-                        ? "Dezactivează magazinul."
-                        : "Activează magazinul."
-                    }
-                  >
-                    {activationBusy
-                      ? serviceIsActive
-                        ? "Se dezactivează…"
-                        : "Se activează…"
-                      : serviceIsActive
-                      ? "Dezactivează magazin"
-                      : "Activează magazin"}
-                  </button>
+                        ? "Dezactivează magazin"
+                        : "Activează magazin"}
+                    </button>
+
+                    {showActivationHint && (
+                     <div className={`${styles.coachmark} ${styles.coachmarkRight}`}>
+                        <strong>Controlezi vizibilitatea magazinului</strong>
+                        <p>
+                          Îl poți dezactiva oricând când ești în vacanță sau nu poți prelua comenzi.
+                        </p>
+
+                        <div className={styles.coachmarkActions}>
+                          <button
+                            type="button"
+                            onClick={() => setShowActivationHint(false)}
+                          >
+                            Am înțeles
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -401,22 +458,6 @@ Hai să ajungem împreună la 1000 de creatori!
                 }}
               >
                 {activationError}
-
-                {String(activationError).toLowerCase().includes("facturare") && (
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      type="button"
-                      className={styles.followBtn}
-                      onClick={() => {
-                        window.location.assign(
-                          "/onboarding/details?tab=facturare&solo=1"
-                        );
-                      }}
-                    >
-                      Completează date facturare
-                    </button>
-                  </div>
-                )}
               </div>
             )}
           </div>
