@@ -1956,39 +1956,19 @@ router.post(
         });
       }
 
-      const result = await prisma.$transaction(async (tx) => {
-        const updatedSub = await tx.vendorSubscription.update({
-          where: { id: activeSub.id },
-          data: {
-            status: "canceled",
-            endAt: now,
-            meta: {
-              ...(activeSub.meta || {}),
-              canceledAt: now.toISOString(),
-              canceledBy: userId,
-            },
-          },
-          include: { plan: true },
-        });
-
-        await tx.vendorService.updateMany({
-          where: {
-            vendorId: meVendor.id,
-            isActive: true,
-          },
-          data: {
-            isActive: false,
-            status: "INACTIVE",
-          },
-        });
-
-        await tx.vendor.update({
-          where: { id: meVendor.id },
-          data: { isActive: false },
-        });
-
-        return updatedSub;
-      });
+     const result = await prisma.vendorSubscription.update({
+  where: { id: activeSub.id },
+  data: {
+    status: "canceled",
+    endAt: now,
+    meta: {
+      ...(activeSub.meta || {}),
+      canceledAt: now.toISOString(),
+      canceledBy: userId,
+    },
+  },
+  include: { plan: true },
+});
 
       return res.json({ ok: true, subscription: result });
     } catch (e) {
