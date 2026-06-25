@@ -141,10 +141,6 @@ export default function VendorGateModal({
       list.push("Completează costul estimativ de livrare.");
     }
 
-    if (shipping.freeShippingThresholdRon === "") {
-      list.push("Completează pragul pentru transport gratuit.");
-    }
-
     if (Number(shipping.estimatedShippingFeeRon) < 0) {
       list.push("Costul de livrare nu poate fi negativ.");
     }
@@ -406,7 +402,7 @@ export default function VendorGateModal({
                           e.target.value
                         )
                       }
-                      placeholder="300"
+                      placeholder="Ex: 300 sau lasă gol"
                     />
                   </label>
                 </div>
