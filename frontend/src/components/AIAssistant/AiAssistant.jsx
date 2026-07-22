@@ -40,7 +40,7 @@ import {
   getOrderTemporaryResponse,
   getOrderImageUploadResponse,
   getOrderInputPlaceholder,
-} from "./orders/assistantOrders.js";
+} from "./Orders/AssistantOrders.js";
 
 import {
   OrdersIcon,
