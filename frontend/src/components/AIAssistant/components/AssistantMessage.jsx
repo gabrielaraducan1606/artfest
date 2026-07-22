@@ -9,8 +9,8 @@ import {
   CameraIcon,
 } from "../Products/ProductsIcons.jsx";
 
-import SupportTicketList from "../support/SupportTicketList.jsx";
-import SupportThread from "../support/SupportThread.jsx";
+import SupportTicketList from "../Support/SupportTicketList.jsx";
+import SupportThread from "../Support/SupportThread.jsx";
 
 /* =========================================================
    Configurare rute
