@@ -78,15 +78,15 @@ import {
   getSupportTemporaryResponse,
   getSupportImageUploadResponse,
   getSupportInputPlaceholder,
-} from "./support/assistantSupport.js";
+} from "./Support/assistantSupport.js";
 import {
   fetchSupportMessages,
   fetchSupportUnreadCount,
   markSupportTicketRead,
-} from "./support/supportApi.js";
+} from "./Support/supportApi.js";
 import {
   SupportIcon,
-} from "./support/SupportIcons.jsx";
+} from "./Support/SupportIcons.jsx";
 
 /* =========================================================
    Iconițe generale
