@@ -34,7 +34,7 @@ import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 import { addToGuestCart } from "../../../utils/guestCart";
 import {
   MagicIcon,
-} from "../../../components/AiAssistant/personalization/PersonalizationIcons.jsx";
+} from "../../../components/AIAssistant/Personalization/PersonalizationIcons.jsx";
 
 const ReviewsSection = lazy(() => import("./ReviewSection/ReviewSection"));
 const CommentsSection = lazy(() => import("./CommentSection/CommentSection"));
