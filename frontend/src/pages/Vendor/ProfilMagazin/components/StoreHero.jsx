@@ -3,7 +3,7 @@ import { FaCopy, FaPlus, FaCamera } from "react-icons/fa";
 import { onImgError } from "../../../../components/utils/imageFallback";
 import {
   MagicIcon,
-} from "../../../../components/AiAssistant/personalization/PersonalizationIcons.jsx";
+} from "../../../../components/AIAssistant/Personalization/PersonalizationIcons.jsx";
 
 import styles from "../ProfilMagazin.module.css";
 import OwnerStoresSwitcher from "./OwnerStoresSwitcher";
