@@ -4,7 +4,7 @@ import {
 
 import Navbar from "./Navbar";
 import Footer from "../Footer/Footer";
-import AiAssistant from "../AiAssistant/AiAssistant.jsx";
+import AiAssistant from "../AIAssistant/AiAssistant.jsx";
 
 import {
   useAuth,
