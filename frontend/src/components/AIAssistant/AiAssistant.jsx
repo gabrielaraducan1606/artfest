@@ -44,7 +44,7 @@ import {
 
 import {
   OrdersIcon,
-} from "./orders/OrderIcons.jsx";
+} from "./Orders/OrderIcons.jsx";
 
 /* =========================================================
    Personalizare
