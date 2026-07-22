@@ -9,7 +9,7 @@ import { MATERIALS_DETAILED } from "../constants/materials.js";
 
 import {
   analyzeProductImagesWithAi,
-} from "../lib/productAi.js";
+} from "../lib/productAI.js";
 
 import {
   vendorAccessRequired,
