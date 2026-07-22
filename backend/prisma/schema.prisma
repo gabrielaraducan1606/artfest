@@ -79,6 +79,7 @@ model User {
   supportTicketsDeleted   SupportTicket[]          @relation("SupportTicketDeletedBy")
   newsletterSubscriptions NewsletterSubscriber[]
   VendorAcceptance        VendorAcceptance[]
+  quoteRequests           QuoteRequest[]
 
   @@index([vendorDeactivateToken])
   @@index([emailChangeToken])
@@ -265,6 +266,8 @@ model Vendor {
   stripeDisabledReason   String?             @db.VarChar(255)
   stripeOnboardedAt      DateTime?
 
+  homepageFeatures HomepageFeature[] // ← ADĂUGAT
+
   ambassadorProfile AmbassadorProfile?
   commentReplies    Comment[]          @relation("VendorCommentReplies")
   events            Event[]
@@ -295,6 +298,7 @@ model Vendor {
   payouts            VendorPayout[]
   chatUsage          ChatUsage[]
   returnRequests     ReturnRequest[]
+  quoteRequests      QuoteRequest[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -419,6 +423,8 @@ model VendorService {
   type             ServiceType        @relation(fields: [typeId], references: [id])
   vendor           Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   VendorAcceptance VendorAcceptance[]
+  homepageFeatures HomepageFeature[]
+  quoteRequests    QuoteRequest[]
 
   @@index([vendorId, typeId])
   @@index([vendorId, createdAt], map: "vendor_service_vendor_created_idx")
@@ -521,42 +527,106 @@ model VendorSubscription {
   @@index([vendorId, stripeCustomerId])
 }
 
+enum HomepageFeatureType {
+  PRODUCT_OF_DAY
+  ARTISAN_OF_WEEK
+}
+
+enum HomepageFeatureSource {
+  AUTOMATIC
+  MANUAL
+  SPONSORED
+}
+
+enum ProductOrderMode {
+  DIRECT
+  OPTIONS
+  QUOTE_ONLY
+}
+
 model Product {
-  id                   String                  @id @default(uuid())
-  serviceId            String
-  title                String
-  description          String?
-  priceCents           Int
-  currency             String                  @default("RON")
-  images               String[]
-  isActive             Boolean                 @default(true)
-  category             String?                 @db.VarChar(64)
-  color                String?                 @db.VarChar(32)
-  availability         ProductAvailability     @default(READY)
-  leadTimeDays         Int?
-  readyQty             Int?                    @default(0)
-  acceptsCustom        Boolean                 @default(false)
-  nextShipDate         DateTime?
+  id          String   @id @default(uuid())
+  serviceId   String
+  title       String
+  description String?
+  priceCents  Int
+  currency    String   @default("RON")
+  images      String[]
+  isActive    Boolean  @default(true)
+  category    String?  @db.VarChar(64)
+  color       String?  @db.VarChar(32)
+
+  availability  ProductAvailability @default(READY)
+  leadTimeDays  Int?
+  readyQty      Int?                @default(0)
+  acceptsCustom Boolean             @default(false)
+  nextShipDate  DateTime?
+
   limitedEditionOf     Int?
   limitedEditionNumber Int?
-  isHidden             Boolean                 @default(false)
-  materialMain         String?                 @db.VarChar(120)
-  technique            String?                 @db.VarChar(160)
-  styleTags            String[]
-  occasionTags         String[]
-  dimensions           String?                 @db.VarChar(120)
-  careInstructions     String?
-  specialNotes         String?
-  popularityScore      Int                     @default(0)
-  moderationStatus     ProductModerationStatus @default(PENDING)
-  moderationMessage    String?
-  submittedAt          DateTime?
-  reviewedAt           DateTime?
-  reviewedByUserId     String?
-  approvedAt           DateTime?
-  createdAt            DateTime                @default(now())
-  updatedAt            DateTime                @updatedAt
-  colorVariants        Json?
+  isHidden             Boolean @default(false)
+
+  materialMain     String?  @db.VarChar(120)
+  technique        String?  @db.VarChar(160)
+  styleTags        String[]
+  occasionTags     String[]
+  dimensions       String?  @db.VarChar(120)
+  careInstructions String?
+  specialNotes     String?
+
+  popularityScore   Int                     @default(0)
+  moderationStatus  ProductModerationStatus @default(PENDING)
+  moderationMessage String?
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  reviewedByUserId  String?
+  approvedAt        DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  colorVariants Json?
+
+  // ==================== Mod de comandă ====================
+
+  orderMode ProductOrderMode @default(DIRECT)
+
+  // Variante selectabile:
+  // culoare, aromă, mărime, material etc.
+  optionsSchema Json?
+
+  // Date completate de client:
+  // nume, mesaj, fotografie, instrucțiuni etc.
+  customSchema Json?
+
+  // Formular pentru cererea de ofertă.
+  quoteSchema Json?
+
+  // ==================== Analiză AI ====================
+
+  // Rezultatul complet al analizei imaginilor.
+  aiVisionAnalysis Json?
+
+  // Ultima configurație de comandă propusă de AI.
+  aiOrderAnalysis Json?
+
+  // Câmpurile completate sau sugerate de AI.
+  // Ex: ["title", "category", "materialMain"].
+  aiGeneratedFields String[] @default([])
+
+  // Imaginile folosite pentru analiza vizuală.
+  aiSourceImages String[] @default([])
+
+  // Versiunea promptului/modelului folosit.
+  aiAnalysisVersion String? @db.VarChar(80)
+
+  // Încredere generală între 0 și 1.
+  aiConfidence Float?
+
+  // Data ultimei analize.
+  aiAnalyzedAt DateTime?
+
+  // Devine true dacă vânzătorul modifică manual sugestiile AI.
+  aiManuallyEdited Boolean @default(false)
 
   reviewedBy               User?                      @relation("ProductReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   cartItems                CartItem[]
@@ -567,6 +637,8 @@ model Product {
   reviews                  Review[]
   product_image_embeddings product_image_embeddings[]
   collectionItems          CollectionItem[]
+  homepageFeatures         HomepageFeature[]
+  quoteRequests            QuoteRequest[]
 
   @@index([serviceId, isActive, createdAt])
   @@index([category])
@@ -577,6 +649,8 @@ model Product {
   @@index([technique], map: "product_technique_idx")
   @@index([leadTimeDays], map: "product_leadTime_idx")
   @@index([acceptsCustom], map: "product_acceptsCustom_idx")
+  @@index([orderMode], map: "product_orderMode_idx")
+  @@index([aiAnalyzedAt], map: "product_aiAnalyzedAt_idx")
   @@index([isActive, isHidden, category, availability, priceCents, createdAt], map: "product_filters_category_price_created")
   @@index([serviceId, isActive, isHidden, popularityScore], map: "product_service_active_hidden_pop_idx")
   @@index([moderationStatus, createdAt], map: "product_moderation_created_idx")
@@ -813,19 +887,27 @@ model CommentReport {
 }
 
 model CartItem {
-  id        String   @id @default(uuid())
+  id        String @id @default(uuid())
   userId    String
   productId String
-  qty       Int      @default(1)
+  qty       Int    @default(1)
+
+  selectedOptions Json?
+  customAnswers   Json?
+
+  configurationKey String @default("default") @db.VarChar(64)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  product Product @relation(fields: [productId], references: [id])
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, productId], name: "userId_productId")
   @@index([userId])
   @@index([userId, createdAt])
+  @@index([productId])
+  @@index([configurationKey])
 }
 
 model Visitor {
@@ -945,41 +1027,79 @@ model VendorAcceptance {
 }
 
 model Order {
-  id                      String        @id @default(cuid())
-  userId                  String?
-  status                  OrderStatus   @default(PENDING)
-  paymentMethod           PaymentMethod
-  currency                String        @default("RON")
-  subtotal                Decimal       @db.Decimal(10, 2)
-  shippingTotal           Decimal       @db.Decimal(10, 2)
-  total                   Decimal       @db.Decimal(10, 2)
-  shippingAddress         Json
-  billingAddress          Json?
-  contactPerson           Json?
-  customerType            CustomerType  @default(PF)
-  shipToDifferentAddress  Boolean       @default(false)
-  createdAt               DateTime      @default(now())
-  updatedAt               DateTime      @updatedAt
-  vendorNotes             String?
-  adminNotes              String?
-  invoiceNumber           String?       @db.VarChar(64)
-  invoiceDate             DateTime?
-  orderNumber             String        @unique
-  stripeCheckoutSessionId String?       @db.VarChar(255)
-  stripePaymentIntentId   String?       @db.VarChar(255)
-  stripeChargeId          String?       @db.VarChar(255)
+  id     String  @id @default(cuid())
+  userId String?
+
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod
+  currency      String        @default("RON")
+
+  subtotal      Decimal @db.Decimal(10, 2)
+  shippingTotal Decimal @db.Decimal(10, 2)
+  total         Decimal @db.Decimal(10, 2)
+
+  shippingAddress Json
+  billingAddress  Json?
+  contactPerson   Json?
+
+  customerType           CustomerType @default(PF)
+  shipToDifferentAddress Boolean      @default(false)
+
+  // Datele clientului păstrate la momentul comenzii.
+  // Sunt completate atât pentru guest, cât și pentru utilizatorii autentificați.
+  customerName  String? @db.VarChar(160)
+  customerEmail String? @db.VarChar(320)
+  customerPhone String? @db.VarChar(40)
+
+  // false pentru comenzile actuale și comenzile făcute din cont.
+  // true pentru comenzile plasate fără cont.
+  isGuestOrder Boolean @default(false)
+
+  // Pentru acces securizat la comanda guest.
+  // În DB se va salva doar hash-ul tokenului.
+  guestAccessTokenHash String?   @unique @db.VarChar(64)
+  guestAccessExpiresAt DateTime?
+
+  // Snapshot al acordurilor acceptate în checkout.
+  checkoutConsents Json?
+
+  // Date tehnice pentru securitate și audit.
+  checkoutIp        String? @db.VarChar(64)
+  checkoutUserAgent String? @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendorNotes String?
+  adminNotes  String?
+
+  invoiceNumber String?   @db.VarChar(64)
+  invoiceDate   DateTime?
+
+  orderNumber String @unique
+
+  stripeCheckoutSessionId String?   @db.VarChar(255)
+  stripePaymentIntentId   String?   @db.VarChar(255)
+  stripeChargeId          String?   @db.VarChar(255)
   paidAt                  DateTime?
 
-  invoices             Invoice[]
-  messageThreads       MessageThread[]
-  user                 User?                @relation(fields: [userId], references: [id])
+  invoices       Invoice[]
+  messageThreads MessageThread[]
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   shipments            Shipment[]
   vendorEarningEntries VendorEarningEntry[]
   returnRequests       ReturnRequest[]
+  quoteRequest         QuoteRequest?
 
   @@index([stripePaymentIntentId])
   @@index([stripeCheckoutSessionId])
   @@index([userId, createdAt])
+  @@index([customerEmail, createdAt])
+  @@index([customerPhone])
+  @@index([isGuestOrder, createdAt])
+  @@index([guestAccessExpiresAt])
 }
 
 model Shipment {
@@ -1051,6 +1171,10 @@ model ShipmentItem {
   qty        Int
   price      Decimal @db.Decimal(10, 2)
 
+  selectedOptions  Json?
+  customAnswers    Json?
+  configurationKey String @default("default") @db.VarChar(64)
+
   originalPrice      Decimal? @db.Decimal(10, 2)
   discountAmount     Decimal  @default(0) @db.Decimal(10, 2)
   promoCollectionId  String?
@@ -1060,6 +1184,7 @@ model ShipmentItem {
 
   @@index([shipmentId])
   @@index([productId])
+  @@index([configurationKey])
   @@index([promoCollectionId])
 }
 
@@ -1185,7 +1310,6 @@ model MessageThread {
   deletedByUserAt    DateTime?
   deletedByVendorAt  DateTime?
 
-  // Vendor ↔ Vendor
   type                       MessageThreadType @default(CUSTOMER)
   recipientVendorId          String?
   recipientVendorLastReadAt  DateTime?
@@ -1198,6 +1322,8 @@ model MessageThread {
   service         VendorService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   notifications   Notification[]
   order           Order?         @relation(fields: [orderId], references: [id])
+
+  quoteRequest QuoteRequest?
 
   @@index([userId, deletedByUserAt])
   @@index([vendorId, deletedByVendorAt])
@@ -2199,8 +2325,141 @@ enum ReferralStatus {
 
 model AmbassadorSettings {
   id            Int      @id @default(1)
-  ambassadorMin Int     @default(3)
-  goldMin       Int     @default(10)
-  eliteMin      Int     @default(25)
+  ambassadorMin Int      @default(3)
+  goldMin       Int      @default(10)
+  eliteMin      Int      @default(25)
   updatedAt     DateTime @updatedAt
+}
+
+model HomepageFeature {
+  id String @id @default(cuid())
+
+  type    HomepageFeatureType
+  dateKey String              @db.VarChar(20)
+
+  source HomepageFeatureSource @default(AUTOMATIC)
+
+  productId String?
+  serviceId String?
+  vendorId  String?
+
+  startsAt DateTime
+  endsAt   DateTime
+
+  impressions Int @default(0)
+  clicks      Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  service VendorService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  vendor  Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  @@unique([type, dateKey])
+  @@index([type, startsAt, endsAt])
+  @@index([productId])
+  @@index([serviceId])
+  @@index([vendorId])
+  @@index([source, startsAt, endsAt])
+}
+
+enum QuoteRequestStatus {
+  DRAFT
+  SUBMITTED
+  IN_DISCUSSION
+  OFFER_SENT
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum QuoteRequestSource {
+  PRODUCT
+  STORE
+  CUSTOM
+}
+
+enum QuoteOfferStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+}
+
+model QuoteRequest {
+  id String @id @default(cuid())
+
+  userId    String
+  vendorId  String
+  serviceId String?
+  productId String?
+
+  threadId String? @unique
+  orderId  String? @unique
+
+  source QuoteRequestSource
+  status QuoteRequestStatus @default(DRAFT)
+
+  quantity Int?
+
+  requestData        Json?
+  quoteSchemaAnswers Json?
+
+  eventDate        DateTime?
+  deliveryDeadline DateTime?
+
+  budgetMin Int?
+  budgetMax Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor  Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  service VendorService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  product Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  thread MessageThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  order  Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  offers QuoteOffer[]
+
+  @@index([userId, createdAt])
+  @@index([vendorId, createdAt])
+  @@index([productId])
+  @@index([status])
+}
+
+model QuoteOffer {
+  id String @id @default(cuid())
+
+  quoteRequestId String
+
+  status QuoteOfferStatus @default(DRAFT)
+
+  items Json
+
+  subtotal      Decimal @db.Decimal(10, 2)
+  shippingTotal Decimal @default(0) @db.Decimal(10, 2)
+  total         Decimal @db.Decimal(10, 2)
+
+  currency String @default("RON")
+
+  productionDays    Int?
+  estimatedDelivery DateTime?
+  validUntil        DateTime?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quoteRequest QuoteRequest @relation(fields: [quoteRequestId], references: [id], onDelete: Cascade)
+
+  @@index([quoteRequestId, createdAt])
+  @@index([status])
 }

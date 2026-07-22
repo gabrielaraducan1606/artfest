@@ -108,14 +108,22 @@ export async function api(path, opts = {}) {
 
   // IMPORTANT: NU “înghițim” 401. Orice non-2xx => throw.
   if (!res.ok) {
-    const msg =
-      (data && (data.error || data.message)) || `Request failed (${res.status})`;
-    const err = new Error(msg);
-    err.status = res.status;
-    err.data = data;
-    throw err;
-  }
+  const message =
+    data?.message ||
+    data?.error ||
+    `Request failed (${res.status})`;
 
+  const err = new Error(message);
+
+  err.status = res.status;
+  err.code =
+    data?.error ||
+    "request_failed";
+
+  err.data = data;
+
+  throw err;
+}
   return data;
 }
 

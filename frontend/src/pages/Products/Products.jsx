@@ -10,7 +10,7 @@ import {
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api.js";
 import styles from "./Products.module.css";
-import { guestCart } from "../../lib/guestCart";
+import { addToGuestCart } from "../../utils/guestCart";
 import ProductCard from "../Vendor/ProfilMagazin/components/ProductCard";
 import { SEO } from "../../components/Seo/SeoProvider";
 import { SEO_CATEGORIES } from "../../constants/seoCategories";
@@ -22,6 +22,9 @@ import {
   FaCamera,
 } from "react-icons/fa";
 import { useImageSearch } from "../../hooks/useImageSearch";
+import {
+  getProductSearchResults,
+} from "../../components/AIAssistant/Products/assistantProducts.js";
 
 const SORTS = [
   { v: "new", label: "Cele mai noi" },
@@ -199,7 +202,8 @@ export default function ProductsPage() {
   } = useImageSearch();
 
   const ids = params.get("ids") || "";
-
+const visualSearchId =
+  params.get("visualSearchId") || "";
   const qParam = params.get("q") || "";
   const categoryParam = params.get("categorie") || params.get("category") || "";
   const currentSeoCategory = categoryParam ? SEO_CATEGORIES[categoryParam] : null;
@@ -273,27 +277,11 @@ const [suggestionsClosed, setSuggestionsClosed] = useState(false);
 
   const deferredQ = useDeferredValue(localFilters.q || "");
 
-  const productsQueryKey = useMemo(
-    () =>
-      JSON.stringify({
-        ids,
-        qParam,
-        categoryParam,
-        cityParam,
-        sortParam,
-        minPriceParam,
-        maxPriceParam,
-        colorParam,
-        materialParam,
-        techniqueParam,
-        styleTagParam,
-        occasionTagParam,
-        availabilityParam,
-        acceptsCustomParam,
-        leadTimeMaxParam,
-      }),
-    [
+const productsQueryKey = useMemo(
+  () =>
+    JSON.stringify({
       ids,
+      visualSearchId,
       qParam,
       categoryParam,
       cityParam,
@@ -308,10 +296,28 @@ const [suggestionsClosed, setSuggestionsClosed] = useState(false);
       availabilityParam,
       acceptsCustomParam,
       leadTimeMaxParam,
-    ]
-  );
+    }),
+  [
+    ids,
+    visualSearchId,
+    qParam,
+    categoryParam,
+    cityParam,
+    sortParam,
+    minPriceParam,
+    maxPriceParam,
+    colorParam,
+    materialParam,
+    techniqueParam,
+    styleTagParam,
+    occasionTagParam,
+    availabilityParam,
+    acceptsCustomParam,
+    leadTimeMaxParam,
+  ]
+);
 
-  const saveProductsScrollState = useCallback(() => {
+const saveProductsScrollState = useCallback(() => {
   try {
     sessionStorage.setItem(
       PRODUCTS_SCROLL_KEY,
@@ -353,38 +359,211 @@ const [suggestionsClosed, setSuggestionsClosed] = useState(false);
       else setIsLoadingMore(true);
 
       try {
-        const p = buildProductsSearch({
-          page: pageToLoad,
-          limit: LIMIT,
-          ids,
-          qParam,
-          categoryParam,
-          cityParam,
-          sortParam,
-          minPriceParam,
-          maxPriceParam,
-          colorParam,
-          materialParam,
-          techniqueParam,
-          styleTagParam,
-          occasionTagParam,
-          availabilityParam,
-          leadTimeMaxParam,
-          acceptsCustomParam,
-        });
+       let res;
 
-        const res = await api(`/api/public/products?${p.toString()}`);
+if (visualSearchId) {
+  const visualResult =
+    await getProductSearchResults({
+      searchId: visualSearchId,
+      page: pageToLoad,
+      limit: LIMIT,
+    });
+
+  const visualProducts =
+    Array.isArray(
+      visualResult?.products
+    )
+      ? visualResult.products
+      : [];
+
+  const visualIds =
+    visualProducts
+      .map((product) =>
+        String(
+          product?.id || ""
+        ).trim()
+      )
+      .filter(Boolean);
+
+  if (!visualIds.length) {
+    res = {
+      items: [],
+      total:
+        Number(
+          visualResult?.total
+        ) || 0,
+
+      hasMore: false,
+
+      smart: {
+        type:
+          "visual-search",
+
+        analysis:
+          visualResult?.analysis ||
+          null,
+      },
+
+      appliedFilters:
+        visualResult?.filters ||
+        null,
+    };
+  } else {
+    const fullProductsParams =
+      buildProductsSearch({
+        page: 1,
+        limit:
+          visualIds.length,
+        ids:
+          visualIds.join(","),
+      });
+
+    const fullProductsResponse =
+      await api(
+        `/api/public/products?${fullProductsParams.toString()}`
+      );
+
+    const fullProducts =
+      Array.isArray(
+        fullProductsResponse?.items
+      )
+        ? fullProductsResponse.items
+        : [];
+
+    const fullProductsMap =
+      new Map(
+        fullProducts.map(
+          (product) => [
+            String(product.id),
+            product,
+          ]
+        )
+      );
+
+    /*
+     * Refacem ordinea stabilită de AI
+     * și păstrăm scorul de similaritate.
+     */
+    const orderedProducts =
+      visualProducts
+        .map(
+          (visualProduct) => {
+            const fullProduct =
+              fullProductsMap.get(
+                String(
+                  visualProduct.id
+                )
+              );
+
+            if (!fullProduct) {
+              return null;
+            }
+
+            return {
+              ...fullProduct,
+
+              similarity:
+                visualProduct
+                  .similarity ??
+                null,
+            };
+          }
+        )
+        .filter(Boolean);
+
+    res = {
+      items:
+        orderedProducts,
+
+      total:
+        Number(
+          visualResult?.total
+        ) ||
+        orderedProducts.length,
+
+      hasMore:
+        Number(
+          visualResult?.page
+        ) <
+        Number(
+          visualResult
+            ?.totalPages
+        ),
+
+      smart: {
+        type:
+          "visual-search",
+
+        analysis:
+          visualResult?.analysis ||
+          null,
+      },
+
+      appliedFilters:
+        visualResult?.filters ||
+        null,
+    };
+  }
+} else {
+  const p =
+    buildProductsSearch({
+      page: pageToLoad,
+      limit: LIMIT,
+      ids,
+      qParam,
+      categoryParam,
+      cityParam,
+      sortParam,
+      minPriceParam,
+      maxPriceParam,
+      colorParam,
+      materialParam,
+      techniqueParam,
+      styleTagParam,
+      occasionTagParam,
+      availabilityParam,
+      leadTimeMaxParam,
+      acceptsCustomParam,
+    });
+
+  res = await api(
+    `/api/public/products?${p.toString()}`
+  );
+}
 
         if (requestId !== productsRequestIdRef.current) return;
 
-        const rawItems = Array.isArray(res?.items) ? res.items : [];
-        const normalizedItems = normalizeProducts(rawItems);
-        const serverHasMore = !!res?.hasMore;
+        const rawItems =
+  Array.isArray(res?.items)
+    ? res.items
+    : [];
 
-        setItems((prev) => {
-          if (!append) return normalizedItems;
-          return mergeUniqueById(prev, normalizedItems);
-        });
+const normalizedItems =
+  normalizeProducts(rawItems);
+
+const serverHasMore =
+  !!res?.hasMore;
+
+if (!append && pageToLoad === 1) {
+  try {
+    sessionStorage.removeItem(
+      PRODUCTS_SCROLL_KEY
+    );
+  } catch {
+    // ignore
+  }
+}
+
+setItems((prev) => {
+  if (!append) {
+    return normalizedItems;
+  }
+
+  return mergeUniqueById(
+    prev,
+    normalizedItems
+  );
+});
 
         if (!append) {
           setFacets(extractFacetsFromItems(normalizedItems));
@@ -429,23 +608,24 @@ const [suggestionsClosed, setSuggestionsClosed] = useState(false);
         }
       }
     },
-    [
-      ids,
-      qParam,
-      categoryParam,
-      cityParam,
-      sortParam,
-      minPriceParam,
-      maxPriceParam,
-      colorParam,
-      materialParam,
-      techniqueParam,
-      styleTagParam,
-      occasionTagParam,
-      availabilityParam,
-      leadTimeMaxParam,
-      acceptsCustomParam,
-    ]
+  [
+  ids,
+  visualSearchId,
+  qParam,
+  categoryParam,
+  cityParam,
+  sortParam,
+  minPriceParam,
+  maxPriceParam,
+  colorParam,
+  materialParam,
+  techniqueParam,
+  styleTagParam,
+  occasionTagParam,
+  availabilityParam,
+  leadTimeMaxParam,
+  acceptsCustomParam,
+]
   );
 
   useEffect(() => {
@@ -543,51 +723,128 @@ const [suggestionsClosed, setSuggestionsClosed] = useState(false);
   }, [me]);
 
 useEffect(() => {
-  try {
-    const raw = sessionStorage.getItem(PRODUCTS_SCROLL_KEY);
-    if (!raw) {
-      loadProducts(1, false);
-      return;
-    }
+  let active = true;
 
-    const saved = JSON.parse(raw);
-    const currentPath = window.location.pathname + window.location.search;
+  const restoreOrLoadProducts = async () => {
+    try {
+      const raw = sessionStorage.getItem(
+        PRODUCTS_SCROLL_KEY
+      );
 
-    if (saved?.path !== currentPath || !Array.isArray(saved.items)) {
-      loadProducts(1, false);
-      return;
-    }
+      if (!raw) {
+        await loadProducts(1, false);
+        return;
+      }
 
-    setItems(saved.items);
-    setPage(saved.page || 1);
-    setHasMore(saved.hasMore ?? true);
-    setTotal(saved.total ?? null);
-    setFacets(saved.facets || {
-      categories: [],
-      colors: [],
-      materials: [],
-      techniques: [],
-      styleTags: [],
-      occasionTags: [],
-      priceMin: "",
-      priceMax: "",
-    });
-    setSmartInfo(saved.smartInfo || null);
-    setAppliedFiltersInfo(saved.appliedFiltersInfo || null);
+      const saved = JSON.parse(raw);
 
-    initialLoadDoneRef.current = true;
-    shouldRestoreScrollRef.current = true;
-    setLoading(false);
+      const currentPath =
+        window.location.pathname +
+        window.location.search;
 
-    requestAnimationFrame(() => {
+      const samePath =
+        saved?.path === currentPath;
+
+      const hasSavedItems =
+        Array.isArray(saved?.items);
+
+      if (!samePath || !hasSavedItems) {
+        sessionStorage.removeItem(
+          PRODUCTS_SCROLL_KEY
+        );
+
+        await loadProducts(1, false);
+        return;
+      }
+
+      if (!active) {
+        return;
+      }
+
+      /*
+       * Restaurăm produsele și poziția.
+       */
+      setItems(saved.items);
+
+      /*
+       * Important:
+       * păstrăm pagina 1 ca să nu pornească
+       * simultan requestul de infinite scroll.
+       */
+      setPage(1);
+
+      setHasMore(
+        saved.hasMore ?? true
+      );
+
+      setTotal(
+        saved.total ?? null
+      );
+
+      setFacets(
+        saved.facets || {
+          categories: [],
+          colors: [],
+          materials: [],
+          techniques: [],
+          styleTags: [],
+          occasionTags: [],
+          priceMin: "",
+          priceMax: "",
+        }
+      );
+
+      setSmartInfo(
+        saved.smartInfo || null
+      );
+
+      setAppliedFiltersInfo(
+        saved.appliedFiltersInfo || null
+      );
+
+      initialLoadDoneRef.current = true;
+      shouldRestoreScrollRef.current = true;
+
+      setLoading(false);
+
       requestAnimationFrame(() => {
-        window.scrollTo(0, Number(saved.scrollY || 0));
+        requestAnimationFrame(() => {
+          window.scrollTo(
+            0,
+            Number(saved.scrollY || 0)
+          );
+        });
       });
-    });
-  } catch {
-    loadProducts(1, false);
-  }
-}, [productsQueryKey, loadProducts]);
+
+      /*
+       * Cerem versiunea actuală din backend.
+       */
+      await loadProducts(1, false);
+    } catch (error) {
+      console.error(
+        "Products restore error:",
+        error
+      );
+
+      sessionStorage.removeItem(
+        PRODUCTS_SCROLL_KEY
+      );
+
+      if (active) {
+        await loadProducts(1, false);
+      }
+    }
+  };
+
+  restoreOrLoadProducts();
+
+  return () => {
+    active = false;
+  };
+}, [
+  productsQueryKey,
+  loadProducts,
+]);
 
   useEffect(() => {
     if (page === 1) return;
@@ -676,28 +933,90 @@ useEffect(() => {
     return () => observer.disconnect();
   }, [loading, refreshing, isLoadingMore, hasMore]);
 
-  const doAddToCart = useCallback(
-    async (productId) => {
+const doAddToCart = useCallback(
+  async (productId) => {
+    const product = items.find((item) => item.id === productId);
+
+    const hasOptions =
+  Array.isArray(product?.optionsSchema) &&
+  product.optionsSchema.length > 0;
+
+const hasCustomFields =
+  Array.isArray(product?.customSchema) &&
+  product.customSchema.length > 0;
+
+const requiresConfiguration =
+  hasOptions ||
+  hasCustomFields ||
+  product?.orderMode === "CONFIGURABLE";
+
+if (requiresConfiguration) {
+  saveProductsScrollState();
+  navigate(`/produs/${productId}`);
+  return;
+}
+
+    try {
       if (me) {
-        const r = await api(`/api/cart/add`, {
+        const result = await api("/api/cart/add", {
           method: "POST",
-          body: { productId, qty: 1 },
+          body: {
+            productId,
+            qty: 1,
+            selectedOptions: {},
+            customAnswers: {},
+          },
         });
-        if (r?.__unauth) guestCart.add(productId, 1);
+
+        if (result?.__unauth) {
+          addToGuestCart(productId, 1);
+        }
       } else {
-        guestCart.add(productId, 1);
+        addToGuestCart(productId, 1);
       }
 
-      try {
-        window.dispatchEvent(new CustomEvent("cart:changed"));
-      } catch {
-        // ignore
-      }
+      window.dispatchEvent(new CustomEvent("cart:changed"));
 
       alert("Produs adăugat în coș.");
-    },
-    [me]
-  );
+    } catch (error) {
+      console.error("Add to cart error:", error);
+
+      const code =
+        error?.code ||
+        error?.data?.error;
+
+      if (code === "insufficient_stock") {
+        alert(
+          error?.data?.message ||
+            "Nu sunt disponibile suficiente produse."
+        );
+        return;
+      }
+
+      if (code === "product_sold_out") {
+        alert("Produsul este epuizat.");
+        return;
+      }
+
+      if (code === "product_unavailable") {
+        alert("Produsul nu mai este disponibil.");
+        return;
+      }
+
+      alert(
+        error?.data?.message ||
+          error?.message ||
+          "Produsul nu a putut fi adăugat în coș."
+      );
+    }
+  },
+  [
+    me,
+    items,
+    navigate,
+    saveProductsScrollState,
+  ]
+);
 
   const toggleFavorite = useCallback(
     async (productId) => {
@@ -823,7 +1142,12 @@ useEffect(() => {
   const applyFilters = useCallback(() => {
     const f = localFilters;
     const p = new URLSearchParams();
-
+if (visualSearchId) {
+  p.set(
+    "visualSearchId",
+    visualSearchId
+  );
+}
     if (ids) p.set("ids", ids);
 
     if (f.q) p.set("q", f.q);
@@ -841,14 +1165,25 @@ useEffect(() => {
     if (f.leadTimeMax) p.set("leadTimeMax", f.leadTimeMax);
     if (f.acceptsCustom) p.set("acceptsCustom", "1");
 
-    if (!ids && f.sort) p.set("sort", f.sort);
+    if (
+  !ids &&
+  !visualSearchId &&
+  f.sort
+) {
+  p.set("sort", f.sort);
+}
 
     p.set("page", "1");
 
     setFiltersOpen(false);
     setSuggestions(null);
     navigate(`/produse?${p.toString()}`);
-  }, [ids, localFilters, navigate]);
+}, [
+  ids,
+  visualSearchId,
+  localFilters,
+  navigate,
+]);
 
   const resetFilters = useCallback(() => {
     setLocalFilters({
@@ -873,11 +1208,27 @@ useEffect(() => {
     navigate("/produse");
   }, [navigate]);
 
-  const clearImageIds = useCallback(() => {
-    const p = new URLSearchParams(params);
+const clearImageSearch =
+  useCallback(() => {
+    const p =
+      new URLSearchParams(
+        params
+      );
+
     p.delete("ids");
+    p.delete(
+      "visualSearchId"
+    );
     p.delete("page");
-    navigate(`/produse?${p.toString()}`);
+
+    const query =
+      p.toString();
+
+    navigate(
+      query
+        ? `/produse?${query}`
+        : "/produse"
+    );
   }, [navigate, params]);
 
   const handleSuggestionCategoryClick = useCallback(
@@ -995,11 +1346,29 @@ useEffect(() => {
       Artfest Marketplace
     </span>
 
-    <h1 className={styles.h1}>
-      {currentSeoCategory?.h1 || "Produse"}
-    </h1>
+   <h1 className={styles.h1}>
+  {visualSearchId
+    ? "Produse similare cu fotografia ta"
+    : currentSeoCategory?.h1 ||
+      "Produse"}
+</h1>
 
-    {currentSeoCategory?.intro ? (
+{visualSearchId && (
+  <p
+    className={
+      styles.categoryIntro
+    }
+  >
+    Am analizat stilul,
+    culorile, materialele și
+    forma din fotografie pentru
+    a selecta cele mai potrivite
+    produse Artfest.
+  </p>
+)}
+
+    {!visualSearchId &&
+currentSeoCategory?.intro ? (
       <p className={styles.categoryIntro}>
         {currentSeoCategory.intro}
       </p>
@@ -1192,20 +1561,34 @@ useEffect(() => {
 
         <ActiveFilterChips params={params} navigate={navigate} />
 
-        {ids && (
-          <div className={styles.imageSearchNotice}>
-            <span className={styles.imageSearchText}>
-              Rezultate după imagine — ordinea este de similaritate. Poți rafina
-              cu filtrele.
-            </span>
-            <button
-              onClick={clearImageIds}
-              className={`${styles.btnPrimary} ${styles.imageSearchBtn}`}
-            >
-              Resetează imaginea
-            </button>
-          </div>
-        )}
+       {(ids || visualSearchId) && (
+  <div
+    className={
+      styles.imageSearchNotice
+    }
+  >
+    <span
+      className={
+        styles.imageSearchText
+      }
+    >
+      Rezultate găsite după
+      fotografia ta. Produsele
+      sunt afișate în ordinea
+      similarității vizuale.
+    </span>
+
+    <button
+      type="button"
+      onClick={
+        clearImageSearch
+      }
+      className={`${styles.btnPrimary} ${styles.imageSearchBtn}`}
+    >
+      Resetează căutarea vizuală
+    </button>
+  </div>
+)}
       </header>
 
       {filtersOpen && (
@@ -1452,12 +1835,15 @@ useEffect(() => {
                 onChange={(e) =>
                   setLocalFilters((f) => ({ ...f, sort: e.target.value }))
                 }
-                disabled={!!ids}
-                title={
-                  ids
-                    ? "Sortarea este fixă (ordine de similaritate)"
-                    : "Sortează"
-                }
+                disabled={
+  Boolean(ids) ||
+  Boolean(visualSearchId)
+}
+               title={
+  ids || visualSearchId
+    ? "Sortarea este stabilită după gradul de similaritate"
+    : "Sortează produsele"
+}
               >
                 {SORTS.map((s) => (
                   <option key={s.v} value={s.v}>

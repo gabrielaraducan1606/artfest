@@ -1651,3 +1651,915 @@
     justify-content: flex-end;
   }
 }
+
+/* =========================================================
+   CERERE DE OFERTĂ ÎN CONVERSAȚIE
+========================================================= */
+
+.quotePanel {
+  margin: 10px 14px 0;
+  padding: 14px;
+
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-primary) 24%,
+      var(--color-border)
+    );
+
+  border-radius: 16px;
+
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(
+        in srgb,
+        var(--color-primary) 7%,
+        var(--surface)
+      ),
+      var(--surface)
+    );
+
+  box-shadow: var(--msg-shadow-sm);
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  flex: 0 0 auto;
+
+  max-height: 360px;
+  overflow-y: auto;
+
+  scrollbar-width: thin;
+}
+
+.quotePanel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.quotePanel::-webkit-scrollbar-thumb {
+  background: color-mix(
+    in srgb,
+    var(--color-text, #111) 16%,
+    transparent
+  );
+  border-radius: 999px;
+}
+
+.quotePanelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.quotePanelInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.quotePanelEyebrow {
+  margin-bottom: 4px;
+  color: var(--color-primary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quotePanelTitle {
+  color: var(--color-text, inherit);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.quotePanelMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 7px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.quotePanelMeta strong {
+  color: var(--color-text, inherit);
+  font-weight: 700;
+}
+
+.quoteProductImage {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  display: block;
+  object-fit: cover;
+  border-radius: 13px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.quoteRequestText {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--msg-border-soft);
+  background: var(--color-bg);
+  color: var(--color-text, inherit);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.quoteRequestText strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.quoteRequestText p {
+  margin: 0;
+  color: var(--color-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quoteExistingOffer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-primary) 22%,
+      var(--color-border)
+    );
+  background: var(--msg-primary-soft);
+  color: var(--color-text, inherit);
+  font-size: 12px;
+}
+
+.quoteExistingOffer > div {
+  display: grid;
+  gap: 2px;
+}
+
+.quoteExistingOffer > div > span {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.quoteExistingOffer > strong {
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.quotePrimaryBtn,
+.quoteSecondaryBtn {
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition:
+    filter 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.05s ease;
+}
+
+.quotePrimaryBtn {
+  width: fit-content;
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.quotePrimaryBtn:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.quoteSecondaryBtn {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text, inherit);
+}
+
+.quoteSecondaryBtn:hover:not(:disabled) {
+  background: var(--msg-hover);
+}
+
+.quotePrimaryBtn:active:not(:disabled),
+.quoteSecondaryBtn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.quotePrimaryBtn:disabled,
+.quoteSecondaryBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.quoteOfferForm {
+  display: grid;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.quoteFormGrid {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 1fr);
+  gap: 10px;
+}
+
+.quoteFormGrid label,
+.quoteNotesLabel {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.quoteFormGrid label > span,
+.quoteNotesLabel > span {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.quoteMoneyInput,
+.quoteDaysInput {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: var(--color-bg);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.quoteMoneyInput:focus-within,
+.quoteDaysInput:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px
+    color-mix(
+      in srgb,
+      var(--color-primary) 18%,
+      transparent
+    );
+}
+
+.quoteMoneyInput input,
+.quoteDaysInput input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  padding: 9px 10px;
+  background: transparent;
+  color: var(--color-text, inherit);
+  font-size: 12px;
+}
+
+.quoteMoneyInput > span,
+.quoteDaysInput > span {
+  align-self: stretch;
+  padding: 0 9px;
+  border-left: 1px solid var(--color-border);
+  background:
+    color-mix(
+      in srgb,
+      var(--color-text, #111) 5%,
+      transparent
+    );
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.quoteNotesLabel textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  outline: none;
+  background: var(--color-bg);
+  color: var(--color-text, inherit);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  box-sizing: border-box;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.quoteNotesLabel textarea::placeholder {
+  color: var(--color-muted);
+}
+
+.quoteNotesLabel textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px
+    color-mix(
+      in srgb,
+      var(--color-primary) 18%,
+      transparent
+    );
+}
+
+.quoteOfferSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 18px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background:
+    color-mix(
+      in srgb,
+      var(--color-text, #111) 5%,
+      transparent
+    );
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.quoteOfferSummary strong {
+  color: var(--color-text, inherit);
+}
+
+.quoteOfferError {
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-danger) 35%,
+      var(--color-border)
+    );
+  background:
+    color-mix(
+      in srgb,
+      var(--color-danger) 9%,
+      var(--surface)
+    );
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.quoteOfferActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* =========================================================
+   CERERE DE OFERTĂ – MOBIL
+========================================================= */
+
+@media (max-width: 768px) {
+  .quotePanel {
+    margin: 10px 10px 0;
+    padding: 12px;
+    max-height: 44dvh;
+    overflow-y: auto;
+    border-radius: 15px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .quotePanelHead {
+    gap: 10px;
+  }
+
+  .quoteProductImage {
+    width: 56px;
+    height: 56px;
+    flex-basis: 56px;
+    border-radius: 12px;
+  }
+
+  .quotePanelTitle {
+    font-size: 13px;
+  }
+
+  .quotePanelMeta {
+    gap: 5px 10px;
+  }
+
+  .quoteFormGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .quoteMoneyInput input,
+  .quoteDaysInput input {
+    min-height: 42px;
+    font-size: 14px;
+  }
+
+  .quoteNotesLabel textarea {
+    min-height: 82px;
+    font-size: 14px;
+  }
+
+  .quoteOfferSummary {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .quoteOfferActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .quoteOfferActions .quotePrimaryBtn,
+  .quoteOfferActions .quoteSecondaryBtn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .quotePanel > .quotePrimaryBtn {
+    width: 100%;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 768px) {
+  .quotePanel {
+    max-height: 42vh;
+  }
+}
+
+/* =========================================================
+   MODAL TRIMITERE OFERTĂ
+========================================================= */
+
+.quoteModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-text, #111) 42%,
+      transparent
+    );
+
+  backdrop-filter: blur(4px);
+}
+
+.quoteModal {
+  width: min(620px, 100%);
+  max-height: min(82vh, 760px);
+
+  overflow-y: auto;
+
+  padding: 20px;
+
+  border-radius: 18px;
+  border: 1px solid var(--color-border);
+
+  background: var(--surface);
+  color: var(--color-text, inherit);
+
+  box-shadow:
+    0 24px 70px
+      color-mix(
+        in srgb,
+        var(--color-text, #111) 28%,
+        transparent
+      );
+
+  scrollbar-width: thin;
+}
+
+.quoteModal::-webkit-scrollbar {
+  width: 8px;
+}
+
+.quoteModal::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-text, #111) 16%,
+      transparent
+    );
+}
+
+.quoteModalHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 16px;
+
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+
+  border-bottom: 1px solid var(--color-border);
+}
+
+.quoteModalHead h2 {
+  margin: 2px 0 4px;
+
+  font-size: 20px;
+  line-height: 1.25;
+
+  color: var(--color-text, inherit);
+}
+
+.quoteModalHead p {
+  margin: 0;
+
+  color: var(--color-muted);
+
+  font-size: 12px;
+}
+
+.quoteModalClose {
+  width: 38px;
+  height: 38px;
+
+  flex: 0 0 38px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+
+  background: var(--surface);
+  color: var(--color-muted);
+
+  cursor: pointer;
+
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.05s ease;
+}
+
+.quoteModalClose:hover:not(:disabled) {
+  background: var(--msg-hover);
+  color: var(--color-text, inherit);
+}
+
+.quoteModalClose:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.quoteModalClose:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* =========================================================
+   FORMULAR DIN MODAL
+========================================================= */
+
+.quoteModal .quoteOfferForm {
+  display: grid;
+  gap: 16px;
+}
+
+.quoteModal .quoteFormGrid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      3,
+      minmax(0, 1fr)
+    );
+
+  gap: 12px;
+}
+
+.quoteModal .quoteFormGrid label,
+.quoteModal .quoteNotesLabel {
+  display: grid;
+  gap: 6px;
+
+  min-width: 0;
+}
+
+.quoteModal .quoteFormGrid label > span,
+.quoteModal .quoteNotesLabel > span {
+  color: var(--color-muted);
+
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.quoteModal .quoteMoneyInput,
+.quoteModal .quoteDaysInput {
+  min-width: 0;
+
+  display: flex;
+  align-items: center;
+
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+
+  background: var(--color-bg);
+
+  overflow: hidden;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.quoteModal .quoteMoneyInput:focus-within,
+.quoteModal .quoteDaysInput:focus-within {
+  border-color: var(--color-primary);
+
+  box-shadow:
+    0 0 0 3px
+      color-mix(
+        in srgb,
+        var(--color-primary) 18%,
+        transparent
+      );
+}
+
+.quoteModal .quoteMoneyInput input,
+.quoteModal .quoteDaysInput input {
+  flex: 1;
+  min-width: 0;
+
+  border: none;
+  outline: none;
+
+  padding: 10px 11px;
+
+  background: transparent;
+  color: var(--color-text, inherit);
+
+  font: inherit;
+  font-size: 13px;
+}
+
+.quoteModal .quoteMoneyInput > span,
+.quoteModal .quoteDaysInput > span {
+  padding: 0 11px;
+
+  color: var(--color-muted);
+
+  font-size: 11px;
+  font-weight: 700;
+
+  white-space: nowrap;
+}
+
+.quoteModal .quoteNotesLabel textarea {
+  width: 100%;
+  min-height: 104px;
+
+  resize: vertical;
+
+  box-sizing: border-box;
+
+  padding: 11px 12px;
+
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+
+  outline: none;
+
+  background: var(--color-bg);
+  color: var(--color-text, inherit);
+
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.quoteModal .quoteNotesLabel textarea:focus {
+  border-color: var(--color-primary);
+
+  box-shadow:
+    0 0 0 3px
+      color-mix(
+        in srgb,
+        var(--color-primary) 18%,
+        transparent
+      );
+}
+
+.quoteModal .quoteOfferSummary {
+  display: grid;
+  gap: 8px;
+
+  padding: 12px 14px;
+
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 6%,
+      var(--surface)
+    );
+}
+
+.quoteModal .quoteOfferSummary > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+
+  color: var(--color-muted);
+
+  font-size: 12px;
+}
+
+.quoteModal .quoteOfferSummary > span:last-child {
+  margin-top: 3px;
+  padding-top: 9px;
+
+  border-top: 1px solid var(--color-border);
+
+  color: var(--color-text, inherit);
+
+  font-weight: 700;
+}
+
+.quoteModal .quoteOfferSummary strong {
+  color: var(--color-text, inherit);
+  white-space: nowrap;
+}
+
+.quoteModal .quoteOfferSummary > span:last-child strong {
+  color: var(--color-primary);
+  font-size: 15px;
+}
+
+.quoteModal .quoteOfferError {
+  padding: 10px 12px;
+
+  border-radius: 12px;
+
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-danger) 35%,
+      var(--color-border)
+    );
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-danger) 8%,
+      var(--surface)
+    );
+
+  color: var(--color-danger);
+
+  font-size: 12px;
+}
+
+.quoteModal .quoteOfferActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  padding-top: 4px;
+}
+
+.quoteModal .quotePrimaryBtn,
+.quoteModal .quoteSecondaryBtn {
+  min-width: 130px;
+  min-height: 42px;
+}
+
+/* =========================================================
+   MODAL OFERTĂ – MOBIL
+========================================================= */
+
+@media (max-width: 768px) {
+  .quoteModalBackdrop {
+    align-items: flex-end;
+
+    padding: 0;
+  }
+
+  .quoteModal {
+    width: 100%;
+    max-height: 90vh;
+
+    padding: 16px;
+
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+
+    border-radius: 18px 18px 0 0;
+
+    box-shadow:
+      0 -18px 50px
+        color-mix(
+          in srgb,
+          var(--color-text, #111) 25%,
+          transparent
+        );
+  }
+
+  .quoteModalHead {
+    position: sticky;
+    top: -16px;
+    z-index: 2;
+
+    margin: -16px -16px 16px;
+    padding: 16px;
+
+    background: var(--surface);
+  }
+
+  .quoteModalHead h2 {
+    font-size: 18px;
+  }
+
+  .quoteModal .quoteFormGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .quoteModal .quoteMoneyInput input,
+  .quoteModal .quoteDaysInput input {
+    min-height: 44px;
+
+    font-size: 16px;
+  }
+
+  .quoteModal .quoteNotesLabel textarea {
+    min-height: 120px;
+
+    font-size: 16px;
+  }
+
+  .quoteModal .quoteOfferActions {
+    position: sticky;
+    bottom: -16px;
+
+    display: grid;
+
+    grid-template-columns:
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
+
+    margin: 4px -16px -16px;
+    padding: 12px 16px 16px;
+
+    border-top: 1px solid var(--color-border);
+
+    background: var(--surface);
+  }
+
+  .quoteModal .quotePrimaryBtn,
+  .quoteModal .quoteSecondaryBtn {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+  }
+}

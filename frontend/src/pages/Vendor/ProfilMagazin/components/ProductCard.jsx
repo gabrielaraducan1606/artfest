@@ -22,6 +22,7 @@ import {
 } from "../../../../components/utils/imageFallback";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { api } from "../../../../lib/api";
+import { addToGuestCart } from "../../../../utils/guestCart";
 
 const humanizeSlug = (slug = "", { dropPrefix = false } = {}) => {
   if (!slug || typeof slug !== "string") return "";
@@ -94,6 +95,12 @@ function badgeToneClass(tone) {
   return "";
 }
 
+function getSchemaFields(schema) {
+  if (Array.isArray(schema)) return schema;
+  if (Array.isArray(schema?.fields)) return schema.fields;
+  return [];
+}
+
 function ProductCard({
   p,
   viewMode,
@@ -158,6 +165,13 @@ function ProductCard({
       price = Number(p.price);
     }
 
+    const orderMode =
+      p?.orderMode === "DIRECT"
+        ? "READY_TO_BUY"
+        : p?.orderMode === "CUSTOMIZABLE"
+        ? "OPTIONS"
+        : p?.orderMode || "READY_TO_BUY";
+
     return {
       id: p?.id || p?._id || "",
       title: p?.title || "Produs",
@@ -178,14 +192,27 @@ function ProductCard({
       readyQty,
       acceptsCustom: !!p?.acceptsCustom,
       nextShipDate: p?.nextShipDate || null,
-      originalPrice:
-  Number.isFinite(Number(p?.originalPrice)) ? Number(p.originalPrice) : null,
-hasDiscount: !!p?.hasDiscount,
-discountPercent: Number.isFinite(Number(p?.discountPercent))
-  ? Number(p.discountPercent)
-  : 0,
+      orderMode,
+      optionsSchema: getSchemaFields(p?.optionsSchema),
+      customSchema: getSchemaFields(p?.customSchema),
+      quoteSchema: getSchemaFields(p?.quoteSchema),
+      originalPrice: Number.isFinite(Number(p?.originalPrice))
+        ? Number(p.originalPrice)
+        : null,
+      hasDiscount: !!p?.hasDiscount,
+      discountPercent: Number.isFinite(Number(p?.discountPercent))
+        ? Number(p.discountPercent)
+        : 0,
     };
   }, [p]);
+
+  const hasOptions =
+    safe.orderMode === "OPTIONS" && safe.optionsSchema.length > 0;
+
+  const hasPersonalization =
+    safe.orderMode === "OPTIONS" && safe.customSchema.length > 0;
+
+  const isQuoteOnly = safe.orderMode === "QUOTE_ONLY";
 
   const href = safe.id ? `/produs/${safe.id}${loc.search || ""}` : null;
 
@@ -205,7 +232,9 @@ discountPercent: Number.isFinite(Number(p?.discountPercent))
   }, [resolvedImages, activeIndex]);
 
   const priceLabel = useMemo(() => {
+    if (isQuoteOnly) return null;
     if (!Number.isFinite(safe.price)) return null;
+
     try {
       return new Intl.NumberFormat("ro-RO", {
         style: "currency",
@@ -215,19 +244,23 @@ discountPercent: Number.isFinite(Number(p?.discountPercent))
     } catch {
       return `${safe.price} ${safe.currency || "RON"}`;
     }
-  }, [safe.price, safe.currency]);
-const originalPriceLabel = useMemo(() => {
-  if (!safe.hasDiscount || !Number.isFinite(safe.originalPrice)) return null;
-  try {
-    return new Intl.NumberFormat("ro-RO", {
-      style: "currency",
-      currency: safe.currency || "RON",
-      maximumFractionDigits: 2,
-    }).format(safe.originalPrice);
-  } catch {
-    return `${safe.originalPrice} ${safe.currency || "RON"}`;
-  }
-}, [safe.hasDiscount, safe.originalPrice, safe.currency]);
+  }, [safe.price, safe.currency, isQuoteOnly]);
+
+  const originalPriceLabel = useMemo(() => {
+    if (isQuoteOnly) return null;
+    if (!safe.hasDiscount || !Number.isFinite(safe.originalPrice)) return null;
+
+    try {
+      return new Intl.NumberFormat("ro-RO", {
+        style: "currency",
+        currency: safe.currency || "RON",
+        maximumFractionDigits: 2,
+      }).format(safe.originalPrice);
+    } catch {
+      return `${safe.originalPrice} ${safe.currency || "RON"}`;
+    }
+  }, [safe.hasDiscount, safe.originalPrice, safe.currency, isQuoteOnly]);
+
   const nextShipDateLabel = useMemo(() => {
     if (!safe.nextShipDate) return null;
     try {
@@ -304,28 +337,26 @@ const originalPriceLabel = useMemo(() => {
     goTo(`/autentificare?redirect=${encodeURIComponent(href || "/")}`);
   }, [goTo, href]);
 
- const prefetchProduct = useCallback(() => {
-  if (!safe.id || prefetchedRef.current) return;
+  const prefetchProduct = useCallback(() => {
+    if (!safe.id || prefetchedRef.current) return;
+    if (viewMode === "vendor" || isDisabled) return;
 
-  // Nu prefetch public pentru produse care nu sunt publice
-  if (viewMode === "vendor" || isDisabled) return;
+    prefetchedRef.current = true;
 
-  prefetchedRef.current = true;
+    api(`/api/public/products/${encodeURIComponent(safe.id)}`).catch(() => {});
 
-  api(`/api/public/products/${encodeURIComponent(safe.id)}`).catch(() => {});
+    if (resolvedImages[0]) {
+      const hero = new Image();
+      hero.decoding = "async";
+      hero.src = resolvedImages[0];
+    }
 
-  if (resolvedImages[0]) {
-    const hero = new Image();
-    hero.decoding = "async";
-    hero.src = resolvedImages[0];
-  }
-
-  if (resolvedImages[1]) {
-    const second = new Image();
-    second.decoding = "async";
-    second.src = resolvedImages[1];
-  }
-}, [safe.id, resolvedImages, viewMode, isDisabled]);
+    if (resolvedImages[1]) {
+      const second = new Image();
+      second.decoding = "async";
+      second.src = resolvedImages[1];
+    }
+  }, [safe.id, resolvedImages, viewMode, isDisabled]);
 
   useEffect(() => {
     prefetchedRef.current = false;
@@ -385,54 +416,90 @@ const originalPriceLabel = useMemo(() => {
     [safe.id, favBusy, isLoggedIn, goLogin, onToggleFavorite, localFav]
   );
 
-  const handleCart = useCallback(
-    async (e) => {
-      e?.stopPropagation?.();
-      if (!safe.id || isDisabled || isSoldOut || cartBusy) return;
+const handleCart = useCallback(
+  async (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
 
-      if (!isLoggedIn) {
-        goLogin();
-        return;
-      }
+    if (!safe.id || isDisabled || isSoldOut || cartBusy) {
+      return;
+    }
 
+    if (
+      safe.orderMode === "OPTIONS" ||
+      safe.orderMode === "QUOTE_ONLY"
+    ) {
+      goTo(href);
+      return;
+    }
+
+    try {
+      setCartBusy(true);
+
+      /*
+       * ProductsPage trimite doAddToCart,
+       * iar acea funcție decide singură:
+       * - utilizator logat -> API
+       * - guest -> localStorage
+       */
       if (typeof onAddToCart === "function") {
-        onAddToCart(safe.id);
+        await onAddToCart(safe.id);
         return;
       }
 
-      try {
-        setCartBusy(true);
-
-        const r = await api("/api/cart/add", {
+      /*
+       * Fallback pentru paginile unde ProductCard
+       * nu primește onAddToCart.
+       */
+      if (isLoggedIn) {
+        const response = await api("/api/cart/add", {
           method: "POST",
-          body: { productId: safe.id, qty: 1 },
+          body: {
+            productId: safe.id,
+            qty: 1,
+          },
         });
 
-        if (r?.error === "cannot_add_own_product") {
+        if (response?.error === "cannot_add_own_product") {
           alert("Nu poți adăuga în coș propriul produs.");
           return;
         }
 
-        try {
-          window.dispatchEvent(new CustomEvent("cart:changed"));
-        } catch {
-          /* ignore */
-        }
+        window.dispatchEvent(
+          new CustomEvent("cart:changed")
+        );
 
         alert("Produs adăugat în coș.");
-      } catch (err) {
-        const msg =
-          err?.message ||
-          (err?.status === 403
-            ? "Nu poți adăuga în coș propriul produs."
-            : "Nu am putut adăuga în coș.");
-        alert(msg);
-      } finally {
-        setCartBusy(false);
+      } else {
+        addToGuestCart(safe.id, 1);
+
+        alert("Produs adăugat în coș.");
       }
-    },
-    [safe.id, isDisabled, isSoldOut, cartBusy, isLoggedIn, goLogin, onAddToCart]
-  );
+    } catch (err) {
+      const message =
+        err?.data?.message ||
+        err?.message ||
+        (err?.status === 403
+          ? "Nu poți adăuga în coș propriul produs."
+          : "Nu am putut adăuga produsul în coș.");
+
+      alert(message);
+    } finally {
+      setCartBusy(false);
+    }
+  },
+  [
+    safe.id,
+    safe.orderMode,
+    isDisabled,
+    isSoldOut,
+    cartBusy,
+    onAddToCart,
+    isLoggedIn,
+    goTo,
+    href,
+  ]
+);
 
   const handleEdit = useCallback(
     (e) => {
@@ -541,11 +608,13 @@ const originalPriceLabel = useMemo(() => {
               Inactiv
             </span>
           )}
-{safe.hasDiscount && (
-  <span className={`${styles.badge} ${styles.badgeSuccess}`}>
-    -{safe.discountPercent}% {p?.promoLabel || "Promoție"}
-  </span>
-)}
+
+          {safe.hasDiscount && !isQuoteOnly && (
+            <span className={`${styles.badge} ${styles.badgeSuccess}`}>
+              -{safe.discountPercent}% {p?.promoLabel || "Promoție"}
+            </span>
+          )}
+
           {safe.isHidden && <span className={styles.badge}>Ascuns</span>}
 
           {viewMode === "vendor" && (
@@ -557,16 +626,26 @@ const originalPriceLabel = useMemo(() => {
           )}
 
           {status && (
-            <span
-              className={`${styles.badge} ${badgeToneClass(status.tone)}`}
-            >
+            <span className={`${styles.badge} ${badgeToneClass(status.tone)}`}>
               {status.label}
             </span>
           )}
 
-          {safe.acceptsCustom && (
+          {hasOptions && (
+            <span className={`${styles.badge} ${styles.badgeOutline}`}>
+              Opțiuni
+            </span>
+          )}
+
+          {hasPersonalization && (
             <span className={`${styles.badge} ${styles.badgeOutline}`}>
               Personalizabil
+            </span>
+          )}
+
+          {isQuoteOnly && (
+            <span className={`${styles.badge} ${styles.badgeOutline}`}>
+              Cere ofertă
             </span>
           )}
         </div>
@@ -691,29 +770,37 @@ const originalPriceLabel = useMemo(() => {
 
         <div className={styles.cardMetaRow}>
           <div className={styles.metaLeft}>
-            {priceLabel != null && (
-  <div className={styles.priceBox}>
-    {safe.hasDiscount && originalPriceLabel ? (
-      <span className={styles.oldPrice}>{originalPriceLabel}</span>
-    ) : null}
+            {isQuoteOnly ? (
+              <div className={styles.priceBox}>
+                <p className={styles.price}>Cere ofertă</p>
+              </div>
+            ) : (
+              priceLabel != null && (
+                <div className={styles.priceBox}>
+                  {safe.hasDiscount && originalPriceLabel ? (
+                    <span className={styles.oldPrice}>
+                      {originalPriceLabel}
+                    </span>
+                  ) : null}
 
-    <div className={styles.priceRow}>
-      <p className={styles.price} aria-label={`Preț ${priceLabel}`}>
-        {priceLabel}
-      </p>
+                  <div className={styles.priceRow}>
+                    <p className={styles.price} aria-label={`Preț ${priceLabel}`}>
+                      {priceLabel}
+                    </p>
 
-      {safe.hasDiscount ? (
-        <span className={styles.discountBadge}>
-          -{safe.discountPercent}%
-        </span>
-      ) : null}
-    </div>
+                    {safe.hasDiscount ? (
+                      <span className={styles.discountBadge}>
+                        -{safe.discountPercent}%
+                      </span>
+                    ) : null}
+                  </div>
 
-    {safe.hasDiscount && p?.promoLabel ? (
-      <span className={styles.promoLabel}>{p.promoLabel}</span>
-    ) : null}
-  </div>
-)}
+                  {safe.hasDiscount && p?.promoLabel ? (
+                    <span className={styles.promoLabel}>{p.promoLabel}</span>
+                  ) : null}
+                </div>
+              )
+            )}
 
             {safe.availability === "READY" && safe.readyQty != null && (
               <span className={styles.metaHint}>
@@ -825,6 +912,10 @@ const originalPriceLabel = useMemo(() => {
                     ? "Epuizat"
                     : cartBusy
                     ? "Se adaugă…"
+                    : safe.orderMode === "OPTIONS"
+                    ? "Alege opțiuni"
+                    : safe.orderMode === "QUOTE_ONLY"
+                    ? "Cere ofertă"
                     : "Adaugă în coș"
                 }
                 aria-label={
@@ -834,6 +925,10 @@ const originalPriceLabel = useMemo(() => {
                     ? "Epuizat"
                     : cartBusy
                     ? "Se adaugă…"
+                    : safe.orderMode === "OPTIONS"
+                    ? "Alege opțiuni"
+                    : safe.orderMode === "QUOTE_ONLY"
+                    ? "Cere ofertă"
                     : "Adaugă în coș"
                 }
                 disabled={isDisabled || isSoldOut || cartBusy}
@@ -856,18 +951,44 @@ const originalPriceLabel = useMemo(() => {
                 <FaRegHeart />
               </button>
 
-              <button
-                type="button"
-                className={styles.iconBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  goLogin();
-                }}
-                title="Autentifică-te pentru a adăuga în coș"
-                aria-label="Autentifică-te pentru a adăuga în coș"
-              >
-                <FaShoppingCart />
-              </button>
+            <button
+  type="button"
+  className={styles.iconBtn}
+  onClick={handleCart}
+  title={
+    isDisabled
+      ? "Produs indisponibil"
+      : isSoldOut
+      ? "Epuizat"
+      : cartBusy
+      ? "Se adaugă…"
+      : safe.orderMode === "OPTIONS"
+      ? "Alege opțiuni"
+      : safe.orderMode === "QUOTE_ONLY"
+      ? "Cere ofertă"
+      : "Adaugă în coș"
+  }
+  aria-label={
+    isDisabled
+      ? "Produs indisponibil"
+      : isSoldOut
+      ? "Epuizat"
+      : cartBusy
+      ? "Se adaugă…"
+      : safe.orderMode === "OPTIONS"
+      ? "Alege opțiuni"
+      : safe.orderMode === "QUOTE_ONLY"
+      ? "Cere ofertă"
+      : "Adaugă în coș"
+  }
+  disabled={
+    isDisabled ||
+    isSoldOut ||
+    cartBusy
+  }
+>
+  <FaShoppingCart />
+</button>
             </div>
           )}
         </div>

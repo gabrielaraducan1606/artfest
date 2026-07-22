@@ -712,13 +712,17 @@ const where = {
         returnedAt: true,
         cancelReason: true,
         cancelReasonNote: true,
-        items: {
+       items: {
   select: {
     id: true,
     productId: true,
     title: true,
     qty: true,
     price: true,
+
+    selectedOptions: true,
+    customAnswers: true,
+    configurationKey: true,
 
     originalPrice: true,
     discountAmount: true,
@@ -836,16 +840,24 @@ const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
       storeName,
       serviceId: s.service?.id || null,
       serviceSlug: s.service?.profile?.slug || null,
-      status: shipmentToUiStatus(s.status),
-      total: shipmentTotal,
-            items: (s.items || []).map((it) => ({
-        id: it.id,
-        productId: it.productId,
-        title: it.title,
-        qty: it.qty,
-        price: Number(it.price || 0),
-        image: it.productId ? imageMap.get(it.productId) || null : null,
-      })),
+     status: shipmentToUiStatus(s.status),
+total: shipmentTotal,
+
+items: (s.items || []).map((it) => ({
+  id: it.id,
+  productId: it.productId,
+  title: it.title,
+  qty: it.qty,
+  price: Number(it.price || 0),
+
+  selectedOptions: it.selectedOptions || {},
+  customAnswers: it.customAnswers || {},
+  configurationKey: it.configurationKey || null,
+
+  image: it.productId
+    ? imageMap.get(it.productId) || null
+    : null,
+})),
       shipmentId: s.id,
       shipmentStatus: s.status,
       courierProvider: s.courierProvider || null,
@@ -1148,14 +1160,21 @@ const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
     cancelReasonNote: s.cancelReasonNote || null,
     shippingAddress: addr,
     customerType,
-       items: (s.items || []).map((it) => ({
-      id: it.id,
-      productId: it.productId,
-      title: it.title,
-      qty: it.qty,
-      price: Number(it.price || 0),
-      image: it.productId ? imageMap.get(it.productId) || null : null,
-    })),
+      items: (s.items || []).map((it) => ({
+  id: it.id,
+  productId: it.productId,
+  title: it.title,
+  qty: it.qty,
+  price: Number(it.price || 0),
+
+  selectedOptions: it.selectedOptions || {},
+  customAnswers: it.customAnswers || {},
+  configurationKey: it.configurationKey || null,
+
+  image: it.productId
+    ? imageMap.get(it.productId) || null
+    : null,
+})),
     vendorNotes: o.vendorNotes || "",
     paymentMethod: o.paymentMethod || null,
     shipment: {
@@ -1184,6 +1203,87 @@ const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
     messageThreads,
   });
 });
+
+async function restoreShipmentStockAfterStatusChange(
+  tx,
+  shipmentId
+) {
+  const shipment =
+    await tx.shipment.findUnique({
+      where: {
+        id: shipmentId,
+      },
+
+      select: {
+        id: true,
+
+        items: {
+          select: {
+            productId: true,
+            qty: true,
+          },
+        },
+      },
+    });
+
+  if (!shipment) {
+    throw new Error(
+      "shipment_not_found"
+    );
+  }
+
+  const qtyByProductId =
+    new Map();
+
+  for (
+    const item of shipment.items || []
+  ) {
+    if (!item.productId) {
+      continue;
+    }
+
+    const qty = Number(
+      item.qty || 0
+    );
+
+    if (
+      !Number.isInteger(qty) ||
+      qty <= 0
+    ) {
+      continue;
+    }
+
+    qtyByProductId.set(
+      item.productId,
+      (
+        qtyByProductId.get(
+          item.productId
+        ) || 0
+      ) + qty
+    );
+  }
+
+  for (
+    const [
+      productId,
+      qty,
+    ] of qtyByProductId
+  ) {
+    await tx.product.updateMany({
+      where: {
+        id: productId,
+      },
+
+      data: {
+        readyQty: {
+          increment: qty,
+        },
+
+        availability: "READY",
+      },
+    });
+  }
+}
 
 /* ----------------------------------------------------
    PATCH /api/vendor/orders/:id/status
@@ -1234,38 +1334,188 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
   if (isAwaitingAwbLock(s)) {
     return lock409(res);
   }
-
-  const updatedShipment = await prisma.shipment.update({
-    where: { id: s.id },
-    data: {
-      status: next,
-      ...(nextUi === "cancelled"
-        ? {
-            cancelReason,
-            cancelReasonNote,
-          }
-        : {}),
-    },
-    include: { order: true },
+if (
+  nextUi === "cancelled" &&
+  ![
+    "PENDING",
+    "PREPARING",
+    "READY_FOR_PICKUP",
+  ].includes(s.status)
+) {
+  return res.status(409).json({
+    error: "order_cannot_be_cancelled",
+    message:
+      s.status === "REFUSED" ||
+      s.status === "RETURNED"
+        ? "Comanda este deja anulată."
+        : "Comanda nu mai poate fi anulată în această etapă.",
   });
+}
+let updatedShipment;
 
-  if (nextUi === "cancelled") {
-    const all = await prisma.shipment.findMany({
-      where: { orderId: updatedShipment.orderId },
-      select: { status: true },
-    });
+try {
+  updatedShipment =
+    await prisma.$transaction(
+      async (tx) => {
+        if (
+          nextUi === "cancelled"
+        ) {
+          /*
+           * Actualizarea este condiționată.
+           * Doar prima cerere de anulare
+           * poate modifica shipment-ul.
+           */
+          const statusUpdate =
+            await tx.shipment.updateMany({
+              where: {
+                id: s.id,
 
-    const allCancelled = all.every((x) =>
-      ["REFUSED", "RETURNED"].includes(x.status)
+                status: {
+                  in: [
+                    "PENDING",
+                    "PREPARING",
+                    "READY_FOR_PICKUP",
+                  ],
+                },
+              },
+
+              data: {
+                status: "REFUSED",
+                cancelReason,
+                cancelReasonNote,
+                refusedAt: new Date(),
+              },
+            });
+
+          if (
+            statusUpdate.count !== 1
+          ) {
+            throw new Error(
+              "shipment_already_cancelled_or_locked"
+            );
+          }
+
+          /*
+           * Stocul este restaurat numai
+           * după actualizarea reușită.
+           */
+          await restoreShipmentStockAfterStatusChange(
+            tx,
+            s.id
+          );
+        } else {
+          await tx.shipment.update({
+            where: {
+              id: s.id,
+            },
+
+            data: {
+              status: next,
+            },
+          });
+        }
+
+        const updated =
+          await tx.shipment.findUnique({
+            where: {
+              id: s.id,
+            },
+
+            include: {
+              order: true,
+            },
+          });
+
+        if (!updated) {
+          throw new Error(
+            "shipment_not_found"
+          );
+        }
+
+        if (
+          nextUi === "cancelled"
+        ) {
+          const all =
+            await tx.shipment.findMany({
+              where: {
+                orderId:
+                  updated.orderId,
+              },
+
+              select: {
+                status: true,
+              },
+            });
+
+          const allCancelled =
+            all.every(
+              (shipment) =>
+                [
+                  "REFUSED",
+                  "RETURNED",
+                ].includes(
+                  shipment.status
+                )
+            );
+
+          if (allCancelled) {
+            await tx.order.update({
+              where: {
+                id:
+                  updated.orderId,
+              },
+
+              data: {
+                status:
+                  "CANCELLED",
+              },
+            });
+          }
+        }
+
+        return updated;
+      }
     );
+} catch (error) {
+  console.error(
+    "Order status update failed:",
+    error
+  );
 
-    if (allCancelled) {
-      await prisma.order.update({
-        where: { id: updatedShipment.orderId },
-        data: { status: "CANCELLED" },
-      });
-    }
+  if (
+    error?.message ===
+    "shipment_already_cancelled_or_locked"
+  ) {
+    return res.status(409).json({
+      error:
+        "shipment_already_cancelled_or_locked",
+
+      message:
+        "Comanda este deja anulată sau nu mai poate fi modificată.",
+    });
   }
+
+  if (
+    error?.message ===
+    "shipment_not_found"
+  ) {
+    return res.status(404).json({
+      error:
+        "shipment_not_found",
+
+      message:
+        "Livrarea nu a fost găsită.",
+    });
+  }
+
+  return res.status(500).json({
+    error:
+      "order_status_update_failed",
+
+    message:
+      "Statusul comenzii nu a putut fi actualizat.",
+  });
+}
 
   try {
     if (updatedShipment.status === "DELIVERED" || updatedShipment.status === "IN_TRANSIT") {

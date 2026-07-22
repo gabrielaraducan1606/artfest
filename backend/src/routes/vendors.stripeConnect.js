@@ -244,4 +244,57 @@ router.post("/continue", async (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/vendors/stripe/connect
+ */
+router.delete("/", async (req, res) => {
+  try {
+    const vendor = await getVendor(req);
+
+    if (!vendor) {
+      return res.status(403).json({
+        message: "Nu ești vendor.",
+      });
+    }
+
+    if (!vendor.stripeAccountId) {
+      return res.json({
+        success: true,
+        message: "Stripe Connect nu este activ.",
+      });
+    }
+
+    const accountId = vendor.stripeAccountId;
+
+    // Șterge contul Express din Stripe
+    await stripe.accounts.del(accountId);
+
+    // Resetează legătura Stripe din Artfest
+    await prisma.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        stripeAccountId: null,
+        stripeChargesEnabled: false,
+        stripePayoutsEnabled: false,
+        stripeDetailsSubmitted: false,
+        stripeConnectStatus: "not_started",
+        stripeRequirementsDue: null,
+        stripeDisabledReason: null,
+        stripeOnboardedAt: null,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Stripe Connect a fost dezactivat.",
+    });
+  } catch (e) {
+    console.error("stripe connect disconnect error:", e);
+
+    return res.status(400).json({
+      message: e?.message || "Dezactivarea Stripe Connect a eșuat.",
+    });
+  }
+});
+
 export default router;

@@ -1,1077 +1,1703 @@
 import React, {
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
-  useMemo,
-  useId,
-  useCallback,
 } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { FaRegLightbulb, FaShoppingBag, FaCamera } from "react-icons/fa";
-import { SearchIcon } from "lucide-react";
+
+import {
+  Link,
+} from "react-router-dom";
+
+import {
+  FaArrowLeft,
+  FaArrowRight,
+  FaCheckCircle,
+  FaMapMarkerAlt,
+  FaStar,
+  FaStore,
+} from "react-icons/fa";
+
 import styles from "./HeroSection.module.css";
 
 import imageMain from "../../../assets/heroSectionImage.jpg";
-import { useTypeCycle } from "./hooks/useTypeCycle";
-import { useImageSearch } from "../../../hooks/useImageSearch";
+
 import NewsletterModal from "../NewsletterModal/NewsletterModal.jsx";
 
-function usePrefersReducedMotion() {
-  const [reduce, setReduce] = useState(false);
+const STORE_PAGE_PREFIX =
+  "/magazin";
 
-  useEffect(() => {
-    const mq =
-      window.matchMedia &&
-      window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (!mq) return;
+/* =========================================================
+   UTILITARE
+========================================================= */
 
-    const onChange = () => setReduce(mq.matches);
-    onChange();
+function withVersion(
+  url,
+  version
+) {
+  if (!url) {
+    return null;
+  }
 
-    mq.addEventListener?.("change", onChange);
-    return () => mq.removeEventListener?.("change", onChange);
-  }, []);
+  const separator =
+    url.includes("?")
+      ? "&"
+      : "?";
 
-  return reduce;
+  return `${url}${separator}v=${encodeURIComponent(
+    String(
+      version ||
+        "1"
+    )
+  )}`;
 }
 
-function useMediaQuery(query) {
-  const [matches, setMatches] = useState(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return false;
-    return window.matchMedia(query).matches;
-  });
+function formatMoney(
+  value,
+  currency = "RON"
+) {
+  const numericValue =
+    Number(value);
 
-  useEffect(() => {
-    if (!window.matchMedia) return;
+  if (
+    !Number.isFinite(
+      numericValue
+    )
+  ) {
+    return null;
+  }
 
-    const mq = window.matchMedia(query);
-    const onChange = () => setMatches(mq.matches);
+  return new Intl.NumberFormat(
+    "ro-RO",
+    {
+      style:
+        "currency",
 
-    onChange();
-    mq.addEventListener?.("change", onChange);
+      currency,
 
-    return () => mq.removeEventListener?.("change", onChange);
-  }, [query]);
-
-  return matches;
+      maximumFractionDigits:
+        2,
+    }
+  ).format(
+    numericValue
+  );
 }
 
-function normalizeAds(items = []) {
-  const now = Date.now();
+function normalizeImageList(
+  images,
+  version
+) {
+  if (
+    !Array.isArray(
+      images
+    )
+  ) {
+    return [];
+  }
 
-  const active = items.filter((a) => {
-    const s = a.startAt ? Date.parse(a.startAt) : -Infinity;
-    const e = a.endAt ? Date.parse(a.endAt) : Infinity;
-    return now >= s && now <= e;
-  });
-
-  const base = active.length ? active : items;
-  const shuffled = [...base].sort(() => Math.random() - 0.5);
-
-  const expanded = [];
-  shuffled.forEach((a) => {
-    const w = Math.max(1, Number(a.weight || 1));
-    for (let i = 0; i < w; i++) expanded.push(a);
-  });
-
-  return expanded.length ? expanded : items;
+  return images
+    .filter(Boolean)
+    .map(
+      (url) =>
+        withVersion(
+          url,
+          version
+        )
+    );
 }
 
-function withV(url, v) {
-  if (!url) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}v=${encodeURIComponent(String(v || "1"))}`;
+function resolvePrimaryImage(
+  item
+) {
+  const rawImage =
+    item?.image?.desktop ||
+    item?.image?.mobile ||
+    item?.imageUrl ||
+    item?.coverUrl ||
+    item?.logoUrl ||
+    item?.images?.[0] ||
+    item?.image ||
+    null;
+
+  return withVersion(
+    rawImage,
+
+    item?.updatedAt ||
+      item?.imageUpdatedAt ||
+      item?.id ||
+      "1"
+  );
 }
 
-function resolveAdImageUrls(ad) {
-  const desktopRaw = ad?.image?.desktop || ad?.image || null;
-  const mobileRaw = ad?.image?.mobile || ad?.image?.desktop || ad?.image || null;
-  const v = ad?.updatedAt || ad?.imageUpdatedAt || ad?.id || "1";
+function getProductUrl(
+  product
+) {
+  return (
+    product?.ctaUrl ||
+    product?.url ||
+    product?.productUrl ||
+    (
+      product?.id
+        ? `/produs/${encodeURIComponent(
+            product.id
+          )}`
+        : "/produse"
+    )
+  );
+}
+
+function getStoreUrl(
+  service
+) {
+  const slug =
+    service?.profile
+      ?.slug ||
+    service?.profileSlug ||
+    service?.slug;
+
+  if (slug) {
+    return `${STORE_PAGE_PREFIX}/${encodeURIComponent(
+      slug
+    )}`;
+  }
+
+  return "/magazine";
+}
+
+function normalizeProductPayload(
+  payload,
+  fallback
+) {
+  const raw =
+    payload?.product;
+
+  if (!raw) {
+    return fallback;
+  }
+
+  const service =
+    raw.service ||
+    {};
+
+  const profile =
+    service.profile ||
+    {};
+
+  const vendor =
+    service.vendor ||
+    {};
+
+  const images =
+    normalizeImageList(
+      raw.images,
+
+      raw.updatedAt ||
+        raw.id
+    );
 
   return {
-    desktop: withV(desktopRaw, v),
-    mobile: withV(mobileRaw, v),
-    v,
+    ...fallback,
+    ...raw,
+
+    images:
+      images.length > 0
+        ? images
+        : (
+            fallback.images ||
+            [
+              fallback.image,
+            ]
+          ),
+
+    image:
+      images[0] ||
+      resolvePrimaryImage(
+        raw
+      ) ||
+      fallback.image,
+
+    ctaUrl:
+      getProductUrl(
+        raw
+      ),
+
+    storeName:
+      profile.displayName ||
+      service.title ||
+      vendor.displayName ||
+      fallback.storeName,
+
+    subtitle:
+      profile.tagline ||
+      profile.shortDescription ||
+      service.title ||
+      fallback.subtitle,
+
+    city:
+      profile.city ||
+      service.city ||
+      vendor.city ||
+      fallback.city,
+
+    personalizable:
+      raw.acceptsCustom ===
+        true ||
+      raw.orderMode ===
+        "OPTIONS" ||
+      raw.orderMode ===
+        "QUOTE_ONLY",
+
+    quoteOnly:
+      raw.orderMode ===
+      "QUOTE_ONLY",
+
+    feature:
+      payload?.feature ||
+      null,
   };
 }
 
-function trackImpression(ad) {
-  const url =
-    ad?.tracking?.impressionUrl ||
-    (ad?.id?.startsWith?.("fallback")
-      ? null
-      : `/api/public/ads/${encodeURIComponent(ad.id)}/impression`);
+function normalizeArtisanPayload(
+  payload,
+  fallback
+) {
+  const service =
+    payload?.artisan;
 
-  if (url) fetch(url, { method: "POST" }).catch(() => {});
+  if (!service) {
+    return fallback;
+  }
+
+  const profile =
+    service.profile ||
+    {};
+
+  const vendor =
+    service.vendor ||
+    {};
+
+  const image =
+    resolvePrimaryImage({
+      ...profile,
+
+      image:
+        profile.coverUrl ||
+        profile.logoUrl ||
+        vendor.coverUrl ||
+        vendor.logoUrl ||
+        service.mediaUrls?.[0],
+
+      updatedAt:
+        profile.updatedAt ||
+        service.updatedAt ||
+        service.id,
+    }) ||
+    fallback.image;
+
+  return {
+    ...fallback,
+    ...service,
+
+    id:
+      service.id,
+
+    title:
+      profile.displayName ||
+      service.title ||
+      vendor.displayName ||
+      fallback.title,
+
+    displayName:
+      profile.displayName ||
+      vendor.displayName ||
+      service.title,
+
+    category:
+      profile.tagline ||
+      service.title ||
+      fallback.category,
+
+    description:
+      profile.about ||
+      profile.shortDescription ||
+      service.description ||
+      vendor.about ||
+      fallback.description,
+
+    city:
+      profile.city ||
+      service.city ||
+      vendor.city ||
+      fallback.city,
+
+    profileSlug:
+      profile.slug ||
+      null,
+
+    image,
+
+    coverUrl:
+      profile.coverUrl ||
+      vendor.coverUrl ||
+      service.mediaUrls?.[0] ||
+      null,
+
+    logoUrl:
+      profile.logoUrl ||
+      vendor.logoUrl ||
+      null,
+
+    ctaUrl:
+      getStoreUrl(
+        service
+      ),
+
+    productsCount:
+      service?._count
+        ?.products ||
+      service?.products
+        ?.length ||
+      null,
+
+    feature:
+      payload?.feature ||
+      null,
+  };
 }
 
-function trackClick(ad) {
-  const url =
-    ad?.tracking?.clickUrl ||
-    (ad?.id?.startsWith?.("fallback")
-      ? null
-      : `/api/public/ads/${encodeURIComponent(ad.id)}/click`);
+/* =========================================================
+   API FEATURE
+========================================================= */
 
-  if (url) fetch(url, { method: "POST" }).catch(() => {});
-}
+function useHomepageFeature({
+  endpoint,
+  fallback,
+  normalize,
+}) {
+  /*
+   * Pornim cu null, nu cu fallback.
+   *
+   * Astfel nu mai apare întâi reclama
+   * generică și apoi produsul real.
+   */
+  const [
+    item,
+    setItem,
+  ] = useState(
+    null
+  );
 
-function useAdRotator({ placement = "hero_top", interval = 7000 }) {
-  const [ads, setAds] = useState([]);
-  const [idx, setIdx] = useState(0);
-  const timer = useRef(null);
-  const seen = useRef(new Set());
+  const [
+    loading,
+    setLoading,
+  ] = useState(
+    true
+  );
+
+  const [
+    error,
+    setError,
+  ] = useState(
+    null
+  );
 
   useEffect(() => {
-    let alive = true;
-    const ac = new AbortController();
-    const timeout = setTimeout(() => ac.abort(), 6000);
+    let mounted =
+      true;
 
-    (async () => {
+    const controller =
+      new AbortController();
+
+    const timeoutId =
+      window.setTimeout(
+        () => {
+          controller.abort();
+        },
+        7000
+      );
+
+    async function load() {
       try {
-        const res = await fetch(
-          `/api/public/ads?placement=${encodeURIComponent(placement)}`,
-          {
-            signal: ac.signal,
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          }
+        setLoading(
+          true
         );
 
-        if (!res.ok) throw new Error(`ads http ${res.status}`);
+        setError(
+          null
+        );
 
-        const json = await res.json().catch(() => ({}));
-        const raw = json.items || json.ads || json.data || [];
-        const list = normalizeAds(Array.isArray(raw) ? raw : []);
-
-        if (!alive) return;
-
-        if (list.length) {
-          setAds(list);
-          setIdx(0);
-        } else {
-          setAds([
+        const response =
+          await fetch(
+            endpoint,
             {
-              id: "fallback1",
-              image: { desktop: imageMain, mobile: imageMain },
-              title: "Artfest",
-              updatedAt: String(Date.now()),
-            },
-          ]);
-          setIdx(0);
-        }
-      } catch (err) {
-        if (!alive) return;
-        console.warn("[ads] fallback:", err?.message || err);
+              signal:
+                controller.signal,
 
-        setAds([
-          {
-            id: "fallback1",
-            image: { desktop: imageMain, mobile: imageMain },
-            title: "Inspirație pentru eveniment",
-            updatedAt: String(Date.now()),
-          },
-        ]);
-        setIdx(0);
+              headers: {
+                Accept:
+                  "application/json",
+              },
+
+              /*
+               * Nu folosim cache-ul browserului,
+               * deoarece backendul are deja
+               * propriul cache.
+               */
+              cache:
+                "no-store",
+            }
+          );
+
+        if (
+          !response.ok
+        ) {
+          throw new Error(
+            `${endpoint}: HTTP ${response.status}`
+          );
+        }
+
+        const payload =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        if (!mounted) {
+          return;
+        }
+
+        const normalized =
+          normalize(
+            payload,
+            fallback
+          );
+
+        setItem(
+          normalized
+        );
+      } catch (loadError) {
+        if (!mounted) {
+          return;
+        }
+
+        if (
+          loadError?.name !==
+          "AbortError"
+        ) {
+          console.warn(
+            `[homepage-feature:${endpoint}]`,
+            loadError
+          );
+        }
+
+        setError(
+          loadError
+        );
+
+        /*
+         * Folosim fallback-ul doar dacă
+         * backendul nu a răspuns.
+         */
+        setItem(
+          fallback
+        );
       } finally {
-        clearTimeout(timeout);
+        if (mounted) {
+          setLoading(
+            false
+          );
+        }
+
+        window.clearTimeout(
+          timeoutId
+        );
       }
-    })();
+    }
+
+    load();
 
     return () => {
-      alive = false;
-      ac.abort();
-      clearTimeout(timeout);
+      mounted =
+        false;
+
+      controller.abort();
+
+      window.clearTimeout(
+        timeoutId
+      );
     };
-  }, [placement]);
+  }, [
+    endpoint,
+    fallback,
+    normalize,
+  ]);
 
-  useEffect(() => {
-    if (ads.length <= 1 || !Number.isFinite(interval)) return;
-
-    timer.current = setInterval(() => {
-      if (
-        document.hidden ||
-        document.documentElement.dataset.adsPaused === "1"
-      ) {
-        return;
-      }
-      setIdx((i) => (i + 1) % ads.length);
-    }, interval);
-
-    return () => clearInterval(timer.current);
-  }, [ads.length, interval]);
-
-  useEffect(() => {
-    const ad = ads[idx];
-    if (!ad?.id) return;
-    if (seen.current.has(ad.id)) return;
-    seen.current.add(ad.id);
-    trackImpression(ad);
-  }, [ads, idx]);
-
-  return { ads, idx, setIdx };
+  return {
+    item,
+    loading,
+    error,
+  };
 }
 
-function PromoStrip() {
-  const reduceMotion = usePrefersReducedMotion();
-  const { ads, idx, setIdx } = useAdRotator({
-    placement: "hero_top",
-    interval: reduceMotion ? Infinity : 7000,
-  });
+/* =========================================================
+   INTRO
+========================================================= */
 
-  const stripRef = useRef(null);
+function MarketplaceIntro() {
+  return (
+    <header
+      className={
+        styles.marketplaceIntro
+      }
+    >
+      <div
+        className={
+          styles.marketplaceIntroInner
+        }
+      >
+        <div
+          className={
+            styles.marketplaceIdentity
+          }
+        >
+          <span
+            className={
+              styles.marketplaceIcon
+            }
+          >
+            <FaStore
+              aria-hidden="true"
+            />
+          </span>
+
+          <div>
+            <h1>
+              Marketplace pentru
+              evenimente & handmade
+            </h1>
+
+            <p>
+              Produse și creatori
+              selectați de Artfest.
+            </p>
+          </div>
+        </div>
+
+        <Link
+          to="/produse"
+          className={
+            styles.marketplaceExplore
+          }
+        >
+          Explorează marketplace-ul
+
+          <FaArrowRight
+            aria-hidden="true"
+          />
+        </Link>
+      </div>
+    </header>
+  );
+}
+
+/* =========================================================
+   SKELETON
+========================================================= */
+
+function FeaturedSpotlightSkeleton() {
+  return (
+    <section
+      className={
+        styles.spotlightSection
+      }
+      aria-label="Se încarcă selecțiile Artfest"
+      aria-busy="true"
+    >
+      <div
+        className={
+          styles.spotlightSkeleton
+        }
+      >
+        <div
+          className={
+            styles.spotlightSkeletonImage
+          }
+        />
+
+        <div
+          className={
+            styles.spotlightSkeletonContent
+          }
+        >
+          <div
+            className={
+              styles.spotlightSkeletonTabs
+            }
+          />
+
+          <div
+            className={
+              styles.spotlightSkeletonSmall
+            }
+          />
+
+          <div
+            className={
+              styles.spotlightSkeletonTitle
+            }
+          />
+
+          <div
+            className={
+              styles.spotlightSkeletonLine
+            }
+          />
+
+          <div
+            className={
+              styles.spotlightSkeletonLineShort
+            }
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =========================================================
+   GALERIE PRODUS
+========================================================= */
+
+function SpotlightProductGallery({
+  product,
+  title,
+  productUrl,
+  onClick,
+}) {
+  const images =
+    useMemo(
+      () => {
+        const list =
+          Array.isArray(
+            product?.images
+          )
+            ? product.images.filter(
+                Boolean
+              )
+            : [];
+
+        if (
+          list.length > 0
+        ) {
+          return list;
+        }
+
+        return [
+          resolvePrimaryImage(
+            product
+          ) ||
+            imageMain,
+        ];
+      },
+      [
+        product,
+      ]
+    );
+
+  const [
+    activeIndex,
+    setActiveIndex,
+  ] = useState(
+    0
+  );
+
+  const touchStartX =
+    useRef(
+      null
+    );
 
   useEffect(() => {
-    const el = stripRef.current;
-    if (!el) return;
+    setActiveIndex(
+      0
+    );
+  }, [
+    product?.id,
+  ]);
 
-    const toggle = (isVisible) => {
-      document.documentElement.dataset.adsPaused = isVisible ? "0" : "1";
+  const goPrevious =
+    useCallback(
+      (event) => {
+        event?.preventDefault();
+        event?.stopPropagation();
+
+        setActiveIndex(
+          (current) =>
+            current === 0
+              ? images.length -
+                1
+              : current -
+                1
+        );
+      },
+      [
+        images.length,
+      ]
+    );
+
+  const goNext =
+    useCallback(
+      (event) => {
+        event?.preventDefault();
+        event?.stopPropagation();
+
+        setActiveIndex(
+          (current) =>
+            current ===
+            images.length - 1
+              ? 0
+              : current +
+                1
+        );
+      },
+      [
+        images.length,
+      ]
+    );
+
+  const handleTouchStart =
+    (event) => {
+      touchStartX.current =
+        event.touches?.[0]
+          ?.clientX ??
+        null;
     };
 
-    const io = new IntersectionObserver(([e]) => toggle(e.isIntersecting), {
-      threshold: 0.15,
-    });
-    io.observe(el);
+  const handleTouchEnd =
+    (event) => {
+      if (
+        touchStartX.current ===
+          null ||
+        images.length <= 1
+      ) {
+        touchStartX.current =
+          null;
 
-    const onVis = () => toggle(!document.hidden);
-    document.addEventListener("visibilitychange", onVis);
+        return;
+      }
 
-    return () => {
-      io.disconnect();
-      document.removeEventListener("visibilitychange", onVis);
+      const endX =
+        event.changedTouches?.[0]
+          ?.clientX;
+
+      if (
+        !Number.isFinite(
+          endX
+        )
+      ) {
+        touchStartX.current =
+          null;
+
+        return;
+      }
+
+      const delta =
+        endX -
+        touchStartX.current;
+
+      if (
+        Math.abs(
+          delta
+        ) >= 45
+      ) {
+        if (
+          delta > 0
+        ) {
+          goPrevious();
+        } else {
+          goNext();
+        }
+      }
+
+      touchStartX.current =
+        null;
     };
-  }, []);
-
-  const list = ads.length
-    ? ads
-    : [
-        {
-          id: "fallback",
-          image: { desktop: imageMain, mobile: imageMain },
-          title: "Artfest",
-          updatedAt: String(Date.now()),
-        },
-      ];
-
-  const safeIdx = Math.min(idx, list.length - 1);
-  const current = list[safeIdx] || list[0];
 
   return (
     <div
-      ref={stripRef}
-      className={styles.promoStrip}
-      role="region"
-      aria-label="Promoții"
+      className={
+        styles.spotlightMedia
+      }
+      onTouchStart={
+        handleTouchStart
+      }
+      onTouchEnd={
+        handleTouchEnd
+      }
     >
-      {list.map((ad, i) => {
-        const urls = resolveAdImageUrls(ad);
+      <Link
+        to={
+          productUrl
+        }
+        className={
+          styles.spotlightImageLink
+        }
+        onClick={
+          onClick
+        }
+      >
+        <img
+          src={
+            images[
+              activeIndex
+            ]
+          }
+          alt={
+            title
+          }
+          className={
+            styles.spotlightImage
+          }
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
+        />
+      </Link>
 
-        return (
-          <a
-            key={`${ad.id || i}:${urls.v}`}
-            className={`${styles.promoSlideLink} ${
-              i === safeIdx ? styles.active : ""
-            }`}
-            href={ad.ctaUrl || "#"}
-            onClick={(e) => {
-              if (!ad.ctaUrl) e.preventDefault();
-              trackClick(ad);
-            }}
-            rel={ad.ctaUrl ? "noopener noreferrer nofollow" : undefined}
-            target={ad.ctaUrl ? "_blank" : undefined}
-          >
-            <picture>
-              <source
-                media="(max-width: 480px)"
-                srcSet={urls.mobile || urls.desktop}
-              />
-              <source media="(max-width: 1024px)" srcSet={urls.desktop} />
-              <img
-                className={styles.promoSlide}
-                src={urls.desktop}
-                width={1600}
-                height={900}
-                alt={ad.title ? `Promo: ${ad.title}` : ""}
-                loading={i === 0 ? "eager" : "lazy"}
-                decoding="async"
-                fetchPriority={i === safeIdx ? "high" : "low"}
-              />
-            </picture>
-          </a>
-        );
-      })}
-
-      <div className={styles.promoOverlay} />
-
-      {current?.title && (
-        <div className={styles.adRibbon}>
-          <span className={styles.adLabel}>Promo</span>
-          <span className={styles.adTitle}>{current.title}</span>
-        </div>
-      )}
-
-      {list.length > 1 && (
-        <div className={styles.adControls}>
+      {images.length > 1 && (
+        <>
           <button
             type="button"
-            className={styles.navBtn}
-            aria-label="Înapoi"
-            onClick={() => setIdx((safeIdx - 1 + list.length) % list.length)}
+            className={
+              styles.spotlightArrowLeft
+            }
+            onClick={
+              goPrevious
+            }
+            aria-label="Imaginea precedentă"
           >
-            ‹
+            <FaArrowLeft
+              aria-hidden="true"
+            />
+          </button>
+
+          <button
+            type="button"
+            className={
+              styles.spotlightArrowRight
+            }
+            onClick={
+              goNext
+            }
+            aria-label="Imaginea următoare"
+          >
+            <FaArrowRight
+              aria-hidden="true"
+            />
           </button>
 
           <div
-            className={styles.adDots}
-            role="tablist"
-            aria-label="Indicatori slide"
-            onKeyDown={(e) => {
-              if (e.key === "ArrowLeft") {
-                setIdx((safeIdx - 1 + list.length) % list.length);
-              }
-              if (e.key === "ArrowRight") {
-                setIdx((safeIdx + 1) % list.length);
-              }
-            }}
+            className={
+              styles.spotlightDots
+            }
           >
-            {list.map((_, i) => (
-              <button
-                key={i}
-                className={`${styles.dot} ${
-                  i === safeIdx ? styles.dotActive : ""
-                }`}
-                onClick={() => setIdx(i)}
-                aria-label={`Slide ${i + 1}`}
-                role="tab"
-                aria-selected={i === safeIdx}
-                tabIndex={i === safeIdx ? 0 : -1}
-              />
-            ))}
+            {images.map(
+              (
+                _,
+                index
+              ) => (
+                <button
+                  key={
+                    index
+                  }
+                  type="button"
+                  className={
+                    index ===
+                    activeIndex
+                      ? `${styles.spotlightDot} ${styles.spotlightDotActive}`
+                      : styles.spotlightDot
+                  }
+                  onClick={() =>
+                    setActiveIndex(
+                      index
+                    )
+                  }
+                  aria-label={`Imaginea ${
+                    index + 1
+                  }`}
+                />
+              )
+            )}
           </div>
-
-          <button
-            type="button"
-            className={styles.navBtn}
-            aria-label="Înainte"
-            onClick={() => setIdx((safeIdx + 1) % list.length)}
-          >
-            ›
-          </button>
-        </div>
+        </>
       )}
     </div>
   );
 }
 
-function AmbassadorBadge({ ambassador, onCopy }) {
-  if (!ambassador?.referralLink) return null;
+/* =========================================================
+   FEATURED SPOTLIGHT
+========================================================= */
 
-  return (
-    <div className={styles.storeAmbassadorStrip}>
-      <div className={styles.storeAmbassadorInfo}>
-        <div className={styles.storeAmbassadorTitle}>
-          🚀 Programul Ambasadorilor Artfest
-        </div>
-
-        <div className={styles.storeAmbassadorSubtitle}>
-          Ai invitat <strong>{ambassador.invitedCount || 0}</strong>{" "}
-          creatori prin linkul tău
-        </div>
-
-        <div className={styles.storeAmbassadorProgress}>
-          {ambassador.level === "FOUNDING" &&
-            "Mai ai 2 invitații până la nivelul Ambasador"}
-
-          {ambassador.level === "AMBASSADOR" &&
-            `Mai ai ${Math.max(
-              0,
-              10 - (ambassador.invitedCount || 0)
-            )} invitații până la Gold`}
-
-          {ambassador.level === "GOLD" &&
-            `Mai ai ${Math.max(
-              0,
-              25 - (ambassador.invitedCount || 0)
-            )} invitații până la Elite`}
-
-          {ambassador.level === "ELITE" &&
-            "Ai atins cel mai înalt nivel 🎉"}
-        </div>
-      </div>
-
-      <div className={styles.storeAmbassadorActions}>
-        <button type="button" onClick={onCopy}>
-          Copiază linkul
-        </button>
-
-        <Link to="/ambasadori">
-          Vezi beneficiile
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-function PartnerCard({ onCta, mission, ambassador, onCopyAmbassadorLink }) {
-  return (
-    <aside className={styles.partnerCard} aria-label="Devino partener Artfest">
-      <div className={styles.partnerBadge}>Pentru artizani</div>
-
-      <h2 className={styles.partnerTitle}>
-        Creezi lucruri handmade, invitații, mărturii?
-        <br />
-        <span className={styles.partnerAccent}>
-          Vinde-ți creațiile fără să-ți faci site.
-        </span>
-      </h2>
-
-      <p className={styles.partnerText}>
-        Listare, promovare, comenzi — ca să vinzi mai ușor pe un marketplace
-        pentru evenimente.
-      </p>
-
-      <ul className={styles.partnerBullets} aria-label="Beneficii">
-        <li>🛍️ Vitrină online pentru produsele tale</li>
-        <li>📣 Promovare & trafic către listările tale</li>
-        <li>✅ Tu creezi. Noi te ajutăm să vinzi.</li>
-      </ul>
-
-      <AmbassadorBadge
-        mission={mission}
-        ambassador={ambassador}
-        onCopy={onCopyAmbassadorLink}
-      />
-
-      <div className={styles.partnerActions}>
-        <Link
-          to="/?auth=register&as=partner"
-          className={styles.partnerCta}
-          onClick={onCta}
-        >
-          Devino partener pe Artfest →
-        </Link>
-
-        <div className={styles.partnerHint}>
-          Înscriere rapidă • Fără costuri de site
-        </div>
-      </div>
-
-      <div className={styles.partnerGlow} aria-hidden="true" />
-      <div className={styles.partnerGrid} aria-hidden="true" />
-    </aside>
-  );
-}
-
-export default function HeroSection() {
-  const navigate = useNavigate();
-  const fileInputId = useId();
-
-  const { searching: uploadingImg, handleFileChange, searchByFile } =
-    useImageSearch();
-
-  const STORE_PAGE_PREFIX = "/magazin";
-  const isMobile = useMediaQuery("(max-width: 980px)");
-
-  const rotating = useTypeCycle(
-    [
-      "invitații ilustrate",
-      "mărturii unicat",
-      "album QR pentru poze",
-      "un eveniment fără stres",
-    ],
-    { delay: 1800 }
-  );
-
-  const trending = useMemo(
-    () => [
-      { label: "Invitații nuntă", categorie: "papetarie_invitatii-nunta" },
-      { label: "Invitații botez", categorie: "papetarie_invitatii-botez" },
-      { label: "Mărturii nuntă", categorie: "marturii_nunta" },
-      { label: "Mărturii botez", categorie: "marturii_botez" },
-      { label: "Cadouri pentru nași", categorie: "cadouri_pentru-nasi" },
-      { label: "Cake toppers", categorie: "party_cake-toppers" },
-    ],
-    []
-  );
-
-  const [q, setQ] = useState("");
-  const [suggestions, setSuggestions] = useState(null);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const searchRef = useRef(null);
-const [mission, setMission] = useState(null);
-const [ambassador, setAmbassador] = useState(null);
-
-  const log = useCallback(
-    (name, data = {}) => window.gtag?.("event", name, data),
-    []
+function FeaturedSpotlight({
+  product,
+  artisan,
+  onAnalytics,
+}) {
+  const [
+    activeTab,
+    setActiveTab,
+  ] = useState(
+    "product"
   );
 
   useEffect(() => {
-  fetch("/api/ambassadors/mission")
-    .then((r) => (r.ok ? r.json() : null))
-    .then(setMission)
-    .catch(() => setMission(null));
-
-  fetch("/api/ambassadors/me", {
-    credentials: "include",
-  })
-    .then((r) => (r.ok ? r.json() : null))
-    .then(setAmbassador)
-    .catch(() => setAmbassador(null));
-}, []);
-
-const copyAmbassadorLink = useCallback(async () => {
-  if (!ambassador?.referralLink) return;
-
-  const text = `Fac parte din Artfest, comunitatea creatorilor români. ❤️
-Hai să ajungem împreună la 1000 de creatori!
-Înscrie-te aici: ${ambassador.referralLink}`;
-
-  try {
-    await navigator.clipboard.writeText(text);
-    log("ambassador_link_copy");
-    alert("Textul și linkul au fost copiate.");
-  } catch {
-    window.prompt("Copiază mesajul:", text);
-  }
-}, [ambassador, log]);
-
-  const onSearch = useCallback(
-    (e) => {
-      e.preventDefault();
-      const term = q.trim();
-      setSuggestions(null);
-      log("hero_search_submit", {
-        term,
-        via: e?.nativeEvent?.submitter ? "button" : "enter",
-      });
-      navigate(term ? `/produse?q=${encodeURIComponent(term)}&page=1` : "/produse");
-    },
-    [q, navigate, log]
-  );
-
-  const onHeroFileChange = useCallback(
-    async (e) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        log("hero_image_search_pick", {
-          size: file.size,
-          type: file.type,
-        });
-      }
-
-      await handleFileChange(e);
-    },
-    [handleFileChange, log]
-  );
-
-  useEffect(() => {
-    const term = (q || "").trim();
-
-    if (!term || term.length < 2) {
-      setSuggestions(null);
-      return;
-    }
-
-    const handle = setTimeout(async () => {
-      try {
-        setSuggestLoading(true);
-
-        const [prodRes, storeRes] = await Promise.all([
-          fetch(`/api/public/products/suggest?q=${encodeURIComponent(term)}`),
-          fetch(`/api/public/stores/suggest?q=${encodeURIComponent(term)}`),
-        ]);
-
-        const prodData = prodRes.ok
-          ? await prodRes.json().catch(() => null)
-          : null;
-        const storeData = storeRes.ok
-          ? await storeRes.json().catch(() => null)
-          : null;
-
-        const storesRaw = Array.isArray(storeData?.stores)
-          ? storeData.stores
-          : [];
-        const stores = storesRaw.filter((s) => s?.profileSlug);
-
-        const merged = {
-          products: Array.isArray(prodData?.products) ? prodData.products : [],
-          categories: Array.isArray(prodData?.categories)
-            ? prodData.categories
-            : [],
-          stores,
-        };
-
-        const hasAny =
-          merged.products.length ||
-          merged.categories.length ||
-          merged.stores.length;
-
-        setSuggestions(
-          hasAny
-            ? merged
-            : {
-                products: [],
-                categories: [],
-                stores: [],
-              }
-        );
-      } catch (err) {
-        console.error("suggest error", err);
-        setSuggestions(null);
-      } finally {
-        setSuggestLoading(false);
-      }
-    }, 250);
-
-    return () => clearTimeout(handle);
-  }, [q]);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (searchRef.current && !searchRef.current.contains(e.target)) {
-        setSuggestions(null);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("touchstart", handleClickOutside);
+    const intervalId =
+      window.setInterval(
+        () => {
+          setActiveTab(
+            (current) =>
+              current ===
+              "product"
+                ? "artisan"
+                : "product"
+          );
+        },
+        2000
+      );
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
+      window.clearInterval(
+        intervalId
+      );
     };
   }, []);
 
-  const handleSuggestionCategoryClick = useCallback(
-    (catKey) => {
-      const term = (q || "").trim();
-      setSuggestions(null);
-      navigate(
-        `/produse?q=${encodeURIComponent(term)}&categorie=${encodeURIComponent(
-          catKey
-        )}&page=1`
+  const isProduct =
+    activeTab ===
+    "product";
+
+  const productUrl =
+    getProductUrl(
+      product
+    );
+
+  const artisanUrl =
+    artisan?.ctaUrl ||
+    (
+      artisan?.profileSlug
+        ? `${STORE_PAGE_PREFIX}/${encodeURIComponent(
+            artisan.profileSlug
+          )}`
+        : "/magazine"
+    );
+
+  const productTitle =
+    product?.title ||
+    "Descoperă produsul zilei";
+
+  const artisanTitle =
+    artisan?.title ||
+    artisan?.displayName ||
+    "Artizan recomandat Artfest";
+
+  const productPrice =
+    product?.formattedPrice ||
+    formatMoney(
+      Number.isFinite(
+        Number(
+          product?.priceCents
+        )
+      )
+        ? Number(
+            product.priceCents
+          ) / 100
+        : product?.price,
+
+      product?.currency ||
+        "RON"
+    );
+
+  const activeTitle =
+    isProduct
+      ? productTitle
+      : artisanTitle;
+
+  const activeDescription =
+    artisan?.description ||
+    "Descoperă un atelier românesc și creații realizate cu grijă, în serii mici.";
+
+  const activeEyebrow =
+    isProduct
+      ? "Produsul zilei"
+      : "Artizanul săptămânii";
+
+  const activeCategory =
+    isProduct
+      ? (
+          product?.storeName ||
+          product?.subtitle ||
+          "Selecția Artfest"
+        )
+      : (
+          artisan?.category ||
+          artisan?.subtitle ||
+          "Creator român"
+        );
+
+  const handlePrimaryClick =
+    () => {
+      onAnalytics?.(
+        isProduct
+          ? "product_of_day_click"
+          : "featured_artisan_click",
+
+        {
+          id:
+            isProduct
+              ? product?.id
+              : artisan?.id,
+
+          title:
+            activeTitle,
+
+          placement:
+            "homepage_featured_spotlight",
+        }
       );
-    },
-    [navigate, q]
-  );
-
-  const handleSuggestionProductClick = useCallback(
-    (id) => {
-      setSuggestions(null);
-      navigate(`/produs/${encodeURIComponent(id)}`);
-    },
-    [navigate]
-  );
-
-  const handleSuggestionStoreClick = useCallback(
-    (profileSlug) => {
-      setSuggestions(null);
-      if (!profileSlug) return;
-      navigate(`${STORE_PAGE_PREFIX}/${encodeURIComponent(profileSlug)}`);
-    },
-    [navigate]
-  );
-
-  useEffect(() => {
-    const onPaste = (e) => {
-      const f = e.clipboardData?.files?.[0];
-      if (f?.type?.startsWith("image/")) {
-        log("hero_image_search_paste", {
-          size: f.size,
-          type: f.type,
-        });
-        searchByFile(f);
-      }
     };
-
-    const onDrop = (e) => {
-      e.preventDefault();
-      const f = e.dataTransfer?.files?.[0];
-      if (f?.type?.startsWith("image/")) {
-        log("hero_image_search_drop", {
-          size: f.size,
-          type: f.type,
-        });
-        searchByFile(f);
-      }
-    };
-
-    const onDragOver = (e) => e.preventDefault();
-
-    window.addEventListener("paste", onPaste);
-    window.addEventListener("drop", onDrop);
-    window.addEventListener("dragover", onDragOver);
-
-    return () => {
-      window.removeEventListener("paste", onPaste);
-      window.removeEventListener("drop", onDrop);
-      window.removeEventListener("dragover", onDragOver);
-    };
-  }, [searchByFile, log]);
-
-  const openImagePicker = useCallback(() => {
-    log("hero_image_picker_open");
-    document.getElementById(fileInputId)?.click();
-  }, [fileInputId, log]);
-
-  const showSuggest =
-    q &&
-    q.trim().length >= 2 &&
-    (suggestLoading || suggestions) &&
-    (suggestions?.products?.length ||
-      suggestions?.categories?.length ||
-      suggestions?.stores?.length ||
-      suggestLoading);
 
   return (
-    <>
-  <NewsletterModal />
-  <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            url: "https://artfest.ro/",
-            potentialAction: {
-              "@type": "SearchAction",
-              target: "https://artfest.ro/produse?q={search_term_string}",
-              "query-input": "required name=search_term_string",
-            },
-            publisher: {
-              "@type": "Organization",
-              name: "Artfest",
-              url: "https://artfest.ro/",
-            },
-          }),
-        }}
-      />
-
-      {!isMobile && <PromoStrip />}
-
-      <section
-        className={styles.heroSection}
-        role="banner"
-        aria-label="Marketplace evenimente și handmade"
+    <section
+      className={
+        styles.spotlightSection
+      }
+      aria-labelledby="spotlight-title"
+    >
+      <article
+        className={
+          styles.spotlightCard
+        }
       >
-        <div className={styles.inner}>
-          <div className={styles.content}>
-            <span className={styles.eyebrow}>
-              Marketplace pentru evenimente & handmade
-            </span>
+        {isProduct ? (
+          <SpotlightProductGallery
+            product={
+              product
+            }
+            title={
+              productTitle
+            }
+            productUrl={
+              productUrl
+            }
+            onClick={
+              handlePrimaryClick
+            }
+          />
+        ) : (
+          <div
+            className={
+              styles.spotlightMedia
+            }
+          >
+            <Link
+              to={
+                artisanUrl
+              }
+              className={
+                styles.spotlightImageLink
+              }
+              onClick={
+                handlePrimaryClick
+              }
+            >
+              <img
+                src={
+                  resolvePrimaryImage(
+                    artisan
+                  ) ||
+                  imageMain
+                }
+                alt={
+                  artisanTitle
+                }
+                className={
+                  styles.spotlightImage
+                }
+                loading="eager"
+                decoding="async"
+              />
+            </Link>
+          </div>
+        )}
 
-            <h1 className={styles.title}>
-              Creează <span className={styles.accent}>{rotating}</span> cu
-              produse handmade și servicii digitale
-            </h1>
+        <div
+          className={
+            styles.spotlightContent
+          }
+        >
+          <div
+            className={
+              styles.spotlightTabs
+            }
+          >
+            <button
+              type="button"
+              className={
+                isProduct
+                  ? `${styles.spotlightTab} ${styles.spotlightTabActive}`
+                  : styles.spotlightTab
+              }
+              onClick={() =>
+                setActiveTab(
+                  "product"
+                )
+              }
+            >
+              Produsul zilei
+            </button>
 
-            <p className={styles.description}>
-              Tot ce-ți trebuie pentru un eveniment memorabil — simplu, frumos
-              și la un click distanță.
+            <button
+              type="button"
+              className={
+                !isProduct
+                  ? `${styles.spotlightTab} ${styles.spotlightTabActive}`
+                  : styles.spotlightTab
+              }
+              onClick={() =>
+                setActiveTab(
+                  "artisan"
+                )
+              }
+            >
+              Artizanul săptămânii
+            </button>
+          </div>
+
+          <span
+            className={
+              styles.spotlightEyebrow
+            }
+          >
+            {isProduct ? (
+              <FaStar
+                aria-hidden="true"
+              />
+            ) : (
+              <FaStore
+                aria-hidden="true"
+              />
+            )}
+
+            {activeEyebrow}
+          </span>
+
+          <span
+            className={
+              styles.spotlightCategory
+            }
+          >
+            {activeCategory}
+          </span>
+
+          <h2
+            id="spotlight-title"
+            className={
+              styles.spotlightTitle
+            }
+          >
+            <Link
+              to={
+                isProduct
+                  ? productUrl
+                  : artisanUrl
+              }
+              onClick={
+                handlePrimaryClick
+              }
+            >
+              {activeTitle}
+            </Link>
+          </h2>
+
+          {!isProduct && (
+            <p
+              className={
+                styles.spotlightDescription
+              }
+            >
+              {activeDescription}
             </p>
+          )}
 
-            <form
-              ref={searchRef}
-              className={styles.searchBar}
-              onSubmit={onSearch}
-              role="search"
-              aria-label="Căutare produse"
-              style={{ position: "relative" }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setSuggestions(null);
-              }}
-            >
-              <button
-                type="submit"
-                className={styles.submitBtn}
-                aria-label="Caută"
-                title="Caută"
-                disabled={uploadingImg}
-              >
-                <SearchIcon />
-              </button>
+          <div
+            className={
+              styles.spotlightMeta
+            }
+          >
+            {isProduct ? (
+              <>
+                {product?.personalizable && (
+                  <span>
+                    <FaCheckCircle
+                      aria-hidden="true"
+                    />
 
-              <input
-                className={styles.searchInput}
-                type="search"
-                placeholder="Caută: invitații, mărturii, magazine…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                aria-label="Caută produse sau servicii"
-                autoComplete="off"
-              />
-
-              <input
-                id={fileInputId}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className={styles.hiddenFile}
-                onChange={onHeroFileChange}
-              />
-
-              <button
-                type="button"
-                className={styles.cameraBtn}
-                onClick={openImagePicker}
-                aria-label="Caută după imagine"
-                title="Caută după imagine"
-                disabled={uploadingImg}
-                aria-busy={uploadingImg}
-              >
-                {uploadingImg ? (
-                  <span
-                    className={styles.spinner}
-                    aria-label="Se încarcă"
-                  />
-                ) : (
-                  <FaCamera />
+                    Personalizabil
+                  </span>
                 )}
-              </button>
 
-              {showSuggest && (
-                <div
-                  role="listbox"
-                  aria-label="Sugestii de căutare"
-                  className={styles.suggestDropdown}
-                >
-                  {suggestLoading && (
-                    <div className={styles.suggestLoading}>
-                      Se încarcă sugestiile…
-                    </div>
-                  )}
+                <span>
+                  <FaCheckCircle
+                    aria-hidden="true"
+                  />
 
-                  {!suggestLoading && suggestions && (
-                    <>
-                      {!suggestions.products?.length &&
-                        !suggestions.categories?.length &&
-                        !suggestions.stores?.length && (
-                          <div className={styles.suggestEmpty}>
-                            Nu avem sugestii exacte pentru <strong>{q}</strong>.
-                          </div>
-                        )}
+                  Creator verificat
+                </span>
 
-                      {suggestions.categories?.length > 0 && (
-                        <div className={styles.suggestSection}>
-                          <div className={styles.suggestSectionTitle}>
-                            Categorii sugerate
-                          </div>
-                          {suggestions.categories.map((c) => (
-                            <button
-                              key={c.key}
-                              type="button"
-                              role="option"
-                              className={styles.suggestCategoryBtn}
-                              onClick={() =>
-                                handleSuggestionCategoryClick(c.key)
-                              }
-                            >
-                              {c.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                {product?.city && (
+                  <span>
+                    <FaMapMarkerAlt
+                      aria-hidden="true"
+                    />
 
-                      {suggestions.stores?.length > 0 && (
-                        <div className={styles.suggestSection}>
-                          <div className={styles.suggestSectionTitle}>
-                            Magazine sugerate
-                          </div>
+                    {product.city}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                {artisan?.city && (
+                  <span>
+                    <FaMapMarkerAlt
+                      aria-hidden="true"
+                    />
 
-                          <div className={styles.suggestStoresList}>
-                            {suggestions.stores.map((s) => (
-                              <button
-                                key={s.profileSlug}
-                                type="button"
-                                role="option"
-                                className={styles.suggestStoreBtn}
-                                onClick={() =>
-                                  handleSuggestionStoreClick(s.profileSlug)
-                                }
-                              >
-                                {s.logoUrl ? (
-                                  <img
-                                    src={s.logoUrl}
-                                    alt={
-                                      s.displayName ||
-                                      s.storeName ||
-                                      "Magazin"
-                                    }
-                                    className={styles.suggestStoreThumb}
-                                    loading="lazy"
-                                    decoding="async"
-                                  />
-                                ) : (
-                                  <div
-                                    className={
-                                      styles.suggestStoreThumbFallback
-                                    }
-                                    aria-hidden="true"
-                                  />
-                                )}
+                    {artisan.city}
+                  </span>
+                )}
 
-                                <div className={styles.suggestStoreMeta}>
-                                  <div className={styles.suggestStoreTitle}>
-                                    {s.displayName || s.storeName || "Magazin"}
-                                  </div>
-                                  <div className={styles.suggestStoreSub}>
-                                    {s.city ? s.city : "—"}
-                                  </div>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                <span>
+                  <FaCheckCircle
+                    aria-hidden="true"
+                  />
 
-                      {suggestions.products?.length > 0 && (
-                        <div className={styles.suggestSection}>
-                          <div className={styles.suggestSectionTitle}>
-                            Produse sugerate
-                          </div>
-                          <div className={styles.suggestProductsList}>
-                            {suggestions.products.map((p) => (
-                              <button
-                                key={p.id}
-                                type="button"
-                                role="option"
-                                className={styles.suggestProductBtn}
-                                onClick={() =>
-                                  handleSuggestionProductClick(p.id)
-                                }
-                              >
-                                {p.images?.[0] && (
-                                  <img
-                                    src={p.images[0]}
-                                    alt={p.title}
-                                    className={styles.suggestProductThumb}
-                                  />
-                                )}
-                                <div className={styles.suggestProductMeta}>
-                                  <div className={styles.suggestProductTitle}>
-                                    {p.title}
-                                  </div>
-                                  <div className={styles.suggestProductPrice}>
-                                    {(Number(p.priceCents || 0) / 100).toFixed(
-                                      2
-                                    )}{" "}
-                                    {p.currency || "RON"}
-                                  </div>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </form>
+                  Magazin verificat
+                </span>
 
-            <div
-              className={styles.trending}
-              aria-label="Căutări populare"
-            >
-              {trending.map((t) => (
-                <button
-                  key={t.categorie}
-                  className={styles.trend}
-                  onClick={() => {
-                    log("hero_trend_click", {
-                      categorie: t.categorie,
-                      label: t.label,
-                    });
-                    navigate(
-                      `/produse?categorie=${encodeURIComponent(
-                        t.categorie
-                      )}&page=1`
-                    );
-                  }}
-                  type="button"
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+                {artisan?.productsCount && (
+                  <span>
+                    <FaStore
+                      aria-hidden="true"
+                    />
 
-<div className={styles.servicePills}>
-  <Link to="/servicii-digitale" className={styles.servicePill}>
-    ✨ Invitație digitală
-  </Link>
-
-  <Link to="/servicii-digitale" className={styles.servicePill}>
-    📱 Seating & SMS
-  </Link>
-
-  <Link to="/servicii-digitale" className={styles.servicePill}>
-    📸 Album QR
-  </Link>
-</div>
-
-            <div className={styles.buttons}>
-              <Link
-                to="/servicii-digitale"
-                className={`${styles.btn} ${styles.btnPrimary}`}
-                onClick={() => log("hero_cta_primary")}
-              >
-                <FaRegLightbulb
-                  className={styles.btnIcon}
-                  aria-hidden="true"
-                />
-                <span>Organizare</span>
-              </Link>
-
-              <Link
-                to="/produse"
-                className={`${styles.btn} ${styles.btnGhost}`}
-                onClick={() => log("hero_cta_secondary")}
-              >
-                <FaShoppingBag
-                  className={styles.btnIcon}
-                  aria-hidden="true"
-                />
-                <span>Colecții</span>
-              </Link>
-            </div>
-
-            <ul className={styles.badges} aria-label="Avantaje">
-              <li>🔒 Plăți sigure</li>
-              <li>🎁 Produse unicat</li>
-              <li>💬 Suport pentru artizani</li>
-            </ul>
-
-            {isMobile && (
-              <div className={styles.mobilePartnerWrap}>
-               <PartnerCard
-  mission={mission}
-  ambassador={ambassador}
-  onCopyAmbassadorLink={copyAmbassadorLink}
-  onCta={() =>
-    log("hero_partner_cta", {
-      placement: "hero_mobile_card",
-    })
-  }
-/>
-              </div>
+                    {
+                      artisan.productsCount
+                    }{" "}
+                    produse
+                  </span>
+                )}
+              </>
             )}
           </div>
 
-          <div className={styles.images}>
-            <PartnerCard
-  mission={mission}
-  ambassador={ambassador}
-  onCopyAmbassadorLink={copyAmbassadorLink}
-  onCta={() =>
-    log("hero_partner_cta", {
-      placement: "hero_right_card",
-    })
-  }
-/>
+          <div
+            className={
+              styles.spotlightFooter
+            }
+          >
+            {isProduct && (
+              product?.quoteOnly ? (
+                <strong
+                  className={
+                    styles.spotlightPrice
+                  }
+                >
+                  Preț la cerere
+                </strong>
+              ) : (
+                productPrice && (
+                  <strong
+                    className={
+                      styles.spotlightPrice
+                    }
+                  >
+                    {productPrice}
+                  </strong>
+                )
+              )
+            )}
+
+            <Link
+              to={
+                isProduct
+                  ? productUrl
+                  : artisanUrl
+              }
+              className={
+                styles.spotlightCta
+              }
+              onClick={
+                handlePrimaryClick
+              }
+            >
+              {isProduct
+                ? "Vezi produsul"
+                : "Descoperă magazinul"}
+
+              <FaArrowRight
+                aria-hidden="true"
+              />
+            </Link>
           </div>
         </div>
-      </section>
+      </article>
+    </section>
+  );
+}
+
+/* =========================================================
+   PARTENER
+========================================================= */
+
+function PartnerBar({
+  ambassador,
+  onCopyAmbassadorLink,
+  onAnalytics,
+}) {
+  return (
+    <section
+      className={
+        styles.partnerBar
+      }
+      aria-label="Vinde pe Artfest"
+    >
+      <div
+        className={
+          styles.partnerBarInner
+        }
+      >
+        <div
+          className={
+            styles.partnerCopy
+          }
+        >
+          <span
+            className={
+              styles.partnerIcon
+            }
+            aria-hidden="true"
+          >
+            🎨
+          </span>
+
+          <div>
+            <strong>
+              Creezi produse handmade?
+            </strong>
+
+            <span>
+              Deschide-ți magazinul și
+              ajungi mai ușor la
+              clienții potriviți.
+            </span>
+          </div>
+        </div>
+
+        <div
+          className={
+            styles.partnerActions
+          }
+        >
+          {ambassador?.referralLink && (
+            <button
+              type="button"
+              className={
+                styles.ambassadorButton
+              }
+              onClick={
+                onCopyAmbassadorLink
+              }
+            >
+              Invită un creator
+            </button>
+          )}
+
+          <Link
+            to="/?auth=register&as=partner"
+            className={
+              styles.partnerCta
+            }
+            onClick={() =>
+              onAnalytics?.(
+                "partner_cta_click",
+                {
+                  placement:
+                    "homepage_partner_bar",
+                }
+              )
+            }
+          >
+            Devino partener
+
+            <FaArrowRight
+              aria-hidden="true"
+            />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =========================================================
+   COMPONENTA PRINCIPALĂ
+========================================================= */
+
+export default function HeroSection() {
+  const [
+    ambassador,
+    setAmbassador,
+  ] = useState(
+    null
+  );
+
+  const log =
+    useCallback(
+      (
+        eventName,
+        eventData = {}
+      ) => {
+        window.gtag?.(
+          "event",
+          eventName,
+          eventData
+        );
+      },
+      []
+    );
+
+  const productFallback =
+    useMemo(
+      () => ({
+        id:
+          "fallback-product-day",
+
+        title:
+          "Descoperă selecția handmade Artfest",
+
+        storeName:
+          "Creatori români",
+
+        description:
+          "Produse originale și personalizabile pentru evenimente și momente memorabile.",
+
+        image:
+          imageMain,
+
+        images: [
+          imageMain,
+        ],
+
+        ctaUrl:
+          "/produse",
+
+        personalizable:
+          true,
+      }),
+      []
+    );
+
+  const artisanFallback =
+    useMemo(
+      () => ({
+        id:
+          "fallback-artisan-week",
+
+        title:
+          "Descoperă creatorii Artfest",
+
+        category:
+          "Atelier românesc",
+
+        description:
+          "Cunoaște oamenii din spatele produselor handmade și descoperă creații realizate cu grijă.",
+
+        image:
+          imageMain,
+
+        ctaUrl:
+          "/magazine",
+      }),
+      []
+    );
+
+  const {
+    item:
+      productOfTheDay,
+
+    loading:
+      productLoading,
+  } = useHomepageFeature({
+    endpoint:
+      "/api/public/homepage/product-of-the-day",
+
+    fallback:
+      productFallback,
+
+    normalize:
+      normalizeProductPayload,
+  });
+
+  const {
+    item:
+      featuredArtisan,
+
+    loading:
+      artisanLoading,
+  } = useHomepageFeature({
+    endpoint:
+      "/api/public/homepage/artisan-of-the-week",
+
+    fallback:
+      artisanFallback,
+
+    normalize:
+      normalizeArtisanPayload,
+  });
+
+  const homepageFeatureLoading =
+    productLoading ||
+    artisanLoading ||
+    !productOfTheDay ||
+    !featuredArtisan;
+
+  useEffect(() => {
+    fetch(
+      "/api/ambassadors/me",
+      {
+        credentials:
+          "include",
+      }
+    )
+      .then(
+        (response) =>
+          response.ok
+            ? response.json()
+            : null
+      )
+      .then(
+        setAmbassador
+      )
+      .catch(
+        () => {
+          setAmbassador(
+            null
+          );
+        }
+      );
+  }, []);
+
+  const copyAmbassadorLink =
+    useCallback(
+      async () => {
+        if (
+          !ambassador?.referralLink
+        ) {
+          return;
+        }
+
+        const message = `Fac parte din Artfest, comunitatea creatorilor români. ❤️
+Hai să ajungem împreună la 1000 de creatori!
+Înscrie-te aici: ${ambassador.referralLink}`;
+
+        try {
+          await navigator.clipboard.writeText(
+            message
+          );
+
+          log(
+            "ambassador_link_copy"
+          );
+
+          window.alert(
+            "Textul și linkul au fost copiate."
+          );
+        } catch {
+          window.prompt(
+            "Copiază mesajul:",
+            message
+          );
+        }
+      },
+      [
+        ambassador,
+        log,
+      ]
+    );
+
+  return (
+    <>
+      <NewsletterModal />
+
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html:
+            JSON.stringify({
+              "@context":
+                "https://schema.org",
+
+              "@type":
+                "WebSite",
+
+              url:
+                "https://artfest.ro/",
+
+              publisher: {
+                "@type":
+                  "Organization",
+
+                name:
+                  "Artfest",
+
+                url:
+                  "https://artfest.ro/",
+              },
+            }),
+        }}
+      />
+
+      <MarketplaceIntro />
+
+      {homepageFeatureLoading ? (
+        <FeaturedSpotlightSkeleton />
+      ) : (
+        <FeaturedSpotlight
+          product={
+            productOfTheDay
+          }
+          artisan={
+            featuredArtisan
+          }
+          onAnalytics={
+            log
+          }
+        />
+      )}
+
+      <PartnerBar
+        ambassador={
+          ambassador
+        }
+        onCopyAmbassadorLink={
+          copyAmbassadorLink
+        }
+        onAnalytics={
+          log
+        }
+      />
     </>
   );
 }

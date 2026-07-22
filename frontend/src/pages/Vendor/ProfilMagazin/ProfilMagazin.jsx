@@ -256,29 +256,67 @@ const heroActionsRef = useRef(null);
     }
   }
 
-  async function handleVendorMessage() {
-    if (!vendorId) {
-      alert("Nu am găsit vendorul pentru acest magazin.");
-      return;
-    }
-
-    try {
-      const d = await api("/api/inbox/ensure-vendor-thread", {
-        method: "POST",
-        body: { recipientVendorId: vendorId },
-      });
-
-      if (!d?.threadId) {
-        throw new Error("Lipsește threadId din răspuns.");
-      }
-
-      navigate(`/mesaje?vendorThreadId=${d.threadId}`);
-    } catch (err) {
-      console.error("ensure-vendor-thread error:", err);
-      alert("Nu am putut deschide conversația cu acest vendor.");
-    }
+ function handleVendorMessage() {
+  if (isOwner) {
+    return;
   }
 
+  if (!vendorId) {
+    alert("Nu am găsit vendorul pentru acest magazin.");
+    return;
+  }
+
+  if (!me) {
+    const redir = encodeURIComponent(
+      window.location.pathname +
+        window.location.search
+    );
+
+    navigate(
+      `/autentificare?redirect=${redir}`
+    );
+
+    return;
+  }
+
+  trackCTA?.("Request quote from store");
+
+  window.dispatchEvent(
+    new CustomEvent(
+      "artfest:quote-request",
+      {
+        detail: {
+          productId: null,
+          productTitle: null,
+
+          vendorId,
+          vendorName:
+            shopName ||
+            sellerData?.profile?.displayName ||
+            sellerData?.displayName ||
+            "Magazin Artfest",
+
+          image:
+            avatarUrl ||
+            coverUrl ||
+            null,
+
+          quoteSchema: [],
+
+          fromStore: true,
+          storeSlug:
+            sdSlug ||
+            slug ||
+            null,
+
+          storeName:
+            shopName ||
+            null,
+        },
+      }
+    )
+  );
+}
   const tabs = useStoreTabs({
     showAboutSection,
     ensureReviewsLoaded: reviews.ensureReviewsLoaded,
@@ -513,6 +551,19 @@ async function handleAcceptGate() {
         dimensions: full.dimensions || "",
         careInstructions: full.careInstructions || "",
         specialNotes: full.specialNotes || "",
+        orderMode: full.orderMode || "READY_TO_BUY",
+
+optionsSchema: Array.isArray(full.optionsSchema)
+  ? full.optionsSchema
+  : [],
+
+customSchema: Array.isArray(full.customSchema)
+  ? full.customSchema
+  : [],
+
+quoteSchema: Array.isArray(full.quoteSchema)
+  ? full.quoteSchema
+  : [],
       });
 
       setEditingOverride(full);
@@ -721,10 +772,8 @@ async function handleAcceptGate() {
 heroActionsRef={heroActionsRef}
 onDismissAddProductHint={dismissAddProductHint}
           handleContactVendor={
-            me?.role === "VENDOR" && !isOwner
-              ? handleVendorMessage
-              : follow.handleContactVendor
-          }
+  handleVendorMessage
+}
           ambassador={ambassador}
           following={follow.following}
           followLoading={follow.followLoading}

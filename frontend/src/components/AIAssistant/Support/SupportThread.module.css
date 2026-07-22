@@ -1,0 +1,135 @@
+.thread {
+  width: 100%;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(20, 28, 45, 0.1);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(20, 28, 45, 0.08);
+  background: #f8fafc;
+}
+
+.header > div {
+  min-width: 0;
+}
+
+.header div > span {
+  display: block;
+  margin-bottom: 3px;
+  color: #7a8598;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.header strong {
+  display: block;
+  overflow: hidden;
+  color: #172033;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #edf1f7;
+  color: #5d687c;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.status.open {
+  background: #e8f5ed;
+  color: #247448;
+}
+
+.status.pending {
+  background: #fff4dd;
+  color: #90610c;
+}
+
+.status.closed {
+  background: #edf0f5;
+  color: #687386;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-height: 300px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.message {
+  max-width: 88%;
+  padding: 10px;
+  border-radius: 12px;
+}
+
+.message p {
+  margin: 3px 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.message time {
+  display: block;
+  font-size: 9px;
+  opacity: 0.66;
+}
+
+.author {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.support {
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+  background: #f0f3f8;
+  color: #263146;
+}
+
+.user {
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+  background: #172033;
+  color: #ffffff;
+}
+
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 7px 0;
+}
+
+.attachments a {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  text-decoration: underline;
+}
+
+.empty {
+  margin: 0;
+  padding: 10px;
+  color: #768196;
+  font-size: 12px;
+  text-align: center;
+}

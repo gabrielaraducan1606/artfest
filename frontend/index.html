@@ -10,7 +10,6 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 })(window,document,'script','dataLayer','GTM-TDR5N92F');</script>
 <!-- End Google Tag Manager -->
     <!-- 🔐 Maintenance / Access Guard -->
-<!--
 <script>
   (function () {
     try {
@@ -19,16 +18,13 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
         location.hostname === "127.0.0.1" ||
         location.hostname === "::1";
 
-      // 🔧 activează/dezactivează maintenance mode
       const MAINTENANCE_MODE = true;
 
-      // 🔓 acces privat
       const hasAccess =
         localStorage.getItem("artfest-access") === "ok";
 
       const path = window.location.pathname;
 
-      // 📄 pagini publice permise
       const allowedPaths = [
         "/coming-soon.html",
         "/favicon.ico",
@@ -41,26 +37,20 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
         path.startsWith("/icons/") ||
         path.startsWith("/assets/");
 
-      // localhost = acces total
       if (isLocal) return;
 
-      // maintenance OFF
       if (!MAINTENANCE_MODE) return;
 
-      // acces privat OK
       if (hasAccess) return;
 
-      // deja pe maintenance page
       if (isAllowedPath) return;
 
-      // redirect
       window.location.replace("/coming-soon.html");
     } catch (e) {
       console.error("Maintenance guard error:", e);
     }
   })();
 </script>
--->
 
     <meta
       name="viewport"

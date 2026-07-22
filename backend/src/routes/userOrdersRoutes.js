@@ -218,15 +218,19 @@ router.get("/my", async (req, res) => {
           select: {
             id: true,
             status: true,
-            items: {
-              select: {
-                id: true,
-                productId: true,
-                title: true,
-                qty: true,
-                price: true,
-              },
-            },
+           items: {
+  select: {
+    id: true,
+    productId: true,
+    title: true,
+    qty: true,
+    price: true,
+
+    selectedOptions: true,
+    customAnswers: true,
+    configurationKey: true,
+  },
+},
           },
         },
       },
@@ -280,16 +284,24 @@ router.get("/my", async (req, res) => {
       const customerType = isCompany ? "PJ" : "PF";
 
       const flatItems = o.shipments.flatMap((s) =>
-        s.items.map((it) => ({
-          id: it.id,
-          productId: it.productId,
-          title: it.title,
-          qty: it.qty,
-          priceCents: Math.round(Number(it.price || 0) * 100),
-          image: it.productId ? imageMap.get(it.productId) || null : null,
-          shipmentId: s.id,
-        }))
-      );
+  s.items.map((it) => ({
+    id: it.id,
+    productId: it.productId,
+    title: it.title,
+    qty: it.qty,
+    priceCents: Math.round(Number(it.price || 0) * 100),
+
+    selectedOptions: it.selectedOptions || {},
+    customAnswers: it.customAnswers || {},
+    configurationKey: it.configurationKey || null,
+
+    image: it.productId
+      ? imageMap.get(it.productId) || null
+      : null,
+
+    shipmentId: s.id,
+  }))
+);
 
       collected.push({
         id: o.id,
@@ -395,16 +407,21 @@ router.get("/:id", async (req, res) => {
   }
 
   const flatItems = o.shipments.flatMap((s) =>
-    s.items.map((it) => ({
-      id: it.id,
-      productId: it.productId,
-      title: it.title,
-      qty: it.qty,
-      priceCents: Math.round(Number(it.price || 0) * 100),
-      image: imageMap.get(it.productId) || null,
-      shipmentId: s.id,
-    }))
-  );
+  s.items.map((it) => ({
+    id: it.id,
+    productId: it.productId,
+    title: it.title,
+    qty: it.qty,
+    priceCents: Math.round(Number(it.price || 0) * 100),
+
+    selectedOptions: it.selectedOptions || {},
+    customAnswers: it.customAnswers || {},
+    configurationKey: it.configurationKey || null,
+
+    image: imageMap.get(it.productId) || null,
+    shipmentId: s.id,
+  }))
+);
 
   res.json({
     id: o.id,
@@ -459,51 +476,225 @@ router.post("/:id/cancel", async (req, res) => {
   const id = String(req.params.id);
 
   const o = await prisma.order.findFirst({
-    where: { id, userId },
+    where: {
+      id,
+      userId,
+    },
+
     include: {
-      shipments: true,
+      shipments: {
+        include: {
+          items: {
+            select: {
+              productId: true,
+              qty: true,
+            },
+          },
+        },
+      },
+
       user: true,
     },
   });
 
-  if (!o) return res.status(404).json({ error: "not_found" });
-
-  const uiStatus = computeUiStatus(o, o.shipments);
-
-  if (!["PENDING", "PROCESSING"].includes(uiStatus) || !isOrderCancellable(o, o.shipments)) {
-    return res.status(400).json({ error: "not_cancellable" });
+  if (!o) {
+    return res.status(404).json({
+      error: "not_found",
+      message: "Comanda nu a fost găsită.",
+    });
   }
 
-  await prisma.$transaction([
-    prisma.shipment.updateMany({
-      where: {
-        orderId: o.id,
-        status: { in: ["PENDING"] },
-      },
-      data: { status: "REFUSED" },
-    }),
-    prisma.order.update({
-      where: { id: o.id },
-      data: { status: "CANCELLED" },
-    }),
-  ]);
+  const uiStatus = computeUiStatus(
+    o,
+    o.shipments
+  );
 
-  // notificări către vendor(i) (best-effort)
+  if (
+    !["PENDING", "PROCESSING"].includes(
+      uiStatus
+    ) ||
+    !isOrderCancellable(
+      o,
+      o.shipments
+    )
+  ) {
+    return res.status(409).json({
+      error: "not_cancellable",
+      message:
+        "Comanda nu mai poate fi anulată în această etapă.",
+    });
+  }
+
   try {
-    await sendOrderCancelledByUserNotifications({ orderId: o.id, userId });
-  } catch (e) {
-    console.error("sendOrderCancelledByUserNotifications failed:", e);
+    await prisma.$transaction(
+      async (tx) => {
+        /*
+         * Schimbăm condiționat shipment-urile.
+         * Astfel doar prima anulare reușește.
+         */
+        const updated =
+          await tx.shipment.updateMany({
+            where: {
+              orderId: o.id,
+              status: "PENDING",
+            },
+
+            data: {
+              status: "REFUSED",
+              refusedAt: new Date(),
+              cancelReason:
+                "Anulată de client",
+              cancelReasonNote:
+                null,
+            },
+          });
+
+        if (
+          updated.count !==
+          o.shipments.length
+        ) {
+          throw new Error(
+            "order_already_changed"
+          );
+        }
+
+        /*
+         * Adunăm cantitățile pe produs
+         * din toate shipment-urile.
+         */
+        const qtyByProductId =
+          new Map();
+
+        for (
+          const shipment
+          of o.shipments
+        ) {
+          for (
+            const item
+            of shipment.items || []
+          ) {
+            if (!item.productId) {
+              continue;
+            }
+
+            const qty = Number(
+              item.qty || 0
+            );
+
+            if (
+              !Number.isInteger(qty) ||
+              qty <= 0
+            ) {
+              continue;
+            }
+
+            qtyByProductId.set(
+              item.productId,
+              (
+                qtyByProductId.get(
+                  item.productId
+                ) || 0
+              ) + qty
+            );
+          }
+        }
+
+        /*
+         * Restaurăm stocul.
+         */
+        for (
+          const [
+            productId,
+            qty,
+          ] of qtyByProductId
+        ) {
+          await tx.product.updateMany({
+            where: {
+              id: productId,
+            },
+
+            data: {
+              readyQty: {
+                increment: qty,
+              },
+
+              availability:
+                "READY",
+            },
+          });
+        }
+
+        await tx.order.update({
+          where: {
+            id: o.id,
+          },
+
+          data: {
+            status: "CANCELLED",
+          },
+        });
+      }
+    );
+  } catch (error) {
+    console.error(
+      "User cancel order failed:",
+      error
+    );
+
+    if (
+      error?.message ===
+      "order_already_changed"
+    ) {
+      return res.status(409).json({
+        error:
+          "order_already_changed",
+        message:
+          "Comanda a fost deja modificată și nu mai poate fi anulată.",
+      });
+    }
+
+    return res.status(500).json({
+      error:
+        "order_cancel_failed",
+      message:
+        "Comanda nu a putut fi anulată.",
+    });
   }
 
-  // email către client (best-effort)
   try {
-    const to = o.user?.email || o.shippingAddress?.email || null;
-    if (to) await sendOrderCancelledByUserEmail({ to, order: o });
-  } catch (e) {
-    console.error("sendOrderCancelledByUserEmail failed:", e);
+    await sendOrderCancelledByUserNotifications({
+      orderId: o.id,
+      userId,
+    });
+  } catch (error) {
+    console.error(
+      "sendOrderCancelledByUserNotifications failed:",
+      error
+    );
   }
 
-  return res.json({ ok: true });
+  try {
+    const to =
+      o.user?.email ||
+      o.shippingAddress?.email ||
+      null;
+
+    if (to) {
+      await sendOrderCancelledByUserEmail({
+        to,
+        order: o,
+      });
+    }
+  } catch (error) {
+    console.error(
+      "sendOrderCancelledByUserEmail failed:",
+      error
+    );
+  }
+
+  return res.json({
+    ok: true,
+  });
 });
 
 /* ----------------------------------------------------

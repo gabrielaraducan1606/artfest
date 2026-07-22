@@ -3,14 +3,74 @@
 const KEY = "guest_cart";
 
 /* ===========================
+   Helper — normalizează obiecte
+=========================== */
+function normalizeObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return value;
+}
+
+/* ===========================
    Helper — citește coșul
 =========================== */
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : {};
+
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+
+    /*
+     * Format nou:
+     * [
+     *   {
+     *     productId,
+     *     qty,
+     *     selectedOptions,
+     *     customAnswers,
+     *     configurationKey
+     *   }
+     * ]
+     */
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item) => item && item.productId)
+        .map((item) => ({
+          productId: String(item.productId),
+          qty: Math.max(1, Number.parseInt(item.qty, 10) || 1),
+          selectedOptions: normalizeObject(item.selectedOptions),
+          customAnswers: normalizeObject(item.customAnswers),
+          configurationKey: item.configurationKey || "default",
+        }));
+    }
+
+    /*
+     * Migrare automată din formatul vechi:
+     * {
+     *   productId: qty
+     * }
+     */
+    if (parsed && typeof parsed === "object") {
+      return Object.entries(parsed)
+        .filter(([productId]) => productId)
+        .map(([productId, qty]) => ({
+          productId,
+          qty: Math.max(1, Number.parseInt(qty, 10) || 1),
+          selectedOptions: {},
+          customAnswers: {},
+          configurationKey: "default",
+        }));
+    }
+
+    return [];
   } catch {
-    return {};
+    return [];
   }
 }
 
@@ -26,83 +86,169 @@ function save(cart) {
 }
 
 /* ===========================
+   Helper — normalizează qty
+=========================== */
+function normalizeQty(qty) {
+  const parsed = Number.parseInt(qty, 10);
+
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+
+  return Math.min(99, Math.max(0, parsed));
+}
+
+/* ===========================
    API compatibil Cart.jsx
 =========================== */
 export const guestCart = {
   /* -------------------------
-     Adaugă cantitate la produs
+     Adaugă produs/configurație
   -------------------------- */
-  add(productId, qty = 1) {
+  add(
+    productId,
+    qty = 1,
+    {
+      selectedOptions = {},
+      customAnswers = {},
+      configurationKey = "default",
+    } = {}
+  ) {
     const cart = load();
-    cart[productId] = (cart[productId] || 0) + qty;
-    save(cart);
-  },
+    const normalizedQty = Math.max(1, normalizeQty(qty));
+    const normalizedKey = configurationKey || "default";
 
-  /* -------------------------
-     Setează cantitatea exactă
-  -------------------------- */
-  set(productId, qty) {
-    const cart = load();
+    const existing = cart.find(
+      (item) =>
+        item.productId === String(productId) &&
+        item.configurationKey === normalizedKey
+    );
 
-    if (qty <= 0) {
-      delete cart[productId];
+    if (existing) {
+      existing.qty = Math.min(99, existing.qty + normalizedQty);
     } else {
-      cart[productId] = qty;
+      cart.push({
+        productId: String(productId),
+        qty: normalizedQty,
+        selectedOptions: normalizeObject(selectedOptions),
+        customAnswers: normalizeObject(customAnswers),
+        configurationKey: normalizedKey,
+      });
     }
 
     save(cart);
   },
 
   /* -------------------------
-     Alias NECESAR pentru Cart.jsx
-     (Cart.jsx folosește guestCart.update)
+     Setează cantitatea exactă
   -------------------------- */
-  update(productId, qty) {
-    this.set(productId, qty);
+  set(productId, configurationKey = "default", qty) {
+    const cart = load();
+    const normalizedKey = configurationKey || "default";
+    const normalizedQty = normalizeQty(qty);
+
+    const index = cart.findIndex(
+      (item) =>
+        item.productId === String(productId) &&
+        item.configurationKey === normalizedKey
+    );
+
+    if (index === -1) {
+      return;
+    }
+
+    if (normalizedQty <= 0) {
+      cart.splice(index, 1);
+    } else {
+      cart[index].qty = normalizedQty;
+    }
+
+    save(cart);
   },
 
   /* -------------------------
-     Elimină produs
+     Alias pentru Cart.jsx
   -------------------------- */
-  remove(productId) {
+  update(productId, configurationKey = "default", qty) {
+    this.set(productId, configurationKey, qty);
+  },
+
+  /* -------------------------
+     Elimină o configurație
+  -------------------------- */
+  remove(productId, configurationKey = "default") {
     const cart = load();
-    delete cart[productId];
-    save(cart);
+    const normalizedKey = configurationKey || "default";
+
+    const nextCart = cart.filter(
+      (item) =>
+        !(
+          item.productId === String(productId) &&
+          item.configurationKey === normalizedKey
+        )
+    );
+
+    save(nextCart);
+  },
+
+  /* -------------------------
+     Elimină toate configurațiile
+     unui produs
+  -------------------------- */
+  removeProduct(productId) {
+    const cart = load();
+
+    const nextCart = cart.filter(
+      (item) => item.productId !== String(productId)
+    );
+
+    save(nextCart);
   },
 
   /* -------------------------
      Golește tot coșul
   -------------------------- */
   clear() {
-    save({});
+    save([]);
   },
 
   /* -------------------------
-     Returnează obiect {productId: qty}
-     (folosit intern, dar Cart.jsx nu îl cheamă direct)
+     Returnează lista completă
   -------------------------- */
   getAll() {
     return load();
   },
 
   /* -------------------------
-     Cantitatea unui produs
+     Cantitatea unei configurații
   -------------------------- */
-  getQty(productId) {
+  getQty(productId, configurationKey = "default") {
     const cart = load();
-    return cart[productId] || 0;
+    const normalizedKey = configurationKey || "default";
+
+    const item = cart.find(
+      (entry) =>
+        entry.productId === String(productId) &&
+        entry.configurationKey === normalizedKey
+    );
+
+    return item?.qty || 0;
   },
 
   /* -------------------------
-     🔥 METODĂ OBLIGATORIE pentru Cart.jsx:
-     returnează listă de forma:
-     [ { productId, qty }, ... ]
+     Cantitatea totală a produsului,
+     indiferent de configurație
+  -------------------------- */
+  getProductQty(productId) {
+    return load()
+      .filter((item) => item.productId === String(productId))
+      .reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  },
+
+  /* -------------------------
+     Returnează lista pentru API
   -------------------------- */
   list() {
-    const cart = load();
-    return Object.entries(cart).map(([productId, qty]) => ({
-      productId,
-      qty,
-    }));
-  }
+    return load();
+  },
 };

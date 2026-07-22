@@ -3,6 +3,10 @@ import express from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
 import { createUserNotification } from "../services/notifications.js";
+import {
+  moderateMarketplaceMessage,
+  moderateMarketplaceImage,
+} from "../services/marketplaceMessageModeration.js";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -691,26 +695,30 @@ router.get("/threads/:id/messages", async (req, res) => {
 
   const { id } = req.params;
 
-  const thread = await prisma.messageThread.findFirst({
+ const thread = await prisma.messageThread.findFirst({
   where: {
     id,
     type: "CUSTOMER",
     vendorId,
     deletedByVendorAt: null,
   },
+
   select: {
     id: true,
     userLastReadAt: true,
     serviceId: true,
+
     vendor: {
       select: {
         displayName: true,
       },
     },
+
     service: {
       select: {
         id: true,
         title: true,
+
         profile: {
           select: {
             displayName: true,
@@ -724,7 +732,82 @@ router.get("/threads/:id/messages", async (req, res) => {
 });
 
   if (!thread) return res.status(404).json({ error: "Thread not found" });
+const quoteRequest =
+  await prisma.quoteRequest.findFirst({
+    where: {
+      threadId: id,
+      vendorId,
+    },
 
+    select: {
+      id: true,
+      status: true,
+      source: true,
+
+      quantity: true,
+
+      requestData: true,
+      quoteSchemaAnswers: true,
+
+      eventDate: true,
+      deliveryDeadline: true,
+
+      budgetMin: true,
+      budgetMax: true,
+
+      createdAt: true,
+      updatedAt: true,
+
+      orderId: true,
+
+      product: {
+        select: {
+          id: true,
+          title: true,
+          images: true,
+          orderMode: true,
+        },
+      },
+
+      offers: {
+        where: {
+          status: {
+            in: [
+              "SENT",
+              "ACCEPTED",
+              "REJECTED",
+            ],
+          },
+        },
+
+        orderBy: {
+          createdAt: "desc",
+        },
+
+        select: {
+          id: true,
+          status: true,
+
+          items: true,
+
+          subtotal: true,
+          shippingTotal: true,
+          total: true,
+
+          currency: true,
+
+          productionDays: true,
+          estimatedDelivery: true,
+          validUntil: true,
+
+          notes: true,
+
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+    },
+  });
   const msgs = await prisma.message.findMany({
     where: { threadId: id, deletedByVendorAt: null },
     orderBy: { createdAt: "asc" },
@@ -779,16 +862,109 @@ router.get("/threads/:id/messages", async (req, res) => {
     };
   });
 
-  return res.json({
-    items,
-    threadMeta: {
-      id: thread.id,
-      storeId: thread.serviceId || null,
-      storeName: storeNameFromThread(thread),
-      storeSlug: thread.service?.profile?.slug || null,
-      storeLogoUrl: thread.service?.profile?.logoUrl || null,
-    },
-  });
+ return res.json({
+  items,
+
+  threadMeta: {
+    id: thread.id,
+
+    storeId:
+      thread.serviceId ||
+      null,
+
+    storeName:
+      storeNameFromThread(thread),
+
+    storeSlug:
+      thread.service?.profile
+        ?.slug ||
+      null,
+
+    storeLogoUrl:
+      thread.service?.profile
+        ?.logoUrl ||
+      null,
+  },
+
+  quoteRequest:
+    quoteRequest
+      ? {
+          id:
+            quoteRequest.id,
+
+          quoteRequestId:
+            quoteRequest.id,
+
+          status:
+            quoteRequest.status,
+
+          source:
+            quoteRequest.source,
+
+          quantity:
+            quoteRequest.quantity,
+
+          requestData:
+            quoteRequest.requestData ||
+            {},
+
+          quoteSchemaAnswers:
+            quoteRequest.quoteSchemaAnswers ||
+            {},
+
+          eventDate:
+            quoteRequest.eventDate,
+
+          deliveryDeadline:
+            quoteRequest.deliveryDeadline,
+
+          budgetMin:
+            quoteRequest.budgetMin,
+
+          budgetMax:
+            quoteRequest.budgetMax,
+
+          orderId:
+            quoteRequest.orderId ||
+            null,
+
+          createdAt:
+            quoteRequest.createdAt,
+
+          updatedAt:
+            quoteRequest.updatedAt,
+
+          product:
+            quoteRequest.product
+              ? {
+                  id:
+                    quoteRequest
+                      .product.id,
+
+                  title:
+                    quoteRequest
+                      .product.title,
+
+                  images:
+                    quoteRequest
+                      .product.images ||
+                    [],
+
+                  orderMode:
+                    quoteRequest
+                      .product.orderMode,
+                }
+              : null,
+
+          offers:
+            Array.isArray(
+              quoteRequest.offers
+            )
+              ? quoteRequest.offers
+              : [],
+        }
+      : null,
+});
 });
 
 /**
@@ -934,6 +1110,54 @@ router.post(
       return res.status(400).json({ error: "Mesajul nu poate fi gol" });
     }
 
+    const moderation =
+  await moderateMarketplaceMessage({
+    text: body,
+    senderType: "VENDOR",
+  });
+
+if (
+  !moderation.allowed
+) {
+  const technicalReasons =
+    new Set([
+      "text_moderation_failed",
+      "text_moderation_invalid_response",
+      "text_moderation_ambiguous_response",
+    ]);
+
+  const isTechnicalError =
+    technicalReasons.has(
+      moderation.reason
+    );
+
+  return res
+    .status(
+      isTechnicalError
+        ? 503
+        : 422
+    )
+    .json({
+      error:
+        isTechnicalError
+          ? "moderation_unavailable"
+          : "message_blocked",
+
+      reason:
+        moderation.reason ||
+        "not_allowed",
+
+      detections:
+        moderation.detections ||
+        [],
+
+      message:
+        isTechnicalError
+          ? "Mesajul nu a putut fi verificat momentan și nu a fost trimis. Încearcă din nou peste câteva secunde."
+          : "Mesajul nu poate fi trimis deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
+    });
+}
+
     const quotaErr = await assertChatQuotaOrThrow({
       vendorId,
       subscription: req.subscription,
@@ -1046,7 +1270,53 @@ router.patch("/threads/:id/messages/:mid", async (req, res) => {
   if (!newBody) {
     return res.status(400).json({ error: "bad_request", details: "body_required" });
   }
+const moderation =
+  await moderateMarketplaceMessage({
+    text: newBody,
+    senderType: "VENDOR",
+  });
 
+if (
+  !moderation.allowed
+) {
+  const technicalReasons =
+    new Set([
+      "text_moderation_failed",
+      "text_moderation_invalid_response",
+      "text_moderation_ambiguous_response",
+    ]);
+
+  const isTechnicalError =
+    technicalReasons.has(
+      moderation.reason
+    );
+
+  return res
+    .status(
+      isTechnicalError
+        ? 503
+        : 422
+    )
+    .json({
+      error:
+        isTechnicalError
+          ? "moderation_unavailable"
+          : "message_blocked",
+
+      reason:
+        moderation.reason ||
+        "not_allowed",
+
+      detections:
+        moderation.detections ||
+        [],
+
+      message:
+        isTechnicalError
+          ? "Mesajul nu a putut fi verificat momentan și modificarea nu a fost salvată. Încearcă din nou peste câteva secunde."
+          : "Mesajul nu poate fi modificat deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
+    });
+}
   const { thread, message } = await getVendorThreadAndMessageOr404({
     vendorId,
     threadId,
@@ -1388,6 +1658,71 @@ router.post(
 
     const files = Array.isArray(req.files) ? req.files : [];
     if (!files.length) return res.status(400).json({ error: "no_files" });
+    for (const file of files) {
+  const moderation =
+    await moderateMarketplaceImage({
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      filename: file.originalname,
+      senderType: "VENDOR",
+    });
+
+if (
+  !moderation.allowed
+) {
+  const invalidFileReasons =
+    new Set([
+      "missing_image",
+      "invalid_image_type",
+      "unsupported_image_type",
+    ]);
+
+  const technicalReasons =
+    new Set([
+      "image_moderation_failed",
+      "image_moderation_invalid_response",
+      "image_moderation_ambiguous_response",
+    ]);
+
+  const isInvalidFile =
+    invalidFileReasons.has(
+      moderation.reason
+    );
+
+  const isTechnicalError =
+    technicalReasons.has(
+      moderation.reason
+    );
+
+  return res
+    .status(
+      isTechnicalError
+        ? 503
+        : 422
+    )
+    .json({
+      error:
+        isTechnicalError
+          ? "moderation_unavailable"
+          : "attachment_blocked",
+
+      reason:
+        moderation.reason ||
+        "not_allowed",
+
+      detections:
+        moderation.detections ||
+        [],
+
+      message:
+        isTechnicalError
+          ? "Imaginea nu a putut fi verificată momentan și nu a fost trimisă. Încearcă din nou peste câteva secunde."
+          : isInvalidFile
+            ? "Fișierul nu este o imagine acceptată. Încarcă o imagine JPG, PNG, WEBP sau GIF."
+            : "Imaginea nu poate fi trimisă deoarece conține date de contact, linkuri, coduri QR sau referințe către platforme externe.",
+    });
+}
+}
 const attachmentQuotaErr = await assertAttachmentQuotaOrThrow({
   vendorId,
   subscription: req.subscription,
@@ -1986,7 +2321,56 @@ router.post(
     if (!body) {
       return res.status(400).json({ error: "Mesajul nu poate fi gol" });
     }
+const moderation =
+  await moderateMarketplaceMessage({
+    text:
+      body,
 
+    senderType:
+      "VENDOR",
+  });
+
+if (
+  !moderation.allowed
+) {
+  const technicalReasons =
+    new Set([
+      "text_moderation_failed",
+      "text_moderation_invalid_response",
+      "text_moderation_ambiguous_response",
+    ]);
+
+  const isTechnicalError =
+    technicalReasons.has(
+      moderation.reason
+    );
+
+  return res
+    .status(
+      isTechnicalError
+        ? 503
+        : 422
+    )
+    .json({
+      error:
+        isTechnicalError
+          ? "moderation_unavailable"
+          : "message_blocked",
+
+      reason:
+        moderation.reason ||
+        "not_allowed",
+
+      detections:
+        moderation.detections ||
+        [],
+
+      message:
+        isTechnicalError
+          ? "Mesajul nu a putut fi verificat momentan și nu a fost trimis. Încearcă din nou peste câteva secunde."
+          : "Mesajul nu poate fi trimis deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
+    });
+}
     const quotaErr = await assertChatQuotaOrThrow({
       vendorId,
       subscription: req.subscription,

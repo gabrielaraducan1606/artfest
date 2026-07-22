@@ -1,0 +1,272 @@
+@import "../../../styles/variables.css";
+
+.page {
+  padding: 24px;
+  display: grid;
+  gap: 18px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.subtitle {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.headerActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.primaryBtn,
+.secondaryBtn,
+.linkBtn {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.primaryBtn {
+  border: 0;
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.primaryBtn:hover {
+  background: var(--color-hover);
+}
+
+.secondaryBtn,
+.linkBtn {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.secondaryBtn:hover,
+.linkBtn:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-primary) 8%);
+  border-color: var(--color-primary);
+}
+
+.aiBox {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, var(--color-primary) 20%);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--color-primary) 4%);
+}
+
+.aiBox h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.aiBox p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+}
+
+.aiInputRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.input,
+.searchInput,
+.select {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--color-text);
+  padding: 10px 12px;
+  font: 500 0.95rem/1.4 var(--font-body);
+}
+
+.input {
+  flex: 1 1 320px;
+}
+
+.searchInput {
+  flex: 1 1 280px;
+}
+
+.input:focus-visible,
+.searchInput:focus-visible,
+.select:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.select {
+  min-width: 180px;
+}
+
+.bulkBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+}
+
+.bulkBar button {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 7px 11px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.bulkBar button:hover {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--surface) 92%, var(--color-primary) 8%);
+}
+
+.tableCard {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--surface);
+  overflow: auto;
+  box-shadow: var(--shadow-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 980px;
+}
+
+.table th,
+.table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+  font-size: 0.9rem;
+}
+
+.table th {
+  background: color-mix(in srgb, var(--surface) 94%, var(--color-primary) 6%);
+  color: var(--color-muted);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.table tbody tr:hover {
+  background: color-mix(in srgb, var(--surface) 97%, var(--color-primary) 3%);
+}
+
+.productCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.productImage {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.productImage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.productCell strong {
+  display: block;
+  color: var(--color-text);
+}
+
+.productCell span {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.activeBadge,
+.inactiveBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.activeBadge {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.inactiveBadge {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.emptyState {
+  text-align: center;
+  color: var(--color-muted);
+  padding: 28px !important;
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 16px;
+  }
+
+  .headerActions,
+  .toolbar,
+  .aiInputRow {
+    width: 100%;
+  }
+
+  .primaryBtn,
+  .secondaryBtn,
+  .searchInput,
+  .select,
+  .input {
+    width: 100%;
+  }
+}

@@ -27,7 +27,7 @@ import styles from "./Navbar.module.css";
 import logo from "../../assets/LogoArtfest.png";
 import Register from "../../pages/Auth/Register/Register";
 import Login from "../../pages/Auth/Login/Login";
-import { guestCart } from "../../lib/guestCart";
+import { getGuestCartCount } from "../../utils/guestCart";
 import NotificationsPopover from "./NotificationsPopover";
 import MessagesPopover from "./MessagesPopover";
 import { useImageSearch } from "../../hooks/useImageSearch";
@@ -238,15 +238,13 @@ export default function Navbar() {
 
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
-  const computeGuestCartCount = () => {
-    try {
-      const items = guestCart.list();
-      return items.reduce((s, it) => s + (Number(it.qty) || 0), 0);
-    } catch {
-      return 0;
-    }
-  };
-
+  const computeGuestCartCount = useCallback(() => {
+  try {
+    return getGuestCartCount();
+  } catch {
+    return 0;
+  }
+}, []);
   /* ===== cart count refresh (guest + logged) ===== */
   useEffect(() => {
     async function refreshCart() {
@@ -268,15 +266,17 @@ export default function Navbar() {
     window.addEventListener("cart:changed", handler);
 
     const onStorage = (e) => {
-      if (e.key === "guest_cart_v1") refreshCart();
-    };
+  if (e.key === "artfest_guest_cart") {
+    refreshCart();
+  }
+};
     window.addEventListener("storage", onStorage);
 
     return () => {
       window.removeEventListener("cart:changed", handler);
       window.removeEventListener("storage", onStorage);
     };
-  }, [me]);
+}, [me, computeGuestCartCount]);
 
   /* ===== wishlist + cart count ===== */
   useEffect(() => {
@@ -307,7 +307,7 @@ export default function Navbar() {
     return () => {
       alive = false;
     };
-  }, [me]);
+  }, [me, computeGuestCartCount]);
 
   useEffect(() => {
   const handleFavoritesChanged = (e) => {
@@ -458,6 +458,147 @@ const vendorUnreadCount = Array.isArray(vendorThreads?.items)
       window.removeEventListener("support:changed", onSupportChanged);
     };
   }, [me, fetchSupportUnread]);
+
+  /* ===== messages unread ===== */
+const fetchUnreadMessages = useCallback(async () => {
+  if (!me) {
+    setUnreadMsgs(0);
+    return;
+  }
+
+  try {
+    if (me.role === "USER") {
+      const data = await api(
+        "/api/user-inbox/unread-count"
+      ).catch(() => ({
+        count: 0,
+      }));
+
+      setUnreadMsgs(
+        data?.count || 0
+      );
+
+      return;
+    }
+
+    if (me.role === "VENDOR") {
+      const [
+        customerMsgs,
+        vendorThreads,
+      ] = await Promise.all([
+        api(
+          "/api/inbox/unread-count"
+        ).catch(() => ({
+          count: 0,
+        })),
+
+        api(
+          "/api/inbox/vendor-threads?scope=unread"
+        ).catch(() => ({
+          items: [],
+        })),
+      ]);
+
+      const vendorUnreadCount =
+        Array.isArray(
+          vendorThreads?.items
+        )
+          ? vendorThreads.items.reduce(
+              (
+                sum,
+                thread
+              ) =>
+                sum +
+                Number(
+                  thread?.unreadCount ||
+                    0
+                ),
+              0
+            )
+          : 0;
+
+      setUnreadMsgs(
+        Number(
+          customerMsgs?.count ||
+            0
+        ) +
+          vendorUnreadCount
+      );
+
+      return;
+    }
+
+    setUnreadMsgs(0);
+  } catch {
+    setUnreadMsgs(0);
+  }
+}, [
+  me,
+]);
+
+useEffect(() => {
+  if (!me) {
+    setUnreadMsgs(0);
+    return undefined;
+  }
+
+  fetchUnreadMessages();
+
+  const intervalId =
+    window.setInterval(
+      () => {
+        if (
+          document.visibilityState ===
+          "visible"
+        ) {
+          fetchUnreadMessages();
+        }
+      },
+      8000
+    );
+
+  function handleVisibilityChange() {
+    if (
+      document.visibilityState ===
+      "visible"
+    ) {
+      fetchUnreadMessages();
+    }
+  }
+
+  function handleMessagesChanged() {
+    fetchUnreadMessages();
+  }
+
+  document.addEventListener(
+    "visibilitychange",
+    handleVisibilityChange
+  );
+
+  window.addEventListener(
+    "messages:changed",
+    handleMessagesChanged
+  );
+
+  return () => {
+    window.clearInterval(
+      intervalId
+    );
+
+    document.removeEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    window.removeEventListener(
+      "messages:changed",
+      handleMessagesChanged
+    );
+  };
+}, [
+  me,
+  fetchUnreadMessages,
+]);
 
   /* ===== scroll lock pt burger ===== */
   useEffect(() => {

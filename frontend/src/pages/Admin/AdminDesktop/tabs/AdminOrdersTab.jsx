@@ -376,7 +376,15 @@ function OrdersTable({ rows, onRowClick, totalItems }) {
               <td>
                 <code>{o.id}</code>
               </td>
-              <td>{o.userId || "—"}</td>
+              <td>
+  {o.userId ? (
+    o.userId
+  ) : o.isGuestOrder ? (
+    <span className={styles.roleBadge}>Guest</span>
+  ) : (
+    "—"
+  )}
+</td>
               <td>
                 <StatusBadge uiStatus={o._uiStatus} />
               </td>
@@ -516,13 +524,26 @@ function OrderDetailsDrawer({ order, onClose }) {
   );
   const currency = localOrder.currency || "RON";
 
-  const shippingAddress = localOrder.shippingAddress || {};
-  const customerName =
-    shippingAddress.name ||
-    `${shippingAddress.lastName || ""} ${
-      shippingAddress.firstName || ""
-    }`.trim() ||
-    "";
+  const shippingAddress =
+  localOrder.shippingAddress || {};
+
+const customerName =
+  localOrder.customerName ||
+  shippingAddress.name ||
+  `${shippingAddress.lastName || ""} ${
+    shippingAddress.firstName || ""
+  }`.trim() ||
+  "";
+
+const customerEmail =
+  localOrder.customerEmail ||
+  shippingAddress.email ||
+  "—";
+
+const customerPhone =
+  localOrder.customerPhone ||
+  shippingAddress.phone ||
+  "—";
 
   const flatItems = shipments.flatMap((s) =>
     (s.items || []).map((it) => ({
@@ -673,9 +694,13 @@ function OrderDetailsDrawer({ order, onClose }) {
               <code>{localOrder.id}</code>
             </div>
             <div className={styles.drawerField}>
-              <span>User ID</span>
-              <span>{localOrder.userId || "—"}</span>
-            </div>
+  <span>Tip comandă</span>
+  <span>
+    {localOrder.isGuestOrder
+      ? "Guest"
+      : "Utilizator autentificat"}
+  </span>
+</div>
             <div className={styles.drawerField}>
               <span>Creată la</span>
               <span>{formatDate(localOrder.createdAt)}</span>
@@ -747,11 +772,11 @@ function OrderDetailsDrawer({ order, onClose }) {
                 </div>
                 <div className={styles.drawerField}>
                   <span>Telefon</span>
-                  <span>{shippingAddress.phone || "—"}</span>
+                 <span>{customerPhone}</span>
                 </div>
                 <div className={styles.drawerField}>
                   <span>Email</span>
-                  <span>{shippingAddress.email || "—"}</span>
+                  <span>{customerEmail}</span>
                 </div>
               </>
             ) : (

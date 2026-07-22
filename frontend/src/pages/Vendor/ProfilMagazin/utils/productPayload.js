@@ -6,7 +6,21 @@ export function buildProductPayload(prodForm) {
   const price = Number(prodForm.price);
   const images = Array.isArray(prodForm.images) ? prodForm.images : [];
   const category = (prodForm.category || "").trim();
+const orderMode = String(
+  prodForm.orderMode || "READY_TO_BUY"
+).toUpperCase();
 
+const optionsSchema = Array.isArray(prodForm.optionsSchema)
+  ? prodForm.optionsSchema
+  : [];
+
+const customSchema = Array.isArray(prodForm.customSchema)
+  ? prodForm.customSchema
+  : [];
+
+const quoteSchema = Array.isArray(prodForm.quoteSchema)
+  ? prodForm.quoteSchema
+  : [];
   const color = (prodForm.color || "").trim() || null;
   const materialMain = (prodForm.materialMain || "").trim() || null;
   const technique = (prodForm.technique || "").trim() || null;
@@ -26,25 +40,43 @@ export function buildProductPayload(prodForm) {
     throw new Error("Selectează categoria produsului.");
   }
 
-  const basePayload = {
-    title,
-    description,
-    price,
-    images,
-    category,
-    currency: prodForm.currency || "RON",
-    isActive: prodForm.isActive !== false,
-    isHidden: !!prodForm.isHidden,
-    acceptsCustom: !!prodForm.acceptsCustom,
-    color,
-    materialMain,
-    technique,
-    styleTags,
-    occasionTags,
-    dimensions,
-    careInstructions,
-    specialNotes,
-  };
+ const basePayload = {
+  title,
+  description,
+  price,
+  images,
+  category,
+  currency: prodForm.currency || "RON",
+  isActive: prodForm.isActive !== false,
+  isHidden: !!prodForm.isHidden,
+  acceptsCustom: !!prodForm.acceptsCustom,
+
+  orderMode,
+
+  optionsSchema:
+    orderMode === "OPTIONS"
+      ? optionsSchema
+      : [],
+
+  customSchema:
+    orderMode === "OPTIONS"
+      ? customSchema
+      : [],
+
+  quoteSchema:
+    orderMode === "QUOTE_ONLY"
+      ? quoteSchema
+      : [],
+
+  color,
+  materialMain,
+  technique,
+  styleTags,
+  occasionTags,
+  dimensions,
+  careInstructions,
+  specialNotes,
+};
 
   const av = String(prodForm.availability || "READY").toUpperCase();
 

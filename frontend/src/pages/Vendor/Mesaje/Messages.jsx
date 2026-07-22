@@ -30,6 +30,9 @@ import {
   X,
   Download,
 } from "lucide-react";
+import {
+  createVendorQuoteOffer,
+} from "../../../components/AIAssistant/quotes/quoteApi.js";
 import styles from "./Messages.module.css";
 
 /* ========= Utils ========= */
@@ -175,48 +178,142 @@ function useThreads({ scope, q, status, eventType, period, groupByUser, conversa
 /**
  * Mesaje pentru un singur thread (comandă)
  */
-function useMessages(threadId, conversationMode) {
-  const [loading, setLoading] = useState(false);
-  const [msgs, setMsgs] = useState([]);
-  const [error, setError] = useState(null);
+function useMessages(
+  threadId,
+  conversationMode
+) {
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
-  const reload = useCallback(async () => {
-    if (!threadId) return;
+  const [
+    msgs,
+    setMsgs,
+  ] = useState([]);
 
-    setLoading((msgs.length || 0) === 0);
-    setError(null);
+  const [
+    error,
+    setError,
+  ] = useState(null);
 
-    try {
-      const base =
-        conversationMode === "vendor"
-          ? `/api/inbox/vendor-threads/${threadId}`
-          : `/api/inbox/threads/${threadId}`;
+  const [
+    threadMeta,
+    setThreadMeta,
+  ] = useState(null);
 
-      const d = await api(`${base}/messages`);
+  const [
+    quoteRequest,
+    setQuoteRequest,
+  ] = useState(null);
 
-      setMsgs(d?.items || []);
+  const reload =
+    useCallback(async () => {
+      if (!threadId) {
+        setMsgs([]);
+        setThreadMeta(null);
+        setQuoteRequest(null);
+        setError(null);
 
-      await api(`${base}/read`, {
-        method: "PATCH",
-      }).catch(() => {});
-    } catch (e) {
-      setError(e?.message || "Eroare la încărcarea mesajelor");
-    } finally {
-      setLoading(false);
-    }
-  }, [threadId, conversationMode, msgs.length]);
+        return;
+      }
+
+      setLoading(
+        (msgs.length || 0) === 0
+      );
+
+      setError(null);
+
+      try {
+        const base =
+          conversationMode ===
+          "vendor"
+            ? `/api/inbox/vendor-threads/${threadId}`
+            : `/api/inbox/threads/${threadId}`;
+
+        const data =
+          await api(
+            `${base}/messages`
+          );
+
+        setMsgs(
+          Array.isArray(
+            data?.items
+          )
+            ? data.items
+            : []
+        );
+
+        setThreadMeta(
+          data?.threadMeta ||
+            null
+        );
+
+        setQuoteRequest(
+          conversationMode ===
+            "customer"
+            ? data
+                ?.quoteRequest ||
+                null
+            : null
+        );
+
+        await api(
+          `${base}/read`,
+          {
+            method:
+              "PATCH",
+          }
+        ).catch(
+          () => {}
+        );
+      } catch (error) {
+        setError(
+          error?.message ||
+            "Eroare la încărcarea mesajelor"
+        );
+      } finally {
+        setLoading(false);
+      }
+    }, [
+      threadId,
+      conversationMode,
+      msgs.length,
+    ]);
 
   useEffect(() => {
     reload();
-  }, [reload]);
+  }, [
+    reload,
+  ]);
 
   useEffect(() => {
-    if (!threadId) return;
-    const id = setInterval(reload, 8000);
-    return () => clearInterval(id);
-  }, [threadId, reload]);
+    if (!threadId) {
+      return;
+    }
 
-  return { loading, msgs, error, setMsgs, reload };
+    const id =
+      setInterval(
+        reload,
+        8000
+      );
+
+    return () =>
+      clearInterval(id);
+  }, [
+    threadId,
+    reload,
+  ]);
+
+  return {
+    loading,
+    msgs,
+    error,
+    setMsgs,
+    reload,
+    threadMeta,
+    quoteRequest,
+  };
 }
 
 /* auto-resize textarea */
@@ -371,30 +468,134 @@ useEffect(() => {
 useEffect(() => {
   setChatBlocked(null);
 }, [currentThreadId]);
-  const {
-    loading: loadingMsgs,
-    msgs,
-    error: errMsgs,
-    setMsgs,
-    reload: reloadMsgs,
-  } = useMessages(currentThreadId, conversationMode);
+ const {
+  loading: loadingMsgs,
+  msgs,
+  error: errMsgs,
+  setMsgs,
+  reload: reloadMsgs,
+  quoteRequest,
+} = useMessages(
+  currentThreadId,
+  conversationMode
+);
 
-  const listRef = useRef(null);
-  useEffect(() => {
-    if (!listRef.current) return;
-    listRef.current.scrollTop = listRef.current.scrollHeight + 1000;
+const latestQuoteOffer =
+  Array.isArray(
+    quoteRequest?.offers
+  )
+    ? quoteRequest
+        .offers[0] ||
+      null
+    : null;
 
-    const ta = document.querySelector(`.${styles.input}`);
-    if (ta) autoResize(ta);
-  }, [msgs, activeThread?.threadId, loadingMsgs]);
+const quoteStatus =
+  String(
+    quoteRequest?.status ||
+      ""
+  )
+    .trim()
+    .toUpperCase();
 
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef(null);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [internalNote, setInternalNote] = useState("");
+const canSendQuoteOffer =
+  conversationMode ===
+    "customer" &&
+  Boolean(
+    quoteRequest?.id
+  ) &&
+  !quoteRequest?.orderId &&
+  ![
+    "ACCEPTED",
+    "CANCELLED",
+    "EXPIRED",
+  ].includes(
+    quoteStatus
+  );
 
+const listRef = useRef(null);
+
+const [text, setText] =
+  useState("");
+
+const [sending, setSending] =
+  useState(false);
+
+const [uploading, setUploading] =
+  useState(false);
+
+const fileInputRef =
+  useRef(null);
+
+const [
+  templatesOpen,
+  setTemplatesOpen,
+] = useState(false);
+
+const [
+  internalNote,
+  setInternalNote,
+] = useState("");
+
+const [
+  quoteOfferOpen,
+  setQuoteOfferOpen,
+] = useState(false);
+
+const [
+  quoteOfferSending,
+  setQuoteOfferSending,
+] = useState(false);
+
+const [
+  quoteOfferError,
+  setQuoteOfferError,
+] = useState("");
+
+const [
+  quoteOfferForm,
+  setQuoteOfferForm,
+] = useState({
+  unitPrice: "",
+  shippingPrice: "0",
+  productionDays: "",
+  notes: "",
+});
+
+useEffect(() => {
+  setQuoteOfferOpen(false);
+  setQuoteOfferSending(false);
+  setQuoteOfferError("");
+
+  setQuoteOfferForm({
+    unitPrice: "",
+    shippingPrice: "0",
+    productionDays: "",
+    notes: "",
+  });
+}, [currentThreadId]);
+
+useEffect(() => {
+  if (!listRef.current) {
+    return;
+  }
+
+  listRef.current.scrollTop =
+    listRef.current.scrollHeight +
+    1000;
+
+  const textarea =
+    document.querySelector(
+      `.${styles.input}`
+    );
+
+  if (textarea) {
+    autoResize(textarea);
+  }
+}, [
+  msgs,
+  activeThread?.threadId,
+  loadingMsgs,
+]);
   // notă internă sincronizată cu thread-ul activ
   useEffect(() => {
     if (!activeThread) {
@@ -461,6 +662,167 @@ function normalizeChatError(err) {
   shouldBlock,
   cta,
 };
+}
+
+async function handleSendQuoteOffer(
+  event
+) {
+  event?.preventDefault?.();
+
+  if (
+    !quoteRequest?.id ||
+    quoteOfferSending
+  ) {
+    return;
+  }
+
+  const quantity =
+    Number(
+      quoteRequest.quantity
+    );
+
+  const unitPrice =
+    Number(
+      String(
+        quoteOfferForm
+          .unitPrice ||
+          ""
+      )
+        .trim()
+        .replace(
+          ",",
+          "."
+        )
+    );
+
+  const shippingPrice =
+    Number(
+      String(
+        quoteOfferForm
+          .shippingPrice ||
+          "0"
+      )
+        .trim()
+        .replace(
+          ",",
+          "."
+        )
+    );
+
+  const productionDays =
+    Number.parseInt(
+      quoteOfferForm
+        .productionDays,
+      10
+    );
+
+  if (
+    !Number.isFinite(
+      quantity
+    ) ||
+    quantity <= 0
+  ) {
+    setQuoteOfferError(
+      "Cantitatea cererii nu este validă."
+    );
+
+    return;
+  }
+
+  if (
+    !Number.isFinite(
+      unitPrice
+    ) ||
+    unitPrice < 0
+  ) {
+    setQuoteOfferError(
+      "Introdu un preț unitar valid."
+    );
+
+    return;
+  }
+
+  if (
+    !Number.isFinite(
+      shippingPrice
+    ) ||
+    shippingPrice < 0
+  ) {
+    setQuoteOfferError(
+      "Introdu un cost de transport valid."
+    );
+
+    return;
+  }
+
+  if (
+    !Number.isFinite(
+      productionDays
+    ) ||
+    productionDays <= 0
+  ) {
+    setQuoteOfferError(
+      "Introdu un termen de producție valid."
+    );
+
+    return;
+  }
+
+  setQuoteOfferSending(true);
+  setQuoteOfferError("");
+
+  try {
+    await createVendorQuoteOffer(
+      quoteRequest.id,
+      {
+        quantity,
+
+        unitPrice,
+
+        shippingPrice,
+
+        currency:
+          "RON",
+
+        productionDays,
+
+        notes:
+          String(
+            quoteOfferForm
+              .notes ||
+              ""
+          ).trim() ||
+          null,
+      }
+    );
+
+    setQuoteOfferOpen(false);
+
+    setQuoteOfferForm({
+      unitPrice: "",
+      shippingPrice:
+        "0",
+      productionDays:
+        "",
+      notes:
+        "",
+    });
+
+    await reloadMsgs();
+    await reloadThreads();
+    await reloadUnreadTabs();
+  } catch (error) {
+    setQuoteOfferError(
+      error?.data
+        ?.message ||
+        error?.message ||
+        "Oferta nu a putut fi trimisă."
+    );
+  } finally {
+    setQuoteOfferSending(
+      false
+    );
+  }
 }
 
  async function handleSend() {
@@ -1494,25 +1856,63 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
 )}
               </div>
 )}
-              <div className={styles.msgList} ref={listRef}>
-                {loadingMsgs && (
-                  <div className={styles.loading}>Se încarcă…</div>
-                )}
-                {errMsgs && (
-                  <div className={styles.error}>
-                    Nu am putut încărca mesajele.
-                  </div>
-                )}
-                {msgs.map((m) => (
-                  <MessageBubble
-  key={m.id}
-  mine={m.from === "me"}
-  msg={m}
-  onEdit={conversationMode === "customer" ? (body) => editMessage(m.id, body) : undefined}
-  onDelete={conversationMode === "customer" ? () => deleteMessage(m.id) : undefined}
+
+             <div className={styles.msgList} ref={listRef}>
+  {loadingMsgs && (
+    <div className={styles.loading}>
+      Se încarcă…
+    </div>
+  )}
+
+  {errMsgs && (
+    <div className={styles.error}>
+      Nu am putut încărca mesajele.
+    </div>
+  )}
+
+  {conversationMode ===
+      "customer" &&
+    quoteRequest && (
+     <QuoteRequestPanel
+  quoteRequest={quoteRequest}
+  latestOffer={latestQuoteOffer}
+  canSendOffer={canSendQuoteOffer}
+  onOpenOffer={() => {
+    setQuoteOfferError("");
+    setQuoteOfferOpen(true);
+  }}
 />
-                ))}
-              </div>
+    )}
+
+  {msgs.map((m) => (
+    <MessageBubble
+      key={m.id}
+      mine={
+        m.from === "me"
+      }
+      msg={m}
+      onEdit={
+        conversationMode ===
+        "customer"
+          ? (body) =>
+              editMessage(
+                m.id,
+                body
+              )
+          : undefined
+      }
+      onDelete={
+        conversationMode ===
+        "customer"
+          ? () =>
+              deleteMessage(
+                m.id
+              )
+          : undefined
+      }
+    />
+  ))}
+</div>
 
               <footer className={styles.composer}>
                 
@@ -1635,7 +2035,26 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
           )}
         </section>
       </div>
+{quoteOfferOpen &&
+  quoteRequest && (
+    <QuoteOfferModal
+      quoteRequest={quoteRequest}
+      form={quoteOfferForm}
+      setForm={setQuoteOfferForm}
+      sending={quoteOfferSending}
+      error={quoteOfferError}
+      setError={setQuoteOfferError}
+      onSubmit={handleSendQuoteOffer}
+      onClose={() => {
+        if (quoteOfferSending) {
+          return;
+        }
 
+        setQuoteOfferError("");
+        setQuoteOfferOpen(false);
+      }}
+    />
+  )}
       {/* Backdrop full-screen peste TOT (inclusiv navbar) pe mobil */}
       {hasCurrent && (
         <div
@@ -1644,6 +2063,517 @@ disabled={chatBlocked?.code === "CHAT_ADVANCED_NOT_ALLOWED"}
         />
       )}
     </>
+  );
+}
+function QuoteRequestPanel({
+  quoteRequest,
+  latestOffer,
+  canSendOffer,
+  onOpenOffer,
+}) {
+  const quantity =
+    Number(
+      quoteRequest?.quantity
+    ) || 0;
+
+  const productTitle =
+    quoteRequest?.product
+      ?.title ||
+    "Produs personalizat";
+
+  const productImage =
+    Array.isArray(
+      quoteRequest?.product
+        ?.images
+    )
+      ? quoteRequest.product
+          .images[0] || null
+      : null;
+
+  const requestMessage =
+    String(
+      quoteRequest?.requestData
+        ?.message || ""
+    ).trim();
+
+  const latestOfferStatus =
+    String(
+      latestOffer?.status ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const latestOfferTotal =
+    Number(
+      latestOffer?.total
+    );
+
+  return (
+    <section
+      className={styles.quotePanel}
+    >
+      <div
+        className={
+          styles.quotePanelHead
+        }
+      >
+        <div
+          className={
+            styles.quotePanelInfo
+          }
+        >
+          <div
+            className={
+              styles.quotePanelEyebrow
+            }
+          >
+            Cerere de ofertă
+          </div>
+
+          <div
+            className={
+              styles.quotePanelTitle
+            }
+          >
+            {productTitle}
+          </div>
+
+          <div
+            className={
+              styles.quotePanelMeta
+            }
+          >
+            <span>
+              Cantitate:{" "}
+              <strong>
+                {quantity}
+              </strong>
+            </span>
+
+            <span>
+              Status:{" "}
+              <strong>
+                {quoteRequest?.status ||
+                  "SUBMITTED"}
+              </strong>
+            </span>
+          </div>
+        </div>
+
+        {productImage && (
+          <img
+            className={
+              styles.quoteProductImage
+            }
+            src={productImage}
+            alt={productTitle}
+          />
+        )}
+      </div>
+
+      {requestMessage && (
+        <div
+          className={
+            styles.quoteRequestText
+          }
+        >
+          <strong>
+            Cerințele clientului:
+          </strong>
+
+          <p>
+            {requestMessage}
+          </p>
+        </div>
+      )}
+
+      {latestOffer && (
+        <div
+          className={
+            styles.quoteExistingOffer
+          }
+        >
+          <div>
+            <strong>
+              Ultima ofertă
+            </strong>
+
+            <span>
+              {latestOfferStatus ||
+                "SENT"}
+            </span>
+          </div>
+
+          {Number.isFinite(
+            latestOfferTotal
+          ) && (
+            <strong>
+              {latestOfferTotal.toFixed(
+                2
+              )}{" "}
+              {latestOffer?.currency ||
+                "RON"}
+            </strong>
+          )}
+        </div>
+      )}
+
+      {canSendOffer && (
+        <button
+          type="button"
+          className={
+            styles.quotePrimaryBtn
+          }
+          onClick={onOpenOffer}
+        >
+          {latestOffer
+            ? "Trimite o ofertă nouă"
+            : "Trimite ofertă"}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function QuoteOfferModal({
+  quoteRequest,
+  form,
+  setForm,
+  sending,
+  error,
+  setError,
+  onSubmit,
+  onClose,
+}) {
+  const quantity =
+    Number(
+      quoteRequest?.quantity
+    ) || 0;
+
+  const productTitle =
+    quoteRequest?.product
+      ?.title ||
+    "Produs personalizat";
+
+  const unitPrice =
+    Number(
+      String(
+        form.unitPrice || "0"
+      ).replace(",", ".")
+    ) || 0;
+
+  const shippingPrice =
+    Number(
+      String(
+        form.shippingPrice ||
+          "0"
+      ).replace(",", ".")
+    ) || 0;
+
+  const productsTotal =
+    unitPrice * quantity;
+
+  const finalTotal =
+    productsTotal +
+    shippingPrice;
+
+  return (
+    <div
+      className={
+        styles.quoteModalBackdrop
+      }
+      onMouseDown={(event) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        className={
+          styles.quoteModal
+        }
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="quote-modal-title"
+      >
+        <div
+          className={
+            styles.quoteModalHead
+          }
+        >
+          <div>
+            <div
+              className={
+                styles.quotePanelEyebrow
+              }
+            >
+              Ofertă personalizată
+            </div>
+
+            <h2
+              id="quote-modal-title"
+            >
+              Trimite ofertă
+            </h2>
+
+            <p>
+              {productTitle} ·{" "}
+              {quantity} buc.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className={
+              styles.quoteModalClose
+            }
+            onClick={onClose}
+            disabled={sending}
+            aria-label="Închide"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form
+          className={
+            styles.quoteOfferForm
+          }
+          onSubmit={onSubmit}
+        >
+          <div
+            className={
+              styles.quoteFormGrid
+            }
+          >
+            <label>
+              <span>
+                Preț unitar
+              </span>
+
+              <div
+                className={
+                  styles.quoteMoneyInput
+                }
+              >
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={
+                    form.unitPrice
+                  }
+                  autoFocus
+                  required
+                  onChange={(event) =>
+                    setForm(
+                      (current) => ({
+                        ...current,
+                        unitPrice:
+                          event.target
+                            .value,
+                      })
+                    )
+                  }
+                />
+
+                <span>RON</span>
+              </div>
+            </label>
+
+            <label>
+              <span>
+                Transport
+              </span>
+
+              <div
+                className={
+                  styles.quoteMoneyInput
+                }
+              >
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={
+                    form.shippingPrice
+                  }
+                  required
+                  onChange={(event) =>
+                    setForm(
+                      (current) => ({
+                        ...current,
+                        shippingPrice:
+                          event.target
+                            .value,
+                      })
+                    )
+                  }
+                />
+
+                <span>RON</span>
+              </div>
+            </label>
+
+            <label>
+              <span>
+                Termen producție
+              </span>
+
+              <div
+                className={
+                  styles.quoteDaysInput
+                }
+              >
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={
+                    form.productionDays
+                  }
+                  required
+                  onChange={(event) =>
+                    setForm(
+                      (current) => ({
+                        ...current,
+                        productionDays:
+                          event.target
+                            .value,
+                      })
+                    )
+                  }
+                />
+
+                <span>zile</span>
+              </div>
+            </label>
+          </div>
+
+          <label
+            className={
+              styles.quoteNotesLabel
+            }
+          >
+            <span>
+              Observații pentru client
+            </span>
+
+            <textarea
+              rows={4}
+              value={form.notes}
+              placeholder="Ex: prețul include personalizarea și ambalarea..."
+              onChange={(event) =>
+                setForm(
+                  (current) => ({
+                    ...current,
+                    notes:
+                      event.target
+                        .value,
+                  })
+                )
+              }
+            />
+          </label>
+
+          <div
+            className={
+              styles.quoteOfferSummary
+            }
+          >
+            <span>
+              Produse:
+              <strong>
+                {productsTotal.toFixed(
+                  2
+                )}{" "}
+                RON
+              </strong>
+            </span>
+
+            <span>
+              Transport:
+              <strong>
+                {shippingPrice.toFixed(
+                  2
+                )}{" "}
+                RON
+              </strong>
+            </span>
+
+            <span>
+              Total:
+              <strong>
+                {finalTotal.toFixed(
+                  2
+                )}{" "}
+                RON
+              </strong>
+            </span>
+          </div>
+
+          {error && (
+            <div
+              className={
+                styles.quoteOfferError
+              }
+            >
+              {error}
+            </div>
+          )}
+
+          <div
+            className={
+              styles.quoteOfferActions
+            }
+          >
+            <button
+              type="button"
+              className={
+                styles.quoteSecondaryBtn
+              }
+              disabled={sending}
+              onClick={() => {
+                setError("");
+                onClose();
+              }}
+            >
+              Renunță
+            </button>
+
+            <button
+              type="submit"
+              className={
+                styles.quotePrimaryBtn
+              }
+              disabled={sending}
+            >
+              {sending ? (
+                <>
+                  <Loader2
+                    size={16}
+                    className={
+                      styles.spin
+                    }
+                  />
+
+                  Se trimite…
+                </>
+              ) : (
+                <>
+                  <Send size={16} />
+                  Trimite oferta
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

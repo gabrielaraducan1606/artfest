@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
-import { guestCart } from "../../lib/guestCart";
+import {
+  getGuestCart,
+  clearGuestCart,
+} from "../../utils/guestCart";
 import styles from "./Checkout.module.css";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -464,7 +467,7 @@ function getItemVatBreakdown(item) {
 
 export default function Checkout() {
   const nav = useNavigate();
-
+const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -821,41 +824,45 @@ export default function Checkout() {
     });
   }
 
-  useEffect(() => {
-    let cancelled = false;
+ useEffect(() => {
+  let cancelled = false;
 
-    (async () => {
-      setLoading(true);
-      setError("");
+  (async () => {
+    setLoading(true);
+    setError("");
 
-      try {
-        const authData = await api("/api/auth/me").catch(() => null);
-        const me = authData?.user || null;
+    try {
+      const authData = await api("/api/auth/me").catch(() => null);
+      const currentUser = authData?.user || null;
 
-        if (!me) {
-          const redir = encodeURIComponent("/checkout");
-          nav(`/autentificare?redirect=${redir}`);
-          return;
-        }
+      if (cancelled) {
+        return;
+      }
 
-        const local = guestCart.list();
+      setMe(currentUser);
 
-        if (local.length) {
+      let summary;
+
+      if (currentUser) {
+        /*
+         * Checkout pentru utilizator autentificat.
+         */
+        const localItems = getGuestCart();
+
+        if (localItems.length) {
           try {
             const mergeResult = await api("/api/cart/merge", {
               method: "POST",
-              body: { items: local },
+              body: {
+                items: localItems,
+              },
             });
 
-            if (cancelled) return;
-
-            guestCart.clear();
-
-            try {
-              window.dispatchEvent(new CustomEvent("cart:changed"));
-            } catch {
-              // ignore
+            if (cancelled) {
+              return;
             }
+
+            clearGuestCart();
 
             if (mergeResult?.skipped > 0) {
               alert(
@@ -864,77 +871,134 @@ export default function Checkout() {
                   : `${mergeResult.skipped} produse din coșul de vizitator au fost omise.`
               );
             }
-          } catch {
-            // ignore
+          } catch (error) {
+            console.error(
+              "Nu am putut sincroniza coșul guest:",
+              error
+            );
           }
         }
 
-        const summary = await api("/api/checkout/summary");
-        if (cancelled) return;
+        summary = await api("/api/checkout/summary");
+      } else {
+        /*
+         * Checkout fără cont.
+         */
+        const guestItems = getGuestCart();
 
-        setItems(Array.isArray(summary?.items) ? summary.items : []);
-        setGroups(Array.isArray(summary?.groups) ? summary.groups : []);
-        setCurrency(summary?.currency || "RON");
-
-        try {
-          const saved = localStorage.getItem("checkoutAddress");
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (parsed && typeof parsed === "object") {
-              const {
-                customerType: savedType,
-                shipToDifferentAddress: savedShipToDifferentAddress,
-                shippingAddress: savedShippingAddress,
-                billingCompany: savedBillingCompany,
-                contactPerson: savedContactPerson,
-              } = parsed;
-
-              if (savedShippingAddress) {
-                setShippingAddress((prev) => ({
-                  ...prev,
-                  ...savedShippingAddress,
-                }));
-              }
-
-              if (savedBillingCompany) {
-                setBillingCompany((prev) => ({
-                  ...prev,
-                  ...savedBillingCompany,
-                }));
-              }
-
-              if (savedContactPerson) {
-                setContactPerson((prev) => ({
-                  ...prev,
-                  ...savedContactPerson,
-                }));
-              }
-
-              if (savedType === "PF" || savedType === "PJ") {
-                setCustomerType(savedType);
-              }
-
-              setShipToDifferentAddress(Boolean(savedShipToDifferentAddress));
-            }
+        if (!guestItems.length) {
+          if (!cancelled) {
+            setItems([]);
+            setGroups([]);
           }
-        } catch {
-          // ignore
+
+          return;
+        }
+
+        summary = await api("/api/checkout/guest/summary", {
+          method: "POST",
+          body: {
+            items: guestItems,
+          },
+        });
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setItems(
+        Array.isArray(summary?.items)
+          ? summary.items
+          : []
+      );
+
+      setGroups(
+        Array.isArray(summary?.groups)
+          ? summary.groups
+          : []
+      );
+
+      setCurrency(summary?.currency || "RON");
+
+      try {
+        const saved = localStorage.getItem("checkoutAddress");
+
+        if (saved) {
+          const parsed = JSON.parse(saved);
+
+          if (parsed && typeof parsed === "object") {
+            const {
+              customerType: savedType,
+              shipToDifferentAddress:
+                savedShipToDifferentAddress,
+              shippingAddress:
+                savedShippingAddress,
+              billingCompany:
+                savedBillingCompany,
+              contactPerson:
+                savedContactPerson,
+            } = parsed;
+
+            if (savedShippingAddress) {
+              setShippingAddress((previous) => ({
+                ...previous,
+                ...savedShippingAddress,
+              }));
+            }
+
+            if (savedBillingCompany) {
+              setBillingCompany((previous) => ({
+                ...previous,
+                ...savedBillingCompany,
+              }));
+            }
+
+            if (savedContactPerson) {
+              setContactPerson((previous) => ({
+                ...previous,
+                ...savedContactPerson,
+              }));
+            }
+
+            if (
+              savedType === "PF" ||
+              savedType === "PJ"
+            ) {
+              setCustomerType(savedType);
+            }
+
+            setShipToDifferentAddress(
+              Boolean(savedShipToDifferentAddress)
+            );
+          }
         }
       } catch {
-        if (!cancelled) {
-          setError("Nu am putut încărca checkout-ul.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        // Datele salvate local sunt opționale.
       }
-    })();
+    } catch (error) {
+      console.error(
+        "Checkout load error:",
+        error
+      );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [nav]);
+      if (!cancelled) {
+        setError(
+          getReadableApiError(error) ||
+            "Nu am putut încărca checkout-ul."
+        );
+      }
+    } finally {
+      if (!cancelled) {
+        setLoading(false);
+      }
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1172,29 +1236,78 @@ export default function Checkout() {
           customerType === "PJ" ? shipToDifferentAddress : false,
       };
 
-      const result = await api("/api/checkout/place", {
-        method: "POST",
-        body,
-      });
+      const checkoutBody = me
+  ? body
+  : {
+      ...body,
+      items: getGuestCart(),
+      consents: {
+        termsAccepted: true,
+        privacyAccepted: true,
+      },
+    };
 
-      try {
-        window.dispatchEvent(new CustomEvent("cart:changed"));
-      } catch {
-        // ignore
-      }
+const endpoint = me
+  ? "/api/checkout/place"
+  : "/api/checkout/guest/place";
 
-      if (paymentMethod === "CARD" && result?.payment?.redirectUrl) {
-        window.location.href = result.payment.redirectUrl;
-        return;
-      }
+const result = await api(endpoint, {
+  method: "POST",
+  body: checkoutBody,
+});
 
-      if (result?.orderId) {
-        nav(`/multumim?order=${encodeURIComponent(result.orderId)}`);
-        return;
-      }
+if (result?.ok || result?.orderId) {
+  if (!me) {
+    clearGuestCart();
+  }
 
-      alert("Comanda a fost înregistrată.");
-      nav("/comenzile-mele");
+  try {
+    sessionStorage.removeItem("cart:ui-cache:v1");
+  } catch {
+    // ignore
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent("cart:changed")
+    );
+  } catch {
+    // ignore
+  }
+}
+
+if (
+  paymentMethod === "CARD" &&
+  result?.payment?.redirectUrl
+) {
+  window.location.href =
+    result.payment.redirectUrl;
+  return;
+}
+
+if (result?.orderId) {
+  const params = new URLSearchParams({
+    order: result.orderId,
+  });
+
+  if (result?.guestAccessToken) {
+    params.set(
+      "token",
+      result.guestAccessToken
+    );
+  }
+
+  nav(`/multumim?${params.toString()}`);
+  return;
+}
+
+alert("Comanda a fost înregistrată.");
+
+if (me) {
+  nav("/comenzile-mele");
+} else {
+  nav("/multumim");
+}
     } catch (e) {
       setError(getReadableApiError(e));
     } finally {

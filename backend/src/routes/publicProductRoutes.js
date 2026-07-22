@@ -150,11 +150,15 @@ const baseProductSelect = {
   category: true,
   color: true,
 
-  availability: true,
-  leadTimeDays: true,
-  readyQty: true,
-  nextShipDate: true,
-  acceptsCustom: true,
+  orderMode: true,
+availability: true,
+leadTimeDays: true,
+readyQty: true,
+nextShipDate: true,
+acceptsCustom: true,
+  optionsSchema: true,
+  customSchema: true,
+  quoteSchema: true,
 materialMain: true,
 technique: true,
 styleTags: true,
@@ -285,87 +289,232 @@ function getViewerId(req) {
     null
   );
 }
-function mapPublicProduct(p, promoCollection = null, viewerState = null) {
+function mapPublicProduct(
+  p,
+  promoCollection = null,
+  viewerState = null
+) {
   const storeName =
     p?.service?.profile?.displayName ||
     p?.service?.vendor?.displayName ||
     "Magazin";
 
-  const storeSlug = p?.service?.profile?.slug || null;
+  const storeSlug =
+    p?.service?.profile?.slug || null;
 
   const storeLogo =
     p?.service?.profile?.logoUrl ||
     p?.service?.vendor?.logoUrl ||
     null;
 
-  const promo = getPromoPrice(p.priceCents, promoCollection);
+  const promo = getPromoPrice(
+    p.priceCents,
+    promoCollection
+  );
+
   const unitPrice =
-    promo.finalPriceCents != null ? promo.finalPriceCents / 100 : 0;
+    promo.finalPriceCents != null
+      ? promo.finalPriceCents / 100
+      : 0;
 
   const sellerPlan =
-    p?.service?.vendor?.subscriptions?.[0]?.plan?.code || "basic";
+    p?.service?.vendor
+      ?.subscriptions?.[0]
+      ?.plan?.code || "basic";
 
-  const promotionRank = getPromotionRank(sellerPlan);
+  const promotionRank =
+    getPromotionRank(sellerPlan);
+
+  const orderMode = String(
+    p.orderMode || "DIRECT"
+  ).toUpperCase();
+
+  const availability = String(
+    p.availability || ""
+  ).toUpperCase();
+
+  const readyQty =
+    p.readyQty === null ||
+    p.readyQty === undefined
+      ? null
+      : Number(p.readyQty);
+
+  const hasReadyStock =
+    readyQty === null ||
+    (
+      Number.isFinite(readyQty) &&
+      readyQty > 0
+    );
+
+  const canBuyDirect =
+    orderMode === "DIRECT" &&
+    availability === "READY" &&
+    hasReadyStock;
+
+  const isAvailable =
+    orderMode === "DIRECT"
+      ? canBuyDirect
+      : availability !== "SOLD_OUT";
+
+  const availabilityMessage =
+    !isAvailable
+      ? readyQty !== null &&
+        readyQty <= 0
+        ? "Produsul este epuizat."
+        : "Produsul nu este disponibil momentan."
+      : null;
 
   return {
     id: p.id,
     title: p.title,
-    images: Array.isArray(p.images) ? p.images : [],
-    priceCents: promo.finalPriceCents ?? 0,
+
+    images:
+      Array.isArray(p.images)
+        ? p.images
+        : [],
+
+    priceCents:
+      promo.finalPriceCents ?? 0,
+
     price: unitPrice,
-    originalPriceCents: promo.hasDiscount ? promo.originalPriceCents : null,
-    originalPrice: promo.hasDiscount ? promo.originalPriceCents / 100 : null,
-    hasDiscount: promo.hasDiscount,
-    discountPercent: promo.discountPercent,
-    promoLabel: promo.promoLabel,
-    promoFundingSource: promo.promoFundingSource,
-    promoCollectionId: promo.promoCollectionId,
-    currency: p.currency || "RON",
 
-    isActive: p.isActive,
-    isHidden: !!p.isHidden,
-    moderationStatus: p.moderationStatus || "PENDING",
-    category: p.category || null,
-    color: p.color || null,
-    createdAt: p.createdAt,
+    originalPriceCents:
+      promo.hasDiscount
+        ? promo.originalPriceCents
+        : null,
 
-    favoriteCount: p?._count?.Favorite || 0,
-    viewerFavorited: !!viewerState?.favorited,
+    originalPrice:
+      promo.hasDiscount
+        ? promo.originalPriceCents / 100
+        : null,
 
-    availability:
-      typeof p.availability === "string" ? p.availability.toUpperCase() : null,
-    leadTimeDays: p.leadTimeDays ?? null,
-    readyQty: p.readyQty ?? null,
-    nextShipDate: p.nextShipDate ?? null,
-    acceptsCustom: !!p.acceptsCustom,
+    hasDiscount:
+      promo.hasDiscount,
 
-    service: p.service
-      ? {
-          id: p.service.id,
-          profile: p.service.profile
-            ? {
-                displayName: p.service.profile.displayName,
-                slug: p.service.profile.slug,
-                logoUrl: p.service.profile.logoUrl,
-              }
-            : null,
-          vendor: p.service.vendor
-            ? {
-                id: p.service.vendor.id,
-                userId: p.service.vendor.userId,
-                displayName: p.service.vendor.displayName,
-                logoUrl: p.service.vendor.logoUrl,
-              }
-            : null,
-        }
-      : null,
+    discountPercent:
+      promo.discountPercent,
+
+    promoLabel:
+      promo.promoLabel,
+
+    promoFundingSource:
+      promo.promoFundingSource,
+
+    promoCollectionId:
+      promo.promoCollectionId,
+
+    currency:
+      p.currency || "RON",
+
+    isActive:
+      p.isActive,
+
+    isHidden:
+      !!p.isHidden,
+
+    moderationStatus:
+      p.moderationStatus || "PENDING",
+
+    category:
+      p.category || null,
+
+    color:
+      p.color || null,
+
+    createdAt:
+      p.createdAt,
+
+    favoriteCount:
+      p?._count?.Favorite || 0,
+
+    viewerFavorited:
+      !!viewerState?.favorited,
+
+    orderMode,
+    availability,
+
+    leadTimeDays:
+      p.leadTimeDays ?? null,
+
+    readyQty:
+      p.readyQty ?? null,
+
+    nextShipDate:
+      p.nextShipDate ?? null,
+
+    acceptsCustom:
+      !!p.acceptsCustom,
+    optionsSchema:
+      Array.isArray(p.optionsSchema)
+        ? p.optionsSchema
+        : [],
+
+    customSchema:
+      Array.isArray(p.customSchema)
+        ? p.customSchema
+        : [],
+
+    quoteSchema:
+      Array.isArray(p.quoteSchema)
+        ? p.quoteSchema
+        : [],
+    canBuyDirect,
+    isAvailable,
+    availabilityMessage,
+
+    service:
+      p.service
+        ? {
+            id: p.service.id,
+
+            profile:
+              p.service.profile
+                ? {
+                    displayName:
+                      p.service.profile
+                        .displayName,
+
+                    slug:
+                      p.service.profile
+                        .slug,
+
+                    logoUrl:
+                      p.service.profile
+                        .logoUrl,
+                  }
+                : null,
+
+            vendor:
+              p.service.vendor
+                ? {
+                    id:
+                      p.service.vendor.id,
+
+                    userId:
+                      p.service.vendor
+                        .userId,
+
+                    displayName:
+                      p.service.vendor
+                        .displayName,
+
+                    logoUrl:
+                      p.service.vendor
+                        .logoUrl,
+                  }
+                : null,
+          }
+        : null,
 
     storeName,
     storeSlug,
     storeLogo,
     sellerPlan,
     promotionRank,
-    isPromoted: sellerPlan === "premium" || sellerPlan === "pro",
+
+    isPromoted:
+      sellerPlan === "premium" ||
+      sellerPlan === "pro",
   };
 }
 
@@ -1432,186 +1581,341 @@ if (ownerUserId && ownerUserId === userId) {
 /* -----------------------------------------
    DETALII PRODUS
 ------------------------------------------*/
-router.get("/products/:id", async (req, res, next) => {
-  try {
-    const id = String(req.params.id || "").trim();
-    if (!id) return res.status(400).json({ error: "invalid_id" });
+router.get(
+  "/products/:id",
+  async (req, res, next) => {
+    try {
+      const id = String(
+        req.params.id || ""
+      ).trim();
 
-    const p = await prisma.product.findFirst({
-      where: {
-        id,
-        isActive: true,
-        isHidden: false,
-        moderationStatus: "APPROVED",
-        service: {
-          is: {
+      if (!id) {
+        return res.status(400).json({
+          error: "invalid_id",
+        });
+      }
+
+      const p =
+        await prisma.product.findFirst({
+          where: {
+            id,
             isActive: true,
-            status: "ACTIVE",
-            vendor: {
-              is: { isActive: true },
-            },
-            type: {
-              is: { code: "products" },
-            },
-          },
-        },
-      },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        priceCents: true,
-        currency: true,
-        images: true,
-        category: true,
-        color: true,
-        colorVariants: true,
-        availability: true,
-        leadTimeDays: true,
-        readyQty: true,
-        nextShipDate: true,
-        acceptsCustom: true,
-        materialMain: true,
-        technique: true,
-        styleTags: true,
-        occasionTags: true,
-        dimensions: true,
-        careInstructions: true,
-        specialNotes: true,
-        createdAt: true,
-        updatedAt: true,
+            isHidden: false,
+            moderationStatus:
+              "APPROVED",
 
-        ProductRatingStats: {
-          select: {
-            avg: true,
-            c1: true,
-            c2: true,
-            c3: true,
-            c4: true,
-            c5: true,
-          },
-        },
-
-        service: {
-          select: {
-            id: true,
-            isActive: true,
-            status: true,
-            profile: {
-              select: {
-                displayName: true,
-                slug: true,
-                logoUrl: true,
-                city: true,
-              },
-            },
-            vendor: {
-              select: {
-                id: true,
-                userId: true,
-                displayName: true,
-                logoUrl: true,
-                city: true,
+            service: {
+              is: {
                 isActive: true,
-                billing: {
-                  select: {
-                    tvaActive: true,
-                    vatRate: true,
-                    vatStatus: true,
+                status: "ACTIVE",
+
+                vendor: {
+                  is: {
+                    isActive: true,
+                  },
+                },
+
+                type: {
+                  is: {
+                    code: "products",
                   },
                 },
               },
             },
           },
+
+        select: {
+  id: true,
+  title: true,
+  description: true,
+  priceCents: true,
+  currency: true,
+  images: true,
+  category: true,
+  color: true,
+  colorVariants: true,
+
+  orderMode: true,
+  availability: true,
+  leadTimeDays: true,
+  readyQty: true,
+  nextShipDate: true,
+  acceptsCustom: true,
+
+  optionsSchema: true,
+  customSchema: true,
+  quoteSchema: true,
+
+  materialMain: true,
+  technique: true,
+  styleTags: true,
+  occasionTags: true,
+  dimensions: true,
+  careInstructions: true,
+  specialNotes: true,
+
+            materialMain: true,
+            technique: true,
+            styleTags: true,
+            occasionTags: true,
+            dimensions: true,
+            careInstructions: true,
+            specialNotes: true,
+
+            createdAt: true,
+            updatedAt: true,
+
+            ProductRatingStats: {
+              select: {
+                avg: true,
+                c1: true,
+                c2: true,
+                c3: true,
+                c4: true,
+                c5: true,
+              },
+            },
+
+            service: {
+              select: {
+                id: true,
+                isActive: true,
+                status: true,
+
+                profile: {
+                  select: {
+                    displayName: true,
+                    slug: true,
+                    logoUrl: true,
+                    city: true,
+                  },
+                },
+
+                vendor: {
+                  select: {
+                    id: true,
+                    userId: true,
+                    displayName: true,
+                    logoUrl: true,
+                    city: true,
+                    isActive: true,
+
+                    billing: {
+                      select: {
+                        tvaActive: true,
+                        vatRate: true,
+                        vatStatus: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+      if (!p) {
+        return res.status(404).json({
+          error: "not_found",
+        });
+      }
+
+      const ratingStats =
+        p.ProductRatingStats;
+
+      const reviewCount =
+        (ratingStats?.c1 || 0) +
+        (ratingStats?.c2 || 0) +
+        (ratingStats?.c3 || 0) +
+        (ratingStats?.c4 || 0) +
+        (ratingStats?.c5 || 0);
+
+      const averageRating =
+        ratingStats
+          ? Number(ratingStats.avg)
+          : 0;
+
+      const storeName =
+        p?.service?.profile
+          ?.displayName ||
+        p?.service?.vendor
+          ?.displayName ||
+        "Magazin";
+
+      const storeSlug =
+        p?.service?.profile?.slug ||
+        null;
+
+      const promoByProductId =
+        await getActiveCollectionPromosForProducts(
+          [p]
+        );
+
+      const promoCollection =
+        promoByProductId.get(p.id) ||
+        null;
+
+      const promo = getPromoPrice(
+        p.priceCents,
+        promoCollection
+      );
+
+      const unitPrice =
+        promo.finalPriceCents != null
+          ? promo.finalPriceCents /
+            100
+          : 0;
+
+      const orderMode = String(
+        p.orderMode || "DIRECT"
+      ).toUpperCase();
+
+      const availability = String(
+        p.availability || ""
+      ).toUpperCase();
+
+      const readyQty =
+        p.readyQty === null ||
+        p.readyQty === undefined
+          ? null
+          : Number(p.readyQty);
+
+      const hasReadyStock =
+        readyQty === null ||
+        (
+          Number.isFinite(
+            readyQty
+          ) &&
+          readyQty > 0
+        );
+
+      const canBuyDirect =
+        orderMode === "DIRECT" &&
+        availability === "READY" &&
+        hasReadyStock;
+
+      const isAvailable =
+        orderMode === "DIRECT"
+          ? canBuyDirect
+          : availability !==
+            "SOLD_OUT";
+
+      const availabilityMessage =
+        !isAvailable
+          ? readyQty !== null &&
+            readyQty <= 0
+            ? "Produsul este epuizat."
+            : "Produsul nu este disponibil momentan."
+          : null;
+
+      const {
+        ProductRatingStats,
+        ...safeProduct
+      } = p;
+
+      res.set(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate"
+      );
+
+      res.set(
+        "Pragma",
+        "no-cache"
+      );
+
+      res.set(
+        "Expires",
+        "0"
+      );
+
+      return res.json({
+        ...safeProduct,
+
+        storeName,
+        storeSlug,
+
+        averageRating,
+        avgRating:
+          averageRating,
+
+        reviewCount,
+
+        service: {
+          ...safeProduct.service,
+
+          vendor:
+            safeProduct.service
+              ?.vendor
+              ? {
+                  ...safeProduct
+                    .service.vendor,
+
+                  billing:
+                    mapPublicBilling(
+                      safeProduct
+                        .service
+                        .vendor
+                        .billing
+                    ),
+                }
+              : null,
         },
-      },
-    });
 
-    if (!p) {
-      return res.status(404).json({ error: "not_found" });
+        price:
+          unitPrice,
+
+        priceCents:
+          promo.finalPriceCents,
+
+        originalPriceCents:
+          promo.hasDiscount
+            ? promo.originalPriceCents
+            : null,
+
+        originalPrice:
+          promo.hasDiscount
+            ? promo.originalPriceCents /
+              100
+            : null,
+
+        hasDiscount:
+          promo.hasDiscount,
+
+        discountPercent:
+          promo.discountPercent,
+
+        orderMode,
+        availability,
+        canBuyDirect,
+        isAvailable,
+        availabilityMessage,
+
+        colorVariants:
+          Array.isArray(
+            safeProduct.colorVariants
+          )
+            ? safeProduct.colorVariants
+            : [],
+
+        styleTags:
+          Array.isArray(
+            safeProduct.styleTags
+          )
+            ? safeProduct.styleTags
+            : [],
+
+        occasionTags:
+          Array.isArray(
+            safeProduct.occasionTags
+          )
+            ? safeProduct.occasionTags
+            : [],
+      });
+    } catch (error) {
+      next(error);
     }
-
-    const ratingStats = p.ProductRatingStats;
-
-    const reviewCount =
-      (ratingStats?.c1 || 0) +
-      (ratingStats?.c2 || 0) +
-      (ratingStats?.c3 || 0) +
-      (ratingStats?.c4 || 0) +
-      (ratingStats?.c5 || 0);
-
-    const averageRating = ratingStats ? Number(ratingStats.avg) : 0;
-
-    const storeName =
-      p?.service?.profile?.displayName ||
-      p?.service?.vendor?.displayName ||
-      "Magazin";
-
-    const storeSlug = p?.service?.profile?.slug || null;
-
-    const promoByProductId = await getActiveCollectionPromosForProducts([p]);
-    const promoCollection = promoByProductId.get(p.id) || null;
-    const promo = getPromoPrice(p.priceCents, promoCollection);
-
-    const unitPrice =
-      promo.finalPriceCents != null ? promo.finalPriceCents / 100 : 0;
-
-    const { ProductRatingStats, ...safeProduct } = p;
-
-    res.set(
-  "Cache-Control",
-  "public, max-age=300, stale-while-revalidate=3600"
-);
-
-    return res.json({
-      ...safeProduct,
-      storeName,
-      storeSlug,
-
-      averageRating,
-      avgRating: averageRating,
-      reviewCount,
-
-      service: {
-        ...safeProduct.service,
-        vendor: safeProduct.service?.vendor
-          ? {
-              ...safeProduct.service.vendor,
-              billing: mapPublicBilling(safeProduct.service.vendor.billing),
-            }
-          : null,
-      },
-
-      price: unitPrice,
-      priceCents: promo.finalPriceCents,
-
-      originalPriceCents: promo.hasDiscount ? promo.originalPriceCents : null,
-      originalPrice: promo.hasDiscount ? promo.originalPriceCents / 100 : null,
-
-      hasDiscount: promo.hasDiscount,
-      discountPercent: promo.discountPercent,
-
-      availability:
-        typeof safeProduct.availability === "string"
-          ? safeProduct.availability.toUpperCase()
-          : null,
-
-      colorVariants: Array.isArray(safeProduct.colorVariants)
-        ? safeProduct.colorVariants
-        : [],
-
-      styleTags: Array.isArray(safeProduct.styleTags)
-        ? safeProduct.styleTags
-        : [],
-
-      occasionTags: Array.isArray(safeProduct.occasionTags)
-        ? safeProduct.occasionTags
-        : [],
-    });
-  } catch (e) {
-    next(e);
   }
-});
+);
 
 router.get("/store/:slug/initial", async (req, res, next) => {
   try {
@@ -1733,93 +2037,132 @@ router.get("/store/:slug", async (req, res) => {
   });
 });
 
-router.get("/store/:slug/products", async (req, res) => {
-  const slug = String(req.params.slug || "").trim().toLowerCase();
-  if (!slug) return res.status(400).json({ error: "invalid_slug" });
+router.get(
+  "/store/:slug/products",
+  async (req, res) => {
+    try {
+      const slug = String(
+        req.params.slug || ""
+      )
+        .trim()
+        .toLowerCase();
 
-  const take = Math.min(
-  12,
-  Math.max(1, parseInt(String(req.query.take || "12"), 10))
-);
+      if (!slug) {
+        return res.status(400).json({
+          error: "invalid_slug",
+        });
+      }
 
-  const profile = await prisma.serviceProfile.findUnique({
-    where: { slug },
-    include: { service: { include: { type: true, vendor: true } } },
-  });
+      const take = Math.min(
+        12,
+        Math.max(
+          1,
+          parseInt(
+            String(
+              req.query.take || "12"
+            ),
+            10
+          )
+        )
+      );
 
-  if (!profile || profile?.service?.type?.code !== "products") {
-    return res.status(404).json({ error: "store_not_found" });
+      const profile =
+        await prisma.serviceProfile.findUnique(
+          {
+            where: {
+              slug,
+            },
+
+            include: {
+              service: {
+                include: {
+                  type: true,
+                  vendor: true,
+                },
+              },
+            },
+          }
+        );
+
+      if (
+        !profile ||
+        profile?.service?.type
+          ?.code !== "products"
+      ) {
+        return res.status(404).json({
+          error:
+            "store_not_found",
+        });
+      }
+
+      const items =
+        await prisma.product.findMany({
+          where: {
+            serviceId:
+              profile.serviceId,
+
+            isActive: true,
+            isHidden: false,
+
+            moderationStatus:
+              "APPROVED",
+          },
+
+          orderBy: {
+            createdAt: "desc",
+          },
+
+          take,
+
+          select:
+            baseProductSelect,
+        });
+
+      const promoByProductId =
+        await getActiveCollectionPromosForProducts(
+          items
+        );
+
+      const products = items.map(
+        (product) =>
+          mapPublicProduct(
+            product,
+            promoByProductId.get(
+              product.id
+            ) || null
+          )
+      );
+
+      res.set(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate"
+      );
+
+      res.set(
+        "Pragma",
+        "no-cache"
+      );
+
+      res.set(
+        "Expires",
+        "0"
+      );
+
+      return res.json(
+        products
+      );
+    } catch (error) {
+      console.error(
+        "GET /api/public/store/:slug/products error:",
+        error
+      );
+
+      return res.status(500).json({
+        error: "server_error",
+      });
+    }
   }
-
-  const items = await prisma.product.findMany({
-  where: {
-    serviceId: profile.serviceId,
-    isActive: true,
-    isHidden: false,
-    moderationStatus: "APPROVED",
-  },
-  orderBy: { createdAt: "desc" },
-  take,
-  select: baseProductSelect,
-});
-
-const promoByProductId = await getActiveCollectionPromosForProducts(items);
-  res.set("Cache-Control", "public, max-age=0, must-revalidate");
-  res.json(
-    items.map((p) => {
-      const promo = getPromoPrice(
-  p.priceCents,
-  promoByProductId.get(p.id) || null
 );
-
-const unitPrice =
-  promo.finalPriceCents != null
-    ? promo.finalPriceCents / 100
-    : 0;
-
-      return {
-        id: p.id,
-        title: p.title,
-        description: p.description || "",
-        priceCents: promo.finalPriceCents ?? 0,
-price: unitPrice,
-
-originalPriceCents: promo.hasDiscount
-  ? promo.originalPriceCents
-  : null,
-
-originalPrice: promo.hasDiscount
-  ? promo.originalPriceCents / 100
-  : null,
-
-hasDiscount: promo.hasDiscount,
-discountPercent: promo.discountPercent,
-        images: Array.isArray(p.images) ? p.images : [],
-        currency: p.currency || "RON",
-        createdAt: p.createdAt,
-        category: p.category || null,
-        color: p.color || null,
-        colorVariants: Array.isArray(p.colorVariants) ? p.colorVariants : [],
-        availability:
-          typeof p.availability === "string" ? p.availability.toUpperCase() : null,
-        leadTimeDays: p.leadTimeDays ?? null,
-        readyQty: p.readyQty ?? null,
-        nextShipDate: p.nextShipDate ?? null,
-        acceptsCustom: !!p.acceptsCustom,
-        materialMain: p.materialMain || null,
-        technique: p.technique || null,
-        styleTags: Array.isArray(p.styleTags) ? p.styleTags : [],
-        occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
-        dimensions: p.dimensions || null,
-        careInstructions: p.careInstructions || null,
-        specialNotes: p.specialNotes || null,
-        isHidden: !!p.isHidden,
-        isActive: !!p.isActive,
-        moderationStatus: p.moderationStatus || "PENDING",
-      };
-    })
-  );
-});
 
 router.get("/store/:slug/reviews", async (req, res, next) => {
   try {

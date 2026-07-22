@@ -21,7 +21,12 @@ import {
   FaHeart,
   FaRegHeart,
 } from "react-icons/fa";
-import { guestCart } from "../../lib/guestCart";
+import {
+  getGuestCart,
+  updateGuestCartItem,
+  removeFromGuestCart,
+  clearGuestCart,
+} from "../../utils/guestCart";
 import {
   trackAddToCart,
   trackBeginCheckout,
@@ -54,6 +59,35 @@ const money = (v, currency = "RON", locale = "ro-RO") => {
   return nfCache.get(key).format(v ?? 0);
 };
 
+const getReadableValue = (value) => {
+  if (Array.isArray(value)) {
+    return value.map(String).join(", ");
+  }
+
+  if (value && typeof value === "object") {
+    return Object.values(value).map(String).join(", ");
+  }
+
+  if (value === true) return "Da";
+  if (value === false) return "Nu";
+
+  return String(value ?? "");
+};
+
+const getConfigurationEntries = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+
+  return Object.entries(value).filter(([, itemValue]) => {
+    if (itemValue === null || itemValue === undefined) return false;
+    if (typeof itemValue === "string" && !itemValue.trim()) return false;
+    if (Array.isArray(itemValue) && !itemValue.length) return false;
+
+    return true;
+  });
+};
+
 const DEFAULT_MAX_QTY = 9999;
 
 const getMaxQty = (product = {}) => {
@@ -78,6 +112,9 @@ const getMaxQty = (product = {}) => {
 
 const clampQty = (q, max = DEFAULT_MAX_QTY) =>
   Math.max(1, Math.min(Number.isFinite(q) ? q : 1, max));
+
+const getRowKey = (row) =>
+  `${row.productId}:${row.configurationKey || "default"}`;
 
 const CART_CACHE_KEY = "cart:ui-cache:v1";
 
@@ -176,7 +213,7 @@ export default function Cart() {
   }, []);
 
   const loadGuest = useCallback(async (signal) => {
-    const list = guestCart.list();
+    const list = getGuestCart();
 
     if (list.length === 0) {
       if (!signal?.aborted) setRows([]);
@@ -200,6 +237,9 @@ export default function Cart() {
           productId: x.productId,
           qty,
           _localQty: qty,
+          selectedOptions: x.selectedOptions || {},
+          customAnswers: x.customAnswers || {},
+          configurationKey: x.configurationKey || "default",
           product: {
             id: x.productId,
             title: "Produs indisponibil",
@@ -253,7 +293,17 @@ export default function Cart() {
       const max = getMaxQty(product);
       const qty = clampQty(x.qty, max);
 
-      return { productId: x.productId, qty, _localQty: qty, product };
+      return {
+  productId: x.productId,
+  qty,
+  _localQty: qty,
+
+  selectedOptions: x.selectedOptions || {},
+  customAnswers: x.customAnswers || {},
+  configurationKey: x.configurationKey || "default",
+
+  product,
+};
     });
 
     if (!signal?.aborted) setRows(mapped);
@@ -299,12 +349,17 @@ export default function Cart() {
         maxOrderQty: productRaw?.maxOrderQty,
         stock: productRaw?.stock,
 
-        availability: productRaw?.availability || null,
-        available:
-          !!it?.product &&
-          productRaw?.isActive !== false &&
-          !productRaw?.isHidden &&
-          String(productRaw?.availability || "").toUpperCase() !== "SOLD_OUT",
+        availability:
+  productRaw?.availability || null,
+
+available:
+  productRaw?.isAvailable !== false,
+
+quantityAvailable:
+  productRaw?.quantityAvailable ?? true,
+
+availabilityMessage:
+  productRaw?.availabilityMessage || null,
       };
 
       const max = getMaxQty(product);
@@ -320,7 +375,7 @@ export default function Cart() {
     async (user) => {
       if (!user || didMergeRef.current) return;
 
-      const local = guestCart.list();
+      const local = getGuestCart();
       if (!local.length) return;
 
       try {
@@ -329,7 +384,7 @@ export default function Cart() {
           body: { items: local },
         });
 
-        guestCart.clear();
+        clearGuestCart();
         didMergeRef.current = true;
         notifyCartChanged();
         announce("Am sincronizat coșul tău.");
@@ -425,36 +480,53 @@ export default function Cart() {
     [rows]
   );
 
-  const hasUnavailableItems = useMemo(
-    () => rows.some((r) => r.product?.available === false),
-    [rows]
+ const hasUnavailableItems = useMemo(
+  () =>
+    rows.some(
+      (r) =>
+        r.product?.available === false ||
+        r.product?.quantityAvailable === false
+    ),
+  [rows]
+);
+
+  const setLocalQty = useCallback(
+    (productId, configurationKey, value) => {
+      setRows((list) =>
+        list.map((r) =>
+          r.productId === productId &&
+          (r.configurationKey || "default") === configurationKey
+            ? { ...r, _localQty: value }
+            : r
+        )
+      );
+    },
+    []
   );
 
-  const setLocalQty = useCallback((productId, value) => {
-    setRows((list) =>
-      list.map((r) =>
-        r.productId === productId ? { ...r, _localQty: value } : r
-      )
-    );
-  }, []);
-
   const commitQty = useCallback(
-    async (productId, qty) => {
-      const row = rows.find((r) => r.productId === productId);
+    async (productId, configurationKey, qty) => {
+      const row = rows.find(
+        (r) =>
+          r.productId === productId &&
+          (r.configurationKey || "default") === configurationKey
+      );
+
       const max = getMaxQty(row?.product);
       const safe = clampQty(qty, max);
       const prev = rows.slice();
 
       setRows((list) =>
         list.map((r) =>
-          r.productId === productId
+          r.productId === productId &&
+          (r.configurationKey || "default") === configurationKey
             ? { ...r, qty: safe, _localQty: safe }
             : r
         )
       );
 
       if (!me) {
-        guestCart.update(productId, safe);
+        updateGuestCartItem(productId, configurationKey, safe);
         notifyCartChanged();
 
         if (safe !== qty) {
@@ -464,11 +536,17 @@ export default function Cart() {
         return;
       }
 
-      await withPending(productId, async () => {
+      const pendingKey = `${productId}:${configurationKey}`;
+
+      await withPending(pendingKey, async () => {
         try {
           const res = await api("/api/cart/update", {
             method: "POST",
-            body: { productId, qty: safe },
+            body: {
+              productId,
+              configurationKey,
+              qty: safe,
+            },
           });
 
           if (res?.item?.qty && Number(res.item.qty) !== safe) {
@@ -476,7 +554,8 @@ export default function Cart() {
 
             setRows((list) =>
               list.map((r) =>
-                r.productId === productId
+                r.productId === productId &&
+                (r.configurationKey || "default") === configurationKey
                   ? { ...r, qty: serverQty, _localQty: serverQty }
                   : r
               )
@@ -499,48 +578,71 @@ export default function Cart() {
     [rows, me, notifyCartChanged, withPending, announce]
   );
 
-const inc = useCallback(
-  (productId, current) => {
-    const row = rows.find((r) => r.productId === productId);
-    const max = getMaxQty(row?.product);
+  const inc = useCallback(
+    (productId, configurationKey, current) => {
+      const row = rows.find(
+        (r) =>
+          r.productId === productId &&
+          (r.configurationKey || "default") === configurationKey
+      );
 
-    if (current >= max) {
-      alert(`Avem doar ${max} buc. disponibile momentan.`);
-      return;
-    }
+      const max = getMaxQty(row?.product);
 
-    if (row?.product) {
-      trackAddToCart(row.product);
-    }
+      if (current >= max) {
+        alert(`Avem doar ${max} buc. disponibile momentan.`);
+        return;
+      }
 
-    return commitQty(productId, current + 1);
-  },
-  [rows, commitQty]
-);
+      if (row?.product) {
+        trackAddToCart(row.product);
+      }
+
+      return commitQty(productId, configurationKey, current + 1);
+    },
+    [rows, commitQty]
+  );
 
   const dec = useCallback(
-    (productId, current) => commitQty(productId, Math.max(current - 1, 1)),
+    (productId, configurationKey, current) =>
+      commitQty(
+        productId,
+        configurationKey,
+        Math.max(current - 1, 1)
+      ),
     [commitQty]
   );
 
   const removeItem = useCallback(
-    async (productId) => {
+    async (productId, configurationKey) => {
       const prev = rows.slice();
 
-      setRows((list) => list.filter((r) => r.productId !== productId));
+      setRows((list) =>
+        list.filter(
+          (r) =>
+            !(
+              r.productId === productId &&
+              (r.configurationKey || "default") === configurationKey
+            )
+        )
+      );
 
       if (!me) {
-        guestCart.remove(productId);
+        removeFromGuestCart(productId, configurationKey);
         notifyCartChanged();
         announce("Produs eliminat.");
         return;
       }
 
-      await withPending(productId, async () => {
+      const pendingKey = `${productId}:${configurationKey}`;
+
+      await withPending(pendingKey, async () => {
         try {
           await api("/api/cart/remove", {
             method: "DELETE",
-            body: { productId },
+            body: {
+              productId,
+              configurationKey,
+            },
           });
 
           notifyCartChanged();
@@ -555,18 +657,28 @@ const inc = useCallback(
 
   const clearVendor = useCallback(
     async (vendorId) => {
-      const ids = rows
-        .filter((r) => (r.product?.vendorId || "unknown") === vendorId)
-        .map((r) => r.productId);
+      const vendorRows = rows.filter(
+        (r) => (r.product?.vendorId || "unknown") === vendorId
+      );
 
-      if (!ids.length) return;
+      const ids = [...new Set(vendorRows.map((r) => r.productId))];
+
+      if (!vendorRows.length) return;
       if (!confirm("Elimini toate produsele acestui magazin din coș?")) return;
 
       const prev = rows.slice();
-      setRows((list) => list.filter((r) => !ids.includes(r.productId)));
+      setRows((list) =>
+        list.filter((r) => (r.product?.vendorId || "unknown") !== vendorId)
+      );
 
       if (!me) {
-        ids.forEach((id) => guestCart.remove(id));
+        vendorRows.forEach((r) => {
+          removeFromGuestCart(
+            r.productId,
+            r.configurationKey || "default"
+          );
+        });
+
         notifyCartChanged();
         announce("Produsele magazinului au fost eliminate.");
         return;
@@ -577,10 +689,13 @@ const inc = useCallback(
           method: "POST",
           body: { productIds: ids },
         }).catch(async () => {
-          for (const id of ids) {
+          for (const r of vendorRows) {
             await api("/api/cart/remove", {
               method: "DELETE",
-              body: { productId: id },
+              body: {
+                productId: r.productId,
+                configurationKey: r.configurationKey || "default",
+              },
             }).catch(() => {});
           }
         });
@@ -602,7 +717,7 @@ const inc = useCallback(
     setRows([]);
 
     if (!me) {
-      guestCart.clear();
+      clearGuestCart();
       notifyCartChanged();
       announce("Coș golit.");
       return;
@@ -615,7 +730,10 @@ const inc = useCallback(
         for (const r of prev) {
           await api("/api/cart/remove", {
             method: "DELETE",
-            body: { productId: r.productId },
+            body: {
+              productId: r.productId,
+              configurationKey: r.configurationKey || "default",
+            },
           }).catch(() => {});
         }
       });
@@ -627,18 +745,20 @@ const inc = useCallback(
     }
   }, [rows, me, notifyCartChanged, announce]);
 
- const goCheckout = useCallback(() => {
-  if (!me) {
-    const redir = encodeURIComponent("/checkout");
-    return nav(`/autentificare?redirect=${redir}`);
+const goCheckout = useCallback(() => {
+  if (hasOwnItems || hasUnavailableItems) {
+    return;
   }
-
-  if (hasOwnItems || hasUnavailableItems) return;
 
   trackBeginCheckout(grandTotal);
 
   nav("/checkout");
-}, [me, hasOwnItems, hasUnavailableItems, grandTotal, nav]);
+}, [
+  hasOwnItems,
+  hasUnavailableItems,
+  grandTotal,
+  nav,
+]);
 
   const isRowPending = useCallback((id) => pending.has(id), [pending]);
 
@@ -780,6 +900,17 @@ const inc = useCallback(
 
                   {items.map((r, idx) => {
                     const p = r.product || {};
+                    const selectedOptionEntries = getConfigurationEntries(
+  r.selectedOptions
+);
+
+const customAnswerEntries = getConfigurationEntries(
+  r.customAnswers
+);
+
+const hasConfiguration =
+  selectedOptionEntries.length > 0 ||
+  customAnswerEntries.length > 0;
                     const img = p.images?.[0]
                       ? resolveFileUrl(p.images[0])
                       : productPlaceholder(200, 160, "Produs");
@@ -792,7 +923,7 @@ const inc = useCallback(
                     const canInc = r._localQty < max;
 
                     const unavailable = p.available === false;
-                    const rowBusy = isRowPending(r.productId);
+                    const rowBusy = isRowPending(getRowKey(r));
 
                     const productIdForFav = p.id || r.productId;
                     const isFav =
@@ -806,7 +937,7 @@ const inc = useCallback(
                     const eager = idx < 2;
 
                     return (
-                      <article key={r.productId} className={styles.card}>
+                      <article key={getRowKey(r)} className={styles.card}>
                         <Link
                           to={p.id ? `/produs/${p.id}` : "#"}
                           className={styles.media}
@@ -830,8 +961,52 @@ const inc = useCallback(
                           <h3 className={styles.title}>
                             {p.title}
                             {unavailable ? " (indisponibil)" : ""}
+                            {unavailable && (
+  <div className={styles.errorBar}>
+    {p.availabilityMessage ||
+      "Produsul nu mai este disponibil."}
+  </div>
+)}
                           </h3>
+{hasConfiguration && (
+  <div className={styles.configuration}>
+    {selectedOptionEntries.length > 0 && (
+      <div className={styles.configurationGroup}>
+        <div className={styles.configurationTitle}>
+          Opțiuni selectate
+        </div>
 
+        {selectedOptionEntries.map(([key, value]) => (
+          <div
+            key={`option-${key}`}
+            className={styles.configurationRow}
+          >
+            <span>{key}</span>
+            <strong>{getReadableValue(value)}</strong>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {customAnswerEntries.length > 0 && (
+      <div className={styles.configurationGroup}>
+        <div className={styles.configurationTitle}>
+          Personalizare
+        </div>
+
+        {customAnswerEntries.map(([key, value]) => (
+          <div
+            key={`custom-${key}`}
+            className={styles.configurationRow}
+          >
+            <span>{key}</span>
+            <strong>{getReadableValue(value)}</strong>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+)}
                           {typeof p.price === "number" && (
   <div className={styles.priceWrap}>
     {p.hasDiscount && typeof p.originalPrice === "number" ? (
@@ -888,7 +1063,13 @@ const inc = useCallback(
                           <div className={styles.qty} aria-label="Cantitate">
                             <button
                               className={styles.iconBtnOutline}
-                              onClick={() => dec(r.productId, r.qty)}
+                              onClick={() =>
+                                dec(
+                                  r.productId,
+                                  r.configurationKey || "default",
+                                  r.qty
+                                )
+                              }
                               title="Scade cantitatea"
                               aria-label="Scade cantitatea"
                               type="button"
@@ -908,11 +1089,19 @@ const inc = useCallback(
                                 const raw = e.target.value.replace(/[^\d]/g, "");
                                 const parsed = parseInt(raw || "1", 10);
                                 const v = clampQty(parsed, max);
-                                setLocalQty(r.productId, v);
+                                setLocalQty(
+                                  r.productId,
+                                  r.configurationKey || "default",
+                                  v
+                                );
                               }}
                               onBlur={() => {
                                 if (r._localQty !== r.qty) {
-                                  commitQty(r.productId, r._localQty);
+                                  commitQty(
+                                    r.productId,
+                                    r.configurationKey || "default",
+                                    r._localQty
+                                  );
                                 }
                               }}
                               onKeyDown={(e) => {
@@ -924,7 +1113,13 @@ const inc = useCallback(
 
                             <button
                               className={styles.iconBtnOutline}
-                              onClick={() => inc(r.productId, r.qty)}
+                              onClick={() =>
+                                inc(
+                                  r.productId,
+                                  r.configurationKey || "default",
+                                  r.qty
+                                )
+                              }
                               title={
                                 canInc
                                   ? "Crește cantitatea"
@@ -964,7 +1159,12 @@ const inc = useCallback(
 
                             <button
                               className={styles.iconBtnOutline}
-                              onClick={() => removeItem(r.productId)}
+                              onClick={() =>
+                                removeItem(
+                                  r.productId,
+                                  r.configurationKey || "default"
+                                )
+                              }
                               title="Elimină din coș"
                               aria-label="Elimină din coș"
                               type="button"
@@ -1035,11 +1235,15 @@ const inc = useCallback(
             )}
 
             {hasUnavailableItems && (
-              <div className={styles.errorBar} role="alert">
-                Un produs din coș nu mai este disponibil. Elimină-l pentru a
-                continua la checkout.
-              </div>
-            )}
+  <div
+    className={styles.errorBar}
+    role="alert"
+  >
+    Unele produse din coș nu mai sunt disponibile
+    sau nu mai există suficient stoc.
+    Verifică produsele înainte de checkout.
+  </div>
+)}
 
             <button
               className={styles.checkoutBtn}

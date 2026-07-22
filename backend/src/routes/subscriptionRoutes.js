@@ -1,19 +1,17 @@
 // src/routes/subscriptionRoutes.js
+
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { z } from "zod";
 import { vendorAccessRequired } from "../middleware/vendorAccessRequired.js";
-import { createSubscriptionCheckoutSession } from "../payments/stripe.subscriptions.js";
-import { stripe } from "../lib/stripe.js";
 
 const router = Router();
 
 const BILLING_ACTIVATION_AT = new Date(
-  process.env.BILLING_ACTIVATION_AT || "2026-05-17T00:00:00.000Z"
+  process.env.BILLING_ACTIVATION_AT ||
+    "2026-05-17T00:00:00.000Z"
 );
-
-const TRIAL_DEFAULT_DAYS = Number(process.env.TRIAL_DEFAULT_DAYS || 30);
 
 const PLAN_SELECT = {
   id: true,
@@ -38,593 +36,1062 @@ const PLAN_SELECT_INTERNAL = {
   stripePriceYearId: true,
 };
 
-const sendError = (res, code, status = 400, extra = {}) =>
-  res.status(status).json({ ok: false, error: code, message: code, ...extra });
+const sendError = (
+  res,
+  code,
+  status = 400,
+  extra = {}
+) =>
+  res.status(status).json({
+    ok: false,
+    error: code,
+    message: code,
+    ...extra,
+  });
 
-const asyncHandler = (fn) => (req, res, next) =>
-  Promise.resolve(fn(req, res, next)).catch(next);
+const asyncHandler =
+  (fn) =>
+  (req, res, next) =>
+    Promise.resolve(fn(req, res, next)).catch(next);
 
 function isBillingLocked(now = new Date()) {
   return now < BILLING_ACTIVATION_AT;
 }
 
-function addDays(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
 async function getVendorByUserSub(userSub) {
   return prisma.vendor.findUnique({
-    where: { userId: userSub },
-  });
-}
-
-async function vendorHadTrial(vendorId) {
-  const existing = await prisma.vendorSubscription.findFirst({
     where: {
-      vendorId,
-      OR: [
-        { trialEndsAt: { not: null } },
-        { trialDays: { gt: 0 } },
-        {
-          meta: {
-            path: ["trialDays"],
-            not: null,
-          },
-        },
-        {
-          meta: {
-            path: ["activatedBy"],
-            equals: "trial_select",
-          },
-        },
-      ],
+      userId: userSub,
     },
-    select: { id: true },
   });
-
-  return !!existing;
 }
 
-async function getCurrentVendorSubscription(vendorId, { includePlan = true } = {}) {
+/*
+ * =========================================================
+ * Abonamentul activ curent
+ * =========================================================
+ */
+
+async function getCurrentVendorSubscription(
+  vendorId,
+  { includePlan = true } = {}
+) {
   const now = new Date();
 
   return prisma.vendorSubscription.findFirst({
     where: {
       vendorId,
+
       OR: [
-        { status: "active", endAt: { gt: now } },
-        { trialEndsAt: { gt: now } },
-      ],
-    },
-    include: includePlan ? { plan: true } : undefined,
-    orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
-  });
-}
-
-async function getLatestVendorSubscription(vendorId, { includePlan = true } = {}) {
-  return prisma.vendorSubscription.findFirst({
-    where: { vendorId },
-    include: includePlan ? { plan: true } : undefined,
-    orderBy: [{ createdAt: "desc" }],
-  });
-}
-
-export const requireActiveSubscription = asyncHandler(async (req, res, next) => {
-  if (req.user?.roles?.includes?.("ADMIN") || req.user?.role === "ADMIN") {
-    return next();
-  }
-
-  const vendor = await getVendorByUserSub(req.user.sub);
-
-  if (!vendor) {
-    return sendError(res, "vendor_profile_missing", 404);
-  }
-
-  const now = new Date();
-  const graceDays = Number(process.env.SUBS_GRACE_DAYS || 0);
-  const graceCutoff = new Date(now);
-
-  if (graceDays > 0) {
-    graceCutoff.setDate(now.getDate() - graceDays);
-  }
-
-  const sub = await prisma.vendorSubscription.findFirst({
-    where: {
-      vendorId: vendor.id,
-      OR: [
-        { status: "active", endAt: { gt: now } },
-        { trialEndsAt: { gt: now } },
-        ...(graceDays > 0
-          ? [
-              {
-                status: { in: ["past_due", "unpaid"] },
-                endAt: { gt: graceCutoff },
-              },
-            ]
-          : []),
-      ],
-    },
-    include: {
-      plan: {
-        select: PLAN_SELECT_INTERNAL,
-      },
-    },
-    orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
-  });
-
-  if (!sub) {
-    return sendError(res, "subscription_required", 402, {
-      hint: "Ai nevoie de un abonament activ sau de un trial activ.",
-    });
-  }
-
-  req.meVendor = vendor;
-  req.subscription = sub;
-  return next();
-});
-
-const CheckoutQuery = z.object({
-  plan: z.enum(["basic", "pro", "premium"]),
-  period: z.enum(["month", "year"]).default("month"),
-  applePay: z.string().optional(),
-  googlePay: z.string().optional(),
-});
-
-const TrialSelectBody = z.object({
-  plan: z.enum(["basic", "pro", "premium"]),
-  period: z.enum(["month", "year"]).default("month"),
-});
-
-router.get(
-  "/billing/plans",
-  asyncHandler(async (_req, res) => {
-    const plans = await prisma.subscriptionPlan.findMany({
-      where: {
-        code: { in: ["basic", "pro", "premium"] },
-      },
-      select: PLAN_SELECT,
-    });
-
-    const order = { basic: 1, pro: 2, premium: 3 };
-    plans.sort((a, b) => (order[a.code] || 999) - (order[b.code] || 999));
-
-    return res.json({
-      items: plans,
-      billing: {
-        locked: isBillingLocked(),
-        activationAt: BILLING_ACTIVATION_AT.toISOString(),
-      },
-    });
-  })
-);
-
-router.get(
-  "/vendors/me/subscription",
-  authRequired,
-  vendorAccessRequired,
-  asyncHandler(async (req, res) => {
-    const meVendor = req.meVendor ?? (await getVendorByUserSub(req.user.sub));
-
-    if (!meVendor) {
-      return sendError(res, "vendor_profile_missing", 404);
-    }
-
-    const current = await getCurrentVendorSubscription(meVendor.id, {
-      includePlan: true,
-    });
-
-    const latest =
-      current ??
-      (await getLatestVendorSubscription(meVendor.id, {
-        includePlan: true,
-      }));
-
-    return res.json({
-      subscription: latest || null,
-      billing: {
-        locked: isBillingLocked(),
-        activationAt: BILLING_ACTIVATION_AT.toISOString(),
-      },
-    });
-  })
-);
-
-router.get(
-  "/vendors/me/subscription/status",
-  authRequired,
-  vendorAccessRequired,
-  asyncHandler(async (req, res) => {
-    const meVendor = req.meVendor ?? (await getVendorByUserSub(req.user.sub));
-
-    if (!meVendor) {
-      return sendError(res, "vendor_profile_missing", 404);
-    }
-
-    const now = new Date();
-
-    const current = await prisma.vendorSubscription.findFirst({
-      where: {
-        vendorId: meVendor.id,
-        OR: [
-          { status: "active", endAt: { gt: now } },
-          { trialEndsAt: { gt: now } },
-        ],
-      },
-      include: {
-        plan: {
-          select: {
-            code: true,
-            name: true,
-            entitlements: true,
-            meta: true,
-            maxProducts: true,
-            commissionBps: true,
-            trialDays: true,
-          },
-        },
-      },
-      orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
-    });
-
- if (!current) {
-  const autoSub = await ensureBasicSubscriptionForVendor(meVendor.id);
-
-  if (autoSub) {
-    return res.json({
-      ok: true,
-      kind: "free_basic",
-      plan: autoSub.plan,
-      endAt: autoSub.endAt ?? null,
-      trialEndsAt: autoSub.trialEndsAt ?? null,
-      status: autoSub.status,
-      billingLocked: isBillingLocked(),
-      billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-    });
-  }
-
-  return res.json({
-    ok: false,
-    code: "subscription_required",
-    upgradeUrl: "/setari?tab=subscription",
-    billingLocked: isBillingLocked(),
-    billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-  });
-}
-    const isTrial = !!(current.trialEndsAt && current.trialEndsAt > now);
-
-    return res.json({
-      ok: true,
-      kind: isTrial ? "trial" : "paid",
-      plan: current.plan,
-      endAt: current.endAt ?? null,
-      trialEndsAt: current.trialEndsAt ?? null,
-      status: current.status,
-      billingLocked: isBillingLocked(),
-      billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-    });
-  })
-);
-
-export async function expireSubscriptionsJob() {
-  const now = new Date();
-
-  await prisma.vendorSubscription.updateMany({
-    where: {
-      status: { in: ["active", "pending", "canceled_at_period_end"] },
-      endAt: { lte: now },
-    },
-    data: { status: "expired" },
-  });
-}
-
-router.post(
-  "/vendors/me/subscription/trial-select",
-  authRequired,
-  vendorAccessRequired,
-  asyncHandler(async (req, res) => {
-    const now = new Date();
-
-    if (!isBillingLocked(now)) {
-      return sendError(res, "trial_selection_closed", 409, {
-        billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-      });
-    }
-
-    const body = TrialSelectBody.parse(req.body || {});
-    const vendor = req.meVendor ?? (await getVendorByUserSub(req.user.sub));
-
-    if (!vendor) {
-      return sendError(res, "vendor_profile_missing", 404);
-    }
-
-    const plan = await prisma.subscriptionPlan.findUnique({
-      where: { code: body.plan },
-    });
-
-    if (!plan) {
-      return sendError(res, "plan_not_found", 404);
-    }
-
-    if (plan.isActive === false) {
-      return sendError(res, "plan_inactive", 409);
-    }
-
-    const hadTrial = await vendorHadTrial(vendor.id);
-
-    if (hadTrial) {
-      return sendError(res, "trial_already_used", 409, {
-        hint: "Perioada de probă a fost deja folosită pentru acest vendor.",
-      });
-    }
-
-    const existing = await getCurrentVendorSubscription(vendor.id, {
-      includePlan: true,
-    });
-
-    if (existing?.status === "active" && existing?.planId === plan.id) {
-      return res.json({
-        ok: true,
-        kind: "trial_already_selected",
-        subscription: existing,
-        billingLocked: true,
-        billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-      });
-    }
-
-    await prisma.vendorSubscription.updateMany({
-      where: {
-        vendorId: vendor.id,
-        status: { in: ["active", "pending", "past_due", "unpaid"] },
-      },
-      data: {
-        status: "canceled",
-        endAt: now,
-      },
-    });
-
-    const trialDays =
-      typeof plan.trialDays === "number" && plan.trialDays > 0
-        ? plan.trialDays
-        : TRIAL_DEFAULT_DAYS;
-
-    const trialEndsAt = addDays(now, trialDays);
-
-    const sub = await prisma.vendorSubscription.create({
-      data: {
-        vendorId: vendor.id,
-        planId: plan.id,
-        status: "active",
-        startAt: now,
-        trialDays,
-        trialEndsAt,
-        endAt: trialEndsAt,
-        meta: {
-          activatedBy: "trial_select",
-          selectedPeriod: body.period,
-          trialDays,
-          billingLockedUntil: BILLING_ACTIVATION_AT.toISOString(),
-        },
-      },
-      include: {
-        plan: {
-          select: PLAN_SELECT_INTERNAL,
-        },
-      },
-    });
-
-    return res.json({
-      ok: true,
-      kind: "trial_selected",
-      subscription: sub,
-      billingLocked: true,
-      billingActivationAt: BILLING_ACTIVATION_AT.toISOString(),
-    });
-  })
-);
-
-router.post(
-  "/billing/checkout",
-  authRequired,
-  vendorAccessRequired,
-  asyncHandler(async (req, res) => {
-    const q = CheckoutQuery.parse(req.query);
-
-    const vendor = req.meVendor ?? (await getVendorByUserSub(req.user.sub));
-
-    if (!vendor) {
-      return sendError(res, "vendor_profile_missing", 404);
-    }
-
-    const plan = await prisma.subscriptionPlan.findUnique({
-      where: { code: q.plan },
-    });
-
-    if (!plan) {
-      return sendError(res, "plan_not_found", 404);
-    }
-
-    if (plan.isActive === false) {
-      return sendError(res, "plan_inactive", 409);
-    }
-
-    const now = new Date();
-
-    if ((plan.priceCents ?? 0) === 0) {
-      const endAt = new Date(now);
-      endAt.setFullYear(endAt.getFullYear() + 10);
-
-      await prisma.vendorSubscription.updateMany({
-        where: {
-          vendorId: vendor.id,
-          status: { in: ["active", "pending", "past_due", "unpaid"] },
-        },
-        data: {
-          status: "canceled",
-          endAt: now,
-        },
-      });
-
-      const sub = await prisma.vendorSubscription.create({
-        data: {
-          vendorId: vendor.id,
-          planId: plan.id,
+        {
           status: "active",
-          startAt: now,
-          endAt,
-          meta: {
-            activatedBy: "free_plan",
+          endAt: {
+            gt: now,
           },
         },
-        include: {
-          plan: {
-            select: PLAN_SELECT_INTERNAL,
+
+        {
+          trialEndsAt: {
+            gt: now,
           },
         },
-      });
+      ],
+    },
 
-     return res.json({
-  ok: true,
-  kind: "free_activated",
-  subscription: sub,
-  url: "/setari?tab=subscription&subscription=success",
-});
-    }
-
-    try {
-      const out = await createSubscriptionCheckoutSession({
-        vendorId: vendor.id,
-        userId: req.user.sub,
-        planCode: plan.code,
-        period: q.period,
-      });
-
-      return res.json({
-        ok: true,
-        kind: "provider_redirect",
-        provider: "stripe",
-        url: out.url,
-      });
-    } catch (e) {
-      const code = e?.message || "checkout_failed";
-      const status = e?.status || 400;
-      return sendError(res, code, status);
-    }
-  })
-);
-
-router.post(
-  "/vendors/me/subscription/cancel",
-  authRequired,
-  vendorAccessRequired,
-  asyncHandler(async (req, res) => {
-    const vendor = req.meVendor ?? (await getVendorByUserSub(req.user.sub));
-
-    if (!vendor) {
-      return sendError(res, "vendor_profile_missing", 404);
-    }
-
-    const now = new Date();
-
-    const sub = await prisma.vendorSubscription.findFirst({
-      where: {
-        vendorId: vendor.id,
-        status: { in: ["active", "pending", "past_due", "unpaid"] },
-      },
-      include: {
-        plan: {
-          select: PLAN_SELECT_INTERNAL,
-        },
-      },
-      orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
-    });
-
-    if (!sub) {
-      return sendError(res, "subscription_not_found", 404);
-    }
-
-    if (sub.stripeSubscriptionId) {
-      try {
-        await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
-      } catch (e) {
-        const code = e?.code || e?.raw?.code || e?.message || "stripe_cancel_failed";
-
-        if (
-          code !== "resource_missing" &&
-          !String(e?.message || "").includes("No such subscription")
-        ) {
-          return sendError(res, "stripe_cancel_failed", 400, {
-            detail: String(e?.message || code),
-          });
+    include: includePlan
+      ? {
+          plan: true,
         }
+      : undefined,
+
+    orderBy: [
+      {
+        startAt: "desc",
+      },
+      {
+        createdAt: "desc",
+      },
+    ],
+  });
+}
+
+/*
+ * =========================================================
+ * Ultimul abonament
+ * =========================================================
+ */
+
+async function getLatestVendorSubscription(
+  vendorId,
+  { includePlan = true } = {}
+) {
+  return prisma.vendorSubscription.findFirst({
+    where: {
+      vendorId,
+    },
+
+    include: includePlan
+      ? {
+          plan: true,
+        }
+      : undefined,
+
+    orderBy: [
+      {
+        createdAt: "desc",
+      },
+    ],
+  });
+}
+
+/*
+ * =========================================================
+ * Creează automat Basic pentru vendor
+ * =========================================================
+ */
+
+export async function ensureBasicSubscriptionForVendor(
+  vendorId
+) {
+  if (!vendorId) {
+    return null;
+  }
+
+  /*
+   * Dacă există deja un abonament activ,
+   * nu mai creăm altul.
+   */
+  const existing =
+    await getCurrentVendorSubscription(
+      vendorId,
+      {
+        includePlan: true,
       }
-    }
+    );
 
-    const updated = await prisma.vendorSubscription.update({
-      where: { id: sub.id },
-      data: {
-        status: "canceled",
-        endAt: now,
-        meta: {
-          ...(sub.meta && typeof sub.meta === "object" ? sub.meta : {}),
-          canceledBy: "vendor",
-          canceledAt: now.toISOString(),
-          stripeCancelRequested: !!sub.stripeSubscriptionId,
-        },
-      },
-      include: {
-        plan: {
-          select: PLAN_SELECT_INTERNAL,
-        },
+  if (existing) {
+    return existing;
+  }
+
+  /*
+   * Luăm Basic.
+   */
+  const basicPlan =
+    await prisma.subscriptionPlan.findUnique({
+      where: {
+        code: "basic",
       },
     });
 
-    return res.json({
-      ok: true,
-      subscription: updated,
-    });
-  })
-);
-
-export async function ensureBasicSubscriptionForVendor(vendorId) {
-  if (!vendorId) return null;
-
-  const existing = await getCurrentVendorSubscription(vendorId, {
-    includePlan: true,
-  });
-
-  if (existing) return existing;
-
-  const basicPlan = await prisma.subscriptionPlan.findUnique({
-    where: { code: "basic" },
-  });
-
-  if (!basicPlan || basicPlan.isActive === false) {
+  if (
+    !basicPlan ||
+    basicPlan.isActive === false
+  ) {
     return null;
   }
 
   const now = new Date();
+
   const endAt = new Date(now);
-  endAt.setFullYear(endAt.getFullYear() + 10);
+
+  /*
+   * Basic gratuit valabil pe termen lung.
+   */
+  endAt.setFullYear(
+    endAt.getFullYear() + 10
+  );
+
+  /*
+   * Închidem eventualele abonamente vechi
+   * care nu mai sunt active.
+   *
+   * Nu afectează magazinele deoarece imediat
+   * după aceea creăm Basic activ.
+   */
+  await prisma.vendorSubscription.updateMany({
+    where: {
+      vendorId,
+
+      status: {
+        in: [
+          "pending",
+          "past_due",
+          "unpaid",
+          "canceled_at_period_end",
+        ],
+      },
+    },
+
+    data: {
+      status: "canceled",
+      endAt: now,
+    },
+  });
 
   return prisma.vendorSubscription.create({
     data: {
       vendorId,
-      planId: basicPlan.id,
-      status: "active",
-      startAt: now,
+
+      planId:
+        basicPlan.id,
+
+      status:
+        "active",
+
+      startAt:
+        now,
+
       endAt,
+
+      trialDays:
+        null,
+
+      trialEndsAt:
+        null,
+
       meta: {
-        activatedBy: "auto_basic_on_register",
+        activatedBy:
+          "auto_basic",
       },
     },
+
     include: {
       plan: {
-        select: PLAN_SELECT_INTERNAL,
+        select:
+          PLAN_SELECT_INTERNAL,
       },
     },
   });
 }
+
+/*
+ * =========================================================
+ * Middleware — abonament activ
+ * =========================================================
+ */
+
+export const requireActiveSubscription =
+  asyncHandler(
+    async (req, res, next) => {
+      /*
+       * Adminul trece direct.
+       */
+      if (
+        req.user?.roles?.includes?.(
+          "ADMIN"
+        ) ||
+        req.user?.role === "ADMIN"
+      ) {
+        return next();
+      }
+
+      const vendor =
+        await getVendorByUserSub(
+          req.user.sub
+        );
+
+      if (!vendor) {
+        return sendError(
+          res,
+          "vendor_profile_missing",
+          404
+        );
+      }
+
+      const now = new Date();
+
+      const sub =
+        await prisma.vendorSubscription.findFirst(
+          {
+            where: {
+              vendorId:
+                vendor.id,
+
+              status:
+                "active",
+
+              endAt: {
+                gt: now,
+              },
+            },
+
+            include: {
+              plan: {
+                select:
+                  PLAN_SELECT_INTERNAL,
+              },
+            },
+
+            orderBy: [
+              {
+                startAt:
+                  "desc",
+              },
+              {
+                createdAt:
+                  "desc",
+              },
+            ],
+          }
+        );
+
+      /*
+       * IMPORTANT:
+       *
+       * Dacă vendorul nu are un abonament activ,
+       * îi dăm automat Basic.
+       *
+       * Astfel nu rămâne fără acces și magazinele
+       * nu sunt dezactivate din cauza abonamentului.
+       */
+      if (!sub) {
+        const autoSub =
+          await ensureBasicSubscriptionForVendor(
+            vendor.id
+          );
+
+        if (!autoSub) {
+          return sendError(
+            res,
+            "subscription_required",
+            402,
+            {
+              hint:
+                "Planul Basic gratuit nu a putut fi activat automat.",
+            }
+          );
+        }
+
+        req.meVendor =
+          vendor;
+
+        req.subscription =
+          autoSub;
+
+        return next();
+      }
+
+      req.meVendor =
+        vendor;
+
+      req.subscription =
+        sub;
+
+      return next();
+    }
+  );
+
+/*
+ * =========================================================
+ * Checkout
+ * =========================================================
+ *
+ * Momentan acceptăm doar Basic.
+ */
+
+const CheckoutQuery = z.object({
+  plan: z.literal("basic"),
+
+  period: z
+    .enum(["month", "year"])
+    .default("month"),
+
+  applePay:
+    z.string().optional(),
+
+  googlePay:
+    z.string().optional(),
+});
+
+/*
+ * =========================================================
+ * Lista planurilor
+ * =========================================================
+ *
+ * Returnăm și Pro/Premium pentru ca frontend-ul
+ * să le poată afișa ca "Indisponibil momentan".
+ */
+
+router.get(
+  "/billing/plans",
+
+  asyncHandler(
+    async (_req, res) => {
+      const plans =
+        await prisma.subscriptionPlan.findMany(
+          {
+            where: {
+              code: {
+                in: [
+                  "basic",
+                  "pro",
+                  "premium",
+                ],
+              },
+            },
+
+            select:
+              PLAN_SELECT,
+          }
+        );
+
+      const order = {
+        basic: 1,
+        pro: 2,
+        premium: 3,
+      };
+
+      plans.sort(
+        (a, b) =>
+          (order[a.code] || 999) -
+          (order[b.code] || 999)
+      );
+
+      return res.json({
+        items:
+          plans,
+
+        billing: {
+          locked:
+            isBillingLocked(),
+
+          activationAt:
+            BILLING_ACTIVATION_AT.toISOString(),
+        },
+      });
+    }
+  )
+);
+
+/*
+ * =========================================================
+ * Abonamentul vendorului
+ * =========================================================
+ */
+
+router.get(
+  "/vendors/me/subscription",
+
+  authRequired,
+  vendorAccessRequired,
+
+  asyncHandler(
+    async (req, res) => {
+      const meVendor =
+        req.meVendor ??
+        (await getVendorByUserSub(
+          req.user.sub
+        ));
+
+      if (!meVendor) {
+        return sendError(
+          res,
+          "vendor_profile_missing",
+          404
+        );
+      }
+
+      /*
+       * Încercăm mai întâi abonamentul activ.
+       */
+      let current =
+        await getCurrentVendorSubscription(
+          meVendor.id,
+          {
+            includePlan: true,
+          }
+        );
+
+      /*
+       * Dacă nu există, activăm automat Basic.
+       */
+      if (!current) {
+        current =
+          await ensureBasicSubscriptionForVendor(
+            meVendor.id
+          );
+      }
+
+      /*
+       * Fallback doar dacă Basic nu s-a putut crea.
+       */
+      const latest =
+        current ??
+        (await getLatestVendorSubscription(
+          meVendor.id,
+          {
+            includePlan: true,
+          }
+        ));
+
+      return res.json({
+        subscription:
+          latest || null,
+
+        billing: {
+          locked:
+            isBillingLocked(),
+
+          activationAt:
+            BILLING_ACTIVATION_AT.toISOString(),
+        },
+      });
+    }
+  )
+);
+
+/*
+ * =========================================================
+ * Status abonament vendor
+ * =========================================================
+ */
+
+router.get(
+  "/vendors/me/subscription/status",
+
+  authRequired,
+  vendorAccessRequired,
+
+  asyncHandler(
+    async (req, res) => {
+      const meVendor =
+        req.meVendor ??
+        (await getVendorByUserSub(
+          req.user.sub
+        ));
+
+      if (!meVendor) {
+        return sendError(
+          res,
+          "vendor_profile_missing",
+          404
+        );
+      }
+
+      const now =
+        new Date();
+
+      let current =
+        await prisma.vendorSubscription.findFirst(
+          {
+            where: {
+              vendorId:
+                meVendor.id,
+
+              status:
+                "active",
+
+              endAt: {
+                gt: now,
+              },
+            },
+
+            include: {
+              plan: {
+                select: {
+                  code:
+                    true,
+
+                  name:
+                    true,
+
+                  priceCents:
+                    true,
+
+                  entitlements:
+                    true,
+
+                  meta:
+                    true,
+
+                  maxProducts:
+                    true,
+
+                  commissionBps:
+                    true,
+
+                  trialDays:
+                    true,
+
+                  isActive:
+                    true,
+                },
+              },
+            },
+
+            orderBy: [
+              {
+                startAt:
+                  "desc",
+              },
+
+              {
+                createdAt:
+                  "desc",
+              },
+            ],
+          }
+        );
+
+      /*
+       * Dacă nu există niciun abonament activ,
+       * activăm automat Basic.
+       */
+      if (!current) {
+        current =
+          await ensureBasicSubscriptionForVendor(
+            meVendor.id
+          );
+      }
+
+      if (!current) {
+        return res.json({
+          ok:
+            false,
+
+          code:
+            "subscription_required",
+
+          upgradeUrl:
+            "/setari?tab=subscription",
+
+          billingLocked:
+            isBillingLocked(),
+
+          billingActivationAt:
+            BILLING_ACTIVATION_AT.toISOString(),
+        });
+      }
+
+      const isFreeBasic =
+        current.plan?.code ===
+        "basic";
+
+      return res.json({
+        ok:
+          true,
+
+        kind:
+          isFreeBasic
+            ? "free_basic"
+            : "paid",
+
+        plan:
+          current.plan,
+
+        endAt:
+          current.endAt ??
+          null,
+
+        trialEndsAt:
+          null,
+
+        status:
+          current.status,
+
+        billingLocked:
+          isBillingLocked(),
+
+        billingActivationAt:
+          BILLING_ACTIVATION_AT.toISOString(),
+      });
+    }
+  )
+);
+
+/*
+ * =========================================================
+ * Job expirare abonamente
+ * =========================================================
+ *
+ * Basic are endAt la +10 ani, deci în mod normal
+ * nu va fi afectat.
+ */
+
+export async function expireSubscriptionsJob() {
+  const now =
+    new Date();
+
+  await prisma.vendorSubscription.updateMany({
+    where: {
+      status: {
+        in: [
+          "active",
+          "pending",
+          "canceled_at_period_end",
+        ],
+      },
+
+      endAt: {
+        lte: now,
+      },
+    },
+
+    data: {
+      status:
+        "expired",
+    },
+  });
+}
+
+/*
+ * =========================================================
+ * Trial
+ * =========================================================
+ *
+ * Dezactivat momentan deoarece Basic este gratuit
+ * și oferă toate funcționalitățile.
+ */
+
+router.post(
+  "/vendors/me/subscription/trial-select",
+
+  authRequired,
+  vendorAccessRequired,
+
+  asyncHandler(
+    async (_req, res) => {
+      return sendError(
+        res,
+        "trial_temporarily_unavailable",
+        409,
+        {
+          message:
+            "Trial-ul nu este disponibil momentan. Planul Basic este gratuit și include toate funcționalitățile.",
+        }
+      );
+    }
+  )
+);
+
+/*
+ * =========================================================
+ * Activare Basic gratuit
+ * =========================================================
+ */
+
+router.post(
+  "/billing/checkout",
+
+  authRequired,
+  vendorAccessRequired,
+
+  asyncHandler(
+    async (req, res) => {
+      const q =
+        CheckoutQuery.parse(
+          req.query
+        );
+
+      const vendor =
+        req.meVendor ??
+        (await getVendorByUserSub(
+          req.user.sub
+        ));
+
+      if (!vendor) {
+        return sendError(
+          res,
+          "vendor_profile_missing",
+          404
+        );
+      }
+
+      const plan =
+        await prisma.subscriptionPlan.findUnique(
+          {
+            where: {
+              code:
+                q.plan,
+            },
+          }
+        );
+
+      if (!plan) {
+        return sendError(
+          res,
+          "plan_not_found",
+          404
+        );
+      }
+
+      if (
+        plan.isActive ===
+        false
+      ) {
+        return sendError(
+          res,
+          "plan_inactive",
+          409
+        );
+      }
+
+      /*
+       * În perioada aceasta checkout-ul este permis
+       * doar pentru planul Basic gratuit.
+       */
+      if (
+        plan.code !==
+        "basic"
+      ) {
+        return sendError(
+          res,
+          "plan_inactive",
+          409,
+          {
+            message:
+              "Planul selectat nu este disponibil momentan.",
+          }
+        );
+      }
+
+      /*
+       * Dacă vendorul are deja Basic activ,
+       * nu mai creăm încă un abonament.
+       */
+      const existing =
+        await getCurrentVendorSubscription(
+          vendor.id,
+          {
+            includePlan: true,
+          }
+        );
+
+      if (
+        existing?.plan?.code ===
+          "basic" &&
+        existing?.status ===
+          "active"
+      ) {
+        return res.json({
+          ok:
+            true,
+
+          kind:
+            "free_already_active",
+
+          subscription:
+            existing,
+
+          url:
+            "/setari?tab=subscription&subscription=success",
+        });
+      }
+
+      /*
+       * Activăm automat Basic.
+       */
+      const sub =
+        await ensureBasicSubscriptionForVendor(
+          vendor.id
+        );
+
+      if (!sub) {
+        return sendError(
+          res,
+          "basic_activation_failed",
+          500,
+          {
+            message:
+              "Planul Basic gratuit nu a putut fi activat.",
+          }
+        );
+      }
+
+      return res.json({
+        ok:
+          true,
+
+        kind:
+          "free_activated",
+
+        subscription:
+          sub,
+
+        url:
+          "/setari?tab=subscription&subscription=success",
+      });
+    }
+  )
+);
+
+/*
+ * =========================================================
+ * Anulare abonament
+ * =========================================================
+ *
+ * Basic nu poate fi anulat deoarece este planul
+ * gratuit implicit al platformei.
+ */
+
+router.post(
+  "/vendors/me/subscription/cancel",
+
+  authRequired,
+  vendorAccessRequired,
+
+  asyncHandler(
+    async (req, res) => {
+      const vendor =
+        req.meVendor ??
+        (await getVendorByUserSub(
+          req.user.sub
+        ));
+
+      if (!vendor) {
+        return sendError(
+          res,
+          "vendor_profile_missing",
+          404
+        );
+      }
+
+      const sub =
+        await prisma.vendorSubscription.findFirst(
+          {
+            where: {
+              vendorId:
+                vendor.id,
+
+              status: {
+                in: [
+                  "active",
+                  "pending",
+                  "past_due",
+                  "unpaid",
+                ],
+              },
+            },
+
+            include: {
+              plan: {
+                select:
+                  PLAN_SELECT_INTERNAL,
+              },
+            },
+
+            orderBy: [
+              {
+                startAt:
+                  "desc",
+              },
+
+              {
+                createdAt:
+                  "desc",
+              },
+            ],
+          }
+        );
+
+      if (!sub) {
+        /*
+         * Dacă nu există abonament, îl reparăm
+         * automat cu Basic.
+         */
+        const autoSub =
+          await ensureBasicSubscriptionForVendor(
+            vendor.id
+          );
+
+        if (autoSub) {
+          return sendError(
+            res,
+            "free_plan_cannot_be_canceled",
+            409,
+            {
+              message:
+                "Planul Basic este planul gratuit implicit și nu necesită anulare.",
+            }
+          );
+        }
+
+        return sendError(
+          res,
+          "subscription_not_found",
+          404
+        );
+      }
+
+      /*
+       * Basic gratuit nu poate fi anulat.
+       */
+      if (
+        sub.plan?.code ===
+        "basic"
+      ) {
+        return sendError(
+          res,
+          "free_plan_cannot_be_canceled",
+          409,
+          {
+            message:
+              "Planul Basic este planul gratuit implicit și nu necesită anulare.",
+          }
+        );
+      }
+
+      /*
+       * În mod normal nu ar mai trebui să ajungem aici
+       * deoarece Pro/Premium sunt inactive.
+       *
+       * Păstrăm însă protecția pentru eventuale date
+       * vechi din DB.
+       */
+
+      const now =
+        new Date();
+
+      await prisma.vendorSubscription.update({
+        where: {
+          id:
+            sub.id,
+        },
+
+        data: {
+          status:
+            "canceled",
+
+          endAt:
+            now,
+
+          meta: {
+            ...(sub.meta &&
+            typeof sub.meta ===
+              "object"
+              ? sub.meta
+              : {}),
+
+            canceledBy:
+              "vendor",
+
+            canceledAt:
+              now.toISOString(),
+          },
+        },
+      });
+
+      /*
+       * După anularea unui eventual plan vechi,
+       * îi activăm imediat Basic.
+       */
+      const basicSub =
+        await ensureBasicSubscriptionForVendor(
+          vendor.id
+        );
+
+      return res.json({
+        ok:
+          true,
+
+        kind:
+          "moved_to_basic",
+
+        subscription:
+          basicSub,
+      });
+    }
+  )
+);
 
 export default router;

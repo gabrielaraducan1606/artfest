@@ -504,15 +504,16 @@ const [imagePreview, setImagePreview] = useState(null);
         <h3>Produse</h3>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Produs</th>
-                <th>Cant.</th>
-                <th>Preț unitar</th>
-                <th>Total linie</th>
-              </tr>
-            </thead>
-            <tbody>
+           <thead>
+  <tr>
+    <th>Produs</th>
+    <th>Cant.</th>
+    <th>Preț unitar</th>
+    <th>Total linie</th>
+  </tr>
+</thead>
+
+<tbody>
   {items.map((it) => (
     <tr key={it.id}>
       <td>
@@ -524,29 +525,61 @@ const [imagePreview, setImagePreview] = useState(null);
           }}
         >
           {it.image && (
-           <img
-  src={it.image}
-  alt={it.title}
-  onClick={() => setImagePreview(it.image)}
-  style={{
-    width: 60,
-    height: 60,
-    objectFit: "cover",
-    borderRadius: 8,
-    border: "1px solid #e5e7eb",
-    flexShrink: 0,
-    cursor: "zoom-in",
-  }}
-/>
+            <img
+              src={it.image}
+              alt={it.title}
+              onClick={() => setImagePreview(it.image)}
+              style={{
+                width: 60,
+                height: 60,
+                objectFit: "cover",
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                flexShrink: 0,
+                cursor: "zoom-in",
+              }}
+            />
           )}
 
-          <div>{it.title}</div>
+          <div>
+            <div>{it.title}</div>
+
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 13,
+                color: "#6b7280",
+              }}
+            >
+              {Object.entries(it.selectedOptions || {}).map(
+                ([key, value]) => (
+                  <div key={`option-${key}`}>
+                    <strong>{key}:</strong> {String(value)}
+                  </div>
+                )
+              )}
+
+              {Object.entries(it.customAnswers || {}).map(
+                ([key, value]) => (
+                  <div key={`custom-${key}`}>
+                    <strong>{key}:</strong> {String(value)}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
         </div>
       </td>
 
       <td>{it.qty}</td>
+
       <td>{formatMoney(it.price)}</td>
-      <td>{formatMoney(Number(it.price) * Number(it.qty))}</td>
+
+      <td>
+        {formatMoney(
+          Number(it.price) * Number(it.qty)
+        )}
+      </td>
     </tr>
   ))}
 </tbody>

@@ -3,6 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../../../lib/api";
 import {
+  acceptQuoteOffer,
+  rejectQuoteOffer,
+} from "../../../components/AIAssistant/quotes/quoteApi.js";
+import {
   MessageSquare,
   Send,
   Search as SearchIcon,
@@ -141,22 +145,37 @@ function useMessages(threadId) {
   const [loading, setLoading] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [error, setError] = useState(null);
+  const [threadMeta, setThreadMeta] = useState(null);
+  const [quoteRequest, setQuoteRequest] = useState(null);
 
   const reload = useCallback(async () => {
-    if (!threadId) return;
-    setLoading(true);
+    if (!threadId) {
+      setMsgs([]);
+      setThreadMeta(null);
+      setQuoteRequest(null);
+      setError(null);
+      return;
+    }
+
+    setLoading((msgs.length || 0) === 0);
     setError(null);
+
     try {
-      const d = await api(`${API_BASE}/threads/${threadId}/messages`).catch(() => null);
-      if (d?.items) setMsgs(d.items);
-      else setMsgs([]);
-      await api(`${API_BASE}/threads/${threadId}/read`, { method: "PATCH" }).catch(() => {});
-    } catch (e) {
-      setError(e?.message || "Eroare la încărcarea mesajelor");
+      const data = await api(`${API_BASE}/threads/${threadId}/messages`);
+
+      setMsgs(Array.isArray(data?.items) ? data.items : []);
+      setThreadMeta(data?.threadMeta || null);
+      setQuoteRequest(data?.quoteRequest || null);
+
+      await api(`${API_BASE}/threads/${threadId}/read`, {
+        method: "PATCH",
+      }).catch(() => {});
+    } catch (error) {
+      setError(error?.message || "Eroare la încărcarea mesajelor");
     } finally {
       setLoading(false);
     }
-  }, [threadId]);
+  }, [threadId, msgs.length]);
 
   useEffect(() => {
     reload();
@@ -168,7 +187,15 @@ function useMessages(threadId) {
     return () => clearInterval(id);
   }, [threadId, reload]);
 
-  return { loading, msgs, error, setMsgs, reload };
+  return {
+    loading,
+    msgs,
+    error,
+    setMsgs,
+    reload,
+    threadMeta,
+    quoteRequest,
+  };
 }
 
 /* ========= Pagina ========= */
@@ -246,8 +273,17 @@ export default function UserMessagesPage() {
 
   const currentThreadId = activeThread?.threadId || activeThread?.id || null;
 
-  const { loading: loadingMsgs, msgs, error: errMsgs, setMsgs, reload: reloadMsgs } =
-    useMessages(currentThreadId);
+  const {
+    loading: loadingMsgs,
+    msgs,
+    error: errMsgs,
+    setMsgs,
+    reload: reloadMsgs,
+    threadMeta,
+    quoteRequest,
+  } = useMessages(currentThreadId);
+
+  void threadMeta;
 
   const listRef = useRef(null);
   useEffect(() => {
@@ -260,6 +296,56 @@ export default function UserMessagesPage() {
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+
+  const [quoteActionLoading, setQuoteActionLoading] = useState(false);
+  const [quoteActionError, setQuoteActionError] = useState("");
+  const [acceptOfferOpen, setAcceptOfferOpen] = useState(false);
+  const [
+  quoteDetailsOpen,
+  setQuoteDetailsOpen,
+] = useState(false);
+  const [shippingForm, setShippingForm] = useState({
+    recipientName: "",
+    phone: "",
+    addressLine1: "",
+    city: "",
+    county: "",
+    postalCode: "",
+  });
+
+ useEffect(() => {
+  setAcceptOfferOpen(false);
+  setQuoteDetailsOpen(false);
+  setQuoteActionLoading(false);
+  setQuoteActionError("");
+
+  setShippingForm({
+    recipientName: "",
+    phone: "",
+    addressLine1: "",
+    city: "",
+    county: "",
+    postalCode: "",
+  });
+}, [currentThreadId]);
+
+  const latestQuoteOffer = Array.isArray(quoteRequest?.offers)
+    ? quoteRequest.offers[0] || null
+    : null;
+
+  const latestOfferStatus = String(latestQuoteOffer?.status || "")
+    .trim()
+    .toUpperCase();
+
+  const quoteStatus = String(quoteRequest?.status || "")
+    .trim()
+    .toUpperCase();
+
+  const canAnswerQuote =
+    Boolean(quoteRequest?.id && latestQuoteOffer?.id) &&
+    latestOfferStatus === "SENT" &&
+    !quoteRequest?.orderId &&
+    !["ACCEPTED", "REJECTED", "CANCELLED", "EXPIRED"].includes(quoteStatus);
 
   // ✅ attachments state
   const fileInputRef = useRef(null);
@@ -333,6 +419,79 @@ export default function UserMessagesPage() {
       console.error("Eroare la ștergere conversație", e);
     }
   };
+
+  async function handleRejectQuoteOffer() {
+    if (!quoteRequest?.id || !latestQuoteOffer?.id || quoteActionLoading) return;
+
+    const confirmed = window.confirm(
+      "Sigur vrei să refuzi definitiv această ofertă?"
+    );
+    if (!confirmed) return;
+
+    setQuoteActionLoading(true);
+    setQuoteActionError("");
+
+    try {
+      await rejectQuoteOffer(quoteRequest.id, latestQuoteOffer.id);
+      setAcceptOfferOpen(false);
+      setQuoteDetailsOpen(false);
+      await reloadMsgs();
+      await reloadThreads();
+    } catch (error) {
+      setQuoteActionError(
+        error?.data?.message || error?.message || "Oferta nu a putut fi refuzată."
+      );
+    } finally {
+      setQuoteActionLoading(false);
+    }
+  }
+
+  async function handleAcceptQuoteOffer(event) {
+    event?.preventDefault?.();
+
+    if (!quoteRequest?.id || !latestQuoteOffer?.id || quoteActionLoading) return;
+
+    const recipientName = String(shippingForm.recipientName || "").trim();
+    const phone = String(shippingForm.phone || "").trim();
+    const addressLine1 = String(shippingForm.addressLine1 || "").trim();
+    const city = String(shippingForm.city || "").trim();
+    const county = String(shippingForm.county || "").trim();
+    const postalCode = String(shippingForm.postalCode || "").trim();
+
+    if (!recipientName) return setQuoteActionError("Introdu numele persoanei care va primi coletul.");
+    if (!phone) return setQuoteActionError("Introdu numărul de telefon.");
+    if (!addressLine1) return setQuoteActionError("Introdu adresa de livrare.");
+    if (!city) return setQuoteActionError("Introdu localitatea.");
+    if (!county) return setQuoteActionError("Introdu județul.");
+
+    setQuoteActionLoading(true);
+    setQuoteActionError("");
+
+    try {
+      await acceptQuoteOffer(quoteRequest.id, latestQuoteOffer.id, {
+        shippingAddress: {
+          recipientName,
+          phone,
+          addressLine1,
+          city,
+          county,
+          postalCode,
+        },
+      });
+
+      setAcceptOfferOpen(false);
+      setQuoteDetailsOpen(false);
+      await reloadMsgs();
+      await reloadThreads();
+      alert("Oferta a fost acceptată, iar comanda a fost înregistrată.");
+    } catch (error) {
+      setQuoteActionError(
+        error?.data?.message || error?.message || "Comanda nu a putut fi înregistrată."
+      );
+    } finally {
+      setQuoteActionLoading(false);
+    }
+  }
 
   async function handleSend() {
     const content = text.trim();
@@ -775,20 +934,55 @@ export default function UserMessagesPage() {
                 </div>
               )}
 
-              <div className={styles.msgList} ref={listRef}>
-                {loadingMsgs && <div className={styles.loading}>Se încarcă…</div>}
-                {errMsgs && <div className={styles.error}>Nu am putut încărca mesajele.</div>}
+       <div className={styles.msgList} ref={listRef}>
+  {loadingMsgs && (
+    <div className={styles.loading}>
+      Se încarcă…
+    </div>
+  )}
 
-                {msgs.map((m) => (
-                  <MessageBubble
-                    key={m.id}
-                    mine={m.from === "me"}
-                    msg={m}
-                    onEdit={(body) => editMessage(m.id, body)}
-                    onDelete={() => deleteMessage(m.id)}
-                  />
-                ))}
-              </div>
+  {errMsgs && (
+    <div className={styles.error}>
+      Nu am putut încărca mesajele.
+    </div>
+  )}
+
+ 
+  {msgs.map((m) => (
+    <MessageBubble
+      key={m.id}
+      mine={m.from === "me"}
+      msg={m}
+      onEdit={(body) =>
+        editMessage(
+          m.id,
+          body
+        )
+      }
+      onDelete={() =>
+        deleteMessage(
+          m.id
+        )
+      }
+    />
+  ))}
+
+  {quoteRequest &&
+  latestQuoteOffer && (
+    <UserQuoteOfferPreview
+      quoteRequest={
+        quoteRequest
+      }
+      offer={
+        latestQuoteOffer
+      }
+      onOpen={() => {
+        setQuoteActionError("");
+        setQuoteDetailsOpen(true);
+      }}
+    />
+  )}
+</div>
 
               {/* Composer */}
               <footer className={styles.composer}>
@@ -884,9 +1078,765 @@ export default function UserMessagesPage() {
           )}
         </section>
       </div>
+{quoteDetailsOpen &&
+  quoteRequest &&
+  latestQuoteOffer && (
+    <UserQuoteOfferModal
+      quoteRequest={
+        quoteRequest
+      }
+      offer={
+        latestQuoteOffer
+      }
+      canAnswer={
+        canAnswerQuote
+      }
+      acceptOpen={
+        acceptOfferOpen
+      }
+      setAcceptOpen={
+        setAcceptOfferOpen
+      }
+      shippingForm={
+        shippingForm
+      }
+      setShippingForm={
+        setShippingForm
+      }
+      loading={
+        quoteActionLoading
+      }
+      error={
+        quoteActionError
+      }
+      setError={
+        setQuoteActionError
+      }
+      onAccept={
+        handleAcceptQuoteOffer
+      }
+      onReject={
+        handleRejectQuoteOffer
+      }
+      onClose={() => {
+        if (
+          quoteActionLoading
+        ) {
+          return;
+        }
 
+        setQuoteActionError("");
+        setAcceptOfferOpen(false);
+        setQuoteDetailsOpen(false);
+      }}
+    />
+  )}
       {hasCurrent && <div className={styles.mobileBackdrop} onClick={clearSelection} />}
     </>
+  );
+}
+
+function UserQuoteOfferPreview({
+  quoteRequest,
+  offer,
+  onOpen,
+}) {
+  const productTitle =
+    quoteRequest?.product?.title ||
+    "Produs personalizat";
+
+  const total =
+    Number(offer?.total);
+
+  const currency =
+    offer?.currency ||
+    "RON";
+
+  const status =
+    String(
+      offer?.status ||
+        "SENT"
+    )
+      .trim()
+      .toUpperCase();
+
+  const productionDays =
+    Number(
+      offer?.productionDays
+    );
+
+  const validUntil =
+    offer?.validUntil
+      ? new Date(
+          offer.validUntil
+        )
+      : null;
+
+  const validUntilText =
+    validUntil &&
+    !Number.isNaN(
+      validUntil.getTime()
+    )
+      ? validUntil.toLocaleDateString(
+          "ro-RO",
+          {
+            day: "2-digit",
+            month: "long",
+            year: "numeric",
+          }
+        )
+      : null;
+
+  return (
+    <div
+      className={
+        styles.quotePreviewRow
+      }
+    >
+      <article
+        className={
+          styles.quotePreviewCard
+        }
+      >
+        <div
+          className={
+            styles.quotePreviewIcon
+          }
+        >
+          <FileText size={20} />
+        </div>
+
+        <div
+          className={
+            styles.quotePreviewContent
+          }
+        >
+          <div
+            className={
+              styles.quotePreviewEyebrow
+            }
+          >
+            Ofertă primită
+          </div>
+
+          <strong
+            className={
+              styles.quotePreviewTitle
+            }
+          >
+            {productTitle}
+          </strong>
+
+          <div
+            className={
+              styles.quotePreviewMeta
+            }
+          >
+            {Number.isFinite(
+              total
+            ) && (
+              <span>
+                Total:{" "}
+                <strong>
+                  {total.toFixed(2)}{" "}
+                  {currency}
+                </strong>
+              </span>
+            )}
+
+            {Number.isFinite(
+              productionDays
+            ) &&
+              productionDays >
+                0 && (
+                <span>
+                  Producție:{" "}
+                  <strong>
+                    {productionDays} zile
+                  </strong>
+                </span>
+              )}
+          </div>
+
+          {validUntilText && (
+            <div
+              className={
+                styles.quotePreviewValidity
+              }
+            >
+              Oferta rămâne valabilă până la{" "}
+              <strong>
+                {validUntilText}
+              </strong>
+            </div>
+          )}
+        </div>
+
+        <div
+          className={
+            styles.quotePreviewSide
+          }
+        >
+          <span
+            className={
+              styles.quotePreviewStatus
+            }
+          >
+            {status}
+          </span>
+
+          <button
+            type="button"
+            className={
+              styles.quotePreviewBtn
+            }
+            onClick={onOpen}
+          >
+            Vezi oferta
+          </button>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function UserQuoteOfferModal({
+  quoteRequest,
+  offer,
+  canAnswer,
+  acceptOpen,
+  setAcceptOpen,
+  shippingForm,
+  setShippingForm,
+  loading,
+  error,
+  setError,
+  onAccept,
+  onReject,
+  onClose,
+}) {
+  const quantity =
+    Number(
+      quoteRequest?.quantity
+    ) || 0;
+
+  const productTitle =
+    quoteRequest?.product
+      ?.title ||
+    "Produs personalizat";
+
+  const productImage =
+    Array.isArray(
+      quoteRequest?.product
+        ?.images
+    )
+      ? quoteRequest.product
+          .images[0] || null
+      : null;
+
+  const status =
+    String(
+      offer?.status ||
+        quoteRequest?.status ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const subtotal =
+    Number(
+      offer?.subtotal
+    );
+
+  const shippingTotal =
+    Number(
+      offer?.shippingTotal
+    );
+
+  const total =
+    Number(
+      offer?.total
+    );
+
+  const currency =
+    offer?.currency ||
+    "RON";
+
+  return (
+    <div
+      className={
+        styles.quoteModalBackdrop
+      }
+      onMouseDown={(event) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className={
+          styles.quoteModal
+        }
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-quote-modal-title"
+      >
+        <div
+          className={
+            styles.quoteModalHead
+          }
+        >
+          <div>
+            <div
+              className={
+                styles.quotePanelEyebrow
+              }
+            >
+              Ofertă primită
+            </div>
+
+            <h2
+              id="user-quote-modal-title"
+            >
+              Detalii ofertă
+            </h2>
+
+            <p>
+              {productTitle}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className={
+              styles.quoteModalClose
+            }
+            onClick={onClose}
+            disabled={loading}
+            aria-label="Închide"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div
+          className={
+            styles.quotePanelHead
+          }
+        >
+          <div
+            className={
+              styles.quotePanelInfo
+            }
+          >
+            <div
+              className={
+                styles.quotePanelTitle
+              }
+            >
+              {productTitle}
+            </div>
+
+            <div
+              className={
+                styles.quotePanelMeta
+              }
+            >
+              <span>
+                Cantitate:{" "}
+                <strong>
+                  {quantity}
+                </strong>
+              </span>
+
+              <span>
+                Status:{" "}
+                <strong>
+                  {status ||
+                    "SENT"}
+                </strong>
+              </span>
+            </div>
+          </div>
+
+          {productImage && (
+            <img
+              className={
+                styles.quoteProductImage
+              }
+              src={productImage}
+              alt={productTitle}
+            />
+          )}
+        </div>
+
+        <div
+          className={
+            styles.quotePriceDetails
+          }
+        >
+          {Number.isFinite(
+            subtotal
+          ) && (
+            <span>
+              Produse:
+              <strong>
+                {subtotal.toFixed(
+                  2
+                )}{" "}
+                {currency}
+              </strong>
+            </span>
+          )}
+
+          {Number.isFinite(
+            shippingTotal
+          ) && (
+            <span>
+              Transport:
+              <strong>
+                {shippingTotal.toFixed(
+                  2
+                )}{" "}
+                {currency}
+              </strong>
+            </span>
+          )}
+
+          {Number.isFinite(
+            total
+          ) && (
+            <span
+              className={
+                styles.quoteTotal
+              }
+            >
+              Total:
+              <strong>
+                {total.toFixed(
+                  2
+                )}{" "}
+                {currency}
+              </strong>
+            </span>
+          )}
+        </div>
+
+        {offer?.productionDays && (
+          <div
+            className={
+              styles.quoteDeliveryInfo
+            }
+          >
+            Termen estimat de producție:{" "}
+            <strong>
+              {offer.productionDays} zile
+            </strong>
+          </div>
+        )}
+
+        {offer?.notes && (
+          <div
+            className={
+              styles.quoteRequestText
+            }
+          >
+            <strong>
+              Mesajul vânzătorului:
+            </strong>
+
+            <p>
+              {offer.notes}
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div
+            className={
+              styles.quoteOfferError
+            }
+          >
+            {error}
+          </div>
+        )}
+
+        {canAnswer &&
+          !acceptOpen && (
+            <div
+              className={
+                styles.quoteOfferActions
+              }
+            >
+              <button
+                type="button"
+                className={
+                  styles.quoteRejectBtn
+                }
+                disabled={loading}
+                onClick={onReject}
+              >
+                Refuză oferta
+              </button>
+
+              <button
+                type="button"
+                className={
+                  styles.quotePrimaryBtn
+                }
+                disabled={loading}
+                onClick={() => {
+                  setError("");
+                  setAcceptOpen(
+                    true
+                  );
+                }}
+              >
+                Acceptă oferta
+              </button>
+            </div>
+          )}
+
+        {canAnswer &&
+          acceptOpen && (
+            <form
+              className={
+                styles.quoteAcceptForm
+              }
+              onSubmit={
+                onAccept
+              }
+            >
+              <div
+                className={
+                  styles.quoteAcceptTitle
+                }
+              >
+                Date de livrare
+              </div>
+
+              <div
+                className={
+                  styles.quoteAddressGrid
+                }
+              >
+                <label>
+                  <span>
+                    Nume complet
+                  </span>
+
+                  <input
+                    value={
+                      shippingForm.recipientName
+                    }
+                    onChange={(event) =>
+                      setShippingForm(
+                        (current) => ({
+                          ...current,
+                          recipientName:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Telefon
+                  </span>
+
+                  <input
+                    value={
+                      shippingForm.phone
+                    }
+                    onChange={(event) =>
+                      setShippingForm(
+                        (current) => ({
+                          ...current,
+                          phone:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label
+                  className={
+                    styles.quoteAddressFull
+                  }
+                >
+                  <span>
+                    Adresă
+                  </span>
+
+                  <input
+                    value={
+                      shippingForm.addressLine1
+                    }
+                    onChange={(event) =>
+                      setShippingForm(
+                        (current) => ({
+                          ...current,
+                          addressLine1:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Localitate
+                  </span>
+
+                  <input
+                    value={
+                      shippingForm.city
+                    }
+                    onChange={(event) =>
+                      setShippingForm(
+                        (current) => ({
+                          ...current,
+                          city:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Județ
+                  </span>
+
+                  <input
+                    value={
+                      shippingForm.county
+                    }
+                    onChange={(event) =>
+                      setShippingForm(
+                        (current) => ({
+                          ...current,
+                          county:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Cod poștal
+                  </span>
+
+                  <input
+                    value={
+                      shippingForm.postalCode
+                    }
+                    onChange={(event) =>
+                      setShippingForm(
+                        (current) => ({
+                          ...current,
+                          postalCode:
+                            event.target
+                              .value,
+                        })
+                      )
+                    }
+                  />
+                </label>
+              </div>
+
+              <div
+                className={
+                  styles.quoteOfferActions
+                }
+              >
+                <button
+                  type="button"
+                  className={
+                    styles.quoteSecondaryBtn
+                  }
+                  disabled={loading}
+                  onClick={() => {
+                    setError("");
+                    setAcceptOpen(
+                      false
+                    );
+                  }}
+                >
+                  Înapoi
+                </button>
+
+                <button
+                  type="submit"
+                  className={
+                    styles.quotePrimaryBtn
+                  }
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2
+                        size={16}
+                        className={
+                          styles.spin
+                        }
+                      />
+
+                      Se înregistrează…
+                    </>
+                  ) : (
+                    "Confirmă comanda"
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+
+        {!canAnswer &&
+          status ===
+            "ACCEPTED" && (
+            <div
+              className={
+                styles.quoteAcceptedMessage
+              }
+            >
+              Oferta a fost acceptată și transformată în comandă.
+            </div>
+          )}
+
+        {!canAnswer &&
+          status ===
+            "REJECTED" && (
+            <div
+              className={
+                styles.quoteRejectedMessage
+              }
+            >
+              Oferta a fost refuzată.
+            </div>
+          )}
+      </section>
+    </div>
   );
 }
 

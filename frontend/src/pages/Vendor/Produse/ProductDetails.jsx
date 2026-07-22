@@ -31,6 +31,10 @@ import { ProductGallery } from "./components/ProductGallery.jsx";
 import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
+import { addToGuestCart } from "../../../utils/guestCart";
+import {
+  MagicIcon,
+} from "../../../components/AiAssistant/personalization/PersonalizationIcons.jsx";
 
 const ReviewsSection = lazy(() => import("./ReviewSection/ReviewSection"));
 const CommentsSection = lazy(() => import("./CommentSection/CommentSection"));
@@ -80,6 +84,11 @@ const emptyProdForm = {
   nextShipDate: "",
   acceptsCustom: false,
   isHidden: false,
+
+  orderMode: "READY_TO_BUY",
+  optionsSchema: [],
+  customSchema: [],
+  quoteSchema: [],
 
   color: "",
   materialMain: "",
@@ -185,7 +194,10 @@ export default function ProductDetails() {
 
   const [qty, setQty] = useState(1);
   const [adding, setAdding] = useState(false);
-
+const [selectedOptions, setSelectedOptions] = useState({});
+const [customAnswers, setCustomAnswers] = useState({});
+const [customizationOpen, setCustomizationOpen] = useState(false);
+const [validationErrors, setValidationErrors] = useState({});
   const [revRating, setRevRating] = useState(0);
   const [revText, setRevText] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -250,6 +262,10 @@ setFavorites(new Set());
     setReviewsLoaded(false);
     setCommentsLoaded(false);
     setDeferredSections(false);
+    setSelectedOptions({});
+setCustomAnswers({});
+    setCustomizationOpen(false);
+    setValidationErrors({});
   }, [id]);
 
   const cacheT = useMemo(() => {
@@ -356,8 +372,95 @@ setFavorites(new Set());
 
   const isSoldOut = product?.availability === "SOLD_OUT";
 
+const optionsSchema = useMemo(() => {
+  if (
+    Array.isArray(
+      product?.optionsSchema
+    )
+  ) {
+    return product.optionsSchema;
+  }
+
+  if (
+    Array.isArray(
+      product?.optionsSchema?.fields
+    )
+  ) {
+    return product.optionsSchema.fields;
+  }
+
+  return [];
+}, [product?.optionsSchema]);
+
+const customSchema = useMemo(() => {
+  if (
+    Array.isArray(
+      product?.customSchema
+    )
+  ) {
+    return product.customSchema;
+  }
+
+  if (
+    Array.isArray(
+      product?.customSchema?.fields
+    )
+  ) {
+    return product.customSchema.fields;
+  }
+
+  return [];
+}, [product?.customSchema]);
+const hasOrderOptions =
+  optionsSchema.length > 0 ||
+  customSchema.length > 0;
   const myVendorId = me?.vendor?.id ?? null;
   const myUserId = me?.id ?? me?.sub ?? null;
+
+  const missingRequiredSelection =
+  useMemo(() => {
+    const missingOption =
+      optionsSchema.some(
+        (field) => {
+          if (
+            field?.required === false
+          ) {
+            return false;
+          }
+
+          return !String(
+            selectedOptions[
+              field.key
+            ] || ""
+          ).trim();
+        }
+      );
+
+    const missingCustomAnswer =
+      customSchema.some(
+        (field) => {
+          if (!field?.required) {
+            return false;
+          }
+
+          return !String(
+            customAnswers[
+              field.key
+            ] || ""
+          ).trim();
+        }
+      );
+
+    return (
+      missingOption ||
+      missingCustomAnswer
+    );
+  }, [
+    optionsSchema,
+    customSchema,
+    selectedOptions,
+    customAnswers,
+  ]);
 
   const ownerVendorId =
     product?.service?.vendor?.id ??
@@ -393,53 +496,197 @@ setFavorites(new Set());
     },
     [me, navigate]
   );
+const isQuoteOnly =
+  product?.orderMode === "QUOTE_ONLY";
 
-  const onAddToCart = useCallback(async () => {
-    if (!product || isOwner || adding || isSoldOut) return;
+const onRequestQuote = useCallback(() => {
+  if (!product || isOwner) {
+    return;
+  }
 
-    if (!me) {
-      alert(
-        "Majoritatea produselor pot fi personalizate, iar pentru a putea vorbi cu artizanul și salva preferințele tale, este nevoie să te autentifici. Te așteptăm cu drag, durează doar câteva secunde! ✨"
-      );
+  if (!me) {
+    const redir = encodeURIComponent(
+      window.location.pathname +
+        window.location.search
+    );
 
-      const redir = encodeURIComponent(
-        window.location.pathname + window.location.search
-      );
-      navigate(`/autentificare?redirect=${redir}`);
+    navigate(
+      `/autentificare?redirect=${redir}`
+    );
+
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(
+      "artfest:quote-request",
+      {
+        detail: {
+          productId:
+            product.id,
+
+          productTitle:
+            product.title,
+
+          vendorId:
+            product?.service
+              ?.vendor?.id ||
+            product?.vendor?.id ||
+            null,
+
+          vendorName:
+            product?.service
+              ?.profile
+              ?.displayName ||
+            product?.vendor
+              ?.displayName ||
+            null,
+
+          image:
+            Array.isArray(
+              product.images
+            )
+              ? product.images[0] ||
+                null
+              : null,
+
+          quoteSchema:
+            product.quoteSchema ||
+            [],
+        },
+      }
+    )
+  );
+}, [
+  product,
+  isOwner,
+  me,
+  navigate,
+]);
+
+ const onAddToCart = useCallback(async () => {
+  if (!product || isOwner || adding || isSoldOut) {
+    return;
+  }
+
+  if (hasOrderOptions) {
+    const nextErrors = {};
+    let hasCustomError = false;
+
+    for (const field of optionsSchema) {
+      const value = String(
+        selectedOptions[field.key] || ""
+      ).trim();
+
+      if (field?.required !== false && !value) {
+        nextErrors[`option:${field.key}`] =
+          `Alege ${field.label || "această opțiune"}.`;
+      }
+    }
+
+    for (const field of customSchema) {
+      const value = String(
+        customAnswers[field.key] || ""
+      ).trim();
+
+      if (field?.required && !value) {
+        nextErrors[`custom:${field.key}`] =
+          `Completează ${field.label || "acest câmp"}.`;
+        hasCustomError = true;
+      }
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setValidationErrors(nextErrors);
+
+      if (hasCustomError) {
+        setCustomizationOpen(true);
+      }
+
+      requestAnimationFrame(() => {
+        const firstInvalid = document.querySelector(
+          '[data-validation-error="true"]'
+        );
+
+        if (firstInvalid) {
+          firstInvalid.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }
+      });
+
       return;
     }
 
-    try {
-      setAdding(true);
+    setValidationErrors({});
+  }
+  try {
+    setAdding(true);
 
-      const r = await api(`/api/cart/add`, {
-        method: "POST",
-        body: { productId: product.id, qty },
-      });
+    if (me) {
+  const response = await api("/api/cart/add", {
+    method: "POST",
+    body: {
+      productId: product.id,
+      qty,
+      selectedOptions,
+      customAnswers,
+    },
+  });
 
-      if (r?.error === "cannot_add_own_product") {
-        alert("Nu poți adăuga în coș propriul produs.");
-        return;
-      }
+  if (response?.error === "cannot_add_own_product") {
+    alert("Nu poți adăuga în coș propriul produs.");
+    return;
+  }
 
-      try {
-        window.dispatchEvent(new CustomEvent("cart:changed"));
-      } catch {
-        /* ignore */
-      }
+  if (response?.__unauth) {
+    addToGuestCart(product.id, qty, {
+      selectedOptions,
+      customAnswers,
+    });
+  }
+} else {
+  addToGuestCart(product.id, qty, {
+    selectedOptions,
+    customAnswers,
+  });
+}
 
-      alert("Produs adăugat în coș.");
-    } catch (e) {
-      const msg =
-        e?.message ||
-        (e?.status === 403
-          ? "Nu poți adăuga în coș propriul produs."
-          : "Nu am putut adăuga în coș.");
-      alert(msg);
-    } finally {
-      setAdding(false);
-    }
-  }, [product, isOwner, adding, isSoldOut, me, navigate, qty]);
+try {
+  window.dispatchEvent(
+    new CustomEvent("cart:changed")
+  );
+} catch {
+  // ignore
+}
+
+    alert("Produs adăugat în coș.");
+  } catch (error) {
+    const message =
+      error?.data?.message ||
+      error?.message ||
+      (error?.status === 403
+        ? "Nu poți adăuga în coș propriul produs."
+        : "Nu am putut adăuga în coș.");
+
+    alert(message);
+  } finally {
+    setAdding(false);
+  }
+}, [
+  product,
+  isOwner,
+  adding,
+  isSoldOut,
+  me,
+  qty,
+  selectedOptions,
+  customAnswers,
+  hasOrderOptions,
+  optionsSchema,
+  customSchema,
+]);
 
   const addToCartAny = onAddToCart;
 
@@ -656,9 +903,17 @@ const loadProduct = useCallback(async () => {
   setError(null);
 
   try {
-    const productData = await api(
-      `/api/public/products/${encodeURIComponent(id)}`
-    );
+    let productData;
+
+    if (isOwner) {
+      productData = await api(
+        `/api/vendors/products/${encodeURIComponent(id)}`
+      );
+    } else {
+      productData = await api(
+        `/api/public/products/${encodeURIComponent(id)}`
+      );
+    }
 
     if (!mountedRef.current || requestSeqRef.current !== seq) return;
 
@@ -670,7 +925,7 @@ const loadProduct = useCallback(async () => {
     setError(e?.message || "Nu am putut încărca produsul.");
     setLoading(false);
   }
-}, [id]);
+}, [id, isOwner]);
 
 useEffect(() => {
   loadProduct();
@@ -695,9 +950,14 @@ useEffect(() => {
 
     if (!alive || !mountedRef.current) return;
 
-    if (meRes.status === "fulfilled") {
-      setMe(meRes.value?.user || null);
-    }
+   if (meRes.status === "fulfilled") {
+  const currentUser =
+    meRes.value?.user ||
+    meRes.value ||
+    null;
+
+  setMe(currentUser);
+}
 
     if (
       favRes.status === "fulfilled" &&
@@ -1163,6 +1423,30 @@ const productUrl =
         dimensions: full.dimensions || "",
         careInstructions: full.careInstructions || "",
         specialNotes: full.specialNotes || "",
+        orderMode:
+  full.orderMode === "DIRECT"
+    ? "READY_TO_BUY"
+    : full.orderMode === "CUSTOMIZABLE"
+      ? "OPTIONS"
+      : full.orderMode || "READY_TO_BUY",
+
+optionsSchema: Array.isArray(full.optionsSchema)
+  ? full.optionsSchema
+  : Array.isArray(full.optionsSchema?.fields)
+    ? full.optionsSchema.fields
+    : [],
+
+customSchema: Array.isArray(full.customSchema)
+  ? full.customSchema
+  : Array.isArray(full.customSchema?.fields)
+    ? full.customSchema.fields
+    : [],
+
+quoteSchema: Array.isArray(full.quoteSchema)
+  ? full.quoteSchema
+  : Array.isArray(full.quoteSchema?.fields)
+    ? full.quoteSchema.fields
+    : [],
       });
 
       setEditOpen(true);
@@ -1217,25 +1501,57 @@ const productUrl =
           return;
         }
 
-        const basePayload = {
-          title,
-          description,
-          price,
-          images: imagesArr,
-          category,
-          currency: prodForm.currency || "RON",
-          isActive: prodForm.isActive !== false,
-          isHidden: !!prodForm.isHidden,
-          acceptsCustom: !!prodForm.acceptsCustom,
-          color,
-          materialMain,
-          technique,
-          styleTags,
-          occasionTags,
-          dimensions,
-          careInstructions,
-          specialNotes,
-        };
+       const normalizedOrderMode =
+  prodForm.orderMode === "DIRECT"
+    ? "READY_TO_BUY"
+    : prodForm.orderMode === "CUSTOMIZABLE"
+      ? "OPTIONS"
+      : prodForm.orderMode || "READY_TO_BUY";
+
+const basePayload = {
+  title,
+  description,
+  price,
+  images: imagesArr,
+  category,
+  currency: prodForm.currency || "RON",
+  isActive: prodForm.isActive !== false,
+  isHidden: !!prodForm.isHidden,
+
+  orderMode: normalizedOrderMode,
+
+  acceptsCustom:
+    normalizedOrderMode === "OPTIONS" ||
+    normalizedOrderMode === "QUOTE_ONLY" ||
+    prodForm.acceptsCustom === true,
+
+  optionsSchema:
+    normalizedOrderMode === "OPTIONS" &&
+    Array.isArray(prodForm.optionsSchema)
+      ? prodForm.optionsSchema
+      : [],
+
+  customSchema:
+    normalizedOrderMode === "OPTIONS" &&
+    Array.isArray(prodForm.customSchema)
+      ? prodForm.customSchema
+      : [],
+
+  quoteSchema:
+    normalizedOrderMode === "QUOTE_ONLY" &&
+    Array.isArray(prodForm.quoteSchema)
+      ? prodForm.quoteSchema
+      : [],
+
+  color,
+  materialMain,
+  technique,
+  styleTags,
+  occasionTags,
+  dimensions,
+  careInstructions,
+  specialNotes,
+};
 
         const av = String(prodForm.availability || "READY").toUpperCase();
 
@@ -1473,68 +1789,490 @@ const productUrl =
               <p className={styles.inlineDescription}>{product.description}</p>
             </div>
           )}
+{hasOrderOptions && !isQuoteOnly && (
+  <div className={styles.productConfigurator}>
+    <div className={styles.configuratorHeader}>
+      <div>
+        <h3 className={styles.configuratorTitle}>
+          Configurează produsul
+        </h3>
 
+        <p className={styles.configuratorSubtitle}>
+          Alege variantele disponibile și, dacă dorești, adaugă detalii de personalizare.
+        </p>
+      </div>
+    </div>
+
+    {optionsSchema.length > 0 && (
+      <div className={styles.configuratorOptions}>
+        {optionsSchema.map((field) => {
+          const rawValues = Array.isArray(field?.options)
+            ? field.options
+            : Array.isArray(field?.values)
+              ? field.values
+              : [];
+
+          const selectedValue = selectedOptions[field.key] || "";
+
+          return (
+            <div
+              key={field.key}
+              data-validation-error={
+                validationErrors[`option:${field.key}`] ? "true" : undefined
+              }
+              className={[
+                styles.configuratorGroup,
+                validationErrors[`option:${field.key}`]
+                  ? styles.configuratorGroupError
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
+              <div className={styles.configuratorLabelRow}>
+                <label className={styles.configuratorLabel}>
+                  {field.label || "Alege o variantă"}
+
+                  {field.required !== false && (
+                    <span className={styles.requiredMark}>*</span>
+                  )}
+                </label>
+
+                {selectedValue && (
+                  <span className={styles.configuratorSelected}>
+                    {selectedValue}
+                  </span>
+                )}
+              </div>
+
+              <div
+                className={styles.configuratorChoices}
+                role="group"
+                aria-label={field.label || "Opțiune produs"}
+              >
+                {rawValues.map((rawOption, index) => {
+                  const option =
+                    typeof rawOption === "string"
+                      ? {
+                          value: rawOption,
+                          label: rawOption,
+                          colorHex: null,
+                          imageUrl: null,
+                          imageIndex: null,
+                          disabled: false,
+                        }
+                      : {
+                          value: String(
+                            rawOption?.value ||
+                              rawOption?.key ||
+                              rawOption?.label ||
+                              ""
+                          ),
+                          label: String(
+                            rawOption?.label ||
+                              rawOption?.value ||
+                              rawOption?.key ||
+                              ""
+                          ),
+                          colorHex:
+                            rawOption?.colorHex ||
+                            rawOption?.color ||
+                            null,
+                          imageUrl:
+                            rawOption?.imageUrl ||
+                            rawOption?.image ||
+                            null,
+                          imageIndex: Number.isInteger(rawOption?.imageIndex)
+                            ? rawOption.imageIndex
+                            : null,
+                          disabled: !!rawOption?.disabled,
+                        };
+
+                  if (!option.value) return null;
+
+                  const isSelected =
+                    String(selectedValue) === String(option.value);
+
+                  return (
+                    <button
+                      key={`${field.key}-${option.value}-${index}`}
+                      type="button"
+                      disabled={option.disabled}
+                      aria-pressed={isSelected}
+                      className={[
+                        styles.configuratorChoice,
+                        isSelected
+                          ? styles.configuratorChoiceSelected
+                          : "",
+                        option.disabled
+                          ? styles.configuratorChoiceDisabled
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      onClick={() => {
+                        if (option.disabled) return;
+
+                        setSelectedOptions((current) => ({
+                          ...current,
+                          [field.key]: option.value,
+                        }));
+
+                        setValidationErrors((current) => {
+                          const next = { ...current };
+                          delete next[`option:${field.key}`];
+                          return next;
+                        });
+
+                        if (
+                          Number.isInteger(option.imageIndex) &&
+                          images[option.imageIndex]
+                        ) {
+                          setActiveIdx(option.imageIndex);
+                        } else if (option.imageUrl) {
+                          const foundIndex = images.findIndex(
+                            (image) => image === option.imageUrl
+                          );
+
+                          if (foundIndex >= 0) {
+                            setActiveIdx(foundIndex);
+                          }
+                        }
+                      }}
+                    >
+                      {option.colorHex && (
+                        <span
+                          className={styles.choiceColor}
+                          style={{
+                            backgroundColor: option.colorHex,
+                          }}
+                          aria-hidden="true"
+                        />
+                      )}
+
+                      {option.imageUrl && (
+                        <img
+                          src={resolveFileUrl(option.imageUrl)}
+                          alt=""
+                          className={styles.choiceImage}
+                          loading="lazy"
+                        />
+                      )}
+
+                      <span>{option.label}</span>
+
+                      {isSelected && (
+                        <span
+                          className={styles.choiceCheck}
+                          aria-hidden="true"
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {validationErrors[`option:${field.key}`] && (
+                <p className={styles.fieldErrorMessage}>
+                  {validationErrors[`option:${field.key}`]}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    )}
+
+    {customSchema.length > 0 && (
+      <div className={styles.customizationCard}>
+        <button
+          type="button"
+          className={styles.customizationToggle}
+          onClick={() =>
+            setCustomizationOpen((current) => !current)
+          }
+          aria-expanded={customizationOpen}
+        >
+          <span className={styles.customizationToggleLeft}>
+            <span className={styles.customizationIcon}>
+              <MagicIcon />
+            </span>
+
+            <span className={styles.customizationToggleText}>
+              <strong>Personalizează produsul</strong>
+              <small>
+                Adaugă detalii speciale pentru comanda ta
+              </small>
+            </span>
+          </span>
+
+          <FaChevronDown
+            className={[
+              styles.customizationChevron,
+              customizationOpen
+                ? styles.customizationChevronOpen
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          />
+        </button>
+
+        {customizationOpen && (
+          <div className={styles.customizationFields}>
+            {customSchema.map((field) => {
+              const value = customAnswers[field.key] || "";
+              const fieldType = field.type || "text";
+
+              return (
+                <div
+                  key={field.key}
+                  data-validation-error={
+                    validationErrors[`custom:${field.key}`] ? "true" : undefined
+                  }
+                  className={[
+                    styles.customizationField,
+                    validationErrors[`custom:${field.key}`]
+                      ? styles.customizationFieldError
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <label className={styles.customizationLabel}>
+                    {field.label || "Detalii personalizare"}
+
+                    {field.required && (
+                      <span className={styles.requiredMark}>
+                        *
+                      </span>
+                    )}
+                  </label>
+
+                  {field.description && (
+                    <p className={styles.customizationHint}>
+                      {field.description}
+                    </p>
+                  )}
+
+                  {fieldType === "textarea" ? (
+                    <textarea
+                      value={value}
+                      maxLength={field.maxLength || undefined}
+                      placeholder={
+                        field.placeholder ||
+                        "Scrie aici detaliile..."
+                      }
+                      className={styles.customizationTextarea}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+
+                        setCustomAnswers((current) => ({
+                          ...current,
+                          [field.key]: nextValue,
+                        }));
+
+                        if (String(nextValue).trim()) {
+                          setValidationErrors((current) => {
+                            const next = { ...current };
+                            delete next[`custom:${field.key}`];
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+                  ) : (
+                    <input
+                      type={
+                        fieldType === "date"
+                          ? "date"
+                          : "text"
+                      }
+                      value={value}
+                      maxLength={field.maxLength || undefined}
+                      placeholder={
+                        field.placeholder ||
+                        "Completează aici..."
+                      }
+                      className={styles.customizationInput}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+
+                        setCustomAnswers((current) => ({
+                          ...current,
+                          [field.key]: nextValue,
+                        }));
+
+                        if (String(nextValue).trim()) {
+                          setValidationErrors((current) => {
+                            const next = { ...current };
+                            delete next[`custom:${field.key}`];
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+                  )}
+
+                  {validationErrors[`custom:${field.key}`] && (
+                    <p className={styles.fieldErrorMessage}>
+                      {validationErrors[`custom:${field.key}`]}
+                    </p>
+                  )}
+
+                  {field.maxLength && fieldType !== "date" && (
+                    <span className={styles.characterCounter}>
+                      {String(value).length}/{field.maxLength}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    )}
+
+    {(Object.values(selectedOptions).some((value) =>
+      String(value || "").trim()
+    ) ||
+      Object.values(customAnswers).some((value) =>
+        String(value || "").trim()
+      )) && (
+      <div className={styles.selectionSummary}>
+        <span className={styles.selectionSummaryLabel}>
+          Selecția ta
+        </span>
+
+        <div className={styles.selectionSummaryValues}>
+          {optionsSchema.map((field) => {
+            const value = selectedOptions[field.key];
+
+            if (!value) return null;
+
+            return (
+              <span
+                key={field.key}
+                className={styles.selectionPill}
+              >
+                {field.label && <span>{field.label}:</span>}
+                <strong>{value}</strong>
+              </span>
+            );
+          })}
+
+          {Object.values(customAnswers).some((value) =>
+            String(value || "").trim()
+          ) && (
+            <span className={styles.selectionPillCustom}>
+              <MagicIcon />
+              Personalizat
+            </span>
+          )}
+        </div>
+      </div>
+    )}
+  </div>
+)}
           <div className={styles.ctaRow}>
             {viewMode !== "vendor" && (
               <>
-                <button
-                  className={styles.primaryBtn}
-                  onClick={addToCartAny}
-                  disabled={adding || isSoldOut}
-                  title={
-                    isSoldOut
-                      ? "Produs indisponibil momentan"
-                      : "Adaugă în coș"
-                  }
-                  type="button"
-                >
-                  <FaShoppingCart />{" "}
-                  {isSoldOut
-                    ? "Stoc epuizat"
-                    : adding
-                    ? "Se adaugă…"
-                    : "Adaugă în coș"}
-                </button>
+                {isQuoteOnly ? (
+  <button
+    className={styles.primaryBtn}
+    onClick={onRequestQuote}
+    type="button"
+  >
+    <MagicIcon /> Cere ofertă
+  </button>
+) : (
+  <button
+    className={styles.primaryBtn}
+    onClick={addToCartAny}
+    disabled={
+      adding ||
+      isSoldOut
+    }
+    title={
+      isSoldOut
+        ? "Stoc epuizat"
+        : adding
+          ? "Se adaugă…"
+          : hasOrderOptions &&
+              missingRequiredSelection
+            ? "Alege opțiunile"
+            : "Adaugă în coș"
+    }
+    type="button"
+  >
+    <FaShoppingCart />{" "}
+    {isSoldOut
+      ? "Stoc epuizat"
+      : adding
+        ? "Se adaugă…"
+        : "Adaugă în coș"}
+  </button>
+)}
 
-                <div className={styles.qtyRow}>
-                  <button
-                    type="button"
-                    className={styles.qtyBtn}
-                    onClick={() =>
-                      setQty((q) => Math.max(1, Math.min(999, q - 1)))
-                    }
-                    aria-label="Scade cantitatea"
-                  >
-                    −
-                  </button>
+               {!isQuoteOnly && (
+  <div className={styles.qtyRow}>
+    <button
+      type="button"
+      className={styles.qtyBtn}
+      onClick={() =>
+        setQty((q) =>
+          Math.max(
+            1,
+            Math.min(999, q - 1)
+          )
+        )
+      }
+      aria-label="Scade cantitatea"
+    >
+      −
+    </button>
 
-                  <input
-                    type="number"
-                    min={1}
-                    value={qty}
-                    onChange={(e) =>
-                      setQty(
-                        Math.max(
-                          1,
-                          Math.min(999, parseInt(e.target.value || "1", 10))
-                        )
-                      )
-                    }
-                    aria-label="Cantitate"
-                    className={styles.qtyInput}
-                  />
+    <input
+      type="number"
+      min={1}
+      value={qty}
+      onChange={(e) =>
+        setQty(
+          Math.max(
+            1,
+            Math.min(
+              999,
+              parseInt(
+                e.target.value || "1",
+                10
+              )
+            )
+          )
+        )
+      }
+      aria-label="Cantitate"
+      className={styles.qtyInput}
+    />
 
-                  <button
-                    type="button"
-                    className={styles.qtyBtn}
-                    onClick={() =>
-                      setQty((q) => Math.max(1, Math.min(999, q + 1)))
-                    }
-                    aria-label="Crește cantitatea"
-                  >
-                    +
-                  </button>
-                </div>
+    <button
+      type="button"
+      className={styles.qtyBtn}
+      onClick={() =>
+        setQty((q) =>
+          Math.max(
+            1,
+            Math.min(999, q + 1)
+          )
+        )
+      }
+      aria-label="Crește cantitatea"
+    >
+      +
+    </button>
+  </div>
+)}
 
                 <button
                   className={`${styles.iconBtn} ${

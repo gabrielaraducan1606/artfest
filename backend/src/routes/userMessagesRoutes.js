@@ -3,6 +3,10 @@ import express from "express";
 import { prisma } from "../db.js";
 import { authRequired, enforceTokenVersion } from "../api/auth.js";
 import { createVendorNotification } from "../services/notifications.js";
+import {
+  moderateMarketplaceMessage,
+  moderateMarketplaceImage,
+} from "../services/marketplaceMessageModeration.js";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -301,101 +305,395 @@ router.get("/threads", async (req, res) => {
    GET /api/user-inbox/threads/:id/messages
 ========================= */
 
-router.get("/threads/:id/messages", async (req, res) => {
-  const userId = req.user.sub;
-  const threadId = String(req.params.id || "");
+router.get(
+  "/threads/:id/messages",
+  async (req, res) => {
+    const userId =
+      req.user.sub;
 
-  try {
-    const thread = await prisma.messageThread.findFirst({
-      where: { id: threadId, userId, deletedByUserAt: null },
-      select: {
-        id: true,
-        vendorLastReadAt: true,
-        contactName: true,
-        vendor: {
-          select: {
-            displayName: true,
+    const threadId =
+      String(
+        req.params.id ||
+          ""
+      );
+
+    try {
+      const thread =
+        await prisma.messageThread.findFirst({
+          where: {
+            id: threadId,
+            userId,
+            deletedByUserAt:
+              null,
           },
-        },
-        service: {
+
           select: {
-            title: true,
-            profile: {
+            id: true,
+            serviceId: true,
+            vendorLastReadAt:
+              true,
+            contactName: true,
+
+            vendor: {
               select: {
-                displayName: true,
+                displayName:
+                  true,
+              },
+            },
+
+            service: {
+              select: {
+                id: true,
+                title: true,
+
+                profile: {
+                  select: {
+                    displayName:
+                      true,
+                    slug: true,
+                    logoUrl: true,
+                  },
+                },
               },
             },
           },
-        },
-      },
-    });
+        });
 
-    if (!thread) return res.status(404).json({ error: "Thread not found" });
+      if (!thread) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "Thread not found",
+          });
+      }
 
-    const storeName = storeNameFromThread(thread);
+      const storeName =
+        storeNameFromThread(
+          thread
+        );
 
-    const msgs = await prisma.message.findMany({
-      where: { threadId },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        body: true,
-        createdAt: true,
-        authorType: true,
-        authorName: true,
-        deletedByUserAt: true,
-        attachments: {
+      /*
+       * Cererea de ofertă asociată
+       * acestei conversații.
+       */
+      const quoteRequest =
+        await prisma.quoteRequest.findFirst({
+          where: {
+            threadId,
+            userId,
+          },
+
           select: {
             id: true,
-            filename: true,
-            url: true,
-            size: true,
-            mime: true,
+            status: true,
+            source: true,
+
+            quantity: true,
+
+            requestData: true,
+            quoteSchemaAnswers:
+              true,
+
+            eventDate: true,
+            deliveryDeadline:
+              true,
+
+            budgetMin: true,
+            budgetMax: true,
+
+            createdAt: true,
+            updatedAt: true,
+
+            orderId: true,
+
+            product: {
+              select: {
+                id: true,
+                title: true,
+                images: true,
+                orderMode: true,
+              },
+            },
+
+            offers: {
+              where: {
+                status: {
+                  in: [
+                    "SENT",
+                    "ACCEPTED",
+                    "REJECTED",
+                  ],
+                },
+              },
+
+              orderBy: {
+                createdAt:
+                  "desc",
+              },
+
+              select: {
+                id: true,
+                status: true,
+
+                items: true,
+
+                subtotal: true,
+                shippingTotal:
+                  true,
+                total: true,
+
+                currency: true,
+
+                productionDays:
+                  true,
+                estimatedDelivery:
+                  true,
+                validUntil: true,
+
+                notes: true,
+
+                createdAt: true,
+                updatedAt: true,
+              },
+            },
           },
+        });
+
+      const msgs =
+        await prisma.message.findMany({
+          where: {
+            threadId,
+          },
+
+          orderBy: {
+            createdAt: "asc",
+          },
+
+          select: {
+            id: true,
+            body: true,
+            createdAt: true,
+            authorType: true,
+            authorName: true,
+            deletedByUserAt:
+              true,
+
+            attachments: {
+              select: {
+                id: true,
+                filename: true,
+                url: true,
+                size: true,
+                mime: true,
+              },
+            },
+          },
+        });
+
+      const items =
+        msgs.map((message) => {
+          const from =
+            message.authorType ===
+            "USER"
+              ? "me"
+              : "them";
+
+          const readByPeer =
+            from === "me" &&
+            thread.vendorLastReadAt &&
+            message.createdAt <=
+              thread.vendorLastReadAt;
+
+          const isDeletedForUser =
+            Boolean(
+              message.deletedByUserAt
+            );
+
+          return {
+            id: message.id,
+            threadId,
+
+            from,
+
+            authorName:
+              message.authorType ===
+              "USER"
+                ? undefined
+                : message.authorName ||
+                  storeName,
+
+            body:
+              isDeletedForUser
+                ? ""
+                : message.body,
+
+            createdAt:
+              message.createdAt,
+
+            readByPeer,
+
+            deleted:
+              isDeletedForUser,
+
+            attachments:
+              isDeletedForUser
+                ? []
+                : (
+                    message.attachments ||
+                    []
+                  ).map(
+                    (
+                      attachment
+                    ) => ({
+                      id:
+                        attachment.id,
+
+                      name:
+                        attachment.filename,
+
+                      url:
+                        attachment.url,
+
+                      size:
+                        attachment.size,
+
+                      mime:
+                        attachment.mime,
+                    })
+                  ),
+          };
+        });
+
+      return res.json({
+        items,
+
+        threadMeta: {
+          id: thread.id,
+
+          storeId:
+            thread.serviceId ||
+            null,
+
+          storeName,
+
+          storeSlug:
+            thread.service
+              ?.profile
+              ?.slug ||
+            null,
+
+          storeLogoUrl:
+            thread.service
+              ?.profile
+              ?.logoUrl ||
+            null,
         },
-      },
-    });
 
-    const items = msgs.map((m) => {
-      const from = m.authorType === "USER" ? "me" : "them";
+        quoteRequest:
+          quoteRequest
+            ? {
+                id:
+                  quoteRequest.id,
 
-      const readByPeer =
-        from === "me" &&
-        thread.vendorLastReadAt &&
-        m.createdAt <= thread.vendorLastReadAt;
+                quoteRequestId:
+                  quoteRequest.id,
 
-      const isDeletedForUser = !!m.deletedByUserAt;
+                status:
+                  quoteRequest.status,
 
-      return {
-        id: m.id,
-        threadId,
-        from,
-        authorName: m.authorType === "USER" ? undefined : m.authorName || storeName,
-        body: isDeletedForUser ? "" : m.body,
-        createdAt: m.createdAt,
-        readByPeer,
-        deleted: isDeletedForUser,
-        attachments: isDeletedForUser
-          ? []
-          : (m.attachments || []).map((a) => ({
-              id: a.id,
-              name: a.filename,
-              url: a.url,
-              size: a.size,
-              mime: a.mime,
-            })),
-      };
-    });
+                source:
+                  quoteRequest.source,
 
-    res.json({ items });
-  } catch (e) {
-    console.error("GET /api/user-inbox/threads/:id/messages error:", e);
-    res.status(500).json({
-      error: "server_error",
-      details: String(e?.message || e),
-    });
+                quantity:
+                  quoteRequest.quantity,
+
+                requestData:
+                  quoteRequest.requestData ||
+                  {},
+
+                quoteSchemaAnswers:
+                  quoteRequest.quoteSchemaAnswers ||
+                  {},
+
+                eventDate:
+                  quoteRequest.eventDate,
+
+                deliveryDeadline:
+                  quoteRequest.deliveryDeadline,
+
+                budgetMin:
+                  quoteRequest.budgetMin,
+
+                budgetMax:
+                  quoteRequest.budgetMax,
+
+                orderId:
+                  quoteRequest.orderId ||
+                  null,
+
+                createdAt:
+                  quoteRequest.createdAt,
+
+                updatedAt:
+                  quoteRequest.updatedAt,
+
+                product:
+                  quoteRequest.product
+                    ? {
+                        id:
+                          quoteRequest
+                            .product
+                            .id,
+
+                        title:
+                          quoteRequest
+                            .product
+                            .title,
+
+                        images:
+                          quoteRequest
+                            .product
+                            .images ||
+                          [],
+
+                        orderMode:
+                          quoteRequest
+                            .product
+                            .orderMode,
+                      }
+                    : null,
+
+                offers:
+                  Array.isArray(
+                    quoteRequest.offers
+                  )
+                    ? quoteRequest.offers
+                    : [],
+              }
+            : null,
+      });
+    } catch (error) {
+      console.error(
+        "GET /api/user-inbox/threads/:id/messages error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "server_error",
+
+          details:
+            String(
+              error?.message ||
+                error
+            ),
+        });
+    }
   }
-});
+);
 
 /* =========================
    PATCH /api/user-inbox/threads/:id/read
@@ -432,6 +730,54 @@ router.post("/threads/:id/messages", async (req, res) => {
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: "Mesajul nu poate fi gol" });
   }
+
+  const moderation =
+  await moderateMarketplaceMessage({
+    text: body,
+    senderType: "USER",
+  });
+
+if (
+  !moderation.allowed
+) {
+  const technicalReasons =
+    new Set([
+      "text_moderation_failed",
+      "text_moderation_invalid_response",
+      "text_moderation_ambiguous_response",
+    ]);
+
+  const isTechnicalError =
+    technicalReasons.has(
+      moderation.reason
+    );
+
+  return res
+    .status(
+      isTechnicalError
+        ? 503
+        : 422
+    )
+    .json({
+      error:
+        isTechnicalError
+          ? "moderation_unavailable"
+          : "message_blocked",
+
+      reason:
+        moderation.reason ||
+        "not_allowed",
+
+      detections:
+        moderation.detections ||
+        [],
+
+      message:
+        isTechnicalError
+          ? "Mesajul nu a putut fi verificat momentan și nu a fost trimis. Încearcă din nou peste câteva secunde."
+          : "Mesajul nu poate fi trimis deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
+    });
+}
 
   const thread = await prisma.messageThread.findFirst({
     where: { id: threadId, userId, deletedByUserAt: null },
@@ -502,7 +848,71 @@ router.post("/threads/:id/attachments", upload.array("files", 10), async (req, r
   });
 
   if (!thread) return res.status(404).json({ error: "Thread not found" });
+for (const file of files) {
+  const moderation =
+    await moderateMarketplaceImage({
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      filename: file.originalname,
+      senderType: "USER",
+    });
 
+  if (
+  !moderation.allowed
+) {
+  const invalidFileReasons =
+    new Set([
+      "missing_image",
+      "invalid_image_type",
+      "unsupported_image_type",
+    ]);
+
+  const technicalReasons =
+    new Set([
+      "image_moderation_failed",
+      "image_moderation_invalid_response",
+      "image_moderation_ambiguous_response",
+    ]);
+
+  const isInvalidFile =
+    invalidFileReasons.has(
+      moderation.reason
+    );
+
+  const isTechnicalError =
+    technicalReasons.has(
+      moderation.reason
+    );
+
+  return res
+    .status(
+      isTechnicalError
+        ? 503
+        : 422
+    )
+    .json({
+      error:
+        isTechnicalError
+          ? "moderation_unavailable"
+          : "attachment_blocked",
+
+      reason:
+        moderation.reason ||
+        "not_allowed",
+
+      detections:
+        moderation.detections ||
+        [],
+
+      message:
+        isTechnicalError
+          ? "Imaginea nu a putut fi verificată momentan și nu a fost trimisă. Încearcă din nou peste câteva secunde."
+          : isInvalidFile
+            ? "Fișierul nu este o imagine acceptată. Încarcă o imagine JPG, PNG, WEBP sau GIF."
+            : "Imaginea nu poate fi trimisă deoarece conține date de contact, linkuri, coduri QR sau referințe către platforme externe.",
+    });
+}
+}
   const publicBase = getPublicBase();
   if (!publicBase) {
     return res.status(500).json({
@@ -769,8 +1179,15 @@ router.post("/ensure-thread", async (req, res) => {
           vendorId: String(vendorId),
           serviceId: resolvedServiceId,
           contactName: contactName || null,
-          contactEmail: user?.email || null,
-          contactPhone: user?.phone || null,
+          /*
+ * Datele de contact nu sunt expuse
+ * în conversația marketplace.
+ */
+contactEmail:
+  null,
+
+contactPhone:
+  null,
           archivedByUser: false,
           archived: false,
           deletedByUserAt: null,
@@ -967,6 +1384,54 @@ router.patch("/threads/:id/messages/:mid", async (req, res) => {
   if (!body || !String(body).trim()) {
     return res.status(400).json({ error: "Mesajul nu poate fi gol" });
   }
+
+  const moderation =
+  await moderateMarketplaceMessage({
+    text: body,
+    senderType: "USER",
+  });
+
+if (
+  !moderation.allowed
+) {
+  const technicalReasons =
+    new Set([
+      "text_moderation_failed",
+      "text_moderation_invalid_response",
+      "text_moderation_ambiguous_response",
+    ]);
+
+  const isTechnicalError =
+    technicalReasons.has(
+      moderation.reason
+    );
+
+  return res
+    .status(
+      isTechnicalError
+        ? 503
+        : 422
+    )
+    .json({
+      error:
+        isTechnicalError
+          ? "moderation_unavailable"
+          : "message_blocked",
+
+      reason:
+        moderation.reason ||
+        "not_allowed",
+
+      detections:
+        moderation.detections ||
+        [],
+
+      message:
+        isTechnicalError
+          ? "Mesajul nu a putut fi verificat momentan și modificarea nu a fost salvată. Încearcă din nou peste câteva secunde."
+          : "Mesajul nu poate fi modificat deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
+    });
+}
 
   const thread = await prisma.messageThread.findFirst({
     where: {

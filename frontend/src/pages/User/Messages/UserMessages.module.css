@@ -1018,3 +1018,758 @@
   object-fit: contain;
   background: color-mix(in srgb, var(--color-text, #111) 6%, transparent);
 }
+
+/* =========================================================
+   OFERTĂ PRIMITĂ ÎN CONVERSAȚIA UTILIZATORULUI
+========================================================= */
+
+.quotePanel {
+  margin: 10px 14px 0;
+  padding: 14px;
+
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-primary) 24%,
+      var(--color-border)
+    );
+
+  border-radius: 16px;
+
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(
+        in srgb,
+        var(--color-primary) 7%,
+        var(--surface)
+      ),
+      var(--surface)
+    );
+
+  box-shadow: var(--msg-shadow-sm);
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  flex: 0 0 auto;
+
+  max-height: 360px;
+  overflow-y: auto;
+
+  scrollbar-width: thin;
+}
+
+.quotePanel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.quotePanel::-webkit-scrollbar-thumb {
+  background: color-mix(
+    in srgb,
+    var(--color-text, #111) 16%,
+    transparent
+  );
+  border-radius: 999px;
+}
+
+.quotePanelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.quotePanelInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.quotePanelEyebrow {
+  margin-bottom: 4px;
+
+  color: var(--color-primary);
+
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.quotePanelTitle {
+  color: var(--color-text, inherit);
+
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+
+  overflow-wrap: anywhere;
+}
+
+.quotePanelMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+
+  margin-top: 7px;
+
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.quotePanelMeta strong {
+  color: var(--color-text, inherit);
+  font-weight: 700;
+}
+
+.quoteProductImage {
+  width: 64px;
+  height: 64px;
+
+  flex: 0 0 64px;
+
+  display: block;
+  object-fit: cover;
+
+  border-radius: 13px;
+  border: 1px solid var(--color-border);
+
+  background: var(--color-bg);
+}
+
+.quotePriceDetails {
+  display: grid;
+  gap: 7px;
+
+  padding: 10px 12px;
+
+  border-radius: 12px;
+
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-border) 85%,
+      transparent
+    );
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-text, #111) 4%,
+      var(--surface)
+    );
+}
+
+.quotePriceDetails > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  color: var(--color-muted);
+
+  font-size: 12px;
+}
+
+.quotePriceDetails strong {
+  color: var(--color-text, inherit);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.quoteTotal {
+  margin-top: 3px;
+  padding-top: 8px;
+
+  border-top: 1px solid var(--color-border);
+
+  color: var(--color-text, inherit) !important;
+
+  font-weight: 700;
+}
+
+.quoteTotal strong {
+  color: var(--color-primary);
+  font-size: 14px;
+}
+
+.quoteDeliveryInfo {
+  padding: 9px 11px;
+
+  border-radius: 11px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 8%,
+      var(--surface)
+    );
+
+  color: var(--color-muted);
+
+  font-size: 12px;
+}
+
+.quoteDeliveryInfo strong {
+  color: var(--color-text, inherit);
+}
+
+.quoteRequestText {
+  padding: 10px 12px;
+
+  border-radius: 12px;
+
+  border: 1px solid var(--msg-border-soft);
+
+  background: var(--color-bg);
+
+  color: var(--color-text, inherit);
+
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.quoteRequestText strong {
+  display: block;
+  margin-bottom: 4px;
+
+  font-size: 11px;
+}
+
+.quoteRequestText p {
+  margin: 0;
+
+  color: var(--color-muted);
+
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quoteOfferError {
+  padding: 9px 11px;
+
+  border-radius: 11px;
+
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-danger) 35%,
+      var(--color-border)
+    );
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-danger) 9%,
+      var(--surface)
+    );
+
+  color: var(--color-danger);
+
+  font-size: 12px;
+}
+
+.quoteOfferActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.quotePrimaryBtn,
+.quoteSecondaryBtn,
+.quoteRejectBtn {
+  min-height: 38px;
+
+  padding: 8px 14px;
+
+  border-radius: 999px;
+
+  font-size: 12px;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+
+  transition:
+    filter 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.05s ease;
+}
+
+.quotePrimaryBtn {
+  border: 1px solid var(--color-primary);
+
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.quotePrimaryBtn:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.quoteSecondaryBtn {
+  border: 1px solid var(--color-border);
+
+  background: var(--surface);
+  color: var(--color-text, inherit);
+}
+
+.quoteSecondaryBtn:hover:not(:disabled) {
+  background: var(--msg-hover);
+}
+
+.quoteRejectBtn {
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-danger) 42%,
+      var(--color-border)
+    );
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-danger) 7%,
+      var(--surface)
+    );
+
+  color: var(--color-danger);
+}
+
+.quoteRejectBtn:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.quotePrimaryBtn:active:not(:disabled),
+.quoteSecondaryBtn:active:not(:disabled),
+.quoteRejectBtn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.quotePrimaryBtn:disabled,
+.quoteSecondaryBtn:disabled,
+.quoteRejectBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* =========================================================
+   FORMULAR ACCEPTARE OFERTĂ
+========================================================= */
+
+.quoteAcceptForm {
+  display: grid;
+  gap: 12px;
+
+  padding-top: 2px;
+}
+
+.quoteAcceptTitle {
+  color: var(--color-text, inherit);
+
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.quoteAddressGrid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      2,
+      minmax(0, 1fr)
+    );
+
+  gap: 10px;
+}
+
+.quoteAddressGrid label {
+  min-width: 0;
+
+  display: grid;
+  gap: 5px;
+}
+
+.quoteAddressGrid label > span {
+  color: var(--color-muted);
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.quoteAddressGrid input {
+  width: 100%;
+  min-width: 0;
+
+  padding: 9px 10px;
+
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+
+  outline: none;
+
+  box-sizing: border-box;
+
+  background: var(--color-bg);
+  color: var(--color-text, inherit);
+
+  font: inherit;
+  font-size: 12px;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.quoteAddressGrid input:focus {
+  border-color: var(--color-primary);
+
+  box-shadow:
+    0 0 0 3px
+      color-mix(
+        in srgb,
+        var(--color-primary) 18%,
+        transparent
+      );
+}
+
+.quoteAddressFull {
+  grid-column: 1 / -1;
+}
+
+.quoteAcceptedMessage,
+.quoteRejectedMessage {
+  padding: 10px 12px;
+
+  border-radius: 12px;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.quoteAcceptedMessage {
+  border: 1px solid
+    color-mix(
+      in srgb,
+      #16a34a 35%,
+      var(--color-border)
+    );
+
+  background:
+    color-mix(
+      in srgb,
+      #16a34a 10%,
+      var(--surface)
+    );
+
+  color:
+    color-mix(
+      in srgb,
+      #16a34a 78%,
+      var(--color-text, #111)
+    );
+}
+
+.quoteRejectedMessage {
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--color-danger) 35%,
+      var(--color-border)
+    );
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-danger) 8%,
+      var(--surface)
+    );
+
+  color: var(--color-danger);
+}
+
+/* =========================================================
+   OFERTĂ – MOBIL
+========================================================= */
+
+@media (max-width: 768px) {
+  .quotePanel {
+    margin: 10px 10px 0;
+    padding: 12px;
+
+    max-height: 42vh;
+    overflow-y: auto;
+
+    border-radius: 15px;
+
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .quotePanelHead {
+    gap: 10px;
+  }
+
+  .quoteProductImage {
+    width: 56px;
+    height: 56px;
+
+    flex-basis: 56px;
+
+    border-radius: 12px;
+  }
+
+  .quotePanelTitle {
+    font-size: 13px;
+  }
+
+  .quotePanelMeta {
+    gap: 5px 10px;
+  }
+
+  .quoteAddressGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .quoteAddressFull {
+    grid-column: auto;
+  }
+
+  .quoteAddressGrid input {
+    min-height: 42px;
+
+    font-size: 14px;
+  }
+
+  .quoteOfferActions {
+    display: grid;
+
+    grid-template-columns:
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
+  }
+
+  .quoteOfferActions .quotePrimaryBtn,
+  .quoteOfferActions .quoteSecondaryBtn,
+  .quoteOfferActions .quoteRejectBtn {
+    width: 100%;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 768px) {
+  .quotePanel {
+    max-height: 42vh;
+  }
+}
+
+/* =========================================================
+   PREVIEW OFERTĂ
+========================================================= */
+
+.quotePreviewRow {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+}
+
+.quotePreviewCard {
+  width: min(720px, 100%);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+
+  padding: 16px;
+
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+
+  background: var(--surface);
+
+  box-shadow: var(--msg-shadow-sm);
+}
+
+.quotePreviewIcon {
+  width: 52px;
+  height: 52px;
+
+  border-radius: 14px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: color-mix(
+    in srgb,
+    var(--color-primary) 12%,
+    transparent
+  );
+
+  color: var(--color-primary);
+
+  flex: 0 0 52px;
+}
+
+.quotePreviewContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.quotePreviewEyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.quotePreviewTitle {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+}
+
+.quotePreviewMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.quotePreviewValidity {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.quotePreviewSide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.quotePreviewStatus {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.quotePreviewBtn {
+  border: none;
+  border-radius: 999px;
+
+  padding: 10px 16px;
+
+  background: var(--color-primary);
+  color: #fff;
+
+  cursor: pointer;
+
+  font-weight: 700;
+}
+
+.quotePreviewBtn:hover {
+  filter: brightness(.95);
+}
+
+/* =========================================================
+   MODAL OFERTĂ
+========================================================= */
+
+.quoteModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 24px;
+
+  background: rgba(0, 0, 0, .45);
+  backdrop-filter: blur(3px);
+}
+
+.quoteModal {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+
+  background: var(--surface);
+
+  border-radius: 20px;
+
+  box-shadow:
+    0 24px 80px rgba(0,0,0,.22);
+
+  padding: 24px;
+}
+
+.quoteModalHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+
+  margin-bottom: 20px;
+}
+
+.quoteModalHead h2 {
+  margin: 4px 0;
+  font-size: 22px;
+}
+
+.quoteModalHead p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.quoteModalClose {
+  width: 40px;
+  height: 40px;
+
+  border: none;
+  border-radius: 999px;
+
+  background: transparent;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  cursor: pointer;
+}
+
+.quoteModalClose:hover {
+  background: var(--msg-hover);
+}
+
+@media (max-width:768px){
+
+  .quoteModalBackdrop{
+    padding:12px;
+  }
+
+  .quoteModal{
+    width:100%;
+    max-height:95vh;
+    padding:18px;
+    border-radius:16px;
+  }
+
+}

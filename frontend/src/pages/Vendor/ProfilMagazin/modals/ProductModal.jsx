@@ -1,623 +1,24 @@
-/**
- * ProductModal cu secțiuni în acordeon + câmpuri cu constante (autocomplete + chips)
- */
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   useCallback,
 } from "react";
+
 import Modal from "../ui/Modal";
 import styles from "../components/css/ProductModal.module.css";
 import { resolveFileUrl } from "../hooks/useProfilMagazin";
 import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
 import { api } from "../../../../lib/api";
 
-// IMPORTURI CONSTANTE
-import {
-  COLORS_DETAILED,
-} from "../../../../../../backend/src/constants/colors.js";
-import {
-  MATERIALS_DETAILED,
-} from "../../../../../../backend/src/constants/materials.js";
-import {
-  TECHNIQUES_DETAILED,
-} from "../../../../../../backend/src/constants/tehniques.js";
+import ProductModalWizard from "./ProductModal/ProductModalWizard";
 
-import {
-  STYLE_TAGS_DETAILED,
-} from "../../../../../../backend/src/constants/stylesTags.js";
-import {
-  OCCASION_TAGS_DETAILED,
-} from "../../../../../../backend/src/constants/occasinsTags.js";
-import {
-  CARE_TAGS_DETAILED,
-} from "../../../../../../backend/src/constants/careInstructions.js";
-
-// ====== Mic component de acordeon pentru secțiuni ======
-function AccordionSection({ id, title, open, onToggle, complete, children }) {
-  const isIncomplete = complete === false;
-const sectionRef = useRef(null);
-
-useEffect(() => {
-  if (!open) return;
-
-  setTimeout(() => {
-    sectionRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
-  }, 120);
-}, [open]);
-  return (
-    <section
-  ref={sectionRef}
-  className={styles.section}
-      aria-labelledby={`${id}-header`}
-      style={{
-        border: isIncomplete ? "1px solid #dc2626" : undefined,
-        borderRadius: isIncomplete ? 10 : undefined,
-      }}
-    >
-      <button
-        type="button"
-        className={styles.sectionHeader}
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-controls={`${id}-body`}
-        id={`${id}-header`}
-      >
-       <span
-  className={styles.sectionTitle}
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "nowrap",
-    whiteSpace: "nowrap",
-  }}
->
-  <span>{title}</span>
-
-  <span
-    style={{
-      color: isIncomplete ? "#dc2626" : "#16a34a",
-      fontSize: "0.8rem",
-      whiteSpace: "nowrap",
-    }}
-  >
-    {isIncomplete ? "● incomplet" : "● complet"}
-  </span>
-</span>
-        <span className={styles.sectionToggleIcon}>
-          {open ? "−" : "+"}
-        </span>
-      </button>
-
-      <div
-        id={`${id}-body`}
-        className={open ? styles.sectionBody : styles.sectionBodyCollapsed}
-      >
-        {children}
-      </div>
-    </section>
-  );
-}
-
-// ====== TagComboField: multi-tag (stil / ocazii / îngrijire) ======
-function TagComboField({
-  id,
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-  note,
-}) {
-  const [inputValue, setInputValue] = useState("");
-  const [openList, setOpenList] = useState(false);
-  const wrapRef = useRef(null);
-
-  const tags = useMemo(
-    () =>
-      String(value || "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    [value]
-  );
-
-  useEffect(() => {
-    if (!openList) return;
-    const handleClickOutside = (e) => {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target)) {
-        setOpenList(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [openList]);
-
-  const normalize = (s) =>
-    String(s || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
-
-  const addTag = (token) => {
-    const norm = String(token || "").trim();
-    if (!norm) return;
-    const existing = new Set(tags);
-    if (existing.has(norm)) {
-      setInputValue("");
-      return;
-    }
-    const next = [...tags, norm];
-    onChange(next.join(", "));
-    setInputValue("");
-  };
-
-  const removeTag = (tag) => {
-    const next = tags.filter((t) => t !== tag);
-    onChange(next.join(", "));
-  };
-
-  const suggestions = useMemo(() => {
-    const q = normalize(inputValue);
-    const existing = new Set(tags.map((t) => normalize(t)));
-    return options
-      .filter((opt) => !existing.has(normalize(opt)))
-      .filter((opt) => !q || normalize(opt).includes(q))
-      .slice(0, 20);
-  }, [options, tags, inputValue]);
-
-  const onKeyDown = (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addTag(inputValue);
-      return;
-    }
-    if (e.key === "Backspace" && !inputValue && tags.length > 0) {
-      e.preventDefault();
-      removeTag(tags[tags.length - 1]);
-    }
-  };
-
-  return (
-    <div ref={wrapRef} style={{ marginBottom: 12 }}>
-      {label && (
-        <label className={styles.label} htmlFor={id}>
-          {label}
-        </label>
-      )}
-      <div
-        className={styles.input}
-        style={{
-          minHeight: 40,
-          display: "flex",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 6,
-          paddingTop: 6,
-          paddingBottom: 6,
-        }}
-        onClick={() => {
-          setOpenList(true);
-          const el = document.getElementById(id);
-          if (el) el.focus();
-        }}
-      >
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
-              borderRadius: 999,
-              fontSize: "0.75rem",
-              background: "rgba(0,0,0,0.06)",
-            }}
-          >
-            {tag}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                removeTag(tag);
-              }}
-              style={{
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                fontSize: "0.8rem",
-                lineHeight: 1,
-                padding: 0,
-              }}
-              aria-label={`Șterge tag ${tag}`}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-
-        <input
-          id={id}
-          value={inputValue}
-          onFocus={() => setOpenList(true)}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            setOpenList(true);
-          }}
-          onKeyDown={onKeyDown}
-          placeholder={tags.length ? "" : placeholder}
-          style={{
-            flex: 1,
-            minWidth: 80,
-            border: "none",
-            outline: "none",
-            fontSize: "0.85rem",
-            background: "transparent",
-          }}
-        />
-      </div>
-
-      {note && (
-        <div
-          style={{
-            fontSize: "0.7rem",
-            opacity: 0.7,
-            marginTop: 4,
-          }}
-        >
-          {note}
-        </div>
-      )}
-
-      {tags.length > 0 && (
-        <button
-          type="button"
-          onClick={() => onChange("")}
-          style={{
-            marginTop: 4,
-            fontSize: "0.7rem",
-            textDecoration: "underline",
-            background: "none",
-            border: "none",
-            padding: 0,
-            cursor: "pointer",
-            opacity: 0.7,
-          }}
-        >
-          Șterge toate valorile
-        </button>
-      )}
-
-      {openList && (
-        <div
-          style={{
-            marginTop: 4,
-            borderRadius: 6,
-            border: "1px solid rgba(0,0,0,0.08)",
-            background: "#fff",
-            maxHeight: 200,
-            overflowY: "auto",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
-            zIndex: 20,
-            position: "relative",
-          }}
-        >
-          <div
-            style={{
-              position: "sticky",
-              top: 0,
-              zIndex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "6px 10px",
-              borderBottom: "1px solid rgba(0,0,0,0.06)",
-              background: "#fafafa",
-              fontSize: "0.8rem",
-            }}
-          >
-            <span style={{ fontWeight: 600 }}>
-              {label || "Sugestii"}
-            </span>
-            <button
-              type="button"
-              onClick={() => setOpenList(false)}
-              aria-label="Închide lista de sugestii"
-              style={{
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                fontSize: "1rem",
-                lineHeight: 1,
-                padding: "0 4px",
-                opacity: 0.7,
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          {suggestions.length > 0 ? (
-            suggestions.map((opt) => (
-              <div
-                key={opt}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addTag(opt)}
-                style={{
-                  padding: "6px 10px",
-                  fontSize: "0.85rem",
-                  cursor: "pointer",
-                }}
-              >
-                {opt}
-              </div>
-            ))
-          ) : (
-            <div
-              style={{
-                padding: "6px 10px",
-                fontSize: "0.8rem",
-                color: "rgba(0,0,0,0.6)",
-              }}
-            >
-              Nicio sugestie – poți folosi varianta tastată de tine.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ====== SingleTagComboField: un singur chip (material / tehnică / culoare) ======
-function SingleTagComboField({
-  id,
-  label,
-  value,
-  onChange,
-  options,
-  placeholder,
-  note,
-  useOptionKeyAsValue = false,
-}) {
-  const [inputValue, setInputValue] = useState("");
-  const [openList, setOpenList] = useState(false);
-  const wrapRef = useRef(null);
-
-  useEffect(() => {
-    setInputValue("");
-  }, [value]);
-
-  useEffect(() => {
-    if (!openList) return;
-    const handleClickOutside = (e) => {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target)) {
-        setOpenList(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [openList]);
-
-  const normalize = (s) =>
-    String(s || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
-
-  const labelForValue = useMemo(() => {
-    if (!value) return "";
-    const match = options.find(
-      (opt) =>
-        normalize(opt.key) === normalize(value) ||
-        normalize(opt.label) === normalize(value)
-    );
-    return match?.label || value || "";
-  }, [options, value]);
-
-  const suggestions = useMemo(() => {
-    const q = normalize(inputValue);
-    return options
-      .filter((opt) => normalize(opt.label) !== normalize(value))
-      .filter((opt) => !q || normalize(opt.label).includes(q))
-      .slice(0, 50);
-  }, [options, inputValue, value]);
-
-  const setChip = (token) => {
-    const norm = String(token || "").trim();
-    if (!norm) {
-      onChange("");
-      setInputValue("");
-      setOpenList(false);
-      return;
-    }
-
-    const matched = options.find(
-      (opt) =>
-        normalize(opt.label) === normalize(norm) ||
-        normalize(opt.key) === normalize(norm)
-    );
-
-    const valueToSave = matched
-      ? useOptionKeyAsValue
-        ? matched.key
-        : matched.label
-      : norm;
-
-    onChange(valueToSave);
-    setInputValue("");
-    setOpenList(false);
-  };
-
-  const onKeyDown = (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      setChip(inputValue);
-      return;
-    }
-    if (e.key === "Backspace" && !inputValue && value) {
-      e.preventDefault();
-      onChange("");
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setOpenList(false);
-    }
-  };
-
-  return (
-    <div ref={wrapRef} style={{ marginBottom: 12 }}>
-      {label && (
-        <label className={styles.label} htmlFor={id}>
-          {label}
-        </label>
-      )}
-
-      <div
-        className={styles.input}
-        style={{
-          minHeight: 40,
-          display: "flex",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 6,
-          paddingTop: 6,
-          paddingBottom: 6,
-        }}
-        onClick={() => {
-          setOpenList(true);
-          const el = document.getElementById(id);
-          if (el) el.focus();
-        }}
-      >
-        {value && (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 8px",
-              borderRadius: 999,
-              fontSize: "0.75rem",
-              background: "rgba(0,0,0,0.06)",
-            }}
-          >
-            {labelForValue}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onChange("");
-              }}
-              style={{
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                fontSize: "0.8rem",
-                lineHeight: 1,
-                padding: 0,
-              }}
-              aria-label={`Șterge valoarea ${value}`}
-            >
-              ×
-            </button>
-          </span>
-        )}
-
-        <input
-          id={id}
-          value={inputValue}
-          onFocus={() => setOpenList(true)}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            setOpenList(true);
-          }}
-          onKeyDown={onKeyDown}
-          onBlur={() => {
-            setTimeout(() => setOpenList(false), 120);
-          }}
-          placeholder={value ? "" : placeholder}
-          style={{
-            flex: 1,
-            minWidth: 80,
-            border: "none",
-            outline: "none",
-            fontSize: "0.85rem",
-            background: "transparent",
-          }}
-        />
-      </div>
-
-      {note && (
-        <div
-          style={{
-            fontSize: "0.7rem",
-            opacity: 0.7,
-            marginTop: 4,
-          }}
-        >
-          {note}
-        </div>
-      )}
-
-      {openList && (
-        <div
-          style={{
-            marginTop: 4,
-            borderRadius: 6,
-            border: "1px solid rgba(0,0,0,0.08)",
-            background: "#fff",
-            maxHeight: 200,
-            overflowY: "auto",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
-            zIndex: 20,
-            position: "relative",
-          }}
-        >
-          {suggestions.length > 0 ? (
-            suggestions.map((opt) => (
-              <div
-                key={opt.key || opt.label}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setChip(opt.key)}
-                style={{
-                  padding: "6px 10px",
-                  fontSize: "0.85rem",
-                  cursor: "pointer",
-                }}
-              >
-                {opt.label}
-              </div>
-            ))
-          ) : (
-            <div
-              style={{
-                padding: "6px 10px",
-                fontSize: "0.8rem",
-                color: "rgba(0,0,0,0.6)",
-              }}
-            >
-              Nicio sugestie – poți folosi varianta tastată de tine.
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+import { COLORS_DETAILED } from "../../../../../../backend/src/constants/colors.js";
+import { MATERIALS_DETAILED } from "../../../../../../backend/src/constants/materials.js";
+import { TECHNIQUES_DETAILED } from "../../../../../../backend/src/constants/tehniques.js";
+import { STYLE_TAGS_DETAILED } from "../../../../../../backend/src/constants/stylesTags.js";
+import { OCCASION_TAGS_DETAILED } from "../../../../../../backend/src/constants/occasinsTags.js";
+import { CARE_TAGS_DETAILED } from "../../../../../../backend/src/constants/careInstructions.js";
 
 export default function ProductModal({
   open,
@@ -632,922 +33,1452 @@ export default function ProductModal({
   storeSlug,
 }) {
   const doUpload = useMemo(() => {
-  return uploadFile || ((file) => uploadFileHelper(file, "/api/upload/products"));
-}, [uploadFile]);
+    return (
+      uploadFile ||
+      ((file) =>
+        uploadFileHelper(
+          file,
+          "/api/upload"
+        ))
+    );
+  }, [uploadFile]);
 
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiImageLoading, setAiImageLoading] = useState(false);
-const [aiImagePreview, setAiImagePreview] = useState("");
-const [aiImageVariant, setAiImageVariant] = useState(1);
-const [priceSuggestion, setPriceSuggestion] = useState(null);
-const [priceSuggestionLoading, setPriceSuggestionLoading] = useState(false);
-const [priceWarningConfirmed, setPriceWarningConfirmed] = useState(false);
-const [uploadingImages, setUploadingImages] = useState(0);
+  const [activeStep, setActiveStep] =
+    useState("images");
 
-const draftKey = useMemo(() => {
-  return `artfest-product-draft-${storeSlug || "default"}`;
-}, [storeSlug]);
+  const [aiLoading, setAiLoading] =
+    useState(false);
 
-const mainImageUrl = form.images?.[0] || "";
+  const [
+    aiImageLoading,
+    setAiImageLoading,
+  ] = useState(false);
 
-const mainImageReadyForAi = /^https?:\/\//i.test(String(mainImageUrl));
-const allImagesReadyForAi = (form.images || []).every((img) =>
-  /^https?:\/\//i.test(String(img))
-);
+  const [
+    aiImagePreview,
+    setAiImagePreview,
+  ] = useState("");
 
-const resolveProductImageUrl = useCallback((img) => {
-  const value = String(img || "");
+  const [
+    aiImageVariant,
+    setAiImageVariant,
+  ] = useState(1);
 
-  if (
-    value.startsWith("blob:") ||
-    value.startsWith("data:") ||
-    /^https?:\/\//i.test(value)
-  ) {
-    return value;
-  }
+  const [, setPriceSuggestion] =
+    useState(null);
 
-  return resolveFileUrl(value);
-}, []);
+  const [
+    priceWarningConfirmed,
+    setPriceWarningConfirmed,
+  ] = useState(false);
+
+  const [
+    uploadingImages,
+    setUploadingImages,
+  ] = useState(0);
+
+  const [uploadInfo] = useState(
+    "Niciun fișier ales"
+  );
+
+  const hasPriceWarning = false;
+
+  const draftKey = useMemo(() => {
+    return `artfest-product-draft-${
+      storeSlug || "default"
+    }`;
+  }, [storeSlug]);
+
+  const mainImageUrl =
+    form.images?.[0] || "";
+
+  const isUploadedImage = useCallback(
+    (img) => {
+      const value = String(
+        img || ""
+      ).trim();
+
+      return (
+        /^https?:\/\//i.test(value) ||
+        value.startsWith("/")
+      );
+    },
+    []
+  );
+
+  const mainImageReadyForAi =
+    isUploadedImage(mainImageUrl);
+
+  const allImagesReadyForAi =
+    (form.images || []).length > 0 &&
+    (form.images || []).every((img) =>
+      isUploadedImage(img)
+    );
+
+  const resolveProductImageUrl =
+    useCallback((img) => {
+      const value = String(
+        img || ""
+      ).trim();
+
+      if (
+        value.startsWith("blob:") ||
+        value.startsWith("data:") ||
+        /^https?:\/\//i.test(value)
+      ) {
+        return value;
+      }
+
+      return resolveFileUrl(value);
+    }, []);
+
+  const getReadyImagesForAi =
+    useCallback(
+      (images = []) => {
+        return images
+          .filter(isUploadedImage)
+          .slice(0, 4)
+          .map(resolveProductImageUrl)
+          .filter(Boolean);
+      },
+      [
+        isUploadedImage,
+        resolveProductImageUrl,
+      ]
+    );
 
   const updateField = useCallback(
-    (field) => (e) => {
-      const value = e?.target?.value ?? e;
-      setForm((s) => ({ ...s, [field]: value }));
+    (field) => (eventOrValue) => {
+      const value =
+        eventOrValue?.target?.value ??
+        eventOrValue;
+
+      setForm((current) => ({
+        ...current,
+        [field]: value,
+
+        /*
+         * Dacă produsul a fost analizat deja,
+         * marcăm intervenția utilizatorului.
+         */
+        aiManuallyEdited:
+          current.aiAnalyzedAt
+            ? true
+            : current.aiManuallyEdited,
+      }));
     },
     [setForm]
   );
-const handleAiAnalyze = useCallback(async () => {
-  if (!form.images?.length) {
-    alert("Încarcă mai întâi cel puțin o imagine.");
-    return;
-  }
 
-  try {
-    setAiLoading(true);
+  /* =====================================================
+     ANALIZĂ GENERALĂ DUPĂ IMAGINI
+  ===================================================== */
 
-    const result = await api("/ai/product-analyze", {
-      method: "POST",
-      body: {
-        images: form.images.slice(0, 4),
-      },
-    });
+  const handleAiAnalyze =
+    useCallback(async () => {
+      if (uploadingImages > 0) {
+        alert(
+          "Așteaptă finalizarea încărcării imaginilor."
+        );
+        return;
+      }
 
-    setForm((prev) => ({
-      ...prev,
+      const sourceImages =
+        getReadyImagesForAi(
+          form.images || []
+        );
 
-      title: result.title || prev.title,
-      description: result.description || prev.description,
+      if (!sourceImages.length) {
+        alert(
+          "Încarcă mai întâi cel puțin o imagine."
+        );
+        return;
+      }
 
-      category:
-        result.category && !prev.category
-          ? result.category
-          : prev.category,
+      try {
+        setAiLoading(true);
 
-      materialMain:
-        result.materialMain || prev.materialMain,
+        const result = await api(
+          "/ai/product-analyze",
+          {
+            method: "POST",
 
-      technique:
-        result.technique || prev.technique,
+            body: {
+              images: sourceImages,
+            },
+          }
+        );
 
-      color:
-        result.color || prev.color,
+        setForm((previous) => {
+          const confidence =
+            typeof result.confidence ===
+            "number"
+              ? result.confidence
+              : null;
 
-      styleTags: Array.isArray(result.styleTags)
-        ? result.styleTags.join(", ")
-        : prev.styleTags,
+          const orderModeConfidence =
+            typeof result.orderModeConfidence ===
+            "number"
+              ? result.orderModeConfidence
+              : 0;
 
-      occasionTags: Array.isArray(result.occasionTags)
-        ? result.occasionTags.join(", ")
-        : prev.occasionTags,
+          const canApplyOrderMode =
+            orderModeConfidence >= 0.75 &&
+            [
+              "READY_TO_BUY",
+              "OPTIONS",
+              "QUOTE_ONLY",
+            ].includes(
+              result.likelyOrderMode
+            );
 
-      careInstructions:
-        result.careInstructions || prev.careInstructions,
+          const nextOrderMode =
+            canApplyOrderMode
+              ? result.likelyOrderMode
+              : previous.orderMode ||
+                "READY_TO_BUY";
 
-      specialNotes:
-        result.specialNotes || prev.specialNotes,
-    }));
-  } catch (err) {
-    console.error(err);
-    alert(
-      err?.message ||
-        "Nu am putut analiza imaginile."
-    );
-  } finally {
-    setAiLoading(false);
-  }
-}, [form.images, setForm]);
+          const nextOptionsSchema =
+            canApplyOrderMode &&
+            nextOrderMode === "OPTIONS" &&
+            Array.isArray(
+              result.likelyOptions
+            )
+              ? result.likelyOptions
+              : previous.optionsSchema ||
+                [];
 
-const handleAiEnhanceImage = useCallback(async () => {
-  const imageUrl = form.images?.[0];
+          const nextCustomSchema =
+            canApplyOrderMode &&
+            nextOrderMode === "OPTIONS" &&
+            Array.isArray(
+              result.likelyCustomFields
+            )
+              ? result.likelyCustomFields
+              : previous.customSchema ||
+                [];
 
-  if (!imageUrl) {
-    alert("Încarcă mai întâi o imagine.");
-    return;
-  }
-if (!/^https?:\/\//i.test(String(imageUrl))) {
-  alert("Imaginea încă se încarcă. Te rog așteaptă câteva secunde.");
-  return;
-}
-  try {
-    setAiImageLoading(true);
+          return {
+            ...previous,
 
-    const result = await api("/ai/product-image-enhance", {
-      method: "POST",
-      body: {
-        imageUrl,
-        variant: aiImageVariant,
-      },
-    });
+            title:
+              result.title ||
+              previous.title,
 
-    setAiImagePreview(result.dataUrl);
-    setAiImageVariant((v) => v + 1);
-  } catch (err) {
-    console.error(err);
-    alert(err?.message || "Nu am putut edita imaginea cu AI.");
-  } finally {
-    setAiImageLoading(false);
-  }
-}, [form.images, aiImageVariant]);
+            description:
+              result.description ||
+              previous.description,
 
-const useAiImage = useCallback(async () => {
-  if (!aiImagePreview) return;
+            category:
+              result.category &&
+              !previous.category
+                ? result.category
+                : previous.category,
 
-  try {
-    const response = await fetch(aiImagePreview);
-    const blob = await response.blob();
+            materialMain:
+              result.materialMain ||
+              previous.materialMain,
 
-    const file = new File([blob], `produs-ai-${Date.now()}.png`, {
-      type: "image/png",
-    });
+            technique:
+              result.technique ||
+              previous.technique,
 
-    const url = await doUpload(file);
+            color:
+              result.color ||
+              previous.color,
 
-    setForm((s) => ({
-      ...s,
-      images: [url, ...(s.images || [])],
-    }));
+            styleTags:
+              Array.isArray(
+                result.styleTags
+              )
+                ? result.styleTags.join(
+                    ", "
+                  )
+                : previous.styleTags,
 
-    setAiImagePreview("");
-  } catch (err) {
-    console.error(err);
-    alert(err?.message || "Nu am putut salva imaginea AI.");
-  }
-}, [aiImagePreview, doUpload, setForm]);
+            occasionTags:
+              Array.isArray(
+                result.occasionTags
+              )
+                ? result.occasionTags.join(
+                    ", "
+                  )
+                : previous.occasionTags,
 
-useEffect(() => {
-  if (!open || !storeSlug || !form.category) {
-    setPriceSuggestion(null);
-    return;
-  }
+            careInstructions:
+              result.careInstructions ||
+              previous.careInstructions,
 
-  let alive = true;
+            specialNotes:
+              result.specialNotes ||
+              previous.specialNotes,
 
-  const timer = setTimeout(async () => {
-    try {
-      setPriceSuggestionLoading(true);
+            orderMode:
+              nextOrderMode,
 
-      const result = await api(
-        `/vendors/store/${encodeURIComponent(storeSlug)}/products/price-suggestion`,
-        {
-          method: "POST",
-          body: {
-            category: form.category,
-            materialMain: form.materialMain,
-            technique: form.technique,
-            dimensions: form.dimensions,
-          },
-        }
-      );
+            acceptsCustom:
+              nextOrderMode ===
+                "OPTIONS" ||
+              nextOrderMode ===
+                "QUOTE_ONLY",
 
-      if (!alive) return;
-      setPriceSuggestion(result);
-    } catch (err) {
-      console.error(err);
-      if (alive) setPriceSuggestion(null);
-    } finally {
-      if (alive) setPriceSuggestionLoading(false);
-    }
-  }, 700);
+            optionsSchema:
+              nextOrderMode === "OPTIONS"
+                ? nextOptionsSchema
+                : [],
 
-  return () => {
-    alive = false;
-    clearTimeout(timer);
-  };
-}, [
-  open,
-  storeSlug,
-  form.category,
-  form.materialMain,
-  form.technique,
-  form.dimensions,
-]);
+            customSchema:
+              nextOrderMode === "OPTIONS"
+                ? nextCustomSchema
+                : [],
 
-  const [openSections, setOpenSections] = useState({
-  images: true,
-  basic: false,
-  details: false,
-  category: false,
-  availability: false,
-  customization: false,
-});
+            quoteSchema:
+              nextOrderMode ===
+              "QUOTE_ONLY"
+                ? previous.quoteSchema ||
+                  []
+                : [],
 
-  const toggleSection = useCallback((key) => {
-    setOpenSections((s) => ({ ...s, [key]: !s[key] }));
-  }, []);
+            /*
+             * Salvăm analiza completă.
+             */
+            aiVisionAnalysis: result,
 
- useEffect(() => {
-  if (!open) return;
+            aiSourceImages:
+              sourceImages,
 
-  setOpenSections({
-    images: true,
-    basic: false,
-    details: false,
-    category: false,
-    availability: false,
-    customization: false,
-  });
+            aiGeneratedFields: Array.from(
+              new Set([
+                ...(Array.isArray(
+                  previous.aiGeneratedFields
+                )
+                  ? previous.aiGeneratedFields
+                  : []),
 
-  if (!editingProduct) {
-  try {
-    const saved = localStorage.getItem(draftKey);
+                ...(result.title
+                  ? ["title"]
+                  : []),
 
-    if (saved) {
-  const parsed = JSON.parse(saved);
+                ...(result.description
+                  ? ["description"]
+                  : []),
 
-setForm((s) => ({
-  ...s,
-  ...parsed,
+                ...(result.category
+                  ? ["category"]
+                  : []),
 
-  // păstrăm imaginile din draft, dar nu păstrăm disponibilitatea
-  images: parsed.images || [],
-  availability: "",
-  readyQty: "",
-  leadTimeDays: "",
-  nextShipDate: "",
-}));
-} else {
-  setForm((s) => ({
-  ...s,
-  acceptsCustom: null,
-  availability: "",
-  readyQty: "",
-  leadTimeDays: "",
-  nextShipDate: "",
-}));
-}
-  } catch {
-  setForm((s) => ({
-  ...s,
-  acceptsCustom: null,
-  availability: "",
-  readyQty: "",
-  leadTimeDays: "",
-  nextShipDate: "",
-}));
-}
-}
-}, [open, editingProduct, setForm, draftKey]);
+                ...(result.materialMain
+                  ? ["materialMain"]
+                  : []),
 
-  const [vatState, setVatState] = useState({
-    loading: false,
-    error: "",
-    status: null,
-    rate: null,
-  });
+                ...(result.technique
+                  ? ["technique"]
+                  : []),
 
-  const [commissionState, setCommissionState] = useState({
-    loading: false,
-    error: "",
-    commissionBps: 0,
-    plan: null,
-  });
+                ...(result.color
+                  ? ["color"]
+                  : []),
+
+                ...(canApplyOrderMode
+                  ? ["orderMode"]
+                  : []),
+              ])
+            ),
+
+            aiAnalysisVersion:
+              result.analysisVersion ||
+              "product-vision-v1",
+
+            aiConfidence:
+              confidence,
+
+            aiAnalyzedAt:
+              new Date().toISOString(),
+
+            aiManuallyEdited: false,
+          };
+        });
+
+        /*
+         * După analiza vizuală mergem la detalii.
+         * Utilizatorul poate continua apoi către Order.
+         */
+        setActiveStep("details");
+      } catch (error) {
+        console.error(error);
+
+        alert(
+          error?.message ||
+            "Nu am putut analiza imaginile."
+        );
+      } finally {
+        setAiLoading(false);
+      }
+    }, [
+      uploadingImages,
+      form.images,
+      setForm,
+      getReadyImagesForAi,
+    ]);
+
+  /* =====================================================
+     ÎMBUNĂTĂȚIRE IMAGINE
+  ===================================================== */
+
+  const handleAiEnhanceImage =
+    useCallback(async () => {
+      const imageUrl =
+        form.images?.[0];
+
+      if (!imageUrl) {
+        alert(
+          "Încarcă mai întâi o imagine."
+        );
+        return;
+      }
+
+      if (
+        !isUploadedImage(imageUrl)
+      ) {
+        alert(
+          "Imaginea încă se încarcă. Te rog așteaptă câteva secunde."
+        );
+        return;
+      }
+
+      try {
+        setAiImageLoading(true);
+
+        const result = await api(
+          "/ai/product-image-enhance",
+          {
+            method: "POST",
+
+            body: {
+              imageUrl:
+                resolveProductImageUrl(
+                  imageUrl
+                ),
+
+              variant:
+                aiImageVariant,
+            },
+          }
+        );
+
+        setAiImagePreview(
+          result.dataUrl
+        );
+
+        setAiImageVariant(
+          (current) =>
+            current + 1
+        );
+      } catch (error) {
+        console.error(error);
+
+        alert(
+          error?.message ||
+            "Nu am putut edita imaginea cu AI."
+        );
+      } finally {
+        setAiImageLoading(false);
+      }
+    }, [
+      form.images,
+      aiImageVariant,
+      resolveProductImageUrl,
+      isUploadedImage,
+    ]);
+
+  const useAiImage =
+    useCallback(async () => {
+      if (!aiImagePreview) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          aiImagePreview
+        );
+
+        const blob =
+          await response.blob();
+
+        const file = new File(
+          [blob],
+          `produs-ai-${Date.now()}.png`,
+          {
+            type: "image/png",
+          }
+        );
+
+        const url =
+          await doUpload(file);
+
+        setForm((current) => ({
+          ...current,
+
+          images: [
+            url,
+            ...(current.images || []),
+          ],
+
+          /*
+           * Imaginea principală s-a schimbat după analiză.
+           */
+          aiManuallyEdited:
+            current.aiAnalyzedAt
+              ? true
+              : current.aiManuallyEdited,
+        }));
+
+        setAiImagePreview("");
+      } catch (error) {
+        console.error(error);
+
+        alert(
+          error?.message ||
+            "Nu am putut salva imaginea AI."
+        );
+      }
+    }, [
+      aiImagePreview,
+      doUpload,
+      setForm,
+    ]);
+
+  /* =====================================================
+     INIȚIALIZARE MODAL / DRAFT
+  ===================================================== */
 
   useEffect(() => {
-    if (!open) return;
-
-    if (!storeSlug) {
-      setCommissionState({
-        loading: false,
-        error: "Lipsește storeSlug (nu pot încărca comisionul).",
-        commissionBps: 0,
-        plan: null,
-      });
+    if (!open) {
       return;
     }
 
-    let alive = true;
-    setCommissionState((s) => ({ ...s, loading: true, error: "" }));
+    setActiveStep("images");
 
-    (async () => {
+    if (!editingProduct) {
       try {
-        const resp = await api(
-          `/api/vendors/store/${encodeURIComponent(storeSlug)}/products/pricing`,
-          { method: "GET" }
-        );
-        if (!alive) return;
+        const saved =
+          localStorage.getItem(
+            draftKey
+          );
 
-        const bps = resp?.commissionBps != null ? Number(resp.commissionBps) : 0;
+        if (saved) {
+          const parsed =
+            JSON.parse(saved);
 
-        setCommissionState({
-          loading: false,
-          error: "",
-          commissionBps: Number.isFinite(bps) ? bps : 0,
-          plan: resp?.plan || null,
-        });
-      } catch (e) {
-        if (!alive) return;
-        setCommissionState({
-          loading: false,
-          error: e?.message || "Nu am putut încărca comisionul planului.",
-          commissionBps: 0,
-          plan: null,
-        });
-      }
-    })();
+          setForm((current) => ({
+            ...current,
+            ...parsed,
 
-    return () => {
-      alive = false;
-    };
-  }, [open, storeSlug]);
+            images:
+              parsed.images || [],
 
-  useEffect(() => {
-    if (!open) return;
-    let alive = true;
-    setVatState((s) => ({ ...s, loading: true, error: "" }));
+            orderMode:
+              parsed.orderMode ||
+              "READY_TO_BUY",
 
-    (async () => {
-      try {
-        const resp = await api("/api/vendors/me/billing", {
-          method: "GET",
-        });
-        if (!alive) return;
-        const billing = resp?.billing;
-        if (billing) {
-          const r = billing.vatRate ? Number(billing.vatRate) : null;
-          setVatState({
-            loading: false,
-            error: "",
-            status: billing.vatStatus || null,
-            rate: Number.isFinite(r) ? r : null,
-          });
+            optionsSchema:
+              Array.isArray(
+                parsed.optionsSchema
+              )
+                ? parsed.optionsSchema
+                : [],
+
+            customSchema:
+              Array.isArray(
+                parsed.customSchema
+              )
+                ? parsed.customSchema
+                : [],
+
+            quoteSchema:
+              Array.isArray(
+                parsed.quoteSchema
+              )
+                ? parsed.quoteSchema
+                : [],
+
+            aiGeneratedFields:
+              Array.isArray(
+                parsed.aiGeneratedFields
+              )
+                ? parsed.aiGeneratedFields
+                : [],
+
+            aiSourceImages:
+              Array.isArray(
+                parsed.aiSourceImages
+              )
+                ? parsed.aiSourceImages
+                : [],
+
+            aiVisionAnalysis:
+              parsed.aiVisionAnalysis &&
+              typeof parsed.aiVisionAnalysis ===
+                "object"
+                ? parsed.aiVisionAnalysis
+                : null,
+
+            aiOrderAnalysis:
+              parsed.aiOrderAnalysis &&
+              typeof parsed.aiOrderAnalysis ===
+                "object"
+                ? parsed.aiOrderAnalysis
+                : null,
+
+            aiAnalysisVersion:
+              parsed.aiAnalysisVersion ||
+              null,
+
+            aiConfidence:
+              parsed.aiConfidence ??
+              null,
+
+            aiAnalyzedAt:
+              parsed.aiAnalyzedAt ||
+              null,
+
+            aiManuallyEdited:
+              parsed.aiManuallyEdited ===
+              true,
+
+            /*
+             * Datele de disponibilitate nu sunt
+             * restaurate automat din draft.
+             */
+            availability: "",
+            readyQty: "",
+            leadTimeDays: "",
+            nextShipDate: "",
+          }));
         } else {
-          setVatState({
-            loading: false,
-            error: "",
-            status: null,
-            rate: null,
-          });
+          setForm((current) => ({
+            ...current,
+
+            orderMode:
+              "READY_TO_BUY",
+
+            optionsSchema: [],
+            customSchema: [],
+            quoteSchema: [],
+
+            acceptsCustom: null,
+
+            availability: "",
+            readyQty: "",
+            leadTimeDays: "",
+            nextShipDate: "",
+
+            aiVisionAnalysis: null,
+            aiOrderAnalysis: null,
+            aiGeneratedFields: [],
+            aiSourceImages: [],
+            aiAnalysisVersion: null,
+            aiConfidence: null,
+            aiAnalyzedAt: null,
+            aiManuallyEdited: false,
+          }));
         }
-      } catch (e) {
-        if (!alive) return;
-        setVatState({
-          loading: false,
-          error:
-            e?.message ||
-            "Nu am putut încărca informațiile de TVA ale magazinului.",
-          status: null,
-          rate: null,
-        });
+      } catch {
+        setForm((current) => ({
+          ...current,
+
+          orderMode:
+            "READY_TO_BUY",
+
+          optionsSchema: [],
+          customSchema: [],
+          quoteSchema: [],
+
+          acceptsCustom: null,
+
+          availability: "",
+          readyQty: "",
+          leadTimeDays: "",
+          nextShipDate: "",
+
+          aiVisionAnalysis: null,
+          aiOrderAnalysis: null,
+          aiGeneratedFields: [],
+          aiSourceImages: [],
+          aiAnalysisVersion: null,
+          aiConfidence: null,
+          aiAnalyzedAt: null,
+          aiManuallyEdited: false,
+        }));
       }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [open]);
-
-  const vatComputed = useMemo(() => {
-    const gross = Number(form.price) || 0;
-    const rate =
-      vatState.status === "payer" && vatState.rate
-        ? vatState.rate
-        : 0;
-
-    if (!gross || !rate) {
-      return {
-        gross,
-        rate,
-        net: gross,
-        vatAmount: 0,
-      };
     }
+  }, [
+    open,
+    editingProduct,
+    setForm,
+    draftKey,
+  ]);
 
-    const factor = 1 + rate / 100;
-    const net = +(gross / factor).toFixed(2);
-    const vatAmount = +(gross - net).toFixed(2);
-
-    return { gross, rate, net, vatAmount };
-  }, [form.price, vatState.status, vatState.rate]);
-
-  const { gross, rate: vatRateNum, net, vatAmount } = vatComputed;
-  const hasValidPrice = Number(form.price) > 0;
-
-  const commissionComputed = useMemo(() => {
-    const grossNum = Number(form.price) || 0;
-
-    const base =
-      vatState.status === "payer" && vatRateNum
-        ? (Number(net) || 0)
-        : grossNum;
-
-    const pct = (Number(commissionState.commissionBps) || 0) / 100;
-    const rate = pct / 100;
-
-    if (!grossNum || !Number.isFinite(base) || !Number.isFinite(rate) || rate <= 0) {
-      return { base, pct, commissionAmount: 0, vendorReceives: base };
-    }
-
-    const commissionAmount = +(base * rate).toFixed(2);
-    const vendorReceives = +(base - commissionAmount).toFixed(2);
-
-    return { base, pct, commissionAmount, vendorReceives };
-  }, [form.price, vatState.status, vatRateNum, net, commissionState.commissionBps]);
+  /* =====================================================
+     OPȚIUNI ȘI CONSTANTE
+  ===================================================== */
 
   const isDetailed =
     Array.isArray(categories) &&
     categories.length > 0 &&
-    typeof categories[0] === "object" &&
+    typeof categories[0] ===
+      "object" &&
     categories[0] !== null &&
     "key" in categories[0];
 
   const options = useMemo(() => {
     if (isDetailed) {
-      return categories.map((c) => ({
-        key: c.key,
-        label: c.label || c.key,
-        group: c.group || "alte",
-        groupLabel: c.groupLabel || "Altele",
-      }));
+      return categories.map(
+        (category) => ({
+          key: category.key,
+
+          label:
+            category.label ||
+            category.key,
+
+          group:
+            category.group ||
+            "alte",
+
+          groupLabel:
+            category.groupLabel ||
+            "Altele",
+        })
+      );
     }
-    return categories.map((k) => ({
-      key: k,
-      label: k,
-      group: "alte",
-      groupLabel: "Altele",
-    }));
-  }, [categories, isDetailed]);
+
+    return categories.map(
+      (key) => ({
+        key,
+        label: key,
+        group: "alte",
+        groupLabel: "Altele",
+      })
+    );
+  }, [
+    categories,
+    isDetailed,
+  ]);
 
   const getLabelFor = useCallback(
-    (key) => options.find((o) => o.key === key)?.label || key || "",
+    (key) =>
+      options.find(
+        (option) =>
+          option.key === key
+      )?.label ||
+      key ||
+      "",
     [options]
   );
 
-  const [query, setQuery] = useState("");
-  const [openList, setOpenList] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const inputRef = useRef(null);
-  const listRef = useRef(null);
-
-  const wrapRef = useRef(null);
-  const [openUp, setOpenUp] = useState(false);
-  const [listMaxH, setListMaxH] = useState(320);
-
-  const computeComboDirection = useCallback(() => {
-    if (!wrapRef.current) return;
-    const r = wrapRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - r.bottom;
-    const spaceAbove = r.top;
-    const desired = 320;
-    const useUp = spaceBelow < 220 && spaceAbove > spaceBelow;
-    setOpenUp(useUp);
-    const maxH = Math.max(
-      160,
-      Math.min(desired, (useUp ? spaceAbove : spaceBelow) - 12)
+  const materialOptions =
+    useMemo(
+      () =>
+        MATERIALS_DETAILED.map(
+          (material) => ({
+            key: material.key,
+            label: material.label,
+          })
+        ),
+      []
     );
-    setListMaxH(maxH);
-  }, []);
 
-  useEffect(() => {
-    if (!openList) return;
-    computeComboDirection();
-    const onWin = () => computeComboDirection();
-    window.addEventListener("resize", onWin);
-    window.addEventListener("scroll", onWin, { passive: true });
-    return () => {
-      window.removeEventListener("resize", onWin);
-      window.removeEventListener("scroll", onWin);
-    };
-  }, [openList, computeComboDirection]);
-
-  useEffect(() => {
-    if (!openList) return;
-    const handleClickOutside = (e) => {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target)) {
-        setOpenList(false);
-        setActiveIndex(-1);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [openList]);
-
-  useEffect(() => {
-    if (!form?.category) {
-      setQuery("");
-      return;
-    }
-    setQuery(getLabelFor(form.category));
-  }, [form?.category, getLabelFor]);
-
-  const normalize = useCallback(
-    (s) =>
-      String(s || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase(),
-    []
-  );
-
-  const filtered = useMemo(() => {
-    const q = normalize(query);
-    if (!q) return options;
-    return options.filter(
-      (o) =>
-        normalize(o.label).includes(q) ||
-        normalize(o.key).includes(q) ||
-        normalize(o.groupLabel).includes(q)
+  const techniqueOptions =
+    useMemo(
+      () =>
+        TECHNIQUES_DETAILED.map(
+          (technique) => ({
+            key: technique.key,
+            label: technique.label,
+          })
+        ),
+      []
     );
-  }, [options, query, normalize]);
 
-  const grouped = useMemo(() => {
-    const by = new Map();
-    for (const o of filtered) {
-      const g = o.group || "alte";
-      const gl = o.groupLabel || "Altele";
-      if (!by.has(g)) by.set(g, { group: g, groupLabel: gl, items: [] });
-      by.get(g).items.push(o);
-    }
-    return Array.from(by.values()).sort((a, b) =>
-      (a.groupLabel || "").localeCompare(b.groupLabel || "", "ro")
+  const colorOptions =
+    useMemo(
+      () =>
+        COLORS_DETAILED.map(
+          (color) => ({
+            key: color.key,
+            label: color.label,
+          })
+        ),
+      []
     );
-  }, [filtered]);
 
-  const flatWithHeaders = useMemo(() => {
-    const arr = [];
-    for (const g of grouped) {
-      arr.push({ __type: "header", groupLabel: g.groupLabel });
-      for (const it of g.items.sort((a, b) =>
-        a.label.localeCompare(b.label, "ro")
-      )) {
-        arr.push({ __type: "item", item: it });
-      }
-    }
-    return arr;
-  }, [grouped]);
+  const styleOptions =
+    useMemo(
+      () =>
+        STYLE_TAGS_DETAILED.map(
+          (tag) => tag.label
+        ),
+      []
+    );
 
-  useEffect(() => {
-    if (openList) {
-      setActiveIndex(flatWithHeaders.findIndex((x) => x.__type === "item"));
-    }
-  }, [openList, flatWithHeaders]);
+  const occasionOptions =
+    useMemo(
+      () =>
+        OCCASION_TAGS_DETAILED.map(
+          (tag) => tag.label
+        ),
+      []
+    );
 
-  const selectOption = useCallback(
-    (opt) => {
-      if (!opt) return;
-      setForm((s) => ({ ...s, category: opt.key }));
-      setQuery(opt.label);
-      setOpenList(false);
-      setActiveIndex(-1);
-    },
-    [setForm]
-  );
+  const careOptions =
+    useMemo(
+      () =>
+        CARE_TAGS_DETAILED.map(
+          (tag) => tag.label
+        ),
+      []
+    );
 
-  const onInputKeyDown = useCallback(
-    (e) => {
-      if (!openList && ["ArrowDown", "ArrowUp"].includes(e.key)) {
-        setOpenList(true);
-        e.preventDefault();
-        return;
-      }
-      if (!openList) return;
+  /* =====================================================
+     GESTIONARE IMAGINI
+  ===================================================== */
 
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        let next = activeIndex + 1;
-        while (
-          next < flatWithHeaders.length &&
-          flatWithHeaders[next].__type !== "item"
-        )
-          next++;
-        if (next < flatWithHeaders.length) setActiveIndex(next);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        let prev = activeIndex - 1;
-        while (prev >= 0 && flatWithHeaders[prev].__type !== "item") prev--;
-        if (prev >= 0) setActiveIndex(prev);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const cur = flatWithHeaders[activeIndex];
-        if (cur && cur.__type === "item") selectOption(cur.item);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        setOpenList(false);
-        setActiveIndex(-1);
-      }
-    },
-    [openList, activeIndex, flatWithHeaders, selectOption]
-  );
-
-  const materialOptions = useMemo(
-    () => MATERIALS_DETAILED.map((m) => ({ key: m.key, label: m.label })),
-    []
-  );
-  const techniqueOptions = useMemo(
-    () => TECHNIQUES_DETAILED.map((t) => ({ key: t.key, label: t.label })),
-    []
-  );
-  const colorOptions = useMemo(
-    () => COLORS_DETAILED.map((c) => ({ key: c.key, label: c.label })),
-    []
-  );
-  const styleOptions = useMemo(
-    () => STYLE_TAGS_DETAILED.map((t) => t.label),
-    []
-  );
-  const occasionOptions = useMemo(
-    () => OCCASION_TAGS_DETAILED.map((t) => t.label),
-    []
-  );
-  const careOptions = useMemo(
-    () => CARE_TAGS_DETAILED.map((t) => t.label),
+  const dragIndexRef = useMemo(
+    () => ({
+      current: -1,
+    }),
     []
   );
 
-  const dragIndexRef = useRef(-1);
+  const setMainImage =
+    useCallback(
+      (index) => {
+        setForm((current) => {
+          if (
+            !Array.isArray(
+              current.images
+            ) ||
+            index < 0 ||
+            index >=
+              current.images.length
+          ) {
+            return current;
+          }
 
-  const setMainImage = useCallback(
-    (idx) => {
-      setForm((s) => {
-        if (!Array.isArray(s.images) || idx < 0 || idx >= s.images.length)
-          return s;
-        if (idx === 0) return s;
-        const arr = [...s.images];
-        const [it] = arr.splice(idx, 1);
-        arr.unshift(it);
-        return { ...s, images: arr };
-      });
-    },
-    [setForm]
-  );
+          if (index === 0) {
+            return current;
+          }
 
-  const removeImage = useCallback(
-    (idx) => {
-      setForm((s) => ({
-        ...s,
-        images: s.images.filter((_, i) => i !== idx),
-      }));
-    },
-    [setForm]
-  );
+          const images = [
+            ...current.images,
+          ];
+
+          const [selected] =
+            images.splice(index, 1);
+
+          images.unshift(selected);
+
+          return {
+            ...current,
+            images,
+
+            aiManuallyEdited:
+              current.aiAnalyzedAt
+                ? true
+                : current.aiManuallyEdited,
+          };
+        });
+      },
+      [setForm]
+    );
+
+  const removeImage =
+    useCallback(
+      (index) => {
+        setForm((current) => ({
+          ...current,
+
+          images: (
+            current.images || []
+          ).filter(
+            (_, imageIndex) =>
+              imageIndex !== index
+          ),
+
+          aiManuallyEdited:
+            current.aiAnalyzedAt
+              ? true
+              : current.aiManuallyEdited,
+        }));
+      },
+      [setForm]
+    );
 
   const moveImage = useCallback(
     (from, to) => {
-      setForm((s) => {
-        const arr = [...s.images];
-        if (from === to || to < 0 || to >= arr.length) return s;
-        const [it] = arr.splice(from, 1);
-        arr.splice(to, 0, it);
-        return { ...s, images: arr };
+      setForm((current) => {
+        const images = [
+          ...(current.images || []),
+        ];
+
+        if (
+          from === to ||
+          to < 0 ||
+          to >= images.length
+        ) {
+          return current;
+        }
+
+        const [selected] =
+          images.splice(from, 1);
+
+        images.splice(
+          to,
+          0,
+          selected
+        );
+
+        return {
+          ...current,
+          images,
+
+          aiManuallyEdited:
+            current.aiAnalyzedAt
+              ? true
+              : current.aiManuallyEdited,
+        };
       });
     },
     [setForm]
   );
 
-  const onDragStart = useCallback(
-    (idx) => (e) => {
-      dragIndexRef.current = idx;
-      e.dataTransfer.effectAllowed = "move";
-      try {
-        e.dataTransfer.setData("text/plain", String(idx));
-      } catch {""}
-    },
-    []
-  );
+  const onDragStart =
+    useCallback(
+      (index) => (event) => {
+        dragIndexRef.current =
+          index;
 
-  const onDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  }, []);
+        event.dataTransfer.effectAllowed =
+          "move";
+
+        try {
+          event.dataTransfer.setData(
+            "text/plain",
+            String(index)
+          );
+        } catch {
+          // Ignore.
+        }
+      },
+      [dragIndexRef]
+    );
+
+  const onDragOver =
+    useCallback((event) => {
+      event.preventDefault();
+
+      event.dataTransfer.dropEffect =
+        "move";
+    }, []);
 
   const onDrop = useCallback(
-    (idx) => (e) => {
-      e.preventDefault();
+    (index) => (event) => {
+      event.preventDefault();
+
       const from =
         dragIndexRef.current >= 0
           ? dragIndexRef.current
-          : Number(e.dataTransfer.getData("text/plain"));
+          : Number(
+              event.dataTransfer.getData(
+                "text/plain"
+              )
+            );
+
       dragIndexRef.current = -1;
-      if (!Number.isFinite(from)) return;
-      moveImage(from, idx);
+
+      if (
+        !Number.isFinite(from)
+      ) {
+        return;
+      }
+
+      moveImage(from, index);
     },
-    [moveImage]
+    [
+      dragIndexRef,
+      moveImage,
+    ]
   );
 
- async function compressImageBeforeUpload(file) {
-  try {
-    const fileType = String(file.type || "").toLowerCase();
-    const fileName = String(file.name || "").toLowerCase();
-
-    if (!/^image\//i.test(fileType)) return file;
-
-    // Nu comprimăm formatele care pot da probleme în browser.
-    if (
-      /image\/gif/i.test(fileType) ||
-      /heic|heif|avif|tiff|bmp/i.test(fileType) ||
-      /\.(heic|heif|avif|tiff?|bmp|gif)$/i.test(fileName)
-    ) {
-      return file;
-    }
-
-    const imageUrl = URL.createObjectURL(file);
-
+  async function compressImageBeforeUpload(
+    file
+  ) {
     try {
-      const img = await Promise.race([
-        new Promise((resolve, reject) => {
-          const image = new Image();
-          image.onload = () => resolve(image);
-          image.onerror = reject;
-          image.src = imageUrl;
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("IMAGE_COMPRESSION_TIMEOUT")), 4000)
-        ),
-      ]);
+      const fileType = String(
+        file.type || ""
+      ).toLowerCase();
 
-      const maxSize = 1800;
-      const ratio = Math.min(1, maxSize / Math.max(img.width, img.height));
+      const fileName = String(
+        file.name || ""
+      ).toLowerCase();
 
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(img.width * ratio);
-      canvas.height = Math.round(img.height * ratio);
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return file;
-
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      const blob = await Promise.race([
-        new Promise((resolve) => {
-          canvas.toBlob(resolve, "image/jpeg", 0.82);
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("CANVAS_COMPRESSION_TIMEOUT")), 4000)
-        ),
-      ]);
-
-      if (!blob) return file;
-      if (blob.size >= file.size * 0.95) return file;
-
-      return new File(
-        [blob],
-        `${file.name.replace(/\.[^.]+$/, "") || "imagine"}.jpg`,
-        { type: "image/jpeg" }
-      );
-    } finally {
-      URL.revokeObjectURL(imageUrl);
-    }
-  } catch (err) {
-    console.warn("Compresia imaginii a fost ignorată:", err);
-    return file;
-  }
-}
-
- const onFilesPicked = useCallback(
-  async (files) => {
-    if (!files?.length) return;
-
-    for (const f of files) {
-      const fileName = f.name || "imagine";
-      const fileType = String(f.type || "").toLowerCase();
-
-      const isImage =
-        /^image\//i.test(fileType) ||
-        fileType === "application/octet-stream" ||
-        /\.(jpe?g|jfif|png|webp|gif|heic|heif|bmp|tiff?|avif)$/i.test(fileName);
-
-      if (!isImage) {
-        alert(
-          `Fișier ignorat: ${fileName}. Acceptăm JPG, PNG, WEBP, GIF, HEIC, HEIF, BMP, TIFF sau AVIF.`
-        );
-        continue;
+      if (
+        !/^image\//i.test(fileType)
+      ) {
+        return file;
       }
 
-      if (f.size > 100 * 1024 * 1024) {
-        alert(`Fișierul ${fileName} este prea mare. Maxim 100MB.`);
-        continue;
+      if (
+        /image\/gif/i.test(
+          fileType
+        ) ||
+        /heic|heif|avif|tiff|bmp/i.test(
+          fileType
+        ) ||
+        /\.(heic|heif|avif|tiff?|bmp|gif)$/i.test(
+          fileName
+        )
+      ) {
+        return file;
       }
 
-      const previewUrl = URL.createObjectURL(f);
-
-      setForm((s) => ({
-        ...s,
-        images: [...(s.images || []), previewUrl],
-      }));
+      const imageUrl =
+        URL.createObjectURL(file);
 
       try {
-        setUploadingImages((n) => n + 1);
+        const image =
+          await Promise.race([
+            new Promise(
+              (
+                resolve,
+                reject
+              ) => {
+                const element =
+                  new Image();
 
-        let finalUrl = "";
+                element.onload =
+                  () =>
+                    resolve(
+                      element
+                    );
 
-try {
-  const fileToUpload = await compressImageBeforeUpload(f);
-  finalUrl = await doUpload(fileToUpload);
-} catch (firstErr) {
-  console.warn("Upload cu imagine procesată a eșuat, încerc originalul:", firstErr);
-  finalUrl = await doUpload(f);
-}
+                element.onerror =
+                  reject;
 
-        setForm((s) => ({
-          ...s,
-          images: (s.images || []).map((img) =>
-            img === previewUrl ? finalUrl : img
-          ),
-        }));
+                element.src =
+                  imageUrl;
+              }
+            ),
 
-        URL.revokeObjectURL(previewUrl);
-      } catch (er) {
-        console.error(er);
+            new Promise(
+              (_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(
+                      new Error(
+                        "IMAGE_COMPRESSION_TIMEOUT"
+                      )
+                    ),
+                  4000
+                )
+            ),
+          ]);
 
-        setForm((s) => ({
-          ...s,
-          images: (s.images || []).filter((img) => img !== previewUrl),
-        }));
+        const maxSize = 1800;
 
-        URL.revokeObjectURL(previewUrl);
+        const ratio = Math.min(
+          1,
+          maxSize /
+            Math.max(
+              image.width,
+              image.height
+            )
+        );
 
-        alert(
-          er?.message ||
-            "Nu am putut încărca poza. Încearcă din nou sau fă screenshot la imagine și încarcă screenshot-ul."
+        const canvas =
+          document.createElement(
+            "canvas"
+          );
+
+        canvas.width = Math.round(
+          image.width * ratio
+        );
+
+        canvas.height = Math.round(
+          image.height * ratio
+        );
+
+        const context =
+          canvas.getContext("2d");
+
+        if (!context) {
+          return file;
+        }
+
+        context.drawImage(
+          image,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+
+        const blob =
+          await Promise.race([
+            new Promise(
+              (resolve) => {
+                canvas.toBlob(
+                  resolve,
+                  "image/jpeg",
+                  0.82
+                );
+              }
+            ),
+
+            new Promise(
+              (_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(
+                      new Error(
+                        "CANVAS_COMPRESSION_TIMEOUT"
+                      )
+                    ),
+                  4000
+                )
+            ),
+          ]);
+
+        if (!blob) {
+          return file;
+        }
+
+        if (
+          blob.size >=
+          file.size * 0.95
+        ) {
+          return file;
+        }
+
+        return new File(
+          [blob],
+
+          `${
+            file.name.replace(
+              /\.[^.]+$/,
+              ""
+            ) || "imagine"
+          }.jpg`,
+
+          {
+            type: "image/jpeg",
+          }
         );
       } finally {
-        setUploadingImages((n) => Math.max(0, n - 1));
+        URL.revokeObjectURL(
+          imageUrl
+        );
       }
+    } catch (error) {
+      console.warn(
+        "Compresia imaginii a fost ignorată:",
+        error
+      );
+
+      return file;
     }
-  },
-  [doUpload, setForm]
-);
+  }
 
-const onPasteImages = useCallback(
-  async (e) => {
-    const text = e.clipboardData?.getData("text")?.trim();
+  const onFilesPicked =
+    useCallback(
+      async (files) => {
+        if (!files?.length) {
+          return;
+        }
 
-    if (text && /^(https?:\/\/|\/)/i.test(text)) {
-      setForm((s) => ({
-        ...s,
-        images: [...(s.images || []), text],
-      }));
-      return;
-    }
+        for (const file of files) {
+          const fileName =
+            file.name || "imagine";
 
-    const files = Array.from(e.clipboardData?.files || []).filter((f) => {
-  const fileType = String(f.type || "").toLowerCase();
-  const fileName = f.name || "";
+          const fileType =
+            String(
+              file.type || ""
+            ).toLowerCase();
 
-  return (
-    /^image\//i.test(fileType) ||
-    fileType === "application/octet-stream" ||
-    /\.(jpe?g|jfif|png|webp|gif|heic|heif|bmp|tiff?|avif)$/i.test(fileName)
-  );
-});
+          const isImage =
+            /^image\//i.test(
+              fileType
+            ) ||
+            fileType ===
+              "application/octet-stream" ||
+            /\.(jpe?g|jfif|png|webp|gif|heic|heif|bmp|tiff?|avif)$/i.test(
+              fileName
+            );
 
-    if (!files.length) return;
+          if (!isImage) {
+            alert(
+              `Fișier ignorat: ${fileName}. Acceptăm JPG, PNG, WEBP, GIF, HEIC, HEIF, BMP, TIFF sau AVIF.`
+            );
 
-    e.preventDefault();
-    await onFilesPicked(files);
-  },
-  [onFilesPicked, setForm]
-);
+            continue;
+          }
+
+          if (
+            file.size >
+            100 * 1024 * 1024
+          ) {
+            alert(
+              `Fișierul ${fileName} este prea mare. Maxim 100MB.`
+            );
+
+            continue;
+          }
+
+          const previewUrl =
+            URL.createObjectURL(
+              file
+            );
+
+          setForm((current) => ({
+            ...current,
+
+            images: [
+              ...(current.images ||
+                []),
+              previewUrl,
+            ],
+          }));
+
+          try {
+            setUploadingImages(
+              (count) =>
+                count + 1
+            );
+
+            let finalUrl = "";
+
+            try {
+              const fileToUpload =
+                await compressImageBeforeUpload(
+                  file
+                );
+
+              finalUrl =
+                await doUpload(
+                  fileToUpload
+                );
+            } catch (firstError) {
+              console.warn(
+                "Upload cu imagine procesată a eșuat, încerc originalul:",
+                firstError
+              );
+
+              finalUrl =
+                await doUpload(
+                  file
+                );
+            }
+
+            setForm((current) => ({
+              ...current,
+
+              images: (
+                current.images || []
+              ).map((image) =>
+                image ===
+                previewUrl
+                  ? finalUrl
+                  : image
+              ),
+
+              aiManuallyEdited:
+                current.aiAnalyzedAt
+                  ? true
+                  : current.aiManuallyEdited,
+            }));
+
+            URL.revokeObjectURL(
+              previewUrl
+            );
+          } catch (error) {
+            console.error(error);
+
+            setForm((current) => ({
+              ...current,
+
+              images: (
+                current.images || []
+              ).filter(
+                (image) =>
+                  image !==
+                  previewUrl
+              ),
+            }));
+
+            URL.revokeObjectURL(
+              previewUrl
+            );
+
+            alert(
+              error?.message ||
+                "Nu am putut încărca poza. Încearcă din nou sau fă screenshot la imagine și încarcă screenshot-ul."
+            );
+          } finally {
+            setUploadingImages(
+              (count) =>
+                Math.max(
+                  0,
+                  count - 1
+                )
+            );
+          }
+        }
+      },
+      [
+        doUpload,
+        setForm,
+      ]
+    );
+
+  const onPasteImages =
+    useCallback(
+      async (event) => {
+        const text =
+          event.clipboardData
+            ?.getData("text")
+            ?.trim();
+
+        if (
+          text &&
+          /^(https?:\/\/|\/)/i.test(
+            text
+          )
+        ) {
+          setForm((current) => ({
+            ...current,
+
+            images: [
+              ...(current.images ||
+                []),
+              text,
+            ],
+
+            aiManuallyEdited:
+              current.aiAnalyzedAt
+                ? true
+                : current.aiManuallyEdited,
+          }));
+
+          return;
+        }
+
+        const files = Array.from(
+          event.clipboardData
+            ?.files || []
+        ).filter((file) => {
+          const fileType =
+            String(
+              file.type || ""
+            ).toLowerCase();
+
+          const fileName =
+            file.name || "";
+
+          return (
+            /^image\//i.test(
+              fileType
+            ) ||
+            fileType ===
+              "application/octet-stream" ||
+            /\.(jpe?g|jfif|png|webp|gif|heic|heif|bmp|tiff?|avif)$/i.test(
+              fileName
+            )
+          );
+        });
+
+        if (!files.length) {
+          return;
+        }
+
+        event.preventDefault();
+
+        await onFilesPicked(
+          files
+        );
+      },
+      [
+        onFilesPicked,
+        setForm,
+      ]
+    );
+
+  /* =====================================================
+     SINCRONIZARE DISPONIBILITATE
+  ===================================================== */
 
   useEffect(() => {
-    setForm((s) => {
-      const av = s.availability;
-      if (!av) return s;
+    setForm((current) => {
+      const availability =
+        current.availability;
 
-      const next = { ...s };
+      if (!availability) {
+        return current;
+      }
 
-      if (av === "READY") {
+      const next = {
+        ...current,
+      };
+
+      if (
+        availability === "READY"
+      ) {
         next.leadTimeDays = "";
         next.nextShipDate = "";
+
         next.readyQty =
-          next.readyQty === "" || !Number.isFinite(Number(next.readyQty))
+          next.readyQty === "" ||
+          !Number.isFinite(
+            Number(
+              next.readyQty
+            )
+          )
             ? null
-            : Math.max(0, Number(next.readyQty));
-      } else if (av === "MADE_TO_ORDER") {
+            : Math.max(
+                0,
+                Number(
+                  next.readyQty
+                )
+              );
+      } else if (
+        availability ===
+        "MADE_TO_ORDER"
+      ) {
         next.readyQty = 0;
         next.nextShipDate = "";
+
         if (
-          !Number.isFinite(Number(next.leadTimeDays)) ||
-          Number(next.leadTimeDays) < 1
+          !Number.isFinite(
+            Number(
+              next.leadTimeDays
+            )
+          ) ||
+          Number(
+            next.leadTimeDays
+          ) < 1
         ) {
-          next.leadTimeDays = "";
+          next.leadTimeDays =
+            "";
         }
-      } else if (av === "PREORDER") {
+      } else if (
+        availability ===
+        "PREORDER"
+      ) {
         next.readyQty = 0;
         next.leadTimeDays = "";
-      } else if (av === "SOLD_OUT") {
+      } else if (
+        availability ===
+        "SOLD_OUT"
+      ) {
         next.readyQty = 0;
         next.leadTimeDays = "";
         next.nextShipDate = "";
@@ -1555,1212 +1486,535 @@ const onPasteImages = useCallback(
 
       return next;
     });
-  }, [setForm, form.availability]);
+  }, [
+    setForm,
+    form.availability,
+  ]);
 
-  const [uploadInfo] = useState("Niciun fișier ales");
+  /* =====================================================
+     SALVARE DRAFT LOCAL
+  ===================================================== */
 
-const sectionStatus = {
-  images: !!form.images?.length,
-  basic:
-    Number(form.price) > 0 &&
-    (form.isActive || form.isHidden),
-  details: !!form.title?.trim() && !!form.description?.trim(),
-  category: !!form.category,
-  customization:
-    form.acceptsCustom === true ||
-    form.acceptsCustom === false,
-  availability:
-    (form.availability === "READY" &&
-      form.readyQty !== "" &&
-      form.readyQty !== null &&
-      Number(form.readyQty) > 0) ||
-    form.availability === "SOLD_OUT" ||
-    (form.availability === "MADE_TO_ORDER" &&
-      Number(form.leadTimeDays) > 0) ||
-    (form.availability === "PREORDER" &&
-      !!form.nextShipDate),
-};
-
-const priceNum = Number(form.price) || 0;
-
-const priceTooLow =
-  priceSuggestion?.shouldWarn &&
-  priceNum > 0 &&
-  priceSuggestion?.warningRules?.tooLowBelow &&
-  priceNum < priceSuggestion.warningRules.tooLowBelow;
-
-const priceTooHigh =
-  priceSuggestion?.shouldWarn &&
-  priceNum > 0 &&
-  priceSuggestion?.warningRules?.tooHighAbove &&
-  priceNum > priceSuggestion.warningRules.tooHighAbove;
-
-const hasPriceWarning = priceTooLow || priceTooHigh;
-
-useEffect(() => {
-  setPriceWarningConfirmed(false);
-}, [form.price, priceSuggestion]);
-
-useEffect(() => {
-  if (!open || editingProduct) return;
-
-  try {
-  const safeForm = {
-  ...form,
-
-  // nu salvăm disponibilitatea în draft
-  availability: "",
-  readyQty: "",
-  leadTimeDays: "",
-  nextShipDate: "",
-};
-
-localStorage.setItem(draftKey, JSON.stringify(safeForm));
-
-  } catch (err) {
-    console.warn("Nu am putut salva draftul produsului.", err);
-  }
-}, [open, editingProduct, draftKey, form]);
-
-const handleSubmit = useCallback(
-  async (e) => {
-    e.preventDefault();
-
-    if (uploadingImages > 0) {
-      alert("Te rog așteaptă să se termine încărcarea pozelor.");
-      return;
-    }
-if (
-  (form.images || []).some((img) =>
-    String(img).startsWith("blob:")
-  )
-) {
-  alert("Mai există imagini care nu s-au încărcat complet.");
-  return;
-}
-    if (hasPriceWarning && !priceWarningConfirmed) {
+  useEffect(() => {
+    if (
+      !open ||
+      editingProduct
+    ) {
       return;
     }
 
     try {
-      await onSave(e);
+      const safeForm = {
+        ...form,
 
-      if (!editingProduct) {
-        localStorage.removeItem(draftKey);
-        setAiImagePreview("");
-setAiImageVariant(1);
-setPriceSuggestion(null);
-setPriceWarningConfirmed(false);
-setForm((s) => ({
-  ...s,
-  title: "",
-  description: "",
-  price: "",
-  images: [],
-  category: "",
-  color: "",
-  materialMain: "",
-  technique: "",
-  styleTags: "",
-  occasionTags: "",
-  dimensions: "",
-  careInstructions: "",
-  specialNotes: "",
-  acceptsCustom: null,
-  availability: "",
-  readyQty: "",
-  leadTimeDays: "",
-  nextShipDate: "",
-}));
-setOpenSections({
-  images: true,
-  basic: false,
-  details: false,
-  category: false,
-  availability: false,
-  customization: false,
-});
-      }
-    } catch (err) {
-      console.error(err);
+        availability: "",
+        readyQty: "",
+        leadTimeDays: "",
+        nextShipDate: "",
+      };
+
+      localStorage.setItem(
+        draftKey,
+        JSON.stringify(safeForm)
+      );
+    } catch (error) {
+      console.warn(
+        "Nu am putut salva draftul produsului.",
+        error
+      );
     }
-  },
-  [
-    uploadingImages,
-    hasPriceWarning,
-    priceWarningConfirmed,
-    onSave,
+  }, [
+    open,
     editingProduct,
-    draftKey, setForm, form.images
-  ]
+    draftKey,
+    form,
+  ]);
+
+  /* =====================================================
+     SUBMIT
+  ===================================================== */
+
+  const handleSubmit =
+    useCallback(
+      async (event) => {
+        event.preventDefault();
+
+        if (
+          uploadingImages > 0
+        ) {
+          alert(
+            "Te rog așteaptă să se termine încărcarea pozelor."
+          );
+          return;
+        }
+
+        if (
+          (form.images || []).some(
+            (image) =>
+              String(
+                image
+              ).startsWith(
+                "blob:"
+              )
+          )
+        ) {
+          alert(
+            "Mai există imagini care nu s-au încărcat complet."
+          );
+          return;
+        }
+
+        try {
+          await onSave(event);
+
+          if (!editingProduct) {
+            localStorage.removeItem(
+              draftKey
+            );
+
+            setAiImagePreview("");
+            setAiImageVariant(1);
+            setPriceSuggestion(null);
+
+            setPriceWarningConfirmed(
+              false
+            );
+
+            setForm((current) => ({
+              ...current,
+
+              title: "",
+              description: "",
+              price: "",
+              images: [],
+              category: "",
+              color: "",
+              materialMain: "",
+              technique: "",
+              styleTags: "",
+              occasionTags: "",
+              dimensions: "",
+              careInstructions: "",
+              specialNotes: "",
+
+              orderMode:
+                "READY_TO_BUY",
+
+              optionsSchema: [],
+              customSchema: [],
+              quoteSchema: [],
+
+              acceptsCustom: null,
+              availability: "",
+              readyQty: "",
+              leadTimeDays: "",
+              nextShipDate: "",
+
+              aiVisionAnalysis: null,
+              aiOrderAnalysis: null,
+              aiGeneratedFields: [],
+              aiSourceImages: [],
+              aiAnalysisVersion: null,
+              aiConfidence: null,
+              aiAnalyzedAt: null,
+              aiManuallyEdited: false,
+            }));
+
+            setActiveStep(
+              "images"
+            );
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      },
+      [
+        uploadingImages,
+        form.images,
+        onSave,
+        editingProduct,
+        draftKey,
+        setForm,
+      ]
+    );
+const addQuoteField = useCallback(() => {
+  setForm((current) => {
+    const existingFields = Array.isArray(
+      current.quoteSchema
+    )
+      ? current.quoteSchema
+      : [];
+
+    const id = `quote_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+    return {
+      ...current,
+      quoteSchema: [
+        ...existingFields,
+        {
+          id,
+          key: id,
+          label: "",
+          type: "text",
+          required: true,
+          options: [],
+        },
+      ],
+    };
+  });
+}, [setForm]);
+
+const updateQuoteField = useCallback(
+  (fieldId, patch) => {
+    setForm((current) => ({
+      ...current,
+
+      quoteSchema: (
+        Array.isArray(
+          current.quoteSchema
+        )
+          ? current.quoteSchema
+          : []
+      ).map((field) =>
+        field.id === fieldId
+          ? {
+              ...field,
+              ...patch,
+            }
+          : field
+      ),
+    }));
+  },
+  [setForm]
 );
 
-return (
+const removeQuoteField = useCallback(
+  (fieldId) => {
+    setForm((current) => ({
+      ...current,
+
+      quoteSchema: (
+        Array.isArray(
+          current.quoteSchema
+        )
+          ? current.quoteSchema
+          : []
+      ).filter(
+        (field) =>
+          field.id !== fieldId
+      ),
+    }));
+  },
+  [setForm]
+);
+
+const addQuoteFieldOption =
+  useCallback(
+    (fieldId) => {
+      setForm((current) => ({
+        ...current,
+
+        quoteSchema: (
+          Array.isArray(
+            current.quoteSchema
+          )
+            ? current.quoteSchema
+            : []
+        ).map((field) =>
+          field.id === fieldId
+            ? {
+                ...field,
+                options: [
+                  ...(Array.isArray(
+                    field.options
+                  )
+                    ? field.options
+                    : []),
+                  "",
+                ],
+              }
+            : field
+        ),
+      }));
+    },
+    [setForm]
+  );
+
+const updateQuoteFieldOption =
+  useCallback(
+    (
+      fieldId,
+      optionIndex,
+      value
+    ) => {
+      setForm((current) => ({
+        ...current,
+
+        quoteSchema: (
+          Array.isArray(
+            current.quoteSchema
+          )
+            ? current.quoteSchema
+            : []
+        ).map((field) => {
+          if (
+            field.id !== fieldId
+          ) {
+            return field;
+          }
+
+          const options = [
+            ...(Array.isArray(
+              field.options
+            )
+              ? field.options
+              : []),
+          ];
+
+          options[
+            optionIndex
+          ] = value;
+
+          return {
+            ...field,
+            options,
+          };
+        }),
+      }));
+    },
+    [setForm]
+  );
+
+const removeQuoteFieldOption =
+  useCallback(
+    (
+      fieldId,
+      optionIndex
+    ) => {
+      setForm((current) => ({
+        ...current,
+
+        quoteSchema: (
+          Array.isArray(
+            current.quoteSchema
+          )
+            ? current.quoteSchema
+            : []
+        ).map((field) => {
+          if (
+            field.id !== fieldId
+          ) {
+            return field;
+          }
+
+          return {
+            ...field,
+
+            options: (
+              Array.isArray(
+                field.options
+              )
+                ? field.options
+                : []
+            ).filter(
+              (
+                _,
+                index
+              ) =>
+                index !==
+                optionIndex
+            ),
+          };
+        }),
+      }));
+    },
+    [setForm]
+  );
+  return (
     <Modal
       open={open}
-      onClose={() => (!saving ? onClose() : null)}
-      maxWidth={700}
+      onClose={() =>
+        !saving
+          ? onClose()
+          : null
+      }
+      maxWidth={760}
     >
-      <div className={styles.modalHeader}>
-        <h3 className={styles.modalTitle}>
-          {editingProduct ? "Editează produs" : "Adaugă produs"}
+      <div
+        className={
+          styles.modalHeader
+        }
+      >
+        <h3
+          className={
+            styles.modalTitle
+          }
+        >
+          {editingProduct
+            ? "Editează produs"
+            : "Adaugă produs"}
         </h3>
+
         <button
-          className={styles.modalClose}
-          onClick={() => (!saving ? onClose() : null)}
+          className={
+            styles.modalClose
+          }
+          onClick={() =>
+            !saving
+              ? onClose()
+              : null
+          }
           disabled={saving}
           type="button"
           aria-label="Închide"
         >
           ×
         </button>
-        
       </div>
 
-      <div className={styles.modalBody}>
-        <form onSubmit={handleSubmit} className={styles.formGrid}>
-          <AccordionSection
-            id="images"
-            title="Începe cu poza produsului"
-            open={openSections.images}
-            onToggle={() => toggleSection("images")}
-            complete={sectionStatus.images}
-          >
-            <label className={styles.label}>Imagini produs</label>
-
-{aiImagePreview && (
-  <div style={{ marginBottom: 14 }}>
-    <label className={styles.label}>Variantă AI propusă</label>
-
-   <img
-  src={aiImagePreview}
-  alt="Variantă editată cu AI"
-  style={{
-    width: "100%",
-    maxWidth: 350,
-    borderRadius: 12,
-    display: "block",
-    margin: "0 auto 12px",
-  }}
-/>
-
-<div
-  style={{
-    display: "flex",
-    gap: 10,
-    justifyContent: "center",
-    alignItems: "center",
-    flexWrap: "wrap",
-  }}
->
- <button
-  type="button"
-  onClick={useAiImage}
-  className={styles.primaryBtn}
-  style={{
-    width: "auto",
-    whiteSpace: "nowrap",
-    flex: "1 1 220px",
-    maxWidth: 260,
-  }}
->
-  ✅ Folosește poza asta
-</button>
-
- <button
-  type="button"
-  onClick={handleAiEnhanceImage}
-  disabled={aiImageLoading}
-  className={styles.smallBtn}
-  style={{
-    whiteSpace: "nowrap",
-    flex: "1 1 220px",
-    maxWidth: 260,
-  }}
->
-    {aiImageLoading
-      ? "Generez..."
-      : "🔁 Generează altă variantă"}
-  </button>
-</div>
-  </div>
-)}
-            <div className={styles.imagesRow} onPaste={onPasteImages}>
-              <div className={styles.fileUploadWrapper}>
-                <input
-  id="product-camera-input"
-  type="file"
-  accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,.avif"
-  capture="environment"
-  className={styles.fileInputHidden}
-  onChange={async (e) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = "";
-    await onFilesPicked(files);
-  }}
-/>
-
-<input
-  id="product-gallery-input"
-  type="file"
-  accept="image/*,.jpg,.jpeg,.jfif,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,.avif"
-  multiple
-  className={styles.fileInputHidden}
-  onChange={async (e) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = "";
-    await onFilesPicked(files);
-  }}
-/>
-
-               <div
-  style={{
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
-  }}
->
-  <label
-    htmlFor="product-camera-input"
-    className={styles.fileUploadButton}
-  >
-    📷 Fă poză
-  </label>
-
-  <label
-    htmlFor="product-gallery-input"
-    className={styles.fileUploadButton}
-  >
-    🖼️ Alege din galerie
-  </label>
-</div>
-                <span className={styles.fileUploadInfo}>
-                  {uploadInfo}
-                </span>
-              </div>
-
-              {!!form.images?.length && (
-                <div className={styles.thumbGrid}>
-                  {form.images.map((img, idx) => (
-                    <div
-                      key={`${img}-${idx}`}
-                      className={styles.thumbItem}
-                      draggable
-                      onDragStart={onDragStart(idx)}
-                      onDragOver={onDragOver}
-                      onDrop={onDrop(idx)}
-                      title={
-                        idx === 0
-                          ? "Imagine principală"
-                          : "Trage pentru a reordona"
-                      }
-                    >
-                      <img
-                        src={resolveProductImageUrl(img)}
-                        alt={`Imagine produs ${idx + 1}`}
-                        className={styles.thumbImg}
-                      />
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 6,
-                          marginTop: 6,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setMainImage(idx)}
-                          title={
-  idx === 0
-    ? "Imagine principală (folosită de AI)"
-    : "Setează ca imagine principală"
+      <div
+        className={
+          styles.modalBody
+        }
+      >
+        <ProductModalWizard
+          form={form}
+          setForm={setForm}
+          quoteSchema={
+  Array.isArray(
+    form.quoteSchema
+  )
+    ? form.quoteSchema
+    : []
 }
-                          className={styles.smallBtn}
-                          style={{
-                            fontWeight: idx === 0 ? 800 : 500,
-                          }}
-                        >
-                          {idx === 0 ? "★ " : "☆ "}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeImage(idx)}
-                          title="Șterge imagine"
-                          className={styles.smallBtn}
-                        >
-                          Șterge
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-{!!form.images?.length && (
-  <div className={styles.aiActions}>
-    <button
-      type="button"
-      onClick={handleAiAnalyze}
-      disabled={aiLoading || !allImagesReadyForAi}
-      className={styles.primaryBtn}
-    >
-      {aiLoading
-  ? "Analizez..."
-  : !allImagesReadyForAi
-  ? "Se încarcă imaginile..."
-  : "✨ Completează cu AI"}
-    </button>
 
-    <button
-      type="button"
-      onClick={handleAiEnhanceImage}
-      disabled={aiImageLoading || !mainImageReadyForAi}
-      className={styles.smallBtn}
-    >
-      {aiImageLoading
-  ? "Editez poza..."
-  : !mainImageReadyForAi
-  ? "Se încarcă imaginea..."
-  : "📸 Editează poza cu AI"}
-    </button>
-  </div>
-)}
-              <div className={styles.tip}>
-                <div
-  style={{
-    marginTop: 8,
-    fontSize: "0.75rem",
-    opacity: 0.75,
-  }}
->
-  AI folosește imaginea marcată cu ★.
-  Dacă dorești altă fotografie, apasă ★ pe ea înainte de a folosi funcțiile AI.
-</div>
-                • Poți încărca imagini (input sau paste din clipboard).
-                <br />
-                • Reordonează cu drag &amp; drop. ★ marchează imaginea
-                principală (prima în listă).
-              </div>
-            </div>
-          </AccordionSection>
-          
-
-          <AccordionSection
-            id="details"
-            title="Detalii produs"
-            open={openSections.details}
-            onToggle={() => toggleSection("details")}
-            complete={sectionStatus.details}
-          >
-            <label className={styles.label} htmlFor="product-title">
-              Titlu
-            </label>
-            <input
-              id="product-title"
-              className={styles.input}
-              value={form.title}
-              onChange={updateField("title")}
-              placeholder="Ex: Coroniță florală din lavandă"
-              required
-            />
-            <label className={styles.label} htmlFor="product-description">
-              Descriere
-            </label>
-            <textarea
-              id="product-description"
-              className={styles.textarea}
-              value={form.description}
-              onChange={updateField("description")}
-              placeholder="Detalii despre material, dimensiuni, personalizare etc."
-              rows={5}
-            />
-
-            <SingleTagComboField
-              id="product-material"
-              label="Material principal"
-              value={form.materialMain || ""}
-              onChange={(val) =>
-                setForm((s) => ({ ...s, materialMain: val }))
-              }
-              options={materialOptions}
-              placeholder="ex: lemn de pin, ceramică, bumbac organic"
-              note="Poți alege un material din sugestii sau poți scrie exact materialul folosit, dacă nu se regăsește în listă."
-            />
-
-            <SingleTagComboField
-              id="product-technique"
-              label="Tehnică / cum este lucrat"
-              value={form.technique || ""}
-              onChange={(val) =>
-                setForm((s) => ({ ...s, technique: val }))
-              }
-              options={techniqueOptions}
-              placeholder="ex: pictat manual, croșetat, turnat în matriță"
-              note="Poți selecta o tehnică din sugestii sau poți descrie liber metoda ta."
-            />
-
-            <TagComboField
-              id="product-style-tags"
-              label="Stil (tag-uri separate prin virgulă)"
-              value={form.styleTags || ""}
-              onChange={(val) =>
-                setForm((s) => ({ ...s, styleTags: val }))
-              }
-              options={styleOptions}
-              placeholder="ex: rustic, boho, minimalist"
-              note="Poți adăuga unul sau mai multe stiluri. Alege din sugestii sau scrie propriile variante; apasă Enter pentru a crea un tag."
-            />
-
-            <TagComboField
-              id="product-occasion-tags"
-              label="Ocazii (tag-uri separate prin virgulă)"
-              value={form.occasionTags || ""}
-              onChange={(val) =>
-                setForm((s) => ({ ...s, occasionTags: val }))
-              }
-              options={occasionOptions}
-              placeholder="ex: cadou casă nouă, zi de naștere"
-              note="Poți combina ocazii din sugestii sau poți adăuga altele noi scriindu-le și apăsând Enter."
-            />
-
-            <label className={styles.label} htmlFor="product-dimensions">
-              Dimensiuni
-            </label>
-            <input
-              id="product-dimensions"
-              className={styles.input}
-              value={form.dimensions || ""}
-              onChange={updateField("dimensions")}
-              placeholder="ex: 20 x 30 cm"
-            />
-
-            <TagComboField
-              id="product-care-instructions"
-              label="Instrucțiuni de îngrijire"
-              value={form.careInstructions || ""}
-              onChange={(val) =>
-                setForm((s) => ({ ...s, careInstructions: val }))
-              }
-              options={careOptions}
-              placeholder="ex: șterge ușor cu o cârpă umedă"
-              note="Poți alege una sau mai multe instrucțiuni din sugestii sau poți scrie propriile recomandări (Enter pentru a crea un tag)."
-            />
-
-            <label className={styles.label} htmlFor="product-notes">
-              Note speciale
-            </label>
-            <textarea
-              id="product-notes"
-              className={styles.textarea}
-              value={form.specialNotes || ""}
-              onChange={updateField("specialNotes")}
-              rows={3}
-              placeholder="ex: fiecare piesă este unică, pot apărea mici variații față de fotografie"
-            />
-
-            <SingleTagComboField
-              id="product-color"
-              label="Culoare principală"
-              value={form.color || ""}
-              onChange={(val) =>
-                setForm((s) => ({ ...s, color: val }))
-              }
-              options={colorOptions}
-              useOptionKeyAsValue={true}
-              placeholder="ex: alb, verde salvie, roz pudră"
-              note="Poți alege o culoare din sugestii sau poți scrie exact nuanța pe care o folosești."
-            />
-
-            
-          </AccordionSection>
-
-          <AccordionSection
-            id="category"
-            title="Categorie"
-            open={openSections.category}
-            onToggle={() => toggleSection("category")}
-            complete={sectionStatus.category}
-          >
-            <label
-              className={styles.label}
-              htmlFor="category-combobox-input"
-            >
-              Categorie
-            </label>
-            <div ref={wrapRef} className={styles.comboWrap}>
-              <div
-                role="combobox"
-                aria-haspopup="listbox"
-                aria-expanded={openList}
-                aria-owns="category-combobox-list"
-                aria-controls="category-combobox-list"
-                aria-activedescendant={
-                  activeIndex >= 0 &&
-                  flatWithHeaders[activeIndex]?.__type === "item"
-                    ? `cat-opt-${activeIndex}`
-                    : undefined
-                }
-                aria-label="Alege sau caută o categorie"
-                className={styles.comboRow}
-              >
-                <input
-                  id="category-combobox-input"
-                  ref={inputRef}
-                  className={`${styles.input} ${styles.comboInput}`}
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    setOpenList(true);
-                  }}
-                  onFocus={() => setOpenList(true)}
-                  onKeyDown={onInputKeyDown}
-                  onBlur={() => {
-                    setTimeout(() => {
-                      setOpenList(false);
-                      setActiveIndex(-1);
-                    }, 120);
-                  }}
-                  placeholder="Caută categorie (tastează)…"
-                  autoComplete="off"
-                />
-
-                {query && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuery("");
-                      setActiveIndex(-1);
-                      setOpenList(true);
-                    }}
-                    className={styles.comboClearBtn}
-                    title="Șterge căutarea"
-                    aria-label="Șterge căutarea"
-                    disabled={saving}
-                  >
-                    Șterge
-                  </button>
-                )}
-              </div>
-
-              <div
-                style={{
-                  fontSize: "0.75rem",
-                  opacity: 0.7,
-                  marginTop: 4,
-                  marginBottom: 4,
-                }}
-              >
-                Alege din listă sau tastează pentru a căuta
-                categoria dorită.
-              </div>
-
-              {openList && (
-                <div
-                  ref={listRef}
-                  id="category-combobox-list"
-                  role="listbox"
-                  className={`${styles.comboList} ${
-                    openUp ? styles.comboListUp : ""
-                  }`}
-                  style={{ maxHeight: listMaxH }}
-                >
-                  {flatWithHeaders.length === 0 && (
-                    <div
-                      className={`${styles.comboOption} ${styles.comboEmpty}`}
-                      aria-disabled="true"
-                    >
-                      Nicio categorie găsită.
-                    </div>
-                  )}
-
-                  {flatWithHeaders.map((row, idx) => {
-                    if (row.__type === "header") {
-                      return (
-                        <div
-                          key={`h-${idx}-${row.groupLabel}`}
-                          aria-hidden
-                          className={styles.comboHeader}
-                        >
-                          {row.groupLabel}
-                        </div>
-                      );
-                    }
-
-                    const opt = row.item;
-                    const isActive = idx === activeIndex;
-                    const optionId = `cat-opt-${idx}`;
-
-                    return (
-                      <div
-                        id={optionId}
-                        key={`${opt.key}-${idx}`}
-                        role="option"
-                        aria-selected={isActive}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => selectOption(opt)}
-                        className={`${styles.comboOption} ${
-                          isActive ? styles.comboOptionActive : ""
-                        }`}
-                        title={opt.key}
-                      >
-                        {opt.label}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <select
-                tabIndex={-1}
-                aria-hidden="true"
-                className="sr-only"
-                style={{
-                  position: "absolute",
-                  opacity: 0,
-                  pointerEvents: "none",
-                  height: 0,
-                  width: 0,
-                }}
-                value={form.category || ""}
-                onChange={() => {}}
-                required
-              >
-                <option value="">Alege categorie</option>
-                {options.map((o) => (
-                  <option key={o.key} value={o.key}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </AccordionSection>
-          <AccordionSection
-  id="customization"
-  title="Personalizare"
-  open={openSections.customization}
-  onToggle={() => toggleSection("customization")}
-  complete={sectionStatus.customization}
->
-  <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
-    <button
-      type="button"
-      className={styles.smallBtn}
-      onClick={() =>
-        setForm((s) => ({
-          ...s,
-          acceptsCustom: true,
-        }))
-      }
-      style={{
-        fontWeight: form.acceptsCustom === true ? 800 : 500,
-        border:
-          form.acceptsCustom === true
-            ? "1px solid #16a34a"
-            : undefined,
-      }}
-    >
-      Da
-    </button>
-
-    <button
-      type="button"
-      className={styles.smallBtn}
-      onClick={() =>
-        setForm((s) => ({
-          ...s,
-          acceptsCustom: false,
-        }))
-      }
-      style={{
-        fontWeight: form.acceptsCustom === false ? 800 : 500,
-        border:
-          form.acceptsCustom === false
-            ? "1px solid #16a34a"
-            : undefined,
-      }}
-    >
-      Nu
-    </button>
-  </div>
-
-  <small style={{ opacity: 0.7 }}>
-    Clientul poate cere modificări: nume, mesaj, culoare, dimensiune sau alte detalii.
-  </small>
-</AccordionSection>
-<AccordionSection
-            id="basic"
-           title="Preț"
-            open={openSections.basic}
-            onToggle={() => toggleSection("basic")}
-            complete={sectionStatus.basic}
-          >
-            
-
-            <label className={styles.label} htmlFor="product-price">
-              Preț (RON)
-            </label>
-            <input
-              id="product-price"
-              type="number"
-              step="0.01"
-              min="0"
-              className={styles.input}
-              value={
-                form.price === "" || form.price == null
-                  ? ""
-                  : String(form.price)
-              }
-              onChange={(e) => {
-                const raw = e.target.value;
-                setForm((s) => ({
-                  ...s,
-                  price: raw === "" ? "" : Math.max(0, Number(raw)),
-                }));
-              }}
-              placeholder="0.00"
-              required
-            />
-{priceSuggestionLoading && (
-  <div style={{ fontSize: "0.78rem", marginTop: 6, opacity: 0.7 }}>
-    Calculăm prețul recomandat…
-  </div>
-)}
-
-{priceSuggestion?.recommendation && (
-  <div
-    style={{
-      fontSize: "0.8rem",
-      marginTop: 8,
-      marginBottom: 8,
-      padding: 10,
-      borderRadius: 10,
-      background: "#f8fafc",
-      border: "1px solid #e5e7eb",
-      lineHeight: 1.45,
-    }}
-  >
-    <strong>
-      Interval orientativ: {priceSuggestion.recommendation.min} -{" "}
-      {priceSuggestion.recommendation.max} RON
-    </strong>
-
-    <div style={{ marginTop: 4 }}>
-      Preț competitiv:{" "}
-      <strong>{priceSuggestion.recommendation.competitive} RON</strong>
-      {" · "}
-      Preț premium:{" "}
-      <strong>{priceSuggestion.recommendation.premium} RON</strong>
-    </div>
-
-    <div style={{ marginTop: 4, opacity: 0.75 }}>
-  Bazat pe produse similare existente în ArtFest.
-  Acesta este doar un reper orientativ, tu alegi prețul final.
-</div>
-  </div>
-)}
-
-{priceSuggestion && !priceSuggestion.recommendation && (
-  <div
-    style={{
-      fontSize: "0.8rem",
-      marginTop: 8,
-      marginBottom: 8,
-      padding: 10,
-      borderRadius: 10,
-      background: "#fffbeb",
-      border: "1px solid #fde68a",
-      color: "#92400e",
-      lineHeight: 1.45,
-    }}
-  >
-  </div>
-)}
-
-{hasPriceWarning && (
-  <div
-    style={{
-      fontSize: "0.8rem",
-      marginTop: 8,
-      marginBottom: 8,
-      padding: 10,
-      borderRadius: 10,
-      background: "#fef2f2",
-      border: "1px solid #fecaca",
-      color: "#991b1b",
-      lineHeight: 1.45,
-    }}
-  >
-    <strong>
-  {priceTooLow
-  ? "Prețul ales este sub intervalul orientativ."
-  : "Prețul ales este peste intervalul orientativ."}
-</strong>
-
-<div style={{ marginTop: 4 }}>
-  Recomandarea este {priceSuggestion.recommendation.min} -{" "}
-  {priceSuggestion.recommendation.max} RON, iar tu ai introdus{" "}
-  {priceNum} RON.
-</div>
-
-    <label
-      className={styles.checkbox}
-      style={{ marginTop: 8, display: "flex" }}
-    >
-      <input
-        type="checkbox"
-        checked={priceWarningConfirmed}
-        onChange={(e) => setPriceWarningConfirmed(e.target.checked)}
-      />
-      Am verificat prețul și doresc să continui.
-    </label>
-  </div>
-)}
-            {hasValidPrice && (
-              <div
-                style={{
-                  fontSize: "0.78rem",
-                  marginTop: 6,
-                  marginBottom: 8,
-                  color: "#4B5563",
-                  lineHeight: 1.4,
-                }}
-              >
-                {commissionState.loading ? (
-                  <span>Se încarcă comisionul planului…</span>
-                ) : commissionState.error ? (
-                  <span style={{ color: "#B91C1C" }}>{commissionState.error}</span>
-                ) : (
-                  <>
-                    <div>
-                      Comision platformă{" "}
-                      <strong>
-                        {commissionComputed.pct ? `${commissionComputed.pct.toFixed(2)}%` : "0%"}
-                      </strong>
-                      {commissionState.plan ? (
-                        <span style={{ opacity: 0.75 }}>
-                          {" "}
-                          · plan: <strong>{commissionState.plan.name}</strong>
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div style={{ marginTop: 2 }}>
-                      Bază comision: <strong>{commissionComputed.base.toFixed(2)} RON</strong>{" "}
-                      → comision: <strong>{commissionComputed.commissionAmount.toFixed(2)} RON</strong>{" "}
-                      → încasare estimată (fără TVA):{" "}
-                      <strong>{commissionComputed.vendorReceives.toFixed(2)} RON</strong>
-                    </div>
-
-                    <div style={{ marginTop: 2, opacity: 0.75 }}>
-                      Notă: comisionul se aplică pe prețul fără TVA (dacă ești plătitor de TVA).
-                      Calculul final se confirmă la comandă.
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {hasValidPrice && (
-              <div
-                style={{
-                  fontSize: "0.78rem",
-                  marginTop: 4,
-                  marginBottom: 8,
-                  color: "#4B5563",
-                  lineHeight: 1.4,
-                }}
-              >
-                {vatState.loading ? (
-                  <span>Se încarcă setările de TVA ale magazinului…</span>
-                ) : vatState.status === "payer" && vatRateNum ? (
-                  <>
-                    <div>
-                      Conform datelor de facturare, magazinul este{" "}
-                      <strong>plătitor de TVA</strong>, cotă{" "}
-                      <strong>{vatRateNum}%</strong>.
-                    </div>
-                    <div style={{ marginTop: 2 }}>
-                      Pentru prețul introdus:{" "}
-                      <strong>{net.toFixed(2)} RON</strong> (fără TVA) +{" "}
-                      <strong>{vatAmount.toFixed(2)} RON</strong> TVA ({vatRateNum}%)
-                      {" = "}
-                      <strong>{gross.toFixed(2)} RON</strong> (preț final).
-                    </div>
-                  </>
-                ) : vatState.status === "non_payer" ? (
-                  <div>
-                    Conform datelor de facturare, <strong>nu ești plătitor de TVA</strong>.
-                    Prețul introdus este tratat ca sumă finală.
-                  </div>
-                ) : (
-                  <div>
-                    Nu am găsit informații despre statutul tău de TVA în{" "}
-                    <strong>Date facturare</strong>. Completează acea secțiune pentru a
-                    vedea detaliat TVA-ul aferent produselor.
-                  </div>
-                )}
-
-                {vatState.error && (
-                  <div
-                    style={{
-                      marginTop: 2,
-                      color: "#B91C1C",
-                    }}
-                  >
-                    {vatState.error}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <label className={styles.label}>Status vizibilitate</label>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 4,
-                marginBottom: 8,
-              }}
-            >
-              <label className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={!!form.isActive}
-                  onChange={(e) =>
-                    setForm((s) => {
-                      const checked = e.target.checked;
-                      return {
-                        ...s,
-                        isActive: checked,
-                        isHidden: checked ? false : s.isHidden,
-                      };
-                    })
-                  }
-                />
-                Activ
-                <small style={{ marginLeft: 8, opacity: 0.7 }}>
-                  Produsul poate fi cumpărat (dacă este vizibil).
-                </small>
-              </label>
-
-              <label className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={!!form.isHidden}
-                  onChange={(e) =>
-                    setForm((s) => {
-                      const checked = e.target.checked;
-                      return {
-                        ...s,
-                        isHidden: checked,
-                        isActive: checked ? false : s.isActive,
-                      };
-                    })
-                  }
-                />
-                Ascuns
-                <small style={{ marginLeft: 8, opacity: 0.7 }}>
-                  Nu apare public în magazin, chiar dacă este activ.
-                </small>
-              </label>
-            </div>
-          </AccordionSection>
-          <AccordionSection
-            id="availability"
-            title="Disponibilitate & stoc"
-            open={openSections.availability}
-            onToggle={() => toggleSection("availability")}
-            complete={sectionStatus.availability}
-          >
-            <label
-              className={styles.label}
-              htmlFor="product-availability"
-            >
-              Disponibilitate
-            </label>
-            <select
-  id="product-availability"
-  className={styles.input}
-  value={form.availability || ""}
-  onChange={updateField("availability")}
-  required
->
-  <option value="">Selectează disponibilitatea</option>
-  <option value="READY">Gata de livrare</option>
-  <option value="MADE_TO_ORDER">La comandă</option>
-  <option value="PREORDER">Precomandă</option>
-  <option value="SOLD_OUT">Epuizat</option>
-</select>
-
-            {form.availability === "READY" && (
-              <>
-                <label
-                  className={styles.label}
-                  htmlFor="product-ready-qty"
-                >
-                  Bucăți gata de livrare
-                </label>
-                <input
-                  id="product-ready-qty"
-                  type="number"
-                  min={0}
-                  step={1}
-                  className={styles.input}
-                  value={
-                    form.readyQty == null ? "" : String(form.readyQty)
-                  }
-                  onChange={(e) =>
-                    setForm((s) => ({
-                      ...s,
-                      readyQty: Math.max(
-                        0,
-                        Number(e.target.value || 0)
-                      ),
-                    }))
-                  }
-                />
-              </>
-            )}
-
-            {form.availability === "MADE_TO_ORDER" && (
-              <>
-                <label
-                  className={styles.label}
-                  htmlFor="product-lead-time"
-                >
-                  Timp de execuție (zile)
-                </label>
-                <input
-                  id="product-lead-time"
-                  type="number"
-                  min={1}
-                  step={1}
-                  className={styles.input}
-                  value={
-                    Number.isFinite(Number(form.leadTimeDays))
-                      ? String(form.leadTimeDays)
-                      : ""
-                  }
-                  onChange={(e) =>
-                    setForm((s) => ({
-                      ...s,
-                      leadTimeDays: Math.max(
-                        1,
-                        Number(e.target.value || 1)
-                      ),
-                    }))
-                  }
-                  placeholder="ex: 5"
-                />
-              </>
-            )}
-
-            {form.availability === "PREORDER" && (
-              <>
-                <label
-                  className={styles.label}
-                  htmlFor="product-next-ship-date"
-                >
-                  Data estimată de expediere
-                </label>
-                <input
-                  id="product-next-ship-date"
-                  type="date"
-                  className={styles.input}
-                  value={form.nextShipDate || ""}
-                  onChange={updateField("nextShipDate")}
-                />
-              </>
-            )}
-          </AccordionSection>
-
-          
-
-         <div
-  className={styles.modalFooter}
-  style={{
-    flexWrap: "wrap",
-  }}
->
-  <button
-    type="button"
-    className={styles.linkBtn}
-    style={{
-    marginRight: "auto",
-  }}
-    onClick={() => {
-      if (
-        !confirm(
-          "Sigur vrei să resetezi formularul? Draftul local va fi șters."
-        )
-      ) {
-        return;
-      }
-
-      localStorage.removeItem(draftKey);
-
-      setForm((s) => ({
-        ...s,
-        title: "",
-        description: "",
-        price: "",
-        images: [],
-        category: "",
-        color: "",
-        materialMain: "",
-        technique: "",
-        styleTags: "",
-        occasionTags: "",
-        dimensions: "",
-        careInstructions: "",
-        specialNotes: "",
-        acceptsCustom: null,
-        availability: "READY",
-readyQty: 1,
-        leadTimeDays: "",
-        nextShipDate: "",
-      }));
-
-      setAiImagePreview("");
-      setPriceSuggestion(null);
-      setPriceWarningConfirmed(false);
-    }}
-    disabled={saving || editingProduct}
-  >
-    Resetează formularul
-  </button>
-
- <button
-  type="button"
-  className={styles.linkBtn}
-  style={{
-    flex: "1 1 120px",
-  }}
-    onClick={() => (!saving ? onClose() : null)}
-    disabled={saving}
-  >
-    Anulează
-  </button>
-           <button
-  className={styles.primaryBtn}
-  style={{
-    flex: "1 1 120px",
-  }}
-  type="submit"
-  disabled={
-  saving ||
-  uploadingImages > 0 ||
-  (hasPriceWarning && !priceWarningConfirmed)
+addQuoteField={
+  addQuoteField
 }
->
-              {uploadingImages > 0
-  ? "Se încarcă pozele…"
-  : saving
-  ? "Se salvează…"
-  : "Salvează"}
-            </button>
-          </div>
-        </form>
+
+updateQuoteField={
+  updateQuoteField
+}
+
+removeQuoteField={
+  removeQuoteField
+}
+
+addQuoteFieldOption={
+  addQuoteFieldOption
+}
+
+updateQuoteFieldOption={
+  updateQuoteFieldOption
+}
+
+removeQuoteFieldOption={
+  removeQuoteFieldOption
+}
+          saving={saving}
+          editingProduct={
+            editingProduct
+          }
+          activeStep={activeStep}
+          setActiveStep={
+            setActiveStep
+          }
+          handleSubmit={
+            handleSubmit
+          }
+          onClose={onClose}
+          draftKey={draftKey}
+          getLabelFor={
+            getLabelFor
+          }
+          options={options}
+          aiImagePreview={
+            aiImagePreview
+          }
+          aiImageLoading={
+            aiImageLoading
+          }
+          aiLoading={aiLoading}
+          uploadInfo={uploadInfo}
+          allImagesReadyForAi={
+            allImagesReadyForAi
+          }
+          mainImageReadyForAi={
+            mainImageReadyForAi
+          }
+          resolveProductImageUrl={
+            resolveProductImageUrl
+          }
+          onPasteImages={
+            onPasteImages
+          }
+          onFilesPicked={
+            onFilesPicked
+          }
+          onDragStart={
+            onDragStart
+          }
+          onDragOver={
+            onDragOver
+          }
+          onDrop={onDrop}
+          setMainImage={
+            setMainImage
+          }
+          removeImage={
+            removeImage
+          }
+          handleAiAnalyze={
+            handleAiAnalyze
+          }
+          handleAiEnhanceImage={
+            handleAiEnhanceImage
+          }
+          useAiImage={
+            useAiImage
+          }
+          updateField={
+            updateField
+          }
+          materialOptions={
+            materialOptions
+          }
+          techniqueOptions={
+            techniqueOptions
+          }
+          styleOptions={
+            styleOptions
+          }
+          occasionOptions={
+            occasionOptions
+          }
+          careOptions={
+            careOptions
+          }
+          colorOptions={
+            colorOptions
+          }
+          uploadingImages={
+            uploadingImages
+          }
+          hasPriceWarning={
+            hasPriceWarning
+          }
+          priceWarningConfirmed={
+            priceWarningConfirmed
+          }
+          setAiImagePreview={
+            setAiImagePreview
+          }
+          setPriceSuggestion={
+            setPriceSuggestion
+          }
+          setPriceWarningConfirmed={
+            setPriceWarningConfirmed
+          }
+        />
       </div>
     </Modal>
   );

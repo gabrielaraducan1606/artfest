@@ -93,6 +93,11 @@ import googleShoppingFeedRoutes from "./src/routes/googleShoppingFeed.js";
 import adminCollectionsRoutes from "./src/routes/adminCollectionsroutes.js";
 import aiRoutes from "./src/routes/aiRoutes.js";
 import ambassadorRoutes from "./src/routes/ambassadorRoutes.js"
+import assistantRouter from "./src/routes/assistantRoutes/assistantRoutes.js";
+import guestOrdersRoutes from "./src/routes/guestOrderRoutes.js";
+import productAiRoutes from "./src/routes/vendorProductAIRoutes.js";
+import publicHomepageRoutes from "./src/routes/homepagePublicRoutes.js";
+import vendorQuotesRouter from "./src/routes/assistantRoutes/assistant/vendorQuotesRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -426,7 +431,12 @@ app.use("/api/admin", adminProductsRoutes);
 app.use("/api/admin", adminCollectionsRoutes);
 app.use("/api", platformBillingRouter);
 app.use("/api/ai", aiRoutes);
+app.use(
+  "/api/public/homepage",
+  publicHomepageRoutes
+);
 
+app.use("/api", productAiRoutes);
 // în app.js / routes index
 app.use("/api", adminPolicyNotificationsRoutes);
 app.use("/", sitemapRoutes);
@@ -457,13 +467,21 @@ app.use("/api", unsubscribeRouter);
 app.use("/api/vendors/me/visitors", vendorVisitorsRoutes);
 app.use("/api/visitors", vendorVisitorsPublicRoutes);
 app.use("/api", productCommentsRouter);
-
+app.use(
+  "/api/guest/orders",
+  guestOrdersRoutes
+);
+app.use("/api/assistant", assistantRouter);
 /* ---------------- ALTE RUTE ---------------- */
 app.use("/api", checkoutNetopiaRoutes);
 app.use(legalRoutes); // include /api/legal + /legal/:type.html
 app.use("/api/inbox", vendorMessagesRoutes);
 app.use("/api/admin", vendorPoliciesRoutes);
 
+app.use(
+  "/api/vendor/quotes",
+  vendorQuotesRouter
+);
 /* ---------------- HEALTH ---------------- */
 app.get("/healthz", (_req, res) => res.send("ok"));
 app.get("/api/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));

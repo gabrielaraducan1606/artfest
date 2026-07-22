@@ -148,6 +148,29 @@ const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
     }
   }, [payoutsLocked]);
 
+  const disconnectStripe = useCallback(async () => {
+  const confirmed = window.confirm(
+    "Sigur vrei să dezactivezi Stripe Connect? Nu vei mai putea primi plăți online cu cardul."
+  );
+
+  if (!confirmed) return;
+
+  setStarting(true);
+  setErr("");
+
+  try {
+    await api("/api/vendors/stripe/connect", {
+      method: "DELETE",
+    });
+
+    await loadStatus();
+  } catch (e) {
+    setErr(e?.message || "Nu am putut dezactiva Stripe Connect.");
+  } finally {
+    setStarting(false);
+  }
+}, [loadStatus]);
+
   if (loading) {
     return (
       <div className={styles.loading}>
@@ -235,6 +258,7 @@ const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
             >
               Reîncarcă status
             </button>
+            
           </div>
         </>
       )}
@@ -323,6 +347,13 @@ const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
             >
               Reîncarcă status
             </button>
+            <button
+  className={styles.secondaryButton}
+  onClick={disconnectStripe}
+  disabled={starting}
+>
+  Dezactivează Stripe
+</button>
           </div>
         </>
       )}
@@ -373,6 +404,13 @@ const fullyEnabled = hasAccount && chargesEnabled && payoutsEnabled;
             >
               Reîncarcă status
             </button>
+            <button
+  className={styles.secondaryButton}
+  onClick={disconnectStripe}
+  disabled={starting}
+>
+  Dezactivează Stripe
+</button>
           </div>
         </>
       )}
