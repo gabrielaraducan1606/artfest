@@ -903,7 +903,8 @@ model CartItem {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, productId], name: "userId_productId")
+  @@unique([userId, productId, configurationKey], name: "userId_productId_configurationKey")
+
   @@index([userId])
   @@index([userId, createdAt])
   @@index([productId])

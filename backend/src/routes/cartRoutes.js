@@ -1,6 +1,7 @@
 // ==============================
 // File: server/routes/cart.js
 // ==============================
+
 import crypto from "node:crypto";
 import { Router } from "express";
 import { prisma } from "../db.js";
@@ -8,11 +9,24 @@ import { authRequired } from "../api/auth.js";
 
 const router = Router();
 
-const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
+const clamp = (n, min, max) =>
+  Math.max(min, Math.min(max, n));
+
+const dec = (n) =>
+  Number.parseFloat(
+    Number(n || 0).toFixed(2)
+  );
+
+/* =========================================================
+   Helpers cart
+========================================================= */
 
 function normalizeCartData(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
     return {};
   }
 
@@ -20,13 +34,26 @@ function normalizeCartData(value) {
     Object.entries(value)
       .map(([key, itemValue]) => [
         String(key || "").trim(),
-        typeof itemValue === "string" ? itemValue.trim() : itemValue,
+        typeof itemValue === "string"
+          ? itemValue.trim()
+          : itemValue,
       ])
       .filter(([key, itemValue]) => {
-        if (!key) return false;
-        if (itemValue === undefined || itemValue === null) return false;
+        if (!key) {
+          return false;
+        }
 
-        if (typeof itemValue === "string" && itemValue.length === 0) {
+        if (
+          itemValue === undefined ||
+          itemValue === null
+        ) {
+          return false;
+        }
+
+        if (
+          typeof itemValue === "string" &&
+          itemValue.length === 0
+        ) {
           return false;
         }
 
@@ -40,8 +67,11 @@ function buildConfigurationKey(
   customAnswers = {}
 ) {
   const normalized = JSON.stringify({
-    selectedOptions: normalizeCartData(selectedOptions),
-    customAnswers: normalizeCartData(customAnswers),
+    selectedOptions:
+      normalizeCartData(selectedOptions),
+
+    customAnswers:
+      normalizeCartData(customAnswers),
   });
 
   return crypto
@@ -50,59 +80,148 @@ function buildConfigurationKey(
     .digest("hex");
 }
 
-function isCollectionPromoActive(collection, now = new Date()) {
-  if (!collection?.promoEnabled) return false;
+/* =========================================================
+   Promoții colecții
+========================================================= */
 
-  const percent = Number(collection.promoPercent || 0);
-  if (!Number.isFinite(percent) || percent <= 0) return false;
-
-  if (collection.promoStartsAt && new Date(collection.promoStartsAt) > now) {
+function isCollectionPromoActive(
+  collection,
+  now = new Date()
+) {
+  if (!collection?.promoEnabled) {
     return false;
   }
 
-  if (collection.promoEndsAt && new Date(collection.promoEndsAt) < now) {
+  const percent = Number(
+    collection.promoPercent || 0
+  );
+
+  if (
+    !Number.isFinite(percent) ||
+    percent <= 0
+  ) {
+    return false;
+  }
+
+  if (
+    collection.promoStartsAt &&
+    new Date(
+      collection.promoStartsAt
+    ) > now
+  ) {
+    return false;
+  }
+
+  if (
+    collection.promoEndsAt &&
+    new Date(
+      collection.promoEndsAt
+    ) < now
+  ) {
     return false;
   }
 
   return true;
 }
 
-function productMatchesCollectionRules(product, rules = {}) {
-  if (!product) return false;
-
-  if (Array.isArray(rules.categories) && rules.categories.length) {
-    if (!rules.categories.includes(product.category)) return false;
-  }
-
-  if (rules.acceptsCustom === true && product.acceptsCustom !== true) {
+function productMatchesCollectionRules(
+  product,
+  rules = {}
+) {
+  if (!product) {
     return false;
   }
 
-  const minPriceCents = Number(rules.minPriceCents);
-  const maxPriceCents = Number(rules.maxPriceCents);
-
-  if (Number.isFinite(minPriceCents) && product.priceCents < minPriceCents) {
-    return false;
-  }
-
-  if (Number.isFinite(maxPriceCents) && product.priceCents > maxPriceCents) {
-    return false;
-  }
-
-  if (Array.isArray(rules.occasionTags) && rules.occasionTags.length) {
-    const tags = Array.isArray(product.occasionTags)
-      ? product.occasionTags
-      : [];
-
-    if (!rules.occasionTags.some((tag) => tags.includes(String(tag)))) {
+  if (
+    Array.isArray(rules.categories) &&
+    rules.categories.length
+  ) {
+    if (
+      !rules.categories.includes(
+        product.category
+      )
+    ) {
       return false;
     }
   }
 
-  if (Array.isArray(rules.styleTags) && rules.styleTags.length) {
-    const tags = Array.isArray(product.styleTags) ? product.styleTags : [];
+  if (
+    rules.acceptsCustom === true &&
+    product.acceptsCustom !== true
+  ) {
+    return false;
+  }
 
-    if (!rules.styleTags.some((tag) => tags.includes(String(tag)))) {
+  const minPriceCents = Number(
+    rules.minPriceCents
+  );
+
+  const maxPriceCents = Number(
+    rules.maxPriceCents
+  );
+
+  if (
+    Number.isFinite(minPriceCents) &&
+    product.priceCents <
+      minPriceCents
+  ) {
+    return false;
+  }
+
+  if (
+    Number.isFinite(maxPriceCents) &&
+    product.priceCents >
+      maxPriceCents
+  ) {
+    return false;
+  }
+
+  if (
+    Array.isArray(
+      rules.occasionTags
+    ) &&
+    rules.occasionTags.length
+  ) {
+    const tags =
+      Array.isArray(
+        product.occasionTags
+      )
+        ? product.occasionTags
+        : [];
+
+    if (
+      !rules.occasionTags.some(
+        (tag) =>
+          tags.includes(
+            String(tag)
+          )
+      )
+    ) {
+      return false;
+    }
+  }
+
+  if (
+    Array.isArray(
+      rules.styleTags
+    ) &&
+    rules.styleTags.length
+  ) {
+    const tags =
+      Array.isArray(
+        product.styleTags
+      )
+        ? product.styleTags
+        : [];
+
+    if (
+      !rules.styleTags.some(
+        (tag) =>
+          tags.includes(
+            String(tag)
+          )
+      )
+    ) {
       return false;
     }
   }
@@ -110,567 +229,450 @@ function productMatchesCollectionRules(product, rules = {}) {
   return true;
 }
 
-function getPromoPrice(priceCents, promo = null) {
-  const originalPriceCents = Math.round(Number(priceCents || 0));
+function getPromoPrice(
+  priceCents,
+  promo = null
+) {
+  const originalPriceCents =
+    Math.round(
+      Number(priceCents || 0)
+    );
 
   if (!promo) {
     return {
       originalPriceCents,
-      finalPriceCents: originalPriceCents,
+
+      finalPriceCents:
+        originalPriceCents,
+
       hasDiscount: false,
+
       discountPercent: 0,
+
       promoLabel: null,
+
       promoFundingSource: null,
+
       promoCollectionId: null,
     };
   }
 
-  const discountPercent = Number(promo.promoPercent || 0);
+  const discountPercent =
+    Number(
+      promo.promoPercent || 0
+    );
 
-  const finalPriceCents = Math.max(
-    0,
-    Math.round(originalPriceCents * (1 - discountPercent / 100))
-  );
+  const finalPriceCents =
+    Math.max(
+      0,
+      Math.round(
+        originalPriceCents *
+          (
+            1 -
+            discountPercent /
+              100
+          )
+      )
+    );
 
   return {
     originalPriceCents,
+
     finalPriceCents,
+
     hasDiscount: true,
+
     discountPercent,
-    promoLabel: promo.promoLabel || "Promoție Artfest",
-    promoFundingSource: promo.promoFundingSource || "PLATFORM_COMMISSION",
-    promoCollectionId: promo.id || null,
+
+    promoLabel:
+      promo.promoLabel ||
+      "Promoție Artfest",
+
+    promoFundingSource:
+      promo.promoFundingSource ||
+      "PLATFORM_COMMISSION",
+
+    promoCollectionId:
+      promo.id || null,
   };
 }
 
-async function getActiveCollectionPromosForProducts(products = []) {
-  if (!products.length) return new Map();
+async function getActiveCollectionPromosForProducts(
+  products = []
+) {
+  if (!products.length) {
+    return new Map();
+  }
 
   const now = new Date();
 
-  const collections = await prisma.collection.findMany({
-    where: {
-      isActive: true,
-      promoEnabled: true,
-      OR: [{ promoStartsAt: null }, { promoStartsAt: { lte: now } }],
-      AND: [
-        {
-          OR: [{ promoEndsAt: null }, { promoEndsAt: { gte: now } }],
-        },
-      ],
-    },
-    select: {
-      id: true,
-      rules: true,
-      promoEnabled: true,
-      promoPercent: true,
-      promoLabel: true,
-      promoFundingSource: true,
-      promoStartsAt: true,
-      promoEndsAt: true,
-    },
-  });
+  const collections =
+    await prisma.collection.findMany({
+      where: {
+        isActive: true,
+        promoEnabled: true,
 
-  const activePromos = collections.filter((c) =>
-    isCollectionPromoActive(c, now)
-  );
+        OR: [
+          {
+            promoStartsAt: null,
+          },
+          {
+            promoStartsAt: {
+              lte: now,
+            },
+          },
+        ],
 
-  const promoByProductId = new Map();
+        AND: [
+          {
+            OR: [
+              {
+                promoEndsAt:
+                  null,
+              },
+              {
+                promoEndsAt: {
+                  gte: now,
+                },
+              },
+            ],
+          },
+        ],
+      },
 
-  for (const product of products) {
-    const matchingPromos = activePromos.filter((collection) =>
-      productMatchesCollectionRules(product, collection.rules || {})
+      select: {
+        id: true,
+        rules: true,
+        promoEnabled: true,
+        promoPercent: true,
+        promoLabel: true,
+        promoFundingSource: true,
+        promoStartsAt: true,
+        promoEndsAt: true,
+      },
+    });
+
+  const activePromos =
+    collections.filter(
+      (collection) =>
+        isCollectionPromoActive(
+          collection,
+          now
+        )
     );
 
-    if (!matchingPromos.length) continue;
+  const promoByProductId =
+    new Map();
+
+  for (
+    const product of
+    products
+  ) {
+    const matchingPromos =
+      activePromos.filter(
+        (collection) =>
+          productMatchesCollectionRules(
+            product,
+            collection.rules ||
+              {}
+          )
+      );
+
+    if (
+      !matchingPromos.length
+    ) {
+      continue;
+    }
 
     matchingPromos.sort(
-      (a, b) => Number(b.promoPercent || 0) - Number(a.promoPercent || 0)
+      (a, b) =>
+        Number(
+          b.promoPercent ||
+            0
+        ) -
+        Number(
+          a.promoPercent ||
+            0
+        )
     );
 
-    promoByProductId.set(product.id, matchingPromos[0]);
+    promoByProductId.set(
+      product.id,
+      matchingPromos[0]
+    );
   }
 
   return promoByProductId;
 }
 
-function productIsPublicAvailable(p) {
+/* =========================================================
+   Disponibilitate produs
+========================================================= */
+
+function productIsPublicAvailable(
+  p
+) {
   if (!p) {
     return false;
   }
 
-  const availability = String(
-    p.availability || ""
-  ).toUpperCase();
+  const availability =
+    String(
+      p.availability || ""
+    )
+      .trim()
+      .toUpperCase();
 
-  const readyQty =
-    p.readyQty === null ||
-    p.readyQty === undefined
-      ? null
-      : Number(p.readyQty);
+  const orderMode =
+    String(
+      p.orderMode ||
+        "DIRECT"
+    )
+      .trim()
+      .toUpperCase();
 
-  const hasStock =
-    readyQty === null ||
-    (
-      Number.isFinite(readyQty) &&
-      readyQty > 0
-    );
-
-  return (
-    p.isActive === true &&
-    p.isHidden !== true &&
+  /*
+   * Produsul trebuie să fie:
+   * - activ
+   * - vizibil
+   * - aprobat
+   */
+  if (
+    p.isActive !== true ||
+    p.isHidden === true ||
     String(
       p.moderationStatus ||
         "PENDING"
-    ).toUpperCase() ===
-      "APPROVED" &&
-    availability === "READY" &&
-    hasStock
-  );
+    )
+      .trim()
+      .toUpperCase() !==
+      "APPROVED"
+  ) {
+    return false;
+  }
+
+  /*
+   * Produsele cu cerere de ofertă
+   * NU intră în coș.
+   */
+  if (
+    orderMode ===
+    "QUOTE_ONLY"
+  ) {
+    return false;
+  }
+
+  /*
+   * Sold out = indisponibil.
+   */
+  if (
+    availability ===
+    "SOLD_OUT"
+  ) {
+    return false;
+  }
+
+  /*
+   * Produsele realizate la comandă
+   * și cele în precomandă
+   * pot fi cumpărate.
+   */
+  if (
+    availability ===
+      "MADE_TO_ORDER" ||
+    availability ===
+      "PREORDER"
+  ) {
+    return true;
+  }
+
+  /*
+   * Pentru READY verificăm stocul.
+   *
+   * readyQty = null înseamnă:
+   * stocul nu este urmărit numeric.
+   */
+  if (
+    availability ===
+    "READY"
+  ) {
+    if (
+      p.readyQty ===
+        null ||
+      p.readyQty ===
+        undefined
+    ) {
+      return true;
+    }
+
+    const readyQty =
+      Number(
+        p.readyQty
+      );
+
+    return (
+      Number.isFinite(
+        readyQty
+      ) &&
+      readyQty > 0
+    );
+  }
+
+  return false;
 }
 
 function getStockLimit(p) {
-  const availability = String(p?.availability || "READY").toUpperCase();
+  const availability =
+    String(
+      p?.availability ||
+        "READY"
+    ).toUpperCase();
 
-  if (availability !== "READY") return null;
-  if (p.readyQty === null || p.readyQty === undefined) return null;
+  /*
+   * MADE_TO_ORDER și PREORDER
+   * nu au limită de stoc aici.
+   */
+  if (
+    availability !==
+    "READY"
+  ) {
+    return null;
+  }
 
-  const stock = Number(p.readyQty);
-  return Number.isFinite(stock) ? Math.max(0, stock) : 0;
+  if (
+    p.readyQty === null ||
+    p.readyQty === undefined
+  ) {
+    return null;
+  }
+
+  const stock = Number(
+    p.readyQty
+  );
+
+  return Number.isFinite(
+    stock
+  )
+    ? Math.max(
+        0,
+        stock
+      )
+    : 0;
 }
 
-async function getCartForUser(userId) {
+/* =========================================================
+   Citire coș
+========================================================= */
+
+async function getCartForUser(
+  userId
+) {
   const t0 = Date.now();
 
-  const cartItems = await prisma.cartItem.findMany({
-  where: { userId },
-  select: {
-    id: true,
-    productId: true,
-    qty: true,
-    selectedOptions: true,
-    customAnswers: true,
-    configurationKey: true,
-  },
-  orderBy: { createdAt: "desc" },
-});
+  const cartItems =
+    await prisma.cartItem.findMany({
+      where: {
+        userId,
+      },
+
+      select: {
+        id: true,
+        productId: true,
+        qty: true,
+
+        selectedOptions:
+          true,
+
+        customAnswers:
+          true,
+
+        configurationKey:
+          true,
+      },
+
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
 
   const t1 = Date.now();
 
-  const ids = cartItems.map((x) => x.productId);
+  const ids =
+    cartItems.map(
+      (item) =>
+        item.productId
+    );
 
   if (!ids.length) {
     return {
       items: [],
-      timing: { cartMs: t1 - t0, productsMs: 0, mapMs: 0 },
-    };
-  }
 
-  const products = await prisma.product.findMany({
-    where: { id: { in: ids } },
-    select: {
-      id: true,
-      title: true,
-      images: true,
-      priceCents: true,
-      category: true,
-      currency: true,
+      timing: {
+        cartMs:
+          t1 - t0,
 
-      acceptsCustom: true,
-      styleTags: true,
-      occasionTags: true,
+        productsMs: 0,
 
-      isActive: true,
-      isHidden: true,
-      moderationStatus: true,
-      availability: true,
-      readyQty: true,
-
-      service: {
-        select: {
-          vendorId: true,
-          profile: {
-            select: {
-              displayName: true,
-              slug: true,
-            },
-          },
-          vendor: {
-            select: {
-              displayName: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const t2 = Date.now();
-
-  const byId = new Map(products.map((p) => [p.id, p]));
-  const promoByProductId = await getActiveCollectionPromosForProducts(products);
-
-  const mapped = cartItems.map((ci) => {
-    const p = byId.get(ci.productId);
-
-    if (!p) {
-  return {
-    cartItemId: ci.id,
-    productId: ci.productId,
-    qty: ci.qty,
-    selectedOptions: ci.selectedOptions || {},
-    customAnswers: ci.customAnswers || {},
-    configurationKey: ci.configurationKey || "default",
-    product: null,
-  };
-}
-
-   const service = p.service;
-
-const stockLimit =
-  getStockLimit(p);
-
-const cartQty = Number(
-  ci.qty || 0
-);
-
-const productAvailable =
-  productIsPublicAvailable(p);
-
-const quantityAvailable =
-  stockLimit === null ||
-  cartQty <= stockLimit;
-
-const isAvailable =
-  productAvailable &&
-  quantityAvailable;
-
-const availabilityMessage =
-  !productAvailable
-    ? String(
-        p.availability || ""
-      ).toUpperCase() ===
-      "SOLD_OUT"
-      ? "Produsul este epuizat."
-      : "Produsul nu mai este disponibil."
-    : !quantityAvailable
-    ? `Mai sunt disponibile doar ${stockLimit} ${
-        stockLimit === 1
-          ? "bucată"
-          : "bucăți"
-      }. Redu cantitatea pentru a continua.`
-    : null;
-
-const promo = getPromoPrice(
-  p.priceCents,
-  promoByProductId.get(p.id) ||
-    null
-);
-
-    return {
-  cartItemId: ci.id,
-  productId: ci.productId,
-  qty: ci.qty,
-
-  selectedOptions: ci.selectedOptions || {},
-  customAnswers: ci.customAnswers || {},
-  configurationKey: ci.configurationKey || "default",
-
-  product: {
-        id: p.id,
-        title: p.title,
-        images: Array.isArray(p.images) ? p.images : [],
-
-        price: dec(promo.finalPriceCents / 100),
-        priceCents: promo.finalPriceCents,
-
-        originalPrice: promo.hasDiscount
-          ? dec(promo.originalPriceCents / 100)
-          : null,
-        originalPriceCents: promo.hasDiscount
-          ? promo.originalPriceCents
-          : null,
-
-        hasDiscount: promo.hasDiscount,
-        discountPercent: promo.discountPercent,
-        promoLabel: promo.promoLabel || null,
-        promoFundingSource: promo.promoFundingSource || null,
-        promoCollectionId: promo.promoCollectionId || null,
-
-        currency: p.currency || "RON",
-
-        isActive: p.isActive,
-        isHidden: !!p.isHidden,
-        moderationStatus: p.moderationStatus || "PENDING",
-        availability: p.availability
-          ? String(p.availability).toUpperCase()
-          : null,
-      readyQty:
-  p.readyQty ?? null,
-
-stockLimit,
-
-isAvailable,
-
-quantityAvailable,
-
-availabilityMessage,
-
-        vendorId: service?.vendorId ?? null,
-        storeName:
-          service?.profile?.displayName ||
-          service?.vendor?.displayName ||
-          "Magazin",
-        storeSlug: service?.profile?.slug || null,
-
-        category: p.category || null,
+        mapMs: 0,
       },
     };
-  });
-
-  const t3 = Date.now();
-
-  return {
-    items: mapped,
-    timing: { cartMs: t1 - t0, productsMs: t2 - t1, mapMs: t3 - t2 },
-  };
-}
-
-router.post("/cart/add", authRequired, async (req, res) => {
-  const {
-    productId,
-    qty = 1,
-    selectedOptions = {},
-    customAnswers = {},
-  } = req.body || {};
-
-  if (!productId) {
-    return res.status(400).json({
-      error: "productId_required",
-    });
   }
 
-  const safeQty = clamp(
-    parseInt(qty, 10) || 1,
-    1,
-    99
-  );
-
-  const safeSelectedOptions =
-    normalizeCartData(selectedOptions);
-
-  const safeCustomAnswers =
-    normalizeCartData(customAnswers);
-
-  const configurationKey =
-    buildConfigurationKey(
-      safeSelectedOptions,
-      safeCustomAnswers
-    );
-
-  const prod = await prisma.product.findUnique({
-    where: {
-      id: productId,
-    },
-    select: {
-      id: true,
-      availability: true,
-      readyQty: true,
-      isActive: true,
-      isHidden: true,
-      moderationStatus: true,
-      service: {
-        select: {
-          vendorId: true,
-          vendor: {
-            select: {
-              userId: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  if (!prod) {
-    return res.status(404).json({
-      error: "product_not_found",
-    });
-  }
-
-  if (
-    prod.service?.vendor?.userId ===
-    req.user.sub
-  ) {
-    return res.status(403).json({
-      error: "cannot_add_own_product",
-    });
-  }
-
-  if (!productIsPublicAvailable(prod)) {
-    return res.status(409).json({
-      error:
-        String(
-          prod.availability || ""
-        ).toUpperCase() === "SOLD_OUT"
-          ? "product_sold_out"
-          : "product_unavailable",
-
-      message:
-        String(
-          prod.availability || ""
-        ).toUpperCase() === "SOLD_OUT"
-          ? "Produsul este epuizat."
-          : "Produsul nu mai este disponibil.",
-    });
-  }
-
-  const existing =
-    await prisma.cartItem.findUnique({
+  const products =
+    await prisma.product.findMany({
       where: {
-        userId_productId_configurationKey: {
-          userId: req.user.sub,
-          productId,
-          configurationKey,
+        id: {
+          in: ids,
         },
       },
+
       select: {
-        qty: true,
-      },
-    });
+        id: true,
+        title: true,
+        images: true,
 
-  const currentConfigurationQty =
-    Number(existing?.qty || 0);
+        priceCents: true,
 
-  const nextConfigurationQty =
-    currentConfigurationQty + safeQty;
+        category: true,
 
-  const productQtyResult =
-    await prisma.cartItem.aggregate({
-      where: {
-        userId: req.user.sub,
-        productId,
-      },
-      _sum: {
-        qty: true,
-      },
-    });
+        currency: true,
 
-  const currentProductQty = Number(
-    productQtyResult?._sum?.qty || 0
-  );
+        orderMode: true,
 
-  const requestedProductQty =
-    currentProductQty + safeQty;
+        acceptsCustom: true,
 
-  const stockLimit = getStockLimit(prod);
+        styleTags: true,
 
-  if (
-    stockLimit !== null &&
-    requestedProductQty > stockLimit
-  ) {
-    const remainingQty = Math.max(
-      0,
-      stockLimit - currentProductQty
-    );
+        occasionTags: true,
 
-    return res.status(409).json({
-      error: "insufficient_stock",
+        isActive: true,
 
-      message:
-        remainingQty > 0
-          ? `Mai sunt disponibile doar ${remainingQty} ${
-              remainingQty === 1
-                ? "bucată"
-                : "bucăți"
-            }.`
-          : `Ai deja în coș toate cele ${stockLimit} ${
-              stockLimit === 1
-                ? "bucată disponibilă"
-                : "bucăți disponibile"
-            }.`,
+        isHidden: true,
 
-      stock: stockLimit,
-      currentQty: currentProductQty,
-      remainingQty,
-    });
-  }
+        moderationStatus:
+          true,
 
-  const item =
-    await prisma.cartItem.upsert({
-      where: {
-        userId_productId_configurationKey: {
-          userId: req.user.sub,
-          productId,
-          configurationKey,
-        },
-      },
+        availability: true,
 
-      update: {
-        qty: nextConfigurationQty,
-        selectedOptions:
-          safeSelectedOptions,
-        customAnswers:
-          safeCustomAnswers,
-      },
+        readyQty: true,
 
-      create: {
-        userId: req.user.sub,
-        productId,
-        qty: safeQty,
-        selectedOptions:
-          safeSelectedOptions,
-        customAnswers:
-          safeCustomAnswers,
-        configurationKey,
-      },
-    });
-
-  return res.json({
-    ok: true,
-    item,
-  });
-});
-
-router.post("/cart/update", authRequired, async (req, res) => {
-  const {
-    productId,
-    configurationKey = "default",
-    qty,
-  } = req.body || {};
-
-  if (!productId) {
-    return res.status(400).json({
-      error: "productId_required",
-    });
-  }
-
-  const item =
-    await prisma.cartItem.findUnique({
-      where: {
-        userId_productId_configurationKey: {
-          userId: req.user.sub,
-          productId,
-          configurationKey,
-        },
-      },
-      select: {
-        productId: true,
-        qty: true,
-        product: {
+        service: {
           select: {
-            availability: true,
-            readyQty: true,
-            isActive: true,
-            isHidden: true,
-            moderationStatus: true,
-            service: {
+            vendorId: true,
+
+            profile: {
               select: {
-                vendor: {
-                  select: {
-                    userId: true,
-                  },
-                },
+                displayName:
+                  true,
+
+                slug: true,
+              },
+            },
+
+            vendor: {
+              select: {
+                displayName:
+                  true,
               },
             },
           },
@@ -678,369 +680,1306 @@ router.post("/cart/update", authRequired, async (req, res) => {
       },
     });
 
-  if (!item) {
-    return res.status(404).json({
-      error: "cart_item_not_found",
-    });
-  }
+  const t2 = Date.now();
 
-  if (
-    item.product?.service?.vendor
-      ?.userId === req.user.sub
-  ) {
-    return res.status(403).json({
-      error:
-        "cannot_update_own_product",
-    });
-  }
-
-  if (
-    !productIsPublicAvailable(
-      item.product
-    )
-  ) {
-    return res.status(409).json({
-      error:
-        String(
-          item.product?.availability ||
-            ""
-        ).toUpperCase() ===
-        "SOLD_OUT"
-          ? "product_sold_out"
-          : "product_unavailable",
-
-      message:
-        String(
-          item.product?.availability ||
-            ""
-        ).toUpperCase() ===
-        "SOLD_OUT"
-          ? "Produsul este epuizat."
-          : "Produsul nu mai este disponibil.",
-    });
-  }
-
-  const safeQty = clamp(
-    parseInt(qty, 10) || 1,
-    1,
-    99
-  );
-
-  const otherConfigurations =
-    await prisma.cartItem.aggregate({
-      where: {
-        userId: req.user.sub,
-        productId,
-        configurationKey: {
-          not: configurationKey,
-        },
-      },
-      _sum: {
-        qty: true,
-      },
-    });
-
-  const otherConfigurationsQty =
-    Number(
-      otherConfigurations?._sum?.qty ||
-        0
+  const byId =
+    new Map(
+      products.map(
+        (product) => [
+          product.id,
+          product,
+        ]
+      )
     );
 
-  const requestedProductQty =
-    otherConfigurationsQty + safeQty;
+  const promoByProductId =
+    await getActiveCollectionPromosForProducts(
+      products
+    );
 
-  const stockLimit =
-    getStockLimit(item.product);
+  const mapped =
+    cartItems.map(
+      (cartItem) => {
+        const product =
+          byId.get(
+            cartItem.productId
+          );
 
-  if (
-    stockLimit !== null &&
-    requestedProductQty > stockLimit
-  ) {
-    return res.status(409).json({
-      error: "insufficient_stock",
-      message:
-        `Poți avea maximum ${stockLimit} buc. ` +
-        "în total pentru acest produs.",
-      stock: stockLimit,
-    });
-  }
+        if (!product) {
+          return {
+            cartItemId:
+              cartItem.id,
 
-  const updated =
-    await prisma.cartItem.update({
-      where: {
-        userId_productId_configurationKey: {
-          userId: req.user.sub,
-          productId,
-          configurationKey,
-        },
-      },
-      data: {
-        qty: safeQty,
-      },
-    });
+            productId:
+              cartItem.productId,
 
-  return res.json({
-    ok: true,
-    item: updated,
-  });
-});
+            qty:
+              cartItem.qty,
 
-router.delete("/cart/remove", authRequired, async (req, res) => {
-  const {
-    productId,
-    configurationKey = "default",
-  } = req.body || {};
+            selectedOptions:
+              cartItem.selectedOptions ||
+              {},
 
-  if (!productId) {
-    return res.status(400).json({
-      error: "productId_required",
-    });
-  }
+            customAnswers:
+              cartItem.customAnswers ||
+              {},
 
-  await prisma.cartItem
-    .delete({
-      where: {
-        userId_productId_configurationKey: {
-          userId: req.user.sub,
-          productId,
-          configurationKey,
-        },
-      },
-    })
-    .catch(() => null);
+            configurationKey:
+              cartItem.configurationKey ||
+              "default",
 
-  return res.json({
-    ok: true,
-  });
-});
+            product: null,
+          };
+        }
 
-router.post("/cart/remove-batch", authRequired, async (req, res) => {
-  const arr = Array.isArray(req.body?.productIds) ? req.body.productIds : [];
+        const service =
+          product.service;
 
-  if (!arr.length) {
-    return res.json({ ok: true });
-  }
+        const stockLimit =
+          getStockLimit(
+            product
+          );
 
-  await prisma.cartItem.deleteMany({
-    where: {
-      userId: req.user.sub,
-      productId: { in: arr },
-    },
-  });
+        const cartQty =
+          Number(
+            cartItem.qty ||
+              0
+          );
 
-  res.json({ ok: true });
-});
+        const productAvailable =
+          productIsPublicAvailable(
+            product
+          );
 
-router.post("/cart/clear", authRequired, async (req, res) => {
-  await prisma.cartItem.deleteMany({
-    where: { userId: req.user.sub },
-  });
+        const quantityAvailable =
+          stockLimit === null ||
+          cartQty <=
+            stockLimit;
 
-  res.json({ ok: true });
-});
+        const isAvailable =
+          productAvailable &&
+          quantityAvailable;
 
-router.post("/cart/merge", authRequired, async (req, res) => {
-  const arr = Array.isArray(req.body?.items) ? req.body.items : [];
+        const orderMode =
+          String(
+            product.orderMode ||
+              "DIRECT"
+          ).toUpperCase();
 
-  if (!arr.length) {
-    return res.json({
-      ok: true,
-      merged: 0,
-      skipped: 0,
-      items: [],
-    });
-  }
+        const availability =
+          String(
+            product.availability ||
+              ""
+          ).toUpperCase();
 
-  const userId = req.user.sub;
+        let availabilityMessage =
+          null;
 
-  const productIds = [
-    ...new Set(
-      arr
-        .map((item) => String(item?.productId || "").trim())
-        .filter(Boolean)
-    ),
-  ];
+        if (
+          orderMode ===
+          "QUOTE_ONLY"
+        ) {
+          availabilityMessage =
+            "Pentru acest produs trebuie să soliciți o ofertă.";
+        } else if (
+          !productAvailable
+        ) {
+          availabilityMessage =
+            availability ===
+            "SOLD_OUT"
+              ? "Produsul este epuizat."
+              : "Produsul nu mai este disponibil.";
+        } else if (
+          !quantityAvailable
+        ) {
+          availabilityMessage =
+            `Mai sunt disponibile doar ${stockLimit} ${
+              stockLimit === 1
+                ? "bucată"
+                : "bucăți"
+            }. Redu cantitatea pentru a continua.`;
+        }
 
-  const products = await prisma.product.findMany({
-    where: {
-      id: {
-        in: productIds,
-      },
-    },
-    select: {
-      id: true,
-      availability: true,
-      readyQty: true,
-      isActive: true,
-      isHidden: true,
-      moderationStatus: true,
-      service: {
-        select: {
-          vendor: {
-            select: {
-              userId: true,
-            },
+        const promo =
+          getPromoPrice(
+            product.priceCents,
+
+            promoByProductId.get(
+              product.id
+            ) || null
+          );
+
+        return {
+          cartItemId:
+            cartItem.id,
+
+          productId:
+            cartItem.productId,
+
+          qty:
+            cartItem.qty,
+
+          selectedOptions:
+            cartItem.selectedOptions ||
+            {},
+
+          customAnswers:
+            cartItem.customAnswers ||
+            {},
+
+          configurationKey:
+            cartItem.configurationKey ||
+            "default",
+
+          product: {
+            id:
+              product.id,
+
+            title:
+              product.title,
+
+            images:
+              Array.isArray(
+                product.images
+              )
+                ? product.images
+                : [],
+
+            price:
+              dec(
+                promo.finalPriceCents /
+                  100
+              ),
+
+            priceCents:
+              promo.finalPriceCents,
+
+            originalPrice:
+              promo.hasDiscount
+                ? dec(
+                    promo.originalPriceCents /
+                      100
+                  )
+                : null,
+
+            originalPriceCents:
+              promo.hasDiscount
+                ? promo.originalPriceCents
+                : null,
+
+            hasDiscount:
+              promo.hasDiscount,
+
+            discountPercent:
+              promo.discountPercent,
+
+            promoLabel:
+              promo.promoLabel ||
+              null,
+
+            promoFundingSource:
+              promo.promoFundingSource ||
+              null,
+
+            promoCollectionId:
+              promo.promoCollectionId ||
+              null,
+
+            currency:
+              product.currency ||
+              "RON",
+
+            orderMode:
+              product.orderMode ||
+              "DIRECT",
+
+            isActive:
+              product.isActive,
+
+            isHidden:
+              !!product.isHidden,
+
+            moderationStatus:
+              product.moderationStatus ||
+              "PENDING",
+
+            availability:
+              product.availability
+                ? String(
+                    product.availability
+                  ).toUpperCase()
+                : null,
+
+            readyQty:
+              product.readyQty ??
+              null,
+
+            stockLimit,
+
+            isAvailable,
+
+            quantityAvailable,
+
+            availabilityMessage,
+
+            vendorId:
+              service?.vendorId ??
+              null,
+
+            storeName:
+              service?.profile
+                ?.displayName ||
+              service?.vendor
+                ?.displayName ||
+              "Magazin",
+
+            storeSlug:
+              service?.profile
+                ?.slug ||
+              null,
+
+            category:
+              product.category ||
+              null,
           },
-        },
-      },
+        };
+      }
+    );
+
+  const t3 = Date.now();
+
+  return {
+    items: mapped,
+
+    timing: {
+      cartMs:
+        t1 - t0,
+
+      productsMs:
+        t2 - t1,
+
+      mapMs:
+        t3 - t2,
     },
-  });
+  };
+}
 
-  const productsById = new Map(
-    products.map((product) => [product.id, product])
-  );
+/* =========================================================
+   ADD
+========================================================= */
 
-  let merged = 0;
-  let skipped = 0;
+router.post(
+  "/cart/add",
+  authRequired,
+  async (req, res) => {
+    const {
+      productId,
+      qty = 1,
 
-  for (const rawItem of arr) {
-    const productId = String(rawItem?.productId || "").trim();
+      selectedOptions = {},
+
+      customAnswers = {},
+    } =
+      req.body || {};
 
     if (!productId) {
-      skipped++;
-      continue;
+      return res
+        .status(400)
+        .json({
+          error:
+            "productId_required",
+        });
     }
 
-    const product = productsById.get(productId);
+    const safeQty =
+      clamp(
+        parseInt(
+          qty,
+          10
+        ) || 1,
+        1,
+        99
+      );
 
-    if (!product) {
-      skipped++;
-      continue;
-    }
+    const safeSelectedOptions =
+      normalizeCartData(
+        selectedOptions
+      );
 
-    if (product.service?.vendor?.userId === userId) {
-      skipped++;
-      continue;
-    }
-
-    if (!productIsPublicAvailable(product)) {
-      skipped++;
-      continue;
-    }
-
-    const qty = clamp(
-      Number.parseInt(rawItem?.qty, 10) || 1,
-      1,
-      99
-    );
-
-    const selectedOptions = normalizeCartData(
-      rawItem?.selectedOptions
-    );
-
-    const customAnswers = normalizeCartData(
-      rawItem?.customAnswers
-    );
-
-    const configurationKey =
-      String(rawItem?.configurationKey || "").trim() ||
-      buildConfigurationKey(
-        selectedOptions,
+    const safeCustomAnswers =
+      normalizeCartData(
         customAnswers
       );
 
-    const existing = await prisma.cartItem.findUnique({
-      where: {
-        userId_productId_configurationKey: {
-          userId,
-          productId,
-          configurationKey,
+    const configurationKey =
+      buildConfigurationKey(
+        safeSelectedOptions,
+        safeCustomAnswers
+      );
+
+    const prod =
+      await prisma.product.findUnique({
+        where: {
+          id: productId,
         },
-      },
-      select: {
-        qty: true,
-      },
-    });
+
+        select: {
+          id: true,
+
+          orderMode: true,
+
+          availability: true,
+
+          readyQty: true,
+
+          isActive: true,
+
+          isHidden: true,
+
+          moderationStatus:
+            true,
+
+          service: {
+            select: {
+              vendorId: true,
+
+              vendor: {
+                select: {
+                  userId: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (!prod) {
+      return res
+        .status(404)
+        .json({
+          error:
+            "product_not_found",
+        });
+    }
+
+    if (
+      prod.service?.vendor
+        ?.userId ===
+      req.user.sub
+    ) {
+      return res
+        .status(403)
+        .json({
+          error:
+            "cannot_add_own_product",
+        });
+    }
+
+    /*
+     * Produs CERERE OFERTĂ
+     */
+    if (
+      String(
+        prod.orderMode ||
+          ""
+      ).toUpperCase() ===
+      "QUOTE_ONLY"
+    ) {
+      return res
+        .status(409)
+        .json({
+          error:
+            "quote_only",
+
+          message:
+            "Pentru acest produs trebuie să soliciți o ofertă.",
+        });
+    }
+
+    /*
+     * Produs indisponibil
+     */
+    if (
+      !productIsPublicAvailable(
+        prod
+      )
+    ) {
+      const availability =
+        String(
+          prod.availability ||
+            ""
+        ).toUpperCase();
+
+      return res
+        .status(409)
+        .json({
+          error:
+            availability ===
+            "SOLD_OUT"
+              ? "product_sold_out"
+              : "product_unavailable",
+
+          message:
+            availability ===
+            "SOLD_OUT"
+              ? "Produsul este epuizat."
+              : "Produsul nu mai este disponibil.",
+        });
+    }
+
+    const existing =
+      await prisma.cartItem.findUnique({
+        where: {
+          userId_productId_configurationKey:
+            {
+              userId:
+                req.user.sub,
+
+              productId,
+
+              configurationKey,
+            },
+        },
+
+        select: {
+          qty: true,
+        },
+      });
 
     const currentConfigurationQty =
-      Number(existing?.qty || 0);
+      Number(
+        existing?.qty ||
+          0
+      );
 
-    const allProductItems =
+    const nextConfigurationQty =
+      currentConfigurationQty +
+      safeQty;
+
+    const productQtyResult =
       await prisma.cartItem.aggregate({
         where: {
-          userId,
+          userId:
+            req.user.sub,
+
           productId,
         },
+
         _sum: {
           qty: true,
         },
       });
 
     const currentProductQty =
-      Number(allProductItems?._sum?.qty || 0);
+      Number(
+        productQtyResult
+          ?._sum?.qty ||
+          0
+      );
 
-    const stockLimit = getStockLimit(product);
+    const requestedProductQty =
+      currentProductQty +
+      safeQty;
+
+    const stockLimit =
+      getStockLimit(prod);
 
     if (
       stockLimit !== null &&
-      currentProductQty + qty > stockLimit
+      requestedProductQty >
+        stockLimit
     ) {
-      skipped++;
-      continue;
+      const remainingQty =
+        Math.max(
+          0,
+          stockLimit -
+            currentProductQty
+        );
+
+      return res
+        .status(409)
+        .json({
+          error:
+            "insufficient_stock",
+
+          message:
+            remainingQty > 0
+              ? `Mai sunt disponibile doar ${remainingQty} ${
+                  remainingQty ===
+                  1
+                    ? "bucată"
+                    : "bucăți"
+                }.`
+              : `Ai deja în coș toate cele ${stockLimit} ${
+                  stockLimit ===
+                  1
+                    ? "bucată disponibilă"
+                    : "bucăți disponibile"
+                }.`,
+
+          stock:
+            stockLimit,
+
+          currentQty:
+            currentProductQty,
+
+          remainingQty,
+        });
     }
 
-    await prisma.cartItem.upsert({
-      where: {
-        userId_productId_configurationKey: {
-          userId,
+    const item =
+      await prisma.cartItem.upsert({
+        where: {
+          userId_productId_configurationKey:
+            {
+              userId:
+                req.user.sub,
+
+              productId,
+
+              configurationKey,
+            },
+        },
+
+        update: {
+          qty:
+            nextConfigurationQty,
+
+          selectedOptions:
+            safeSelectedOptions,
+
+          customAnswers:
+            safeCustomAnswers,
+        },
+
+        create: {
+          userId:
+            req.user.sub,
+
           productId,
+
+          qty:
+            safeQty,
+
+          selectedOptions:
+            safeSelectedOptions,
+
+          customAnswers:
+            safeCustomAnswers,
+
           configurationKey,
         },
-      },
-      update: {
-        qty: Math.min(
-          99,
-          currentConfigurationQty + qty
-        ),
-        selectedOptions,
-        customAnswers,
-      },
-      create: {
-        userId,
-        productId,
-        qty,
-        selectedOptions,
-        customAnswers,
-        configurationKey,
+      });
+
+    return res.json({
+      ok: true,
+      item,
+    });
+  }
+);
+
+/* =========================================================
+   UPDATE
+========================================================= */
+
+router.post(
+  "/cart/update",
+  authRequired,
+  async (req, res) => {
+    const {
+      productId,
+
+      configurationKey =
+        "default",
+
+      qty,
+    } =
+      req.body || {};
+
+    if (!productId) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "productId_required",
+        });
+    }
+
+    const item =
+      await prisma.cartItem.findUnique({
+        where: {
+          userId_productId_configurationKey:
+            {
+              userId:
+                req.user.sub,
+
+              productId,
+
+              configurationKey,
+            },
+        },
+
+        select: {
+          productId:
+            true,
+
+          qty: true,
+
+          product: {
+            select: {
+              orderMode:
+                true,
+
+              availability:
+                true,
+
+              readyQty: true,
+
+              isActive: true,
+
+              isHidden: true,
+
+              moderationStatus:
+                true,
+
+              service: {
+                select: {
+                  vendor: {
+                    select: {
+                      userId:
+                        true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (!item) {
+      return res
+        .status(404)
+        .json({
+          error:
+            "cart_item_not_found",
+        });
+    }
+
+    if (
+      item.product?.service
+        ?.vendor?.userId ===
+      req.user.sub
+    ) {
+      return res
+        .status(403)
+        .json({
+          error:
+            "cannot_update_own_product",
+        });
+    }
+
+    if (
+      String(
+        item.product
+          ?.orderMode ||
+          ""
+      ).toUpperCase() ===
+      "QUOTE_ONLY"
+    ) {
+      return res
+        .status(409)
+        .json({
+          error:
+            "quote_only",
+
+          message:
+            "Pentru acest produs trebuie să soliciți o ofertă.",
+        });
+    }
+
+    if (
+      !productIsPublicAvailable(
+        item.product
+      )
+    ) {
+      const availability =
+        String(
+          item.product
+            ?.availability ||
+            ""
+        ).toUpperCase();
+
+      return res
+        .status(409)
+        .json({
+          error:
+            availability ===
+            "SOLD_OUT"
+              ? "product_sold_out"
+              : "product_unavailable",
+
+          message:
+            availability ===
+            "SOLD_OUT"
+              ? "Produsul este epuizat."
+              : "Produsul nu mai este disponibil.",
+        });
+    }
+
+    const safeQty =
+      clamp(
+        parseInt(
+          qty,
+          10
+        ) || 1,
+        1,
+        99
+      );
+
+    const otherConfigurations =
+      await prisma.cartItem.aggregate({
+        where: {
+          userId:
+            req.user.sub,
+
+          productId,
+
+          configurationKey: {
+            not:
+              configurationKey,
+          },
+        },
+
+        _sum: {
+          qty: true,
+        },
+      });
+
+    const otherConfigurationsQty =
+      Number(
+        otherConfigurations
+          ?._sum?.qty ||
+          0
+      );
+
+    const requestedProductQty =
+      otherConfigurationsQty +
+      safeQty;
+
+    const stockLimit =
+      getStockLimit(
+        item.product
+      );
+
+    if (
+      stockLimit !== null &&
+      requestedProductQty >
+        stockLimit
+    ) {
+      return res
+        .status(409)
+        .json({
+          error:
+            "insufficient_stock",
+
+          message:
+            `Poți avea maximum ${stockLimit} buc. ` +
+            "în total pentru acest produs.",
+
+          stock:
+            stockLimit,
+        });
+    }
+
+    const updated =
+      await prisma.cartItem.update({
+        where: {
+          userId_productId_configurationKey:
+            {
+              userId:
+                req.user.sub,
+
+              productId,
+
+              configurationKey,
+            },
+        },
+
+        data: {
+          qty:
+            safeQty,
+        },
+      });
+
+    return res.json({
+      ok: true,
+      item: updated,
+    });
+  }
+);
+
+/* =========================================================
+   REMOVE
+========================================================= */
+
+router.delete(
+  "/cart/remove",
+  authRequired,
+  async (req, res) => {
+    const {
+      productId,
+
+      configurationKey =
+        "default",
+    } =
+      req.body || {};
+
+    if (!productId) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "productId_required",
+        });
+    }
+
+    await prisma.cartItem
+      .delete({
+        where: {
+          userId_productId_configurationKey:
+            {
+              userId:
+                req.user.sub,
+
+              productId,
+
+              configurationKey,
+            },
+        },
+      })
+      .catch(() => null);
+
+    return res.json({
+      ok: true,
+    });
+  }
+);
+
+/* =========================================================
+   REMOVE BATCH
+========================================================= */
+
+router.post(
+  "/cart/remove-batch",
+  authRequired,
+  async (req, res) => {
+    const arr =
+      Array.isArray(
+        req.body?.productIds
+      )
+        ? req.body
+            .productIds
+        : [];
+
+    if (!arr.length) {
+      return res.json({
+        ok: true,
+      });
+    }
+
+    await prisma.cartItem.deleteMany({
+      where: {
+        userId:
+          req.user.sub,
+
+        productId: {
+          in: arr,
+        },
       },
     });
 
-    merged++;
+    return res.json({
+      ok: true,
+    });
   }
+);
 
-  const { items } = await getCartForUser(userId);
+/* =========================================================
+   CLEAR
+========================================================= */
 
-  return res.json({
-    ok: true,
-    merged,
-    skipped,
-    items,
-  });
-});
+router.post(
+  "/cart/clear",
+  authRequired,
+  async (req, res) => {
+    await prisma.cartItem.deleteMany({
+      where: {
+        userId:
+          req.user.sub,
+      },
+    });
 
-router.get("/cart/count", authRequired, async (req, res) => {
-  const count = await prisma.cartItem.count({
-    where: {
-      userId: req.user.sub,
-    },
-  });
+    return res.json({
+      ok: true,
+    });
+  }
+);
 
-  res.json({
-    count,
-  });
-});
+/* =========================================================
+   MERGE GUEST CART
+========================================================= */
 
-router.get("/cart", authRequired, async (req, res) => {
-  const userId = req.user.sub;
+router.post(
+  "/cart/merge",
+  authRequired,
+  async (req, res) => {
+    const arr =
+      Array.isArray(
+        req.body?.items
+      )
+        ? req.body.items
+        : [];
 
-  const { items, timing } = await getCartForUser(userId);
+    if (!arr.length) {
+      return res.json({
+        ok: true,
 
-  res.setHeader(
-    "Server-Timing",
-    `cart;dur=${timing.cartMs},products;dur=${timing.productsMs},map;dur=${timing.mapMs}`
-  );
+        merged: 0,
 
-  res.json({ items });
-});
+        skipped: 0,
+
+        items: [],
+      });
+    }
+
+    const userId =
+      req.user.sub;
+
+    const productIds = [
+      ...new Set(
+        arr
+          .map((item) =>
+            String(
+              item?.productId ||
+                ""
+            ).trim()
+          )
+          .filter(Boolean)
+      ),
+    ];
+
+    const products =
+      await prisma.product.findMany({
+        where: {
+          id: {
+            in:
+              productIds,
+          },
+        },
+
+        select: {
+          id: true,
+
+          orderMode: true,
+
+          availability: true,
+
+          readyQty: true,
+
+          isActive: true,
+
+          isHidden: true,
+
+          moderationStatus:
+            true,
+
+          service: {
+            select: {
+              vendor: {
+                select: {
+                  userId:
+                    true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+    const productsById =
+      new Map(
+        products.map(
+          (product) => [
+            product.id,
+            product,
+          ]
+        )
+      );
+
+    let merged = 0;
+
+    let skipped = 0;
+
+    for (
+      const rawItem of
+      arr
+    ) {
+      const productId =
+        String(
+          rawItem
+            ?.productId ||
+            ""
+        ).trim();
+
+      if (!productId) {
+        skipped++;
+        continue;
+      }
+
+      const product =
+        productsById.get(
+          productId
+        );
+
+      if (!product) {
+        skipped++;
+        continue;
+      }
+
+      if (
+        product.service
+          ?.vendor?.userId ===
+        userId
+      ) {
+        skipped++;
+        continue;
+      }
+
+      if (
+        String(
+          product.orderMode ||
+            ""
+        ).toUpperCase() ===
+        "QUOTE_ONLY"
+      ) {
+        skipped++;
+        continue;
+      }
+
+      if (
+        !productIsPublicAvailable(
+          product
+        )
+      ) {
+        skipped++;
+        continue;
+      }
+
+      const qty =
+        clamp(
+          Number.parseInt(
+            rawItem?.qty,
+            10
+          ) || 1,
+          1,
+          99
+        );
+
+      const selectedOptions =
+        normalizeCartData(
+          rawItem
+            ?.selectedOptions
+        );
+
+      const customAnswers =
+        normalizeCartData(
+          rawItem
+            ?.customAnswers
+        );
+
+      const configurationKey =
+        String(
+          rawItem
+            ?.configurationKey ||
+            ""
+        ).trim() ||
+        buildConfigurationKey(
+          selectedOptions,
+          customAnswers
+        );
+
+      const existing =
+        await prisma.cartItem.findUnique({
+          where: {
+            userId_productId_configurationKey:
+              {
+                userId,
+
+                productId,
+
+                configurationKey,
+              },
+          },
+
+          select: {
+            qty: true,
+          },
+        });
+
+      const currentConfigurationQty =
+        Number(
+          existing?.qty ||
+            0
+        );
+
+      const allProductItems =
+        await prisma.cartItem.aggregate({
+          where: {
+            userId,
+
+            productId,
+          },
+
+          _sum: {
+            qty: true,
+          },
+        });
+
+      const currentProductQty =
+        Number(
+          allProductItems
+            ?._sum?.qty ||
+            0
+        );
+
+      const stockLimit =
+        getStockLimit(
+          product
+        );
+
+      if (
+        stockLimit !== null &&
+        currentProductQty +
+          qty >
+          stockLimit
+      ) {
+        skipped++;
+        continue;
+      }
+
+      await prisma.cartItem.upsert({
+        where: {
+          userId_productId_configurationKey:
+            {
+              userId,
+
+              productId,
+
+              configurationKey,
+            },
+        },
+
+        update: {
+          qty:
+            Math.min(
+              99,
+              currentConfigurationQty +
+                qty
+            ),
+
+          selectedOptions,
+
+          customAnswers,
+        },
+
+        create: {
+          userId,
+
+          productId,
+
+          qty,
+
+          selectedOptions,
+
+          customAnswers,
+
+          configurationKey,
+        },
+      });
+
+      merged++;
+    }
+
+    const {
+      items,
+    } =
+      await getCartForUser(
+        userId
+      );
+
+    return res.json({
+      ok: true,
+
+      merged,
+
+      skipped,
+
+      items,
+    });
+  }
+);
+
+/* =========================================================
+   COUNT
+========================================================= */
+
+router.get(
+  "/cart/count",
+  authRequired,
+  async (req, res) => {
+    const count =
+      await prisma.cartItem.count({
+        where: {
+          userId:
+            req.user.sub,
+        },
+      });
+
+    return res.json({
+      count,
+    });
+  }
+);
+
+/* =========================================================
+   GET CART
+========================================================= */
+
+router.get(
+  "/cart",
+  authRequired,
+  async (req, res) => {
+    const userId =
+      req.user.sub;
+
+    const {
+      items,
+      timing,
+    } =
+      await getCartForUser(
+        userId
+      );
+
+    res.setHeader(
+      "Server-Timing",
+      `cart;dur=${timing.cartMs},products;dur=${timing.productsMs},map;dur=${timing.mapMs}`
+    );
+
+    return res.json({
+      items,
+    });
+  }
+);
 
 export default router;
