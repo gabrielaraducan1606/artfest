@@ -2002,25 +2002,35 @@ router.post(
        * ============================================
        */
 
-      const quantity =
-        Number(
-          offer.quantity ||
-            quote.quantity ||
-            0
-        );
+      const offerItems =
+  Array.isArray(offer.items)
+    ? offer.items
+    : [];
 
-      const unitPrice =
-        Number(
-          offer.unitPrice ||
-            0
-        );
+const firstOfferItem =
+  offerItems[0] || null;
 
-      const shippingTotal =
-        Number(
-          offer.shippingPrice ||
-            offer.shippingTotal ||
-            0
-        );
+const quantity =
+  Number(
+    firstOfferItem?.quantity ??
+      offer.quantity ??
+      quote.quantity ??
+      0
+  );
+
+const unitPrice =
+  Number(
+    firstOfferItem?.unitPrice ??
+      offer.unitPrice ??
+      0
+  );
+
+const shippingTotal =
+  Number(
+    offer.shippingTotal ??
+      offer.shippingPrice ??
+      0
+  );
 
       if (
         !Number.isFinite(
@@ -2039,22 +2049,20 @@ router.post(
           });
       }
 
-      if (
-        !Number.isFinite(
-          unitPrice
-        ) ||
-        unitPrice < 0
-      ) {
-        return res
-          .status(409)
-          .json({
-            error:
-              "invalid_offer_price",
+     if (
+  !Number.isFinite(unitPrice) ||
+  unitPrice <= 0
+) {
+  return res
+    .status(409)
+    .json({
+      error:
+        "invalid_offer_price",
 
-            message:
-              "Prețul din ofertă nu este valid.",
-          });
-      }
+      message:
+        "Prețul din ofertă trebuie să fie mai mare decât 0.",
+    });
+}
 
       if (
         !Number.isFinite(
@@ -2073,38 +2081,49 @@ router.post(
           });
       }
 
-      const subtotal =
-        Number.isFinite(
-          Number(
-            offer.subtotal
-          )
-        )
-          ? Number(
-              offer.subtotal
-            )
-          : quantity *
-            unitPrice;
+   const calculatedSubtotal =
+  quantity * unitPrice;
 
-      const total =
-        Number.isFinite(
-          Number(
-            offer.total
-          )
-        )
-          ? Number(
-              offer.total
-            )
-          : subtotal +
-            shippingTotal;
+const subtotal =
+  Number.isFinite(
+    Number(offer.subtotal)
+  ) &&
+  Number(offer.subtotal) > 0
+    ? Number(offer.subtotal)
+    : calculatedSubtotal;
 
-      const currency =
-        String(
-          offer.currency ||
-            "RON"
-        )
-          .trim()
-          .toUpperCase();
+const total =
+  Number.isFinite(
+    Number(offer.total)
+  ) &&
+  Number(offer.total) > 0
+    ? Number(offer.total)
+    : subtotal +
+      shippingTotal;
 
+if (
+  !Number.isFinite(subtotal) ||
+  subtotal <= 0 ||
+  !Number.isFinite(total) ||
+  total <= 0
+) {
+  return res
+    .status(409)
+    .json({
+      error:
+        "invalid_offer_total",
+
+      message:
+        "Oferta nu are un total valid și nu poate fi transformată în comandă.",
+    });
+}
+const currency =
+  String(
+    offer.currency ||
+      "RON"
+  )
+    .trim()
+    .toUpperCase();
       /*
        * Adăugăm emailul utilizatorului
        * strict în datele comenzii.

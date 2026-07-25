@@ -231,6 +231,45 @@ function vendorThreadAccessWhere(threadId, vendorId) {
   };
 }
 
+function vendorBuyerThreadAccessWhere(
+  threadId,
+  vendorId,
+  userId
+) {
+  return {
+    id: threadId,
+
+    OR: [
+      // Conversație vendor ↔ vendor normală
+      {
+        type: "VENDOR_TO_VENDOR",
+
+        OR: [
+          {
+            vendorId,
+            deletedByVendorAt: null,
+          },
+          {
+            recipientVendorId: vendorId,
+            deletedByRecipientVendorAt: null,
+          },
+        ],
+      },
+
+      // Vendorul este cumpărător într-un thread CUSTOMER
+      {
+        type: "CUSTOMER",
+        userId,
+
+        // Nu includem conversația cu propriul magazin
+        vendorId: {
+          not: vendorId,
+        },
+      },
+    ],
+  };
+}
+
 function currentVendorReadUpdate(thread, vendorId) {
   return String(thread.vendorId) === String(vendorId)
     ? { vendorLastReadAt: new Date() }
@@ -1068,28 +1107,51 @@ router.get("/user-conversations/:userId/messages", async (req, res) => {
  * PATCH /api/inbox/threads/:id/read
  */
 router.patch("/threads/:id/read", async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  const vendorId =
+    await getVendorIdForUser(req);
+
+  if (!vendorId) {
+    return res.status(403).json({
+      error: "no_vendor_for_user",
+    });
+  }
 
   const { id } = req.params;
 
-  const thread = await prisma.messageThread.findFirst({
-  where: {
-    id,
-    type: "CUSTOMER",
-    vendorId,
-    deletedByVendorAt: null,
-  },
-  select: { id: true },
-});
-  if (!thread) return res.status(404).json({ error: "Thread not found" });
+  const thread =
+    await prisma.messageThread.findFirst({
+      where: {
+        id,
+        type: "CUSTOMER",
+        vendorId,
+        deletedByVendorAt: null,
+      },
+
+      select: {
+        id: true,
+      },
+    });
+
+  if (!thread) {
+    return res.status(404).json({
+      error: "Thread not found",
+    });
+  }
 
   await prisma.messageThread.update({
-    where: { id },
-    data: { vendorLastReadAt: new Date() },
+    where: {
+      id,
+    },
+
+    data: {
+      vendorLastReadAt:
+        new Date(),
+    },
   });
 
-  return res.json({ ok: true });
+  return res.json({
+    ok: true,
+  });
 });
 
 /**
@@ -2095,414 +2157,1115 @@ router.post("/ensure-vendor-thread", async (req, res) => {
 });
 
 router.get("/vendor-threads", async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  const vendorId =
+    await getVendorIdForUser(req);
 
-  const { scope = "all", q = "" } = req.query;
+  if (!vendorId) {
+    return res.status(403).json({
+      error: "no_vendor_for_user",
+    });
+  }
 
-  const threads = await prisma.messageThread.findMany({
-    where: {
-      type: "VENDOR_TO_VENDOR",
-      OR: [
-        { vendorId, deletedByVendorAt: null },
-        { recipientVendorId: vendorId, deletedByRecipientVendorAt: null },
-      ],
-      ...(q
-        ? {
-            AND: [
+  const userId =
+    req.user?.sub;
+
+  const {
+    scope = "all",
+    q = "",
+  } = req.query;
+
+  const threads =
+    await prisma.messageThread.findMany({
+      where: {
+        OR: [
+          /*
+           * 1. Conversații vendor ↔ vendor normale
+           */
+          {
+            type: "VENDOR_TO_VENDOR",
+
+            OR: [
               {
-                OR: [
-                  { lastMsg: { contains: String(q), mode: "insensitive" } },
-                  {
-                    vendor: {
-                      displayName: { contains: String(q), mode: "insensitive" },
-                    },
-                  },
-                  {
-                    recipientVendor: {
-                      displayName: { contains: String(q), mode: "insensitive" },
-                    },
-                  },
-                ],
+                vendorId,
+                deletedByVendorAt: null,
+              },
+              {
+                recipientVendorId: vendorId,
+                deletedByRecipientVendorAt: null,
               },
             ],
-          }
-        : {}),
-    },
-    orderBy: [{ lastAt: "desc" }, { createdAt: "desc" }],
-    select: {
-      id: true,
-      vendorId: true,
-      recipientVendorId: true,
-      lastMsg: true,
-      lastAt: true,
-      vendorLastReadAt: true,
-      recipientVendorLastReadAt: true,
-      vendor: {
-        select: { id: true, displayName: true, logoUrl: true },
+          },
+
+          /*
+           * 2. Conversații CUSTOMER în care
+           * vendorul logat este cumpărătorul.
+           *
+           * Aici userId = contul Vendorului A,
+           * iar vendorId = magazinul Vendorului B.
+           */
+          {
+            type: "CUSTOMER",
+            userId,
+
+            vendorId: {
+              not: vendorId,
+            },
+          },
+        ],
+
+        ...(q
+          ? {
+              AND: [
+                {
+                  OR: [
+                    {
+                      lastMsg: {
+                        contains:
+                          String(q),
+
+                        mode:
+                          "insensitive",
+                      },
+                    },
+
+                    {
+                      vendor: {
+                        displayName: {
+                          contains:
+                            String(q),
+
+                          mode:
+                            "insensitive",
+                        },
+                      },
+                    },
+
+                    {
+                      recipientVendor: {
+                        displayName: {
+                          contains:
+                            String(q),
+
+                          mode:
+                            "insensitive",
+                        },
+                      },
+                    },
+                  ],
+                },
+              ],
+            }
+          : {}),
       },
-      recipientVendor: {
-        select: { id: true, displayName: true, logoUrl: true },
+
+      orderBy: [
+        {
+          lastAt: "desc",
+        },
+        {
+          createdAt: "desc",
+        },
+      ],
+
+      select: {
+        id: true,
+        type: true,
+        userId: true,
+
+        vendorId: true,
+        recipientVendorId: true,
+
+        lastMsg: true,
+        lastAt: true,
+
+        vendorLastReadAt: true,
+        userLastReadAt: true,
+        recipientVendorLastReadAt: true,
+
+        vendor: {
+          select: {
+            id: true,
+            displayName: true,
+            logoUrl: true,
+          },
+        },
+
+        recipientVendor: {
+          select: {
+            id: true,
+            displayName: true,
+            logoUrl: true,
+          },
+        },
       },
-    },
-  });
+    });
 
-  const threadIds = threads.map((t) => t.id);
-  const unreadByThreadId = new Map();
+  const items = [];
 
-  if (threadIds.length) {
-    const unreadRows = await prisma.$queryRaw`
-      SELECT
-        t.id as "threadId",
-        COUNT(m.*)::int as "unreadCount"
-      FROM "MessageThread" t
-      LEFT JOIN "Message" m
-        ON m."threadId" = t.id
-       AND m."deletedByVendorAt" IS NULL
-       AND m."authorType" = 'VENDOR'
-       AND m."senderVendorId" IS NOT NULL
-       AND m."senderVendorId" <> ${vendorId}
-       AND m."createdAt" > CASE
-          WHEN t."vendorId" = ${vendorId}
-            THEN COALESCE(t."vendorLastReadAt", to_timestamp(0))
-          ELSE COALESCE(t."recipientVendorLastReadAt", to_timestamp(0))
-       END
-      WHERE t.id = ANY(${threadIds})
-      GROUP BY t.id
-    `;
+  for (const thread of threads) {
+    const isBuyerThread =
+      thread.type === "CUSTOMER";
 
-    for (const r of unreadRows || []) {
-      unreadByThreadId.set(r.threadId, r.unreadCount);
+    let otherVendor = null;
+    let unreadCount = 0;
+
+    /*
+     * Cererea de ofertă trimisă de vendor.
+     */
+    if (isBuyerThread) {
+      // În CUSTOMER, thread.vendor este magazinul
+      // căruia Vendor A i-a cerut oferta.
+      otherVendor =
+        thread.vendor;
+
+      unreadCount =
+        await prisma.message.count({
+          where: {
+            threadId:
+              thread.id,
+
+            deletedByUserAt:
+              null,
+
+            // Mesajele primite de la magazin
+            authorType:
+              "VENDOR",
+
+            createdAt: {
+              gt:
+                thread.userLastReadAt ||
+                new Date(0),
+            },
+          },
+        });
     }
+
+    /*
+     * Vendor ↔ vendor normal.
+     */
+    else {
+      otherVendor =
+        otherVendorFromThread(
+          thread,
+          vendorId
+        );
+
+      const myReadAt =
+        String(
+          thread.vendorId
+        ) ===
+        String(vendorId)
+          ? thread.vendorLastReadAt
+          : thread.recipientVendorLastReadAt;
+
+      unreadCount =
+        await prisma.message.count({
+          where: {
+            threadId:
+              thread.id,
+
+            deletedByVendorAt:
+              null,
+
+            authorType:
+              "VENDOR",
+
+            senderVendorId: {
+              not: vendorId,
+            },
+
+            createdAt: {
+              gt:
+                myReadAt ||
+                new Date(0),
+            },
+          },
+        });
+    }
+
+    items.push({
+      id:
+        thread.id,
+
+      threadId:
+        thread.id,
+
+      /*
+       * Ne ajută mai târziu să știm
+       * ce fel de conversație este.
+       */
+      type:
+        isBuyerThread
+          ? "vendor_as_customer"
+          : "vendor_vendor",
+
+      vendorId:
+        otherVendor?.id ||
+        null,
+
+      name:
+        otherVendor?.displayName ||
+        "Vendor",
+
+      storeName:
+        otherVendor?.displayName ||
+        "Magazin",
+
+      logoUrl:
+        otherVendor?.logoUrl ||
+        null,
+
+      lastMsg:
+        thread.lastMsg ||
+        null,
+
+      lastAt:
+        thread.lastAt,
+
+      unreadCount,
+
+      archived:
+        false,
+    });
   }
 
-  let items = threads.map((t) => {
-    const other = otherVendorFromThread(t, vendorId);
+  let filteredItems =
+    items;
 
-    return {
-      id: t.id,
-      threadId: t.id,
-      type: "vendor_vendor",
-      vendorId: other?.id || null,
-      name: other?.displayName || "Vendor",
-      logoUrl: other?.logoUrl || null,
-      lastMsg: t.lastMsg || null,
-      lastAt: t.lastAt,
-      unreadCount: unreadByThreadId.get(t.id) || 0,
-    };
+  if (
+    scope === "unread"
+  ) {
+    filteredItems =
+      items.filter(
+        (item) =>
+          item.unreadCount >
+          0
+      );
+  }
+
+  return res.json({
+    items:
+      filteredItems,
   });
-
-  if (scope === "unread") {
-    items = items.filter((item) => item.unreadCount > 0);
-  }
-
-  return res.json({ items });
 });
 
 router.get("/vendor-threads/:id/messages", async (req, res) => {
   const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
+  if (!vendorId) {
+    return res.status(403).json({
+      error: "no_vendor_for_user",
+    });
+  }
+
+  const userId = req.user?.sub;
   const threadId = String(req.params.id || "");
 
   const thread = await prisma.messageThread.findFirst({
-    where: vendorThreadAccessWhere(threadId, vendorId),
+    where: vendorBuyerThreadAccessWhere(
+      threadId,
+      vendorId,
+      userId
+    ),
+
     select: {
       id: true,
+      type: true,
+      userId: true,
+
       vendorId: true,
       recipientVendorId: true,
+
       vendorLastReadAt: true,
+      userLastReadAt: true,
       recipientVendorLastReadAt: true,
+
       vendor: {
-        select: { id: true, displayName: true, logoUrl: true },
+        select: {
+          id: true,
+          displayName: true,
+          logoUrl: true,
+        },
       },
+
       recipientVendor: {
-        select: { id: true, displayName: true, logoUrl: true },
+        select: {
+          id: true,
+          displayName: true,
+          logoUrl: true,
+        },
       },
     },
   });
 
-  if (!thread) return res.status(404).json({ error: "Thread not found" });
+  if (!thread) {
+    return res.status(404).json({
+      error: "Thread not found",
+    });
+  }
+
+  const isBuyerThread =
+    thread.type === "CUSTOMER";
 
   const msgs = await prisma.message.findMany({
     where: {
       threadId,
-      deletedByVendorAt: null,
+
+      ...(isBuyerThread
+        ? {
+            deletedByUserAt: null,
+          }
+        : {
+            deletedByVendorAt: null,
+          }),
     },
-    orderBy: { createdAt: "asc" },
+
+    orderBy: {
+      createdAt: "asc",
+    },
+
     select: {
       id: true,
       body: true,
       createdAt: true,
+
       authorType: true,
+      authorUserId: true,
+
       vendorId: true,
       senderVendorId: true,
+
       attachments: {
-        select: { id: true, filename: true, url: true, size: true, mime: true },
+        select: {
+          id: true,
+          filename: true,
+          url: true,
+          size: true,
+          mime: true,
+        },
       },
     },
   });
 
+  /*
+   * Pentru CUSTOMER:
+   * vendorul logat este cumpărătorul,
+   * iar peer-ul este magazinul.
+   */
   const peerReadAt =
-    String(thread.vendorId) === String(vendorId)
+    isBuyerThread
+      ? thread.vendorLastReadAt
+      : String(thread.vendorId) ===
+        String(vendorId)
       ? thread.recipientVendorLastReadAt
       : thread.vendorLastReadAt;
 
   const items = msgs.map((m) => {
-    const fromMe = String(m.senderVendorId || m.vendorId) === String(vendorId);
+    let fromMe = false;
+
+    if (isBuyerThread) {
+      /*
+       * Vendorul logat vorbește aici
+       * în rol de USER.
+       */
+      fromMe =
+        m.authorType === "USER" &&
+        String(m.authorUserId || "") ===
+          String(userId || "");
+    } else {
+      /*
+       * Vendor ↔ Vendor clasic.
+       */
+      fromMe =
+        String(
+          m.senderVendorId ||
+            m.vendorId ||
+            ""
+        ) === String(vendorId);
+    }
 
     return {
       id: m.id,
       threadId,
-      from: fromMe ? "me" : "them",
+
+      from: fromMe
+        ? "me"
+        : "them",
+
       body: m.body,
-      createdAt: m.createdAt,
-      readByPeer: fromMe && peerReadAt && m.createdAt <= peerReadAt,
-      attachments: (m.attachments || []).map((a) => ({
-        id: a.id,
-        name: a.filename,
-        url: a.url,
-        size: a.size,
-        mime: a.mime,
-      })),
+
+      createdAt:
+        m.createdAt,
+
+      readByPeer:
+        !!(
+          fromMe &&
+          peerReadAt &&
+          m.createdAt <=
+            peerReadAt
+        ),
+
+      attachments:
+        (m.attachments || []).map(
+          (a) => ({
+            id: a.id,
+            name: a.filename,
+            url: a.url,
+            size: a.size,
+            mime: a.mime,
+          })
+        ),
     };
   });
 
-  const other = otherVendorFromThread(thread, vendorId);
+  /*
+   * Pentru CUSTOMER, thread.vendor
+   * este magazinul căruia i-am cerut oferta.
+   */
+  const other =
+    isBuyerThread
+      ? thread.vendor
+      : otherVendorFromThread(
+          thread,
+          vendorId
+        );
 
   return res.json({
     items,
+
     threadMeta: {
       id: thread.id,
-      type: "vendor_vendor",
-      vendorId: other?.id || null,
-      name: other?.displayName || "Vendor",
-      logoUrl: other?.logoUrl || null,
+
+      type:
+        isBuyerThread
+          ? "vendor_as_customer"
+          : "vendor_vendor",
+
+      vendorId:
+        other?.id || null,
+
+      name:
+        other?.displayName ||
+        "Vendor",
+
+      storeName:
+        other?.displayName ||
+        "Magazin",
+
+      logoUrl:
+        other?.logoUrl ||
+        null,
     },
   });
 });
 
 router.patch("/vendor-threads/:id/read", async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  const vendorId =
+    await getVendorIdForUser(req);
 
-  const threadId = String(req.params.id || "");
+  if (!vendorId) {
+    return res.status(403).json({
+      error: "no_vendor_for_user",
+    });
+  }
 
-  const thread = await prisma.messageThread.findFirst({
-    where: vendorThreadAccessWhere(threadId, vendorId),
-    select: {
-      id: true,
-      vendorId: true,
-      recipientVendorId: true,
-    },
+  const userId =
+    req.user?.sub;
+
+  const threadId =
+    String(
+      req.params.id || ""
+    ).trim();
+
+  const thread =
+    await prisma.messageThread.findFirst({
+      where:
+        vendorBuyerThreadAccessWhere(
+          threadId,
+          vendorId,
+          userId
+        ),
+
+      select: {
+        id: true,
+        type: true,
+        vendorId: true,
+        recipientVendorId: true,
+      },
+    });
+
+  if (!thread) {
+    return res.status(404).json({
+      error: "Thread not found",
+    });
+  }
+
+  if (thread.type === "CUSTOMER") {
+    await prisma.messageThread.update({
+      where: {
+        id: thread.id,
+      },
+
+      data: {
+        userLastReadAt:
+          new Date(),
+      },
+    });
+  } else {
+    await prisma.messageThread.update({
+      where: {
+        id: thread.id,
+      },
+
+      data:
+        currentVendorReadUpdate(
+          thread,
+          vendorId
+        ),
+    });
+  }
+
+  return res.json({
+    ok: true,
   });
-
-  if (!thread) return res.status(404).json({ error: "Thread not found" });
-
-  await prisma.messageThread.update({
-    where: { id: thread.id },
-    data: currentVendorReadUpdate(thread, vendorId),
-  });
-
-  return res.json({ ok: true });
 });
 
 router.post(
   "/vendor-threads/:id/messages",
   requireActiveSubscriptionForChat(),
   requireChatEntitlement(),
-  async (req, res) => {
-    const vendorId = await getVendorIdForUser(req);
-    if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
 
-    const threadId = String(req.params.id || "");
-    const body = String(req.body?.body || "").trim();
+  async (req, res) => {
+    const vendorId =
+      await getVendorIdForUser(req);
+
+    if (!vendorId) {
+      return res.status(403).json({
+        error: "no_vendor_for_user",
+      });
+    }
+
+    const userId =
+      req.user?.sub;
+
+    const threadId =
+      String(
+        req.params.id || ""
+      ).trim();
+
+    const body =
+      String(
+        req.body?.body || ""
+      ).trim();
+
+    if (!threadId) {
+      return res.status(400).json({
+        error: "missing_thread_id",
+      });
+    }
 
     if (!body) {
-      return res.status(400).json({ error: "Mesajul nu poate fi gol" });
+      return res.status(400).json({
+        error:
+          "Mesajul nu poate fi gol",
+      });
     }
-const moderation =
-  await moderateMarketplaceMessage({
-    text:
-      body,
 
-    senderType:
-      "VENDOR",
-  });
+    /*
+     * Verificăm thread-ul înainte de moderare,
+     * ca să știm dacă vendorul este aici
+     * vânzător sau cumpărător.
+     */
+    const accessThread =
+      await prisma.messageThread.findFirst({
+        where:
+          vendorBuyerThreadAccessWhere(
+            threadId,
+            vendorId,
+            userId
+          ),
 
-if (
-  !moderation.allowed
-) {
-  const technicalReasons =
-    new Set([
-      "text_moderation_failed",
-      "text_moderation_invalid_response",
-      "text_moderation_ambiguous_response",
-    ]);
+        select: {
+          id: true,
+          type: true,
+          userId: true,
+          vendorId: true,
+          recipientVendorId: true,
+        },
+      });
 
-  const isTechnicalError =
-    technicalReasons.has(
-      moderation.reason
-    );
+    if (!accessThread) {
+      return res.status(404).json({
+        error: "Thread not found",
+      });
+    }
 
-  return res
-    .status(
-      isTechnicalError
-        ? 503
-        : 422
-    )
-    .json({
-      error:
-        isTechnicalError
-          ? "moderation_unavailable"
-          : "message_blocked",
+    const isBuyerThread =
+      accessThread.type ===
+      "CUSTOMER";
 
-      reason:
-        moderation.reason ||
-        "not_allowed",
+    /*
+     * Dacă este CUSTOMER,
+     * vendorul logat este cumpărătorul.
+     */
+    const moderation =
+      await moderateMarketplaceMessage({
+        text: body,
 
-      detections:
-        moderation.detections ||
-        [],
+        senderType:
+          isBuyerThread
+            ? "USER"
+            : "VENDOR",
+      });
 
-      message:
-        isTechnicalError
-          ? "Mesajul nu a putut fi verificat momentan și nu a fost trimis. Încearcă din nou peste câteva secunde."
-          : "Mesajul nu poate fi trimis deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
-    });
-}
-    const quotaErr = await assertChatQuotaOrThrow({
-      vendorId,
-      subscription: req.subscription,
-    });
+    if (!moderation.allowed) {
+      const technicalReasons =
+        new Set([
+          "text_moderation_failed",
+          "text_moderation_invalid_response",
+          "text_moderation_ambiguous_response",
+        ]);
 
-    if (quotaErr) return res.status(quotaErr.status).json(quotaErr.payload);
+      const isTechnicalError =
+        technicalReasons.has(
+          moderation.reason
+        );
+
+      return res
+        .status(
+          isTechnicalError
+            ? 503
+            : 422
+        )
+        .json({
+          error:
+            isTechnicalError
+              ? "moderation_unavailable"
+              : "message_blocked",
+
+          reason:
+            moderation.reason ||
+            "not_allowed",
+
+          detections:
+            moderation.detections ||
+            [],
+
+          message:
+            isTechnicalError
+              ? "Mesajul nu a putut fi verificat momentan și nu a fost trimis. Încearcă din nou peste câteva secunde."
+              : "Mesajul nu poate fi trimis deoarece conține sau sugerează date de contact, comunicare, comandă ori plată în afara platformei.",
+        });
+    }
+
+    const quotaErr =
+      await assertChatQuotaOrThrow({
+        vendorId,
+        subscription:
+          req.subscription,
+      });
+
+    if (quotaErr) {
+      return res
+        .status(quotaErr.status)
+        .json(quotaErr.payload);
+    }
 
     try {
-      const out = await prisma.$transaction(async (tx) => {
-        const thread = await tx.messageThread.findFirst({
-          where: vendorThreadAccessWhere(threadId, vendorId),
-          select: {
-            id: true,
-            vendorId: true,
-            recipientVendorId: true,
-            vendor: { select: { id: true, displayName: true } },
-            recipientVendor: { select: { id: true, displayName: true } },
-          },
-        });
+      const out =
+        await prisma.$transaction(
+          async (tx) => {
+            const thread =
+              await tx.messageThread.findFirst({
+                where:
+                  vendorBuyerThreadAccessWhere(
+                    threadId,
+                    vendorId,
+                    userId
+                  ),
 
-        if (!thread) {
-          return {
-            error: {
-              status: 404,
-              payload: { error: "Thread not found" },
-            },
-          };
-        }
+                select: {
+                  id: true,
+                  type: true,
+                  userId: true,
 
-        const recipientVendorId =
-          String(thread.vendorId) === String(vendorId)
-            ? thread.recipientVendorId
-            : thread.vendorId;
+                  vendorId: true,
+                  recipientVendorId: true,
 
-        const msg = await tx.message.create({
-          data: {
-            threadId,
-            vendorId: recipientVendorId,
-            senderVendorId: vendorId,
-            authorType: "VENDOR",
-            body,
-          },
-          select: {
-            id: true,
-            body: true,
-            createdAt: true,
-          },
-        });
+                  vendor: {
+                    select: {
+                      id: true,
+                      displayName: true,
+                    },
+                  },
 
-        await tx.messageThread.update({
-          where: { id: threadId },
-          data: {
-            lastMsg: msg.body,
-            lastAt: msg.createdAt,
-            ...currentVendorReadUpdate(thread, vendorId),
-          },
-        });
+                  recipientVendor: {
+                    select: {
+                      id: true,
+                      displayName: true,
+                    },
+                  },
+                },
+              });
 
-        await bumpChatUsage({ tx, vendorId, incSent: 1 });
+            if (!thread) {
+              return {
+                error: {
+                  status: 404,
 
-        return { thread, msg, recipientVendorId };
-      });
+                  payload: {
+                    error:
+                      "Thread not found",
+                  },
+                },
+              };
+            }
+
+            const isBuyerThread =
+              thread.type ===
+              "CUSTOMER";
+
+            /*
+             * Pentru CUSTOMER:
+             * thread.vendorId este magazinul
+             * căruia i-am cerut oferta.
+             *
+             * Pentru VENDOR_TO_VENDOR:
+             * calculăm celălalt vendor.
+             */
+            const recipientVendorId =
+              isBuyerThread
+                ? thread.vendorId
+                : String(
+                    thread.vendorId
+                  ) ===
+                  String(vendorId)
+                ? thread.recipientVendorId
+                : thread.vendorId;
+
+            /*
+             * Creăm mesajul.
+             */
+            const msg =
+              await tx.message.create({
+                data:
+                  isBuyerThread
+                    ? {
+                        /*
+                         * Vendorul A este cumpărător.
+                         * Pentru Vendorul B,
+                         * mesajul trebuie să fie USER.
+                         */
+                        threadId,
+
+                        vendorId:
+                          thread.vendorId,
+
+                        authorType:
+                          "USER",
+
+                        authorUserId:
+                          userId,
+
+                        body,
+                      }
+                    : {
+                        /*
+                         * Vendor ↔ Vendor normal.
+                         */
+                        threadId,
+
+                        vendorId:
+                          recipientVendorId,
+
+                        senderVendorId:
+                          vendorId,
+
+                        authorType:
+                          "VENDOR",
+
+                        body,
+                      },
+
+                select: {
+                  id: true,
+                  body: true,
+                  createdAt: true,
+                },
+              });
+
+            /*
+             * Actualizăm conversația.
+             */
+            await tx.messageThread.update({
+              where: {
+                id: threadId,
+              },
+
+              data: {
+                lastMsg:
+                  msg.body,
+
+                lastAt:
+                  msg.createdAt,
+
+                ...(isBuyerThread
+                  ? {
+                      /*
+                       * Vendorul A este partea USER.
+                       */
+                      userLastReadAt:
+                        new Date(),
+                    }
+                  : currentVendorReadUpdate(
+                      thread,
+                      vendorId
+                    )),
+              },
+            });
+
+            await bumpChatUsage({
+              tx,
+              vendorId,
+              incSent: 1,
+            });
+
+            return {
+              thread,
+              msg,
+              recipientVendorId,
+              isBuyerThread,
+            };
+          }
+        );
 
       if (out?.error) {
-        return res.status(out.error.status).json(out.error.payload);
+        return res
+          .status(
+            out.error.status
+          )
+          .json(
+            out.error.payload
+          );
       }
 
+      /*
+       * Notificări.
+       */
       try {
-        const senderName =
-          String(out.thread.vendorId) === String(vendorId)
-            ? out.thread.vendor?.displayName
-            : out.thread.recipientVendor?.displayName;
+        if (out.isBuyerThread) {
+          /*
+           * Vendor A = cumpărător.
+           * Notificăm Vendor B.
+           */
+          await prisma.notification.create({
+            data: {
+              vendorId:
+                out.thread.vendorId,
 
-        await prisma.notification.create({
-  data: {
-    vendorId: out.recipientVendorId,
-    threadId,
-    type: "message",
-    title: `Mesaj nou de la ${senderName || "vendor"}`,
-    body: out.msg.body.slice(0, 140),
-    link: `/mesaje?vendorThreadId=${threadId}`,
-  },
-});
+              threadId,
+
+              type:
+                "message",
+
+              title:
+                "Mesaj nou într-o cerere de ofertă",
+
+              body:
+                out.msg.body.slice(
+                  0,
+                  140
+                ),
+
+              /*
+               * Vendor B vede conversația
+               * în tabul Clienți.
+               */
+              link:
+                `/mesaje?threadId=${threadId}`,
+            },
+          });
+        } else {
+          /*
+           * Vendor ↔ Vendor normal.
+           */
+          const senderName =
+            String(
+              out.thread.vendorId
+            ) ===
+            String(vendorId)
+              ? out.thread.vendor
+                  ?.displayName
+              : out.thread
+                  .recipientVendor
+                  ?.displayName;
+
+          await prisma.notification.create({
+            data: {
+              vendorId:
+                out.recipientVendorId,
+
+              threadId,
+
+              type:
+                "message",
+
+              title:
+                `Mesaj nou de la ${
+                  senderName ||
+                  "vendor"
+                }`,
+
+              body:
+                out.msg.body.slice(
+                  0,
+                  140
+                ),
+
+              link:
+                `/mesaje?vendorThreadId=${threadId}`,
+            },
+          });
+        }
       } catch (e) {
-        console.error("Nu am putut crea notificarea pentru vendor:", e);
+        console.error(
+          "Nu am putut crea notificarea pentru vendor:",
+          e
+        );
       }
 
-      return res.status(201).json({
-        ok: true,
-        id: out.msg.id,
-        createdAt: out.msg.createdAt,
-      });
+      return res
+        .status(201)
+        .json({
+          ok: true,
+
+          id:
+            out.msg.id,
+
+          createdAt:
+            out.msg.createdAt,
+        });
     } catch (e) {
-      console.error("vendor-to-vendor send message error:", e);
-      return res.status(500).json({
-        error: "server_error",
-        message:
-          "Ups… a apărut o problemă tehnică. Te rog încearcă din nou în câteva secunde.",
-      });
+      console.error(
+        "vendor-to-vendor send message error:",
+        e
+      );
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "server_error",
+
+          message:
+            "Ups… a apărut o problemă tehnică. Te rog încearcă din nou în câteva secunde.",
+        });
     }
   }
 );
 
 router.patch("/vendor-threads/:id/archive", async (req, res) => {
-  const vendorId = await getVendorIdForUser(req);
-  if (!vendorId) return res.status(403).json({ error: "no_vendor_for_user" });
+  const vendorId =
+    await getVendorIdForUser(req);
 
-  const threadId = String(req.params.id || "");
-  const { archived = true } = req.body || {};
+  if (!vendorId) {
+    return res.status(403).json({
+      error: "no_vendor_for_user",
+    });
+  }
 
-  const thread = await prisma.messageThread.findFirst({
-    where: vendorThreadAccessWhere(threadId, vendorId),
-    select: {
-      id: true,
-      vendorId: true,
-      recipientVendorId: true,
-    },
-  });
+  const userId =
+    req.user?.sub;
 
-  if (!thread) return res.status(404).json({ error: "Thread not found" });
+  const threadId =
+    String(
+      req.params.id || ""
+    ).trim();
 
+  const {
+    archived = true,
+  } = req.body || {};
+
+  if (!threadId) {
+    return res.status(400).json({
+      error: "missing_thread_id",
+    });
+  }
+
+  const thread =
+    await prisma.messageThread.findFirst({
+      where:
+        vendorBuyerThreadAccessWhere(
+          threadId,
+          vendorId,
+          userId
+        ),
+
+      select: {
+        id: true,
+        type: true,
+        vendorId: true,
+        recipientVendorId: true,
+      },
+    });
+
+  if (!thread) {
+    return res.status(404).json({
+      error: "Thread not found",
+    });
+  }
+
+  /*
+   * Dacă vendorul este cumpărător
+   * într-un thread CUSTOMER,
+   * arhivăm pentru partea USER.
+   */
+  if (thread.type === "CUSTOMER") {
+    await prisma.messageThread.update({
+      where: {
+        id: thread.id,
+      },
+
+      data: {
+        archivedByUser:
+          !!archived,
+      },
+    });
+
+    return res.json({
+      ok: true,
+    });
+  }
+
+  /*
+   * Conversație VENDOR_TO_VENDOR normală.
+   */
   const data =
-    String(thread.vendorId) === String(vendorId)
-      ? { deletedByVendorAt: archived ? new Date() : null }
-      : { deletedByRecipientVendorAt: archived ? new Date() : null };
+    String(thread.vendorId) ===
+    String(vendorId)
+      ? {
+          deletedByVendorAt:
+            archived
+              ? new Date()
+              : null,
+        }
+      : {
+          deletedByRecipientVendorAt:
+            archived
+              ? new Date()
+              : null,
+        };
 
   await prisma.messageThread.update({
-    where: { id: thread.id },
+    where: {
+      id: thread.id,
+    },
+
     data,
   });
 
-  return res.json({ ok: true });
+  return res.json({
+    ok: true,
+  });
 });
-
 export default router;
