@@ -1256,9 +1256,16 @@ router.get(
             },
 
             select: {
-              id: true,
-              threadId: true,
-            },
+  id: true,
+  threadId: true,
+
+  thread: {
+    select: {
+      vendorLastReadAt: true,
+      userLastReadAt: true,
+    },
+  },
+},
           }
         );
 
@@ -1317,57 +1324,79 @@ router.get(
         );
 
       return res.json({
-        items:
-          messages.map(
-            (message) => ({
+  items:
+    messages.map(
+      (message) => ({
+        id:
+          message.id,
+
+        from:
+          message.authorType ===
+          "USER"
+            ? "me"
+            : "them",
+
+        body:
+          message.body,
+
+        createdAt:
+          message.createdAt,
+
+        readByPeer:
+          message.authorType ===
+          "USER"
+            ? Boolean(
+                quote.thread?.vendorLastReadAt &&
+                  new Date(
+                    quote.thread.vendorLastReadAt
+                  ) >=
+                    new Date(
+                      message.createdAt
+                    )
+              )
+            : Boolean(
+                quote.thread?.userLastReadAt &&
+                  new Date(
+                    quote.thread.userLastReadAt
+                  ) >=
+                    new Date(
+                      message.createdAt
+                    )
+              ),
+
+        authorName:
+          message.authorType ===
+          "USER"
+            ? null
+            : message.authorName,
+
+        attachments:
+          (
+            message.attachments ||
+            []
+          ).map(
+            (
+              attachment
+            ) => ({
               id:
-                message.id,
+                attachment.id,
 
-              from:
-                message.authorType ===
-                "USER"
-                  ? "me"
-                  : "them",
+              name:
+                attachment.filename,
 
-              body:
-                message.body,
+              url:
+                attachment.url,
 
-              createdAt:
-                message.createdAt,
+              mime:
+                attachment.mime,
 
-              authorName:
-                message.authorType ===
-                "USER"
-                  ? null
-                  : message.authorName,
-
-              attachments:
-                (
-                  message.attachments ||
-                  []
-                ).map(
-                  (
-                    attachment
-                  ) => ({
-                    id:
-                      attachment.id,
-
-                    name:
-                      attachment.filename,
-
-                    url:
-                      attachment.url,
-
-                    mime:
-                      attachment.mime,
-
-                    size:
-                      attachment.size,
-                  })
-                ),
+              size:
+                attachment.size,
             })
           ),
-      });
+      })
+    ),
+});
     } catch (error) {
       console.error(
         "GET quote messages failed:",
