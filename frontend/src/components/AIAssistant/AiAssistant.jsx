@@ -192,10 +192,18 @@ const VENDOR_ROOT_ACTIONS = [
   },
 
   {
-    id: QUOTE_FLOWS.VENDOR_QUOTES,
-    title: "Cereri de ofertă",
+    id: QUOTE_FLOWS.MY_QUOTES,
+    title: "Cererile mele",
     description:
-      "Vezi cererile primite și discută cu clienții.",
+      "Vezi cererile de ofertă trimise de tine și răspunsurile primite.",
+    icon: PersonalizationIcon,
+  },
+
+  {
+    id: QUOTE_FLOWS.VENDOR_QUOTES,
+    title: "Cereri primite",
+    description:
+      "Vezi cererile primite pentru magazinul tău și discută cu clienții.",
     icon: PersonalizationIcon,
   },
 
@@ -468,9 +476,8 @@ const messagesRef =
   useRef(
     INITIAL_MESSAGES
   );
-  const quoteDeepLinkHandledRef =
-  useRef(false);
-
+ const quoteDeepLinkHandledRef =
+  useRef(null);
   const dragRef = useRef({
     active: false,
     moved: false,
@@ -684,11 +691,6 @@ useEffect(() => {
     return;
   }
 
-  if (
-    quoteDeepLinkHandledRef.current
-  ) {
-    return;
-  }
 
   const params =
   new URLSearchParams(
@@ -715,16 +717,23 @@ useEffect(() => {
   ) {
     return;
   }
+const deepLinkKey =
+  `${assistantTarget}:${quoteId}`;
 
-  const shouldOpenUserQuote =
-    assistantTarget ===
-      "quote" &&
-    !isVendor;
+if (
+  quoteDeepLinkHandledRef.current ===
+  deepLinkKey
+) {
+  return;
+}
+const shouldOpenUserQuote =
+  assistantTarget ===
+  "quote";
 
-  const shouldOpenVendorQuote =
-    assistantTarget ===
-      "vendor-quote" &&
-    isVendor;
+const shouldOpenVendorQuote =
+  assistantTarget ===
+    "vendor-quote" &&
+  isVendor;
 
   if (
     !shouldOpenUserQuote &&
@@ -733,8 +742,8 @@ useEffect(() => {
     return;
   }
 
-  quoteDeepLinkHandledRef.current =
-    true;
+ quoteDeepLinkHandledRef.current =
+  deepLinkKey;
 
   let cancelled =
     false;
