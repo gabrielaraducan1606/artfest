@@ -54,20 +54,6 @@ const ACTIVE_QUOTE_STATUSES =
     "OFFER_SENT",
   ]);
 
-function isActiveQuote(
-  quote
-) {
-  const status =
-    String(
-      quote?.status || ""
-    )
-      .trim()
-      .toUpperCase();
-
-  return ACTIVE_QUOTE_STATUSES.has(
-    status
-  );
-}
 
 /* =========================================================
    Helpers
