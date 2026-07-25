@@ -833,11 +833,9 @@ export async function openMyQuotes({
     const result =
       await fetchMyQuotes();
 
-   const quotes =
+ const quotes =
   normalizeQuoteList(
     result
-  ).filter(
-    isActiveQuote
   );
 
     if (
@@ -934,10 +932,7 @@ export async function openVendorQuotes({
     const quotes =
   normalizeQuoteList(
     result
-  ).filter(
-    isActiveQuote
   );
-
     if (
       !quotes.length
     ) {
