@@ -1003,24 +1003,19 @@ export async function openUserQuote({
   }
 
   try {
-    const [
-      quoteResult,
-      messagesResult,
-    ] =
-      await Promise.all([
-        fetchQuote(
-          quoteId
-        ),
+   const [
+  quoteResult,
+  messagesResult,
+] =
+  await Promise.all([
+    fetchQuote(
+      quoteId
+    ),
 
-        fetchQuoteMessages(
-          quoteId
-        ).catch(
-          () => ({
-            items:
-              [],
-          })
-        ),
-      ]);
+    fetchQuoteMessages(
+      quoteId
+    ),
+  ]);
 
     const quote =
       quoteResult?.quote ||
