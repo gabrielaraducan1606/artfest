@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -6,6 +7,71 @@ import {
 } from "react";
 
 import styles from "../../../components/css/ProductModal.module.css";
+
+/*
+ * Returnează cheia internă a opțiunii.
+ *
+ * Acceptăm atât:
+ * "lemn"
+ *
+ * cât și:
+ * {
+ *   key: "lemn",
+ *   label: "Lemn"
+ * }
+ */
+function getOptionKey(option) {
+  if (
+    option &&
+    typeof option === "object"
+  ) {
+    return String(
+      option.key ??
+        option.value ??
+        option.label ??
+        ""
+    );
+  }
+
+  return String(option ?? "");
+}
+
+/*
+ * Returnează textul afișat utilizatorului.
+ */
+function getOptionLabel(option) {
+  if (
+    option &&
+    typeof option === "object"
+  ) {
+    return String(
+      option.label ??
+        option.name ??
+        option.key ??
+        option.value ??
+        ""
+    );
+  }
+
+  return String(option ?? "");
+}
+
+/*
+ * Normalizează textul pentru căutare:
+ * - elimină diacriticele;
+ * - transformă în litere mici;
+ * - elimină spațiile inutile.
+ */
+function normalizeText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(
+      /[\u0300-\u036f]/g,
+      ""
+    )
+    .toLowerCase()
+    .trim();
+}
 
 export default function SingleTagComboField({
   id,
@@ -25,100 +91,82 @@ export default function SingleTagComboField({
   const wrapRef = useRef(null);
 
   /*
-   * Returnează cheia internă a opțiunii.
-   *
-   * Acceptăm atât:
-   * "lemn"
-   *
-   * cât și:
-   * {
-   *   key: "lemn",
-   *   label: "Lemn"
-   * }
-   */
-  function getOptionKey(option) {
-    if (
-      option &&
-      typeof option === "object"
-    ) {
-      return String(
-        option.key ??
-          option.value ??
-          option.label ??
-          ""
-      );
-    }
-
-    return String(option ?? "");
-  }
-
-  /*
-   * Returnează textul afișat utilizatorului.
-   */
-  function getOptionLabel(option) {
-    if (
-      option &&
-      typeof option === "object"
-    ) {
-      return String(
-        option.label ??
-          option.name ??
-          option.key ??
-          option.value ??
-          ""
-      );
-    }
-
-    return String(option ?? "");
-  }
-
-  /*
-   * Caută eticheta aferentă valorii din form.
+   * Caută eticheta aferentă valorii salvate în form.
    *
    * De exemplu:
    * value = "lemn"
-   * opțiune = { key: "lemn", label: "Lemn" }
+   * option = {
+   *   key: "lemn",
+   *   label: "Lemn"
+   * }
    *
    * În input afișăm "Lemn",
    * dar în form păstrăm "lemn".
    */
-  const getDisplayValue = (currentValue) => {
-    const normalizedValue =
-      String(currentValue ?? "").trim();
+  const getDisplayValue =
+    useCallback(
+      (currentValue) => {
+        const normalizedValue =
+          String(
+            currentValue ?? ""
+          ).trim();
 
-    if (!normalizedValue) {
-      return "";
-    }
+        if (!normalizedValue) {
+          return "";
+        }
 
-    const matchedOption =
-      (Array.isArray(options)
-        ? options
-        : []
-      ).find(
-        (option) =>
-          getOptionKey(option) ===
-            normalizedValue ||
-          getOptionLabel(option) ===
-            normalizedValue
-      );
+        const availableOptions =
+          Array.isArray(options)
+            ? options
+            : [];
 
-    return matchedOption
-      ? getOptionLabel(matchedOption)
-      : normalizedValue;
-  };
+        const matchedOption =
+          availableOptions.find(
+            (option) =>
+              getOptionKey(
+                option
+              ) ===
+                normalizedValue ||
+              getOptionLabel(
+                option
+              ) ===
+                normalizedValue
+          );
 
+        return matchedOption
+          ? getOptionLabel(
+              matchedOption
+            )
+          : normalizedValue;
+      },
+      [options]
+    );
+
+  /*
+   * Sincronizăm valoarea din form
+   * cu textul afișat în input.
+   */
   useEffect(() => {
     setInputValue(
       getDisplayValue(value)
     );
-  }, [value, options]);
+  }, [
+    value,
+    getDisplayValue,
+  ]);
 
+  /*
+   * Închidem lista când utilizatorul
+   * apasă în afara componentei.
+   */
   useEffect(() => {
     if (!openList) {
-      return;
+      return undefined;
     }
 
-    function handleClickOutside(event) {
+    function handleClickOutside(
+      event
+    ) {
       if (
         wrapRef.current &&
         !wrapRef.current.contains(
@@ -142,144 +190,185 @@ export default function SingleTagComboField({
     };
   }, [openList]);
 
-  const normalize = (valueToNormalize) =>
-    String(valueToNormalize ?? "")
-      .normalize("NFD")
-      .replace(
-        /[\u0300-\u036f]/g,
-        ""
-      )
-      .toLowerCase()
-      .trim();
-
+  /*
+   * Transformăm toate opțiunile într-un format stabil.
+   *
+   * Acceptăm:
+   * ["Lemn", "Metal"]
+   *
+   * sau:
+   * [
+   *   {
+   *     key: "lemn",
+   *     label: "Lemn"
+   *   }
+   * ]
+   */
   const normalizedOptions =
     useMemo(() => {
       if (!Array.isArray(options)) {
         return [];
       }
 
-      const seenKeys =
+      const seenOptions =
         new Set();
 
       return options
-        .map((option, index) => {
-          const optionKey =
-            getOptionKey(option);
+        .map(
+          (
+            option,
+            index
+          ) => {
+            const optionKey =
+              getOptionKey(
+                option
+              ).trim();
 
-          const optionLabel =
-            getOptionLabel(option);
+            const optionLabel =
+              getOptionLabel(
+                option
+              ).trim();
 
-          /*
-           * Evităm cheile duplicate sau goale.
-           */
-          const reactKey =
-            optionKey ||
-            optionLabel ||
-            `option-${index}`;
+            if (
+              !optionKey &&
+              !optionLabel
+            ) {
+              return null;
+            }
 
-          if (
-            !optionKey &&
-            !optionLabel
-          ) {
-            return null;
-          }
-
-          /*
-           * Eliminăm duplicatele reale.
-           */
-          const uniqueKey =
-            `${optionKey}::${optionLabel}`;
-
-          if (
-            seenKeys.has(uniqueKey)
-          ) {
-            return null;
-          }
-
-          seenKeys.add(uniqueKey);
-
-          return {
-            key:
+            const finalKey =
               optionKey ||
-              optionLabel,
+              optionLabel;
 
-            label:
+            const finalLabel =
               optionLabel ||
-              optionKey,
+              optionKey;
 
-            reactKey:
-              `${reactKey}-${index}`,
-          };
-        })
+            /*
+             * Eliminăm duplicatele după cheia și eticheta lor.
+             */
+            const uniqueIdentifier =
+              `${finalKey}::${finalLabel}`;
+
+            if (
+              seenOptions.has(
+                uniqueIdentifier
+              )
+            ) {
+              return null;
+            }
+
+            seenOptions.add(
+              uniqueIdentifier
+            );
+
+            return {
+              key:
+                finalKey,
+
+              label:
+                finalLabel,
+
+              reactKey:
+                `${uniqueIdentifier}-${index}`,
+            };
+          }
+        )
         .filter(Boolean);
     }, [options]);
 
+  /*
+   * Filtrăm sugestiile după textul introdus.
+   */
   const suggestions =
     useMemo(() => {
       const query =
-        normalize(inputValue);
+        normalizeText(
+          inputValue
+        );
 
       return normalizedOptions
-        .filter((option) => {
-          if (!query) {
-            return true;
-          }
+        .filter(
+          (option) => {
+            if (!query) {
+              return true;
+            }
 
-          return (
-            normalize(
-              option.label
-            ).includes(query) ||
-            normalize(
-              option.key
-            ).includes(query)
-          );
-        })
-        .slice(0, 20);
+            return (
+              normalizeText(
+                option.label
+              ).includes(
+                query
+              ) ||
+              normalizeText(
+                option.key
+              ).includes(
+                query
+              )
+            );
+          }
+        )
+        .slice(
+          0,
+          20
+        );
     }, [
       normalizedOptions,
       inputValue,
     ]);
 
-  const handleManualChange = (
-    event
-  ) => {
-    const nextValue =
-      event.target.value;
+  /*
+   * Completare manuală.
+   *
+   * Salvăm exact textul introdus.
+   */
+  const handleManualChange =
+    useCallback(
+      (event) => {
+        const nextValue =
+          event.target.value;
 
-    setInputValue(nextValue);
+        setInputValue(
+          nextValue
+        );
 
-    /*
-     * La completare manuală păstrăm exact
-     * textul introdus de utilizator.
-     */
-    onChange?.(nextValue);
+        onChange?.(
+          nextValue
+        );
 
-    setOpenList(true);
-  };
-
-  const handleSelectOption = (
-    option
-  ) => {
-    setInputValue(
-      option.label
+        setOpenList(true);
+      },
+      [onChange]
     );
 
-    /*
-     * În form salvăm cheia stabilă,
-     * nu întregul obiect.
-     */
-    onChange?.(
-      option.key
-    );
+  /*
+   * Selectarea unei opțiuni din listă.
+   *
+   * În input afișăm eticheta,
+   * iar în form salvăm cheia.
+   */
+  const handleSelectOption =
+    useCallback(
+      (option) => {
+        setInputValue(
+          option.label
+        );
 
-    setOpenList(false);
-  };
+        onChange?.(
+          option.key
+        );
+
+        setOpenList(false);
+      },
+      [onChange]
+    );
 
   return (
     <div
       ref={wrapRef}
       style={{
-        marginBottom: 12,
+        marginBottom:
+          12,
       }}
     >
       {label && (
@@ -298,12 +387,16 @@ export default function SingleTagComboField({
         className={
           styles.input
         }
-        value={inputValue}
+        value={
+          inputValue
+        }
         placeholder={
           placeholder
         }
         onFocus={() =>
-          setOpenList(true)
+          setOpenList(
+            true
+          )
         }
         onChange={
           handleManualChange
@@ -358,6 +451,7 @@ export default function SingleTagComboField({
               className={
                 styles.tagsListCloseBtn
               }
+              aria-label="Închide lista de sugestii"
             >
               ×
             </button>
@@ -366,7 +460,9 @@ export default function SingleTagComboField({
           {suggestions.length >
           0 ? (
             suggestions.map(
-              (option) => (
+              (
+                option
+              ) => (
                 <div
                   key={
                     option.reactKey
@@ -376,9 +472,9 @@ export default function SingleTagComboField({
                   }
                   onMouseDown={(
                     event
-                  ) =>
-                    event.preventDefault()
-                  }
+                  ) => {
+                    event.preventDefault();
+                  }}
                   onClick={() =>
                     handleSelectOption(
                       option
