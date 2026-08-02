@@ -12,32 +12,47 @@ datasource db {
 /// ==================== User & Auth ====================
 
 model User {
-  id                        String     @id @default(uuid())
-  email                     String     @unique
-  passwordHash              String
-  tokenVersion              Int        @default(0)
-  firstName                 String?
-  lastName                  String?
-  phone                     String?
-  name                      String?
-  city                      String?
-  avatarUrl                 String?
-  preferences               Json?
-  marketingOptIn            Boolean    @default(false)
-  role                      Role       @default(USER)
-  createdAt                 DateTime   @default(now())
-  status                    UserStatus @default(ACTIVE)
-  lastLoginAt               DateTime?
-  lastPasswordChangeAt      DateTime?
-  locked                    Boolean    @default(false)
-  inactiveNotifiedAt        DateTime?
-  scheduledDeletionAt       DateTime?
-  emailVerifiedAt           DateTime?
-  emailChangeExpiresAt      DateTime?
-  emailChangeNewEmail       String?
-  emailChangeToken          String?
+  id    String @id @default(uuid())
+  email String @unique
+
+  passwordHash String?
+
+  // Îl păstrăm momentan pentru compatibilitate cu ruta existentă.
+  // După migrarea datelor îl putem elimina.
+  googleId String? @unique
+
+  tokenVersion Int @default(0)
+
+  firstName String?
+  lastName  String?
+  phone     String?
+  name      String?
+  city      String?
+  avatarUrl String?
+
+  preferences    Json?
+  marketingOptIn Boolean @default(false)
+
+  role      Role       @default(USER)
+  createdAt DateTime   @default(now())
+  status    UserStatus @default(ACTIVE)
+
+  lastLoginAt          DateTime?
+  lastPasswordChangeAt DateTime?
+  locked               Boolean   @default(false)
+
+  inactiveNotifiedAt  DateTime?
+  scheduledDeletionAt DateTime?
+  emailVerifiedAt     DateTime?
+
+  emailChangeExpiresAt DateTime?
+  emailChangeNewEmail  String?
+  emailChangeToken     String?
+
   vendorDeactivateExpiresAt DateTime?
   vendorDeactivateToken     String?
+
+  authAccounts AuthAccount[]
 
   cartItems               CartItem[]
   comments                Comment[]
@@ -83,6 +98,32 @@ model User {
 
   @@index([vendorDeactivateToken])
   @@index([emailChangeToken])
+}
+
+model AuthAccount {
+  id String @id @default(cuid())
+
+  userId String
+
+  provider          AuthProvider
+  providerAccountId String
+
+  providerEmail String?
+  emailVerified Boolean @default(false)
+
+  displayName String?
+  avatarUrl   String?
+
+  connectedAt DateTime  @default(now())
+  lastUsedAt  DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId], name: "provider_providerAccountId")
+  @@unique([userId, provider], name: "userId_provider")
+  @@index([userId])
+  @@index([providerEmail])
 }
 
 model InactiveUserLog {
@@ -544,6 +585,10 @@ enum ProductOrderMode {
   QUOTE_ONLY
 }
 
+enum AuthProvider {
+  GOOGLE
+}
+
 model Product {
   id          String   @id @default(uuid())
   serviceId   String
@@ -904,7 +949,6 @@ model CartItem {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, productId, configurationKey], name: "userId_productId_configurationKey")
-
   @@index([userId])
   @@index([userId, createdAt])
   @@index([productId])

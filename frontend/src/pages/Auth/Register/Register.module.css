@@ -465,3 +465,355 @@
   display: block;
   line-height: 1.6;
 }
+
+/* =========================================================
+ * Google authentication
+ * Compatibil cu JSX-ul actual din Register.jsx.
+ * ========================================================= */
+
+.authSeparator {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 0;
+}
+
+.authSeparatorLine {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(
+      in srgb,
+      var(--color-border) 90%,
+      transparent
+    ),
+    transparent
+  );
+}
+
+.authSeparatorText {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.015em;
+  color: color-mix(
+    in srgb,
+    var(--color-text) 56%,
+    transparent
+  );
+  white-space: nowrap;
+}
+
+.googleSection {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 14px;
+  overflow: hidden;
+
+  border: 1px solid
+    color-mix(
+      in srgb,
+      #4285f4 22%,
+      var(--color-border)
+    );
+
+  border-radius:
+    calc(var(--radius) + 3px);
+
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(
+        in srgb,
+        var(--surface) 97%,
+        #4285f4 3%
+      ),
+      color-mix(
+        in srgb,
+        var(--surface) 98%,
+        #34a853 2%
+      )
+    );
+
+  box-shadow:
+    0 8px 24px
+      color-mix(
+        in srgb,
+        #4285f4 8%,
+        transparent
+      );
+
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.googleSection::before {
+  content: "";
+  position: absolute;
+  top: -70px;
+  right: -70px;
+  width: 150px;
+  height: 150px;
+  pointer-events: none;
+  border-radius: 50%;
+
+  background:
+    radial-gradient(
+      circle,
+      color-mix(
+        in srgb,
+        #4285f4 12%,
+        transparent
+      ),
+      transparent 68%
+    );
+}
+
+.googleSection:hover {
+  border-color:
+    color-mix(
+      in srgb,
+      #4285f4 38%,
+      var(--color-border)
+    );
+
+  box-shadow:
+    0 12px 30px
+      color-mix(
+        in srgb,
+        #4285f4 12%,
+        transparent
+      );
+
+  transform: translateY(-1px);
+}
+
+.googleButtonWrap {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    filter 0.18s ease;
+}
+
+.googleButtonWrap:hover {
+  transform: translateY(-1px);
+}
+
+.googleButtonInner {
+  width: 100%;
+  max-width: 400px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.googleButtonInner > div {
+  max-width: 100% !important;
+}
+
+.googleButtonInner iframe {
+  max-width: 100% !important;
+}
+
+.googleButtonInner[hidden] {
+  display: none;
+}
+
+.googleLoading {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+
+  border: 1px solid
+    color-mix(
+      in srgb,
+      #4285f4 20%,
+      var(--color-border)
+    );
+
+  border-radius: 999px;
+
+  background:
+    color-mix(
+      in srgb,
+      var(--surface) 94%,
+      #4285f4 6%
+    );
+
+  color: color-mix(
+    in srgb,
+    var(--color-text) 76%,
+    transparent
+  );
+
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.googleLoading::before {
+  content: "";
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  box-sizing: border-box;
+
+  border: 2px solid
+    color-mix(
+      in srgb,
+      #4285f4 24%,
+      transparent
+    );
+
+  border-top-color: #4285f4;
+  border-radius: 50%;
+
+  animation:
+    googleSpinnerRotate
+    0.75s linear infinite;
+}
+
+@keyframes googleSpinnerRotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.googleLoadingHint {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  color: color-mix(
+    in srgb,
+    var(--color-text) 64%,
+    transparent
+  );
+  font-size: 0.8rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.googleSection .hint {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 7px 10px;
+
+  border: 1px dashed
+    color-mix(
+      in srgb,
+      var(--color-primary) 34%,
+      var(--color-border)
+    );
+
+  border-radius:
+    calc(var(--radius) - 3px);
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 6%,
+      var(--surface)
+    );
+
+  color: color-mix(
+    in srgb,
+    var(--color-text) 70%,
+    transparent
+  );
+
+  font-size: 0.8rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.googleSection .error {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  text-align: left;
+}
+
+@media (max-width: 519px) {
+  .authSeparator {
+    gap: 9px;
+    margin-top: 2px;
+  }
+
+  .authSeparatorText {
+    max-width: 190px;
+    font-size: 0.72rem;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .googleSection {
+    gap: 8px;
+    padding: 11px;
+    border-radius:
+      calc(var(--radius) + 1px);
+  }
+
+  .googleButtonWrap,
+  .googleButtonInner,
+  .googleLoading {
+    min-height: 40px;
+  }
+
+  .googleButtonInner {
+    max-width: 100%;
+  }
+
+  .googleLoading {
+    font-size: 0.82rem;
+  }
+
+  .googleLoadingHint,
+  .googleSection .hint {
+    font-size: 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .googleSection,
+  .googleButtonWrap,
+  .googleLoading::before {
+    transition: none;
+    animation: none;
+  }
+
+  .googleSection:hover,
+  .googleButtonWrap:hover {
+    transform: none;
+  }
+}
