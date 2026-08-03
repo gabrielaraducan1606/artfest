@@ -52,17 +52,34 @@ const DOC_LABELS = {
 };
 
 const DOC_URLS = {
-  TOS: "/legal/tos",
-  PRIVACY: "/legal/privacy",
-  COOKIES: "/legal/cookies",
+  TOS: "/termenii-si-conditiile",
+  PRIVACY: "/confidentialitate",
+  COOKIES: "/cookies",
   RETURNS_POLICY_ACK: "/politica-retur",
-  MARKETING: "/legal/marketing",
 
   VENDOR_TERMS: "/acord-vanzatori",
-  VENDOR_PRIVACY_NOTICE: "/confidentialitate",
   SHIPPING_ADDENDUM: "/anexa-expediere",
-  PRODUCTS_ADDENDUM: "/politica-produse",
+  PRODUCTS_ADDENDUM: "/anexa-produse",
   PRODUCT_DECLARATION: "/vendor/legal/product-declaration",
+};
+
+
+
+ const DOCS_BY_SCOPE = {
+  VENDORS: {
+    VENDOR_TERMS: true,
+    RETURNS_POLICY_ACK: true,
+    SHIPPING_ADDENDUM: false,
+    PRODUCTS_ADDENDUM: false,
+    PRODUCT_DECLARATION: false,
+  },
+
+  USERS: {
+    TOS: true,
+    PRIVACY: true,
+    COOKIES: false,
+    RETURNS_POLICY_ACK: true,
+  },
 };
 
 function normalizeUserConsents(userConsents = []) {
@@ -574,23 +591,6 @@ if (userFilters.hasMarketing === "YES") {
 function PolicyNotificationsTab() {
   const [scope, setScope] = useState("VENDORS");
 
-  const DOCS_BY_SCOPE = {
-  VENDORS: {
-  VENDOR_TERMS: true,
-  RETURNS_POLICY_ACK: true,
-  SHIPPING_ADDENDUM: false,
-  VENDOR_PRIVACY_NOTICE: false,
-  PRODUCTS_ADDENDUM: false,
-  PRODUCT_DECLARATION: true,
-},
-  USERS: {
-    TOS: true,
-    PRIVACY: true,
-    COOKIES: false,
-    RETURNS_POLICY_ACK: true,
-    MARKETING: false,
-  },
-};
 
   const [documents, setDocuments] = useState(DOCS_BY_SCOPE.VENDORS);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -646,11 +646,13 @@ Echipa Marketplace
       title: DOC_LABELS[k] || k,
       version: "X.Y.Z",
       url: DOC_URLS[k] || null,
-    required: [
+   required: [
   "TOS",
   "PRIVACY",
   "RETURNS_POLICY_ACK",
   "VENDOR_TERMS",
+  "SHIPPING_ADDENDUM",
+  "PRODUCTS_ADDENDUM",
   "PRODUCT_DECLARATION",
 ].includes(k),
     }));
@@ -664,69 +666,91 @@ Echipa Marketplace
     };
   }, [scope, requiresAction, title, message, selectedDocs]);
 
-  const handleSubmit = async () => {
-    setOkMsg("");
-    setErrMsg("");
+ const handleSubmit = async () => {
+  setOkMsg("");
+  setErrMsg("");
 
-    if (!title.trim() || !message.trim()) {
-      setErrMsg("Completează titlul și mesajul pentru notificare.");
-      return;
-    }
+  if (!title.trim() || !message.trim()) {
+    setErrMsg("Completează titlul și mesajul pentru notificare.");
+    return;
+  }
 
-    if (!selectedDocs.length) {
-      setErrMsg("Selectează cel puțin un document.");
-      return;
-    }
+  if (!selectedDocs.length) {
+    setErrMsg("Selectează cel puțin un document.");
+    return;
+  }
 
-    if (sendEmail && (!emailSubject.trim() || !emailBody.trim())) {
-      setErrMsg("Completează subiectul și corpul emailului.");
-      return;
-    }
+  if (sendEmail && (!emailSubject.trim() || !emailBody.trim())) {
+    setErrMsg("Completează subiectul și corpul emailului.");
+    return;
+  }
 
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin/policy-notifications/send", {
+  setLoading(true);
+
+  try {
+    const res = await fetch(
+      "/api/admin/policy-notifications/send",
+      {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         credentials: "include",
         body: JSON.stringify({
           scope,
           documents: selectedDocs,
           requiresAction,
-          inApp: { title, message },
-          email: sendEmail ? { subject: emailSubject, body: emailBody } : null,
+          inApp: {
+            title: title.trim(),
+            message: message.trim(),
+          },
+          email: sendEmail
+            ? {
+                subject: emailSubject.trim(),
+                body: emailBody,
+              }
+            : null,
         }),
-      });
+      }
+    );
+
+    const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-  const data = await res.json().catch(() => ({}));
-  console.log("POLICY NOTIFY ERROR DATA:", data);
-  setErrMsg(JSON.stringify(data, null, 2));
-  throw new Error(data?.error || "server_error");
-}
+      console.error("POLICY NOTIFY ERROR DATA:", data);
 
-      const data = await res.json().catch(() => ({}));
-      setOkMsg(
-        `Trimis cu succes. Target: ${data?.targetCount ?? "?"} · Notificări create: ${
-          data?.createdCount ?? "?"
-        }${
-          data?.emailQueued != null
-            ? ` · Email trimise: ${data.emailQueued}${
-                data.emailFailed ? ` · Eșuate: ${data.emailFailed}` : ""
-              }`
-            : ""
-        }`
+      const missing = Array.isArray(data?.missingDocuments)
+        ? ` Documente lipsă: ${data.missingDocuments.join(", ")}.`
+        : "";
+
+      const invalid = Array.isArray(data?.invalidDocuments)
+        ? ` Documente invalide: ${data.invalidDocuments.join(", ")}.`
+        : "";
+
+      throw new Error(
+        `${data?.error || "server_error"}.${missing}${invalid}`
       );
-    } catch (e) {
-      console.error("policy notify send error:", e);
-      setErrMsg(
-        "Eroare la trimitere. Verifică endpoint-ul din backend și încearcă din nou."
-      );
-    } finally {
-      setLoading(false);
     }
-  };
 
+    const publishedCount =
+      data?.publication?.publishedCount ?? 0;
+
+    setOkMsg(
+      `Publicare reușită. Politici publicate: ${publishedCount} · ` +
+        `Target: ${data?.targetCount ?? "?"} · ` +
+        `Notificări create: ${data?.createdCount ?? "?"}`
+    );
+  } catch (error) {
+    console.error("policy publish and notify error:", error);
+
+    setErrMsg(
+      error?.message ||
+        "Publicarea și trimiterea informării au eșuat."
+    );
+  } finally {
+    setLoading(false);
+  }
+};
   const docKeys = Object.keys(documents);
 
   return (
@@ -833,7 +857,9 @@ Echipa Marketplace
           onClick={handleSubmit}
           disabled={loading}
         >
-          {loading ? "Se trimite…" : "Trimite informarea"}
+          {loading
+  ? "Se publică și se trimite…"
+  : "Publică și trimite informarea"}
         </button>
 
         <button

@@ -1,6 +1,14 @@
 // PolicyGate.jsx
-import { useEffect, useMemo, useState } from "react";
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import { createPortal } from "react-dom";
+
 import styles from "./PolicyGate.module.css";
 
 export default function PolicyGate({
@@ -11,176 +19,419 @@ export default function PolicyGate({
   closeOnOverlay = false,
   closeOnEsc = false,
 }) {
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState("");
-  const [payload, setPayload] = useState(null);
+  const [loading, setLoading] =
+    useState(false);
+
+  const [submitting, setSubmitting] =
+    useState(false);
+
+  const [err, setErr] =
+    useState("");
+
+  const [payload, setPayload] =
+    useState(null);
 
   const blocked = useMemo(() => {
-    if (!payload?.requiresAction) return false;
+    if (!payload?.requiresAction) {
+      return false;
+    }
 
-    return (payload.documents || []).some(
-      (d) => d.required && !d.alreadyAccepted
+    return (
+      payload.documents || []
+    ).some(
+      (document) =>
+        document.required &&
+        !document.alreadyAccepted
     );
   }, [payload]);
 
-
-const shouldRender = isOpen;
+  const shouldRender = isOpen;
 
   useEffect(() => {
     onStatusChange?.(blocked);
-  }, [blocked, onStatusChange]);
+  }, [
+    blocked,
+    onStatusChange,
+  ]);
 
-  const fetchGate = async () => {
-    if (!scope) return;
-
-    setLoading(true);
-    setErr("");
-
-    try {
-      const res = await fetch(
-        `/api/policy-gate?scope=${encodeURIComponent(scope)}`,
-        { credentials: "include" }
-      );
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        console.log("POLICY GATE ERROR DATA:", data);
-        throw new Error(data?.error || "gate_fetch_failed");
+  const fetchGate = useCallback(
+    async () => {
+      if (!scope) {
+        return null;
       }
 
-      if (data?.notification) {
-  setPayload({
-    ...data,
-    documents: Array.isArray(data.documents) ? data.documents : [],
-  });
-} else {
-  setPayload(null);
-}
-    } catch (e) {
-      console.error("PolicyGate fetch error:", e);
-      setErr("Nu am putut încărca informarea de politici.");
-      setPayload(null);
-    } finally {
-      setLoading(false);
+      setLoading(true);
+      setErr("");
+
+      try {
+        const response = await fetch(
+          `/api/policy-gate?scope=${encodeURIComponent(
+            scope
+          )}`,
+          {
+            credentials: "include",
+          }
+        );
+
+        const data = await response
+          .json()
+          .catch(() => ({}));
+
+        if (!response.ok) {
+          console.error(
+            "POLICY GATE ERROR DATA:",
+            data
+          );
+
+          throw new Error(
+            data?.error ||
+              "gate_fetch_failed"
+          );
+        }
+
+        /*
+         * Există o notificare activă.
+         */
+        if (data?.notification) {
+          setPayload({
+            ...data,
+
+            documents: Array.isArray(
+              data.documents
+            )
+              ? data.documents
+              : [],
+          });
+
+          return data;
+        }
+
+        /*
+         * Nu mai există notificare activă.
+         * Înseamnă că a fost arhivată sau nu este
+         * necesară nicio acțiune.
+         */
+        setPayload(null);
+        onStatusChange?.(false);
+        onClose?.();
+
+        return data;
+      } catch (error) {
+        console.error(
+          "PolicyGate fetch error:",
+          error
+        );
+
+        setErr(
+          error?.message ||
+            "Nu am putut încărca informarea de politici."
+        );
+
+        setPayload(null);
+
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      scope,
+      onClose,
+      onStatusChange,
+    ]
+  );
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
     }
-  };
 
-  useEffect(() => {
-    if (!isOpen) return;
     fetchGate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, isOpen]);
+  }, [
+    isOpen,
+    fetchGate,
+  ]);
 
   useEffect(() => {
-    if (!shouldRender || !closeOnEsc) return;
+    if (
+      !shouldRender ||
+      !closeOnEsc
+    ) {
+      return undefined;
+    }
 
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" && !blocked) {
+    const handleKeyDown = (
+      event
+    ) => {
+      if (
+        event.key === "Escape" &&
+        !blocked
+      ) {
         onClose?.();
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
 
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [shouldRender, closeOnEsc, blocked, onClose]);
-
-  const handleAcceptAll = async () => {
-    if (submitting || loading) return;
-
-    setSubmitting(true);
-    setErr("");
-
-    try {
-      const pendingRequired = (payload?.documents || []).filter(
-        (d) => d.required && !d.alreadyAccepted
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown
       );
+    };
+  }, [
+    shouldRender,
+    closeOnEsc,
+    blocked,
+    onClose,
+  ]);
 
-      if (!pendingRequired.length) {
-        await fetchGate();
+  const handleAcceptAll =
+    async () => {
+      if (
+        submitting ||
+        loading
+      ) {
         return;
       }
 
-      const res = await fetch("/api/policy-gate/accept", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          scope,
-          notificationId: payload?.notification?.id || null,
-          documents: pendingRequired.map((d) => d.key),
-        }),
-      });
+      setSubmitting(true);
+      setErr("");
 
-      const data = await res.json().catch(() => ({}));
+      try {
+        const pendingRequired = (
+          payload?.documents || []
+        ).filter(
+          (document) =>
+            document.required &&
+            !document.alreadyAccepted
+        );
 
-      if (!res.ok) {
-        console.log("POLICY GATE ACCEPT ERROR DATA:", data);
-        throw new Error(data?.error || "accept_failed");
+        /*
+         * Dacă nu mai există documente obligatorii
+         * neacceptate, reîncărcăm starea porții.
+         */
+        if (
+          !pendingRequired.length
+        ) {
+          await fetchGate();
+          return;
+        }
+
+        const response = await fetch(
+          "/api/policy-gate/accept",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            credentials: "include",
+
+            body: JSON.stringify({
+              scope,
+
+              notificationId:
+                payload?.notification
+                  ?.id || null,
+
+              documents:
+                pendingRequired.map(
+                  (document) =>
+                    document.key
+                ),
+            }),
+          }
+        );
+
+        const data = await response
+          .json()
+          .catch(() => ({}));
+
+        if (!response.ok) {
+          console.error(
+            "POLICY GATE ACCEPT ERROR DATA:",
+            data
+          );
+
+          const missingDocuments =
+            Array.isArray(
+              data?.missingDocuments
+            )
+              ? ` Documente lipsă: ${data.missingDocuments.join(
+                  ", "
+                )}.`
+              : "";
+
+          const invalidDocuments =
+            Array.isArray(
+              data?.invalidDocuments
+            )
+              ? ` Documente invalide: ${data.invalidDocuments.join(
+                  ", "
+                )}.`
+              : "";
+
+          throw new Error(
+            `${
+              data?.error ||
+              "accept_failed"
+            }.${missingDocuments}${invalidDocuments}`
+          );
+        }
+
+        /*
+         * Backendul confirmă că toate documentele
+         * obligatorii au fost acceptate și notificarea
+         * poate fi închisă.
+         */
+        if (
+          data?.gateClosed ===
+          true
+        ) {
+          setPayload(null);
+          onStatusChange?.(
+            false
+          );
+          onClose?.();
+
+          return;
+        }
+
+        /*
+         * Dacă mai există documente obligatorii,
+         * reîncărcăm starea reală a porții.
+         */
+        await fetchGate();
+      } catch (error) {
+        console.error(
+          "PolicyGate accept error:",
+          error
+        );
+
+        setErr(
+          error?.message ||
+            "Eroare la acceptare. Încearcă din nou."
+        );
+      } finally {
+        setSubmitting(false);
       }
+    };
 
-      await fetchGate();
-      onClose?.();
-    } catch (e) {
-      console.error("PolicyGate accept error:", e);
-      setErr("Eroare la acceptare. Încearcă din nou.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  if (!shouldRender) {
+    return null;
+  }
 
-  if (!shouldRender) return null;
-  if (typeof document === "undefined") return null;
+  if (
+    typeof document ===
+    "undefined"
+  ) {
+    return null;
+  }
 
   const modal = (
     <div
-      className={styles.overlay}
-      onMouseDown={(e) => {
-        if (!closeOnOverlay || blocked) return;
-        if (e.target === e.currentTarget) onClose?.();
+      className={
+        styles.overlay
+      }
+      onMouseDown={(event) => {
+        if (
+          !closeOnOverlay ||
+          blocked
+        ) {
+          return;
+        }
+
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose?.();
+        }
       }}
       role="presentation"
     >
       <section
-        className={styles.modal}
+        className={
+          styles.modal
+        }
         role="dialog"
         aria-modal="true"
         aria-label="Actualizare documente legale"
       >
-        <header className={styles.header}>
-          <div className={styles.headerText}>
-            <div className={styles.title}>
+        <header
+          className={
+            styles.header
+          }
+        >
+          <div
+            className={
+              styles.headerText
+            }
+          >
+            <div
+              className={
+                styles.title
+              }
+            >
               {loading
                 ? "Se încarcă…"
-                : payload?.notification?.title || "Actualizare documente"}
+                : payload
+                    ?.notification
+                    ?.title ||
+                  "Actualizare documente"}
             </div>
 
             {!loading ? (
-              <div className={styles.message}>
-                {payload?.notification?.message ||
+              <div
+                className={
+                  styles.message
+                }
+              >
+                {payload
+                  ?.notification
+                  ?.message ||
                   "A apărut o problemă la încărcarea informării."}
               </div>
             ) : (
-              <div className={styles.skeletonLine} />
+              <div
+                className={
+                  styles.skeletonLine
+                }
+              />
             )}
           </div>
 
-          <div className={styles.headerRight}>
+          <div
+            className={
+              styles.headerRight
+            }
+          >
             {blocked ? (
-              <span className={styles.badge}>Necesită acceptare</span>
+              <span
+                className={
+                  styles.badge
+                }
+              >
+                Necesită acceptare
+              </span>
             ) : null}
 
-            {onClose && !blocked ? (
+            {onClose &&
+            !blocked ? (
               <button
                 type="button"
-                className={styles.closeBtn}
-                onClick={onClose}
+                className={
+                  styles.closeBtn
+                }
+                onClick={
+                  onClose
+                }
                 aria-label="Închide"
               >
                 ×
@@ -189,54 +440,143 @@ const shouldRender = isOpen;
           </div>
         </header>
 
-        <div className={styles.body}>
-          {err ? <div className={styles.error}>{err}</div> : null}
+        <div
+          className={
+            styles.body
+          }
+        >
+          {err ? (
+            <div
+              className={
+                styles.error
+              }
+            >
+              {err}
+            </div>
+          ) : null}
 
-          <div className={styles.sectionLabel}>Documente vizate</div>
+          <div
+            className={
+              styles.sectionLabel
+            }
+          >
+            Documente vizate
+          </div>
 
-          <div className={styles.docs}>
-            {(payload?.documents || []).length ? (
-              (payload?.documents || []).map((d) => (
-                <div key={`${d.key}-${d.version}`} className={styles.docRow}>
-                  <div className={styles.docMain}>
-                    <div className={styles.docTop}>
-                      <span className={styles.docTitle}>
-                        {d.title || d.key}
-                      </span>
-                      <span className={styles.docMeta}>
-                        v{d.version || "?"}
-                      </span>
-
-                      {d.required ? (
-                        <span className={styles.req}>Obligatoriu</span>
-                      ) : null}
-
-                      {d.alreadyAccepted ? (
-                        <span className={styles.ok}>✓ Acceptat</span>
-                      ) : (
-                        <span className={styles.pending}>
-                          □ Necesită acceptare
+          <div
+            className={
+              styles.docs
+            }
+          >
+            {(
+              payload?.documents ||
+              []
+            ).length ? (
+              (
+                payload?.documents ||
+                []
+              ).map(
+                (
+                  documentItem
+                ) => (
+                  <div
+                    key={`${documentItem.key}-${documentItem.version}`}
+                    className={
+                      styles.docRow
+                    }
+                  >
+                    <div
+                      className={
+                        styles.docMain
+                      }
+                    >
+                      <div
+                        className={
+                          styles.docTop
+                        }
+                      >
+                        <span
+                          className={
+                            styles.docTitle
+                          }
+                        >
+                          {documentItem.title ||
+                            documentItem.key}
                         </span>
+
+                        <span
+                          className={
+                            styles.docMeta
+                          }
+                        >
+                          v
+                          {documentItem.version ||
+                            "?"}
+                        </span>
+
+                        {documentItem.required ? (
+                          <span
+                            className={
+                              styles.req
+                            }
+                          >
+                            Obligatoriu
+                          </span>
+                        ) : null}
+
+                        {documentItem.alreadyAccepted ? (
+                          <span
+                            className={
+                              styles.ok
+                            }
+                          >
+                            ✓ Acceptat
+                          </span>
+                        ) : (
+                          <span
+                            className={
+                              styles.pending
+                            }
+                          >
+                            □ Necesită
+                            acceptare
+                          </span>
+                        )}
+                      </div>
+
+                      {documentItem.url ? (
+                        <a
+                          className={
+                            styles.link
+                          }
+                          href={
+                            documentItem.url
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Deschide
+                          documentul
+                        </a>
+                      ) : (
+                        <div
+                          className={
+                            styles.muted
+                          }
+                        >
+                          Link lipsă
+                        </div>
                       )}
                     </div>
-
-                    {d.url ? (
-                      <a
-                        className={styles.link}
-                        href={d.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Deschide documentul
-                      </a>
-                    ) : (
-                      <div className={styles.muted}>Link lipsă</div>
-                    )}
                   </div>
-                </div>
-              ))
+                )
+              )
             ) : (
-              <div className={styles.muted}>
+              <div
+                className={
+                  styles.muted
+                }
+              >
                 {loading
                   ? "Se încarcă documentele…"
                   : "Nu există documente încărcate pentru această informare."}
@@ -245,32 +585,68 @@ const shouldRender = isOpen;
           </div>
 
           {blocked ? (
-            <div className={styles.hint}>
-              Unele acțiuni sunt blocate până accepți documentele obligatorii.
+            <div
+              className={
+                styles.hint
+              }
+            >
+              Unele acțiuni sunt
+              blocate până accepți
+              documentele
+              obligatorii.
             </div>
           ) : (
-            <div className={styles.hint}>
-              Documentele obligatorii sunt acceptate sau informarea nu necesită
-              acțiune.
+            <div
+              className={
+                styles.hint
+              }
+            >
+              Documentele
+              obligatorii sunt
+              acceptate sau
+              informarea nu
+              necesită acțiune.
             </div>
           )}
         </div>
 
-        <footer className={styles.footer}>
+        <footer
+          className={
+            styles.footer
+          }
+        >
           <button
             type="button"
-            className={styles.primaryBtn}
-            onClick={handleAcceptAll}
-            disabled={!blocked || submitting || loading || !!err}
+            className={
+              styles.primaryBtn
+            }
+            onClick={
+              handleAcceptAll
+            }
+            disabled={
+              !blocked ||
+              submitting ||
+              loading ||
+              !!err
+            }
           >
-            {submitting ? "Se acceptă…" : "Acceptă și continuă"}
+            {submitting
+              ? "Se acceptă…"
+              : "Acceptă și continuă"}
           </button>
 
           <button
             type="button"
-            className={styles.secondaryBtn}
-            onClick={fetchGate}
-            disabled={submitting || loading}
+            className={
+              styles.secondaryBtn
+            }
+            onClick={
+              fetchGate
+            }
+            disabled={
+              submitting ||
+              loading
+            }
           >
             Reîncarcă
           </button>
@@ -279,5 +655,8 @@ const shouldRender = isOpen;
     </div>
   );
 
-  return createPortal(modal, document.body);
+  return createPortal(
+    modal,
+    document.body
+  );
 }
