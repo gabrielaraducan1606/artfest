@@ -409,6 +409,7 @@ app.post("/api/admin/monitor/incidents/:id/ack", requireAdminMonitorToken, async
 app.use("/api/public", publicAdsRoutes);
 app.use("/api/public", publicCategories);
 
+app.use("/api", vendorSettingsRoutes);
 app.use(adminEmailLogsRoutes);
 app.use("/api/ambassadors", ambassadorRoutes);
 app.use("/api/admin/maintenance", adminMaintenanceRoutes);
@@ -513,7 +514,6 @@ app.use("/api", vendorInvoicesRouter);
 app.use("/api/vendor/support", VendorSupportRoutes);
 app.use("/api/vendor", vendorOrdersRoutes);
 app.use("/public", publicContactRoutes);
-app.use("/api", vendorSettingsRoutes);
 
 app.use("/api/vendors/stripe/connect", vendorsStripeConnectRoutes);
 // 👇 aici folosim authRequired din ./src/api/auth.js
