@@ -13,7 +13,6 @@ import { authRequired } from "./src/api/auth.js";
 import { prisma } from "./src/db.js";
 
 /* ---------------- IMPORT RUTE EXISTENTE ---------------- */
-import { getLegalMeta, getLegalHtml } from "./src/api/legal.js";
 import authRouter from "./src/routes/authRoutes.js";
 import vendorsRouter from "./src/routes/vendorRoutes.js";
 import serviceTypesRouter from "./src/routes/serviceTypesRoutes.js";
@@ -97,6 +96,8 @@ import assistantRouter from "./src/routes/assistantRoutes/assistantRoutes.js";
 import guestOrdersRoutes from "./src/routes/guestOrderRoutes.js";
 import productAiRoutes from "./src/routes/vendorProductAIRoutes.js";
 import publicHomepageRoutes from "./src/routes/homepagePublicRoutes.js";
+import adminHomepageFeatureRoutes from "./src/routes/adminHomepageFeatureRoutes.js";
+import vendorHomepageFeatureRoutes from "./src/routes/vendorHomepageFeatureRoutes.js";
 import vendorQuotesRouter from "./src/routes/assistantRoutes/assistant/vendorQuotesRoutes.js";
 
 // 🔔 JOB: follow-up notifications
@@ -435,7 +436,14 @@ app.use(
   "/api/public/homepage",
   publicHomepageRoutes
 );
-
+app.use(
+  "/api/admin/homepage-features",
+  adminHomepageFeatureRoutes
+);
+app.use(
+  "/api/vendor/homepage-features",
+  vendorHomepageFeatureRoutes
+);
 app.use("/api", productAiRoutes);
 // în app.js / routes index
 app.use("/api", adminPolicyNotificationsRoutes);
@@ -487,8 +495,6 @@ app.get("/healthz", (_req, res) => res.send("ok"));
 app.get("/api/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
 /* ---------------- RESTUL DE RUTE /api ---------------- */
-app.get("/api/legal", getLegalMeta);
-app.get("/legal/:type.html", getLegalHtml);
 
 app.use("/api", checkoutRoutes);
 app.use("/api", samedayRoutes);

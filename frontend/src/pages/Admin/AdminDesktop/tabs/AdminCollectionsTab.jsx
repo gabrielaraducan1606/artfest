@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api";
 import styles from "../AdminDesktop.module.css";
+import AdminHomepageFeaturesTab from "./AdminPromotionsTab/AdminHomepageFeaturesTab.jsx";
 import { CATEGORIES_DETAILED } from "../../../../../../backend/src/constants/categories.js";
 
 const OCCASION_OPTIONS = [
@@ -63,6 +64,9 @@ function toDatetimeLocal(value) {
 }
 
 export default function AdminCollectionsTab() {
+  const [activeSection, setActiveSection] =
+    useState("collections");
+
   const [collections, setCollections] = useState([]);
   const [previewProducts, setPreviewProducts] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -516,13 +520,69 @@ export default function AdminCollectionsTab() {
     return new Set(collectionItems.map((item) => item.productId));
   }, [collectionItems]);
 
-  if (loading) {
-    return <p className={styles.subtle}>Se încarcă colecțiile…</p>;
-  }
-
+ if (
+  activeSection ===
+  "homepage-features"
+) {
   return (
     <div>
-      {error && <div className={styles.error}>{error}</div>}
+      <CollectionsSectionsNav
+        activeSection={
+          activeSection
+        }
+        setActiveSection={
+          setActiveSection
+        }
+      />
+
+      <AdminHomepageFeaturesTab />
+    </div>
+  );
+}
+
+if (loading) {
+  return (
+    <div>
+      <CollectionsSectionsNav
+        activeSection={
+          activeSection
+        }
+        setActiveSection={
+          setActiveSection
+        }
+      />
+
+      <p
+        className={
+          styles.subtle
+        }
+      >
+        Se încarcă colecțiile…
+      </p>
+    </div>
+  );
+}
+
+  return (
+  <div>
+    <CollectionsSectionsNav
+      activeSection={
+        activeSection
+      }
+      setActiveSection={
+        setActiveSection
+      }
+    />
+
+    {error && (
+      <div
+        className={
+          styles.error
+        }
+      >
+        {error}
+      </div>
+    )}
 
       <div style={{ marginBottom: 16 }}>
         <button
@@ -1141,6 +1201,103 @@ function ProductLiteRow({ product }) {
           {product.vendor?.displayName ? ` · ${product.vendor.displayName}` : ""}
         </div>
       </div>
+    </div>
+  );
+}
+
+function CollectionsSectionsNav({
+  activeSection,
+  setActiveSection,
+}) {
+  const isCollections =
+    activeSection ===
+    "collections";
+
+  const isHomepageFeatures =
+    activeSection ===
+    "homepage-features";
+
+  return (
+    <div
+      style={{
+        display:
+          "flex",
+
+        gap:
+          10,
+
+        flexWrap:
+          "wrap",
+
+        marginBottom:
+          20,
+
+        paddingBottom:
+          14,
+
+        borderBottom:
+          "1px solid #e5e7eb",
+      }}
+    >
+      <button
+        type="button"
+        className={
+          styles.tab
+        }
+        onClick={() =>
+          setActiveSection(
+            "collections"
+          )
+        }
+        style={{
+          fontWeight:
+            isCollections
+              ? 800
+              : 500,
+
+          opacity:
+            isCollections
+              ? 1
+              : 0.7,
+
+          border:
+            isCollections
+              ? "2px solid #111827"
+              : undefined,
+        }}
+      >
+        Colecții
+      </button>
+
+      <button
+        type="button"
+        className={
+          styles.tab
+        }
+        onClick={() =>
+          setActiveSection(
+            "homepage-features"
+          )
+        }
+        style={{
+          fontWeight:
+            isHomepageFeatures
+              ? 800
+              : 500,
+
+          opacity:
+            isHomepageFeatures
+              ? 1
+              : 0.7,
+
+          border:
+            isHomepageFeatures
+              ? "2px solid #111827"
+              : undefined,
+        }}
+      >
+        Promovări homepage
+      </button>
     </div>
   );
 }

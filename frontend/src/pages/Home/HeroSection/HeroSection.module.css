@@ -1103,3 +1103,74 @@ html[data-theme="dark"]
     transition: none;
   }
 }
+
+.spotlightDiscountBadge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.spotlightPriceGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.spotlightOldPrice {
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: line-through;
+}
+
+.spotlightDiscountedPrice {
+  color: #dc2626;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.spotlightDiscountNote {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.spotlightArtisanDiscount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.spotlightArtisanDiscount strong {
+  color: #dc2626;
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.spotlightArtisanDiscount span {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .spotlightDiscountedPrice {
+    font-size: 21px;
+  }
+
+  .spotlightArtisanDiscount strong {
+    font-size: 18px;
+  }
+}

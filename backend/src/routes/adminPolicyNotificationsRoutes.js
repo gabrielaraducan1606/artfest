@@ -30,24 +30,12 @@ const ALLOWED_DOCS_BY_SCOPE = {
     "PRIVACY",
     "COOKIES",
     "RETURNS_POLICY_ACK",
-
-    /*
-     * MARKETING nu este momentan document Markdown în manifest.
-     * Îl păstrăm pentru compatibilitatea interfeței existente,
-     * dar nu îl putem publica automat din manifest.
-     */
     "MARKETING",
   ],
 
   VENDORS: [
     "VENDOR_TERMS",
-
-    /*
-     * Nu există momentan un document separat în manifest pentru
-     * VENDOR_PRIVACY_NOTICE. Îl păstrăm pentru compatibilitate.
-     */
     "VENDOR_PRIVACY_NOTICE",
-
     "SHIPPING_ADDENDUM",
     "PRODUCTS_ADDENDUM",
     "PRODUCT_DECLARATION",
@@ -955,25 +943,29 @@ router.post(
         });
 
       const targets =
-        scope === "USERS"
-          ? await prisma.user.findMany({
-              /*
-               * Păstrăm comportamentul existent:
-               * scope USERS vizează clienții USER.
-               */
-              where: {
-                role: "USER",
-              },
+  scope === "USERS"
+    ? await prisma.user.findMany({
+        /*
+         * Documentele generale, precum TOS și Privacy,
+         * se aplică atât clienților, cât și vendorilor.
+         */
+        where: {
+          role: {
+            in: ["USER", "VENDOR"],
+          },
+        },
 
-              select: {
-                id: true,
-              },
-            })
-          : await prisma.vendor.findMany({
-              select: {
-                id: true,
-              },
-            });
+        select: {
+          id: true,
+          role: true,
+        },
+      })
+    : await prisma.vendor.findMany({
+        select: {
+          id: true,
+          userId: true,
+        },
+      });
 
       const notifications =
         targets.map((target) => ({
@@ -998,21 +990,15 @@ router.post(
               : "/cont?policyGate=1&scope=USERS",
 
           meta: {
-            kind:
-              "POLICY_UPDATE",
-
-            scope,
-            documents,
-            requiresAction,
-
-            campaignId:
-              campaign.id,
-
-            campaignKey:
-              campaign.campaignKey,
-
-            email: !!email,
-          },
+  kind: "POLICY_UPDATE",
+  scope,
+  documents,
+  requiresAction,
+  campaignId: campaign.id,
+  campaignKey: campaign.campaignKey,
+  email: !!email,
+  createdAt: new Date(),
+}
         }));
 
       if (

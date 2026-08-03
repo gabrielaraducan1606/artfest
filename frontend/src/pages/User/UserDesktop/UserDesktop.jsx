@@ -173,58 +173,126 @@ const queryPolicyScope = params.get("scope") || null;
 const [policyGateOpen, setPolicyGateOpen] = useState(
   shouldOpenPolicyGate
 );
+
 const [policyBlocked, setPolicyBlocked] = useState(false);
+
+const [policyScope, setPolicyScope] = useState("USERS");
+
+const isVendor = me?.role === "VENDOR";
+const isAdmin = me?.role === "ADMIN";
+const isUser = me?.role === "USER";
+
+const roleLabel = isVendor
+  ? "Vânzător"
+  : isAdmin
+  ? "Administrator"
+  : "Utilizator";
+
+const requestedPolicyScope = useMemo(() => {
+  const value = String(
+    queryPolicyScope || ""
+  ).toUpperCase();
+
+  if (value === "USERS") {
+    return "USERS";
+  }
+
+  if (value === "VENDORS") {
+    return "VENDORS";
+  }
+
+  return null;
+}, [queryPolicyScope]);
 
 useEffect(() => {
   if (!me) return;
 
-  if (shouldOpenPolicyGate) {
-    setPolicyGateOpen(true);
-  }
-}, [me, shouldOpenPolicyGate, location.search]);
-
- const isVendor = me?.role === "VENDOR";
-  const isAdmin = me?.role === "ADMIN";
-  const isUser = me?.role === "USER";
-  const roleLabel = isVendor
-    ? "Vânzător"
-    : isAdmin
-    ? "Administrator"
-    : "Utilizator";
-
-  const rawPolicyScope = (
-  queryPolicyScope || (isVendor ? "VENDORS" : "USERS")
-).toUpperCase();
-
-const policyScope =
-  rawPolicyScope === "VENDORS" ? "VENDORS" : "USERS";
-useEffect(() => {
-  if (!me && !shouldOpenPolicyGate) return;
-
   let alive = true;
 
-  const scope = policyScope;
+  function hasPendingRequiredDocuments(data) {
+    return (
+      data?.requiresAction === true &&
+      Array.isArray(data?.documents) &&
+      data.documents.some(
+        (document) =>
+          document?.required === true &&
+          document?.alreadyAccepted !== true
+      )
+    );
+  }
 
-  api(`/api/policy-gate?scope=${encodeURIComponent(scope)}`)
-    .then((data) => {
+  async function checkPolicyGates() {
+    /*
+     * Dacă linkul notificării conține un scope explicit,
+     * deschidem exact poarta cerută.
+     */
+    if (requestedPolicyScope) {
+      const requestedGate = await api(
+        `/api/policy-gate?scope=${encodeURIComponent(
+          requestedPolicyScope
+        )}`
+      ).catch(() => null);
+
       if (!alive) return;
 
-      const hasPendingRequired =
-        !!data?.requiresAction &&
-        Array.isArray(data?.documents) &&
-        data.documents.some((d) => d.required && !d.alreadyAccepted);
-
-      if (hasPendingRequired || shouldOpenPolicyGate) {
+      if (
+        hasPendingRequiredDocuments(requestedGate) ||
+        shouldOpenPolicyGate
+      ) {
+        setPolicyScope(requestedPolicyScope);
         setPolicyGateOpen(true);
       }
-    })
-    .catch(() => {});
+
+      return;
+    }
+
+    /*
+     * Orice cont verifică mai întâi politicile generale:
+     * TOS, Privacy, Cookies, Retur.
+     */
+    const userGate = await api(
+      "/api/policy-gate?scope=USERS"
+    ).catch(() => null);
+
+    if (!alive) return;
+
+    if (hasPendingRequiredDocuments(userGate)) {
+      setPolicyScope("USERS");
+      setPolicyGateOpen(true);
+      return;
+    }
+
+    /*
+     * Vendorul verifică apoi politicile specifice:
+     * Vendor Terms, Shipping, Products etc.
+     */
+    if (me.role === "VENDOR") {
+      const vendorGate = await api(
+        "/api/policy-gate?scope=VENDORS"
+      ).catch(() => null);
+
+      if (!alive) return;
+
+      if (hasPendingRequiredDocuments(vendorGate)) {
+        setPolicyScope("VENDORS");
+        setPolicyGateOpen(true);
+        return;
+      }
+    }
+
+    setPolicyGateOpen(false);
+  }
+
+  checkPolicyGates();
 
   return () => {
     alive = false;
   };
-}, [me, shouldOpenPolicyGate, policyScope]);
- 
+}, [
+  me,
+  requestedPolicyScope,
+  shouldOpenPolicyGate,
+]);
   const docsBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
   useEffect(() => {
@@ -609,19 +677,16 @@ useEffect(() => {
 
   return (
     <>
-     <PolicyGate
-  key={`${location.pathname}${location.search}`}
+<PolicyGate
   scope={policyScope}
   isOpen={policyGateOpen}
-        onClose={() => {
-          if (!policyBlocked) {
-            setPolicyGateOpen(false);
-          }
-        }}
-        onStatusChange={setPolicyBlocked}
-        closeOnOverlay={false}
-        closeOnEsc={false}
-      />
+  onClose={() => {
+    setPolicyGateOpen(false);
+  }}
+  onStatusChange={setPolicyBlocked}
+  closeOnOverlay={false}
+  closeOnEsc={false}
+/>
 
       <div
         className={styles.page}

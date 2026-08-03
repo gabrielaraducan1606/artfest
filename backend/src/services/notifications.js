@@ -942,3 +942,109 @@ export async function notifyVendorStripePayoutsRequired(vendorId, mode = "grace"
     },
   });
 }
+
+export async function notifyVendorOnHomepageFeatureCreated(
+  featureId
+) {
+  if (!featureId) {
+    return null;
+  }
+
+  const feature =
+    await prisma.homepageFeature.findUnique({
+      where: {
+        id: featureId,
+      },
+
+      include: {
+        product: {
+          select: {
+            id: true,
+            title: true,
+          },
+        },
+
+        service: {
+          select: {
+            id: true,
+            title: true,
+
+            profile: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+  if (
+    !feature ||
+    !feature.vendorId
+  ) {
+    return null;
+  }
+
+  const isProduct =
+    feature.type ===
+    "PRODUCT_OF_DAY";
+
+  const promotionName =
+    isProduct
+      ? feature.product?.title ||
+        "produsul tău"
+      : feature.service?.profile
+          ?.displayName ||
+        feature.service?.title ||
+        "magazinul tău";
+
+  const platformDiscountPercent =
+    Number(
+      feature.platformDiscountPercent ||
+        0
+    );
+
+  const title =
+    isProduct
+      ? "Produsul tău a fost ales Produsul zilei"
+      : "Magazinul tău a fost ales Artizanul săptămânii";
+
+  const body =
+    `Felicitări! „${promotionName}” a fost selectat pentru promovare. ` +
+    `Artfest oferă o reducere de ${platformDiscountPercent}%. ` +
+    `Poți adăuga și tu o reducere suplimentară.`;
+
+  const link =
+    `/vendor/promovari?featureId=${encodeURIComponent(
+      feature.id
+    )}`;
+
+  return createVendorNotification(
+    feature.vendorId,
+    {
+     dedupeKey:
+  `homepage_feature_created:${feature.id}:${feature.vendorId}`,
+
+      type:
+        "promotion",
+
+      title,
+      body,
+      link,
+
+      meta: {
+        kind:
+          "homepage_feature_created",
+
+        featureId:
+          feature.id,
+
+        featureType:
+          feature.type,
+
+        platformDiscountPercent,
+      },
+    }
+  );
+}

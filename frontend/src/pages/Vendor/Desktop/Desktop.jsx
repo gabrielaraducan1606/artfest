@@ -298,15 +298,15 @@ function isBillingComplete(b) {
 export default function DesktopV3() {
   const { me, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+const search = window.location.search;
 
-  const params = new URLSearchParams(window.location.search);
+const params = useMemo(
+  () => new URLSearchParams(search),
+  [search]
+);
 
 const shouldOpenPolicyGate =
   params.get("policyGate") === "1";
-
-const policyGateScope =
-  params.get("scope") || "VENDORS";
-
   const [theme, setTheme] = useState(() => {
     const saved =
       typeof window !== "undefined" ? localStorage.getItem("theme") : null;
@@ -378,33 +378,75 @@ const [policyGateOpen, setPolicyGateOpen] = useState(
   shouldOpenPolicyGate
 );
 const [policyBlocked, setPolicyBlocked] = useState(false);
-
+const [policyScope, setPolicyScope] = useState("VENDORS");
 useEffect(() => {
   if (!me) return;
 
   let alive = true;
 
-  api("/api/policy-gate?scope=VENDORS")
-    .then((data) => {
+  async function checkPolicyGate() {
+    try {
+      const userGate = await api(
+        "/api/policy-gate?scope=USERS"
+      ).catch(() => null);
+
       if (!alive) return;
 
-      const hasPendingRequired =
-        !!data?.requiresAction &&
-        Array.isArray(data?.documents) &&
-        data.documents.some(
+      const hasUserGate =
+        !!userGate?.requiresAction &&
+        Array.isArray(userGate?.documents) &&
+        userGate.documents.some(
           (d) => d.required && !d.alreadyAccepted
         );
 
-     if (hasPendingRequired || shouldOpenPolicyGate) {
-  setPolicyGateOpen(true);
-}
-    })
-    .catch(() => {});
+      if (hasUserGate) {
+        setPolicyScope("USERS");
+        setPolicyGateOpen(true);
+        return;
+      }
+
+      const vendorGate = await api(
+        "/api/policy-gate?scope=VENDORS"
+      ).catch(() => null);
+
+      if (!alive) return;
+
+      const hasVendorGate =
+        !!vendorGate?.requiresAction &&
+        Array.isArray(vendorGate?.documents) &&
+        vendorGate.documents.some(
+          (d) => d.required && !d.alreadyAccepted
+        );
+
+      if (hasVendorGate) {
+        setPolicyScope("VENDORS");
+        setPolicyGateOpen(true);
+        return;
+      }
+
+      if (shouldOpenPolicyGate) {
+        const scope =
+          (params.get("scope") || "VENDORS").toUpperCase();
+
+        setPolicyScope(
+          scope === "USERS"
+            ? "USERS"
+            : "VENDORS"
+        );
+
+        setPolicyGateOpen(true);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  checkPolicyGate();
 
   return () => {
     alive = false;
   };
-}, [me,shouldOpenPolicyGate]);
+}, [me, shouldOpenPolicyGate, params]);
   const cacheTimerRef = useRef(null);
 
   useEffect(() => {
@@ -949,18 +991,16 @@ const completeness = dashboardHealth.percent;
 
   return (
   <>
-    <PolicyGate
-  scope={policyGateScope}
-      isOpen={policyGateOpen}
-      onClose={() => {
-  if (!policyBlocked) {
+  <PolicyGate
+  scope={policyScope}
+  isOpen={policyGateOpen}
+  onClose={() => {
     setPolicyGateOpen(false);
-  }
-}}
-      onStatusChange={setPolicyBlocked}
-      closeOnOverlay={false}
-      closeOnEsc={false}
-    />
+  }}
+  onStatusChange={setPolicyBlocked}
+  closeOnOverlay={false}
+  closeOnEsc={false}
+/>
 
    <section
   className={styles.page}

@@ -10,6 +10,7 @@ import {
   Bell,
   Megaphone,
   CreditCard,
+  Truck,
 } from "lucide-react";
 import settingsStyles from "./Settings.module.css";
 
@@ -54,6 +55,26 @@ const slugify = (s = "") =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
+
+function centsToRon(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return String(n / 100);
+}
+
+function ronToCents(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+const isPhoneIntl = (value) =>
+  /^\+[1-9]\d{7,14}$/.test(String(value || "").replace(/\s+/g, ""));
+
+const isEmail = (value) =>
+  /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(value || "").trim());
 
 function EmbeddedOnboarding({ tab }) {
   const activeTab = ["profil", "facturare", "plata"].includes(tab) ? tab : "profil";
@@ -250,6 +271,369 @@ function EmbeddedOnboarding({ tab }) {
   );
 }
 
+function ShippingSettings() {
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState("");
+  const [savingId, setSavingId] = useState("");
+  const [savedId, setSavedId] = useState("");
+  const [errors, setErrors] = useState({});
+
+  const loadServices = useCallback(async () => {
+    setLoading(true);
+    setLoadErr("");
+
+    try {
+      const data = await api("/api/vendors/me/services?includeProfile=1", {
+        method: "GET",
+      });
+
+      const items = (data?.items || []).map((service) => ({
+        ...service,
+        profile: {
+          ...(service.profile || {}),
+          address: service.profile?.address || "",
+          phone: service.profile?.phone || "",
+          email: service.profile?.email || "",
+        },
+        estimatedShippingFeeRon: centsToRon(
+          service.estimatedShippingFeeCents
+        ),
+        freeShippingThresholdRon: centsToRon(
+          service.freeShippingThresholdCents
+        ),
+        shippingNotes: service.shippingNotes || "",
+      }));
+
+      setServices(items);
+    } catch (e) {
+      setLoadErr(e?.message || "Nu am putut încărca datele de livrare.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadServices();
+  }, [loadServices]);
+
+  const updateService = useCallback((idx, patch) => {
+    setServices((prev) => {
+      const next = [...prev];
+      next[idx] = {
+        ...next[idx],
+        ...patch,
+        profile: {
+          ...(next[idx]?.profile || {}),
+          ...(patch.profile || {}),
+        },
+      };
+      return next;
+    });
+
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[services[idx]?.id];
+      return next;
+    });
+  }, [services]);
+
+  const validateService = useCallback((service) => {
+    const address = String(service?.profile?.address || "").trim();
+    const phone = String(service?.profile?.phone || "").replace(/\s+/g, "");
+    const email = String(service?.profile?.email || "").trim();
+    const shippingFee = service?.estimatedShippingFeeRon;
+    const freeThreshold = service?.freeShippingThresholdRon;
+
+    if (!address) return "Completează adresa pentru retururi.";
+    if (!phone) return "Completează telefonul pentru retururi.";
+    if (!isPhoneIntl(phone)) {
+      return "Telefonul trebuie să fie în format internațional, de exemplu +40712345678.";
+    }
+    if (!email) return "Completează emailul pentru retururi.";
+    if (!isEmail(email)) return "Emailul pentru retururi nu este valid.";
+    if (shippingFee === "" || shippingFee === null || shippingFee === undefined) {
+      return "Completează costul estimativ de livrare.";
+    }
+    if (!Number.isFinite(Number(shippingFee)) || Number(shippingFee) < 0) {
+      return "Costul estimativ de livrare trebuie să fie un număr pozitiv sau 0.";
+    }
+    if (
+      freeThreshold !== "" &&
+      freeThreshold !== null &&
+      freeThreshold !== undefined &&
+      (!Number.isFinite(Number(freeThreshold)) || Number(freeThreshold) < 0)
+    ) {
+      return "Pragul pentru transport gratuit trebuie să fie un număr pozitiv sau 0.";
+    }
+
+    return "";
+  }, []);
+
+  const saveService = useCallback(async (service) => {
+    const serviceId = service?.id;
+    if (!serviceId) return;
+
+    const validationError = validateService(service);
+    if (validationError) {
+      setErrors((prev) => ({ ...prev, [serviceId]: validationError }));
+      return;
+    }
+
+    const address = String(service.profile?.address || "").trim();
+    const phone = String(service.profile?.phone || "").replace(/\s+/g, "");
+    const email = String(service.profile?.email || "").trim();
+
+    setSavingId(serviceId);
+    setSavedId("");
+    setErrors((prev) => ({ ...prev, [serviceId]: "" }));
+
+    try {
+      await api(
+        `/api/vendors/vendor-services/${encodeURIComponent(serviceId)}/profile`,
+        {
+          method: "PUT",
+          body: {
+            ...(service.profile || {}),
+            address,
+            phone,
+            email,
+            mirrorVendor: true,
+          },
+        }
+      );
+
+      await api(`/api/vendors/me/services/${encodeURIComponent(serviceId)}`, {
+        method: "PATCH",
+        body: {
+          estimatedShippingFeeCents: ronToCents(
+            service.estimatedShippingFeeRon
+          ),
+          freeShippingThresholdCents: ronToCents(
+            service.freeShippingThresholdRon
+          ),
+          shippingNotes: String(service.shippingNotes || "").trim() || null,
+        },
+      });
+
+      setSavedId(serviceId);
+      setTimeout(() => {
+        setSavedId((current) => (current === serviceId ? "" : current));
+      }, 2500);
+    } catch (e) {
+      setErrors((prev) => ({
+        ...prev,
+        [serviceId]:
+          e?.data?.message ||
+          e?.data?.error ||
+          e?.message ||
+          "Nu am putut salva datele de livrare.",
+      }));
+    } finally {
+      setSavingId("");
+    }
+  }, [validateService]);
+
+  if (loading) {
+    return (
+      <div className={settingsStyles.loading}>
+        <Loader2 className={settingsStyles.spin} size={18} /> Se încarcă datele
+        de livrare…
+      </div>
+    );
+  }
+
+  if (loadErr) {
+    return (
+      <Section
+        icon={<Truck size={18} />}
+        title="Livrare și retururi"
+        subtitle="Configurează costurile de transport și datele folosite pentru retururi."
+        right={
+          <button
+            type="button"
+            className={settingsStyles.primary}
+            onClick={loadServices}
+          >
+            Reîncearcă
+          </button>
+        }
+      >
+        <div className={settingsStyles.error}>{loadErr}</div>
+      </Section>
+    );
+  }
+
+  if (services.length === 0) {
+    return (
+      <Section
+        icon={<Truck size={18} />}
+        title="Livrare și retururi"
+        subtitle="Configurează costurile de transport și datele folosite pentru retururi."
+      >
+        <div className={settingsStyles.warn}>
+          Nu am găsit niciun magazin asociat contului tău.
+        </div>
+      </Section>
+    );
+  }
+
+  return (
+    <div className={settingsStyles.grid1}>
+      {services.map((service, idx) => {
+        const serviceId = service.id;
+        const isSaving = savingId === serviceId;
+        const isSaved = savedId === serviceId;
+        const error = errors[serviceId];
+        const storeName =
+          service.profile?.displayName || service.name || "Magazinul meu";
+
+        return (
+          <Section
+            key={serviceId}
+            icon={<Truck size={18} />}
+            title={`Livrare și retururi – ${storeName}`}
+            subtitle="Aceste informații pot fi modificate oricând și sunt folosite la comenzile magazinului."
+            right={
+              <button
+                type="button"
+                className={settingsStyles.primary}
+                onClick={() => saveService(service)}
+                disabled={isSaving}
+              >
+                {isSaving ? "Se salvează…" : "Salvează"}
+              </button>
+            }
+          >
+            <div className={settingsStyles.grid1}>
+              <div className={settingsStyles.title}>Informații de livrare</div>
+
+              <div className={settingsStyles.grid2}>
+                <label className={settingsStyles.field}>
+                  <span>Cost estimativ livrare (lei) *</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={service.estimatedShippingFeeRon}
+                    onChange={(e) =>
+                      updateService(idx, {
+                        estimatedShippingFeeRon: e.target.value,
+                      })
+                    }
+                    placeholder="Ex: 25"
+                  />
+                </label>
+
+                <label className={settingsStyles.field}>
+                  <span>Transport gratuit de la (lei)</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={service.freeShippingThresholdRon}
+                    onChange={(e) =>
+                      updateService(idx, {
+                        freeShippingThresholdRon: e.target.value,
+                      })
+                    }
+                    placeholder="Ex: 300 sau lasă gol"
+                  />
+                </label>
+              </div>
+
+              <label className={settingsStyles.field}>
+                <span>Mențiuni livrare</span>
+                <textarea
+                  className={settingsStyles.input}
+                  rows={4}
+                  value={service.shippingNotes}
+                  onChange={(e) =>
+                    updateService(idx, { shippingNotes: e.target.value })
+                  }
+                  placeholder="Ex: Livrare estimativă în 1–3 zile lucrătoare. Pentru produsele voluminoase, costul poate diferi."
+                />
+              </label>
+
+              <div className={settingsStyles.title} style={{ marginTop: 8 }}>
+                Date pentru retururi
+              </div>
+
+              <label className={settingsStyles.field}>
+                <span>Adresă retururi / punct de lucru *</span>
+                <input
+                  className={settingsStyles.input}
+                  value={service.profile?.address || ""}
+                  onChange={(e) =>
+                    updateService(idx, {
+                      profile: { address: e.target.value },
+                    })
+                  }
+                  placeholder="Localitate, stradă și număr, județ"
+                  autoComplete="street-address"
+                />
+                <span className={settingsStyles.subtitle}>
+                  Adresa este folosită pentru retururi și nu este afișată public.
+                </span>
+              </label>
+
+              <div className={settingsStyles.grid2}>
+                <label className={settingsStyles.field}>
+                  <span>Telefon retururi *</span>
+                  <input
+                    className={settingsStyles.input}
+                    value={service.profile?.phone || ""}
+                    onChange={(e) =>
+                      updateService(idx, {
+                        profile: {
+                          phone: e.target.value.replace(/\s+/g, ""),
+                        },
+                      })
+                    }
+                    placeholder="Ex: +40712345678"
+                    inputMode="tel"
+                    autoComplete="tel"
+                  />
+                </label>
+
+                <label className={settingsStyles.field}>
+                  <span>Email retururi *</span>
+                  <input
+                    className={settingsStyles.input}
+                    type="email"
+                    value={service.profile?.email || ""}
+                    onChange={(e) =>
+                      updateService(idx, {
+                        profile: { email: e.target.value },
+                      })
+                    }
+                    placeholder="retururi@brand.ro"
+                    autoComplete="email"
+                  />
+                </label>
+              </div>
+
+              {error && (
+                <div className={settingsStyles.error} role="alert">
+                  {error}
+                </div>
+              )}
+
+              {isSaved && (
+                <div className={settingsStyles.success}>
+                  ✅ Datele de livrare și retur au fost salvate.
+                </div>
+              )}
+            </div>
+          </Section>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
@@ -265,6 +649,7 @@ export default function SettingsPage() {
 
   const tabs = [
     { key: "profile", label: "Profil magazin", icon: <UserIcon size={16} /> },
+    { key: "shipping", label: "Livrare și retururi", icon: <Truck size={16} /> },
     { key: "notifications", label: "Notificări", icon: <Bell size={16} /> },
     { key: "marketing", label: "Marketing", icon: <Megaphone size={16} /> },
     { key: "security", label: "Securitate", icon: <Shield size={16} /> },
@@ -276,6 +661,7 @@ export default function SettingsPage() {
 
   const allowedTabs = [
     "profile",
+    "shipping",
     "notifications",
     "marketing",
     "security",
@@ -586,6 +972,8 @@ export default function SettingsPage() {
         )}
 
         {!loading && active === "profile" && <EmbeddedOnboarding tab="profil" />}
+
+        {!loading && active === "shipping" && <ShippingSettings />}
 
         {!loading && active === "notifications" && (
           <Section

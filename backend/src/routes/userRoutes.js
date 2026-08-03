@@ -123,30 +123,30 @@ router.get("/desktop", async (req, res) => {
       orderBy: { createdAt: "desc" },
       take: 5, // doar ultimele 5 pentru summary
       select: {
-        id: true,
-        type: true,
-        title: true,
-        body: true,
-        link: true,
-        readAt: true,
-        archived: true,
-        createdAt: true,
-      },
+  id: true,
+  type: true,
+  title: true,
+  body: true,
+  link: true,
+  meta: true,
+  readAt: true,
+  archived: true,
+  createdAt: true,
+},
     });
 
-    const notifications = notificationsRaw.map((n) => ({
-      id: n.id,
-      type: n.type,
-      title: n.title,
-      body: n.body,
-      // câmpul „oficial” ca în /api/notifications
-      link: n.link,
-      readAt: n.readAt,
-      archived: n.archived,
-      createdAt: n.createdAt,
-      // câmp suplimentar pentru compatibilitate cu desktop
-      href: n.link || null,
-    }));
+ const notifications = notificationsRaw.map((n) => ({
+  id: n.id,
+  type: n.type,
+  title: n.title,
+  body: n.body,
+  link: n.link,
+  meta: n.meta,
+  readAt: n.readAt,
+  archived: n.archived,
+  createdAt: n.createdAt,
+  href: n.link || null,
+}));
 
     /* --------------------------- RECENZII RECENTE (USER) --------------------------- */
     let reviews = [];

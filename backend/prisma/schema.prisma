@@ -2391,6 +2391,50 @@ model HomepageFeature {
   startsAt DateTime
   endsAt   DateTime
 
+  /**
+   * Reducerea oferită de Artfest.
+   * Exemplu:
+   * 5 = reducere de 5%.
+   * Va fi suportată din comisionul Artfest,
+   * nu din suma vendorului.
+   */
+  platformDiscountPercent Int @default(0)
+
+  /**
+   * Reducerea suplimentară oferită voluntar
+   * de vendor.
+   * Exemplu:
+   * 10 = reducere suplimentară de 10%.
+   */
+  vendorDiscountPercent Int @default(0)
+
+  /**
+   * Starea răspunsului vendorului.
+   * PENDING  = vendorul nu a răspuns încă
+   * ACCEPTED = a confirmat reducerea aleasă
+   * DECLINED = nu dorește reducere suplimentară
+   */
+  vendorDiscountStatus HomepageFeatureDiscountStatus @default(PENDING)
+
+  /**
+   * Data la care vendorul a acceptat sau refuzat
+   * reducerea suplimentară.
+   */
+  vendorDiscountRespondedAt DateTime?
+
+  /**
+   * Păstrăm separat momentul notificării și
+   * momentul trimiterii emailului, pentru a evita
+   * notificările duplicate.
+   */
+  vendorNotifiedAt DateTime?
+  vendorEmailedAt  DateTime?
+
+  /**
+   * Eventualele erori apărute la trimiterea emailului.
+   */
+  vendorEmailError String? @db.VarChar(1000)
+
   impressions Int @default(0)
   clicks      Int @default(0)
 
@@ -2407,6 +2451,17 @@ model HomepageFeature {
   @@index([serviceId])
   @@index([vendorId])
   @@index([source, startsAt, endsAt])
+  /**
+   * Ajută la găsirea promovărilor pentru care
+   * vendorul încă nu a răspuns.
+   */
+  @@index([vendorId, vendorDiscountStatus, endsAt])
+  /**
+   * Ajută la identificarea promovărilor pentru
+   * care notificarea sau emailul nu au fost trimise.
+   */
+  @@index([vendorNotifiedAt])
+  @@index([vendorEmailedAt])
 }
 
 enum QuoteRequestStatus {
@@ -2433,6 +2488,12 @@ enum QuoteOfferStatus {
   REJECTED
   EXPIRED
   SUPERSEDED
+}
+
+enum HomepageFeatureDiscountStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
 
 model QuoteRequest {

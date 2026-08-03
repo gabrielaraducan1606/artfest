@@ -81,89 +81,167 @@ const DOC_URLS = {
     RETURNS_POLICY_ACK: true,
   },
 };
-
 function normalizeUserConsents(userConsents = []) {
+  if (!Array.isArray(userConsents)) {
+    return [];
+  }
+
+  /*
+   * Noul backend returnează deja câte un rând per utilizator.
+   * În acest caz nu mai grupăm din nou datele.
+   */
+  const alreadyAggregated = userConsents.some(
+    (item) =>
+      Object.prototype.hasOwnProperty.call(item || {}, "tosAccepted") ||
+      Array.isArray(item?.tosHistory) ||
+      Array.isArray(item?.privacyHistory)
+  );
+
+  if (alreadyAggregated) {
+    return userConsents.map((item) => ({
+      ...item,
+
+      email:
+        item?.email ||
+        item?.userEmail ||
+        "",
+
+      createdAt:
+        item?.createdAt ||
+        item?.givenAt ||
+        null,
+
+      tosHistory: Array.isArray(item?.tosHistory)
+        ? item.tosHistory
+        : [],
+
+      privacyHistory: Array.isArray(item?.privacyHistory)
+        ? item.privacyHistory
+        : [],
+
+      cookiesHistory: Array.isArray(item?.cookiesHistory)
+        ? item.cookiesHistory
+        : [],
+
+      returnsHistory: Array.isArray(item?.returnsHistory)
+        ? item.returnsHistory
+        : [],
+
+      marketingHistory: Array.isArray(item?.marketingHistory)
+        ? item.marketingHistory
+        : [],
+    }));
+  }
+
+  /*
+   * Compatibilitate cu formatul vechi:
+   * câte un obiect pentru fiecare UserConsent.
+   */
   const grouped = new Map();
 
-  for (const item of userConsents || []) {
-    const key = item?.userEmail || item?.email || item?.userId;
-    if (!key) continue;
+  for (const item of userConsents) {
+    const userId =
+      item?.userId ||
+      item?.user?.id ||
+      "";
 
-    if (!grouped.has(key)) {
-      grouped.set(key, {
-        userId: item?.userId || "",
-        email: item?.userEmail || item?.email || "",
-        createdAt: item?.givenAt || item?.createdAt || null,
+    const email =
+      item?.userEmail ||
+      item?.email ||
+      item?.user?.email ||
+      "";
+
+    const groupKey =
+      userId ||
+      email;
+
+    if (!groupKey) {
+      continue;
+    }
+
+    if (!grouped.has(groupKey)) {
+      grouped.set(groupKey, {
+        userId,
+        email,
+
+        createdAt:
+          item?.userCreatedAt ||
+          item?.createdAt ||
+          item?.givenAt ||
+          null,
 
         tosAccepted: false,
         tosVersion: null,
         tosGivenAt: null,
+        tosHistory: [],
 
         privacyAccepted: false,
         privacyVersion: null,
         privacyGivenAt: null,
+        privacyHistory: [],
 
         cookiesAccepted: false,
         cookiesVersion: null,
         cookiesGivenAt: null,
+        cookiesHistory: [],
 
         returnsAccepted: false,
         returnsVersion: null,
         returnsGivenAt: null,
+        returnsHistory: [],
 
         marketingOptIn: false,
         marketingVersion: null,
         marketingGivenAt: null,
+        marketingHistory: [],
       });
     }
 
-    const row = grouped.get(key);
+    const row = grouped.get(groupKey);
 
-    if (!row.userId && item?.userId) row.userId = item.userId;
-    if (!row.email && (item?.userEmail || item?.email)) {
-      row.email = item.userEmail || item.email;
+    if (!row.userId && userId) {
+      row.userId = userId;
     }
 
-    const candidateDate = item?.givenAt || item?.createdAt || null;
-    if (
-      candidateDate &&
-      (!row.createdAt || new Date(candidateDate) > new Date(row.createdAt))
-    ) {
-      row.createdAt = candidateDate;
+    if (!row.email && email) {
+      row.email = email;
     }
+
+    const consent = {
+      id: item?.id || null,
+      document: item?.document || null,
+      version: item?.version || null,
+      checksum: item?.checksum || null,
+      givenAt:
+        item?.givenAt ||
+        item?.createdAt ||
+        null,
+      ip: item?.ip || null,
+      ua: item?.ua || null,
+    };
 
     switch (item?.document) {
       case "TOS":
-        row.tosAccepted = true;
-        row.tosVersion = item?.version || null;
-        row.tosGivenAt = item?.givenAt || null;
+        row.tosHistory.push(consent);
         break;
 
-      case "PRIVACY_ACK":
       case "PRIVACY":
-        row.privacyAccepted = true;
-        row.privacyVersion = item?.version || null;
-        row.privacyGivenAt = item?.givenAt || null;
+      case "PRIVACY_ACK":
+        row.privacyHistory.push(consent);
         break;
 
-      case "COOKIES_ACK":
       case "COOKIES":
-        row.cookiesAccepted = true;
-        row.cookiesVersion = item?.version || null;
-        row.cookiesGivenAt = item?.givenAt || null;
+      case "COOKIES_ACK":
+        row.cookiesHistory.push(consent);
         break;
 
       case "RETURNS_POLICY_ACK":
-        row.returnsAccepted = true;
-        row.returnsVersion = item?.version || null;
-        row.returnsGivenAt = item?.givenAt || null;
+        row.returnsHistory.push(consent);
         break;
 
-      case "MARKETING_EMAIL_OPTIN":
       case "MARKETING":
-        row.marketingOptIn = true;
-        row.marketingVersion = item?.version || null;
-        row.marketingGivenAt = item?.givenAt || null;
+      case "MARKETING_EMAIL_OPTIN":
+        row.marketingHistory.push(consent);
         break;
 
       default:
@@ -171,9 +249,89 @@ function normalizeUserConsents(userConsents = []) {
     }
   }
 
-  return Array.from(grouped.values());
-}
+  const sortNewestFirst = (history = []) =>
+    [...history].sort((a, b) => {
+      const timeA = new Date(
+        a?.givenAt || 0
+      ).getTime();
 
+      const timeB = new Date(
+        b?.givenAt || 0
+      ).getTime();
+
+      return timeB - timeA;
+    });
+
+  return Array.from(grouped.values()).map((row) => {
+    row.tosHistory =
+      sortNewestFirst(row.tosHistory);
+
+    row.privacyHistory =
+      sortNewestFirst(row.privacyHistory);
+
+    row.cookiesHistory =
+      sortNewestFirst(row.cookiesHistory);
+
+    row.returnsHistory =
+      sortNewestFirst(row.returnsHistory);
+
+    row.marketingHistory =
+      sortNewestFirst(row.marketingHistory);
+
+    const latestTos =
+      row.tosHistory[0] || null;
+
+    const latestPrivacy =
+      row.privacyHistory[0] || null;
+
+    const latestCookies =
+      row.cookiesHistory[0] || null;
+
+    const latestReturns =
+      row.returnsHistory[0] || null;
+
+    const latestMarketing =
+      row.marketingHistory[0] || null;
+
+    return {
+      ...row,
+
+      tosAccepted: !!latestTos,
+      tosVersion:
+        latestTos?.version || null,
+      tosGivenAt:
+        latestTos?.givenAt || null,
+
+      privacyAccepted:
+        !!latestPrivacy,
+      privacyVersion:
+        latestPrivacy?.version || null,
+      privacyGivenAt:
+        latestPrivacy?.givenAt || null,
+
+      cookiesAccepted:
+        !!latestCookies,
+      cookiesVersion:
+        latestCookies?.version || null,
+      cookiesGivenAt:
+        latestCookies?.givenAt || null,
+
+      returnsAccepted:
+        !!latestReturns,
+      returnsVersion:
+        latestReturns?.version || null,
+      returnsGivenAt:
+        latestReturns?.givenAt || null,
+
+      marketingOptIn:
+        !!latestMarketing,
+      marketingVersion:
+        latestMarketing?.version || null,
+      marketingGivenAt:
+        latestMarketing?.givenAt || null,
+    };
+  });
+}
 export default function AdminPoliciesTab({
   userConsents = [],
   vendorAgreements = [],
@@ -190,10 +348,10 @@ export default function AdminPoliciesTab({
 
   const [selectedVendor, setSelectedVendor] = useState(null);
 
-  const normalizedUserRows = useMemo(
-    () => normalizeUserConsents(userConsents),
-    [userConsents]
-  );
+const normalizedUserRows = useMemo(
+  () => normalizeUserConsents(userConsents),
+  [userConsents]
+);
 
   const handleUserFilterChange = (updater) => {
     setUserFilters((prev) => {
@@ -763,7 +921,9 @@ Echipa Marketplace
             onChange={(e) => handleScopeChange(e.target.value)}
           >
             <option value="VENDORS">Vendori</option>
-            <option value="USERS">Useri</option>
+            <option value="USERS">
+  Toate conturile — clienți și vendori
+</option>
           </select>
         </label>
 
@@ -1101,7 +1261,49 @@ function PolicyGatePreviewModal({ open, onClose, preview }) {
 
   return createPortal(node, document.body);
 }
+function renderConsent(history = [], accepted, version, givenAt) {
+  if (!accepted) {
+    return "Nu";
+  }
 
+  return (
+    <div>
+      <div>
+        <strong>
+          Versiunea curentă: v{version || "?"}
+        </strong>
+      </div>
+
+      <div
+        style={{
+          fontSize: 12,
+          opacity: 0.72,
+          marginTop: 4,
+        }}
+      >
+        Acceptată la: {formatDate(givenAt)}
+      </div>
+
+      {history.length > 0 && (
+        <div
+          style={{
+            fontSize: 12,
+            marginTop: 6,
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>Istoric:</strong>{" "}
+          {history
+            .map(
+              (item) =>
+                `v${item.version || "?"} — ${formatDate(item.givenAt)}`
+            )
+            .join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+}
 function UserConsentsTable({ rows, totalItems }) {
   if (!rows?.length) {
     return (
@@ -1145,45 +1347,86 @@ function UserConsentsTable({ rows, totalItems }) {
 
               <td>{formatDate(r.createdAt)}</td>
 
-              <td>
-                {r.tosAccepted
-                  ? `Da (v${r.tosVersion || "?"}, ${formatDate(
-                      r.tosGivenAt
-                    )})`
-                  : "Nu"}
-              </td>
+            <td>
+  {r.tosAccepted ? (
+    <div>
+      <div>
+        <strong>
+          Versiunea curentă: v{r.tosVersion || "?"}
+        </strong>
+      </div>
+
+      <div
+        style={{
+          fontSize: 12,
+          opacity: 0.72,
+          marginTop: 4,
+        }}
+      >
+        Acceptată la: {formatDate(r.tosGivenAt)}
+      </div>
+
+      {Array.isArray(r.tosHistory) &&
+      r.tosHistory.length > 0 ? (
+        <div
+          style={{
+            fontSize: 12,
+            marginTop: 6,
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>Istoric:</strong>{" "}
+          {r.tosHistory
+            .map(
+              (item) =>
+                `v${item.version || "?"} — ${formatDate(
+                  item.givenAt
+                )}`
+            )
+            .join(" · ")}
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    "Nu"
+  )}
+</td>
 
               <td>
-                {r.privacyAccepted
-                  ? `Da (v${r.privacyVersion || "?"}, ${formatDate(
-                      r.privacyGivenAt
-                    )})`
-                  : "Nu"}
-              </td>
+  {renderConsent(
+    r.privacyHistory,
+    r.privacyAccepted,
+    r.privacyVersion,
+    r.privacyGivenAt
+  )}
+</td>
 
               <td>
-                {r.cookiesAccepted
-                  ? `Da (v${r.cookiesVersion || "?"}, ${formatDate(
-                      r.cookiesGivenAt
-                    )})`
-                  : "Nu"}
-              </td>
+  {renderConsent(
+    r.privacyHistory,
+    r.privacyAccepted,
+    r.privacyVersion,
+    r.privacyGivenAt
+  )}
+</td>
 
-              <td>
-                {r.returnsAccepted
-                  ? `Da (v${r.returnsVersion || "?"}, ${formatDate(
-                      r.returnsGivenAt
-                    )})`
-                  : "Nu"}
-              </td>
+           <td>
+  {renderConsent(
+    r.returnsHistory,
+    r.returnsAccepted,
+    r.returnsVersion,
+    r.returnsGivenAt
+  )}
+</td>
 
-              <td>
-                {r.marketingOptIn
-                  ? `Da (v${r.marketingVersion || "?"}, ${formatDate(
-                      r.marketingGivenAt
-                    )})`
-                  : "Nu"}
-              </td>
+            <td>
+  {renderConsent(
+    r.marketingHistory,
+    r.marketingOptIn,
+    r.marketingVersion,
+    r.marketingGivenAt
+  )}
+</td>
             </tr>
           ))}
         </tbody>

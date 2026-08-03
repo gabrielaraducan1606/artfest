@@ -1002,22 +1002,96 @@ function FeaturedSpotlight({
     artisan?.displayName ||
     "Artizan recomandat Artfest";
 
-  const productPrice =
-    product?.formattedPrice ||
-    formatMoney(
-      Number.isFinite(
-        Number(
-          product?.priceCents
-        )
+ const productCurrency =
+  product?.currency ||
+  "RON";
+
+const originalProductPrice =
+  formatMoney(
+    Number.isFinite(
+      Number(
+        product?.originalPriceCents
       )
+    )
+      ? Number(
+          product.originalPriceCents
+        ) / 100
+      : Number.isFinite(
+          Number(
+            product?.priceCents
+          )
+        )
         ? Number(
             product.priceCents
           ) / 100
         : product?.price,
 
-      product?.currency ||
-        "RON"
+    productCurrency
+  );
+
+const discountedProductPrice =
+  formatMoney(
+    Number.isFinite(
+      Number(
+        product?.discountedPriceCents
+      )
+    )
+      ? Number(
+          product.discountedPriceCents
+        ) / 100
+      : Number.isFinite(
+          Number(
+            product?.priceCents
+          )
+        )
+        ? Number(
+            product.priceCents
+          ) / 100
+        : product?.price,
+
+    productCurrency
+  );
+
+const productDiscount =
+  product?.discount ||
+  product?.feature ||
+  {};
+
+const productDiscountPercent =
+  Number(
+    productDiscount
+      ?.totalDiscountPercent ||
+      0
+  );
+
+const productHasDiscount =
+  product?.quoteOnly !== true &&
+  productDiscount?.active === true &&
+  productDiscount?.eligible !== false &&
+  productDiscountPercent > 0 &&
+  Number(
+    product?.discountedPriceCents
+  ) <
+    Number(
+      product?.originalPriceCents ??
+        product?.priceCents
     );
+
+const artisanDiscount =
+  artisan?.discount ||
+  artisan?.feature ||
+  {};
+
+const artisanDiscountPercent =
+  Number(
+    artisanDiscount
+      ?.totalDiscountPercent ||
+      0
+  );
+
+const artisanHasDiscount =
+  artisanDiscount?.active === true &&
+  artisanDiscountPercent > 0;
 
   const activeTitle =
     isProduct
@@ -1193,13 +1267,43 @@ function FeaturedSpotlight({
             {activeEyebrow}
           </span>
 
-          <span
-            className={
-              styles.spotlightCategory
-            }
-          >
-            {activeCategory}
-          </span>
+        <span
+  className={
+    styles.spotlightCategory
+  }
+>
+  {activeCategory}
+</span>
+
+{isProduct &&
+  productHasDiscount && (
+    <span
+      className={
+        styles.spotlightDiscountBadge
+      }
+    >
+      Reducere{" "}
+      {
+        productDiscountPercent
+      }
+      %
+    </span>
+  )}
+
+{!isProduct &&
+  artisanHasDiscount && (
+    <span
+      className={
+        styles.spotlightDiscountBadge
+      }
+    >
+      Reducere{" "}
+      {
+        artisanDiscountPercent
+      }
+      % la produsele magazinului
+    </span>
+  )}
 
           <h2
             id="spotlight-title"
@@ -1308,26 +1412,87 @@ function FeaturedSpotlight({
             }
           >
             {isProduct && (
-              product?.quoteOnly ? (
-                <strong
-                  className={
-                    styles.spotlightPrice
-                  }
-                >
-                  Preț la cerere
-                </strong>
-              ) : (
-                productPrice && (
-                  <strong
-                    className={
-                      styles.spotlightPrice
-                    }
-                  >
-                    {productPrice}
-                  </strong>
-                )
-              )
-            )}
+  product?.quoteOnly ? (
+    <strong
+      className={
+        styles.spotlightPrice
+      }
+    >
+      Preț la cerere
+    </strong>
+  ) : productHasDiscount ? (
+    <div
+      className={
+        styles.spotlightPriceGroup
+      }
+    >
+      <span
+        className={
+          styles.spotlightOldPrice
+        }
+      >
+        {
+          originalProductPrice
+        }
+      </span>
+
+      <strong
+        className={
+          styles.spotlightDiscountedPrice
+        }
+      >
+        {
+          discountedProductPrice
+        }
+      </strong>
+
+      <span
+        className={
+          styles.spotlightDiscountNote
+        }
+      >
+        Reducere totală{" "}
+        {
+          productDiscountPercent
+        }
+        %
+      </span>
+    </div>
+  ) : (
+    originalProductPrice && (
+      <strong
+        className={
+          styles.spotlightPrice
+        }
+      >
+        {
+          originalProductPrice
+        }
+      </strong>
+    )
+  )
+)}
+
+{!isProduct &&
+  artisanHasDiscount && (
+    <div
+      className={
+        styles.spotlightArtisanDiscount
+      }
+    >
+      <strong>
+        {
+          artisanDiscountPercent
+        }
+        % reducere
+      </strong>
+
+      <span>
+        la produsele eligibile ale
+        acestui magazin
+      </span>
+    </div>
+  )}
 
             <Link
               to={

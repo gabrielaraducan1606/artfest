@@ -3,6 +3,7 @@
 import { prisma } from "../db.js";
 
 import {
+  defaultPublicUrlForType,
   getLegalDefinition,
   listLegalTypes,
   loadLegalDoc,
@@ -12,16 +13,6 @@ import {
  * Mapări manifest -> Prisma
  * ========================================================= */
 
-/*
- * Cheia din manifest:
- *
- * tos
- * privacy
- * cookies
- * returns_policy_ack
- *
- * devine valoarea din enumul ConsentDoc.
- */
 const LEGAL_TYPE_TO_USER_DOCUMENT = {
   tos: "TOS",
   privacy: "PRIVACY_ACK",
@@ -29,16 +20,6 @@ const LEGAL_TYPE_TO_USER_DOCUMENT = {
   returns_policy_ack: "RETURNS_POLICY_ACK",
 };
 
-/*
- * Cheia din manifest:
- *
- * vendor_terms
- * shipping_addendum
- * returns_policy_ack
- * products_addendum
- *
- * devine valoarea din enumul VendorDoc.
- */
 const LEGAL_TYPE_TO_VENDOR_DOCUMENT = {
   vendor_terms: "VENDOR_TERMS",
   shipping_addendum: "SHIPPING_ADDENDUM",
@@ -46,10 +27,6 @@ const LEGAL_TYPE_TO_VENDOR_DOCUMENT = {
   products_addendum: "PRODUCTS_ADDENDUM",
 };
 
-/*
- * Cheile folosite de frontend și de notificările
- * pentru PolicyGate.
- */
 const GATE_KEY_TO_USER_DOCUMENT = {
   TOS: "TOS",
   PRIVACY: "PRIVACY_ACK",
@@ -74,13 +51,6 @@ const GATE_KEY_TO_VENDOR_DOCUMENT = {
   RETURNS_POLICY_ACK: "RETURNS_POLICY_ACK",
 };
 
-/*
- * PRODUCT_DECLARATION nu este publicată în UserPolicy
- * sau VendorPolicy.
- *
- * Ea este păstrată separat în:
- * VendorProductDeclaration.
- */
 const SPECIAL_VENDOR_DOCUMENTS = new Set([
   "PRODUCT_DECLARATION",
 ]);
@@ -122,7 +92,7 @@ const DOCUMENT_URLS = {
 };
 
 /* =========================================================
- * Helpers generale
+ * Helpers
  * ========================================================= */
 
 function normalizeText(value) {
@@ -193,12 +163,6 @@ function getPolicyVersion(document) {
 }
 
 function getPolicyChecksum(document) {
-  /*
-   * Pentru versiunile publicate de acum înainte
-   * preferăm checksum-ul conținutului final.
-   *
-   * Dacă nu există, revenim la checksum-ul vechi.
-   */
   return (
     document?.renderedChecksum ||
     document?.checksum ||
@@ -244,29 +208,14 @@ function assertVendorId(vendorId) {
 }
 
 /* =========================================================
- * Publicare politici din manifest
+ * Publicarea politicilor din manifest
  * ========================================================= */
 
 /**
- * Publică documentele curente din manifest în:
+ * Publică versiunile marcate current în manifest.
  *
- * - UserPolicy
- * - VendorPolicy
- *
- * Nu șterge:
- *
- * - politicile vechi;
- * - UserConsent;
- * - VendorAcceptance.
- *
- * Versiunile vechi sunt doar marcate:
- *
- * isActive: false
- *
- * @param {object} options
- * @param {string[]} [options.types]
- * @param {Date} [options.publishedAt]
- * @param {boolean} [options.deactivatePrevious]
+ * Nu șterge politicile și acceptările vechi.
+ * Versiunile anterioare sunt doar marcate isActive=false.
  */
 export async function publishPoliciesFromManifest({
   types,
@@ -296,36 +245,46 @@ export async function publishPoliciesFromManifest({
   }
 
   /*
-   * Citim și validăm toate documentele înainte
-   * să începem tranzacția.
-   *
-   * Dacă un fișier lipsește sau manifestul este greșit,
-   * nu modificăm nimic în DB.
+   * Încărcăm toate fișierele înainte de tranzacție.
+   * Dacă unul este greșit, nu atingem baza de date.
    */
-  const loadedDocuments = requestedTypes.map((type) => {
-    const definition = getLegalDefinition(type);
-    const document = loadLegalDoc(type);
-
-    return {
-      type,
-      definition,
-      document,
-    };
-  });
+  const loadedDocuments = requestedTypes.map((type) => ({
+    type,
+    definition: getLegalDefinition(type),
+    document: loadLegalDoc(type),
+  }));
 
   return prisma.$transaction(async (tx) => {
     const results = [];
 
-    for (const item of loadedDocuments) {
-      const {
-        type,
-        definition,
-        document,
-      } = item;
-
+    for (const {
+      type,
+      definition,
+      document,
+    } of loadedDocuments) {
       const manifestScope = normalizeScope(
         definition.scope
       );
+
+      if (
+        ![
+          "USER",
+          "USERS",
+          "VENDOR",
+          "VENDORS",
+          "BOTH",
+        ].includes(manifestScope)
+      ) {
+        const error = new Error(
+          `manifest_scope_invalid:${type}:${manifestScope}`
+        );
+
+        error.code = "manifest_scope_invalid";
+        error.type = type;
+        error.scope = manifestScope;
+
+        throw error;
+      }
 
       const version = getPolicyVersion(document);
 
@@ -347,16 +306,14 @@ export async function publishPoliciesFromManifest({
 
       const url =
         normalizeText(document.publicUrl) ||
+        defaultPublicUrlForType(type) ||
         "#";
 
-      const checksum =
-        getPolicyChecksum(document);
-
-      const isRequired =
-        definition.required === true;
+      const checksum = getPolicyChecksum(document);
+      const isRequired = definition.required === true;
 
       /*
-       * USER și BOTH publică în UserPolicy.
+       * USER sau BOTH -> UserPolicy
        */
       if (
         manifestScope === "USER" ||
@@ -373,7 +330,6 @@ export async function publishPoliciesFromManifest({
 
           error.code =
             "user_document_mapping_missing";
-
           error.type = type;
 
           throw error;
@@ -394,33 +350,32 @@ export async function publishPoliciesFromManifest({
           });
         }
 
-        const policy =
-          await tx.userPolicy.upsert({
-            where: {
-              document_version: {
-                document: userDocument,
-                version,
-              },
-            },
-            create: {
+        const policy = await tx.userPolicy.upsert({
+          where: {
+            document_version: {
               document: userDocument,
-              title,
-              url,
               version,
-              checksum,
-              isRequired,
-              isActive: true,
-              publishedAt,
             },
-            update: {
-              title,
-              url,
-              checksum,
-              isRequired,
-              isActive: true,
-              publishedAt,
-            },
-          });
+          },
+          create: {
+            document: userDocument,
+            title,
+            url,
+            version,
+            checksum,
+            isRequired,
+            isActive: true,
+            publishedAt,
+          },
+          update: {
+            title,
+            url,
+            checksum,
+            isRequired,
+            isActive: true,
+            publishedAt,
+          },
+        });
 
         results.push({
           scope: "USERS",
@@ -437,7 +392,7 @@ export async function publishPoliciesFromManifest({
       }
 
       /*
-       * VENDOR și BOTH publică în VendorPolicy.
+       * VENDOR sau BOTH -> VendorPolicy
        */
       if (
         manifestScope === "VENDOR" ||
@@ -454,7 +409,6 @@ export async function publishPoliciesFromManifest({
 
           error.code =
             "vendor_document_mapping_missing";
-
           error.type = type;
 
           throw error;
@@ -475,33 +429,32 @@ export async function publishPoliciesFromManifest({
           });
         }
 
-        const policy =
-          await tx.vendorPolicy.upsert({
-            where: {
-              document_version: {
-                document: vendorDocument,
-                version,
-              },
-            },
-            create: {
+        const policy = await tx.vendorPolicy.upsert({
+          where: {
+            document_version: {
               document: vendorDocument,
-              title,
-              url,
               version,
-              checksum,
-              isRequired,
-              isActive: true,
-              publishedAt,
             },
-            update: {
-              title,
-              url,
-              checksum,
-              isRequired,
-              isActive: true,
-              publishedAt,
-            },
-          });
+          },
+          create: {
+            document: vendorDocument,
+            title,
+            url,
+            version,
+            checksum,
+            isRequired,
+            isActive: true,
+            publishedAt,
+          },
+          update: {
+            title,
+            url,
+            checksum,
+            isRequired,
+            isActive: true,
+            publishedAt,
+          },
+        });
 
         results.push({
           scope: "VENDORS",
@@ -516,26 +469,6 @@ export async function publishPoliciesFromManifest({
           publishedAt: policy.publishedAt,
         });
       }
-
-      if (
-        ![
-          "USER",
-          "USERS",
-          "VENDOR",
-          "VENDORS",
-          "BOTH",
-        ].includes(manifestScope)
-      ) {
-        const error = new Error(
-          `manifest_scope_invalid:${type}:${manifestScope}`
-        );
-
-        error.code = "manifest_scope_invalid";
-        error.type = type;
-        error.scope = manifestScope;
-
-        throw error;
-      }
     }
 
     return {
@@ -548,7 +481,7 @@ export async function publishPoliciesFromManifest({
 }
 
 /* =========================================================
- * Citirea politicilor active
+ * Politici active
  * ========================================================= */
 
 export async function getActiveUserPolicies({
@@ -657,32 +590,26 @@ export async function getActiveVendorPolicies({
 }
 
 /* =========================================================
- * Construirea documentelor pentru PolicyGate
+ * Documentele afișate în PolicyGate
  * ========================================================= */
 
-/**
- * Construiește lista pe care frontendul PolicyGate
- * o poate afișa direct.
- */
 export async function buildPolicyGateDocuments({
   scope,
   userId,
   vendorId,
   documentKeys,
 }) {
-  const normalizedScope =
-    assertValidScope(scope);
-
-  const keys =
-    normalizeDocumentKeys(documentKeys);
+  const normalizedScope = assertValidScope(scope);
+  const keys = normalizeDocumentKeys(documentKeys);
 
   if (!keys.length) {
     return [];
   }
 
+  /* ========================= USER ========================= */
+
   if (normalizedScope === "USERS") {
-    const normalizedUserId =
-      assertUserId(userId);
+    const normalizedUserId = assertUserId(userId);
 
     const dbDocuments = Array.from(
       new Set(
@@ -699,25 +626,23 @@ export async function buildPolicyGateDocuments({
       return [];
     }
 
-    const policies =
-      await getActiveUserPolicies({
-        documents: dbDocuments,
-      });
+    const policies = await getActiveUserPolicies({
+      documents: dbDocuments,
+    });
 
-    const consents =
-      await prisma.userConsent.findMany({
-        where: {
-          userId: normalizedUserId,
-          document: {
-            in: dbDocuments,
-          },
+    const consents = await prisma.userConsent.findMany({
+      where: {
+        userId: normalizedUserId,
+        document: {
+          in: dbDocuments,
         },
-        select: {
-          document: true,
-          version: true,
-          givenAt: true,
-        },
-      });
+      },
+      select: {
+        document: true,
+        version: true,
+        givenAt: true,
+      },
+    });
 
     const acceptedSet = new Set(
       consents.map(
@@ -726,7 +651,7 @@ export async function buildPolicyGateDocuments({
       )
     );
 
-    return policies.map((policy) => {
+    const result = policies.map((policy) => {
       const key =
         USER_DOCUMENT_TO_GATE_KEY[
           policy.document
@@ -751,11 +676,33 @@ export async function buildPolicyGateDocuments({
         alreadyAccepted: acceptedSet.has(
           `${policy.document}::${policy.version}`
         ),
-        publishedAt:
-          policy.publishedAt || null,
+        publishedAt: policy.publishedAt || null,
       };
     });
+
+    const position = new Map(
+      keys.map((key, index) => [
+        key,
+        index,
+      ])
+    );
+
+    result.sort((a, b) => {
+      const positionA =
+        position.get(a.key) ??
+        Number.MAX_SAFE_INTEGER;
+
+      const positionB =
+        position.get(b.key) ??
+        Number.MAX_SAFE_INTEGER;
+
+      return positionA - positionB;
+    });
+
+    return result;
   }
+
+  /* ======================== VENDOR ======================== */
 
   const normalizedVendorId =
     assertVendorId(vendorId);
@@ -822,13 +769,10 @@ export async function buildPolicyGateDocuments({
     alreadyAccepted: acceptedSet.has(
       `${policy.document}::${policy.version}`
     ),
-    publishedAt:
-      policy.publishedAt || null,
+    publishedAt: policy.publishedAt || null,
   }));
 
-  if (
-    keys.includes("PRODUCT_DECLARATION")
-  ) {
+  if (keys.includes("PRODUCT_DECLARATION")) {
     const declaration =
       await prisma.vendorProductDeclaration.findUnique({
         where: {
@@ -856,9 +800,6 @@ export async function buildPolicyGateDocuments({
     });
   }
 
-  /*
-   * Păstrăm ordinea documentelor selectate în admin.
-   */
   const position = new Map(
     keys.map((key, index) => [
       key,
@@ -894,23 +835,17 @@ export async function acceptPolicyDocuments({
   ua = null,
   source = "policy_gate",
 }) {
-  const normalizedScope =
-    assertValidScope(scope);
-
-  const normalizedUserId =
-    assertUserId(userId);
-
-  const keys =
-    normalizeDocumentKeys(documentKeys);
+  const normalizedScope = assertValidScope(scope);
+  const normalizedUserId = assertUserId(userId);
+  const keys = normalizeDocumentKeys(documentKeys);
 
   if (!keys.length) {
-    const error =
-      new Error("no_documents");
-
+    const error = new Error("no_documents");
     error.code = "no_documents";
-
     throw error;
   }
+
+  /* ========================= USER ========================= */
 
   if (normalizedScope === "USERS") {
     const invalidKeys = keys.filter(
@@ -919,12 +854,9 @@ export async function acceptPolicyDocuments({
     );
 
     if (invalidKeys.length) {
-      const error =
-        new Error("invalid_documents");
-
+      const error = new Error("invalid_documents");
       error.code = "invalid_documents";
       error.invalidDocuments = invalidKeys;
-
       throw error;
     }
 
@@ -937,173 +869,24 @@ export async function acceptPolicyDocuments({
       )
     );
 
-    return prisma.$transaction(
-      async (tx) => {
-        const policies =
-          await tx.userPolicy.findMany({
-            where: {
-              isActive: true,
-              document: {
-                in: dbDocuments,
-              },
+    return prisma.$transaction(async (tx) => {
+      const policies =
+        await tx.userPolicy.findMany({
+          where: {
+            isActive: true,
+            document: {
+              in: dbDocuments,
             },
-            orderBy: [
-              {
-                document: "asc",
-              },
-              {
-                publishedAt: "desc",
-              },
-            ],
-          });
-
-        const latest = new Map();
-
-        for (const policy of policies) {
-          if (!latest.has(policy.document)) {
-            latest.set(
-              policy.document,
-              policy
-            );
-          }
-        }
-
-        const missingPolicies =
-          dbDocuments.filter(
-            (document) =>
-              !latest.has(document)
-          );
-
-        if (missingPolicies.length) {
-          const error =
-            new Error(
-              "active_policy_missing"
-            );
-
-          error.code =
-            "active_policy_missing";
-
-          error.missingDocuments =
-            missingPolicies;
-
-          throw error;
-        }
-
-        const accepted = [];
-
-        for (const document of dbDocuments) {
-          const policy =
-            latest.get(document);
-
-          const consent =
-            await tx.userConsent.upsert({
-              where: {
-                userId_document_version: {
-                  userId:
-                    normalizedUserId,
-                  document:
-                    policy.document,
-                  version:
-                    policy.version,
-                },
-              },
-              create: {
-                userId:
-                  normalizedUserId,
-                document:
-                  policy.document,
-                version:
-                  policy.version,
-                checksum:
-                  policy.checksum || null,
-                ip,
-                ua,
-              },
-              update: {
-                checksum:
-                  policy.checksum || null,
-                ip,
-                ua,
-                givenAt: new Date(),
-              },
-            });
-
-          accepted.push({
-            key:
-              USER_DOCUMENT_TO_GATE_KEY[
-                policy.document
-              ] || policy.document,
-            document:
-              policy.document,
-            version:
-              policy.version,
-            acceptedAt:
-              consent.givenAt,
-          });
-        }
-
-        return {
-          ok: true,
-          scope: normalizedScope,
-          accepted,
-        };
-      }
-    );
-  }
-
-  const normalizedVendorId =
-    assertVendorId(vendorId);
-
-  const invalidKeys = keys.filter(
-    (key) =>
-      key !== "PRODUCT_DECLARATION" &&
-      !GATE_KEY_TO_VENDOR_DOCUMENT[key]
-  );
-
-  if (invalidKeys.length) {
-    const error =
-      new Error("invalid_documents");
-
-    error.code = "invalid_documents";
-    error.invalidDocuments = invalidKeys;
-
-    throw error;
-  }
-
-  return prisma.$transaction(
-    async (tx) => {
-      const normalKeys = keys.filter(
-        (key) =>
-          key !== "PRODUCT_DECLARATION"
-      );
-
-      const dbDocuments = Array.from(
-        new Set(
-          normalKeys.map(
-            (key) =>
-              GATE_KEY_TO_VENDOR_DOCUMENT[key]
-          )
-        )
-      );
-
-      const policies = dbDocuments.length
-        ? await tx.vendorPolicy.findMany({
-            where: {
-              isActive: true,
-              document: {
-                in: dbDocuments,
-              },
+          },
+          orderBy: [
+            {
+              document: "asc",
             },
-            orderBy: [
-              {
-                document: "asc",
-              },
-              {
-                publishedAt: "desc",
-              },
-            ],
-          })
-        : [];
+            {
+              publishedAt: "desc",
+            },
+          ],
+        });
 
       const latest = new Map();
 
@@ -1123,14 +906,11 @@ export async function acceptPolicyDocuments({
         );
 
       if (missingPolicies.length) {
-        const error =
-          new Error(
-            "active_policy_missing"
-          );
+        const error = new Error(
+          "active_policy_missing"
+        );
 
-        error.code =
-          "active_policy_missing";
-
+        error.code = "active_policy_missing";
         error.missingDocuments =
           missingPolicies;
 
@@ -1140,15 +920,13 @@ export async function acceptPolicyDocuments({
       const accepted = [];
 
       for (const document of dbDocuments) {
-        const policy =
-          latest.get(document);
+        const policy = latest.get(document);
 
-        const acceptance =
-          await tx.vendorAcceptance.upsert({
+        const consent =
+          await tx.userConsent.upsert({
             where: {
-              vendorId_document_version: {
-                vendorId:
-                  normalizedVendorId,
+              userId_document_version: {
+                userId: normalizedUserId,
                 document:
                   policy.document,
                 version:
@@ -1156,95 +934,33 @@ export async function acceptPolicyDocuments({
               },
             },
             create: {
-              vendorId:
-                normalizedVendorId,
-              userId:
-                normalizedUserId,
+              userId: normalizedUserId,
               document:
                 policy.document,
               version:
                 policy.version,
               checksum:
                 policy.checksum || null,
-              acceptedAt:
-                new Date(),
               ip,
               ua,
-              source,
             },
             update: {
-              userId:
-                normalizedUserId,
               checksum:
                 policy.checksum || null,
-              acceptedAt:
-                new Date(),
               ip,
               ua,
-              source,
-            },
-          });
-
-        accepted.push({
-          key: policy.document,
-          document:
-            policy.document,
-          version:
-            policy.version,
-          acceptedAt:
-            acceptance.acceptedAt,
-        });
-      }
-
-      if (
-        keys.includes(
-          "PRODUCT_DECLARATION"
-        )
-      ) {
-        const declarationVersion =
-          "1.0.0";
-
-        const declaration =
-          await tx.vendorProductDeclaration.upsert({
-            where: {
-              vendorId:
-                normalizedVendorId,
-            },
-            create: {
-              vendorId:
-                normalizedVendorId,
-              version:
-                declarationVersion,
-              acceptedAt:
-                new Date(),
-              ip,
-              ua,
-              meta: {
-                source,
-              },
-            },
-            update: {
-              version:
-                declarationVersion,
-              acceptedAt:
-                new Date(),
-              ip,
-              ua,
-              meta: {
-                source,
-              },
+              givenAt: new Date(),
             },
           });
 
         accepted.push({
           key:
-            "PRODUCT_DECLARATION",
-          document:
-            "PRODUCT_DECLARATION",
-          version:
-            declaration.version,
-          acceptedAt:
-            declaration.acceptedAt,
+            USER_DOCUMENT_TO_GATE_KEY[
+              policy.document
+            ] || policy.document,
+          document: policy.document,
+          version: policy.version,
+          acceptedAt: consent.givenAt,
         });
       }
 
@@ -1253,12 +969,195 @@ export async function acceptPolicyDocuments({
         scope: normalizedScope,
         accepted,
       };
-    }
+    });
+  }
+
+  /* ======================== VENDOR ======================== */
+
+  const normalizedVendorId =
+    assertVendorId(vendorId);
+
+  const invalidKeys = keys.filter(
+    (key) =>
+      key !== "PRODUCT_DECLARATION" &&
+      !GATE_KEY_TO_VENDOR_DOCUMENT[key]
   );
+
+  if (invalidKeys.length) {
+    const error = new Error("invalid_documents");
+    error.code = "invalid_documents";
+    error.invalidDocuments = invalidKeys;
+    throw error;
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const normalKeys = keys.filter(
+      (key) =>
+        key !== "PRODUCT_DECLARATION"
+    );
+
+    const dbDocuments = Array.from(
+      new Set(
+        normalKeys.map(
+          (key) =>
+            GATE_KEY_TO_VENDOR_DOCUMENT[key]
+        )
+      )
+    );
+
+    const policies = dbDocuments.length
+      ? await tx.vendorPolicy.findMany({
+          where: {
+            isActive: true,
+            document: {
+              in: dbDocuments,
+            },
+          },
+          orderBy: [
+            {
+              document: "asc",
+            },
+            {
+              publishedAt: "desc",
+            },
+          ],
+        })
+      : [];
+
+    const latest = new Map();
+
+    for (const policy of policies) {
+      if (!latest.has(policy.document)) {
+        latest.set(
+          policy.document,
+          policy
+        );
+      }
+    }
+
+    const missingPolicies =
+      dbDocuments.filter(
+        (document) =>
+          !latest.has(document)
+      );
+
+    if (missingPolicies.length) {
+      const error = new Error(
+        "active_policy_missing"
+      );
+
+      error.code = "active_policy_missing";
+      error.missingDocuments =
+        missingPolicies;
+
+      throw error;
+    }
+
+    const accepted = [];
+
+    for (const document of dbDocuments) {
+      const policy = latest.get(document);
+
+      const acceptance =
+        await tx.vendorAcceptance.upsert({
+          where: {
+            vendorId_document_version: {
+              vendorId:
+                normalizedVendorId,
+              document:
+                policy.document,
+              version:
+                policy.version,
+            },
+          },
+          create: {
+            vendorId:
+              normalizedVendorId,
+            userId: normalizedUserId,
+            document:
+              policy.document,
+            version:
+              policy.version,
+            checksum:
+              policy.checksum || null,
+            acceptedAt: new Date(),
+            ip,
+            ua,
+            source,
+          },
+          update: {
+            userId: normalizedUserId,
+            checksum:
+              policy.checksum || null,
+            acceptedAt: new Date(),
+            ip,
+            ua,
+            source,
+          },
+        });
+
+      accepted.push({
+        key: policy.document,
+        document: policy.document,
+        version: policy.version,
+        acceptedAt:
+          acceptance.acceptedAt,
+      });
+    }
+
+    if (keys.includes("PRODUCT_DECLARATION")) {
+      const declarationVersion = "1.0.0";
+
+      const declaration =
+        await tx.vendorProductDeclaration.upsert({
+          where: {
+            vendorId:
+              normalizedVendorId,
+          },
+          create: {
+            vendorId:
+              normalizedVendorId,
+            version:
+              declarationVersion,
+            acceptedAt: new Date(),
+            ip,
+            ua,
+            meta: {
+              source,
+            },
+          },
+          update: {
+            version:
+              declarationVersion,
+            acceptedAt: new Date(),
+            ip,
+            ua,
+            meta: {
+              source,
+            },
+          },
+        });
+
+      accepted.push({
+        key: "PRODUCT_DECLARATION",
+        document:
+          "PRODUCT_DECLARATION",
+        version: declaration.version,
+        acceptedAt:
+          declaration.acceptedAt,
+      });
+    }
+
+    return {
+      ok: true,
+      scope: normalizedScope,
+      accepted,
+    };
+  });
 }
 
 /* =========================================================
- * Verificarea documentelor rămase
+ * Documente obligatorii rămase
  * ========================================================= */
 
 export async function getMissingRequiredDocuments({
@@ -1283,7 +1182,7 @@ export async function getMissingRequiredDocuments({
 }
 
 /* =========================================================
- * Arhivarea notificării după acceptare
+ * Arhivarea notificării
  * ========================================================= */
 
 export async function archivePolicyNotification({
@@ -1292,8 +1191,7 @@ export async function archivePolicyNotification({
   userId,
   vendorId,
 }) {
-  const id =
-    normalizeText(notificationId);
+  const id = normalizeText(notificationId);
 
   if (!id) {
     return {
@@ -1315,11 +1213,9 @@ export async function archivePolicyNotification({
   };
 
   if (normalizedScope === "USERS") {
-    where.userId =
-      assertUserId(userId);
+    where.userId = assertUserId(userId);
   } else {
-    where.vendorId =
-      assertVendorId(vendorId);
+    where.vendorId = assertVendorId(vendorId);
   }
 
   const result =
@@ -1338,23 +1234,9 @@ export async function archivePolicyNotification({
 }
 
 /* =========================================================
- * Publicare + rezultate pentru admin
+ * Publicarea documentelor selectate în admin
  * ========================================================= */
 
-/**
- * Helper pentru viitorul endpoint:
- *
- * POST /api/admin/policies/publish
- *
- * Primește cheile din PolicyGate/Admin:
- *
- * USERS:
- * TOS, PRIVACY, COOKIES, RETURNS_POLICY_ACK
- *
- * VENDORS:
- * VENDOR_TERMS, SHIPPING_ADDENDUM,
- * PRODUCTS_ADDENDUM, RETURNS_POLICY_ACK
- */
 export async function publishSelectedGateDocuments({
   scope,
   documentKeys,
@@ -1367,11 +1249,8 @@ export async function publishSelectedGateDocuments({
     normalizeDocumentKeys(documentKeys);
 
   if (!keys.length) {
-    const error =
-      new Error("no_documents");
-
+    const error = new Error("no_documents");
     error.code = "no_documents";
-
     throw error;
   }
 
@@ -1391,8 +1270,9 @@ export async function publishSelectedGateDocuments({
     );
 
     if (invalidKeys.length) {
-      const error =
-        new Error("invalid_documents");
+      const error = new Error(
+        "invalid_documents"
+      );
 
       error.code = "invalid_documents";
       error.invalidDocuments = invalidKeys;
@@ -1415,8 +1295,8 @@ export async function publishSelectedGateDocuments({
     };
 
     /*
-     * PRODUCT_DECLARATION este specială.
-     * Nu se publică în VendorPolicy.
+     * PRODUCT_DECLARATION este salvată separat,
+     * nu în VendorPolicy.
      */
     const publishableKeys = keys.filter(
       (key) =>
@@ -1429,8 +1309,9 @@ export async function publishSelectedGateDocuments({
       );
 
     if (invalidKeys.length) {
-      const error =
-        new Error("invalid_documents");
+      const error = new Error(
+        "invalid_documents"
+      );
 
       error.code = "invalid_documents";
       error.invalidDocuments = invalidKeys;
@@ -1463,7 +1344,7 @@ export async function publishSelectedGateDocuments({
 }
 
 /* =========================================================
- * Exporturi de diagnostic
+ * Diagnostic / mapări
  * ========================================================= */
 
 export function getPolicyMappings() {

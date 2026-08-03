@@ -102,6 +102,23 @@ function getStripeShortStatus(v) {
   return String(st);
 }
 
+function formatRonFromCents(value) {
+  if (value === null || value === undefined || value === "") {
+    return "Necompletat";
+  }
+
+  const cents = Number(value);
+
+  if (!Number.isFinite(cents)) {
+    return "Necompletat";
+  }
+
+  return `${(cents / 100).toLocaleString("ro-RO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} lei`;
+}
+
 export default function AdminVendorsTab({ vendors }) {
   const [filters, setFilters] = useState(createDefaultVendorFilters);
   const [page, setPage] = useState(1);
@@ -588,7 +605,104 @@ function VendorDetailsDrawer({
               </div>
             )}
           </section>
+<section className={styles.drawerSection}>
+  <h4>Livrare și retururi</h4>
 
+  {!Array.isArray(vendor.services) || vendor.services.length === 0 ? (
+    <div className={styles.drawerField}>
+      <span>Status</span>
+      <span>Vendorul nu are servicii configurate.</span>
+    </div>
+  ) : (
+    vendor.services.map((service, index) => (
+      <div
+        key={service.id || index}
+        style={{
+          display: "grid",
+          gap: 8,
+          padding: index === 0 ? "0 0 14px" : "14px 0",
+          borderBottom:
+            index < vendor.services.length - 1
+              ? "1px solid var(--color-border)"
+              : "none",
+        }}
+      >
+        <div className={styles.drawerField}>
+          <span>Magazin / serviciu</span>
+          <strong>{service.title || `Serviciul ${index + 1}`}</strong>
+        </div>
+
+        <div className={styles.drawerField}>
+          <span>Status configurare</span>
+
+          <span
+            className={
+              service.shippingComplete
+                ? styles.vendorStatusActive
+                : styles.vendorStatusInactive
+            }
+          >
+            {service.shippingComplete ? "Complet" : "Incomplet"}
+          </span>
+        </div>
+
+        <div className={styles.drawerField}>
+          <span>Cost estimativ transport</span>
+
+          <span>
+            {formatRonFromCents(service.estimatedShippingFeeCents)}
+          </span>
+        </div>
+
+        <div className={styles.drawerField}>
+          <span>Transport gratuit de la</span>
+
+          <span>
+            {service.freeShippingThresholdCents === null ||
+            service.freeShippingThresholdCents === undefined
+              ? "Nu este oferit"
+              : formatRonFromCents(service.freeShippingThresholdCents)}
+          </span>
+        </div>
+
+        <div className={styles.drawerField}>
+          <span>Mențiuni livrare</span>
+
+          <span
+            style={{
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {service.shippingNotes || "—"}
+          </span>
+        </div>
+
+        <div className={styles.drawerField}>
+          <span>Adresă retur</span>
+          <span>{service.returnAddress || "Necompletată"}</span>
+        </div>
+
+        <div className={styles.drawerField}>
+          <span>Telefon retur</span>
+          <span>{service.returnPhone || "Necompletat"}</span>
+        </div>
+
+        <div className={styles.drawerField}>
+          <span>Email retur</span>
+          <span>{service.returnEmail || "Necompletat"}</span>
+        </div>
+
+        {service.slug && (
+          <div className={styles.drawerField}>
+            <span>Slug magazin</span>
+            <code>{service.slug}</code>
+          </div>
+        )}
+      </div>
+    ))
+  )}
+</section>
           <section className={styles.drawerSection}>
             <h4>Billing</h4>
 

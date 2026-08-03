@@ -549,7 +549,65 @@ router.get("/vendors", async (_req, res) => {
         profileComplete,
         onboardingStatus,
         followers,
+services: services.map((service) => {
+  const serviceProfile = service.profile || null;
 
+  const estimatedShippingFeeCents =
+    service.estimatedShippingFeeCents == null
+      ? null
+      : Number(service.estimatedShippingFeeCents);
+
+  const freeShippingThresholdCents =
+    service.freeShippingThresholdCents == null
+      ? null
+      : Number(service.freeShippingThresholdCents);
+
+  const returnAddress =
+    serviceProfile?.address ||
+    v.address ||
+    "";
+
+  const returnPhone =
+    serviceProfile?.phone ||
+    v.phone ||
+    "";
+
+  const returnEmail =
+    serviceProfile?.email ||
+    v.email ||
+    "";
+
+  const shippingComplete =
+    estimatedShippingFeeCents !== null &&
+    estimatedShippingFeeCents >= 0 &&
+    Boolean(returnAddress) &&
+    Boolean(returnPhone) &&
+    Boolean(returnEmail);
+
+  return {
+    id: service.id,
+
+    title:
+      serviceProfile?.displayName ||
+      service.title ||
+      v.displayName ||
+      "Magazin",
+
+    slug: serviceProfile?.slug || null,
+    status: service.status || null,
+    isActive: !!service.isActive,
+
+    estimatedShippingFeeCents,
+    freeShippingThresholdCents,
+    shippingNotes: service.shippingNotes || null,
+
+    returnAddress,
+    returnPhone,
+    returnEmail,
+
+    shippingComplete,
+  };
+}),
         user: v.user
           ? {
               id: v.user.id,
