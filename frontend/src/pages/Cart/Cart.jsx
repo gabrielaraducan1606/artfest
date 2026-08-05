@@ -116,28 +116,6 @@ const clampQty = (q, max = DEFAULT_MAX_QTY) =>
 const getRowKey = (row) =>
   `${row.productId}:${row.configurationKey || "default"}`;
 
-const CART_CACHE_KEY = "cart:ui-cache:v1";
-
-function readCartCache() {
-  try {
-    const raw = sessionStorage.getItem(CART_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.rows)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeCartCache(data) {
-  try {
-    sessionStorage.setItem(CART_CACHE_KEY, JSON.stringify(data));
-  } catch {
-    /* noop */
-  }
-}
-
 function getFriendlyCartError(e, fallbackMax) {
   if (e?.error === "insufficient_stock") {
     return `Avem doar ${e?.stock ?? fallbackMax} buc. disponibile momentan. Am ajustat cantitatea la maximul disponibil.`;
@@ -161,11 +139,14 @@ function getFriendlyCartError(e, fallbackMax) {
 export default function Cart() {
   const nav = useNavigate();
 
-  const cached = useMemo(() => readCartCache(), []);
+  const [loading, setLoading] =
+  useState(true);
 
-  const [loading, setLoading] = useState(() => !cached);
-  const [me, setMe] = useState(() => cached?.me ?? null);
-  const [rows, setRows] = useState(() => cached?.rows ?? []);
+const [me, setMe] =
+  useState(null);
+
+const [rows, setRows] =
+  useState([]);
 
   const didMergeRef = useRef(false);
   const announceRef = useRef(null);
@@ -174,14 +155,6 @@ export default function Cart() {
   const [favIds, setFavIds] = useState(() => new Set());
 
   const myVendorId = me?.vendor?.id || null;
-
-  useEffect(() => {
-    writeCartCache({
-      me,
-      rows,
-      ts: Date.now(),
-    });
-  }, [me, rows]);
 
   const notifyCartChanged = useCallback(() => {
     try {
@@ -254,18 +227,181 @@ export default function Cart() {
         };
       }
 
-      const price = Number.isFinite(p.priceCents)
-        ? p.priceCents / 100
-        : Number.isFinite(p.price)
-        ? p.price
-        : 0;
+      const hasNumericValue = (
+  value
+) =>
+  value !== null &&
+  value !== undefined &&
+  value !== "" &&
+  Number.isFinite(
+    Number(value)
+  );
 
-      const product = {
-        id: p.id,
-        title: p.title || "Produs",
-        images: Array.isArray(p.images) ? p.images : [],
-        price,
-        currency: p.currency || "RON",
+const finalPriceCents =
+  hasNumericValue(
+    p?.finalPriceCents
+  )
+    ? Number(
+        p.finalPriceCents
+      )
+    : hasNumericValue(
+          p?.discountedPriceCents
+        )
+      ? Number(
+          p.discountedPriceCents
+        )
+      : hasNumericValue(
+            p?.priceCents
+          )
+        ? Number(
+            p.priceCents
+          )
+        : hasNumericValue(
+              p?.price
+            )
+          ? Math.round(
+              Number(p.price) *
+                100
+            )
+          : null;
+
+const originalPriceCents =
+  hasNumericValue(
+    p?.originalPriceCents
+  )
+    ? Number(
+        p.originalPriceCents
+      )
+    : hasNumericValue(
+          p?.originalPrice
+        )
+      ? Math.round(
+          Number(
+            p.originalPrice
+          ) * 100
+        )
+      : null;
+
+const hasDiscount =
+  p?.hasDiscount === true &&
+  finalPriceCents !== null &&
+  originalPriceCents !== null &&
+  finalPriceCents <
+    originalPriceCents;
+
+const price =
+  finalPriceCents !== null
+    ? finalPriceCents / 100
+    : 0;
+
+     const product = {
+  id: p.id,
+
+  title:
+    p.title ||
+    "Produs",
+
+  images:
+    Array.isArray(
+      p.images
+    )
+      ? p.images
+      : [],
+
+ price,
+
+priceCents:
+  finalPriceCents,
+
+finalPriceCents,
+
+discountedPriceCents:
+  finalPriceCents,
+
+originalPrice:
+  hasDiscount
+    ? originalPriceCents /
+      100
+    : null,
+
+originalPriceCents:
+  hasDiscount
+    ? originalPriceCents
+    : null,
+
+hasDiscount,
+
+discountPercent:
+  hasDiscount
+    ? Number(
+        p?.totalDiscountPercent ??
+          p?.discountPercent ??
+          0
+      )
+    : 0,
+
+totalDiscountPercent:
+  hasDiscount
+    ? Number(
+        p?.totalDiscountPercent ??
+          p?.discountPercent ??
+          0
+      )
+    : 0,
+
+platformDiscountPercent:
+  hasDiscount
+    ? Number(
+        p?.platformDiscountPercent ??
+          0
+      )
+    : 0,
+
+vendorDiscountPercent:
+  hasDiscount
+    ? Number(
+        p?.vendorDiscountPercent ??
+          0
+      )
+    : 0,
+
+hasActiveHomepageDiscount:
+  hasDiscount &&
+  p?.hasActiveHomepageDiscount ===
+    true,
+
+promoLabel:
+  hasDiscount
+    ? p?.promoLabel ||
+      p?.discount?.label ||
+      "Reducere Artfest"
+    : null,
+
+promoFundingSource:
+  hasDiscount
+    ? p?.promoFundingSource ||
+      p?.discount
+        ?.fundingSource ||
+      null
+    : null,
+
+promoCollectionId:
+  hasDiscount
+    ? p?.promoCollectionId ||
+      p?.discount
+        ?.collectionId ||
+      null
+    : null,
+
+discount:
+  hasDiscount
+    ? p?.discount ||
+      null
+    : null,
+
+  currency:
+    p.currency ||
+    "RON",
         vendorId: p?.service?.vendor?.id || p?.vendorId || null,
         vendorName:
           p.storeName ||
@@ -320,11 +456,130 @@ export default function Cart() {
         ...productRaw,
         title: productRaw?.title || "Produs",
         images: Array.isArray(productRaw?.images) ? productRaw.images : [],
-        price: Number.isFinite(productRaw?.priceCents)
-          ? productRaw.priceCents / 100
-          : Number.isFinite(productRaw?.price)
-          ? productRaw.price
-          : 0,
+      price:
+  productRaw?.finalPriceCents !== null &&
+  productRaw?.finalPriceCents !== undefined &&
+  Number.isFinite(
+    Number(
+      productRaw.finalPriceCents
+    )
+  )
+    ? Number(
+        productRaw.finalPriceCents
+      ) / 100
+    : productRaw?.priceCents !== null &&
+        productRaw?.priceCents !== undefined &&
+        Number.isFinite(
+          Number(
+            productRaw.priceCents
+          )
+        )
+      ? Number(
+          productRaw.priceCents
+        ) / 100
+      : Number.isFinite(
+            Number(
+              productRaw?.price
+            )
+          )
+        ? Number(
+            productRaw.price
+          )
+        : 0,
+
+priceCents:
+  productRaw?.finalPriceCents !== null &&
+  productRaw?.finalPriceCents !== undefined &&
+  Number.isFinite(
+    Number(
+      productRaw.finalPriceCents
+    )
+  )
+    ? Number(
+        productRaw.finalPriceCents
+      )
+    : productRaw?.priceCents !== null &&
+        productRaw?.priceCents !== undefined &&
+        Number.isFinite(
+          Number(
+            productRaw.priceCents
+          )
+        )
+      ? Number(
+          productRaw.priceCents
+        )
+      : null,
+
+originalPriceCents:
+  productRaw?.originalPriceCents ?? null,
+
+originalPrice:
+  Number.isFinite(productRaw?.originalPriceCents)
+    ? productRaw.originalPriceCents / 100
+    : null,
+
+hasDiscount:
+  productRaw?.hasDiscount === true,
+
+discountPercent:
+  Number(
+    productRaw?.totalDiscountPercent ??
+      productRaw?.discountPercent ??
+      0
+  ),
+
+totalDiscountPercent:
+  Number(
+    productRaw?.totalDiscountPercent ??
+      productRaw?.discountPercent ??
+      0
+  ),
+
+platformDiscountPercent:
+  Number(
+    productRaw?.platformDiscountPercent ??
+      0
+  ),
+
+vendorDiscountPercent:
+  Number(
+    productRaw?.vendorDiscountPercent ??
+      0
+  ),
+
+hasActiveHomepageDiscount:
+  productRaw?.hasActiveHomepageDiscount ===
+  true,
+
+discountedPriceCents:
+  productRaw?.discountedPriceCents ??
+  productRaw?.finalPriceCents ??
+  productRaw?.priceCents ??
+  null,
+
+finalPriceCents:
+  productRaw?.finalPriceCents ??
+  productRaw?.priceCents ??
+  null,
+
+promoLabel:
+  productRaw?.promoLabel ??
+  productRaw?.discount?.label ??
+  null,
+
+promoFundingSource:
+  productRaw?.promoFundingSource ??
+  productRaw?.discount?.fundingSource ??
+  null,
+
+promoCollectionId:
+  productRaw?.promoCollectionId ??
+  productRaw?.discount?.collectionId ??
+  null,
+
+discount:
+  productRaw?.discount ??
+  null,
         currency: productRaw?.currency || "RON",
         vendorId:
           productRaw?.vendorId ||

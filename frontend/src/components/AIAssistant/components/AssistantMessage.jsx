@@ -1710,79 +1710,169 @@ export default function AssistantMessage({
             {items.length >
               0 && (
               <div>
-                {items.map(
-                  (
-                    item,
-                    index
-                  ) => {
-                    const quantity =
-                      Number(
-                        item?.quantity
-                      );
+               {items.map(
+  (
+    item,
+    index
+  ) => {
+    const quantity =
+      Number(
+        item?.quantity
+      );
 
-                    const unitPrice =
-                      Number(
-                        item?.unitPrice
-                      );
+    const originalUnitPrice =
+      Number(
+        item?.originalUnitPrice ??
+          item?.unitPrice
+      );
 
-                    const lineTotal =
-                      Number(
-                        item?.lineTotal
-                      );
+    const unitPrice =
+      Number(
+        item?.unitPrice
+      );
 
-                    return (
-                      <div
-                        key={
-                          item?.productId ||
-                          `offer-item-${index}`
-                        }
-                        className={
-                          styles.quoteOfferItem
-                        }
-                      >
-                        <div>
-                          <strong>
-                            {item?.title ||
-                              "Produs"}
-                          </strong>
-                        </div>
+    const lineTotal =
+      Number(
+        item?.lineTotal
+      );
 
-                        {Number.isFinite(
-                          quantity
-                        ) && (
-                          <div>
-                            Cantitate:{" "}
-                            {
-                              quantity
-                            }
-                          </div>
-                        )}
+    const discountAmount =
+      Number(
+        item?.discountAmount ??
+          0
+      );
 
-                        {Number.isFinite(
-                          unitPrice
-                        ) && (
-                          <div>
-                            Preț unitar:{" "}
-                            {formatOfferPrice(
-                              unitPrice
-                            )}
-                          </div>
-                        )}
+    const platformDiscountPercent =
+      Number(
+        item?.platformDiscountPercent ??
+          0
+      );
 
-                        {Number.isFinite(
-                          lineTotal
-                        ) && (
-                          <div>
-                            Total produs:{" "}
-                            {formatOfferPrice(
-                              lineTotal
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
+    const vendorDiscountPercent =
+      Number(
+        item?.vendorDiscountPercent ??
+          0
+      );
+
+    return (
+      <div
+        key={
+          item?.productId ||
+          `offer-item-${index}`
+        }
+        className={
+          styles.quoteOfferItem
+        }
+      >
+        <div>
+          <strong>
+            {item?.title ||
+              "Produs"}
+          </strong>
+        </div>
+
+        {Number.isFinite(
+          quantity
+        ) &&
+          quantity > 0 && (
+            <div>
+              Cantitate:{" "}
+              {quantity}
+            </div>
+          )}
+
+        {Number.isFinite(
+          originalUnitPrice
+        ) &&
+          Number.isFinite(
+            unitPrice
+          ) &&
+          originalUnitPrice >
+            unitPrice && (
+            <div>
+              Preț inițial:{" "}
+              <s>
+                {formatOfferPrice(
+                  originalUnitPrice
                 )}
+              </s>
+            </div>
+          )}
+
+        {Number.isFinite(
+          unitPrice
+        ) && (
+          <div>
+            Preț final:{" "}
+            <strong>
+              {formatOfferPrice(
+                unitPrice
+              )}
+            </strong>
+          </div>
+        )}
+
+        {Number.isFinite(
+          discountAmount
+        ) &&
+          discountAmount >
+            0 && (
+            <>
+              {Number.isFinite(
+                platformDiscountPercent
+              ) &&
+                platformDiscountPercent >
+                  0 && (
+                  <div>
+                    Reducere Artfest:{" "}
+                    {
+                      platformDiscountPercent
+                    }
+                    %
+                  </div>
+                )}
+
+              {Number.isFinite(
+                vendorDiscountPercent
+              ) &&
+                vendorDiscountPercent >
+                  0 && (
+                  <div>
+                    Reducere artizan:{" "}
+                    {
+                      vendorDiscountPercent
+                    }
+                    %
+                  </div>
+                )}
+
+              <div>
+                Economisești:{" "}
+                <strong>
+                  {formatOfferPrice(
+                    discountAmount
+                  )}
+                </strong>
+              </div>
+            </>
+          )}
+
+        {Number.isFinite(
+          lineTotal
+        ) && (
+          <div>
+            Total produs:{" "}
+            <strong>
+              {formatOfferPrice(
+                lineTotal
+              )}
+            </strong>
+          </div>
+        )}
+      </div>
+    );
+  }
+)}
               </div>
             )}
 

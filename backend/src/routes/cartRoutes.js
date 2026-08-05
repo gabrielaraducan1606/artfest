@@ -6,7 +6,9 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-
+import {
+  getPromotionPricingForProducts,
+} from "../services/productPromotionPrice.js";
 const router = Router();
 
 const clamp = (n, min, max) =>
@@ -638,7 +640,7 @@ async function getCartForUser(
         currency: true,
 
         orderMode: true,
-
+serviceId: true,
         acceptsCustom: true,
 
         styleTags: true,
@@ -656,11 +658,12 @@ async function getCartForUser(
 
         readyQty: true,
 
-        service: {
-          select: {
-            vendorId: true,
+       service: {
+  select: {
+    id: true,
+    vendorId: true,
 
-            profile: {
+    profile: {
               select: {
                 displayName:
                   true,
@@ -692,10 +695,37 @@ async function getCartForUser(
       )
     );
 
-  const promoByProductId =
-    await getActiveCollectionPromosForProducts(
-      products
-    );
+const pricingByProductId =
+  await getPromotionPricingForProducts(
+    products
+  );
+
+console.log(
+  "[cart] promotion pricing:",
+  products.map(
+    (product) => ({
+      productId:
+        product.id,
+
+      serviceId:
+        product.serviceId ||
+        product.service?.id ||
+        null,
+
+      orderMode:
+        product.orderMode,
+
+      originalPriceCents:
+        product.priceCents,
+
+      pricing:
+        pricingByProductId.get(
+          product.id
+        ) ||
+        null,
+    })
+  )
+);
 
   const mapped =
     cartItems.map(
@@ -800,15 +830,10 @@ async function getCartForUser(
             }. Redu cantitatea pentru a continua.`;
         }
 
-        const promo =
-          getPromoPrice(
-            product.priceCents,
-
-            promoByProductId.get(
-              product.id
-            ) || null
-          );
-
+        const pricing =
+  pricingByProductId.get(
+    product.id
+  );
         return {
           cartItemId:
             cartItem.id,
@@ -846,44 +871,88 @@ async function getCartForUser(
                 : [],
 
             price:
-              dec(
-                promo.finalPriceCents /
-                  100
-              ),
+  dec(
+    (
+      pricing?.finalPriceCents ??
+      product.priceCents ??
+      0
+    ) / 100
+  ),
 
-            priceCents:
-              promo.finalPriceCents,
+priceCents:
+  pricing?.finalPriceCents ??
+  product.priceCents ??
+  0,
 
-            originalPrice:
-              promo.hasDiscount
-                ? dec(
-                    promo.originalPriceCents /
-                      100
-                  )
-                : null,
+finalPriceCents:
+  pricing?.finalPriceCents ??
+  product.priceCents ??
+  0,
 
-            originalPriceCents:
-              promo.hasDiscount
-                ? promo.originalPriceCents
-                : null,
+discountedPriceCents:
+  pricing?.discountedPriceCents ??
+  product.priceCents ??
+  0,
 
-            hasDiscount:
-              promo.hasDiscount,
+originalPrice:
+  pricing?.hasDiscount
+    ? dec(
+        (
+          pricing.originalPriceCents ||
+          0
+        ) / 100
+      )
+    : null,
 
-            discountPercent:
-              promo.discountPercent,
+originalPriceCents:
+  pricing?.hasDiscount
+    ? pricing.originalPriceCents
+    : null,
 
-            promoLabel:
-              promo.promoLabel ||
-              null,
+hasDiscount:
+  Boolean(
+    pricing?.hasDiscount
+  ),
 
-            promoFundingSource:
-              promo.promoFundingSource ||
-              null,
+discountPercent:
+  pricing?.discountPercent ||
+  0,
 
-            promoCollectionId:
-              promo.promoCollectionId ||
-              null,
+totalDiscountPercent:
+  pricing?.totalDiscountPercent ||
+  0,
+
+platformDiscountPercent:
+  pricing?.platformDiscountPercent ||
+  0,
+
+vendorDiscountPercent:
+  pricing?.vendorDiscountPercent ||
+  0,
+
+hasActiveHomepageDiscount:
+  Boolean(
+    pricing?.hasActiveHomepageDiscount
+  ),
+
+promoLabel:
+  pricing?.promoLabel ||
+  null,
+
+promoFundingSource:
+  pricing?.promoFundingSource ||
+  null,
+
+promoCollectionId:
+  pricing?.promoCollectionId ||
+  null,
+
+discount:
+  pricing?.discount || {
+    active: false,
+    source: null,
+    totalDiscountPercent: 0,
+  },
 
             currency:
               product.currency ||
@@ -1039,9 +1108,10 @@ router.post(
           moderationStatus:
             true,
 
-          service: {
-            select: {
-              vendorId: true,
+         service: {
+  select: {
+    id: true,
+    vendorId: true,
 
               vendor: {
                 select: {

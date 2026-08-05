@@ -148,13 +148,37 @@ function getShipmentPaidGross(items = []) {
   return items.reduce((sum, it) => sum + getPaidGrossForItem(it), 0);
 }
 
-function getPlatformDiscountGross(items = []) {
-  return items.reduce((sum, it) => {
-    if (it.promoFundingSource !== "PLATFORM_COMMISSION") return sum;
-    return sum + Number(it.discountAmount || 0);
-  }, 0);
+function getPlatformDiscountGross(
+  items = []
+) {
+  return round2(
+    items.reduce(
+      (sum, item) =>
+        sum +
+        Number(
+          item.platformDiscountAmount ||
+            0
+        ),
+      0
+    )
+  );
 }
 
+function getVendorDiscountGross(
+  items = []
+) {
+  return round2(
+    items.reduce(
+      (sum, item) =>
+        sum +
+        Number(
+          item.vendorDiscountAmount ||
+            0
+        ),
+      0
+    )
+  );
+}
 /**
  * Calculează earning-ul vendorului pe shipment, folosind aceeași logică ca în GET /orders/:id:
  * - items subtotal gross -> net în funcție de TVA vendor
@@ -163,77 +187,319 @@ function getPlatformDiscountGross(items = []) {
  *
  * Notă: shipping NU intră în earning vendor.
  */
-async function computeVendorEarningForShipment({ vendorId, shipmentId }) {
-  const shipment = await prisma.shipment.findUnique({
-    where: { id: shipmentId },
-    include: { items: true, order: true },
-  });
-  if (!shipment) throw new Error("shipment_not_found");
+async function computeVendorEarningForShipment({
+  vendorId,
+  shipmentId,
+}) {
+  const shipment =
+    await prisma.shipment.findUnique({
+      where: {
+        id: shipmentId,
+      },
 
-  const billing = await prisma.vendorBilling.findUnique({ where: { vendorId } });
-  const vatStatus = billing?.vatStatus || null;
-  const vatRate = vatStatus === "payer" ? Number(billing?.vatRate || 0) : 0;
+      include: {
+        items: true,
+        order: true,
+      },
+    });
 
-  const subtotalGross = getShipmentPaidGross(shipment.items || []);
-const platformDiscountGross = getPlatformDiscountGross(shipment.items || []);
+  if (!shipment) {
+    throw new Error(
+      "shipment_not_found"
+    );
+  }
 
+  const billing =
+    await prisma.vendorBilling.findUnique({
+      where: {
+        vendorId,
+      },
+    });
+
+  const vatStatus =
+    billing?.vatStatus ||
+    null;
+
+  const vatRate =
+    vatStatus === "payer"
+      ? Number(
+          billing?.vatRate ||
+            0
+        )
+      : 0;
+
+  /*
+   * Valoarea efectiv plătită de client
+   * pentru produsele din shipment.
+   */
+  const subtotalGross =
+    getShipmentPaidGross(
+      shipment.items ||
+        []
+    );
+
+  /*
+   * Reducerea suportată de Artfest.
+   */
+  const platformDiscountGross =
+    getPlatformDiscountGross(
+      shipment.items ||
+        []
+    );
+
+  /*
+   * Reducerea suportată de vendor.
+   */
+  const vendorDiscountGross =
+    getVendorDiscountGross(
+      shipment.items ||
+        []
+    );
+
+  /*
+   * Prețul inițial al produselor:
+   *
+   * preț final client
+   * + reducerea Artfest
+   * + reducerea vendorului.
+   */
+  const commissionBaseGross =
+    round2(
+      subtotalGross +
+        platformDiscountGross +
+        vendorDiscountGross
+    );
+
+  /*
+   * Valoarea netă plătită efectiv
+   * de client pentru produse.
+   */
   const itemsNet =
-    vatRate > 0 ? subtotalGross / (1 + vatRate / 100) : subtotalGross;
+    vatRate > 0
+      ? subtotalGross /
+        (
+          1 +
+          vatRate /
+            100
+        )
+      : subtotalGross;
 
-  const plan = await getActivePlanForVendor(vendorId);
-  let baseCommissionBps = Number(plan?.commissionBps || 0);
-if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
-  baseCommissionBps = 0;
-}
+  /*
+   * Baza netă inițială pe care se
+   * calculează comisionul standard.
+   */
+  const commissionBaseNet =
+    vatRate > 0
+      ? commissionBaseGross /
+        (
+          1 +
+          vatRate /
+            100
+        )
+      : commissionBaseGross;
 
-const commissionBps = baseCommissionBps;
+  /*
+   * Partea Artfest exprimată net,
+   * pentru scăderea din comision.
+   */
+  const platformDiscountNet =
+    vatRate > 0
+      ? platformDiscountGross /
+        (
+          1 +
+          vatRate /
+            100
+        )
+      : platformDiscountGross;
 
-  const commissionBeforePromoNet = round2((itemsNet * commissionBps) / 10000);
+  const plan =
+    await getActivePlanForVendor(
+      vendorId
+    );
 
-const platformDiscountNet =
-  vatRate > 0
-    ? platformDiscountGross / (1 + vatRate / 100)
-    : platformDiscountGross;
+  let baseCommissionBps =
+    Number(
+      plan?.commissionBps ||
+        0
+    );
 
-const commissionNet = round2(
-  Math.max(0, commissionBeforePromoNet - platformDiscountNet)
-);
+  if (
+    !Number.isFinite(
+      baseCommissionBps
+    ) ||
+    baseCommissionBps < 0
+  ) {
+    baseCommissionBps =
+      0;
+  }
 
-const vendorNet = round2(itemsNet - commissionNet);
+  const commissionBps =
+    baseCommissionBps;
+
+  /*
+   * Comisionul standard înainte
+   * de reducerea oferită de Artfest.
+   */
+  const commissionBeforePromoNet =
+    round2(
+      (
+        commissionBaseNet *
+        commissionBps
+      ) /
+        10000
+    );
+
+  /*
+   * Reducerea Artfest se suportă
+   * din comisionul platformei.
+   */
+  const commissionNet =
+    round2(
+      Math.max(
+        0,
+        commissionBeforePromoNet -
+          platformDiscountNet
+      )
+    );
+
+  /*
+   * Suma vendorului:
+   *
+   * suma plătită efectiv pe produse
+   * minus comisionul final Artfest.
+   */
+  const vendorNet =
+    round2(
+      itemsNet -
+        commissionNet
+    );
 
   return {
-    currency: shipment.order?.currency || "RON",
-    orderId: shipment.orderId,
-    itemsNet: round2(itemsNet),
+    currency:
+      shipment.order
+        ?.currency ||
+      "RON",
+
+    orderId:
+      shipment.orderId,
+
+    itemsNet:
+      round2(
+        itemsNet
+      ),
+
     commissionNet,
+
     vendorNet,
+
     vatStatus,
     vatRate,
     commissionBps,
+
+    platformDiscountGross:
+      round2(
+        platformDiscountGross
+      ),
+
+    vendorDiscountGross:
+      round2(
+        vendorDiscountGross
+      ),
+
+    platformDiscountNet:
+      round2(
+        platformDiscountNet
+      ),
+
+    commissionBaseGross:
+      round2(
+        commissionBaseGross
+      ),
+
+    commissionBaseNet:
+      round2(
+        commissionBaseNet
+      ),
+
+    commissionBeforePromoNet:
+      round2(
+        commissionBeforePromoNet
+      ),
   };
 }
 
-async function ensureSaleLedgerEntry({ vendorId, shipmentId }) {
-  const earning = await computeVendorEarningForShipment({ vendorId, shipmentId });
+async function ensureSaleLedgerEntry({
+  vendorId,
+  shipmentId,
+}) {
+  const earning =
+    await computeVendorEarningForShipment({
+      vendorId,
+      shipmentId,
+    });
 
   return prisma.vendorEarningEntry.upsert({
-    where: { shipmentId },
+    where: {
+      shipmentId,
+    },
+
     update: {},
+
     create: {
       vendorId,
       shipmentId,
-      orderId: earning.orderId,
-      type: "SALE",
-      occurredAt: new Date(),
-      currency: earning.currency,
-      itemsNet: earning.itemsNet,
-      commissionNet: earning.commissionNet,
-      vendorNet: earning.vendorNet,
+
+      orderId:
+        earning.orderId,
+
+      type:
+        "SALE",
+
+      occurredAt:
+        new Date(),
+
+      currency:
+        earning.currency,
+
+      itemsNet:
+        earning.itemsNet,
+
+      commissionNet:
+        earning.commissionNet,
+
+      vendorNet:
+        earning.vendorNet,
+
       meta: {
-        source: "shipment_status_fulfilled",
-        vatStatus: earning.vatStatus,
-        vatRate: earning.vatRate,
-        commissionBps: earning.commissionBps,
+        source:
+          "shipment_status_fulfilled",
+
+        vatStatus:
+          earning.vatStatus,
+
+        vatRate:
+          earning.vatRate,
+
+        commissionBps:
+          earning.commissionBps,
+
+        platformDiscountGross:
+          earning.platformDiscountGross,
+
+        vendorDiscountGross:
+          earning.vendorDiscountGross,
+
+        platformDiscountNet:
+          earning.platformDiscountNet,
+
+        commissionBaseGross:
+          earning.commissionBaseGross,
+
+        commissionBaseNet:
+          earning.commissionBaseNet,
+
+        commissionBeforePromoNet:
+          earning.commissionBeforePromoNet,
       },
     },
   });
@@ -604,316 +870,1126 @@ async function getThreadMetaByOrderId({ vendorId, orderIds }) {
 /* ----------------------------------------------------
    GET /api/vendor/orders
 ----------------------------------------------------- */
-router.get("/orders", requireVendor, async (req, res) => {
-  const vendorId = req.user.vendorId;
-const billingGate = await prisma.vendorBilling.findUnique({
-  where: { vendorId },
-});
+router.get(
+  "/orders",
+  requireVendor,
+  async (req, res) => {
+    const vendorId =
+      req.user.vendorId;
 
-const billingStatus = validateBillingGate(billingGate);
+    const billingGate =
+      await prisma.vendorBilling.findUnique({
+        where: {
+          vendorId,
+        },
+      });
 
-const ordersCount = await prisma.shipment.count({
-  where: { vendorId },
-});
+    const billingStatus =
+      validateBillingGate(
+        billingGate
+      );
 
-if (!billingStatus.ok) {
-  return res.json({
-    total: ordersCount,
-    items: [],
-    billingRequired: true,
-    billingGate: {
-      title: "Completează datele de facturare",
-      message:
-        ordersCount > 0
-          ? "Ai primit comenzi. Pentru a vedea datele clienților și detaliile comenzilor trebuie să completezi mai întâi informațiile de facturare."
-          : "Pentru a putea primi și administra comenzile, completează mai întâi informațiile de facturare.",
-      cta: {
-        label: "Completează datele de facturare",
-        url: "/setari?tab=billing",
-      },
-    },
-  });
-}
+    const ordersCount =
+      await prisma.shipment.count({
+        where: {
+          vendorId,
+        },
+      });
 
-  const q = String(req.query.q || "").trim();
-  const statusUi = String(req.query.status || "");
-  const from = req.query.from ? new Date(String(req.query.from)) : null;
-  const to = req.query.to ? new Date(String(req.query.to)) : null;
+    if (
+      !billingStatus.ok
+    ) {
+      return res.json({
+        total:
+          ordersCount,
 
-  const page = Math.max(1, parseInt(req.query.page || "1", 10));
-  const pageSize = Math.min(
-    100,
-    Math.max(1, parseInt(req.query.pageSize || "20", 10))
-  );
+        items: [],
 
-  const cacheKey = `v:${vendorId}|q:${q}|st:${statusUi}|f:${
-    from ? from.toISOString() : ""
-  }|t:${to ? to.toISOString() : ""}|p:${page}|ps:${pageSize}`;
+        billingRequired:
+          true,
 
-  const cached = cacheGet(cacheKey);
-  if (cached) return res.json(cached);
+        billingGate: {
+          title:
+            "Completează datele de facturare",
 
-const where = {
-  vendorId,
-  ...(statusUi === "confirmed"
-    ? { status: { in: ["READY_FOR_PICKUP", "PICKUP_SCHEDULED", "AWB"] } }
-    : statusUi === "shipped"
-    ? { status: "IN_TRANSIT" }
-    : statusUi === "fulfilled"
-    ? { status: "DELIVERED" }
-    : statusUi === "cancelled"
-    ? { status: { in: ["RETURNED", "REFUSED"] } }
-    : statusUi
-    ? { status: uiToShipmentStatus(statusUi) }
-    : {}),
-};
+          message:
+            ordersCount > 0
+              ? "Ai primit comenzi. Pentru a vedea datele clienților și detaliile comenzilor trebuie să completezi mai întâi informațiile de facturare."
+              : "Pentru a putea primi și administra comenzile, completează mai întâi informațiile de facturare.",
 
-  if (from || to) {
-    where.createdAt = {
-      ...(from ? { gte: from } : {}),
-      ...(to ? { lte: endOfDay(to) } : {}),
+          cta: {
+            label:
+              "Completează datele de facturare",
+
+            url:
+              "/setari?tab=billing",
+          },
+        },
+      });
+    }
+
+    const q =
+      String(
+        req.query.q ||
+          ""
+      ).trim();
+
+    const statusUi =
+      String(
+        req.query.status ||
+          ""
+      );
+
+    const from =
+      req.query.from
+        ? new Date(
+            String(
+              req.query.from
+            )
+          )
+        : null;
+
+    const to =
+      req.query.to
+        ? new Date(
+            String(
+              req.query.to
+            )
+          )
+        : null;
+
+    const page =
+      Math.max(
+        1,
+        parseInt(
+          req.query.page ||
+            "1",
+          10
+        )
+      );
+
+    const pageSize =
+      Math.min(
+        100,
+        Math.max(
+          1,
+          parseInt(
+            req.query
+              .pageSize ||
+              "20",
+            10
+          )
+        )
+      );
+
+    const cacheKey =
+      `v:${vendorId}` +
+      `|q:${q}` +
+      `|st:${statusUi}` +
+      `|f:${
+        from
+          ? from.toISOString()
+          : ""
+      }` +
+      `|t:${
+        to
+          ? to.toISOString()
+          : ""
+      }` +
+      `|p:${page}` +
+      `|ps:${pageSize}`;
+
+    const cached =
+      cacheGet(
+        cacheKey
+      );
+
+    if (cached) {
+      return res.json(
+        cached
+      );
+    }
+
+    const where = {
+      vendorId,
+
+      ...(
+        statusUi ===
+        "confirmed"
+          ? {
+              status: {
+                in: [
+                  "READY_FOR_PICKUP",
+                  "PICKUP_SCHEDULED",
+                  "AWB",
+                ],
+              },
+            }
+          : statusUi ===
+              "shipped"
+          ? {
+              status:
+                "IN_TRANSIT",
+            }
+          : statusUi ===
+              "fulfilled"
+          ? {
+              status:
+                "DELIVERED",
+            }
+          : statusUi ===
+              "cancelled"
+          ? {
+              status: {
+                in: [
+                  "RETURNED",
+                  "REFUSED",
+                ],
+              },
+            }
+          : statusUi
+          ? {
+              status:
+                uiToShipmentStatus(
+                  statusUi
+                ),
+            }
+          : {}
+      ),
     };
-  }
 
-  if (q) {
-    where.OR = [
-      { orderId: { contains: q } },
-      { order: { orderNumber: { contains: q, mode: "insensitive" } } },
-      { order: { shippingAddress: { path: ["name"], string_contains: q } } },
-      { order: { shippingAddress: { path: ["phone"], string_contains: q } } },
-      { order: { shippingAddress: { path: ["email"], string_contains: q } } },
-      { order: { shippingAddress: { path: ["city"], string_contains: q } } },
-      { order: { shippingAddress: { path: ["street"], string_contains: q } } },
-    ];
-  }
+    if (
+      from ||
+      to
+    ) {
+      where.createdAt = {
+        ...(
+          from
+            ? {
+                gte:
+                  from,
+              }
+            : {}
+        ),
 
-  const [rows, total, billing, activePlan] = await Promise.all([
-    prisma.shipment.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      select: {
-        id: true,
-        orderId: true,
-        createdAt: true,
-        status: true,
-        price: true,
-        courierProvider: true,
-        courierService: true,
-        awb: true,
-        labelUrl: true,
-        pickupDate: true,
-        pickupSlotStart: true,
-        pickupSlotEnd: true,
-        pickupScheduledAt: true,
-        deliveredAt: true,
-        refusedAt: true,
-        returnedAt: true,
-        cancelReason: true,
-        cancelReasonNote: true,
-       items: {
-  select: {
-    id: true,
-    productId: true,
-    title: true,
-    qty: true,
-    price: true,
+        ...(
+          to
+            ? {
+                lte:
+                  endOfDay(
+                    to
+                  ),
+              }
+            : {}
+        ),
+      };
+    }
 
-    selectedOptions: true,
-    customAnswers: true,
-    configurationKey: true,
+    if (q) {
+      where.OR = [
+        {
+          orderId: {
+            contains:
+              q,
+          },
+        },
 
-    originalPrice: true,
-    discountAmount: true,
-    promoCollectionId: true,
-    promoFundingSource: true,
-  },
-},
-        service: {
+        {
+          order: {
+            orderNumber: {
+              contains:
+                q,
+
+              mode:
+                "insensitive",
+            },
+          },
+        },
+
+        {
+          order: {
+            shippingAddress: {
+              path: [
+                "name",
+              ],
+
+              string_contains:
+                q,
+            },
+          },
+        },
+
+        {
+          order: {
+            shippingAddress: {
+              path: [
+                "phone",
+              ],
+
+              string_contains:
+                q,
+            },
+          },
+        },
+
+        {
+          order: {
+            shippingAddress: {
+              path: [
+                "email",
+              ],
+
+              string_contains:
+                q,
+            },
+          },
+        },
+
+        {
+          order: {
+            shippingAddress: {
+              path: [
+                "city",
+              ],
+
+              string_contains:
+                q,
+            },
+          },
+        },
+
+        {
+          order: {
+            shippingAddress: {
+              path: [
+                "street",
+              ],
+
+              string_contains:
+                q,
+            },
+          },
+        },
+      ];
+    }
+
+    const [
+      rows,
+      total,
+      billing,
+      activePlan,
+    ] =
+      await Promise.all([
+        prisma.shipment.findMany({
+          where,
+
+          orderBy: {
+            createdAt:
+              "desc",
+          },
+
+          skip:
+            (
+              page -
+              1
+            ) *
+            pageSize,
+
+          take:
+            pageSize,
+
           select: {
             id: true,
-            title: true,
-            profile: {
+            orderId: true,
+            createdAt: true,
+            status: true,
+            price: true,
+
+            courierProvider:
+              true,
+
+            courierService:
+              true,
+
+            awb: true,
+            labelUrl: true,
+
+            pickupDate:
+              true,
+
+            pickupSlotStart:
+              true,
+
+            pickupSlotEnd:
+              true,
+
+            pickupScheduledAt:
+              true,
+
+            deliveredAt:
+              true,
+
+            refusedAt:
+              true,
+
+            returnedAt:
+              true,
+
+            cancelReason:
+              true,
+
+            cancelReasonNote:
+              true,
+
+            items: {
               select: {
-                displayName: true,
-                slug: true,
+                id: true,
+                productId: true,
+                title: true,
+                qty: true,
+                price: true,
+
+                selectedOptions:
+                  true,
+
+                customAnswers:
+                  true,
+
+                configurationKey:
+                  true,
+
+                originalPrice:
+                  true,
+
+                discountAmount:
+                  true,
+
+                platformDiscountPercent:
+                  true,
+
+                vendorDiscountPercent:
+                  true,
+
+                platformDiscountAmount:
+                  true,
+
+                vendorDiscountAmount:
+                  true,
+
+                promoCollectionId:
+                  true,
+
+                promoFundingSource:
+                  true,
+
+                homepageFeatureId:
+                  true,
+
+                discountSource:
+                  true,
               },
             },
-            vendor: {
+
+            service: {
               select: {
-                displayName: true,
+                id: true,
+                title: true,
+
+                profile: {
+                  select: {
+                    displayName:
+                      true,
+
+                    slug:
+                      true,
+                  },
+                },
+
+                vendor: {
+                  select: {
+                    displayName:
+                      true,
+                  },
+                },
+              },
+            },
+
+            order: {
+              select: {
+                orderNumber:
+                  true,
+
+                paymentMethod:
+                  true,
+
+                vendorNotes:
+                  true,
+
+                invoiceNumber:
+                  true,
+
+                invoiceDate:
+                  true,
+
+                shippingAddress:
+                  true,
               },
             },
           },
-        },
-        order: {
-          select: {
-            orderNumber: true,
-            paymentMethod: true,
-            vendorNotes: true,
-            invoiceNumber: true,
-            invoiceDate: true,
-            shippingAddress: true,
+        }),
+
+        prisma.shipment.count({
+          where,
+        }),
+
+        prisma.vendorBilling.findUnique({
+          where: {
+            vendorId,
           },
-        },
-      },
-    }),
-    prisma.shipment.count({ where }),
-    prisma.vendorBilling.findUnique({ where: { vendorId } }),
-    getActivePlanForVendor(vendorId).catch(() => null),
-  ]);
+        }),
 
-    const productIdSet = new Set();
+        getActivePlanForVendor(
+          vendorId
+        ).catch(
+          () =>
+            null
+        ),
+      ]);
 
-  for (const s of rows) {
-    for (const it of s.items || []) {
-      if (it.productId) productIdSet.add(it.productId);
+    const productIdSet =
+      new Set();
+
+    for (
+      const shipment of
+      rows
+    ) {
+      for (
+        const item of
+        shipment.items ||
+        []
+      ) {
+        if (
+          item.productId
+        ) {
+          productIdSet.add(
+            item.productId
+          );
+        }
+      }
     }
-  }
 
-  let imageMap = new Map();
+    let imageMap =
+      new Map();
 
-  if (productIdSet.size) {
-    const products = await prisma.product.findMany({
-      where: { id: { in: Array.from(productIdSet) } },
-      select: { id: true, images: true },
-    });
+    if (
+      productIdSet.size
+    ) {
+      const products =
+        await prisma.product.findMany({
+          where: {
+            id: {
+              in:
+                Array.from(
+                  productIdSet
+                ),
+            },
+          },
 
-    imageMap = new Map(
-      products.map((p) => [
-        p.id,
-        Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
-      ])
+          select: {
+            id: true,
+            images: true,
+          },
+        });
+
+      imageMap =
+        new Map(
+          products.map(
+            (
+              product
+            ) => [
+              product.id,
+
+              Array.isArray(
+                product.images
+              ) &&
+              product
+                .images[0]
+                ? product
+                    .images[0]
+                : null,
+            ]
+          )
+        );
+    }
+
+    const vatStatus =
+      billing?.vatStatus ||
+      null;
+
+    const vatRate =
+      vatStatus ===
+      "payer"
+        ? Number(
+            billing?.vatRate ||
+              0
+          )
+        : 0;
+
+    let baseCommissionBps =
+      Number(
+        activePlan
+          ?.commissionBps ||
+          0
+      );
+
+    if (
+      !Number.isFinite(
+        baseCommissionBps
+      ) ||
+      baseCommissionBps <
+        0
+    ) {
+      baseCommissionBps =
+        0;
+    }
+
+    const commissionBps =
+      baseCommissionBps;
+
+    let items =
+      rows.map(
+        (
+          shipment
+        ) => {
+          const order =
+            shipment.order ||
+            {};
+
+          const address =
+            order.shippingAddress ||
+            {};
+
+          const storeName =
+            shipment.service
+              ?.profile
+              ?.displayName ||
+            shipment.service
+              ?.title ||
+            shipment.service
+              ?.vendor
+              ?.displayName ||
+            "Magazin";
+
+          const shipmentSubtotal =
+            getShipmentPaidGross(
+              shipment.items ||
+                []
+            );
+
+          const platformDiscountGross =
+            getPlatformDiscountGross(
+              shipment.items ||
+                []
+            );
+
+          const vendorDiscountGross =
+            getVendorDiscountGross(
+              shipment.items ||
+                []
+            );
+
+          const shipmentShipping =
+            Number(
+              shipment.price ||
+                0
+            );
+
+          const shipmentTotal =
+            shipmentSubtotal +
+            shipmentShipping;
+
+          const commissionBaseGross =
+            round2(
+              shipmentSubtotal +
+                platformDiscountGross +
+                vendorDiscountGross
+            );
+
+          const itemsNet =
+            vatRate > 0
+              ? shipmentSubtotal /
+                (
+                  1 +
+                  vatRate /
+                    100
+                )
+              : shipmentSubtotal;
+
+          const commissionBaseNet =
+            vatRate > 0
+              ? commissionBaseGross /
+                (
+                  1 +
+                  vatRate /
+                    100
+                )
+              : commissionBaseGross;
+
+          const platformDiscountNet =
+            vatRate > 0
+              ? platformDiscountGross /
+                (
+                  1 +
+                  vatRate /
+                    100
+                )
+              : platformDiscountGross;
+
+          const commissionBeforePromoNet =
+            round2(
+              (
+                commissionBaseNet *
+                commissionBps
+              ) /
+                10000
+            );
+
+          const commissionNet =
+            round2(
+              Math.max(
+                0,
+                commissionBeforePromoNet -
+                  platformDiscountNet
+              )
+            );
+
+          const vendorNetBeforeShipping =
+            round2(
+              itemsNet -
+                commissionNet
+            );
+
+          return {
+            id:
+              shipment.orderId,
+
+            orderNumber:
+              order.orderNumber ||
+              null,
+
+            shortId:
+              String(
+                shipment.id
+              )
+                .slice(
+                  -6
+                )
+                .toUpperCase(),
+
+            createdAt:
+              shipment.createdAt,
+
+            customerName:
+              address.name ||
+              "",
+
+            customerPhone:
+              address.phone ||
+              "",
+
+            customerEmail:
+              address.email ||
+              "",
+
+            address,
+
+            storeName,
+
+            serviceId:
+              shipment.service
+                ?.id ||
+              null,
+
+            serviceSlug:
+              shipment.service
+                ?.profile
+                ?.slug ||
+              null,
+
+            status:
+              shipmentToUiStatus(
+                shipment.status
+              ),
+
+            total:
+              shipmentTotal,
+
+            items:
+              (
+                shipment.items ||
+                []
+              ).map(
+                (
+                  item
+                ) => {
+                  const price =
+                    Number(
+                      item.price ||
+                        0
+                    );
+
+                  const originalPrice =
+                    item.originalPrice !=
+                    null
+                      ? Number(
+                          item.originalPrice
+                        )
+                      : null;
+
+                  const hasDiscount =
+                    originalPrice !=
+                      null &&
+                    originalPrice >
+                      price;
+
+                  const discountAmount =
+                    Number(
+                      item.discountAmount ||
+                        0
+                    );
+
+                  const discountPercent =
+                    hasDiscount &&
+                    originalPrice >
+                      0
+                      ? Math.round(
+                          (
+                            (
+                              originalPrice -
+                              price
+                            ) /
+                            originalPrice
+                          ) *
+                            100
+                        )
+                      : 0;
+
+                  return {
+                    id:
+                      item.id,
+
+                    productId:
+                      item.productId,
+
+                    title:
+                      item.title,
+
+                    qty:
+                      item.qty,
+
+                    price,
+
+                    priceCents:
+                      Math.round(
+                        price *
+                          100
+                      ),
+
+                    originalPrice:
+                      hasDiscount
+                        ? originalPrice
+                        : null,
+
+                    originalPriceCents:
+                      hasDiscount
+                        ? Math.round(
+                            originalPrice *
+                              100
+                          )
+                        : null,
+
+                    hasDiscount,
+
+                    discountPercent,
+
+                    discountAmount,
+
+                    discountAmountCents:
+                      Math.round(
+                        discountAmount *
+                          100
+                      ),
+
+                    platformDiscountPercent:
+                      Number(
+                        item.platformDiscountPercent ||
+                          0
+                      ),
+
+                    vendorDiscountPercent:
+                      Number(
+                        item.vendorDiscountPercent ||
+                          0
+                      ),
+
+                    platformDiscountAmount:
+                      Number(
+                        item.platformDiscountAmount ||
+                          0
+                      ),
+
+                    vendorDiscountAmount:
+                      Number(
+                        item.vendorDiscountAmount ||
+                          0
+                      ),
+
+                    promoCollectionId:
+                      item.promoCollectionId ||
+                      null,
+
+                    promoFundingSource:
+                      item.promoFundingSource ||
+                      null,
+
+                    homepageFeatureId:
+                      item.homepageFeatureId ||
+                      null,
+
+                    discountSource:
+                      item.discountSource ||
+                      null,
+
+                    selectedOptions:
+                      item.selectedOptions ||
+                      {},
+
+                    customAnswers:
+                      item.customAnswers ||
+                      {},
+
+                    configurationKey:
+                      item.configurationKey ||
+                      null,
+
+                    image:
+                      item.productId
+                        ? imageMap.get(
+                            item.productId
+                          ) ||
+                          null
+                        : null,
+                  };
+                }
+              ),
+
+            shipmentId:
+              shipment.id,
+
+            shipmentStatus:
+              shipment.status,
+
+            courierProvider:
+              shipment.courierProvider ||
+              null,
+
+            courierService:
+              shipment.courierService ||
+              null,
+
+            awb:
+              shipment.awb,
+
+            labelUrl:
+              shipment.labelUrl,
+
+            pickupScheduledAt:
+              shipment.pickupScheduledAt,
+
+            pickupDate:
+              shipment.pickupDate,
+
+            pickupSlotStart:
+              shipment.pickupSlotStart,
+
+            pickupSlotEnd:
+              shipment.pickupSlotEnd,
+
+            deliveredAt:
+              shipment.deliveredAt ||
+              null,
+
+            refusedAt:
+              shipment.refusedAt ||
+              null,
+
+            returnedAt:
+              shipment.returnedAt ||
+              null,
+
+            cancelReason:
+              shipment.cancelReason ||
+              null,
+
+            cancelReasonNote:
+              shipment.cancelReasonNote ||
+              null,
+
+            vendorNotes:
+              order.vendorNotes ||
+              "",
+
+            paymentMethod:
+              order.paymentMethod ||
+              null,
+
+            invoiceNumber:
+              order.invoiceNumber ||
+              null,
+
+            invoiceDate:
+              order.invoiceDate ||
+              null,
+
+            vendorFinancials: {
+              planCode:
+                activePlan
+                  ?.code ||
+                null,
+
+              planName:
+                activePlan
+                  ?.name ||
+                null,
+
+              vatStatus,
+              vatRate,
+
+              commissionBps,
+
+              commissionPercent:
+                round2(
+                  commissionBps /
+                    100
+                ),
+
+              commissionRate:
+                round2(
+                  commissionBps /
+                    10000
+                ),
+
+              itemsNet:
+                round2(
+                  itemsNet
+                ),
+
+              commissionNet,
+
+              vendorNetBeforeShipping,
+
+              baseCommissionBps,
+
+              platformDiscountGross:
+                round2(
+                  platformDiscountGross
+                ),
+
+              vendorDiscountGross:
+                round2(
+                  vendorDiscountGross
+                ),
+
+              platformDiscountNet:
+                round2(
+                  platformDiscountNet
+                ),
+
+              commissionBaseGross:
+                round2(
+                  commissionBaseGross
+                ),
+
+              commissionBaseNet:
+                round2(
+                  commissionBaseNet
+                ),
+
+              commissionBeforePromoNet:
+                round2(
+                  commissionBeforePromoNet
+                ),
+            },
+
+            messageThreadId:
+              null,
+
+            messageUnreadCount:
+              0,
+          };
+        }
+      );
+
+    if (
+      items.length >
+      0
+    ) {
+      const orderIds =
+        items.map(
+          (
+            item
+          ) =>
+            item.id
+        );
+
+      const metaByOrderId =
+        await getThreadMetaByOrderId({
+          vendorId,
+          orderIds,
+        });
+
+      items =
+        items.map(
+          (
+            item
+          ) => {
+            const meta =
+              metaByOrderId.get(
+                item.id
+              );
+
+            if (!meta) {
+              return item;
+            }
+
+            return {
+              ...item,
+
+              messageThreadId:
+                meta.threadId,
+
+              messageUnreadCount:
+                meta.unreadCount,
+            };
+          }
+        );
+    }
+
+    const payload = {
+      total,
+      items,
+    };
+
+    cacheSet(
+      cacheKey,
+      payload
+    );
+
+    return res.json(
+      payload
     );
   }
-
-  const vatStatus = billing?.vatStatus || null;
-  const vatRate = vatStatus === "payer" ? Number(billing?.vatRate || 0) : 0;
-
- let baseCommissionBps = Number(activePlan?.commissionBps || 0);
-if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
-  baseCommissionBps = 0;
-}
-
-const commissionBps = baseCommissionBps;
-
-  let items = rows.map((s) => {
-    const o = s.order || {};
-    const addr = o.shippingAddress || {};
-
-    const storeName =
-      s.service?.profile?.displayName ||
-      s.service?.title ||
-      s.service?.vendor?.displayName ||
-      "Magazin";
-
-  const shipmentSubtotal = getShipmentPaidGross(s.items || []);
-const platformDiscountGross = getPlatformDiscountGross(s.items || []);
-    const shipmentShipping = Number(s.price || 0);
-    const shipmentTotal = shipmentSubtotal + shipmentShipping;
-
-    const itemsNet =
-      vatRate > 0 ? shipmentSubtotal / (1 + vatRate / 100) : shipmentSubtotal;
-  const commissionBeforePromoNet = round2((itemsNet * commissionBps) / 10000);
-
-const platformDiscountNet =
-  vatRate > 0
-    ? platformDiscountGross / (1 + vatRate / 100)
-    : platformDiscountGross;
-
-const commissionNet = round2(
-  Math.max(0, commissionBeforePromoNet - platformDiscountNet)
 );
-
-const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
-
-    return {
-      id: s.orderId,
-      orderNumber: o.orderNumber || null,
-      shortId: String(s.id).slice(-6).toUpperCase(),
-      createdAt: s.createdAt,
-      customerName: addr.name || "",
-      customerPhone: addr.phone || "",
-      customerEmail: addr.email || "",
-      address: addr,
-      storeName,
-      serviceId: s.service?.id || null,
-      serviceSlug: s.service?.profile?.slug || null,
-     status: shipmentToUiStatus(s.status),
-total: shipmentTotal,
-
-items: (s.items || []).map((it) => ({
-  id: it.id,
-  productId: it.productId,
-  title: it.title,
-  qty: it.qty,
-  price: Number(it.price || 0),
-
-  selectedOptions: it.selectedOptions || {},
-  customAnswers: it.customAnswers || {},
-  configurationKey: it.configurationKey || null,
-
-  image: it.productId
-    ? imageMap.get(it.productId) || null
-    : null,
-})),
-      shipmentId: s.id,
-      shipmentStatus: s.status,
-      courierProvider: s.courierProvider || null,
-      courierService: s.courierService || null,
-      awb: s.awb,
-      labelUrl: s.labelUrl,
-      pickupScheduledAt: s.pickupScheduledAt,
-      pickupDate: s.pickupDate,
-      pickupSlotStart: s.pickupSlotStart,
-      pickupSlotEnd: s.pickupSlotEnd,
-      deliveredAt: s.deliveredAt || null,
-      refusedAt: s.refusedAt || null,
-      returnedAt: s.returnedAt || null,
-      cancelReason: s.cancelReason || null,
-      cancelReasonNote: s.cancelReasonNote || null,
-      vendorNotes: o.vendorNotes || "",
-      paymentMethod: o.paymentMethod || null,
-      invoiceNumber: o.invoiceNumber || null,
-      invoiceDate: o.invoiceDate || null,
-      vendorFinancials: {
-        planCode: activePlan?.code || null,
-        planName: activePlan?.name || null,
-        vatStatus,
-        vatRate,
-        commissionBps,
-        commissionPercent: round2(commissionBps / 100),
-        commissionRate: round2(commissionBps / 10000),
-        itemsNet: round2(itemsNet),
-        commissionNet,
-        vendorNetBeforeShipping,
-        baseCommissionBps,
-      },
-      messageThreadId: null,
-      messageUnreadCount: 0,
-    };
-  });
-
-  if (items.length > 0) {
-    const orderIds = items.map((i) => i.id);
-    const metaByOrderId = await getThreadMetaByOrderId({ vendorId, orderIds });
-
-    items = items.map((it) => {
-      const meta = metaByOrderId.get(it.id);
-      if (!meta) return it;
-      return {
-        ...it,
-        messageThreadId: meta.threadId,
-        messageUnreadCount: meta.unreadCount,
-      };
-    });
-  }
-
-  const payload = { total, items };
-  cacheSet(cacheKey, payload);
-  res.json(payload);
-});
 
 router.get("/orders/stream", requireVendor, (req, res) => {
   const vendorId = req.user.vendorId;
@@ -951,259 +2027,875 @@ router.get("/orders/stream", requireVendor, (req, res) => {
 /* ----------------------------------------------------
    GET /api/vendor/orders/:id
 ----------------------------------------------------- */
-router.get("/orders/:id", requireVendor, async (req, res) => {
-  const vendorId = req.user.vendorId;
-const billingGate = await prisma.vendorBilling.findUnique({
-  where: { vendorId },
-});
+router.get(
+  "/orders/:id",
+  requireVendor,
+  async (req, res) => {
+    const vendorId =
+      req.user.vendorId;
 
-const billingStatus = validateBillingGate(billingGate);
+    const billingGate =
+      await prisma.vendorBilling.findUnique({
+        where: {
+          vendorId,
+        },
+      });
 
-if (!billingStatus.ok) {
-  return res.status(423).json({
-    error: "billing_required",
-    title: "Completează datele de facturare",
-    message:
-      "Nu poți vedea detaliile comenzii până nu completezi datele de facturare.",
-    missing: billingStatus.missing,
-    cta: {
-      label: "Completează datele de facturare",
-      url: "/setari?tab=billing",
-    },
-  });
-}
-  const orderId = String(req.params.id);
+    const billingStatus =
+      validateBillingGate(
+        billingGate
+      );
 
-  const s = await findShipmentByOrderRef({
-    vendorId,
-    orderRef: orderId,
-    include: {
-      order: {
+    if (
+      !billingStatus.ok
+    ) {
+      return res.status(
+        423
+      ).json({
+        error:
+          "billing_required",
+
+        title:
+          "Completează datele de facturare",
+
+        message:
+          "Nu poți vedea detaliile comenzii până nu completezi datele de facturare.",
+
+        missing:
+          billingStatus.missing,
+
+        cta: {
+          label:
+            "Completează datele de facturare",
+
+          url:
+            "/setari?tab=billing",
+        },
+      });
+    }
+
+    const orderId =
+      String(
+        req.params.id
+      );
+
+    const shipment =
+      await findShipmentByOrderRef({
+        vendorId,
+
+        orderRef:
+          orderId,
+
         include: {
-          messageThreads: {
-            where: { vendorId },
+          order: {
+            include: {
+              messageThreads: {
+                where: {
+                  vendorId,
+                },
+
+                select: {
+                  id: true,
+                  internalNote:
+                    true,
+
+                  followUpAt:
+                    true,
+
+                  leadStatus:
+                    true,
+
+                  contactName:
+                    true,
+
+                  contactPhone:
+                    true,
+                },
+              },
+            },
+          },
+
+          items: true,
+
+          service: {
             select: {
               id: true,
-              internalNote: true,
-              followUpAt: true,
-              leadStatus: true,
-              contactName: true,
-              contactPhone: true,
+              title: true,
+
+              profile: {
+                select: {
+                  displayName:
+                    true,
+
+                  slug:
+                    true,
+                },
+              },
+
+              vendor: {
+                select: {
+                  displayName:
+                    true,
+                },
+              },
             },
           },
         },
-      },
-      items: true,
-      service: {
-        select: {
-          id: true,
-          title: true,
-          profile: {
-            select: {
-              displayName: true,
-              slug: true,
-            },
-          },
-          vendor: {
-            select: {
-              displayName: true,
-            },
-          },
-        },
-      },
-    },
-  });
+      });
 
-  if (!s) return res.status(404).json({ error: "not_found" });
-
-  const o = s.order;
-  const addr = o?.shippingAddress || {};
-
-  const storeName =
-    s.service?.profile?.displayName ||
-    s.service?.title ||
-    s.service?.vendor?.displayName ||
-    "Magazin";
-
-  const shipmentSubtotal = getShipmentPaidGross(s.items || []);
-const platformDiscountGross = getPlatformDiscountGross(s.items || []);
-  const shipmentShipping = Number(s.price || 0);
-  const shipmentTotal = shipmentSubtotal + shipmentShipping;
-
-  const isCompany = !!(addr.companyName || addr.companyCui);
-  const customerType = isCompany ? "PJ" : "PF";
-
-  const billing = await prisma.vendorBilling.findUnique({
-    where: { vendorId },
-  });
-
-  const vatStatus = billing?.vatStatus || null;
-  const vatRateStr = billing?.vatRate || null;
-  const vatRate = vatStatus === "payer" ? Number(vatRateStr || 0) : 0;
-
-  function splitGross(gross) {
-    const g = Number(gross || 0);
-    if (!vatRate || vatRate <= 0) {
-      return { net: dec(g), vat: 0, gross: dec(g) };
+    if (!shipment) {
+      return res.status(
+        404
+      ).json({
+        error:
+          "not_found",
+      });
     }
-    const net = g / (1 + vatRate / 100);
-    const vat = g - net;
-    return { net: dec(net), vat: dec(vat), gross: dec(g) };
-  }
 
-  const itemsBreakdown = splitGross(shipmentSubtotal);
-  const shippingBreakdown = splitGross(shipmentShipping);
-  const totalBreakdown = {
-    net: dec(itemsBreakdown.net + shippingBreakdown.net),
-    vat: dec(itemsBreakdown.vat + shippingBreakdown.vat),
-    gross: dec(shipmentTotal),
-  };
+    const order =
+      shipment.order;
 
-  let baseCommissionBps = 0;
-let commissionBps = 0;
-let activePlan = null;
+    const address =
+      order?.shippingAddress ||
+      {};
 
-try {
-  activePlan = await getActivePlanForVendor(vendorId);
+    const storeName =
+      shipment.service
+        ?.profile
+        ?.displayName ||
+      shipment.service
+        ?.title ||
+      shipment.service
+        ?.vendor
+        ?.displayName ||
+      "Magazin";
 
-  baseCommissionBps = Number(activePlan?.commissionBps || 0);
-  if (!Number.isFinite(baseCommissionBps) || baseCommissionBps < 0) {
-    baseCommissionBps = 0;
-  }
+    const shipmentSubtotal =
+      getShipmentPaidGross(
+        shipment.items ||
+          []
+      );
 
-  commissionBps = baseCommissionBps;
-} catch (e) {
-  console.error("getActivePlanForVendor failed:", e);
-  baseCommissionBps = 0;
-  commissionBps = 0;
-}
+    const platformDiscountGross =
+      getPlatformDiscountGross(
+        shipment.items ||
+          []
+      );
 
-  const itemsNet = Number(itemsBreakdown?.net || 0);
-  const commissionBeforePromoNet = round2((itemsNet * commissionBps) / 10000);
+    const vendorDiscountGross =
+      getVendorDiscountGross(
+        shipment.items ||
+          []
+      );
 
-const platformDiscountNet =
-  vatRate > 0
-    ? platformDiscountGross / (1 + vatRate / 100)
-    : platformDiscountGross;
+    const shipmentShipping =
+      Number(
+        shipment.price ||
+          0
+      );
 
-const commissionNet = round2(
-  Math.max(0, commissionBeforePromoNet - platformDiscountNet)
-);
+    const shipmentTotal =
+      shipmentSubtotal +
+      shipmentShipping;
 
-const vendorNetBeforeShipping = round2(itemsNet - commissionNet);
+    const isCompany =
+      Boolean(
+        address.companyName ||
+          address.companyCui
+      );
 
-  const vendorFinancials = {
-    planCode: activePlan?.code || null,
-    planName: activePlan?.name || null,
-    commissionBps,
-    commissionPercent: round2(commissionBps / 100),
-    commissionRate: round2(commissionBps / 10000),
-    itemsNet: round2(itemsNet),
-    commissionNet,
-    vendorNetBeforeShipping,
-    baseCommissionBps,
-  };
+    const customerType =
+      isCompany
+        ? "PJ"
+        : "PF";
 
-    const productIdSet = new Set();
+    const billing =
+      await prisma.vendorBilling.findUnique({
+        where: {
+          vendorId,
+        },
+      });
 
-  for (const it of s.items || []) {
-    if (it.productId) productIdSet.add(it.productId);
-  }
+    const vatStatus =
+      billing?.vatStatus ||
+      null;
 
-  let imageMap = new Map();
+    const vatRateStr =
+      billing?.vatRate ||
+      null;
 
-  if (productIdSet.size) {
-    const products = await prisma.product.findMany({
-      where: { id: { in: Array.from(productIdSet) } },
-      select: { id: true, images: true },
+    const vatRate =
+      vatStatus ===
+      "payer"
+        ? Number(
+            vatRateStr ||
+              0
+          )
+        : 0;
+
+    function splitGross(
+      gross
+    ) {
+      const value =
+        Number(
+          gross ||
+            0
+        );
+
+      if (
+        !vatRate ||
+        vatRate <= 0
+      ) {
+        return {
+          net:
+            dec(
+              value
+            ),
+
+          vat:
+            0,
+
+          gross:
+            dec(
+              value
+            ),
+        };
+      }
+
+      const net =
+        value /
+        (
+          1 +
+          vatRate /
+            100
+        );
+
+      const vat =
+        value -
+        net;
+
+      return {
+        net:
+          dec(
+            net
+          ),
+
+        vat:
+          dec(
+            vat
+          ),
+
+        gross:
+          dec(
+            value
+          ),
+      };
+    }
+
+    const itemsBreakdown =
+      splitGross(
+        shipmentSubtotal
+      );
+
+    const shippingBreakdown =
+      splitGross(
+        shipmentShipping
+      );
+
+    const totalBreakdown = {
+      net:
+        dec(
+          itemsBreakdown.net +
+            shippingBreakdown.net
+        ),
+
+      vat:
+        dec(
+          itemsBreakdown.vat +
+            shippingBreakdown.vat
+        ),
+
+      gross:
+        dec(
+          shipmentTotal
+        ),
+    };
+
+    let baseCommissionBps =
+      0;
+
+    let commissionBps =
+      0;
+
+    let activePlan =
+      null;
+
+    try {
+      activePlan =
+        await getActivePlanForVendor(
+          vendorId
+        );
+
+      baseCommissionBps =
+        Number(
+          activePlan
+            ?.commissionBps ||
+            0
+        );
+
+      if (
+        !Number.isFinite(
+          baseCommissionBps
+        ) ||
+        baseCommissionBps <
+          0
+      ) {
+        baseCommissionBps =
+          0;
+      }
+
+      commissionBps =
+        baseCommissionBps;
+    } catch (error) {
+      console.error(
+        "getActivePlanForVendor failed:",
+        error
+      );
+
+      baseCommissionBps =
+        0;
+
+      commissionBps =
+        0;
+    }
+
+    const itemsNet =
+      Number(
+        itemsBreakdown
+          ?.net ||
+          0
+      );
+
+    const commissionBaseGross =
+      round2(
+        shipmentSubtotal +
+          platformDiscountGross +
+          vendorDiscountGross
+      );
+
+    const commissionBaseNet =
+      vatRate > 0
+        ? commissionBaseGross /
+          (
+            1 +
+            vatRate /
+              100
+          )
+        : commissionBaseGross;
+
+    const platformDiscountNet =
+      vatRate > 0
+        ? platformDiscountGross /
+          (
+            1 +
+            vatRate /
+              100
+          )
+        : platformDiscountGross;
+
+    const commissionBeforePromoNet =
+      round2(
+        (
+          commissionBaseNet *
+          commissionBps
+        ) /
+          10000
+      );
+
+    const commissionNet =
+      round2(
+        Math.max(
+          0,
+          commissionBeforePromoNet -
+            platformDiscountNet
+        )
+      );
+
+    const vendorNetBeforeShipping =
+      round2(
+        itemsNet -
+          commissionNet
+      );
+
+    const vendorFinancials = {
+      planCode:
+        activePlan?.code ||
+        null,
+
+      planName:
+        activePlan?.name ||
+        null,
+
+      commissionBps,
+
+      commissionPercent:
+        round2(
+          commissionBps /
+            100
+        ),
+
+      commissionRate:
+        round2(
+          commissionBps /
+            10000
+        ),
+
+      itemsNet:
+        round2(
+          itemsNet
+        ),
+
+      commissionNet,
+
+      vendorNetBeforeShipping,
+
+      baseCommissionBps,
+
+      platformDiscountGross:
+        round2(
+          platformDiscountGross
+        ),
+
+      vendorDiscountGross:
+        round2(
+          vendorDiscountGross
+        ),
+
+      platformDiscountNet:
+        round2(
+          platformDiscountNet
+        ),
+
+      commissionBaseGross:
+        round2(
+          commissionBaseGross
+        ),
+
+      commissionBaseNet:
+        round2(
+          commissionBaseNet
+        ),
+
+      commissionBeforePromoNet:
+        round2(
+          commissionBeforePromoNet
+        ),
+    };
+
+    const productIdSet =
+      new Set();
+
+    for (
+      const item of
+      shipment.items ||
+      []
+    ) {
+      if (
+        item.productId
+      ) {
+        productIdSet.add(
+          item.productId
+        );
+      }
+    }
+
+    let imageMap =
+      new Map();
+
+    if (
+      productIdSet.size
+    ) {
+      const products =
+        await prisma.product.findMany({
+          where: {
+            id: {
+              in:
+                Array.from(
+                  productIdSet
+                ),
+            },
+          },
+
+          select: {
+            id: true,
+            images: true,
+          },
+        });
+
+      imageMap =
+        new Map(
+          products.map(
+            (
+              product
+            ) => [
+              product.id,
+
+              Array.isArray(
+                product.images
+              ) &&
+              product
+                .images[0]
+                ? product
+                    .images[0]
+                : null,
+            ]
+          )
+        );
+    }
+
+    const messageThreads =
+      order.messageThreads ||
+      [];
+
+    return res.json({
+      id:
+        order.id,
+
+      orderNumber:
+        order.orderNumber ||
+        null,
+
+      shortId:
+        shipment.id
+          .slice(
+            -6
+          )
+          .toUpperCase(),
+
+      createdAt:
+        order.createdAt,
+
+      storeName,
+
+      serviceId:
+        shipment.service
+          ?.id ||
+        null,
+
+      serviceSlug:
+        shipment.service
+          ?.profile
+          ?.slug ||
+        null,
+
+      subtotal:
+        shipmentSubtotal,
+
+      shippingTotal:
+        shipmentShipping,
+
+      total:
+        shipmentTotal,
+
+      priceBreakdown: {
+        vatRate,
+        vatStatus,
+
+        items:
+          itemsBreakdown,
+
+        shipping:
+          shippingBreakdown,
+
+        total:
+          totalBreakdown,
+
+        vendorFinancials,
+      },
+
+      status:
+        shipmentToUiStatus(
+          shipment.status
+        ),
+
+      statusLabel: {
+        new:
+          "Nouă",
+
+        preparing:
+          "În pregătire",
+
+        confirmed:
+          "Confirmată (gata de predare)",
+
+        shipped:
+          "Predată curierului",
+
+        fulfilled:
+          "Finalizată",
+
+        cancelled:
+          "Anulată",
+      }[
+        shipmentToUiStatus(
+          shipment.status
+        )
+      ],
+
+      cancelReason:
+        shipment.cancelReason ||
+        null,
+
+      cancelReasonNote:
+        shipment.cancelReasonNote ||
+        null,
+
+      shippingAddress:
+        address,
+
+      customerType,
+
+      items:
+        (
+          shipment.items ||
+          []
+        ).map(
+          (
+            item
+          ) => {
+            const price =
+              Number(
+                item.price ||
+                  0
+              );
+
+            const originalPrice =
+              item.originalPrice !=
+              null
+                ? Number(
+                    item.originalPrice
+                  )
+                : null;
+
+            const hasDiscount =
+              originalPrice !=
+                null &&
+              originalPrice >
+                price;
+
+            const discountAmount =
+              Number(
+                item.discountAmount ||
+                  0
+              );
+
+            const discountPercent =
+              hasDiscount &&
+              originalPrice >
+                0
+                ? Math.round(
+                    (
+                      (
+                        originalPrice -
+                        price
+                      ) /
+                      originalPrice
+                    ) *
+                      100
+                  )
+                : 0;
+
+            return {
+              id:
+                item.id,
+
+              productId:
+                item.productId,
+
+              title:
+                item.title,
+
+              qty:
+                item.qty,
+
+              price,
+
+              priceCents:
+                Math.round(
+                  price *
+                    100
+                ),
+
+              originalPrice:
+                hasDiscount
+                  ? originalPrice
+                  : null,
+
+              originalPriceCents:
+                hasDiscount
+                  ? Math.round(
+                      originalPrice *
+                        100
+                    )
+                  : null,
+
+              hasDiscount,
+
+              discountPercent,
+
+              discountAmount,
+
+              discountAmountCents:
+                Math.round(
+                  discountAmount *
+                    100
+                ),
+
+              platformDiscountPercent:
+                Number(
+                  item.platformDiscountPercent ||
+                    0
+                ),
+
+              vendorDiscountPercent:
+                Number(
+                  item.vendorDiscountPercent ||
+                    0
+                ),
+
+              platformDiscountAmount:
+                Number(
+                  item.platformDiscountAmount ||
+                    0
+                ),
+
+              vendorDiscountAmount:
+                Number(
+                  item.vendorDiscountAmount ||
+                    0
+                ),
+
+              promoCollectionId:
+                item.promoCollectionId ||
+                null,
+
+              promoFundingSource:
+                item.promoFundingSource ||
+                null,
+
+              homepageFeatureId:
+                item.homepageFeatureId ||
+                null,
+
+              discountSource:
+                item.discountSource ||
+                null,
+
+              selectedOptions:
+                item.selectedOptions ||
+                {},
+
+              customAnswers:
+                item.customAnswers ||
+                {},
+
+              configurationKey:
+                item.configurationKey ||
+                null,
+
+              image:
+                item.productId
+                  ? imageMap.get(
+                      item.productId
+                    ) ||
+                    null
+                  : null,
+            };
+          }
+        ),
+
+      vendorNotes:
+        order.vendorNotes ||
+        "",
+
+      paymentMethod:
+        order.paymentMethod ||
+        null,
+
+      shipment: {
+        id:
+          shipment.id,
+
+        courierProvider:
+          shipment.courierProvider,
+
+        courierService:
+          shipment.courierService,
+
+        awb:
+          shipment.awb,
+
+        labelUrl:
+          shipment.labelUrl,
+
+        trackingUrl:
+          shipment.trackingUrl,
+
+        pickupScheduledAt:
+          shipment.pickupScheduledAt,
+
+        pickupDate:
+          shipment.pickupDate,
+
+        pickupSlotStart:
+          shipment.pickupSlotStart,
+
+        pickupSlotEnd:
+          shipment.pickupSlotEnd,
+
+        deliveredAt:
+          shipment.deliveredAt ||
+          null,
+
+        refusedAt:
+          shipment.refusedAt ||
+          null,
+
+        returnedAt:
+          shipment.returnedAt ||
+          null,
+
+        parcels:
+          shipment.parcels,
+
+        weightKg:
+          shipment.weightKg,
+
+        lengthCm:
+          shipment.lengthCm,
+
+        widthCm:
+          shipment.widthCm,
+
+        heightCm:
+          shipment.heightCm,
+
+        consents:
+          shipment.consents,
+      },
+
+      invoiceNumber:
+        order.invoiceNumber ||
+        null,
+
+      invoiceDate:
+        order.invoiceDate ||
+        null,
+
+      messageThreads,
     });
-
-    imageMap = new Map(
-      products.map((p) => [
-        p.id,
-        Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
-      ])
-    );
   }
-
-  const messageThreads = o.messageThreads || [];
-
-  res.json({
-    id: o.id,
-    orderNumber: o.orderNumber || null,
-    shortId: s.id.slice(-6).toUpperCase(),
-    createdAt: o.createdAt,
-    storeName,
-    serviceId: s.service?.id || null,
-    serviceSlug: s.service?.profile?.slug || null,
-    subtotal: shipmentSubtotal,
-    shippingTotal: shipmentShipping,
-    total: shipmentTotal,
-    priceBreakdown: {
-      vatRate,
-      vatStatus,
-      items: itemsBreakdown,
-      shipping: shippingBreakdown,
-      total: totalBreakdown,
-      vendorFinancials,
-    },
-    status: shipmentToUiStatus(s.status),
-    statusLabel: {
-  new: "Nouă",
-  preparing: "În pregătire",
-  confirmed: "Confirmată (gata de predare)",
-  shipped: "Predată curierului",
-  fulfilled: "Finalizată",
-  cancelled: "Anulată",
-}[shipmentToUiStatus(s.status)],
-    cancelReason: s.cancelReason || null,
-    cancelReasonNote: s.cancelReasonNote || null,
-    shippingAddress: addr,
-    customerType,
-      items: (s.items || []).map((it) => ({
-  id: it.id,
-  productId: it.productId,
-  title: it.title,
-  qty: it.qty,
-  price: Number(it.price || 0),
-
-  selectedOptions: it.selectedOptions || {},
-  customAnswers: it.customAnswers || {},
-  configurationKey: it.configurationKey || null,
-
-  image: it.productId
-    ? imageMap.get(it.productId) || null
-    : null,
-})),
-    vendorNotes: o.vendorNotes || "",
-    paymentMethod: o.paymentMethod || null,
-    shipment: {
-      id: s.id,
-      courierProvider: s.courierProvider,
-      courierService: s.courierService,
-      awb: s.awb,
-      labelUrl: s.labelUrl,
-      trackingUrl: s.trackingUrl,
-      pickupScheduledAt: s.pickupScheduledAt,
-      pickupDate: s.pickupDate,
-      pickupSlotStart: s.pickupSlotStart,
-      pickupSlotEnd: s.pickupSlotEnd,
-      deliveredAt: s.deliveredAt || null,
-      refusedAt: s.refusedAt || null,
-      returnedAt: s.returnedAt || null,
-      parcels: s.parcels,
-      weightKg: s.weightKg,
-      lengthCm: s.lengthCm,
-      widthCm: s.widthCm,
-      heightCm: s.heightCm,
-      consents: s.consents,
-    },
-    invoiceNumber: o.invoiceNumber || null,
-    invoiceDate: o.invoiceDate || null,
-    messageThreads,
-  });
-});
-
+);
 async function restoreShipmentStockAfterStatusChange(
   tx,
   shipmentId

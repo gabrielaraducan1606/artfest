@@ -41,7 +41,74 @@ const humanizeSlug = (slug = "") => {
 };
 
 const getProductId = (p) => p?.id || p?._id;
+const getDisplayedProductPrice = (
+  product
+) => {
+  const hasValue = (value) =>
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    Number.isFinite(
+      Number(value)
+    );
 
+  if (
+    hasValue(
+      product?.finalPriceCents
+    ) &&
+    Number(
+      product.finalPriceCents
+    ) > 0
+  ) {
+    return (
+      Number(
+        product.finalPriceCents
+      ) / 100
+    );
+  }
+
+  if (
+    hasValue(
+      product
+        ?.discountedPriceCents
+    ) &&
+    Number(
+      product
+        .discountedPriceCents
+    ) > 0
+  ) {
+    return (
+      Number(
+        product
+          .discountedPriceCents
+      ) / 100
+    );
+  }
+
+  if (
+    hasValue(
+      product?.priceCents
+    )
+  ) {
+    return (
+      Number(
+        product.priceCents
+      ) / 100
+    );
+  }
+
+  if (
+    hasValue(
+      product?.price
+    )
+  ) {
+    return Number(
+      product.price
+    );
+  }
+
+  return null;
+};
 const getProductShopId = (p, detail = {}) =>
   p?.shopId ||
   p?.storeId ||
@@ -297,13 +364,13 @@ export default function ProductList({
           .forEach((t) => occasionTags.add(t));
       }
 
-      const price = Number(p?.price);
+      const price =
+  getDisplayedProductPrice(p);
 
-      if (Number.isFinite(price)) {
-        if (price < min) min = price;
-        if (price > max) max = price;
-      }
-
+if (Number.isFinite(price)) {
+  if (price < min) min = price;
+  if (price > max) max = price;
+}
       if (isOwner) {
         statuses.add(p?.isActive !== false ? "active" : "inactive");
       }
@@ -525,13 +592,26 @@ React.useEffect(() => {
 const hasMax = filters.pmax !== "" && filters.pmax !== null;
 
 if (hasMin || hasMax) {
-  const pmin = hasMin ? Number(filters.pmin) : 0;
-  const pmax = hasMax ? Number(filters.pmax) : Number.POSITIVE_INFINITY;
+  const pmin = hasMin
+    ? Number(filters.pmin)
+    : 0;
+
+  const pmax = hasMax
+    ? Number(filters.pmax)
+    : Number.POSITIVE_INFINITY;
 
   arr = arr.filter((p) => {
-    const price = Number(p?.price);
-    if (!Number.isFinite(price)) return false;
-    return price >= pmin && price <= pmax;
+    const price =
+      getDisplayedProductPrice(p);
+
+    if (!Number.isFinite(price)) {
+      return false;
+    }
+
+    return (
+      price >= pmin &&
+      price <= pmax
+    );
   });
 }
 
@@ -606,11 +686,32 @@ if (hasMin || hasMax) {
 
     switch (filters.sort) {
       case "price_asc":
-        arr.sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
-        break;
-      case "price_desc":
-        arr.sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
-        break;
+  arr.sort(
+    (a, b) =>
+      (
+        getDisplayedProductPrice(a) ??
+        0
+      ) -
+      (
+        getDisplayedProductPrice(b) ??
+        0
+      )
+  );
+  break;
+
+case "price_desc":
+  arr.sort(
+    (a, b) =>
+      (
+        getDisplayedProductPrice(b) ??
+        0
+      ) -
+      (
+        getDisplayedProductPrice(a) ??
+        0
+      )
+  );
+  break;
       case "new":
         arr.sort(
           (a, b) =>

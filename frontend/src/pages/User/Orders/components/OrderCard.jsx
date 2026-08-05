@@ -121,8 +121,66 @@ function OrderCardBase({ order, onCancel, onReorder, onContact, onReturn, busy }
                   {it.title}
                 </Link>
                 <div className={styles.itemMeta}>
-                  Cantitate: <b>{it.qty}</b> · Preț: <b>{money(it.priceCents, order.currency)}</b>
-                </div>
+  Cantitate:{" "}
+  <b>{it.qty}</b>
+</div>
+
+<div className={styles.itemMeta}>
+  Preț:{" "}
+
+  {it.hasDiscount &&
+  Number(it.originalPriceCents) >
+    Number(it.priceCents) ? (
+    <>
+      <span
+        style={{
+          textDecoration:
+            "line-through",
+          opacity: 0.65,
+          marginRight: 6,
+        }}
+      >
+        {money(
+          it.originalPriceCents,
+          order.currency
+        )}
+      </span>
+
+      <strong>
+        {money(
+          it.priceCents,
+          order.currency
+        )}
+      </strong>
+
+      {Number(
+        it.discountPercent
+      ) > 0 && (
+        <span
+          className={
+            styles.badge
+          }
+          style={{
+            marginLeft: 6,
+          }}
+        >
+          -
+          {
+            it.discountPercent
+          }
+          %
+        </span>
+      )}
+    </>
+  ) : (
+    <strong>
+      {money(
+        it.priceCents,
+        order.currency
+      )}
+    </strong>
+  )}
+</div>
               </div>
             </li>
           ))}

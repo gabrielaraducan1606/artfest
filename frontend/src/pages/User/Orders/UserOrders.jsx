@@ -277,24 +277,76 @@ export default function OrdersPage() {
     [load]
   );
 
-  const reorder = useCallback(async (id) => {
-    setBusyId(id);
+const reorder =
+  useCallback(
+    async (id) => {
+      setBusyId(id);
 
-    try {
-      await api(`/api/user/orders/${id}/reorder`, { method: "POST" });
-      if (window.confirm("Produsele au fost adăugate în coș. Deschizi coșul?")) {
-        window.location.assign("/cos");
+      try {
+        const response =
+          await api(
+            `/api/user/orders/${id}/reorder`,
+            {
+              method: "POST",
+            }
+          );
+
+        /*
+         * Actualizează imediat numărul
+         * produselor din coș în Navbar.
+         */
+        window.dispatchEvent(
+          new CustomEvent(
+            "cart:changed"
+          )
+        );
+
+        /*
+         * Eliminăm cache-ul vechi al coșului,
+         * astfel încât produsele readăugate
+         * să fie încărcate imediat.
+         */
+        try {
+          sessionStorage.removeItem(
+            "cart:ui-cache:v1"
+          );
+
+          sessionStorage.removeItem(
+            "cart:ui-cache:v2"
+          );
+        } catch {
+          // ignore
+        }
+
+        const message =
+          response?.message ||
+          "Produsele au fost adăugate în coș.";
+
+        const openCart =
+          window.confirm(
+            `${message}\n\nDeschizi coșul?`
+          );
+
+        if (openCart) {
+          window.location.assign(
+            "/cos"
+          );
+        }
+      } catch (error) {
+        const message =
+          error?.data?.message ||
+          error?.response?.data
+            ?.message ||
+          error?.message ||
+          "Nu am putut re-comanda. Produsele ar putea să nu mai fie disponibile.";
+
+        alert(message);
+      } finally {
+        setBusyId(null);
       }
-    } catch (e) {
-      alert(
-        e?.message ||
-          "Nu am putut re-comanda. Unele produse ar putea să nu mai fie disponibile."
-      );
-    } finally {
-      setBusyId(null);
-    }
-  }, []);
-
+    },
+    []
+  );
   const contactVendorForOrder = useCallback(async (order) => {
     try {
       const details = await api(`/api/user/orders/${encodeURIComponent(order.id)}`);

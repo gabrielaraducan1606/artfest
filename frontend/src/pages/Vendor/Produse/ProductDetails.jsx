@@ -317,11 +317,95 @@ setCustomAnswers({});
     img.src = withCache(resolveFileUrl(next), cacheT);
   }, [activeIdx, images, cacheT]);
 
-  const displayPrice = useMemo(() => {
-    if (typeof product?.price === "number") return product.price;
-    if (Number.isFinite(product?.priceCents)) return product.priceCents / 100;
-    return null;
-  }, [product?.price, product?.priceCents]);
+const priceDisplay = useMemo(() => {
+  if (!product) {
+    return {
+      originalPrice: null,
+      finalPrice: null,
+      discountPercent: 0,
+      hasDiscount: false,
+    };
+  }
+
+  const hasNumericValue = (value) =>
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    Number.isFinite(Number(value));
+
+  const fallbackPriceCents =
+    hasNumericValue(product.priceCents)
+      ? Number(product.priceCents)
+      : hasNumericValue(product.price)
+        ? Math.round(Number(product.price) * 100)
+        : null;
+
+  const originalPriceCents =
+    hasNumericValue(product.originalPriceCents)
+      ? Number(product.originalPriceCents)
+      : fallbackPriceCents;
+
+  const finalPriceCents =
+    hasNumericValue(product.finalPriceCents)
+      ? Number(product.finalPriceCents)
+      : hasNumericValue(product.discountedPriceCents)
+        ? Number(product.discountedPriceCents)
+        : fallbackPriceCents;
+
+  const rawDiscountPercent =
+    product.totalDiscountPercent ??
+    product.discount?.totalDiscountPercent ??
+    0;
+
+  const discountPercent = Math.min(
+    50,
+    Math.max(
+      0,
+      Number.isFinite(Number(rawDiscountPercent))
+        ? Number(rawDiscountPercent)
+        : 0
+    )
+  );
+
+  const hasDiscount =
+    product.orderMode !== "QUOTE_ONLY" &&
+    Boolean(
+      product.hasActiveHomepageDiscount ||
+        (
+          discountPercent > 0 &&
+          originalPriceCents !== null &&
+          finalPriceCents !== null &&
+          finalPriceCents < originalPriceCents
+        )
+    );
+
+  return {
+    originalPrice:
+      originalPriceCents !== null
+        ? originalPriceCents / 100
+        : null,
+
+    finalPrice:
+      finalPriceCents !== null
+        ? finalPriceCents / 100
+        : null,
+
+    discountPercent,
+    hasDiscount,
+  };
+}, [product]);
+
+const displayPrice =
+  priceDisplay.finalPrice;
+
+const originalDisplayPrice =
+  priceDisplay.originalPrice;
+
+const hasHomepageDiscount =
+  priceDisplay.hasDiscount;
+
+const homepageDiscountPercent =
+  priceDisplay.discountPercent;
 
   const fmt = useMemo(
     () =>
@@ -332,10 +416,22 @@ setCustomAnswers({});
     [product?.currency]
   );
 
-  const priceInfo = useMemo(() => {
-    if (!product || displayPrice == null) return null;
-    return "TVA inclus în preț.";
-  }, [product, displayPrice]);
+const priceInfo = useMemo(() => {
+  if (!product || displayPrice == null) {
+    return null;
+  }
+
+  if (hasHomepageDiscount) {
+    return `Reducere specială Artfest de ${homepageDiscountPercent}%.`;
+  }
+
+  return "TVA inclus în preț.";
+}, [
+  product,
+  displayPrice,
+  hasHomepageDiscount,
+  homepageDiscountPercent,
+]);
 
   const availabilityText = useMemo(() => {
     if (!product?.availability) return null;
@@ -564,8 +660,13 @@ const onRequestQuote = useCallback(() => {
   navigate,
 ]);
 
- const onAddToCart = useCallback(async () => {
-  if (!product || isOwner || adding || isSoldOut) {
+const onAddToCart = useCallback(async () => {
+  if (
+    !product ||
+    isOwner ||
+    adding ||
+    isSoldOut
+  ) {
     return;
   }
 
@@ -578,9 +679,17 @@ const onRequestQuote = useCallback(() => {
         selectedOptions[field.key] || ""
       ).trim();
 
-      if (field?.required !== false && !value) {
-        nextErrors[`option:${field.key}`] =
-          `Alege ${field.label || "această opțiune"}.`;
+      if (
+        field?.required !== false &&
+        !value
+      ) {
+        nextErrors[
+          `option:${field.key}`
+        ] =
+          `Alege ${
+            field.label ||
+            "această opțiune"
+          }.`;
       }
     }
 
@@ -589,88 +698,267 @@ const onRequestQuote = useCallback(() => {
         customAnswers[field.key] || ""
       ).trim();
 
-      if (field?.required && !value) {
-        nextErrors[`custom:${field.key}`] =
-          `Completează ${field.label || "acest câmp"}.`;
+      if (
+        field?.required &&
+        !value
+      ) {
+        nextErrors[
+          `custom:${field.key}`
+        ] =
+          `Completează ${
+            field.label ||
+            "acest câmp"
+          }.`;
+
         hasCustomError = true;
       }
     }
 
-    if (Object.keys(nextErrors).length > 0) {
-      setValidationErrors(nextErrors);
+    if (
+      Object.keys(nextErrors)
+        .length > 0
+    ) {
+      setValidationErrors(
+        nextErrors
+      );
 
       if (hasCustomError) {
-        setCustomizationOpen(true);
+        setCustomizationOpen(
+          true
+        );
       }
 
-      requestAnimationFrame(() => {
-        const firstInvalid = document.querySelector(
-          '[data-validation-error="true"]'
-        );
+      requestAnimationFrame(
+        () => {
+          const firstInvalid =
+            document.querySelector(
+              '[data-validation-error="true"]'
+            );
 
-        if (firstInvalid) {
-          firstInvalid.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
+          if (firstInvalid) {
+            firstInvalid.scrollIntoView({
+              behavior:
+                "smooth",
+
+              block:
+                "center",
+            });
+          }
         }
-      });
+      );
 
       return;
     }
 
     setValidationErrors({});
   }
+
+  setAdding(true);
+
   try {
-    setAdding(true);
+    let addedAsGuest = false;
 
     if (me) {
-  const response = await api("/api/cart/add", {
-    method: "POST",
-    body: {
-      productId: product.id,
-      qty,
-      selectedOptions,
-      customAnswers,
-    },
-  });
+      try {
+        const response =
+          await api(
+            "/api/cart/add",
+            {
+              method:
+                "POST",
 
-  if (response?.error === "cannot_add_own_product") {
-    alert("Nu poți adăuga în coș propriul produs.");
-    return;
-  }
+              body: {
+                productId:
+                  product.id,
 
-  if (response?.__unauth) {
-    addToGuestCart(product.id, qty, {
-      selectedOptions,
-      customAnswers,
-    });
-  }
-} else {
-  addToGuestCart(product.id, qty, {
-    selectedOptions,
-    customAnswers,
-  });
-}
+                qty,
 
-try {
-  window.dispatchEvent(
-    new CustomEvent("cart:changed")
-  );
-} catch {
-  // ignore
-}
+                selectedOptions,
 
-    alert("Produs adăugat în coș.");
+                customAnswers,
+              },
+            }
+          );
+
+        /*
+         * Unele versiuni ale helperului api()
+         * întorc __unauth în loc să arunce.
+         */
+        if (
+          response?.__unauth ||
+          response?.status === 401
+        ) {
+          addToGuestCart(
+            product.id,
+            qty,
+            {
+              selectedOptions,
+              customAnswers,
+            }
+          );
+
+          addedAsGuest = true;
+        }
+
+        if (
+          response?.error ===
+          "cannot_add_own_product"
+        ) {
+          alert(
+            "Nu poți adăuga în coș propriul produs."
+          );
+
+          return;
+        }
+      } catch (error) {
+        const status =
+          error?.status ||
+          error?.response?.status ||
+          error?.data?.status;
+
+        const errorCode =
+          error?.error ||
+          error?.code ||
+          error?.data?.error ||
+          error?.response?.data
+            ?.error;
+
+        /*
+         * Token expirat sau sesiune invalidă:
+         * produsul intră în coșul guest.
+         */
+        if (
+          status === 401 ||
+          errorCode ===
+            "unauthorized" ||
+          errorCode ===
+            "AUTH_REQUIRED"
+        ) {
+          addToGuestCart(
+            product.id,
+            qty,
+            {
+              selectedOptions,
+              customAnswers,
+            }
+          );
+
+          addedAsGuest = true;
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      addToGuestCart(
+        product.id,
+        qty,
+        {
+          selectedOptions,
+          customAnswers,
+        }
+      );
+
+      addedAsGuest = true;
+    }
+
+    /*
+     * Actualizează badge-ul coșului.
+     */
+    window.dispatchEvent(
+      new CustomEvent(
+        "cart:changed"
+      )
+    );
+
+    /*
+     * Ștergem cache-ul vechi al paginii coșului,
+     * ca produsul nou să fie încărcat imediat.
+     */
+    try {
+      sessionStorage.removeItem(
+        "cart:ui-cache:v1"
+      );
+
+      sessionStorage.removeItem(
+        "cart:ui-cache:v2"
+      );
+    } catch {
+      // ignore
+    }
+
+    alert(
+      addedAsGuest
+        ? "Produs adăugat în coș."
+        : "Produs adăugat în coș."
+    );
   } catch (error) {
+    console.error(
+      "Add to cart error:",
+      error
+    );
+
+    const code =
+      error?.error ||
+      error?.code ||
+      error?.data?.error ||
+      error?.response?.data
+        ?.error;
+
     const message =
       error?.data?.message ||
-      error?.message ||
-      (error?.status === 403
-        ? "Nu poți adăuga în coș propriul produs."
-        : "Nu am putut adăuga în coș.");
+      error?.response?.data
+        ?.message ||
+      error?.message;
 
-    alert(message);
+    if (
+      code ===
+      "insufficient_stock"
+    ) {
+      alert(
+        message ||
+          "Nu sunt disponibile suficiente produse."
+      );
+
+      return;
+    }
+
+    if (
+      code ===
+      "product_sold_out"
+    ) {
+      alert(
+        "Produsul este epuizat."
+      );
+
+      return;
+    }
+
+    if (
+      code ===
+      "product_unavailable"
+    ) {
+      alert(
+        "Produsul nu mai este disponibil."
+      );
+
+      return;
+    }
+
+    if (
+      code ===
+      "cannot_add_own_product"
+    ) {
+      alert(
+        "Nu poți adăuga în coș propriul produs."
+      );
+
+      return;
+    }
+
+    alert(
+      message ||
+        "Nu am putut adăuga produsul în coș."
+    );
   } finally {
     setAdding(false);
   }
@@ -687,7 +975,6 @@ try {
   optionsSchema,
   customSchema,
 ]);
-
   const addToCartAny = onAddToCart;
 
   const isFav = useMemo(
@@ -1250,17 +1537,28 @@ const productUrl =
       name: storeName,
     },
 
-    offers: {
-      "@type": "Offer",
-      url: productUrl,
-      priceCurrency: product?.currency || "RON",
-      price:
-        displayPriceForLd !== undefined
-          ? String(displayPriceForLd)
-          : undefined,
-      availability: schemaAvailability,
-      itemCondition: "https://schema.org/NewCondition",
-    },
+  offers: {
+  "@type": "Offer",
+  url: productUrl,
+  priceCurrency: product?.currency || "RON",
+
+  price:
+    displayPriceForLd !== undefined
+      ? String(displayPriceForLd)
+      : undefined,
+
+  availability: schemaAvailability,
+  itemCondition: "https://schema.org/NewCondition",
+
+  ...(hasHomepageDiscount &&
+  product?.discount?.endsAt
+    ? {
+        priceValidUntil: String(
+          product.discount.endsAt
+        ).slice(0, 10),
+      }
+    : {}),
+},
   };
 
   if (avg?.count > 0) {
@@ -1280,6 +1578,7 @@ const productUrl =
   schemaAvailability,
   storeName,
   avg,
+  hasHomepageDiscount
 ]);
 
   const onTouchStart = useCallback((e) => {
@@ -1721,15 +2020,60 @@ const basePayload = {
             </div>
           )}
 
-          {displayPrice != null && (
-            <>
-              <div className={styles.price}>{fmt.format(displayPrice)}</div>
-              {priceInfo && (
-                <div className={styles.priceInfo}>{priceInfo}</div>
-              )}
-            </>
-          )}
+          {displayPrice != null && !isQuoteOnly && (
+  <>
+    {hasHomepageDiscount ? (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          marginBottom: 4,
+        }}
+      >
+        <span
+          style={{
+            textDecoration: "line-through",
+            color: "#6b7280",
+            fontSize: 17,
+          }}
+        >
+          {originalDisplayPrice != null
+            ? fmt.format(originalDisplayPrice)
+            : null}
+        </span>
 
+        <div className={styles.price}>
+          {fmt.format(displayPrice)}
+        </div>
+
+        <span
+          style={{
+            padding: "5px 9px",
+            borderRadius: 999,
+            background: "#dc2626",
+            color: "#ffffff",
+            fontSize: 13,
+            fontWeight: 800,
+          }}
+        >
+          -{homepageDiscountPercent}%
+        </span>
+      </div>
+    ) : (
+      <div className={styles.price}>
+        {fmt.format(displayPrice)}
+      </div>
+    )}
+
+    {priceInfo && (
+      <div className={styles.priceInfo}>
+        {priceInfo}
+      </div>
+    )}
+  </>
+)}
           {isOwner && (
             <p className={styles.ownerNote}>
               Ești proprietarul acestui produs.

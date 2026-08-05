@@ -5,7 +5,10 @@ import { CATEGORIES_DETAILED } from "../constants/categories.js";
 import { smartSearchFromQueryBackend } from "../constants/smartSrc.js";
 import { uploadSearchImage } from "../middleware/imageSearchUpload.js";
 import { imageToEmbedding, toPgVectorLiteral } from "../lib/embeddings.js";
-
+import {
+  getPromotionPricingForProduct,
+  applyPromotionsToProducts,
+} from "../services/productPromotionPrice.js";
 const router = Router();
 
 /* -----------------------------------------
@@ -307,15 +310,51 @@ function mapPublicProduct(
     p?.service?.vendor?.logoUrl ||
     null;
 
-  const promo = getPromoPrice(
-    p.priceCents,
-    promoCollection
+const hasValue = (value) =>
+  value !== null &&
+  value !== undefined &&
+  value !== "" &&
+  Number.isFinite(
+    Number(value)
   );
 
-  const unitPrice =
-    promo.finalPriceCents != null
-      ? promo.finalPriceCents / 100
-      : 0;
+const finalPriceCents =
+  hasValue(
+    p?.finalPriceCents
+  )
+    ? Number(
+        p.finalPriceCents
+      )
+    : hasValue(
+          p?.discountedPriceCents
+        )
+      ? Number(
+          p.discountedPriceCents
+        )
+      : hasValue(
+            p?.priceCents
+          )
+        ? Number(
+            p.priceCents
+          )
+        : 0;
+
+const originalPriceCents =
+  hasValue(
+    p?.originalPriceCents
+  )
+    ? Number(
+        p.originalPriceCents
+      )
+    : finalPriceCents;
+
+const hasDiscount =
+  p?.hasDiscount === true &&
+  originalPriceCents >
+    finalPriceCents;
+
+const unitPrice =
+  finalPriceCents / 100;
 
   const sellerPlan =
     p?.service?.vendor
@@ -373,35 +412,92 @@ function mapPublicProduct(
         ? p.images
         : [],
 
-    priceCents:
-      promo.finalPriceCents ?? 0,
+  priceCents:
+  finalPriceCents,
 
-    price: unitPrice,
+price:
+  unitPrice,
 
-    originalPriceCents:
-      promo.hasDiscount
-        ? promo.originalPriceCents
-        : null,
+finalPriceCents,
 
-    originalPrice:
-      promo.hasDiscount
-        ? promo.originalPriceCents / 100
-        : null,
+discountedPriceCents:
+  finalPriceCents,
 
-    hasDiscount:
-      promo.hasDiscount,
+originalPriceCents:
+  hasDiscount
+    ? originalPriceCents
+    : null,
 
-    discountPercent:
-      promo.discountPercent,
+originalPrice:
+  hasDiscount
+    ? originalPriceCents /
+      100
+    : null,
 
-    promoLabel:
-      promo.promoLabel,
+hasDiscount,
 
-    promoFundingSource:
-      promo.promoFundingSource,
+discountPercent:
+  hasDiscount
+    ? Number(
+        p?.discountPercent ||
+        p?.totalDiscountPercent ||
+        0
+      )
+    : 0,
 
-    promoCollectionId:
-      promo.promoCollectionId,
+totalDiscountPercent:
+  hasDiscount
+    ? Number(
+        p?.totalDiscountPercent ||
+        p?.discountPercent ||
+        0
+      )
+    : 0,
+
+platformDiscountPercent:
+  hasDiscount
+    ? Number(
+        p?.platformDiscountPercent ||
+        0
+      )
+    : 0,
+
+vendorDiscountPercent:
+  hasDiscount
+    ? Number(
+        p?.vendorDiscountPercent ||
+        0
+      )
+    : 0,
+
+hasActiveHomepageDiscount:
+  hasDiscount &&
+  p?.hasActiveHomepageDiscount ===
+    true,
+
+promoLabel:
+  hasDiscount
+    ? p?.promoLabel ||
+      "Reducere Artfest"
+    : null,
+
+promoFundingSource:
+  hasDiscount
+    ? p?.promoFundingSource ||
+      null
+    : null,
+
+promoCollectionId:
+  hasDiscount
+    ? p?.promoCollectionId ||
+      null
+    : null,
+
+discount:
+  hasDiscount
+    ? p?.discount ||
+      null
+    : null,
 
     currency:
       p.currency || "RON",
@@ -873,16 +969,41 @@ router.get("/products", async (req, res, next) => {
       if (acceptsCustomParam) whereObj.acceptsCustom = true;
     };
 
-   const finalizePaged = async (rows) => {
-  const hasMore = rows.length > limit;
-  const slice = hasMore ? rows.slice(0, limit) : rows;
+  const finalizePaged = async (rows) => {
+  const hasMore =
+    rows.length > limit;
 
-  const promoByProductId = await getActiveCollectionPromosForProducts(slice);
+  const slice =
+    hasMore
+      ? rows.slice(0, limit)
+      : rows;
+
+  let promotedSlice =
+    slice;
+
+  try {
+    promotedSlice =
+      await applyPromotionsToProducts(
+        slice
+      );
+  } catch (promotionError) {
+    console.error(
+      "[public products] promotion pricing failed:",
+      promotionError
+    );
+  }
 
   return {
-    items: slice.map((product) =>
-      mapPublicProduct(product, promoByProductId.get(product.id) || null)
-    ),
+    items:
+      promotedSlice.map(
+        (
+          product
+        ) =>
+          mapPublicProduct(
+            product
+          )
+      ),
+
     hasMore,
   };
 };
@@ -1746,25 +1867,15 @@ router.get(
         p?.service?.profile?.slug ||
         null;
 
-      const promoByProductId =
-        await getActiveCollectionPromosForProducts(
-          [p]
-        );
+      const promotionPricing =
+  await getPromotionPricingForProduct(
+    p
+  );
 
-      const promoCollection =
-        promoByProductId.get(p.id) ||
-        null;
-
-      const promo = getPromoPrice(
-        p.priceCents,
-        promoCollection
-      );
-
-      const unitPrice =
-        promo.finalPriceCents != null
-          ? promo.finalPriceCents /
-            100
-          : 0;
+const unitPrice =
+  promotionPricing.finalPriceCents != null
+    ? promotionPricing.finalPriceCents / 100
+    : 0;
 
       const orderMode = String(
         p.orderMode || "DIRECT"
@@ -1862,27 +1973,52 @@ router.get(
         },
 
         price:
-          unitPrice,
+  unitPrice,
 
-        priceCents:
-          promo.finalPriceCents,
+priceCents:
+  promotionPricing.finalPriceCents,
 
-        originalPriceCents:
-          promo.hasDiscount
-            ? promo.originalPriceCents
-            : null,
+finalPriceCents:
+  promotionPricing.finalPriceCents,
 
-        originalPrice:
-          promo.hasDiscount
-            ? promo.originalPriceCents /
-              100
-            : null,
+discountedPriceCents:
+  promotionPricing.discountedPriceCents,
 
-        hasDiscount:
-          promo.hasDiscount,
+originalPriceCents:
+  promotionPricing.originalPriceCents,
 
-        discountPercent:
-          promo.discountPercent,
+originalPrice:
+  promotionPricing.originalPrice,
+
+hasDiscount:
+  promotionPricing.hasDiscount,
+
+discountPercent:
+  promotionPricing.discountPercent,
+
+totalDiscountPercent:
+  promotionPricing.totalDiscountPercent,
+
+platformDiscountPercent:
+  promotionPricing.platformDiscountPercent,
+
+vendorDiscountPercent:
+  promotionPricing.vendorDiscountPercent,
+
+hasActiveHomepageDiscount:
+  promotionPricing.hasActiveHomepageDiscount,
+
+promoLabel:
+  promotionPricing.promoLabel,
+
+promoFundingSource:
+  promotionPricing.promoFundingSource,
+
+promoCollectionId:
+  promotionPricing.promoCollectionId,
+
+discount:
+  promotionPricing.discount,
 
         orderMode,
         availability,

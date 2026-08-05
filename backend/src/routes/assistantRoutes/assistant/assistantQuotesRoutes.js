@@ -1753,18 +1753,14 @@ router.patch(
 router.post(
   "/:id/offers/:offerId/accept",
 
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
     try {
       const userId =
         req.user.sub;
 
       const quoteId =
         String(
-          req.params.id ||
-            ""
+          req.params.id || ""
         ).trim();
 
       const offerId =
@@ -1779,11 +1775,9 @@ router.post(
             ?.shippingAddress
         );
 
-      /*
-       * ============================================
-       * VALIDARE ID-URI
-       * ============================================
-       */
+      /* =====================================================
+         VALIDARE ID-URI
+      ===================================================== */
 
       if (
         !quoteId ||
@@ -1800,11 +1794,9 @@ router.post(
           });
       }
 
-      /*
-       * ============================================
-       * VALIDARE DATE LIVRARE
-       * ============================================
-       */
+      /* =====================================================
+         VALIDARE DATE LIVRARE
+      ===================================================== */
 
       const recipientName =
         String(
@@ -1870,46 +1862,48 @@ router.post(
           });
       }
 
-      /*
-       * ============================================
-       * CEREREA DE OFERTĂ
-       * ============================================
-       */
+      /* =====================================================
+         CEREREA DE OFERTĂ
+      ===================================================== */
 
       const quote =
-        await prisma.quoteRequest.findFirst(
-          {
-            where: {
-              id:
-                quoteId,
+        await prisma.quoteRequest.findFirst({
+          where: {
+            id:
+              quoteId,
 
-              userId,
-            },
+            userId,
+          },
 
           include: {
-  product: {
-    select: {
-      id: true,
-      title: true,
-    },
-  },
+            product: {
+              select: {
+                id:
+                  true,
 
-  service: {
-    select: {
-      id: true,
-    },
-  },
+                title:
+                  true,
+              },
+            },
 
-  offers: {
-    where: {
-      id: offerId,
-    },
+            service: {
+              select: {
+                id:
+                  true,
+              },
+            },
 
-    take: 1,
-  },
-},
-          }
-        );
+            offers: {
+              where: {
+                id:
+                  offerId,
+              },
+
+              take:
+                1,
+            },
+          },
+        });
 
       if (!quote) {
         return res
@@ -1997,72 +1991,423 @@ router.post(
       }
 
       /*
-       * ============================================
-       * DATE OFERTĂ
-       * ============================================
+       * Oferta expirată nu mai poate fi acceptată.
        */
-
-      const offerItems =
-  Array.isArray(offer.items)
-    ? offer.items
-    : [];
-
-const firstOfferItem =
-  offerItems[0] || null;
-
-const quantity =
-  Number(
-    firstOfferItem?.quantity ??
-      offer.quantity ??
-      quote.quantity ??
-      0
-  );
-
-const unitPrice =
-  Number(
-    firstOfferItem?.unitPrice ??
-      offer.unitPrice ??
-      0
-  );
-
-const shippingTotal =
-  Number(
-    offer.shippingTotal ??
-      offer.shippingPrice ??
-      0
-  );
-
       if (
-        !Number.isFinite(
-          quantity
-        ) ||
-        quantity <= 0
+        offer.validUntil &&
+        new Date(
+          offer.validUntil
+        ).getTime() <=
+          Date.now()
       ) {
         return res
           .status(409)
           .json({
             error:
-              "invalid_offer_quantity",
+              "offer_expired",
 
             message:
-              "Cantitatea din ofertă nu este validă.",
+              "Această ofertă a expirat și nu mai poate fi acceptată.",
           });
       }
 
-     if (
-  !Number.isFinite(unitPrice) ||
-  unitPrice <= 0
-) {
-  return res
-    .status(409)
-    .json({
-      error:
-        "invalid_offer_price",
+      /* =====================================================
+         DATE OFERTĂ + SNAPSHOT PROMOȚIE
+      ===================================================== */
 
-      message:
-        "Prețul din ofertă trebuie să fie mai mare decât 0.",
-    });
-}
+      const rawOfferItems =
+        Array.isArray(
+          offer.items
+        )
+          ? offer.items
+          : [];
+
+      if (
+        rawOfferItems.length ===
+        0
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "offer_has_no_items",
+
+            message:
+              "Oferta nu conține produse valide.",
+          });
+      }
+
+      const offerItems =
+        [];
+
+      for (
+        const rawItem of
+        rawOfferItems
+      ) {
+        const quantity =
+          Number.parseInt(
+            rawItem?.quantity ??
+              quote.quantity ??
+              0,
+            10
+          );
+
+        /*
+         * unitPrice este prețul final
+         * calculat când vendorul a trimis oferta.
+         */
+        const finalUnitPrice =
+          Number(
+            rawItem?.unitPrice ??
+              0
+          );
+
+        /*
+         * Pentru ofertele noi există
+         * originalUnitPrice.
+         *
+         * Pentru ofertele vechi folosim
+         * unitPrice ca fallback.
+         */
+        const originalUnitPrice =
+          Number(
+            rawItem
+              ?.originalUnitPrice ??
+              finalUnitPrice
+          );
+
+        if (
+          !Number.isInteger(
+            quantity
+          ) ||
+          quantity <= 0
+        ) {
+          return res
+            .status(409)
+            .json({
+              error:
+                "invalid_offer_quantity",
+
+              message:
+                "Cantitatea din ofertă nu este validă.",
+            });
+        }
+
+        if (
+          !Number.isFinite(
+            finalUnitPrice
+          ) ||
+          finalUnitPrice <= 0 ||
+          !Number.isFinite(
+            originalUnitPrice
+          ) ||
+          originalUnitPrice <
+            finalUnitPrice
+        ) {
+          return res
+            .status(409)
+            .json({
+              error:
+                "invalid_offer_price",
+
+              message:
+                "Prețul din ofertă nu este valid.",
+            });
+        }
+
+        const normalizedFinalUnitPrice =
+          Math.round(
+            finalUnitPrice *
+              100
+          ) /
+          100;
+
+        const normalizedOriginalUnitPrice =
+          Math.round(
+            originalUnitPrice *
+              100
+          ) /
+          100;
+
+        const finalLineTotal =
+          Math.round(
+            normalizedFinalUnitPrice *
+              quantity *
+              100
+          ) /
+          100;
+
+        const originalLineTotal =
+          Math.round(
+            normalizedOriginalUnitPrice *
+              quantity *
+              100
+          ) /
+          100;
+
+        const calculatedDiscountAmount =
+          Math.max(
+            0,
+            Math.round(
+              (
+                originalLineTotal -
+                finalLineTotal
+              ) *
+                100
+            ) /
+              100
+          );
+
+        const platformDiscountPercent =
+          Number.isFinite(
+            Number(
+              rawItem
+                ?.platformDiscountPercent
+            )
+          )
+            ? Math.max(
+                0,
+                Math.min(
+                  50,
+                  Math.round(
+                    Number(
+                      rawItem
+                        .platformDiscountPercent
+                    )
+                  )
+                )
+              )
+            : 0;
+
+        const vendorDiscountPercent =
+          Number.isFinite(
+            Number(
+              rawItem
+                ?.vendorDiscountPercent
+            )
+          )
+            ? Math.max(
+                0,
+                Math.min(
+                  50,
+                  Math.round(
+                    Number(
+                      rawItem
+                        .vendorDiscountPercent
+                    )
+                  )
+                )
+              )
+            : 0;
+
+        let platformDiscountAmount =
+          Number.isFinite(
+            Number(
+              rawItem
+                ?.platformDiscountAmount
+            )
+          )
+            ? Math.max(
+                0,
+                Math.round(
+                  Number(
+                    rawItem
+                      .platformDiscountAmount
+                  ) *
+                    100
+                ) /
+                  100
+              )
+            : 0;
+
+        let vendorDiscountAmount =
+          Number.isFinite(
+            Number(
+              rawItem
+                ?.vendorDiscountAmount
+            )
+          )
+            ? Math.max(
+                0,
+                Math.round(
+                  Number(
+                    rawItem
+                      .vendorDiscountAmount
+                  ) *
+                    100
+                ) /
+                  100
+              )
+            : 0;
+
+        /*
+         * Partea Artfest + partea vendorului
+         * trebuie să coincidă cu reducerea totală.
+         */
+        const splitDiscountTotal =
+          Math.round(
+            (
+              platformDiscountAmount +
+              vendorDiscountAmount
+            ) *
+              100
+          ) /
+          100;
+
+        if (
+          splitDiscountTotal !==
+          calculatedDiscountAmount
+        ) {
+          const difference =
+            Math.round(
+              (
+                calculatedDiscountAmount -
+                splitDiscountTotal
+              ) *
+                100
+            ) /
+            100;
+
+          if (
+            platformDiscountPercent >
+            0
+          ) {
+            platformDiscountAmount =
+              Math.max(
+                0,
+                Math.round(
+                  (
+                    platformDiscountAmount +
+                    difference
+                  ) *
+                    100
+                ) /
+                  100
+              );
+          } else {
+            vendorDiscountAmount =
+              Math.max(
+                0,
+                Math.round(
+                  (
+                    vendorDiscountAmount +
+                    difference
+                  ) *
+                    100
+                ) /
+                  100
+              );
+          }
+        }
+
+        offerItems.push({
+          productId:
+            rawItem?.productId ||
+            quote.productId ||
+            null,
+
+          title:
+            String(
+              rawItem?.title ||
+                quote.product
+                  ?.title ||
+                "Produs comandat prin ofertă"
+            ).trim(),
+
+          quantity,
+
+          finalUnitPrice:
+            normalizedFinalUnitPrice,
+
+          originalUnitPrice:
+            normalizedOriginalUnitPrice,
+
+          finalLineTotal,
+
+          originalLineTotal,
+
+          discountAmount:
+            calculatedDiscountAmount,
+
+          platformDiscountPercent,
+
+          vendorDiscountPercent,
+
+          platformDiscountAmount,
+
+          vendorDiscountAmount,
+
+          promoCollectionId:
+            rawItem
+              ?.promoCollectionId ||
+            null,
+
+          promoFundingSource:
+            rawItem
+              ?.promoFundingSource ||
+            null,
+
+          homepageFeatureId:
+            rawItem
+              ?.homepageFeatureId ||
+            null,
+
+          discountSource:
+            rawItem
+              ?.discountSource ||
+            null,
+
+          selectedOptions:
+            normalizeObject(
+              rawItem
+                ?.selectedOptions
+            ),
+
+          customAnswers: {
+            ...normalizeObject(
+              rawItem
+                ?.customAnswers
+            ),
+
+            ...normalizeObject(
+              quote
+                .quoteSchemaAnswers
+            ),
+          },
+
+          configurationKey:
+            String(
+              rawItem
+                ?.configurationKey ||
+                `quote:${quote.id}:${rawItem?.productId || "custom"}`
+            ).slice(
+              0,
+              64
+            ),
+        });
+      }
+
+      const subtotal =
+        Math.round(
+          offerItems.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              item.finalLineTotal,
+            0
+          ) *
+            100
+        ) /
+        100;
+
+      const shippingTotal =
+        Number(
+          offer.shippingTotal ??
+            offer.shippingPrice ??
+            0
+        );
 
       if (
         !Number.isFinite(
@@ -2081,69 +2426,62 @@ const shippingTotal =
           });
       }
 
-   const calculatedSubtotal =
-  quantity * unitPrice;
+      const normalizedShippingTotal =
+        Math.round(
+          shippingTotal *
+            100
+        ) /
+        100;
 
-const subtotal =
-  Number.isFinite(
-    Number(offer.subtotal)
-  ) &&
-  Number(offer.subtotal) > 0
-    ? Number(offer.subtotal)
-    : calculatedSubtotal;
+      const total =
+        Math.round(
+          (
+            subtotal +
+            normalizedShippingTotal
+          ) *
+            100
+        ) /
+        100;
 
-const total =
-  Number.isFinite(
-    Number(offer.total)
-  ) &&
-  Number(offer.total) > 0
-    ? Number(offer.total)
-    : subtotal +
-      shippingTotal;
+      if (
+        subtotal <= 0 ||
+        total <= 0
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "invalid_offer_total",
 
-if (
-  !Number.isFinite(subtotal) ||
-  subtotal <= 0 ||
-  !Number.isFinite(total) ||
-  total <= 0
-) {
-  return res
-    .status(409)
-    .json({
-      error:
-        "invalid_offer_total",
+            message:
+              "Oferta nu are un total valid și nu poate fi transformată în comandă.",
+          });
+      }
 
-      message:
-        "Oferta nu are un total valid și nu poate fi transformată în comandă.",
-    });
-}
-const currency =
-  String(
-    offer.currency ||
-      "RON"
-  )
-    .trim()
-    .toUpperCase();
+      const currency =
+        String(
+          offer.currency ||
+            "RON"
+        )
+          .trim()
+          .toUpperCase();
+
       /*
        * Adăugăm emailul utilizatorului
        * strict în datele comenzii.
-       *
-       * Nu îl punem în conversația quote.
        */
       const user =
-        await prisma.user.findUnique(
-          {
-            where: {
-              id:
-                userId,
-            },
+        await prisma.user.findUnique({
+          where: {
+            id:
+              userId,
+          },
 
-            select: {
-              email:
-                true,
-            },
-          }
-        );
+          select: {
+            email:
+              true,
+          },
+        });
 
       const shippingAddress = {
         name:
@@ -2164,29 +2502,16 @@ const currency =
         postalCode,
       };
 
-      /*
-       * ============================================
-       * NUMĂR COMANDĂ
-       * ============================================
-       */
-
       function generateOrderNumber() {
         const timestamp =
           Date.now()
-            .toString(
-              36
-            )
+            .toString(36)
             .toUpperCase();
 
         const random =
           Math.random()
-            .toString(
-              36
-            )
-            .slice(
-              2,
-              8
-            )
+            .toString(36)
+            .slice(2, 8)
             .toUpperCase();
 
         return `AF-${timestamp}-${random}`
@@ -2196,53 +2521,40 @@ const currency =
           );
       }
 
-      /*
-       * ============================================
-       * TRANZACȚIE ATOMICĂ
-       * ============================================
-       */
+      /* =====================================================
+         TRANZACȚIE ATOMICĂ
+      ===================================================== */
 
       const result =
         await prisma.$transaction(
-          async (
-            tx
-          ) => {
-            /*
-             * Verificăm din nou în tranzacție
-             * că nu s-a creat deja o comandă.
-             */
+          async (tx) => {
             const lockedQuote =
-              await tx.quoteRequest.findUnique(
-                {
-                  where: {
-                    id:
-                      quote.id,
-                  },
+              await tx.quoteRequest.findUnique({
+                where: {
+                  id:
+                    quote.id,
+                },
 
-                  select: {
-                    id:
-                      true,
+                select: {
+                  id:
+                    true,
 
-                    orderId:
-                      true,
+                  orderId:
+                    true,
 
-                    status:
-                      true,
-                  },
-                }
-              );
+                  status:
+                    true,
+                },
+              });
 
-            if (
-              !lockedQuote
-            ) {
+            if (!lockedQuote) {
               throw new Error(
                 "quote_not_found"
               );
             }
 
             if (
-              lockedQuote
-                .orderId
+              lockedQuote.orderId
             ) {
               return {
                 orderId:
@@ -2254,32 +2566,24 @@ const currency =
               };
             }
 
-            /*
-             * Marcăm oferta condiționat.
-             *
-             * Doar prima acceptare
-             * poate continua.
-             */
             const acceptedOffer =
-              await tx.quoteOffer.updateMany(
-                {
-                  where: {
-                    id:
-                      offer.id,
+              await tx.quoteOffer.updateMany({
+                where: {
+                  id:
+                    offer.id,
 
-                    quoteRequestId:
-                      quote.id,
+                  quoteRequestId:
+                    quote.id,
 
-                    status:
-                      "SENT",
-                  },
+                  status:
+                    "SENT",
+                },
 
-                  data: {
-                    status:
-                      "ACCEPTED",
-                  },
-                }
-              );
+                data: {
+                  status:
+                    "ACCEPTED",
+                },
+              });
 
             if (
               acceptedOffer.count !==
@@ -2290,374 +2594,382 @@ const currency =
               );
             }
 
-            /*
-             * Creăm comanda.
-             */
             const order =
-              await tx.order.create(
-                {
-                  data: {
-                    orderNumber:
-                      generateOrderNumber(),
-
-                    status:
-                      "PENDING",
-
-                    currency,
-
-                    subtotal,
-
-                    shippingTotal,
-
-                    total,
-
-                    /*
-                     * Pentru moment folosim COD.
-                     * Poți extinde ulterior flow-ul
-                     * pentru alegerea metodei de plată.
-                     */
-                    paymentMethod:
-                      "COD",
-
-                    shippingAddress,
-
-                    vendorNotes:
-                      offer.notes ||
-                      "",
-
-                    userId,
-                    customerName:
-  recipientName,
-
-customerEmail:
-  user?.email ||
-  null,
-
-customerPhone:
-  phone,
-
-isGuestOrder:
-  false,
-                  },
-                }
-              );
-
-            /*
-             * Creăm shipment-ul vendorului.
-             */
-            const shipment =
-              await tx.shipment.create(
-                {
-                  data: {
-                    vendorId:
-                      quote.vendorId,
-
-                    orderId:
-                      order.id,
-
-                    serviceId:
-                      quote.serviceId ||
-                      null,
-
-                    status:
-                      "PENDING",
-
-                    price:
-                      shippingTotal,
-
-                    items: {
-                      create: [
-                        {
-                          productId:
-                            quote.productId ||
-                            null,
-
-                          title:
-                            quote.product
-                              ?.title ||
-                            "Produs comandat prin ofertă",
-
-                          qty:
-                            quantity,
-
-                          price:
-                            unitPrice,
-
-                          customAnswers:
-                            quote
-                              .quoteSchemaAnswers ||
-                            {},
-
-                          selectedOptions:
-                            {},
-                        },
-                      ],
-                    },
-                  },
-
-                  include: {
-                    items:
-                      true,
-                  },
-                }
-              );
-
-            /*
-             * Marcăm cererea ca acceptată
-             * și legăm comanda.
-             */
-            await tx.quoteRequest.update(
-              {
-                where: {
-                  id:
-                    quote.id,
-                },
-
+              await tx.order.create({
                 data: {
+                  orderNumber:
+                    generateOrderNumber(),
+
                   status:
-                    "ACCEPTED",
+                    "PENDING",
+
+                  currency,
+
+                  subtotal,
+
+                  shippingTotal:
+                    normalizedShippingTotal,
+
+                  total,
+
+                  paymentMethod:
+                    "COD",
+
+                  shippingAddress,
+
+                  vendorNotes:
+                    offer.notes ||
+                    "",
+
+                  userId,
+
+                  customerName:
+                    recipientName,
+
+                  customerEmail:
+                    user?.email ||
+                    null,
+
+                  customerPhone:
+                    phone,
+
+                  isGuestOrder:
+                    false,
+                },
+              });
+
+            const shipment =
+              await tx.shipment.create({
+                data: {
+                  vendorId:
+                    quote.vendorId,
 
                   orderId:
                     order.id,
-                },
-              }
-            );
 
-            /*
-             * Orice alte oferte SENT devin
-             * SUPERSEDED.
-             */
-            await tx.quoteOffer.updateMany(
-              {
-                where: {
-                  quoteRequestId:
-                    quote.id,
-
-                  id: {
-                    not:
-                      offer.id,
-                  },
+                  serviceId:
+                    quote.serviceId ||
+                    null,
 
                   status:
-                    "SENT",
+                    "PENDING",
+
+                  price:
+                    normalizedShippingTotal,
+
+                  items: {
+                    create:
+                      offerItems.map(
+                        (item) => ({
+                          productId:
+                            item.productId,
+
+                          title:
+                            item.title,
+
+                          qty:
+                            item.quantity,
+
+                          /*
+                           * Preț final unitar.
+                           */
+                          price:
+                            item.finalUnitPrice,
+
+                          /*
+                           * Preț înainte de promoție.
+                           */
+                          originalPrice:
+                            item.discountAmount >
+                            0
+                              ? item.originalUnitPrice
+                              : null,
+
+                          /*
+                           * Sume pentru întreaga linie.
+                           */
+                          discountAmount:
+                            item.discountAmount,
+
+                          platformDiscountPercent:
+                            item.platformDiscountPercent,
+
+                          vendorDiscountPercent:
+                            item.vendorDiscountPercent,
+
+                          platformDiscountAmount:
+                            item.platformDiscountAmount,
+
+                          vendorDiscountAmount:
+                            item.vendorDiscountAmount,
+
+                          promoCollectionId:
+                            item.promoCollectionId,
+
+                          promoFundingSource:
+                            item.promoFundingSource,
+
+                          homepageFeatureId:
+                            item.homepageFeatureId,
+
+                          discountSource:
+                            item.discountSource,
+
+                          customAnswers:
+                            item.customAnswers,
+
+                          selectedOptions:
+                            item.selectedOptions,
+
+                          configurationKey:
+                            item.configurationKey,
+                        })
+                      ),
+                  },
+                },
+
+                include: {
+                  items:
+                    true,
+                },
+              });
+
+            await tx.quoteRequest.update({
+              where: {
+                id:
+                  quote.id,
+              },
+
+              data: {
+                status:
+                  "ACCEPTED",
+
+                orderId:
+                  order.id,
+              },
+            });
+
+            await tx.quoteOffer.updateMany({
+              where: {
+                quoteRequestId:
+                  quote.id,
+
+                id: {
+                  not:
+                    offer.id,
+                },
+
+                status:
+                  "SENT",
+              },
+
+              data: {
+                status:
+                  "SUPERSEDED",
+              },
+            });
+
+            if (
+              quote.threadId
+            ) {
+              await tx.messageThread.updateMany({
+                where: {
+                  id:
+                    quote.threadId,
                 },
 
                 data: {
-                  status:
-                    "SUPERSEDED",
+                  orderId:
+                    order.id,
                 },
-              }
-            );
+              });
+            }
 
-            /*
-             * Legăm thread-ul existent
-             * de comanda nouă.
-             *
-             * Astfel conversația poate continua
-             * și după transformarea în comandă.
-             */
-            if (
-  quote.threadId
-) {
-  await tx.messageThread.updateMany({
-    where: {
-      id:
-        quote.threadId,
-    },
+            return {
+              orderId:
+                order.id,
 
-    data: {
-      orderId:
-        order.id,
-    },
-  });
-}
-            
+              orderNumber:
+                order.orderNumber,
 
-           return {
-  orderId:
-    order.id,
+              shipmentId:
+                shipment.id,
 
-  orderNumber:
-    order.orderNumber,
-
-  shipmentId:
-    shipment.id,
-
-  alreadyAccepted:
-    false,
-};
+              alreadyAccepted:
+                false,
+            };
           }
         );
 
-        /*
- * ============================================
- * EMAILURI COMANDĂ
- * ============================================
- *
- * Emailurile sunt trimise după commit.
- * Dacă un email eșuează, comanda rămâne creată.
- */
-
-if (
-  !result.alreadyAccepted
-) {
-  const emailItems = [
-    {
-      title:
-        quote.product
-          ?.title ||
-        "Produs comandat prin ofertă",
-
-      qty:
-        quantity,
-
-      price:
-        unitPrice,
-    },
-  ];
-
-  /*
-   * Email client
-   */
-  try {
-    if (
-      user?.email
-    ) {
-      await sendOrderConfirmationEmail({
-        to:
-          user.email,
-
-        userId,
-
-        order: {
-          id:
-            result.orderId,
-
-          orderNumber:
-  result.orderNumber,
-
-          currency,
-
-          subtotal,
-
-          shippingTotal,
-
-          total,
-
-          paymentMethod:
-            "COD",
-
-          shippingAddress,
-        },
-
-        items:
-          emailItems,
-      });
-    }
-  } catch (
-    emailError
-  ) {
-    console.error(
-      "Quote order customer email failed:",
-      emailError
-    );
-  }
-
-  /*
-   * Date vendor pentru email
-   */
-  try {
-    const vendor =
-      await prisma.vendor.findUnique({
-        where: {
-          id:
-            quote.vendorId,
-        },
-
-        select: {
-          displayName:
-            true,
-
-          user: {
-            select: {
-              email:
-                true,
-            },
-          },
-
-          billing: {
-            select: {
-              email:
-                true,
-
-              vendorName:
-                true,
-            },
-          },
-        },
-      });
-
-    const vendorEmail =
-      vendor?.billing
-        ?.email ||
-      vendor?.user
-        ?.email ||
-      null;
-
-    const vendorName =
-      vendor?.billing
-        ?.vendorName ||
-      vendor?.displayName ||
-      "Vânzător";
-
-    if (
-      vendorEmail
-    ) {
-      await sendVendorNewOrderEmail({
-        to:
-          vendorEmail,
-
-        vendorName,
-
-        order: {
-          id:
-            result.orderId,
-
-          orderNumber:
-  result.orderNumber,
-        },
-
-        items:
-          emailItems,
-
-        customerName:
-          recipientName,
-
-        total:
-  total,
-
-        currency,
-      });
-    }
-  } catch (
-    emailError
-  ) {
-    console.error(
-      "Quote order vendor email failed:",
-      emailError
-    );
-  }
-}
-
-      /*
-       * ============================================
-       * NOTIFICARE VENDOR
-       * ============================================
-       */
+      /* =====================================================
+         EMAILURI COMANDĂ
+      ===================================================== */
 
       if (
-        !result
-          .alreadyAccepted
+        !result.alreadyAccepted
+      ) {
+        const emailItems =
+          offerItems.map(
+            (item) => ({
+              title:
+                item.title,
+
+              qty:
+                item.quantity,
+
+              price:
+                item.finalUnitPrice,
+
+              originalPrice:
+                item.discountAmount >
+                0
+                  ? item.originalUnitPrice
+                  : null,
+
+              discountAmount:
+                item.discountAmount,
+
+              platformDiscountPercent:
+                item.platformDiscountPercent,
+
+              vendorDiscountPercent:
+                item.vendorDiscountPercent,
+            })
+          );
+
+        try {
+          if (
+            user?.email
+          ) {
+            await sendOrderConfirmationEmail({
+              to:
+                user.email,
+
+              userId,
+
+              order: {
+                id:
+                  result.orderId,
+
+                orderNumber:
+                  result.orderNumber,
+
+                currency,
+
+                subtotal,
+
+                shippingTotal:
+                  normalizedShippingTotal,
+
+                total,
+
+                paymentMethod:
+                  "COD",
+
+                shippingAddress,
+              },
+
+              items:
+                emailItems,
+            });
+          }
+        } catch (
+          emailError
+        ) {
+          console.error(
+            "Quote order customer email failed:",
+            emailError
+          );
+        }
+
+        try {
+          const vendor =
+            await prisma.vendor.findUnique({
+              where: {
+                id:
+                  quote.vendorId,
+              },
+
+              select: {
+                displayName:
+                  true,
+
+                user: {
+                  select: {
+                    email:
+                      true,
+                  },
+                },
+
+                billing: {
+                  select: {
+                    email:
+                      true,
+
+                    vendorName:
+                      true,
+                  },
+                },
+              },
+            });
+
+          const vendorEmail =
+            vendor?.billing
+              ?.email ||
+            vendor?.user
+              ?.email ||
+            null;
+
+          const vendorName =
+            vendor?.billing
+              ?.vendorName ||
+            vendor?.displayName ||
+            "Vânzător";
+
+          if (
+            vendorEmail
+          ) {
+            await sendVendorNewOrderEmail({
+              to:
+                vendorEmail,
+
+              vendorName,
+
+              order: {
+                id:
+                  result.orderId,
+
+                orderNumber:
+                  result.orderNumber,
+              },
+
+              items:
+                emailItems,
+
+              customerName:
+                recipientName,
+
+              total,
+
+              currency,
+            });
+          }
+        } catch (
+          emailError
+        ) {
+          console.error(
+            "Quote order vendor email failed:",
+            emailError
+          );
+        }
+      }
+
+      /* =====================================================
+         NOTIFICARE VENDOR
+      ===================================================== */
+
+      if (
+        !result.alreadyAccepted
       ) {
         try {
           await createVendorNotification(
@@ -2673,7 +2985,7 @@ if (
                 "Clientul a acceptat oferta. Comanda a fost înregistrată în platformă.",
 
               link:
-                `/vendor/orders`,
+                "/vendor/orders",
             }
           );
         } catch (
@@ -2707,12 +3019,9 @@ if (
           "ACCEPTED",
 
         alreadyAccepted:
-          result
-            .alreadyAccepted,
+          result.alreadyAccepted,
       });
-    } catch (
-      error
-    ) {
+    } catch (error) {
       console.error(
         "POST /api/assistant/quotes/:id/offers/:offerId/accept failed:",
         error
@@ -2754,18 +3063,14 @@ if (
 router.post(
   "/:id/offers/:offerId/reject",
 
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
     try {
       const userId =
         req.user.sub;
 
       const quoteId =
         String(
-          req.params.id ||
-            ""
+          req.params.id || ""
         ).trim();
 
       const offerId =
@@ -2891,9 +3196,7 @@ router.post(
       }
 
       await prisma.$transaction(
-        async (
-          tx
-        ) => {
+        async (tx) => {
           await tx.quoteOffer.update({
             where: {
               id:
@@ -2928,9 +3231,9 @@ router.post(
               },
 
               data: {
-  lastAt:
-    new Date(),
-},
+                lastAt:
+                  new Date(),
+              },
             });
           }
         }
@@ -2975,9 +3278,7 @@ router.post(
         status:
           "REJECTED",
       });
-    } catch (
-      error
-    ) {
+    } catch (error) {
       console.error(
         "POST /api/assistant/quotes/:id/offers/:offerId/reject failed:",
         error

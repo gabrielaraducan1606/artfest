@@ -545,11 +545,29 @@ const customerPhone =
   shippingAddress.phone ||
   "—";
 
-  const flatItems = shipments.flatMap((s) =>
-    (s.items || []).map((it) => ({
-      ...it,
-      _vendorName: s.vendor?.displayName || null,
-    }))
+  const flatItems =
+  shipments.flatMap((shipment) =>
+    (shipment.items || []).map(
+      (item) => ({
+        ...item,
+
+        _vendorName:
+          shipment.vendor
+            ?.displayName ||
+          null,
+      })
+    )
+  );
+
+const totalDiscount =
+  flatItems.reduce(
+    (sum, item) =>
+      sum +
+      Number(
+        item.discountAmount ||
+          0
+      ),
+    0
   );
 
   const handleCancelOrder = async () => {
@@ -723,26 +741,61 @@ const customerPhone =
               <span>Status UI</span>
               <StatusBadge uiStatus={uiStatus} />
             </div>
-            <div className={styles.drawerField}>
-              <span>Subtotal</span>
-              <span>
-                {subtotal.toFixed(2)} {currency}
-              </span>
-            </div>
-            <div className={styles.drawerField}>
-              <span>Transport</span>
-              <span>
-                {shippingTotal.toFixed(2)} {currency}
-              </span>
-            </div>
-            <div className={styles.drawerField}>
-              <span>Total</span>
-              <span>
-                <strong>
-                  {total.toFixed(2)} {currency}
-                </strong>
-              </span>
-            </div>
+           <div className={styles.drawerField}>
+  <span>Subtotal produse</span>
+
+  <span>
+    {subtotal.toFixed(2)}{" "}
+    {currency}
+  </span>
+</div>
+
+{totalDiscount > 0 && (
+  <div
+    className={
+      styles.drawerField
+    }
+  >
+    <span>Reduceri aplicate</span>
+
+    <span
+      style={{
+        color:
+          "#16a34a",
+        fontWeight:
+          600,
+      }}
+    >
+      −
+      {totalDiscount.toFixed(
+        2
+      )}{" "}
+      {currency}
+    </span>
+  </div>
+)}
+
+<div className={styles.drawerField}>
+  <span>Transport</span>
+
+  <span>
+    {shippingTotal.toFixed(
+      2
+    )}{" "}
+    {currency}
+  </span>
+</div>
+
+<div className={styles.drawerField}>
+  <span>Total plătit</span>
+
+  <span>
+    <strong>
+      {total.toFixed(2)}{" "}
+      {currency}
+    </strong>
+  </span>
+</div>
           </section>
 
           {/* Adresă livrare */}
@@ -792,10 +845,94 @@ const customerPhone =
                 {flatItems.map((it) => (
                   <div key={it.id} className={styles.drawerListItem}>
                     <div className={styles.drawerListTitle}>{it.title}</div>
-                    <div className={styles.drawerListMeta}>
-                      x{it.qty} · {Number(it.price).toFixed(2)} {currency} / buc ·{" "}
-                      {it._vendorName ? `Vendor: ${it._vendorName}` : "—"}
-                    </div>
+                   <div
+  className={
+    styles.drawerListMeta
+  }
+>
+  x{it.qty} ·{" "}
+
+  {it.originalPrice !=
+    null &&
+  Number(
+    it.originalPrice
+  ) >
+    Number(
+      it.price
+    ) ? (
+    <>
+      <span
+        style={{
+          textDecoration:
+            "line-through",
+          color:
+            "#9ca3af",
+          marginRight:
+            6,
+        }}
+      >
+        {Number(
+          it.originalPrice
+        ).toFixed(2)}{" "}
+        {currency}
+      </span>
+
+      <strong>
+        {Number(
+          it.price
+        ).toFixed(2)}{" "}
+        {currency}
+      </strong>
+
+      {Number(
+        it.originalPrice
+      ) > 0 && (
+        <span
+          style={{
+            color:
+              "#16a34a",
+            marginLeft:
+              6,
+            fontWeight:
+              600,
+          }}
+        >
+          −
+          {Math.round(
+            (
+              (
+                Number(
+                  it.originalPrice
+                ) -
+                Number(
+                  it.price
+                )
+              ) /
+              Number(
+                it.originalPrice
+              )
+            ) *
+              100
+          )}
+          %
+        </span>
+      )}
+    </>
+  ) : (
+    <>
+      {Number(
+        it.price
+      ).toFixed(2)}{" "}
+      {currency}
+    </>
+  )}
+
+  {" · "}
+
+  {it._vendorName
+    ? `Vendor: ${it._vendorName}`
+    : "—"}
+</div>
                   </div>
                 ))}
               </div>

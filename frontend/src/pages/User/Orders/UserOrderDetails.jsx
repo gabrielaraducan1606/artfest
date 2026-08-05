@@ -164,28 +164,69 @@ export default function MyOrderDetailsPage() {
   }
 
   async function handleReorder() {
-    if (!order) return;
-    setBusyAction("reorder");
-    try {
-      await api(`/api/user/orders/${order.id}/reorder`, {
-        method: "POST",
-      });
-      if (
-        window.confirm(
-          "Produsele au fost adăugate în coș. Deschizi coșul?"
-        )
-      ) {
-        window.location.href = "/cos";
-      }
-    } catch (e) {
-      alert(
-        e?.message ||
-          "Nu am putut re-comanda. Unele produse ar putea să nu mai fie disponibile."
-      );
-    } finally {
-      setBusyAction(null);
-    }
+  if (!order) {
+    return;
   }
+
+  setBusyAction(
+    "reorder"
+  );
+
+  try {
+    const response =
+      await api(
+        `/api/user/orders/${order.id}/reorder`,
+        {
+          method:
+            "POST",
+        }
+      );
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "cart:changed"
+      )
+    );
+
+    try {
+      sessionStorage.removeItem(
+        "cart:ui-cache:v1"
+      );
+
+      sessionStorage.removeItem(
+        "cart:ui-cache:v2"
+      );
+    } catch {
+      // ignore
+    }
+
+    const message =
+      response?.message ||
+      "Produsele au fost adăugate în coș.";
+
+    if (
+      window.confirm(
+        `${message}\n\nDeschizi coșul?`
+      )
+    ) {
+      window.location.href =
+        "/cos";
+    }
+  } catch (error) {
+    const message =
+      error?.data?.message ||
+      error?.response?.data
+        ?.message ||
+      error?.message ||
+      "Nu am putut re-comanda. Unele produse ar putea să nu mai fie disponibile.";
+
+    alert(message);
+  } finally {
+    setBusyAction(
+      null
+    );
+  }
+}
 
   // contact vendor DOAR pentru pachetul curent
   async function contactVendorForShipment(shipment) {
@@ -597,21 +638,83 @@ export default function MyOrderDetailsPage() {
                             )}
                           </div>
                           <div className={styles.itemMeta}>
-                            Cantitate: <b>{it.qty}</b> · Preț unitar:{" "}
-                            <b>
-                              {money(
-                                it.priceCents,
-                                order.currency
-                              )}
-                            </b>{" "}
-                            · Total linie:{" "}
-                            <b>
-                              {money(
-                                lineTotalCents,
-                                order.currency
-                              )}
-                            </b>
-                          </div>
+  Cantitate:{" "}
+  <b>{it.qty}</b>
+</div>
+
+<div className={styles.itemMeta}>
+  Preț unitar:{" "}
+
+  {it.hasDiscount &&
+  Number(
+    it.originalPriceCents
+  ) >
+    Number(
+      it.priceCents
+    ) ? (
+    <>
+      <span
+        style={{
+          textDecoration:
+            "line-through",
+          opacity:
+            0.65,
+          marginRight:
+            6,
+        }}
+      >
+        {money(
+          it.originalPriceCents,
+          order.currency
+        )}
+      </span>
+
+      <strong>
+        {money(
+          it.priceCents,
+          order.currency
+        )}
+      </strong>
+
+      {Number(
+        it.discountPercent
+      ) > 0 && (
+        <span
+          className={
+            styles.badge
+          }
+          style={{
+            marginLeft:
+              6,
+          }}
+        >
+          -
+          {
+            it.discountPercent
+          }
+          %
+        </span>
+      )}
+    </>
+  ) : (
+    <strong>
+      {money(
+        it.priceCents,
+        order.currency
+      )}
+    </strong>
+  )}
+</div>
+
+<div className={styles.itemMeta}>
+  Total linie:{" "}
+  <strong>
+    {money(
+      lineTotalCents,
+      order.currency
+    )}
+  </strong>
+</div>
                         </div>
                       </li>
                     );
@@ -682,22 +785,84 @@ export default function MyOrderDetailsPage() {
                         it.title
                       )}
                     </div>
-                    <div className={styles.itemMeta}>
-                      Cantitate: <b>{it.qty}</b> · Preț unitar:{" "}
-                      <b>
-                        {money(
-                          it.priceCents,
-                          order.currency
-                        )}
-                      </b>{" "}
-                      · Total linie:{" "}
-                      <b>
-                        {money(
-                          lineTotalCents,
-                          order.currency
-                        )}
-                      </b>
-                    </div>
+                   <div className={styles.itemMeta}>
+  Cantitate:{" "}
+  <b>{it.qty}</b>
+</div>
+
+<div className={styles.itemMeta}>
+  Preț unitar:{" "}
+
+  {it.hasDiscount &&
+  Number(
+    it.originalPriceCents
+  ) >
+    Number(
+      it.priceCents
+    ) ? (
+    <>
+      <span
+        style={{
+          textDecoration:
+            "line-through",
+          opacity:
+            0.65,
+          marginRight:
+            6,
+        }}
+      >
+        {money(
+          it.originalPriceCents,
+          order.currency
+        )}
+      </span>
+
+      <strong>
+        {money(
+          it.priceCents,
+          order.currency
+        )}
+      </strong>
+
+      {Number(
+        it.discountPercent
+      ) > 0 && (
+        <span
+          className={
+            styles.badge
+          }
+          style={{
+            marginLeft:
+              6,
+          }}
+        >
+          -
+          {
+            it.discountPercent
+          }
+          %
+        </span>
+      )}
+    </>
+  ) : (
+    <strong>
+      {money(
+        it.priceCents,
+        order.currency
+      )}
+    </strong>
+  )}
+</div>
+
+<div className={styles.itemMeta}>
+  Total linie:{" "}
+  <strong>
+    {money(
+      lineTotalCents,
+      order.currency
+    )}
+  </strong>
+</div>
                   </div>
                 </li>
               );

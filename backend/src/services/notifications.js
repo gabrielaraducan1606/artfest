@@ -976,13 +976,36 @@ export async function notifyVendorOnHomepageFeatureCreated(
             },
           },
         },
+
+        vendor: {
+          select: {
+            id: true,
+            userId: true,
+            displayName: true,
+          },
+        },
       },
     });
 
   if (
     !feature ||
-    !feature.vendorId
+    !feature.vendorId ||
+    !feature.vendor?.userId
   ) {
+    console.warn(
+      "[homepage-feature-notification] feature or vendor missing",
+      {
+        featureId,
+        vendorId:
+          feature?.vendorId ||
+          null,
+        vendorUserId:
+          feature?.vendor
+            ?.userId ||
+          null,
+      }
+    );
+
     return null;
   }
 
@@ -1020,31 +1043,84 @@ export async function notifyVendorOnHomepageFeatureCreated(
       feature.id
     )}`;
 
-  return createVendorNotification(
-    feature.vendorId,
-    {
-     dedupeKey:
-  `homepage_feature_created:${feature.id}:${feature.vendorId}`,
+  const dedupeKey =
+    `homepage_feature_created:${feature.id}:${feature.vendorId}`;
 
-      type:
-        "promotion",
+  const notificationData = {
+    userId:
+      feature.vendor.userId,
 
-      title,
-      body,
-      link,
+    vendorId:
+      feature.vendorId,
+      
+     type: "system",
 
-      meta: {
-        kind:
-          "homepage_feature_created",
+    title,
+    body,
+    link,
 
-        featureId:
-          feature.id,
+    meta: {
+      kind:
+        "homepage_feature_created",
 
-        featureType:
-          feature.type,
+      featureId:
+        feature.id,
 
-        platformDiscountPercent,
+      featureType:
+        feature.type,
+
+      platformDiscountPercent,
+    },
+
+    /*
+     * La retrimitere reapare în lista activă
+     * și este din nou necitită.
+     */
+    readAt:
+      null,
+
+    archived:
+      false,
+  };
+
+  /*
+   * Verificăm manual notificarea existentă.
+   * Astfel, butonul „Retrimite” chiar o readuce
+   * în dashboardul vendorului.
+   */
+  const existingNotification =
+    await prisma.notification.findFirst({
+      where: {
+        dedupeKey,
       },
-    }
-  );
+
+      select: {
+        id: true,
+      },
+    });
+
+  if (existingNotification) {
+    return prisma.notification.update({
+      where: {
+        id:
+          existingNotification.id,
+      },
+
+      data: {
+        ...notificationData,
+
+        /*
+         * Păstrăm aceeași cheie unică.
+         */
+        dedupeKey,
+      },
+    });
+  }
+
+  return prisma.notification.create({
+    data: {
+      ...notificationData,
+      dedupeKey,
+    },
+  });
 }

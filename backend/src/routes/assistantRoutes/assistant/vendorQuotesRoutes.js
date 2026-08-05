@@ -25,6 +25,10 @@ import {
   moderateMarketplaceMessage,
 } from "../../../services/marketplaceMessageModeration.js";
 
+import {
+  getPromotionPricingForProduct,
+} from "../../../services/productPromotionPrice.js";
+
 const router =
   Router();
 
@@ -235,6 +239,400 @@ function decimalToNumber(
 /* =========================================================
    Serializare ofertă
 ========================================================= */
+function roundMoney(
+  value
+) {
+  const number =
+    Number(value);
+
+  if (
+    !Number.isFinite(
+      number
+    )
+  ) {
+    return 0;
+  }
+
+  return (
+    Math.round(
+      number * 100
+    ) / 100
+  );
+}
+
+function moneyToCents(
+  value
+) {
+  return Math.max(
+    0,
+    Math.round(
+      Number(value || 0) *
+        100
+    )
+  );
+}
+
+function centsToMoney(
+  value
+) {
+  return roundMoney(
+    Number(value || 0) /
+      100
+  );
+}
+
+/*
+ * Construiește snapshot-ul financiar
+ * al unui element din ofertă.
+ *
+ * offeredUnitPrice reprezintă prețul
+ * introdus de vendor înainte de promoție.
+ */
+async function buildPromotionalOfferItem({
+  product,
+  productId,
+  title,
+  quantity,
+  offeredUnitPrice,
+}) {
+  const originalUnitPrice =
+    roundMoney(
+      offeredUnitPrice
+    );
+
+  const originalUnitPriceCents =
+    moneyToCents(
+      originalUnitPrice
+    );
+
+  /*
+   * În lipsa unui produs concret,
+   * oferta nu poate fi asociată unei
+   * promoții automate.
+   */
+  if (!product?.id) {
+    const lineTotal =
+      roundMoney(
+        originalUnitPrice *
+          quantity
+      );
+
+    return {
+      productId:
+        productId ||
+        null,
+
+      title:
+        String(
+          title ||
+            "Produs"
+        ).trim(),
+
+      quantity,
+
+      /*
+       * Prețul introdus de vendor.
+       */
+      originalUnitPrice,
+
+      originalUnitPriceCents,
+
+      /*
+       * Prețul final al clientului.
+       * Fără produs concret, este identic.
+       */
+      unitPrice:
+        originalUnitPrice,
+
+      unitPriceCents:
+        originalUnitPriceCents,
+
+      lineTotal,
+
+      originalLineTotal:
+        lineTotal,
+
+      discountAmount:
+        0,
+
+      platformDiscountAmount:
+        0,
+
+      vendorDiscountAmount:
+        0,
+
+      platformDiscountPercent:
+        0,
+
+      vendorDiscountPercent:
+        0,
+
+      totalDiscountPercent:
+        0,
+
+      promoCollectionId:
+        null,
+
+      homepageFeatureId:
+        null,
+
+      promoFundingSource:
+        null,
+
+      discountSource:
+        null,
+
+      promoLabel:
+        null,
+
+      hasDiscount:
+        false,
+    };
+  }
+
+  /*
+   * Produsul real rămâne QUOTE_ONLY în DB.
+   *
+   * Pentru acest calcul punctual folosim:
+   * - prețul introdus în ofertă;
+   * - orderMode DIRECT, doar în obiectul temporar.
+   *
+   * Astfel serviciul poate identifica promoția
+   * produsului și o aplică peste prețul ofertei.
+   */
+  const pricingProduct = {
+    ...product,
+
+    priceCents:
+      originalUnitPriceCents,
+
+    orderMode:
+      "DIRECT",
+  };
+
+  const pricing =
+    await getPromotionPricingForProduct(
+      pricingProduct
+    );
+
+  const finalUnitPriceCents =
+    Math.max(
+      0,
+      Number(
+        pricing?.finalPriceCents ??
+          originalUnitPriceCents
+      )
+    );
+
+  const finalUnitPrice =
+    centsToMoney(
+      finalUnitPriceCents
+    );
+
+  const totalDiscountUnitCents =
+    Math.max(
+      0,
+      originalUnitPriceCents -
+        finalUnitPriceCents
+    );
+
+  const platformDiscountPercent =
+    Math.max(
+      0,
+      Number(
+        pricing?.platformDiscountPercent ||
+          0
+      )
+    );
+
+  const vendorDiscountPercent =
+    Math.max(
+      0,
+      Number(
+        pricing?.vendorDiscountPercent ||
+          0
+      )
+    );
+
+  let platformDiscountUnitCents =
+    Math.max(
+      0,
+      Math.round(
+        originalUnitPriceCents *
+          platformDiscountPercent /
+          100
+      )
+    );
+
+  let vendorDiscountUnitCents =
+    Math.max(
+      0,
+      Math.round(
+        originalUnitPriceCents *
+          vendorDiscountPercent /
+          100
+      )
+    );
+
+  /*
+   * Reconciliem eventualele diferențe
+   * de un ban produse de rotunjire.
+   */
+  const calculatedDiscountCents =
+    platformDiscountUnitCents +
+    vendorDiscountUnitCents;
+
+  if (
+    calculatedDiscountCents !==
+    totalDiscountUnitCents
+  ) {
+    const difference =
+      totalDiscountUnitCents -
+      calculatedDiscountCents;
+
+    /*
+     * Diferența de rotunjire este pusă
+     * în partea platformei dacă există
+     * reducere Artfest, altfel la vendor.
+     */
+    if (
+      platformDiscountPercent >
+      0
+    ) {
+      platformDiscountUnitCents =
+        Math.max(
+          0,
+          platformDiscountUnitCents +
+            difference
+        );
+    } else {
+      vendorDiscountUnitCents =
+        Math.max(
+          0,
+          vendorDiscountUnitCents +
+            difference
+        );
+    }
+  }
+
+  const originalLineTotalCents =
+    originalUnitPriceCents *
+    quantity;
+
+  const finalLineTotalCents =
+    finalUnitPriceCents *
+    quantity;
+
+  const platformDiscountLineCents =
+    platformDiscountUnitCents *
+    quantity;
+
+  const vendorDiscountLineCents =
+    vendorDiscountUnitCents *
+    quantity;
+
+  const totalDiscountLineCents =
+    Math.max(
+      0,
+      originalLineTotalCents -
+        finalLineTotalCents
+    );
+
+  return {
+    productId:
+      product.id,
+
+    title:
+      String(
+        title ||
+          product.title ||
+          "Produs"
+      ).trim(),
+
+    quantity,
+
+    /*
+     * Prețul introdus de vendor înainte
+     * de reducerile campaniei.
+     */
+    originalUnitPrice,
+
+    originalUnitPriceCents,
+
+    /*
+     * Prețul final plătit de client.
+     */
+    unitPrice:
+      centsToMoney(
+        finalUnitPriceCents
+      ),
+
+    unitPriceCents:
+      finalUnitPriceCents,
+
+    lineTotal:
+      centsToMoney(
+        finalLineTotalCents
+      ),
+
+    originalLineTotal:
+      centsToMoney(
+        originalLineTotalCents
+      ),
+
+    discountAmount:
+      centsToMoney(
+        totalDiscountLineCents
+      ),
+
+    platformDiscountAmount:
+      centsToMoney(
+        platformDiscountLineCents
+      ),
+
+    vendorDiscountAmount:
+      centsToMoney(
+        vendorDiscountLineCents
+      ),
+
+    platformDiscountPercent,
+
+    vendorDiscountPercent,
+
+    totalDiscountPercent:
+      Number(
+        pricing?.totalDiscountPercent ||
+          0
+      ),
+
+    promoCollectionId:
+      pricing?.promoCollectionId ||
+      null,
+
+    homepageFeatureId:
+      pricing?.discount
+        ?.homepageFeatureId ||
+      null,
+
+    promoFundingSource:
+      pricing?.promoFundingSource ||
+      null,
+
+    discountSource:
+      pricing?.discount
+        ?.source ||
+      null,
+
+    promoLabel:
+      pricing?.promoLabel ||
+      null,
+
+    hasDiscount:
+      Boolean(
+        pricing?.hasDiscount
+      ),
+  };
+}
 
 function serializeQuoteOffer(
   offer
@@ -864,6 +1262,9 @@ router.post(
             productId:
               true,
 
+            serviceId:
+              true,
+
             quantity:
               true,
 
@@ -886,6 +1287,37 @@ router.post(
 
                 images:
                   true,
+
+                priceCents:
+                  true,
+
+                orderMode:
+                  true,
+
+                category:
+                  true,
+
+                acceptsCustom:
+                  true,
+
+                occasionTags:
+                  true,
+
+                styleTags:
+                  true,
+
+                serviceId:
+                  true,
+
+                service: {
+                  select: {
+                    id:
+                      true,
+
+                    vendorId:
+                      true,
+                  },
+                },
               },
             },
           },
@@ -1047,43 +1479,165 @@ router.post(
         await moderateOfferNotes(
           req.body?.notes
         );
-if (
-  !moderatedNotes.allowed
-) {
-  const technicalReasons =
-    new Set([
-      "text_moderation_failed",
-      "text_moderation_invalid_response",
-      "text_moderation_ambiguous_response",
-    ]);
 
-  const isTechnicalError =
-    technicalReasons.has(
-      moderatedNotes.reason
-    );
+      if (
+        !moderatedNotes.allowed
+      ) {
+        const technicalReasons =
+          new Set([
+            "text_moderation_failed",
+            "text_moderation_invalid_response",
+            "text_moderation_ambiguous_response",
+          ]);
 
-  return res
-    .status(
-      isTechnicalError
-        ? 503
-        : 422
-    )
-    .json({
-      error:
-        isTechnicalError
-          ? "moderation_unavailable"
-          : "offer_notes_blocked",
+        const isTechnicalError =
+          technicalReasons.has(
+            moderatedNotes.reason
+          );
 
-      reason:
-        moderatedNotes.reason ||
-        "not_allowed",
+        return res
+          .status(
+            isTechnicalError
+              ? 503
+              : 422
+          )
+          .json({
+            error:
+              isTechnicalError
+                ? "moderation_unavailable"
+                : "offer_notes_blocked",
 
-      message:
-        isTechnicalError
-          ? "Detaliile ofertei nu au putut fi verificate momentan. Încearcă din nou peste câteva secunde."
-          : "Detaliile ofertei nu pot conține sau sugera date de contact, comunicare ori plată în afara platformei.",
-    });
-}
+            reason:
+              moderatedNotes.reason ||
+              "not_allowed",
+
+            message:
+              isTechnicalError
+                ? "Detaliile ofertei nu au putut fi verificate momentan. Încearcă din nou peste câteva secunde."
+                : "Detaliile ofertei nu pot conține sau sugera date de contact, comunicare ori plată în afara platformei.",
+          });
+      }
+
+      /*
+       * Produsele folosite de formatul avansat.
+       *
+       * Pentru cererea PRODUCT, produsul principal
+       * este deja încărcat în quote.product.
+       *
+       * Pentru cererea STORE putem accepta productId
+       * în fiecare element, dar numai dacă produsul
+       * aparține vendorului curent.
+       */
+      const requestedProductIds =
+        Array.from(
+          new Set(
+            (
+              Array.isArray(
+                req.body?.items
+              )
+                ? req.body.items
+                : []
+            )
+              .map(
+                (
+                  item
+                ) =>
+                  String(
+                    item?.productId ||
+                      ""
+                  ).trim()
+              )
+              .filter(
+                Boolean
+              )
+          )
+        );
+
+      const additionalProducts =
+        requestedProductIds.length
+          ? await prisma.product.findMany({
+              where: {
+                id: {
+                  in:
+                    requestedProductIds,
+                },
+
+                service: {
+                  vendorId:
+                    vendor.id,
+                },
+
+                isActive:
+                  true,
+
+                isHidden:
+                  false,
+              },
+
+              select: {
+                id:
+                  true,
+
+                title:
+                  true,
+
+                images:
+                  true,
+
+                priceCents:
+                  true,
+
+                orderMode:
+                  true,
+
+                category:
+                  true,
+
+                acceptsCustom:
+                  true,
+
+                occasionTags:
+                  true,
+
+                styleTags:
+                  true,
+
+                serviceId:
+                  true,
+
+                service: {
+                  select: {
+                    id:
+                      true,
+
+                    vendorId:
+                      true,
+                  },
+                },
+              },
+            })
+          : [];
+
+      const productsById =
+        new Map(
+          additionalProducts.map(
+            (
+              product
+            ) => [
+              product.id,
+              product,
+            ]
+          )
+        );
+
+      if (
+        quote.product?.id
+      ) {
+        productsById.set(
+          quote.product.id,
+          quote.product
+        );
+      }
 
       let items =
         [];
@@ -1114,7 +1668,7 @@ if (
                 ?.quantity
             );
 
-          const unitPrice =
+          const offeredUnitPrice =
             parseNonNegativeMoney(
               rawItem
                 ?.unitPrice
@@ -1123,8 +1677,10 @@ if (
           if (
             quantity ===
               null ||
-            unitPrice ===
-              null
+            offeredUnitPrice ===
+              null ||
+            offeredUnitPrice <=
+              0
           ) {
             return res
               .status(400)
@@ -1137,39 +1693,71 @@ if (
               });
           }
 
-          const lineTotal =
-            Math.round(
-              quantity *
-                unitPrice *
-                100
-            ) /
-            100;
-
-          items.push({
-            productId:
+          const itemProductId =
+            String(
               rawItem
                 ?.productId ||
-              quote.productId ||
-              null,
+                quote.productId ||
+                ""
+            ).trim() ||
+            null;
 
-            title:
-              String(
+          const product =
+            itemProductId
+              ? productsById.get(
+                  itemProductId
+                ) ||
+                null
+              : null;
+
+          /*
+           * Dacă a fost trimis explicit un productId,
+           * acesta trebuie să aparțină vendorului.
+           */
+          if (
+            rawItem?.productId &&
+            !product
+          ) {
+            return res
+              .status(400)
+              .json({
+                error:
+                  "invalid_offer_product",
+
+                message:
+                  "Unul dintre produsele ofertei nu există sau nu aparține magazinului tău.",
+              });
+          }
+
+          const offerItem =
+            await buildPromotionalOfferItem({
+              product,
+
+              productId:
+                itemProductId,
+
+              title:
                 rawItem
                   ?.title ||
-                  quote.product
-                    ?.title ||
-                  "Produs"
-              ).trim(),
+                product?.title ||
+                quote.product
+                  ?.title ||
+                "Produs",
 
-            quantity,
+              quantity,
 
-            unitPrice,
+              offeredUnitPrice,
+            });
 
-            lineTotal,
-          });
+          items.push(
+            offerItem
+          );
 
-          subtotal +=
-            lineTotal;
+          subtotal =
+            roundMoney(
+              subtotal +
+                offerItem.lineTotal
+            );
         }
       } else {
         /*
@@ -1185,7 +1773,7 @@ if (
               quote.quantity
           );
 
-        const unitPrice =
+        const offeredUnitPrice =
           parseNonNegativeMoney(
             req.body
               ?.unitPrice
@@ -1207,8 +1795,10 @@ if (
         }
 
         if (
-          unitPrice ===
-          null
+          offeredUnitPrice ===
+            null ||
+          offeredUnitPrice <=
+            0
         ) {
           return res
             .status(400)
@@ -1217,20 +1807,16 @@ if (
                 "invalid_unit_price",
 
               message:
-                "Prețul unitar nu este valid.",
+                "Prețul unitar trebuie să fie mai mare decât 0.",
             });
         }
 
-        const lineTotal =
-          Math.round(
-            quantity *
-              unitPrice *
-              100
-          ) /
-          100;
+        const offerItem =
+          await buildPromotionalOfferItem({
+            product:
+              quote.product ||
+              null,
 
-        items = [
-          {
             productId:
               quote.productId ||
               null,
@@ -1242,22 +1828,18 @@ if (
 
             quantity,
 
-            unitPrice,
+            offeredUnitPrice,
+          });
 
-            lineTotal,
-          },
+        items = [
+          offerItem,
         ];
 
         subtotal =
-          lineTotal;
+          roundMoney(
+            offerItem.lineTotal
+          );
       }
-
-      subtotal =
-        Math.round(
-          subtotal *
-            100
-        ) /
-        100;
 
       const shippingTotal =
         parseNonNegativeMoney(
@@ -1283,21 +1865,84 @@ if (
           });
       }
 
+      /*
+       * Transportul nu primește reducerea
+       * produsului.
+       */
       const total =
-        Math.round(
-          (
-            subtotal +
+        roundMoney(
+          subtotal +
             shippingTotal
-          ) *
-            100
-        ) /
-        100;
+        );
+
+      const originalSubtotal =
+        roundMoney(
+          items.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.originalLineTotal ||
+                  0
+              ),
+            0
+          )
+        );
+
+      const totalDiscountAmount =
+        roundMoney(
+          items.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.discountAmount ||
+                  0
+              ),
+            0
+          )
+        );
+
+      const platformDiscountAmount =
+        roundMoney(
+          items.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.platformDiscountAmount ||
+                  0
+              ),
+            0
+          )
+        );
+
+      const vendorDiscountAmount =
+        roundMoney(
+          items.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.vendorDiscountAmount ||
+                  0
+              ),
+            0
+          )
+        );
 
       /*
        * Creăm oferta și supersedăm
        * orice ofertă SENT anterioară.
        */
-
       const offer =
         await prisma.$transaction(
           async (
@@ -1327,8 +1972,16 @@ if (
                   status:
                     "SENT",
 
+                  /*
+                   * Toate datele promoției sunt
+                   * păstrate în JSON-ul items.
+                   */
                   items,
 
+                  /*
+                   * subtotal și total sunt valorile
+                   * finale pe care le plătește clientul.
+                   */
                   subtotal,
 
                   shippingTotal,
@@ -1380,10 +2033,6 @@ if (
           }
         );
 
-      /*
-       * Notificăm clientul.
-       */
-
       try {
         await createUserNotification(
           quote.userId,
@@ -1395,9 +2044,16 @@ if (
               "Ai primit o ofertă nouă",
 
             body:
-              `Vânzătorul ți-a trimis o ofertă de ${total.toFixed(
-                2
-              )} ${currency}.`,
+              totalDiscountAmount >
+              0
+                ? `Vânzătorul ți-a trimis o ofertă de ${total.toFixed(
+                    2
+                  )} ${currency}, cu o reducere totală de ${totalDiscountAmount.toFixed(
+                    2
+                  )} ${currency}.`
+                : `Vânzătorul ți-a trimis o ofertă de ${total.toFixed(
+                    2
+                  )} ${currency}.`,
 
             link:
               `/?assistant=quote&quoteId=${quote.id}`,
@@ -1422,6 +2078,22 @@ if (
             serializeQuoteOffer(
               offer
             ),
+
+          pricingSummary: {
+            originalSubtotal,
+
+            subtotal,
+
+            shippingTotal,
+
+            total,
+
+            totalDiscountAmount,
+
+            platformDiscountAmount,
+
+            vendorDiscountAmount,
+          },
         });
     } catch (
       error

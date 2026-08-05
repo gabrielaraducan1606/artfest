@@ -3,6 +3,9 @@ import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { CATEGORY_SET } from "../constants/categories.js";
 import { COLOR_SET } from "../constants/colors.js";
+import {
+  applyPromotionsToProducts,
+} from "../services/productPromotionPrice.js";
 
 const router = Router();
 
@@ -58,53 +61,208 @@ async function getOwnedProductsServiceBySlug(slug, userSub) {
 }
 
 function mapProduct(p) {
+  const hasNumericValue = (value) =>
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    Number.isFinite(Number(value));
+
+  const finalPriceCents =
+    hasNumericValue(p?.finalPriceCents)
+      ? Number(p.finalPriceCents)
+      : hasNumericValue(p?.discountedPriceCents)
+        ? Number(p.discountedPriceCents)
+        : hasNumericValue(p?.priceCents)
+          ? Number(p.priceCents)
+          : null;
+
+  const originalPriceCents =
+    hasNumericValue(p?.originalPriceCents)
+      ? Number(p.originalPriceCents)
+      : finalPriceCents;
+
+  const hasDiscount =
+    p?.hasDiscount === true &&
+    finalPriceCents !== null &&
+    originalPriceCents !== null &&
+    finalPriceCents < originalPriceCents;
+
   return {
     id: p.id,
     title: p.title,
     description: p.description || "",
-    price: Math.round(p.priceCents) / 100,
-    images: Array.isArray(p.images) ? p.images : [],
-    currency: p.currency || "RON",
-    isActive: p.isActive,
-    isHidden: !!p.isHidden,
-    category: p.category || null,
-    color: p.color || null,
 
-    availability: p.availability ? String(p.availability).toUpperCase() : null,
-    leadTimeDays: p.leadTimeDays ?? null,
-    readyQty: p.readyQty ?? null,
-    nextShipDate: p.nextShipDate ?? null,
-   acceptsCustom: !!p.acceptsCustom,
+    price:
+      finalPriceCents !== null
+        ? finalPriceCents / 100
+        : null,
 
-orderMode: p.orderMode || "DIRECT",
-optionsSchema: Array.isArray(p.optionsSchema)
-  ? p.optionsSchema
-  : [],
-customSchema: Array.isArray(p.customSchema)
-  ? p.customSchema
-  : [],
-quoteSchema: Array.isArray(p.quoteSchema)
-  ? p.quoteSchema
-  : [],
+    priceCents:
+      finalPriceCents,
 
-materialMain: p.materialMain || null,
-    technique: p.technique || null,
-    styleTags: Array.isArray(p.styleTags) ? p.styleTags : [],
-    occasionTags: Array.isArray(p.occasionTags) ? p.occasionTags : [],
+    originalPrice:
+      hasDiscount
+        ? originalPriceCents / 100
+        : null,
 
-    dimensions: p.dimensions || null,
-    careInstructions: p.careInstructions || null,
-    specialNotes: p.specialNotes || null,
+    originalPriceCents:
+      hasDiscount
+        ? originalPriceCents
+        : null,
 
-    moderationStatus: p.moderationStatus || "PENDING",
-    moderationMessage: p.moderationMessage || null,
-    submittedAt: p.submittedAt || null,
-    reviewedAt: p.reviewedAt || null,
-    reviewedByUserId: p.reviewedByUserId || null,
-    approvedAt: p.approvedAt || null,
+    finalPrice:
+      finalPriceCents !== null
+        ? finalPriceCents / 100
+        : null,
 
-    createdAt: p.createdAt,
-    updatedAt: p.updatedAt,
+    finalPriceCents,
+
+    discountedPriceCents:
+      finalPriceCents,
+
+    hasDiscount,
+
+    discountPercent:
+      hasDiscount
+        ? Number(p.discountPercent || 0)
+        : 0,
+
+    totalDiscountPercent:
+      hasDiscount
+        ? Number(p.totalDiscountPercent || 0)
+        : 0,
+
+    platformDiscountPercent:
+      hasDiscount
+        ? Number(p.platformDiscountPercent || 0)
+        : 0,
+
+    vendorDiscountPercent:
+      hasDiscount
+        ? Number(p.vendorDiscountPercent || 0)
+        : 0,
+
+    hasActiveHomepageDiscount:
+      hasDiscount &&
+      p.hasActiveHomepageDiscount === true,
+
+    promoLabel:
+      hasDiscount
+        ? p.promoLabel || "Reducere Artfest"
+        : null,
+
+    promoFundingSource:
+      hasDiscount
+        ? p.promoFundingSource || null
+        : null,
+
+    promoCollectionId:
+      hasDiscount
+        ? p.promoCollectionId || null
+        : null,
+
+    discount:
+      hasDiscount
+        ? p.discount || null
+        : null,
+
+    images:
+      Array.isArray(p.images)
+        ? p.images
+        : [],
+
+    currency:
+      p.currency || "RON",
+
+    isActive:
+      p.isActive,
+
+    isHidden:
+      !!p.isHidden,
+
+    category:
+      p.category || null,
+
+    color:
+      p.color || null,
+
+    orderMode:
+      p.orderMode || "DIRECT",
+
+    optionsSchema:
+      p.optionsSchema || [],
+
+    customSchema:
+      p.customSchema || [],
+
+    quoteSchema:
+      p.quoteSchema || [],
+
+    availability:
+      p.availability
+        ? String(p.availability).toUpperCase()
+        : null,
+
+    leadTimeDays:
+      p.leadTimeDays ?? null,
+
+    readyQty:
+      p.readyQty ?? null,
+
+    nextShipDate:
+      p.nextShipDate ?? null,
+
+    acceptsCustom:
+      !!p.acceptsCustom,
+
+    materialMain:
+      p.materialMain || null,
+
+    technique:
+      p.technique || null,
+
+    styleTags:
+      Array.isArray(p.styleTags)
+        ? p.styleTags
+        : [],
+
+    occasionTags:
+      Array.isArray(p.occasionTags)
+        ? p.occasionTags
+        : [],
+
+    dimensions:
+      p.dimensions || null,
+
+    careInstructions:
+      p.careInstructions || null,
+
+    specialNotes:
+      p.specialNotes || null,
+
+    moderationStatus:
+      p.moderationStatus || "PENDING",
+
+    moderationMessage:
+      p.moderationMessage || null,
+
+    submittedAt:
+      p.submittedAt || null,
+
+    reviewedAt:
+      p.reviewedAt || null,
+
+    reviewedByUserId:
+      p.reviewedByUserId || null,
+
+    approvedAt:
+      p.approvedAt || null,
+
+    createdAt:
+      p.createdAt,
+
+    updatedAt:
+      p.updatedAt,
   };
 }
 
@@ -269,36 +427,6 @@ function normalizeProductImages(images) {
     .map((s) => String(s || "").trim())
     .filter((url) => /^https?:\/\//i.test(url))
     .slice(0, 12);
-}
-
-function normalizeOrderMode(value) {
-  const raw = String(value || "")
-    .trim()
-    .toUpperCase();
-
-  if (
-    raw === "DIRECT" ||
-    raw === "READY_TO_BUY"
-  ) {
-    return "DIRECT";
-  }
-
-  if (
-    raw === "OPTIONS" ||
-    raw === "CUSTOMIZABLE"
-  ) {
-    return "OPTIONS";
-  }
-
-  if (raw === "QUOTE_ONLY") {
-    return "QUOTE_ONLY";
-  }
-
-  return "DIRECT";
-}
-
-function normalizeJsonArray(value) {
-  return Array.isArray(value) ? value : [];
 }
 
 /* ================= Subscription / plan helpers ================= */
@@ -485,11 +613,27 @@ async function publicListProducts(req, res) {
 
     const hasMore = items.length > pageSize;
     const slice = hasMore ? items.slice(0, pageSize) : items;
+let promotedSlice =
+  slice;
 
+try {
+  promotedSlice =
+    await applyPromotionsToProducts(
+      slice
+    );
+} catch (promotionError) {
+  console.error(
+    "[public products] promotion pricing failed:",
+    promotionError
+  );
+}
     res.set("Cache-Control", "public, max-age=0, must-revalidate");
 
     return res.json({
-      items: slice.map(mapProduct),
+     items:
+  promotedSlice.map(
+    mapProduct
+  ),
       nextCursor: hasMore ? slice[slice.length - 1].id : null,
     });
   } catch (e) {
@@ -512,13 +656,34 @@ async function listVendorProducts(req, res) {
 
     const pageSize = Math.max(1, Math.min(200, Number(take) || 100));
 
-    const items = await prisma.product.findMany({
-      where,
-      orderBy: buildProductOrderBy(sort),
-      take: pageSize,
-    });
+    const items =
+  await prisma.product.findMany({
+    where,
+    orderBy:
+      buildProductOrderBy(
+        sort
+      ),
+    take:
+      pageSize,
+  });
 
-    return res.json({
+let promotedItems =
+  items;
+
+try {
+  promotedItems =
+    await applyPromotionsToProducts(
+      items
+    );
+    
+} catch (promotionError) {
+  console.error(
+    "[vendor products] promotion pricing failed:",
+    promotionError
+  );
+}
+
+return res.json({
       store: {
         id: service.id,
         vendorId: service.vendorId,
@@ -526,8 +691,13 @@ async function listVendorProducts(req, res) {
         status: service.status,
         isActive: !!service.isActive,
       },
-      items: items.map(mapProduct),
-      total: items.length,
+      items:
+  promotedItems.map(
+    mapProduct
+  ),
+
+total:
+  promotedItems.length,
     });
   } catch (e) {
     console.error("GET /vendors/store/:slug/products error:", e);
@@ -842,55 +1012,38 @@ async function createProduct(req, res) {
     },
   });
 }
-
-const {
-  title,
-  description = "",
-  price,
-  images = [],
-  currency = "RON",
-  category = null,
-  color = null,
-  availability,
-  leadTimeDays,
-  readyQty,
-  nextShipDate,
-  acceptsCustom = false,
-
-  orderMode,
-  optionsSchema,
-  customSchema,
-  quoteSchema,
-
-  materialMain,
-  technique,
-  styleTags,
-  occasionTags,
-  dimensions,
-  careInstructions,
-  specialNotes,
-} = req.body || {};
-
-const normalizedOrderMode =
-  normalizeOrderMode(orderMode);
+    const {
+      title,
+      description = "",
+      price,
+      images = [],
+      currency = "RON",
+      category = null,
+      color = null,
+      availability,
+      leadTimeDays,
+      readyQty,
+      nextShipDate,
+      acceptsCustom = false,
+      materialMain,
+      technique,
+      styleTags,
+      occasionTags,
+      dimensions,
+      careInstructions,
+      specialNotes,
+    } = req.body || {};
 
     if (!title || typeof title !== "string" || !title.trim()) {
       return res.status(400).json({ error: "invalid_title" });
     }
 
-    let priceCents = 0;
+    const priceNum = Number(price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      return res.status(400).json({ error: "invalid_price" });
+    }
 
-if (normalizedOrderMode !== "QUOTE_ONLY") {
-  const priceNum = Number(price);
-
-  if (!Number.isFinite(priceNum) || priceNum < 0) {
-    return res.status(400).json({
-      error: "invalid_price",
-    });
-  }
-
-  priceCents = Math.round(priceNum * 100);
-}
+    const priceCents = Math.round(priceNum * 100);
     const imgs = normalizeProductImages(images);
 
     let cat = null;
@@ -959,31 +1112,8 @@ moderationStatus: "PENDING",
         leadTimeDays: availNorm.leadTimeDays,
         readyQty: availNorm.readyQty,
         nextShipDate: availNorm.nextShipDate,
-        acceptsCustom:
-  normalizedOrderMode === "QUOTE_ONLY"
-    ? true
-    : !!acceptsCustom,
-
-orderMode: normalizedOrderMode,
-
-optionsSchema:
-  normalizedOrderMode === "OPTIONS"
-    ? normalizeJsonArray(optionsSchema)
-    : [],
-
-customSchema:
-  normalizedOrderMode === "OPTIONS"
-    ? normalizeJsonArray(customSchema)
-    : [],
-
-quoteSchema:
-  normalizedOrderMode === "QUOTE_ONLY"
-    ? normalizeJsonArray(quoteSchema)
-    : [],
-
-materialMain: materialMain
-  ? String(materialMain).trim()
-  : null,
+        acceptsCustom: !!acceptsCustom,
+        materialMain: materialMain ? String(materialMain).trim() : null,
         technique: technique ? String(technique).trim() : null,
         styleTags: normalizeTags(styleTags),
         occasionTags: normalizeTags(occasionTags),
@@ -1027,25 +1157,7 @@ async function updateProduct(req, res) {
     }
 
     const patch = {};
-if (req.body.orderMode !== undefined) {
-  patch.orderMode =
-    normalizeOrderMode(req.body.orderMode);
-}
 
-if (req.body.optionsSchema !== undefined) {
-  patch.optionsSchema =
-    normalizeJsonArray(req.body.optionsSchema);
-}
-
-if (req.body.customSchema !== undefined) {
-  patch.customSchema =
-    normalizeJsonArray(req.body.customSchema);
-}
-
-if (req.body.quoteSchema !== undefined) {
-  patch.quoteSchema =
-    normalizeJsonArray(req.body.quoteSchema);
-}
     if (typeof req.body.title === "string") {
       if (!req.body.title.trim()) return res.status(400).json({ error: "invalid_title" });
       patch.title = req.body.title.trim();
@@ -1053,29 +1165,13 @@ if (req.body.quoteSchema !== undefined) {
 
     if (typeof req.body.description === "string") patch.description = req.body.description;
 
-   const effectiveOrderMode =
-  req.body.orderMode !== undefined
-    ? normalizeOrderMode(req.body.orderMode)
-    : product.orderMode || "DIRECT";
-
-if (effectiveOrderMode === "QUOTE_ONLY") {
-  patch.priceCents = 0;
-  patch.acceptsCustom = true;
-
-  patch.optionsSchema = [];
-  patch.customSchema = [];
-} else if (req.body.price !== undefined) {
-  const priceNum = Number(req.body.price);
-
-  if (!Number.isFinite(priceNum) || priceNum < 0) {
-    return res.status(400).json({
-      error: "invalid_price",
-    });
-  }
-
-  patch.priceCents =
-    Math.round(priceNum * 100);
-}
+    if (req.body.price !== undefined) {
+      const priceNum = Number(req.body.price);
+      if (!Number.isFinite(priceNum) || priceNum < 0) {
+        return res.status(400).json({ error: "invalid_price" });
+      }
+      patch.priceCents = Math.round(priceNum * 100);
+    }
 
     if (Array.isArray(req.body.images)) {
   patch.images = normalizeProductImages(req.body.images);
@@ -1148,11 +1244,9 @@ if (
     patch.readyQty = availNorm.readyQty;
     patch.nextShipDate = availNorm.nextShipDate;
 
-    if (effectiveOrderMode === "QUOTE_ONLY") {
-  patch.acceptsCustom = true;
-} else if (typeof req.body.acceptsCustom === "boolean") {
-  patch.acceptsCustom = req.body.acceptsCustom;
-}
+    if (typeof req.body.acceptsCustom === "boolean") {
+      patch.acceptsCustom = req.body.acceptsCustom;
+    }
 
     // ===== VISIBILITY CONTROL =====
 if (typeof req.body.isActive === "boolean") {
@@ -1167,10 +1261,6 @@ if (typeof req.body.isHidden === "boolean") {
 const contentFieldsChanged =
   req.body.title !== undefined ||
   req.body.description !== undefined ||
-    req.body.orderMode !== undefined ||
-  req.body.optionsSchema !== undefined ||
-  req.body.customSchema !== undefined ||
-  req.body.quoteSchema !== undefined ||
   req.body.price !== undefined ||
   req.body.images !== undefined ||
   req.body.category !== undefined ||

@@ -163,24 +163,31 @@ async function findGuestOrder({
   );
 
   const order = await prisma.order.findFirst({
-    where: {
-      isGuestOrder: true,
-      userId: null,
+  where: {
+  isGuestOrder: true,
+  userId: null,
 
+  guestAccessTokenHash:
+    tokenHash,
+
+  AND: [
+    {
       OR: [
         {
           id: orderReference,
         },
         {
-          orderNumber: orderReference,
+          orderNumber:
+            orderReference,
         },
       ],
+    },
 
-      guestAccessTokenHash: tokenHash,
-
+    {
       OR: [
         {
-          guestAccessExpiresAt: null,
+          guestAccessExpiresAt:
+            null,
         },
         {
           guestAccessExpiresAt: {
@@ -189,6 +196,8 @@ async function findGuestOrder({
         },
       ],
     },
+  ],
+},
 
     include: {
       shipments: {
@@ -292,30 +301,122 @@ router.get("/:id", async (req, res) => {
       ])
     );
 
-  const items = order.shipments.flatMap(
-  (shipment) =>
-    shipment.items.map((item) => ({
-      id: item.id,
-      productId: item.productId,
-      title: item.title,
-      qty: item.qty,
+ const items =
+  order.shipments.flatMap(
+    (shipment) =>
+      shipment.items.map(
+        (item) => {
+          const price =
+            Number(
+              item.price || 0
+            );
 
-      priceCents: Math.round(
-        Number(item.price || 0) * 100
-      ),
+          const originalPrice =
+            item.originalPrice !=
+            null
+              ? Number(
+                  item.originalPrice
+                )
+              : null;
 
-      selectedOptions: item.selectedOptions || {},
-      customAnswers: item.customAnswers || {},
-      configurationKey:
-        item.configurationKey || null,
+          const hasDiscount =
+            originalPrice !=
+              null &&
+            originalPrice >
+              price;
 
-      image: item.productId
-        ? imageByProductId.get(item.productId) || null
-        : null,
+          const discountAmount =
+            Number(
+              item.discountAmount ||
+                0
+            );
 
-      shipmentId: shipment.id,
-    }))
-);
+          const discountPercent =
+            hasDiscount &&
+            originalPrice > 0
+              ? Math.round(
+                  (
+                    (originalPrice -
+                      price) /
+                    originalPrice
+                  ) * 100
+                )
+              : 0;
+
+          return {
+            id: item.id,
+
+            productId:
+              item.productId,
+
+            title: item.title,
+
+            qty: item.qty,
+
+            price,
+
+            priceCents:
+              Math.round(
+                price * 100
+              ),
+
+            originalPrice:
+  hasDiscount
+    ? originalPrice
+    : null,
+
+originalPriceCents:
+  hasDiscount
+    ? Math.round(
+        originalPrice * 100
+      )
+    : null,
+
+            hasDiscount,
+
+            discountPercent,
+
+            discountAmount,
+
+            discountAmountCents:
+              Math.round(
+                discountAmount *
+                  100
+              ),
+
+            promoCollectionId:
+              item.promoCollectionId ||
+              null,
+
+            promoFundingSource:
+              item.promoFundingSource ||
+              null,
+
+            selectedOptions:
+              item.selectedOptions ||
+              {},
+
+            customAnswers:
+              item.customAnswers ||
+              {},
+
+            configurationKey:
+              item.configurationKey ||
+              null,
+
+            image:
+              item.productId
+                ? imageByProductId.get(
+                    item.productId
+                  ) || null
+                : null,
+
+            shipmentId:
+              shipment.id,
+          };
+        }
+      )
+  );
 
     const subtotal = Number(
       order.subtotal || 0

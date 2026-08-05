@@ -218,16 +218,30 @@ router.get("/my", async (req, res) => {
           select: {
             id: true,
             status: true,
-           items: {
+         items: {
   select: {
     id: true,
+
     productId: true,
+
     title: true,
+
     qty: true,
+
     price: true,
 
+    originalPrice: true,
+
+    discountAmount: true,
+
+    promoCollectionId: true,
+
+    promoFundingSource: true,
+
     selectedOptions: true,
+
     customAnswers: true,
+
     configurationKey: true,
   },
 },
@@ -283,25 +297,117 @@ router.get("/my", async (req, res) => {
       const isCompany = !!(addr.companyName || addr.companyCui);
       const customerType = isCompany ? "PJ" : "PF";
 
-      const flatItems = o.shipments.flatMap((s) =>
-  s.items.map((it) => ({
-    id: it.id,
-    productId: it.productId,
-    title: it.title,
-    qty: it.qty,
-    priceCents: Math.round(Number(it.price || 0) * 100),
+   const flatItems =
+  o.shipments.flatMap(
+    (shipment) =>
+      shipment.items.map(
+        (item) => {
+          const price =
+            Number(
+              item.price || 0
+            );
 
-    selectedOptions: it.selectedOptions || {},
-    customAnswers: it.customAnswers || {},
-    configurationKey: it.configurationKey || null,
+          const originalPrice =
+            item.originalPrice != null
+              ? Number(
+                  item.originalPrice
+                )
+              : null;
 
-    image: it.productId
-      ? imageMap.get(it.productId) || null
-      : null,
+          const hasDiscount =
+            originalPrice != null &&
+            originalPrice > price;
 
-    shipmentId: s.id,
-  }))
-);
+          const discountPercent =
+            hasDiscount &&
+            originalPrice > 0
+              ? Math.round(
+                  (
+                    (
+                      originalPrice -
+                      price
+                    ) /
+                    originalPrice
+                  ) * 100
+                )
+              : 0;
+
+          return {
+            id:
+              item.id,
+
+            productId:
+              item.productId,
+
+            title:
+              item.title,
+
+            qty:
+              item.qty,
+
+            price,
+
+            priceCents:
+              Math.round(
+                price * 100
+              ),
+
+            originalPrice:
+              hasDiscount
+                ? originalPrice
+                : null,
+
+            originalPriceCents:
+              hasDiscount
+                ? Math.round(
+                    originalPrice *
+                      100
+                  )
+                : null,
+
+            hasDiscount,
+
+            discountPercent,
+
+            discountAmount:
+              Number(
+                item.discountAmount ||
+                  0
+              ),
+
+            promoCollectionId:
+              item.promoCollectionId ||
+              null,
+
+            promoFundingSource:
+              item.promoFundingSource ||
+              null,
+
+            selectedOptions:
+              item.selectedOptions ||
+              {},
+
+            customAnswers:
+              item.customAnswers ||
+              {},
+
+            configurationKey:
+              item.configurationKey ||
+              null,
+
+            image:
+              item.productId
+                ? imageMap.get(
+                    item.productId
+                  ) || null
+                : null,
+
+            shipmentId:
+              shipment.id,
+          };
+        }
+      )
+  );
 
       collected.push({
         id: o.id,
@@ -406,22 +512,116 @@ router.get("/:id", async (req, res) => {
     );
   }
 
-  const flatItems = o.shipments.flatMap((s) =>
-  s.items.map((it) => ({
-    id: it.id,
-    productId: it.productId,
-    title: it.title,
-    qty: it.qty,
-    priceCents: Math.round(Number(it.price || 0) * 100),
+const flatItems =
+  o.shipments.flatMap(
+    (shipment) =>
+      shipment.items.map(
+        (item) => {
+          const price =
+            Number(
+              item.price || 0
+            );
 
-    selectedOptions: it.selectedOptions || {},
-    customAnswers: it.customAnswers || {},
-    configurationKey: it.configurationKey || null,
+          const originalPrice =
+            item.originalPrice != null
+              ? Number(
+                  item.originalPrice
+                )
+              : null;
 
-    image: imageMap.get(it.productId) || null,
-    shipmentId: s.id,
-  }))
-);
+          const hasDiscount =
+            originalPrice != null &&
+            originalPrice > price;
+
+          const discountPercent =
+            hasDiscount &&
+            originalPrice > 0
+              ? Math.round(
+                  (
+                    (
+                      originalPrice -
+                      price
+                    ) /
+                    originalPrice
+                  ) * 100
+                )
+              : 0;
+
+          return {
+            id:
+              item.id,
+
+            productId:
+              item.productId,
+
+            title:
+              item.title,
+
+            qty:
+              item.qty,
+
+            price,
+
+            priceCents:
+              Math.round(
+                price * 100
+              ),
+
+            originalPrice:
+              hasDiscount
+                ? originalPrice
+                : null,
+
+            originalPriceCents:
+              hasDiscount
+                ? Math.round(
+                    originalPrice * 100
+                  )
+                : null,
+
+            hasDiscount,
+
+            discountPercent,
+
+            discountAmount:
+              Number(
+                item.discountAmount ||
+                  0
+              ),
+
+            promoCollectionId:
+              item.promoCollectionId ||
+              null,
+
+            promoFundingSource:
+              item.promoFundingSource ||
+              null,
+
+            selectedOptions:
+              item.selectedOptions ||
+              {},
+
+            customAnswers:
+              item.customAnswers ||
+              {},
+
+            configurationKey:
+              item.configurationKey ||
+              null,
+
+            image:
+              item.productId
+                ? imageMap.get(
+                    item.productId
+                  ) || null
+                : null,
+
+            shipmentId:
+              shipment.id,
+          };
+        }
+      )
+  );
 
   res.json({
     id: o.id,
@@ -700,44 +900,375 @@ router.post("/:id/cancel", async (req, res) => {
 /* ----------------------------------------------------
    POST /api/user/orders/:id/reorder
 ----------------------------------------------------- */
-router.post("/:id/reorder", async (req, res) => {
-  const userId = req.user.sub;
-  const id = String(req.params.id);
+router.post(
+  "/:id/reorder",
+  async (req, res) => {
+    const userId =
+      req.user.sub;
 
-  const o = await prisma.order.findFirst({
-    where: { id, userId },
-    include: {
-      shipments: {
-        include: { items: true },
-      },
-    },
-  });
+    const id =
+      String(
+        req.params.id || ""
+      ).trim();
 
-  if (!o) return res.status(404).json({ error: "not_found" });
-
-  const allItems = o.shipments.flatMap((s) => s.items);
-
-  for (const it of allItems) {
-    if (!it.productId) continue;
-    await prisma.cartItem.upsert({
-      where: {
-        userId_productId: {
+    const order =
+      await prisma.order.findFirst({
+        where: {
           userId,
-          productId: it.productId,
+
+          OR: [
+            {
+              id,
+            },
+            {
+              orderNumber:
+                id,
+            },
+          ],
         },
-      },
-      update: {
-        qty: { increment: it.qty },
-      },
-      create: {
-        userId,
-        productId: it.productId,
-        qty: it.qty,
-      },
+
+        include: {
+          shipments: {
+            include: {
+              items:
+                true,
+            },
+          },
+        },
+      });
+
+    if (!order) {
+      return res.status(
+        404
+      ).json({
+        error:
+          "not_found",
+
+        message:
+          "Comanda nu a fost găsită.",
+      });
+    }
+
+    const allItems =
+      order.shipments.flatMap(
+        (shipment) =>
+          shipment.items ||
+          []
+      );
+
+    if (!allItems.length) {
+      return res.status(
+        409
+      ).json({
+        error:
+          "order_has_no_items",
+
+        message:
+          "Comanda nu conține produse care pot fi adăugate din nou în coș.",
+      });
+    }
+
+    const productIds =
+      Array.from(
+        new Set(
+          allItems
+            .map(
+              (item) =>
+                item.productId
+            )
+            .filter(Boolean)
+        )
+      );
+
+    const products =
+      productIds.length
+        ? await prisma.product.findMany({
+            where: {
+              id: {
+                in:
+                  productIds,
+              },
+            },
+
+            select: {
+              id:
+                true,
+
+              orderMode:
+                true,
+
+              availability:
+                true,
+
+              readyQty:
+                true,
+
+              isActive:
+                true,
+
+              isHidden:
+                true,
+
+              moderationStatus:
+                true,
+            },
+          })
+        : [];
+
+    const productsById =
+      new Map(
+        products.map(
+          (product) => [
+            product.id,
+            product,
+          ]
+        )
+      );
+
+    let added = 0;
+    let skipped = 0;
+
+    for (
+      const item of
+      allItems
+    ) {
+      if (
+        !item.productId
+      ) {
+        skipped++;
+        continue;
+      }
+
+      const product =
+        productsById.get(
+          item.productId
+        );
+
+      /*
+       * Nu readăugăm produse șterse,
+       * ascunse, neaprobate, epuizate
+       * sau disponibile doar prin ofertă.
+       */
+      if (
+        !product ||
+        product.isActive !==
+          true ||
+        product.isHidden ===
+          true ||
+        product.moderationStatus !==
+          "APPROVED" ||
+        product.availability ===
+          "SOLD_OUT" ||
+        String(
+          product.orderMode ||
+            ""
+        ).toUpperCase() ===
+          "QUOTE_ONLY"
+      ) {
+        skipped++;
+        continue;
+      }
+
+      const qty =
+        Math.min(
+          99,
+          Math.max(
+            1,
+            Number.parseInt(
+              item.qty,
+              10
+            ) || 1
+          )
+        );
+
+      const selectedOptions =
+        item.selectedOptions &&
+        typeof item.selectedOptions ===
+          "object" &&
+        !Array.isArray(
+          item.selectedOptions
+        )
+          ? item.selectedOptions
+          : {};
+
+      const customAnswers =
+        item.customAnswers &&
+        typeof item.customAnswers ===
+          "object" &&
+        !Array.isArray(
+          item.customAnswers
+        )
+          ? item.customAnswers
+          : {};
+
+      /*
+       * Folosim configurația originală.
+       *
+       * Pentru comenzile vechi care nu aveau
+       * configurationKey, folosim id-ul liniei
+       * ca identificator stabil, ca să nu unim
+       * accidental două personalizări diferite.
+       */
+      const configurationKey =
+        String(
+          item.configurationKey ||
+            ""
+        ).trim() ||
+        `reorder:${item.id}`;
+
+      const existing =
+        await prisma.cartItem.findUnique({
+          where: {
+            userId_productId_configurationKey:
+              {
+                userId,
+
+                productId:
+                  item.productId,
+
+                configurationKey,
+              },
+          },
+
+          select: {
+            qty:
+              true,
+          },
+        });
+
+      const currentQty =
+        Number(
+          existing?.qty ||
+            0
+        );
+
+      const nextQty =
+        Math.min(
+          99,
+          currentQty +
+            qty
+        );
+
+      /*
+       * Verificăm stocul total al produsului
+       * din toate configurațiile din coș.
+       */
+      if (
+        product.readyQty !=
+        null
+      ) {
+        const cartProductQty =
+          await prisma.cartItem.aggregate({
+            where: {
+              userId,
+
+              productId:
+                item.productId,
+            },
+
+            _sum: {
+              qty:
+                true,
+            },
+          });
+
+        const currentProductQty =
+          Number(
+            cartProductQty
+              ?._sum?.qty ||
+              0
+          );
+
+        const stockLimit =
+          Math.max(
+            0,
+            Number(
+              product.readyQty ||
+                0
+            )
+          );
+
+        if (
+          currentProductQty +
+            qty >
+          stockLimit
+        ) {
+          skipped++;
+          continue;
+        }
+      }
+
+      await prisma.cartItem.upsert({
+        where: {
+          userId_productId_configurationKey:
+            {
+              userId,
+
+              productId:
+                item.productId,
+
+              configurationKey,
+            },
+        },
+
+        update: {
+          qty:
+            nextQty,
+
+          selectedOptions,
+
+          customAnswers,
+        },
+
+        create: {
+          userId,
+
+          productId:
+            item.productId,
+
+          qty,
+
+          selectedOptions,
+
+          customAnswers,
+
+          configurationKey,
+        },
+      });
+
+      added++;
+    }
+
+    if (
+      added === 0
+    ) {
+      return res.status(
+        409
+      ).json({
+        error:
+          "no_items_reordered",
+
+        message:
+          "Produsele din această comandă nu mai sunt disponibile în forma comandată.",
+
+        added,
+        skipped,
+      });
+    }
+
+    return res.json({
+      ok:
+        true,
+
+      added,
+
+      skipped,
+
+      message:
+        skipped > 0
+          ? `${added} produse au fost adăugate în coș, iar ${skipped} au fost omise deoarece nu mai sunt disponibile.`
+          : "Produsele au fost adăugate din nou în coș.",
     });
   }
-
-  return res.json({ ok: true });
-});
-
+);
 export default router;

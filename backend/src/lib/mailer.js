@@ -1656,3 +1656,253 @@ export async function sendVendorCommissionInvoiceEmail({
     },
   });
 }
+
+/* ============================================================
+   HOMEPAGE FEATURE – VENDOR SELECTAT
+============================================================ */
+
+function escapeEmailHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatHomepageFeatureDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString(
+    "ro-RO",
+    {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    }
+  );
+}
+
+export async function sendHomepageFeatureSelectedEmail({
+  to,
+  userId = null,
+  vendorName,
+  featureId,
+  featureType,
+  productTitle = null,
+  storeName = null,
+  startsAt,
+  endsAt,
+  platformDiscountPercent = 0,
+}) {
+  if (!to || !featureId) {
+    return null;
+  }
+
+  const isProductOfDay =
+    featureType ===
+    "PRODUCT_OF_DAY";
+
+  const promotionLabel =
+    isProductOfDay
+      ? "Produsul zilei"
+      : "Artizanul săptămânii";
+
+  const selectedName =
+    isProductOfDay
+      ? productTitle ||
+        "produsul tău"
+      : storeName ||
+        vendorName ||
+        "magazinul tău";
+
+  const startLabel =
+    formatHomepageFeatureDate(
+      startsAt
+    );
+
+  const endLabel =
+    formatHomepageFeatureDate(
+      endsAt
+    );
+
+  const discountPercent =
+    Math.max(
+      0,
+      Number(
+        platformDiscountPercent ||
+          0
+      )
+    );
+
+  const promotionLink =
+    APP_URL
+      ? `${APP_URL}/vendor/promovari?featureId=${encodeURIComponent(
+          featureId
+        )}`
+      : null;
+
+  const subject =
+    isProductOfDay
+      ? `Produsul tău a fost ales Produsul zilei pe ${BRAND_NAME}`
+      : `Ai fost ales Artizanul săptămânii pe ${BRAND_NAME}`;
+
+  const safeVendorName =
+    escapeEmailHtml(
+      vendorName ||
+        "creator"
+    );
+
+  const safeSelectedName =
+    escapeEmailHtml(
+      selectedName
+    );
+
+  const safePromotionLabel =
+    escapeEmailHtml(
+      promotionLabel
+    );
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img
+      src="${EMAIL_LOGO_URL}"
+      alt="${BRAND_NAME}"
+      width="120"
+      height="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;"
+    >
+  </div>
+
+  <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;padding:22px;">
+    <h2 style="color:#111827;margin:0 0 14px;">
+      Felicitări, ${safeVendorName}! 🎉
+    </h2>
+
+    <p style="color:#374151;margin:0 0 14px;line-height:1.6;">
+      ${
+        isProductOfDay
+          ? `Produsul <strong>${safeSelectedName}</strong> a fost selectat pentru promovarea <strong>${safePromotionLabel}</strong>.`
+          : `<strong>${safeSelectedName}</strong> a fost selectat pentru promovarea <strong>${safePromotionLabel}</strong>.`
+      }
+    </p>
+
+    ${
+      startLabel
+        ? `
+          <p style="color:#374151;margin:0 0 10px;line-height:1.6;">
+            <strong>Perioada promovării:</strong>
+            ${escapeEmailHtml(
+              startLabel
+            )}${
+              endLabel
+                ? ` – ${escapeEmailHtml(
+                    endLabel
+                  )}`
+                : ""
+            }
+          </p>
+        `
+        : ""
+    }
+
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
+      Artfest oferă o reducere de
+      <strong>${discountPercent}%</strong>.
+      Poți intra în pagina promovării pentru a vedea detaliile și pentru a decide dacă dorești să adaugi și o reducere proprie.
+    </p>
+
+    ${
+      promotionLink
+        ? `
+          <p style="text-align:center;margin:24px 0 8px;">
+            <a
+              href="${promotionLink}"
+              style="display:inline-block;background:#7c3aed;color:#ffffff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700;"
+            >
+              Vezi promovarea
+            </a>
+          </p>
+
+          <p style="font-size:12px;color:#6b7280;text-align:center;margin:10px 0 0;word-break:break-all;">
+            ${promotionLink}
+          </p>
+        `
+        : ""
+    }
+  </div>
+
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    `Felicitări, ${
+      vendorName ||
+      "creator"
+    }!`,
+    "",
+    isProductOfDay
+      ? `Produsul „${selectedName}” a fost ales Produsul zilei pe ${BRAND_NAME}.`
+      : `${selectedName} a fost ales Artizanul săptămânii pe ${BRAND_NAME}.`,
+    "",
+    startLabel
+      ? `Perioada: ${startLabel}${
+          endLabel
+            ? ` - ${endLabel}`
+            : ""
+        }`
+      : "",
+    `Reducerea oferită de Artfest: ${discountPercent}%`,
+    "",
+    "Intră în pagina promovării pentru a vedea detaliile și pentru a decide dacă adaugi o reducere proprie.",
+    promotionLink
+      ? `Vezi promovarea: ${promotionLink}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey:
+      "noreply",
+
+    to,
+
+    subject,
+
+    template:
+      "homepage_feature_selected",
+
+    userId,
+
+    toName:
+      vendorName ||
+      null,
+
+    mailOptions: {
+      ...senderEnvelope(
+        "noreply"
+      ),
+
+      to,
+      subject,
+      html,
+      text,
+
+      headers:
+        AUTO_HEADERS,
+    },
+  });
+}

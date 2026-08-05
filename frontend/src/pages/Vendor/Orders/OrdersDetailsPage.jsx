@@ -573,13 +573,78 @@ const [imagePreview, setImagePreview] = useState(null);
 
       <td>{it.qty}</td>
 
-      <td>{formatMoney(it.price)}</td>
-
       <td>
+  {it.hasDiscount &&
+  it.originalPrice != null &&
+  Number(it.originalPrice) >
+    Number(it.price) ? (
+    <>
+      <div
+        style={{
+          textDecoration:
+            "line-through",
+          color:
+            "#9ca3af",
+          fontSize:
+            13,
+        }}
+      >
         {formatMoney(
-          Number(it.price) * Number(it.qty)
+          it.originalPrice
         )}
-      </td>
+      </div>
+
+      <div
+        style={{
+          fontWeight:
+            700,
+        }}
+      >
+        {formatMoney(
+          it.price
+        )}
+      </div>
+
+      {Number(
+        it.discountPercent
+      ) > 0 && (
+        <div
+          style={{
+            marginTop:
+              2,
+            fontSize:
+              12,
+            color:
+              "#16a34a",
+            fontWeight:
+              600,
+          }}
+        >
+          −
+          {
+            it.discountPercent
+          }
+          %
+        </div>
+      )}
+    </>
+  ) : (
+    formatMoney(
+      it.price
+    )
+  )}
+</td>
+
+<td>
+  {formatMoney(
+    Number(
+      it.price
+    ) *
+      Number(
+        it.qty
+      )
+  )}
+</td>
     </tr>
   ))}
 </tbody>

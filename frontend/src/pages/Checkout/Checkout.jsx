@@ -676,6 +676,7 @@ const [me, setMe] = useState(null);
     };
   }, [items]);
 
+
   const shippingTotal = useMemo(() => {
     return round2(
       serviceGroups.reduce(
@@ -1261,11 +1262,17 @@ if (result?.ok || result?.orderId) {
     clearGuestCart();
   }
 
-  try {
-    sessionStorage.removeItem("cart:ui-cache:v1");
-  } catch {
-    // ignore
-  }
+ try {
+  sessionStorage.removeItem(
+    "cart:ui-cache:v1"
+  );
+
+  sessionStorage.removeItem(
+    "cart:ui-cache:v2"
+  );
+} catch {
+  // ignore
+}
 
   try {
     window.dispatchEvent(
@@ -1371,7 +1378,10 @@ if (me) {
                   const breakdown = getItemVatBreakdown(it);
 
                   return (
-                    <li key={String(it.productId)} className={styles.itemRow}>
+                   <li
+  key={`${it.productId}:${it.configurationKey || "default"}`}
+  className={styles.itemRow}
+>
                       <div className={styles.itemMedia}>
                         {it.image ? (
                           <img

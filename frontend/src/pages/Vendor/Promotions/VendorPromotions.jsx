@@ -1,4 +1,7 @@
-import {useCallback,
+// src/pages/Vendor/Promotions/VendorHomepagePromotions.jsx
+
+import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -19,6 +22,10 @@ const DISCOUNT_OPTIONS = [
   15,
   20,
 ];
+
+/* =========================================================
+   HELPERS
+========================================================= */
 
 function formatDate(value) {
   if (!value) {
@@ -132,20 +139,45 @@ function getFeatureImage(feature) {
   );
 }
 
-function getStatusLabel(status) {
+function getStatusLabel(feature) {
   if (
-    status === "ACCEPTED"
+    !feature?.vendorContacted
+  ) {
+    return "Selecție în pregătire";
+  }
+
+  if (
+    feature?.vendorDiscountStatus ===
+    "ACCEPTED"
   ) {
     return "Reducere acceptată";
   }
 
   if (
-    status === "DECLINED"
+    feature?.vendorDiscountStatus ===
+    "DECLINED"
   ) {
     return "Fără reducere suplimentară";
   }
 
   return "Așteaptă răspunsul tău";
+}
+
+function getStatusColor(feature) {
+  if (
+    !feature?.vendorContacted
+  ) {
+    return "#6b7280";
+  }
+
+  if (
+    feature?.vendorDiscountStatus ===
+    "PENDING"
+  ) {
+    return "#b45309";
+  }
+
+  return "#166534";
 }
 
 function calculateDiscountedPrice(
@@ -179,6 +211,10 @@ function calculateDiscountedPrice(
     )
   );
 }
+
+/* =========================================================
+   COMPONENTĂ PRINCIPALĂ
+========================================================= */
 
 export default function VendorHomepagePromotions() {
   const [
@@ -255,101 +291,124 @@ export default function VendorHomepagePromotions() {
       ]
     );
 
-  async function loadFeatures() {
-    setLoading(true);
-    setError("");
+  const loadFeatures =
+    useCallback(
+      async () => {
+        setLoading(true);
+        setError("");
 
-    try {
-      const data =
-        await api(
-          "/api/vendor/homepage-features"
-        );
+        try {
+          const data =
+            await api(
+              "/api/vendor/homepage-features"
+            );
 
-      setFeatures(
-        data?.features ||
-          []
-      );
-    } catch (loadError) {
-      setError(
-        loadError?.message ||
-          "Nu am putut încărca promovările."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const openFeature = useCallback(
-  async (featureOrId) => {
-    const featureId =
-      typeof featureOrId === "string"
-        ? featureOrId
-        : featureOrId?.id;
-
-    if (!featureId) {
-      return;
-    }
-
-    setModalLoading(true);
-    setError("");
-    setSuccess("");
-
-    try {
-      const data = await api(
-        `/api/vendor/homepage-features/${featureId}`
-      );
-
-      const feature =
-        data?.feature;
-
-      if (!feature) {
-        throw new Error(
-          "Promovarea nu a fost găsită."
-        );
-      }
-
-      setSelectedFeature(
-        feature
-      );
-
-      setSelectedDiscount(
-        Number(
-          feature.vendorDiscountPercent ||
-            0
-        )
-      );
-
-      setSearchParams(
-        {
-          featureId:
-            feature.id,
-        },
-        {
-          replace:
-            true,
+          setFeatures(
+            data?.features ||
+              []
+          );
+        } catch (loadError) {
+          setError(
+            loadError?.message ||
+              "Nu am putut încărca promovările."
+          );
+        } finally {
+          setLoading(false);
         }
-      );
-    } catch (openError) {
-      setError(
-        openError?.message ||
-          "Nu am putut încărca promovarea."
-      );
+      },
+      []
+    );
 
-      setSearchParams(
-        {},
-        {
-          replace:
-            true,
+  const openFeature =
+    useCallback(
+      async (featureOrId) => {
+        const featureId =
+          typeof featureOrId ===
+          "string"
+            ? featureOrId
+            : featureOrId?.id;
+
+        if (!featureId) {
+          return;
         }
-      );
-    } finally {
-      setModalLoading(false);
-    }
-  },
-  [
-    setSearchParams,
-  ]
-);
+
+        setModalLoading(true);
+        setError("");
+        setSuccess("");
+
+        try {
+          const data =
+            await api(
+              `/api/vendor/homepage-features/${featureId}`
+            );
+
+          const feature =
+            data?.feature;
+
+          if (!feature) {
+            throw new Error(
+              "Promovarea nu a fost găsită."
+            );
+          }
+
+          /*
+           * Selecțiile generate automat pot fi
+           * vizibile în listă, dar nu pot fi
+           * confirmate până când adminul nu trimite
+           * invitația prin notificare sau email.
+           */
+          if (
+            !feature.canRespond
+          ) {
+            throw new Error(
+              feature.isExpired
+                ? "Promovarea s-a încheiat."
+                : "Această selecție este încă în pregătire și nu a fost trimisă pentru confirmare."
+            );
+          }
+
+          setSelectedFeature(
+            feature
+          );
+
+          setSelectedDiscount(
+            Number(
+              feature.vendorDiscountPercent ||
+                0
+            )
+          );
+
+          setSearchParams(
+            {
+              featureId:
+                feature.id,
+            },
+            {
+              replace:
+                true,
+            }
+          );
+        } catch (openError) {
+          setError(
+            openError?.message ||
+              "Nu am putut încărca promovarea."
+          );
+
+          setSearchParams(
+            {},
+            {
+              replace:
+                true,
+            }
+          );
+        } finally {
+          setModalLoading(false);
+        }
+      },
+      [
+        setSearchParams,
+      ]
+    );
 
   function closeModal() {
     setSelectedFeature(
@@ -373,6 +432,18 @@ export default function VendorHomepagePromotions() {
     if (
       !selectedFeature?.id
     ) {
+      return;
+    }
+
+    if (
+      !selectedFeature.canRespond
+    ) {
+      setError(
+        selectedFeature.isExpired
+          ? "Promovarea s-a încheiat și reducerea nu mai poate fi modificată."
+          : "Această promovare nu a fost încă trimisă pentru confirmare."
+      );
+
       return;
     }
 
@@ -441,7 +512,9 @@ export default function VendorHomepagePromotions() {
 
   useEffect(() => {
     loadFeatures();
-  }, []);
+  }, [
+    loadFeatures,
+  ]);
 
   useEffect(() => {
     if (
@@ -454,7 +527,8 @@ export default function VendorHomepagePromotions() {
       featureIdFromUrl
     );
   }, [
-    featureIdFromUrl, openFeature
+    featureIdFromUrl,
+    openFeature,
   ]);
 
   if (loading) {
@@ -510,7 +584,8 @@ export default function VendorHomepagePromotions() {
           Vezi când produsul sau magazinul
           tău este promovat pe homepage și
           poți adăuga o reducere
-          suplimentară.
+          suplimentară după ce primești
+          invitația de la Artfest.
         </p>
       </div>
 
@@ -657,6 +732,10 @@ export default function VendorHomepagePromotions() {
   );
 }
 
+/* =========================================================
+   SECȚIUNE PROMOVĂRI
+========================================================= */
+
 function FeatureSection({
   title,
   features,
@@ -735,6 +814,10 @@ function FeatureSection({
   );
 }
 
+/* =========================================================
+   CARD PROMOVARE
+========================================================= */
+
 function FeatureCard({
   feature,
   onOpen,
@@ -743,6 +826,11 @@ function FeatureCard({
   const image =
     getFeatureImage(
       feature
+    );
+
+  const canRespond =
+    Boolean(
+      feature.canRespond
     );
 
   return (
@@ -911,10 +999,9 @@ function FeatureCard({
               7,
 
             color:
-              feature.vendorDiscountStatus ===
-              "PENDING"
-                ? "#b45309"
-                : "#166534",
+              getStatusColor(
+                feature
+              ),
 
             fontWeight:
               700,
@@ -924,7 +1011,7 @@ function FeatureCard({
           }}
         >
           {getStatusLabel(
-            feature.vendorDiscountStatus
+            feature
           )}
         </div>
       </div>
@@ -932,11 +1019,18 @@ function FeatureCard({
       {!expired && (
         <button
           type="button"
-          onClick={() =>
-            onOpen(
-              feature.id
-            )
+          disabled={
+            !canRespond
           }
+          onClick={() => {
+            if (
+              canRespond
+            ) {
+              onOpen(
+                feature.id
+              );
+            }
+          }}
           style={{
             border:
               0,
@@ -948,27 +1042,44 @@ function FeatureCard({
               "10px 14px",
 
             cursor:
-              "pointer",
+              canRespond
+                ? "pointer"
+                : "not-allowed",
 
             background:
-              "#111827",
+              canRespond
+                ? "#111827"
+                : "#e5e7eb",
 
             color:
-              "#ffffff",
+              canRespond
+                ? "#ffffff"
+                : "#6b7280",
 
             fontWeight:
               700,
+
+            opacity:
+              canRespond
+                ? 1
+                : 0.8,
           }}
         >
-          {feature.vendorDiscountStatus ===
-          "PENDING"
-            ? "Alege reducerea"
-            : "Modifică"}
+          {!feature.vendorContacted
+            ? "În pregătire"
+            : feature.vendorDiscountStatus ===
+                "PENDING"
+              ? "Alege reducerea"
+              : "Modifică"}
         </button>
       )}
     </article>
   );
 }
+
+/* =========================================================
+   MODAL REDUCERE
+========================================================= */
 
 function DiscountModal({
   feature,
@@ -1027,6 +1138,11 @@ function DiscountModal({
             ?.currency
         )
       : null;
+
+  const canRespond =
+    Boolean(
+      feature.canRespond
+    );
 
   return (
     <div
@@ -1236,11 +1352,18 @@ function DiscountModal({
                     discount
                   }
                   type="button"
-                  onClick={() =>
-                    setSelectedDiscount(
-                      discount
-                    )
+                  disabled={
+                    !canRespond
                   }
+                  onClick={() => {
+                    if (
+                      canRespond
+                    ) {
+                      setSelectedDiscount(
+                        discount
+                      );
+                    }
+                  }}
                   style={{
                     border:
                       selected
@@ -1264,10 +1387,17 @@ function DiscountModal({
                       "11px 4px",
 
                     cursor:
-                      "pointer",
+                      canRespond
+                        ? "pointer"
+                        : "not-allowed",
 
                     fontWeight:
                       800,
+
+                    opacity:
+                      canRespond
+                        ? 1
+                        : 0.6,
                   }}
                 >
                   {discount === 0
@@ -1426,7 +1556,9 @@ function DiscountModal({
                 "11px 16px",
 
               cursor:
-                "pointer",
+                saving
+                  ? "not-allowed"
+                  : "pointer",
             }}
           >
             Mai târziu
@@ -1438,17 +1570,22 @@ function DiscountModal({
               onSave
             }
             disabled={
-              saving
+              saving ||
+              !canRespond
             }
             style={{
               border:
                 0,
 
               background:
-                "#111827",
+                canRespond
+                  ? "#111827"
+                  : "#e5e7eb",
 
               color:
-                "#ffffff",
+                canRespond
+                  ? "#ffffff"
+                  : "#6b7280",
 
               borderRadius:
                 10,
@@ -1457,7 +1594,8 @@ function DiscountModal({
                 "11px 17px",
 
               cursor:
-                saving
+                saving ||
+                !canRespond
                   ? "not-allowed"
                   : "pointer",
 

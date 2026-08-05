@@ -1220,10 +1220,34 @@ model ShipmentItem {
   customAnswers    Json?
   configurationKey String @default("default") @db.VarChar(64)
 
-  originalPrice      Decimal? @db.Decimal(10, 2)
-  discountAmount     Decimal  @default(0) @db.Decimal(10, 2)
+  /**
+   * Snapshot preț și reducere.
+   * price = prețul final pe bucată plătit de client.
+   * originalPrice = prețul inițial pe bucată.
+   * discountAmount = reducerea totală pentru întreaga linie.
+   */
+  originalPrice  Decimal? @db.Decimal(10, 2)
+  discountAmount Decimal  @default(0) @db.Decimal(10, 2)
+
+  /**
+   * Separarea reducerii între Artfest și vendor.
+   * Procentele sunt pe produs.
+   * Sumele sunt pentru întreaga linie, inclusiv cantitatea.
+   */
+  platformDiscountPercent Int @default(0)
+  vendorDiscountPercent   Int @default(0)
+
+  platformDiscountAmount Decimal @default(0) @db.Decimal(10, 2)
+  vendorDiscountAmount   Decimal @default(0) @db.Decimal(10, 2)
+
+  /**
+   * Snapshot al campaniei câștigătoare.
+   */
   promoCollectionId  String?
   promoFundingSource String?
+
+  homepageFeatureId String?
+  discountSource    String?
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
@@ -1231,6 +1255,8 @@ model ShipmentItem {
   @@index([productId])
   @@index([configurationKey])
   @@index([promoCollectionId])
+  @@index([homepageFeatureId])
+  @@index([discountSource])
 }
 
 model SupportTicket {

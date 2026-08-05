@@ -134,7 +134,24 @@ function ProductCard({
   useEffect(() => {
     setLocalFav(!!isFav);
   }, [isFav]);
-
+console.log("[PRODUCT CARD DATA]", {
+  id: p?.id,
+  title: p?.title,
+  price: p?.price,
+  priceCents: p?.priceCents,
+  originalPrice: p?.originalPrice,
+  originalPriceCents: p?.originalPriceCents,
+  finalPrice: p?.finalPrice,
+  finalPriceCents: p?.finalPriceCents,
+  discountedPriceCents: p?.discountedPriceCents,
+  hasDiscount: p?.hasDiscount,
+  hasActiveHomepageDiscount:
+    p?.hasActiveHomepageDiscount,
+  discountPercent: p?.discountPercent,
+  totalDiscountPercent:
+    p?.totalDiscountPercent,
+  promoLabel: p?.promoLabel,
+});
   const safe = useMemo(() => {
     const images = Array.isArray(p?.images) ? p.images : [];
 
@@ -148,36 +165,148 @@ function ProductCard({
 
     const availability =
       typeof p?.availability === "string" ? p.availability.toUpperCase() : null;
+const orderMode =
+  p?.orderMode === "DIRECT"
+    ? "READY_TO_BUY"
+    : p?.orderMode === "CUSTOMIZABLE"
+      ? "OPTIONS"
+      : p?.orderMode || "READY_TO_BUY";
+ const hasValue = (value) =>
+  value !== null &&
+  value !== undefined &&
+  value !== "" &&
+  Number.isFinite(
+    Number(value)
+  );
 
-    const priceCentsRaw =
-      typeof p?.priceCents === "number"
-        ? p.priceCents
-        : Number.isFinite(Number(p?.priceCents))
-        ? Number(p.priceCents)
-        : null;
+/*
+ * Prețul curent/final.
+ *
+ * Backendul poate trimite:
+ * - finalPriceCents;
+ * - discountedPriceCents;
+ * - priceCents deja redus.
+ */
+const finalPriceCents =
+  hasValue(
+    p?.finalPriceCents
+  )
+    ? Number(
+        p.finalPriceCents
+      )
+    : hasValue(
+          p?.discountedPriceCents
+        )
+      ? Number(
+          p.discountedPriceCents
+        )
+      : hasValue(
+            p?.priceCents
+          )
+        ? Number(
+            p.priceCents
+          )
+        : hasValue(
+              p?.price
+            )
+          ? Math.round(
+              Number(p.price) *
+                100
+            )
+          : null;
 
-    let price = null;
-    if (typeof p?.price === "number") {
-      price = p.price;
-    } else if (priceCentsRaw != null) {
-      price = priceCentsRaw / 100;
-    } else if (Number.isFinite(Number(p?.price))) {
-      price = Number(p.price);
-    }
+/*
+ * Prețul normal, înainte de reducere.
+ */
+const originalPriceCents =
+  hasValue(
+    p?.originalPriceCents
+  )
+    ? Number(
+        p.originalPriceCents
+      )
+    : hasValue(
+          p?.originalPrice
+        )
+      ? Math.round(
+          Number(
+            p.originalPrice
+          ) * 100
+        )
+      : null;
 
-    const orderMode =
-      p?.orderMode === "DIRECT"
-        ? "READY_TO_BUY"
-        : p?.orderMode === "CUSTOMIZABLE"
-        ? "OPTIONS"
-        : p?.orderMode || "READY_TO_BUY";
+const discountPercent =
+  hasValue(
+    p?.totalDiscountPercent
+  )
+    ? Number(
+        p.totalDiscountPercent
+      )
+    : hasValue(
+          p?.discountPercent
+        )
+      ? Number(
+          p.discountPercent
+        )
+      : hasValue(
+            p?.discount
+              ?.totalDiscountPercent
+          )
+        ? Number(
+            p.discount
+              .totalDiscountPercent
+          )
+        : 0;
+
+/*
+ * Nu mai condiționăm afișarea de
+ * hasActiveHomepageDiscount.
+ *
+ * Este suficient ca backendul să confirme reducerea
+ * și prețul final să fie mai mic decât cel inițial.
+ */
+const hasDiscount =
+  (
+    p?.hasDiscount === true ||
+    p?.hasActiveHomepageDiscount ===
+      true ||
+    discountPercent > 0
+  ) &&
+  finalPriceCents !== null &&
+  originalPriceCents !== null &&
+  finalPriceCents <
+    originalPriceCents;
+
+const price =
+  finalPriceCents !== null
+    ? finalPriceCents / 100
+    : null;
+
+const originalPrice =
+  hasDiscount
+    ? originalPriceCents /
+      100
+    : null;
 
     return {
       id: p?.id || p?._id || "",
       title: p?.title || "Produs",
       images,
       price,
-      priceCents: priceCentsRaw,
+
+originalPrice,
+
+hasDiscount,
+
+discountPercent,
+
+promoLabel:
+  hasDiscount
+    ? p?.promoLabel ||
+      p?.discount?.label ||
+      "Reducere Artfest"
+    : null,
+      orderMode,
       currency: p?.currency || "RON",
       category: p?.category || null,
       color: p?.color || null,
@@ -192,17 +321,10 @@ function ProductCard({
       readyQty,
       acceptsCustom: !!p?.acceptsCustom,
       nextShipDate: p?.nextShipDate || null,
-      orderMode,
+     
       optionsSchema: getSchemaFields(p?.optionsSchema),
       customSchema: getSchemaFields(p?.customSchema),
       quoteSchema: getSchemaFields(p?.quoteSchema),
-      originalPrice: Number.isFinite(Number(p?.originalPrice))
-        ? Number(p.originalPrice)
-        : null,
-      hasDiscount: !!p?.hasDiscount,
-      discountPercent: Number.isFinite(Number(p?.discountPercent))
-        ? Number(p.discountPercent)
-        : 0,
     };
   }, [p]);
 
@@ -609,11 +731,21 @@ const handleCart = useCallback(
             </span>
           )}
 
-          {safe.hasDiscount && !isQuoteOnly && (
-            <span className={`${styles.badge} ${styles.badgeSuccess}`}>
-              -{safe.discountPercent}% {p?.promoLabel || "Promoție"}
-            </span>
-          )}
+         {safe.hasDiscount &&
+  !isQuoteOnly && (
+    <span
+      className={`${styles.badge} ${styles.badgeSuccess}`}
+    >
+      -
+      {
+        safe.discountPercent
+      }
+      %{" "}
+      {
+        safe.promoLabel
+      }
+    </span>
+  )}
 
           {safe.isHidden && <span className={styles.badge}>Ascuns</span>}
 

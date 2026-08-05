@@ -1,6 +1,7 @@
 // src/pages/Admin/AdminDesktop/tabs/AdminHomepageFeaturesTab.jsx
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -20,34 +21,17 @@ const FEATURE_TYPES = {
     "ARTISAN_OF_WEEK",
 };
 
-const EMPTY_PRODUCT_FORM = {
-  date: "",
-  productId: "",
-  platformDiscountPercent: "5",
-  force: false,
-};
+const DISCOUNT_OPTIONS = [
+  0,
+  5,
+  10,
+  15,
+  20,
+];
 
-const EMPTY_ARTISAN_FORM = {
-  weekStartDate: "",
-  serviceId: "",
-  platformDiscountPercent: "5",
-  force: false,
-};
-
-/* =========================================================
-   HELPERS DATĂ
-========================================================= */
-
-function pad(value) {
-  return String(value).padStart(
-    2,
-    "0"
-  );
-}
-
-function toDateInputValue(value) {
+function formatDate(value) {
   if (!value) {
-    return "";
+    return "—";
   }
 
   const date =
@@ -58,69 +42,16 @@ function toDateInputValue(value) {
       date.getTime()
     )
   ) {
-    return "";
+    return "—";
   }
 
-  return `${date.getFullYear()}-${pad(
-    date.getMonth() + 1
-  )}-${pad(date.getDate())}`;
-}
-
-function getMinimumProductDateInput() {
-  const now =
-    new Date();
-
-  const minimumAllowed =
-    new Date(
-      now.getTime() +
-        24 * 60 * 60 * 1000
-    );
-
-  const candidate =
-    new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      0,
-      0,
-      0,
-      0
-    );
-
-  if (
-    candidate.getTime() <
-    minimumAllowed.getTime()
-  ) {
-    candidate.setDate(
-      candidate.getDate() + 1
-    );
-  }
-
-  return toDateInputValue(
-    candidate
-  );
-}
-
-function getNextMondayDateInput() {
-  const date =
-    new Date();
-
-  const day =
-    date.getDay();
-
-  const daysUntilMonday =
-    day === 0
-      ? 1
-      : 8 - day;
-
-  date.setDate(
-    date.getDate() +
-      daysUntilMonday
-  );
-
-  return toDateInputValue(
-    date
-  );
+  return new Intl.DateTimeFormat(
+    "ro-RO",
+    {
+      dateStyle:
+        "long",
+    }
+  ).format(date);
 }
 
 function formatDateTime(value) {
@@ -151,9 +82,9 @@ function formatDateTime(value) {
   ).format(date);
 }
 
-function formatDate(value) {
+function toDateInputValue(value) {
   if (!value) {
-    return "—";
+    return "";
   }
 
   const date =
@@ -164,16 +95,29 @@ function formatDate(value) {
       date.getTime()
     )
   ) {
-    return "—";
+    return "";
   }
 
-  return new Intl.DateTimeFormat(
-    "ro-RO",
-    {
-      dateStyle:
-        "long",
-    }
-  ).format(date);
+  const year =
+    date.getFullYear();
+
+  const month =
+    String(
+      date.getMonth() + 1
+    ).padStart(
+      2,
+      "0"
+    );
+
+  const day =
+    String(
+      date.getDate()
+    ).padStart(
+      2,
+      "0"
+    );
+
+  return `${year}-${month}-${day}`;
 }
 
 function formatMoneyFromCents(
@@ -201,59 +145,6 @@ function formatMoneyFromCents(
   ).format(
     cents / 100
   );
-}
-
-function normalizePercent(value) {
-  const numeric =
-    Number(value);
-
-  if (
-    !Number.isFinite(numeric)
-  ) {
-    return 0;
-  }
-
-  return Math.min(
-    50,
-    Math.max(
-      0,
-      Math.round(numeric)
-    )
-  );
-}
-
-function getFeatureTypeLabel(type) {
-  if (
-    type ===
-    FEATURE_TYPES.PRODUCT_OF_DAY
-  ) {
-    return "Produsul zilei";
-  }
-
-  if (
-    type ===
-    FEATURE_TYPES.ARTISAN_OF_WEEK
-  ) {
-    return "Artizanul săptămânii";
-  }
-
-  return type || "Promovare";
-}
-
-function getVendorStatusLabel(status) {
-  if (
-    status === "ACCEPTED"
-  ) {
-    return "Reducere acceptată";
-  }
-
-  if (
-    status === "DECLINED"
-  ) {
-    return "Fără reducere suplimentară";
-  }
-
-  return "Așteaptă răspuns";
 }
 
 function getFeatureTitle(feature) {
@@ -294,17 +185,123 @@ function getFeatureImage(feature) {
       ?.coverUrl ||
     feature?.service?.profile
       ?.logoUrl ||
-    feature?.vendor?.coverUrl ||
-    feature?.vendor?.logoUrl ||
+    feature?.vendor
+      ?.coverUrl ||
+    feature?.vendor
+      ?.logoUrl ||
     feature?.service
       ?.mediaUrls?.[0] ||
     null
   );
 }
 
-/* =========================================================
-   COMPONENTĂ PRINCIPALĂ
-========================================================= */
+function getFeatureTypeLabel(type) {
+  if (
+    type ===
+    FEATURE_TYPES.PRODUCT_OF_DAY
+  ) {
+    return "Produsul zilei";
+  }
+
+  if (
+    type ===
+    FEATURE_TYPES.ARTISAN_OF_WEEK
+  ) {
+    return "Artizanul săptămânii";
+  }
+
+  return "Promovare";
+}
+
+function getVendorStatusLabel(feature) {
+  if (
+    feature?.vendorDiscountStatus ===
+    "ACCEPTED"
+  ) {
+    return `Reducere acceptată: ${
+      Number(
+        feature.vendorDiscountPercent ||
+          0
+      )
+    }%`;
+  }
+
+  if (
+    feature?.vendorDiscountStatus ===
+    "DECLINED"
+  ) {
+    return "Vendorul nu adaugă reducere";
+  }
+
+  if (
+    feature?.vendorNotifiedAt
+  ) {
+    return "Așteaptă răspunsul vendorului";
+  }
+
+  return "Vendor necontactat";
+}
+
+function getFeatureStatus(feature) {
+  const now =
+    Date.now();
+
+  const startsAt =
+    new Date(
+      feature.startsAt
+    ).getTime();
+
+  const endsAt =
+    new Date(
+      feature.endsAt
+    ).getTime();
+
+  if (
+    startsAt <= now &&
+    endsAt > now
+  ) {
+    return "active";
+  }
+
+  if (
+    startsAt > now
+  ) {
+    return "upcoming";
+  }
+
+  return "past";
+}
+
+function getVendorName(feature) {
+  return (
+    feature?.vendor
+      ?.displayName ||
+    feature?.product?.service
+      ?.vendor?.displayName ||
+    feature?.service?.vendor
+      ?.displayName ||
+    "Vendor"
+  );
+}
+
+function normalizePercent(value) {
+  const number =
+    Number(value);
+
+  if (
+    !Number.isFinite(number)
+  ) {
+    return 0;
+  }
+
+  return Math.min(
+    50,
+    Math.max(
+      0,
+      Math.round(number)
+    )
+  );
+}
 
 export default function AdminHomepageFeaturesTab() {
   const [
@@ -318,9 +315,14 @@ export default function AdminHomepageFeaturesTab() {
   ] = useState(true);
 
   const [
-    saving,
-    setSaving,
+    generating,
+    setGenerating,
   ] = useState(false);
+
+  const [
+    sendingId,
+    setSendingId,
+  ] = useState(null);
 
   const [
     deletingId,
@@ -338,641 +340,436 @@ export default function AdminHomepageFeaturesTab() {
   ] = useState("");
 
   const [
-    activeForm,
-    setActiveForm,
-  ] = useState("product");
-
-  const [
-    productForm,
-    setProductForm,
-  ] = useState({
-    ...EMPTY_PRODUCT_FORM,
-
-    date:
-      getMinimumProductDateInput()
-  });
-
-  const [
-    artisanForm,
-    setArtisanForm,
-  ] = useState({
-    ...EMPTY_ARTISAN_FORM,
-
-    weekStartDate:
-      getNextMondayDateInput(),
-  });
-
-  const [
-    productQuery,
-    setProductQuery,
-  ] = useState("");
-
-  const [
-    productResults,
-    setProductResults,
-  ] = useState([]);
-
-  const [
-    productSearchLoading,
-    setProductSearchLoading,
-  ] = useState(false);
-
-  const [
-    selectedProduct,
-    setSelectedProduct,
-  ] = useState(null);
-
-  const [
-    artisanQuery,
-    setArtisanQuery,
-  ] = useState("");
-
-  const [
-    artisanResults,
-    setArtisanResults,
-  ] = useState([]);
-
-  const [
-    artisanSearchLoading,
-    setArtisanSearchLoading,
-  ] = useState(false);
-
-  const [
-    selectedArtisan,
-    setSelectedArtisan,
-  ] = useState(null);
-
-  const [
     editingFeature,
     setEditingFeature,
   ] = useState(null);
 
-  const sortedFeatures =
-    useMemo(
-      () => {
-        return [
-          ...features,
-        ].sort(
-          (a, b) =>
-            new Date(
-              a.startsAt
-            ).getTime() -
-            new Date(
-              b.startsAt
-            ).getTime()
-        );
+  const [
+    activeView,
+    setActiveView,
+  ] = useState("products");
+
+  const [
+    editForm,
+    setEditForm,
+  ] = useState({
+    date:
+      "",
+
+    selectionId:
+      "",
+
+    platformDiscountPercent:
+      "5",
+
+    force:
+      false,
+  });
+
+  const [
+    searchQuery,
+    setSearchQuery,
+  ] = useState("");
+
+  const [
+    searchResults,
+    setSearchResults,
+  ] = useState([]);
+
+  const [
+    searching,
+    setSearching,
+  ] = useState(false);
+
+  const [
+    selectedResult,
+    setSelectedResult,
+  ] = useState(null);
+
+  const [
+    savingEdit,
+    setSavingEdit,
+  ] = useState(false);
+
+  const clearMessages =
+    useCallback(() => {
+      setError("");
+      setSuccess("");
+    }, []);
+
+  const loadFeatures =
+    useCallback(
+      async ({
+        silent = false,
+      } = {}) => {
+        if (!silent) {
+          setLoading(true);
+        }
+
+        try {
+          const data =
+            await api(
+              "/api/admin/homepage-features?take=100"
+            );
+
+          setFeatures(
+            data?.features ||
+              data?.items ||
+              []
+          );
+        } catch (loadError) {
+          setError(
+            loadError?.message ||
+              "Nu am putut încărca promovările."
+          );
+        } finally {
+          if (!silent) {
+            setLoading(false);
+          }
+        }
       },
+      []
+    );
+
+  const generateSchedule =
+    useCallback(
+      async ({
+        showMessage = true,
+      } = {}) => {
+        setGenerating(true);
+
+        if (showMessage) {
+          clearMessages();
+        }
+
+        try {
+          const data =
+            await api(
+              "/api/admin/homepage-features/generate",
+              {
+                method:
+                  "POST",
+
+                body: {
+                  productDays:
+                    14,
+
+                  artisanWeeks:
+                    4,
+                },
+              }
+            );
+console.log(
+  "HOMEPAGE GENERATE MANUAL:",
+  data
+);
+          const summary =
+            data?.summary ||
+            {};
+
+          if (showMessage) {
+            setSuccess(
+              `Calendar actualizat. Produse noi: ${
+                summary.createdProducts ||
+                0
+              }, artizani noi: ${
+                summary.createdArtisans ||
+                0
+              }.`
+            );
+          }
+
+          await loadFeatures({
+            silent:
+              true,
+          });
+        } catch (generateError) {
+          setError(
+            generateError?.message ||
+              "Nu am putut genera calendarul."
+          );
+        } finally {
+          setGenerating(false);
+        }
+      },
+      [
+        clearMessages,
+        loadFeatures,
+      ]
+    );
+
+  useEffect(() => {
+    let cancelled =
+      false;
+
+    async function initialize() {
+      setLoading(true);
+      setError("");
+
+      try {
+        /*
+         * Completează automat perioadele lipsă.
+         * Nu suprascrie selecțiile deja existente.
+         */
+        const generateResult =
+  await api(
+    "/api/admin/homepage-features/generate",
+    {
+      method:
+        "POST",
+
+      body: {
+        productDays:
+          14,
+
+        artisanWeeks:
+          4,
+      },
+    }
+  );
+
+console.log(
+  "HOMEPAGE GENERATE RESULT:",
+  generateResult
+);
+
+        if (
+          cancelled
+        ) {
+          return;
+        }
+
+        const data =
+          await api(
+            "/api/admin/homepage-features?take=100"
+          );
+
+        if (
+          cancelled
+        ) {
+          return;
+        }
+
+        setFeatures(
+          data?.features ||
+            data?.items ||
+            []
+        );
+      } catch (initializeError) {
+        if (
+          !cancelled
+        ) {
+          setError(
+            initializeError?.message ||
+              "Nu am putut inițializa calendarul de promovări."
+          );
+        }
+      } finally {
+        if (
+          !cancelled
+        ) {
+          setLoading(false);
+        }
+      }
+    }
+
+    initialize();
+
+    return () => {
+      cancelled =
+        true;
+    };
+  }, []);
+
+  const productFeatures =
+    useMemo(
+      () =>
+        features
+          .filter(
+            (feature) =>
+              feature.type ===
+              FEATURE_TYPES.PRODUCT_OF_DAY
+          )
+          .sort(
+            (a, b) =>
+              new Date(
+                a.startsAt
+              ).getTime() -
+              new Date(
+                b.startsAt
+              ).getTime()
+          ),
       [
         features,
       ]
     );
 
-  const currentFeatures =
+  const artisanFeatures =
     useMemo(
-      () => {
-        const now =
-          Date.now();
-
-        return sortedFeatures.filter(
-          (feature) =>
-            new Date(
-              feature.startsAt
-            ).getTime() <= now &&
-            new Date(
-              feature.endsAt
-            ).getTime() > now
-        );
-      },
+      () =>
+        features
+          .filter(
+            (feature) =>
+              feature.type ===
+              FEATURE_TYPES.ARTISAN_OF_WEEK
+          )
+          .sort(
+            (a, b) =>
+              new Date(
+                a.startsAt
+              ).getTime() -
+              new Date(
+                b.startsAt
+              ).getTime()
+          ),
       [
-        sortedFeatures,
+        features,
       ]
     );
 
-  const upcomingFeatures =
-    useMemo(
-      () => {
-        const now =
-          Date.now();
+  const visibleFeatures =
+    activeView ===
+    "products"
+      ? productFeatures
+      : artisanFeatures;
 
-        return sortedFeatures.filter(
+  const activeFeatures =
+    useMemo(
+      () =>
+        visibleFeatures.filter(
           (feature) =>
-            new Date(
-              feature.startsAt
-            ).getTime() > now
-        );
-      },
+            getFeatureStatus(
+              feature
+            ) ===
+            "active"
+        ),
       [
-        sortedFeatures,
+        visibleFeatures,
       ]
     );
+
+const upcomingFeatures =
+  useMemo(
+    () => {
+      const upcoming =
+        visibleFeatures.filter(
+          (feature) =>
+            getFeatureStatus(
+              feature
+            ) ===
+            "upcoming"
+        );
+
+      /*
+       * Pentru produsele zilei afișăm
+       * următoarele 7 selecții.
+       *
+       * Pentru artizani păstrăm toate
+       * săptămânile generate.
+       */
+      if (
+        activeView ===
+        "products"
+      ) {
+        return upcoming.slice(
+          0,
+          7
+        );
+      }
+
+      return upcoming;
+    },
+    [
+      visibleFeatures,
+      activeView,
+    ]
+  );
 
   const pastFeatures =
     useMemo(
-      () => {
-        const now =
-          Date.now();
-
-        return sortedFeatures
+      () =>
+        visibleFeatures
           .filter(
             (feature) =>
-              new Date(
-                feature.endsAt
-              ).getTime() <= now
+              getFeatureStatus(
+                feature
+              ) ===
+              "past"
           )
           .reverse()
           .slice(
             0,
             10
-          );
-      },
+          ),
       [
-        sortedFeatures,
+        visibleFeatures,
       ]
     );
 
-  async function loadFeatures() {
-    setLoading(true);
-    setError("");
+  function closeEditModal() {
+    setEditingFeature(
+      null
+    );
 
-    try {
-      const data =
-        await api(
-          "/api/admin/homepage-features"
-        );
+    setSearchQuery("");
+    setSearchResults([]);
+    setSelectedResult(
+      null
+    );
 
-      setFeatures(
-        data?.features ||
-          data?.items ||
-          []
-      );
-    } catch (loadError) {
-      setError(
-        loadError?.message ||
-          "Nu am putut încărca promovările homepage."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadFeatures();
-  }, []);
-
-  function clearMessages() {
-    setError("");
-    setSuccess("");
-  }
-
-  function resetProductForm() {
-    setProductForm({
-      ...EMPTY_PRODUCT_FORM,
-
+    setEditForm({
       date:
-        getMinimumProductDateInput()
+        "",
+
+      selectionId:
+        "",
+
+      platformDiscountPercent:
+        "5",
+
+      force:
+        false,
     });
-
-    setSelectedProduct(
-      null
-    );
-
-    setProductQuery("");
-    setProductResults([]);
-    setEditingFeature(null);
   }
 
-  function resetArtisanForm() {
-    setArtisanForm({
-      ...EMPTY_ARTISAN_FORM,
-
-      weekStartDate:
-        getNextMondayDateInput(),
-    });
-
-    setSelectedArtisan(
-      null
-    );
-
-    setArtisanQuery("");
-    setArtisanResults([]);
-    setEditingFeature(null);
-  }
-
-  function resetAllForms() {
-    resetProductForm();
-    resetArtisanForm();
-  }
-
-  async function searchProducts() {
-  clearMessages();
-
-  setProductSearchLoading(
-    true
-  );
-
-  try {
-    const query =
-      new URLSearchParams();
-
-    const cleanQuery =
-      productQuery.trim();
-
-    if (cleanQuery) {
-      query.set(
-        "q",
-        cleanQuery
-      );
-    }
-
-    query.set(
-      "take",
-      "30"
-    );
-
-    const data =
-      await api(
-        `/api/admin/homepage-features/products?${query.toString()}`
-      );
-
-    const products =
-      data?.products ||
-      data?.items ||
-      [];
-
-    setProductResults(
-      products
-    );
-
-    if (!products.length) {
-      setError(
-        cleanQuery
-          ? "Nu am găsit produse pentru căutarea introdusă."
-          : "Nu există produse eligibile pentru promovare."
-      );
-    }
-  } catch (searchError) {
-    setError(
-      searchError?.message ||
-        "Nu am putut încărca produsele."
-    );
-  } finally {
-    setProductSearchLoading(
-      false
-    );
-  }
-}
-
-  async function searchArtisans() {
-  clearMessages();
-
-  setArtisanSearchLoading(
-    true
-  );
-
-  try {
-    const query =
-      new URLSearchParams();
-
-    const cleanQuery =
-      artisanQuery.trim();
-
-    if (cleanQuery) {
-      query.set(
-        "q",
-        cleanQuery
-      );
-    }
-
-    query.set(
-      "take",
-      "30"
-    );
-
-    const data =
-      await api(
-        `/api/admin/homepage-features/artisans?${query.toString()}`
-      );
-
-    const artisans =
-      data?.artisans ||
-      data?.services ||
-      data?.items ||
-      [];
-
-    setArtisanResults(
-      artisans
-    );
-
-    if (!artisans.length) {
-      setError(
-        cleanQuery
-          ? "Nu am găsit magazine pentru căutarea introdusă."
-          : "Nu există magazine eligibile pentru promovare."
-      );
-    }
-  } catch (searchError) {
-    setError(
-      searchError?.message ||
-        "Nu am putut încărca magazinele."
-    );
-  } finally {
-    setArtisanSearchLoading(
-      false
-    );
-  }
-}
-
-  function chooseProduct(product) {
-    setSelectedProduct(
-      product
-    );
-
-    setProductForm(
-      (current) => ({
-        ...current,
-
-        productId:
-          product.id,
-      })
-    );
-
-    setProductResults([]);
-    setProductQuery(
-      product.title || ""
-    );
-  }
-
-  function chooseArtisan(service) {
-    setSelectedArtisan(
-      service
-    );
-
-    setArtisanForm(
-      (current) => ({
-        ...current,
-
-        serviceId:
-          service.id,
-      })
-    );
-
-    setArtisanResults([]);
-    setArtisanQuery(
-      service?.profile
-        ?.displayName ||
-        service?.title ||
-        service?.vendor
-          ?.displayName ||
-        ""
-    );
-  }
-
-  async function saveProductFeature(
-    event
-  ) {
-    event.preventDefault();
-
+  function openEditModal(feature) {
     clearMessages();
 
-    if (
-      !productForm.productId
-    ) {
-      setError(
-        "Selectează produsul care va fi Produsul zilei."
-      );
+    const startsAt =
+      new Date(
+        feature.startsAt
+      ).getTime();
 
-      return;
-    }
+    const force =
+      Number.isFinite(
+        startsAt
+      ) &&
+      startsAt <
+        Date.now() +
+          24 *
+            60 *
+            60 *
+            1000;
 
-    if (
-      !productForm.date
-    ) {
-      setError(
-        "Selectează data promovării."
-      );
-
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const payload = {
-        date:
-          productForm.date,
-
-        productId:
-          productForm.productId,
-
-        platformDiscountPercent:
-          normalizePercent(
-            productForm
-              .platformDiscountPercent
-          ),
-
-        force:
-          Boolean(
-            productForm.force
-          ),
-      };
-
-      if (
-        editingFeature?.id
-      ) {
-        await api(
-          `/api/admin/homepage-features/${editingFeature.id}`,
-          {
-            method:
-              "PATCH",
-
-            body:
-              JSON.stringify(
-                payload
-              ),
-          }
-        );
-      } else {
-        await api(
-          "/api/admin/homepage-features/product",
-          {
-            method:
-              "POST",
-
-            body:
-              JSON.stringify(
-                payload
-              ),
-          }
-        );
-      }
-
-      setSuccess(
-        editingFeature
-          ? "Programarea Produsului zilei a fost actualizată."
-          : "Produsul zilei a fost programat."
-      );
-
-      resetProductForm();
-
-      await loadFeatures();
-    } catch (saveError) {
-      setError(
-        saveError?.message ||
-          "Nu am putut programa Produsul zilei."
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveArtisanFeature(
-    event
-  ) {
-    event.preventDefault();
-
-    clearMessages();
-
-    if (
-      !artisanForm.serviceId
-    ) {
-      setError(
-        "Selectează magazinul care va fi Artizanul săptămânii."
-      );
-
-      return;
-    }
-
-    if (
-      !artisanForm.weekStartDate
-    ) {
-      setError(
-        "Selectează data de început a săptămânii."
-      );
-
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const payload = {
-        weekStartDate:
-          artisanForm.weekStartDate,
-
-        serviceId:
-          artisanForm.serviceId,
-
-        platformDiscountPercent:
-          normalizePercent(
-            artisanForm
-              .platformDiscountPercent
-          ),
-
-        force:
-          Boolean(
-            artisanForm.force
-          ),
-      };
-
-      if (
-        editingFeature?.id
-      ) {
-        await api(
-          `/api/admin/homepage-features/${editingFeature.id}`,
-          {
-            method:
-              "PATCH",
-
-            body:
-              JSON.stringify(
-                payload
-              ),
-          }
-        );
-      } else {
-        await api(
-          "/api/admin/homepage-features/artisan",
-          {
-            method:
-              "POST",
-
-            body:
-              JSON.stringify(
-                payload
-              ),
-          }
-        );
-      }
-
-      setSuccess(
-        editingFeature
-          ? "Programarea Artizanului săptămânii a fost actualizată."
-          : "Artizanul săptămânii a fost programat."
-      );
-
-      resetArtisanForm();
-
-      await loadFeatures();
-    } catch (saveError) {
-      setError(
-        saveError?.message ||
-          "Nu am putut programa Artizanul săptămânii."
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-function startEdit(feature) {
-  clearMessages();
-
-  setEditingFeature(
-    feature
-  );
-
-  const startsAtTime =
-    new Date(
-      feature.startsAt
-    ).getTime();
-
-  const requiresForce =
-    Number.isFinite(
-      startsAtTime
-    ) &&
-    startsAtTime <
-      Date.now() +
-        24 * 60 * 60 * 1000;
-
-  if (
-    feature.type ===
-    FEATURE_TYPES.PRODUCT_OF_DAY
-  ) {
-    setActiveForm(
-      "product"
+    setEditingFeature(
+      feature
     );
 
-    setSelectedProduct(
-      feature.product ||
-        null
-    );
-
-    setProductQuery(
-      feature.product?.title ||
-        ""
-    );
-
-    setProductResults([]);
-
-    setProductForm({
+    setEditForm({
       date:
         toDateInputValue(
           feature.startsAt
         ),
 
-      productId:
-        feature.productId ||
-        feature.product?.id ||
-        "",
+      selectionId:
+        feature.type ===
+        FEATURE_TYPES.PRODUCT_OF_DAY
+          ? feature.productId ||
+            feature.product?.id ||
+            ""
+          : feature.serviceId ||
+            feature.service?.id ||
+            "",
 
       platformDiscountPercent:
         String(
@@ -981,71 +778,294 @@ function startEdit(feature) {
             0
         ),
 
-      force:
-        requiresForce,
+      force,
     });
 
-    window.scrollTo({
-      top:
-        0,
+    setSelectedResult(
+      feature.type ===
+      FEATURE_TYPES.PRODUCT_OF_DAY
+        ? feature.product ||
+          null
+        : feature.service ||
+          null
+    );
 
-      behavior:
-        "smooth",
-    });
+    setSearchQuery(
+      getFeatureTitle(
+        feature
+      )
+    );
 
-    return;
+    setSearchResults([]);
   }
 
-  setActiveForm(
-    "artisan"
-  );
+  async function searchSelections() {
+    if (
+      !editingFeature
+    ) {
+      return;
+    }
 
-  setSelectedArtisan(
-    feature.service ||
-      null
-  );
+    setSearching(true);
+    setError("");
 
-  setArtisanQuery(
-    feature.service?.profile
-      ?.displayName ||
-      feature.service?.title ||
-      feature.vendor
-        ?.displayName ||
-      ""
-  );
+    try {
+      const params =
+        new URLSearchParams();
 
-  setArtisanResults([]);
+      if (
+        searchQuery.trim()
+      ) {
+        params.set(
+          "q",
+          searchQuery.trim()
+        );
+      }
 
-  setArtisanForm({
-    weekStartDate:
-      toDateInputValue(
-        feature.startsAt
-      ),
+      params.set(
+        "take",
+        "30"
+      );
 
-    serviceId:
-      feature.serviceId ||
-      feature.service?.id ||
-      "",
+      const isProduct =
+        editingFeature.type ===
+        FEATURE_TYPES.PRODUCT_OF_DAY;
 
-    platformDiscountPercent:
-      String(
-        feature
-          .platformDiscountPercent ??
-          0
-      ),
+      const endpoint =
+        isProduct
+          ? `/api/admin/homepage-features/products?${params.toString()}`
+          : `/api/admin/homepage-features/artisans?${params.toString()}`;
 
-    force:
-      requiresForce,
-  });
+      const data =
+        await api(
+          endpoint
+        );
 
-  window.scrollTo({
-    top:
-      0,
+      const results =
+        isProduct
+          ? data?.products ||
+            data?.items ||
+            []
+          : data?.artisans ||
+            data?.services ||
+            data?.items ||
+            [];
 
-    behavior:
-      "smooth",
-  });
-}
+      setSearchResults(
+        results
+      );
+
+      if (
+        !results.length
+      ) {
+        setError(
+          isProduct
+            ? "Nu am găsit produse eligibile."
+            : "Nu am găsit magazine eligibile."
+        );
+      }
+    } catch (searchError) {
+      setError(
+        searchError?.message ||
+          "Nu am putut încărca rezultatele."
+      );
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function selectSearchResult(
+    result
+  ) {
+    setSelectedResult(
+      result
+    );
+
+    setEditForm(
+      (current) => ({
+        ...current,
+
+        selectionId:
+          result.id,
+      })
+    );
+
+    setSearchResults([]);
+
+    setSearchQuery(
+      editingFeature?.type ===
+      FEATURE_TYPES.PRODUCT_OF_DAY
+        ? result.title ||
+          ""
+        : result?.profile
+            ?.displayName ||
+          result?.title ||
+          result?.vendor
+            ?.displayName ||
+          ""
+    );
+  }
+
+  async function saveEdit(
+    event
+  ) {
+    event.preventDefault();
+
+    if (
+      !editingFeature
+    ) {
+      return;
+    }
+
+    if (
+      !editForm.date ||
+      !editForm.selectionId
+    ) {
+      setError(
+        "Completează data și selecția."
+      );
+
+      return;
+    }
+
+    setSavingEdit(true);
+    clearMessages();
+
+    try {
+      const isProduct =
+        editingFeature.type ===
+        FEATURE_TYPES.PRODUCT_OF_DAY;
+
+      const payload =
+        isProduct
+          ? {
+              date:
+                editForm.date,
+
+              productId:
+                editForm.selectionId,
+
+              platformDiscountPercent:
+                normalizePercent(
+                  editForm
+                    .platformDiscountPercent
+                ),
+
+              force:
+                Boolean(
+                  editForm.force
+                ),
+            }
+          : {
+              weekStartDate:
+                editForm.date,
+
+              serviceId:
+                editForm.selectionId,
+
+              platformDiscountPercent:
+                normalizePercent(
+                  editForm
+                    .platformDiscountPercent
+                ),
+
+              force:
+                Boolean(
+                  editForm.force
+                ),
+            };
+
+      await api(
+        `/api/admin/homepage-features/${editingFeature.id}`,
+        {
+          method:
+            "PATCH",
+
+          body:
+            payload,
+        }
+      );
+
+      closeEditModal();
+
+      setSuccess(
+        "Promovarea a fost actualizată."
+      );
+
+      await loadFeatures({
+        silent:
+          true,
+      });
+    } catch (saveError) {
+      setError(
+        saveError?.message ||
+          "Nu am putut actualiza promovarea."
+      );
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function sendNotification(
+    feature
+  ) {
+    const alreadySent =
+      Boolean(
+        feature.vendorNotifiedAt
+      );
+
+    const confirmed =
+      window.confirm(
+        alreadySent
+          ? `Retrimiți invitația către ${getVendorName(
+              feature
+            )}?`
+          : `Trimiți invitația către ${getVendorName(
+              feature
+            )}?`
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    clearMessages();
+
+    setSendingId(
+      feature.id
+    );
+
+    try {
+      const data =
+        await api(
+          `/api/admin/homepage-features/${feature.id}/send-notification`,
+          {
+            method:
+              "POST",
+          }
+        );
+
+      setSuccess(
+        data?.message ||
+          "Notificarea a fost procesată."
+      );
+
+      await loadFeatures({
+        silent:
+          true,
+      });
+    } catch (sendError) {
+      setError(
+        sendError?.message ||
+          "Nu am putut trimite notificarea."
+      );
+    } finally {
+      setSendingId(
+        null
+      );
+    }
+  }
+
   async function deleteFeature(
     feature
   ) {
@@ -1078,21 +1098,17 @@ function startEdit(feature) {
       );
 
       setSuccess(
-        "Programarea a fost ștearsă."
+        "Promovarea a fost ștearsă."
       );
 
-      if (
-        editingFeature?.id ===
-        feature.id
-      ) {
-        resetAllForms();
-      }
-
-      await loadFeatures();
+      await loadFeatures({
+        silent:
+          true,
+      });
     } catch (deleteError) {
       setError(
         deleteError?.message ||
-          "Nu am putut șterge programarea."
+          "Nu am putut șterge promovarea."
       );
     } finally {
       setDeletingId(
@@ -1108,7 +1124,7 @@ function startEdit(feature) {
           styles.subtle
         }
       >
-        Se încarcă promovările homepage…
+        Se pregătește calendarul de promovări…
       </p>
     );
   }
@@ -1117,29 +1133,70 @@ function startEdit(feature) {
     <div>
       <div
         style={{
+          display:
+            "flex",
+
+          justifyContent:
+            "space-between",
+
+          alignItems:
+            "flex-start",
+
+          gap:
+            14,
+
+          flexWrap:
+            "wrap",
+
           marginBottom:
             20,
         }}
       >
-        <h2
-          style={{
-            marginBottom:
-              6,
-          }}
-        >
-          Promovări homepage
-        </h2>
+        <div>
+          <h2
+            style={{
+              marginBottom:
+                6,
+            }}
+          >
+            Calendar promovări
+          </h2>
 
-        <p
+          <p
+            className={
+              styles.subtle
+            }
+            style={{
+              margin:
+                0,
+            }}
+          >
+            Selecțiile sunt generate automat.
+            Verifică produsele și artizanii,
+            modifică reducerea și trimite
+            invitația vendorului.
+          </p>
+        </div>
+
+        <button
+          type="button"
           className={
-            styles.subtle
+            styles.tab
+          }
+          disabled={
+            generating
+          }
+          onClick={() =>
+            generateSchedule({
+              showMessage:
+                true,
+            })
           }
         >
-          Programează Produsul zilei și
-          Artizanul săptămânii, setează
-          reducerea oferită de Artfest și
-          urmărește răspunsul vendorului.
-        </p>
+          {generating
+            ? "Se generează…"
+            : "Completează calendarul"}
+        </button>
       </div>
 
       {error && (
@@ -1168,11 +1225,11 @@ function startEdit(feature) {
             border:
               "1px solid #bbf7d0",
 
-            background:
-              "#f0fdf4",
-
             borderRadius:
               10,
+
+            background:
+              "#f0fdf4",
 
             color:
               "#166534",
@@ -1202,15 +1259,30 @@ function startEdit(feature) {
           className={
             styles.tab
           }
-          onClick={() => {
-            resetAllForms();
+          onClick={() =>
+            setActiveView(
+              "products"
+            )
+          }
+          style={{
+            fontWeight:
+              activeView ===
+              "products"
+                ? 800
+                : 500,
 
-            setActiveForm(
-              "product"
-            );
+            opacity:
+              activeView ===
+              "products"
+                ? 1
+                : 0.7,
           }}
         >
-          Produsul zilei
+          Produsele zilei (
+          {
+            productFeatures.length
+          }
+          )
         </button>
 
         <button
@@ -1218,122 +1290,54 @@ function startEdit(feature) {
           className={
             styles.tab
           }
-          onClick={() => {
-            resetAllForms();
+          onClick={() =>
+            setActiveView(
+              "artisans"
+            )
+          }
+          style={{
+            fontWeight:
+              activeView ===
+              "artisans"
+                ? 800
+                : 500,
 
-            setActiveForm(
-              "artisan"
-            );
+            opacity:
+              activeView ===
+              "artisans"
+                ? 1
+                : 0.7,
           }}
         >
-          Artizanul săptămânii
+          Artizanii săptămânii (
+          {
+            artisanFeatures.length
+          }
+          )
         </button>
       </div>
 
-      {activeForm ===
-        "product" && (
-        <ProductFeatureForm
-          form={
-            productForm
-          }
-          setForm={
-            setProductForm
-          }
-          query={
-            productQuery
-          }
-          setQuery={
-            setProductQuery
-          }
-          results={
-            productResults
-          }
-          selectedProduct={
-            selectedProduct
-          }
-          searching={
-            productSearchLoading
-          }
-          saving={
-            saving
-          }
-          editing={
-            Boolean(
-              editingFeature
-            )
-          }
-          onSearch={
-            searchProducts
-          }
-          onChoose={
-            chooseProduct
-          }
-          onSubmit={
-            saveProductFeature
-          }
-          onCancel={() => {
-            resetProductForm();
-          }}
-        />
-      )}
-
-      {activeForm ===
-        "artisan" && (
-        <ArtisanFeatureForm
-          form={
-            artisanForm
-          }
-          setForm={
-            setArtisanForm
-          }
-          query={
-            artisanQuery
-          }
-          setQuery={
-            setArtisanQuery
-          }
-          results={
-            artisanResults
-          }
-          selectedArtisan={
-            selectedArtisan
-          }
-          searching={
-            artisanSearchLoading
-          }
-          saving={
-            saving
-          }
-          editing={
-            Boolean(
-              editingFeature
-            )
-          }
-          onSearch={
-            searchArtisans
-          }
-          onChoose={
-            chooseArtisan
-          }
-          onSubmit={
-            saveArtisanFeature
-          }
-          onCancel={() => {
-            resetArtisanForm();
-          }}
-        />
-      )}
-
       <FeatureSection
-        title="Promovări active"
+        title={
+          activeView ===
+          "products"
+            ? "Produs activ astăzi"
+            : "Artizan activ acum"
+        }
         features={
-          currentFeatures
+          activeFeatures
+        }
+        sendingId={
+          sendingId
         }
         deletingId={
           deletingId
         }
         onEdit={
-          startEdit
+          openEditModal
+        }
+        onSend={
+          sendNotification
         }
         onDelete={
           deleteFeature
@@ -1341,15 +1345,26 @@ function startEdit(feature) {
       />
 
       <FeatureSection
-        title="Promovări programate"
+        title={
+          activeView ===
+          "products"
+            ? "Următoarele produse"
+            : "Următorii artizani"
+        }
         features={
           upcomingFeatures
+        }
+        sendingId={
+          sendingId
         }
         deletingId={
           deletingId
         }
         onEdit={
-          startEdit
+          openEditModal
+        }
+        onSend={
+          sendNotification
         }
         onDelete={
           deleteFeature
@@ -1361,750 +1376,78 @@ function startEdit(feature) {
         features={
           pastFeatures
         }
+        sendingId={
+          sendingId
+        }
         deletingId={
           deletingId
         }
         onEdit={
-          startEdit
+          openEditModal
+        }
+        onSend={
+          sendNotification
         }
         onDelete={
           deleteFeature
         }
         history
       />
+
+      {editingFeature && (
+        <EditFeatureModal
+          feature={
+            editingFeature
+          }
+          form={
+            editForm
+          }
+          setForm={
+            setEditForm
+          }
+          query={
+            searchQuery
+          }
+          setQuery={
+            setSearchQuery
+          }
+          results={
+            searchResults
+          }
+          selectedResult={
+            selectedResult
+          }
+          searching={
+            searching
+          }
+          saving={
+            savingEdit
+          }
+          onSearch={
+            searchSelections
+          }
+          onSelect={
+            selectSearchResult
+          }
+          onSubmit={
+            saveEdit
+          }
+          onClose={
+            closeEditModal
+          }
+        />
+      )}
     </div>
   );
 }
 
-/* =========================================================
-   FORMULAR PRODUSUL ZILEI
-========================================================= */
-
-function ProductFeatureForm({
-  form,
-  setForm,
-  query,
-  setQuery,
-  results,
-  selectedProduct,
-  searching,
-  saving,
-  editing,
-  onSearch,
-  onChoose,
-  onSubmit,
-  onCancel,
-}) {
-  return (
-    <form
-      onSubmit={
-        onSubmit
-      }
-      style={{
-        display:
-          "grid",
-
-        gap:
-          14,
-
-        marginBottom:
-          28,
-
-        padding:
-          18,
-
-        border:
-          "1px solid #e5e7eb",
-
-        borderRadius:
-          14,
-      }}
-    >
-      <div>
-        <h3
-          style={{
-            marginBottom:
-              4,
-          }}
-        >
-          {editing
-            ? "Editează Produsul zilei"
-            : "Programează Produsul zilei"}
-        </h3>
-
-        <p
-          className={
-            styles.subtle
-          }
-        >
-          Selectează produsul, data și
-          procentul suportat de Artfest.
-        </p>
-      </div>
-
-      <label>
-        Data promovării
-        <input
-          type="date"
-          value={
-            form.date
-          }
-          onChange={(
-            event
-          ) =>
-            setForm(
-              (
-                current
-              ) => ({
-                ...current,
-
-                date:
-                  event.target
-                    .value,
-              })
-            )
-          }
-          style={{
-            display:
-              "block",
-
-            width:
-              "100%",
-
-            marginTop:
-              6,
-          }}
-        />
-      </label>
-
-      <div>
-        <label>
-          Caută produs
-        </label>
-
-        <div
-          style={{
-            display:
-              "flex",
-
-            gap:
-              8,
-
-            flexWrap:
-              "wrap",
-
-            marginTop:
-              6,
-          }}
-        >
-          <input
-            value={
-              query
-            }
-            placeholder="Titlu produs, categorie sau magazin"
-            onChange={(
-              event
-            ) =>
-              setQuery(
-                event.target
-                  .value
-              )
-            }
-            onKeyDown={(
-              event
-            ) => {
-              if (
-                event.key ===
-                "Enter"
-              ) {
-                event.preventDefault();
-
-                onSearch();
-              }
-            }}
-            style={{
-              flex:
-                "1 1 280px",
-            }}
-          />
-
-          <button
-            type="button"
-            className={
-              styles.tab
-            }
-            disabled={
-              searching
-            }
-            onClick={
-              onSearch
-            }
-          >
-            {searching
-  ? "Se încarcă…"
-  : query.trim()
-    ? "Caută"
-    : "Afișează produse"}
-          </button>
-        </div>
-      </div>
-
-      {!!results.length && (
-        <div
-          style={{
-            display:
-              "grid",
-
-            gap:
-              8,
-          }}
-        >
-          {results.map(
-            (product) => (
-              <ProductResultRow
-                key={
-                  product.id
-                }
-                product={
-                  product
-                }
-                onChoose={
-                  onChoose
-                }
-              />
-            )
-          )}
-        </div>
-      )}
-
-      {selectedProduct && (
-        <div>
-          <strong>
-            Produs selectat
-          </strong>
-
-          <div
-            style={{
-              marginTop:
-                8,
-            }}
-          >
-            <ProductResultRow
-              product={
-                selectedProduct
-              }
-              selected
-            />
-          </div>
-        </div>
-      )}
-
-      <label>
-        Reducere oferită de Artfest
-        <select
-          value={
-            form.platformDiscountPercent
-          }
-          onChange={(
-            event
-          ) =>
-            setForm(
-              (
-                current
-              ) => ({
-                ...current,
-
-                platformDiscountPercent:
-                  event.target
-                    .value,
-              })
-            )
-          }
-          style={{
-            display:
-              "block",
-
-            width:
-              "100%",
-
-            marginTop:
-              6,
-          }}
-        >
-          <option value="0">
-            Fără reducere
-          </option>
-
-          <option value="5">
-            5%
-          </option>
-
-          <option value="10">
-            10%
-          </option>
-
-          <option value="15">
-            15%
-          </option>
-
-          <option value="20">
-            20%
-          </option>
-        </select>
-      </label>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={
-            form.force
-          }
-          onChange={(
-            event
-          ) =>
-            setForm(
-              (
-                current
-              ) => ({
-                ...current,
-
-                force:
-                  event.target
-                    .checked,
-              })
-            )
-          }
-        />{" "}
-        Forțează programarea dacă începe
-        în mai puțin de 24 de ore
-      </label>
-
-      <p
-        className={
-          styles.subtle
-        }
-      >
-        În mod normal, promovarea trebuie
-        programată cu cel puțin 24 de ore
-        înainte. Forțarea trebuie folosită
-        doar pentru corecții urgente.
-      </p>
-
-      <div
-        style={{
-          display:
-            "flex",
-
-          gap:
-            10,
-
-          flexWrap:
-            "wrap",
-        }}
-      >
-        <button
-          type="submit"
-          className={
-            styles.tab
-          }
-          disabled={
-            saving
-          }
-        >
-          {saving
-            ? "Se salvează…"
-            : editing
-              ? "Actualizează programarea"
-              : "Programează produsul"}
-        </button>
-
-        {editing && (
-          <button
-            type="button"
-            className={
-              styles.tab
-            }
-            onClick={
-              onCancel
-            }
-          >
-            Renunță
-          </button>
-        )}
-      </div>
-    </form>
-  );
-}
-
-/* =========================================================
-   FORMULAR ARTIZANUL SĂPTĂMÂNII
-========================================================= */
-
-function ArtisanFeatureForm({
-  form,
-  setForm,
-  query,
-  setQuery,
-  results,
-  selectedArtisan,
-  searching,
-  saving,
-  editing,
-  onSearch,
-  onChoose,
-  onSubmit,
-  onCancel,
-}) {
-  return (
-    <form
-      onSubmit={
-        onSubmit
-      }
-      style={{
-        display:
-          "grid",
-
-        gap:
-          14,
-
-        marginBottom:
-          28,
-
-        padding:
-          18,
-
-        border:
-          "1px solid #e5e7eb",
-
-        borderRadius:
-          14,
-      }}
-    >
-      <div>
-        <h3
-          style={{
-            marginBottom:
-              4,
-          }}
-        >
-          {editing
-            ? "Editează Artizanul săptămânii"
-            : "Programează Artizanul săptămânii"}
-        </h3>
-
-        <p
-          className={
-            styles.subtle
-          }
-        >
-          Selectează magazinul, începutul
-          săptămânii și reducerea oferită
-          de Artfest.
-        </p>
-      </div>
-
-      <label>
-        Începutul săptămânii
-        <input
-          type="date"
-          value={
-            form.weekStartDate
-          }
-          onChange={(
-            event
-          ) =>
-            setForm(
-              (
-                current
-              ) => ({
-                ...current,
-
-                weekStartDate:
-                  event.target
-                    .value,
-              })
-            )
-          }
-          style={{
-            display:
-              "block",
-
-            width:
-              "100%",
-
-            marginTop:
-              6,
-          }}
-        />
-      </label>
-
-      <p
-        className={
-          styles.subtle
-        }
-      >
-        Este recomandat să alegi o zi de
-        luni. Backendul va calcula perioada
-        completă de șapte zile.
-      </p>
-
-      <div>
-        <label>
-          Caută magazin
-        </label>
-
-        <div
-          style={{
-            display:
-              "flex",
-
-            gap:
-              8,
-
-            flexWrap:
-              "wrap",
-
-            marginTop:
-              6,
-          }}
-        >
-          <input
-            value={
-              query
-            }
-            placeholder="Numele magazinului sau vendorului"
-            onChange={(
-              event
-            ) =>
-              setQuery(
-                event.target
-                  .value
-              )
-            }
-            onKeyDown={(
-              event
-            ) => {
-              if (
-                event.key ===
-                "Enter"
-              ) {
-                event.preventDefault();
-
-                onSearch();
-              }
-            }}
-            style={{
-              flex:
-                "1 1 280px",
-            }}
-          />
-
-          <button
-            type="button"
-            className={
-              styles.tab
-            }
-            disabled={
-              searching
-            }
-            onClick={
-              onSearch
-            }
-          >
-            {searching
-  ? "Se încarcă…"
-  : query.trim()
-    ? "Caută"
-    : "Afișează magazine"}
-          </button>
-        </div>
-      </div>
-
-      {!!results.length && (
-        <div
-          style={{
-            display:
-              "grid",
-
-            gap:
-              8,
-          }}
-        >
-          {results.map(
-            (service) => (
-              <ArtisanResultRow
-                key={
-                  service.id
-                }
-                service={
-                  service
-                }
-                onChoose={
-                  onChoose
-                }
-              />
-            )
-          )}
-        </div>
-      )}
-
-      {selectedArtisan && (
-        <div>
-          <strong>
-            Magazin selectat
-          </strong>
-
-          <div
-            style={{
-              marginTop:
-                8,
-            }}
-          >
-            <ArtisanResultRow
-              service={
-                selectedArtisan
-              }
-              selected
-            />
-          </div>
-        </div>
-      )}
-
-      <label>
-        Reducere oferită de Artfest
-        <select
-          value={
-            form.platformDiscountPercent
-          }
-          onChange={(
-            event
-          ) =>
-            setForm(
-              (
-                current
-              ) => ({
-                ...current,
-
-                platformDiscountPercent:
-                  event.target
-                    .value,
-              })
-            )
-          }
-          style={{
-            display:
-              "block",
-
-            width:
-              "100%",
-
-            marginTop:
-              6,
-          }}
-        >
-          <option value="0">
-            Fără reducere
-          </option>
-
-          <option value="5">
-            5%
-          </option>
-
-          <option value="10">
-            10%
-          </option>
-
-          <option value="15">
-            15%
-          </option>
-
-          <option value="20">
-            20%
-          </option>
-        </select>
-      </label>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={
-            form.force
-          }
-          onChange={(
-            event
-          ) =>
-            setForm(
-              (
-                current
-              ) => ({
-                ...current,
-
-                force:
-                  event.target
-                    .checked,
-              })
-            )
-          }
-        />{" "}
-        Forțează programarea dacă începe
-        în mai puțin de 24 de ore
-      </label>
-
-      <div
-        style={{
-          display:
-            "flex",
-
-          gap:
-            10,
-
-          flexWrap:
-            "wrap",
-        }}
-      >
-        <button
-          type="submit"
-          className={
-            styles.tab
-          }
-          disabled={
-            saving
-          }
-        >
-          {saving
-            ? "Se salvează…"
-            : editing
-              ? "Actualizează programarea"
-              : "Programează artizanul"}
-        </button>
-
-        {editing && (
-          <button
-            type="button"
-            className={
-              styles.tab
-            }
-            onClick={
-              onCancel
-            }
-          >
-            Renunță
-          </button>
-        )}
-      </div>
-    </form>
-  );
-}
-
-/* =========================================================
-   LISTĂ PROGRAMĂRI
-========================================================= */
-
 function FeatureSection({
   title,
   features,
+  sendingId,
   deletingId,
   onEdit,
+  onSend,
   onDelete,
   history = false,
 }) {
@@ -2112,7 +1455,7 @@ function FeatureSection({
     <section
       style={{
         marginTop:
-          28,
+          26,
       }}
     >
       <h3
@@ -2125,14 +1468,13 @@ function FeatureSection({
       </h3>
 
       {!features.length ? (
-        <p
+        <div
           className={
             styles.emptyState
           }
         >
-          Nu există promovări în această
-          secțiune.
-        </p>
+          Nu există selecții în această secțiune.
+        </div>
       ) : (
         <div
           style={{
@@ -2152,18 +1494,25 @@ function FeatureSection({
                 feature={
                   feature
                 }
+                sending={
+                  sendingId ===
+                  feature.id
+                }
                 deleting={
                   deletingId ===
                   feature.id
                 }
+                history={
+                  history
+                }
                 onEdit={
                   onEdit
                 }
+                onSend={
+                  onSend
+                }
                 onDelete={
                   onDelete
-                }
-                history={
-                  history
                 }
               />
             )
@@ -2176,10 +1525,12 @@ function FeatureSection({
 
 function FeatureCard({
   feature,
+  sending,
   deleting,
-  onEdit,
-  onDelete,
   history,
+  onEdit,
+  onSend,
+  onDelete,
 }) {
   const image =
     getFeatureImage(
@@ -2189,14 +1540,14 @@ function FeatureCard({
   const platformPercent =
     Number(
       feature
-        ?.platformDiscountPercent ||
+        .platformDiscountPercent ||
         0
     );
 
   const vendorPercent =
     Number(
       feature
-        ?.vendorDiscountPercent ||
+        .vendorDiscountPercent ||
         0
     );
 
@@ -2207,23 +1558,33 @@ function FeatureCard({
         vendorPercent
     );
 
+  const notified =
+    Boolean(
+      feature.vendorNotifiedAt
+    );
+
+  const emailed =
+    Boolean(
+      feature.vendorEmailedAt
+    );
+
   return (
     <article
       style={{
+        padding:
+          15,
+
         border:
           "1px solid #e5e7eb",
 
         borderRadius:
           14,
 
-        padding:
-          14,
-
         display:
           "grid",
 
         gap:
-          12,
+          13,
       }}
     >
       <div
@@ -2250,16 +1611,16 @@ function FeatureCard({
             }
             style={{
               width:
-                80,
+                84,
 
               height:
-                80,
+                84,
+
+              borderRadius:
+                11,
 
               objectFit:
                 "cover",
-
-              borderRadius:
-                10,
 
               flexShrink:
                 0,
@@ -2269,18 +1630,34 @@ function FeatureCard({
 
         <div
           style={{
-            minWidth:
-              0,
-
             flex:
               1,
+
+            minWidth:
+              0,
           }}
         >
-          <strong>
+          <div
+            className={
+              styles.subtle
+            }
+            style={{
+              fontSize:
+                13,
+
+              fontWeight:
+                700,
+            }}
+          >
             {getFeatureTypeLabel(
               feature.type
             )}
-          </strong>
+            {" · "}
+            {feature.source ===
+            "AUTOMATIC"
+              ? "Selectat automat"
+              : "Modificat manual"}
+          </div>
 
           <h4
             style={{
@@ -2313,12 +1690,15 @@ function FeatureCard({
             }
             style={{
               marginTop:
-                4,
+                5,
             }}
           >
-            Sursă:{" "}
-            {feature.source ||
-              "MANUAL"}
+            Vendor:{" "}
+            <strong>
+              {getVendorName(
+                feature
+              )}
+            </strong>
           </div>
         </div>
       </div>
@@ -2329,10 +1709,13 @@ function FeatureCard({
             "flex",
 
           gap:
-            8,
+            10,
 
           flexWrap:
             "wrap",
+
+          fontSize:
+            14,
         }}
       >
         <span>
@@ -2355,29 +1738,57 @@ function FeatureCard({
             {totalPercent}%
           </strong>
         </span>
-
-        <span>
-          {getVendorStatusLabel(
-            feature
-              .vendorDiscountStatus
-          )}
-        </span>
       </div>
 
       <div
-        className={
-          styles.subtle
-        }
+        style={{
+          display:
+            "flex",
+
+          gap:
+            8,
+
+          flexWrap:
+            "wrap",
+        }}
       >
-        Începe:{" "}
-        {formatDateTime(
-          feature.startsAt
-        )}
-        {" · "}
-        Se termină:{" "}
-        {formatDateTime(
-          feature.endsAt
-        )}
+        <StatusBadge
+          active={
+            notified
+          }
+          label={
+            notified
+              ? `Notificare trimisă ${formatDateTime(
+                  feature.vendorNotifiedAt
+                )}`
+              : "Notificare netrimisă"
+          }
+        />
+
+        <StatusBadge
+          active={
+            emailed
+          }
+          label={
+            emailed
+              ? "Email trimis"
+              : feature.vendorEmailError
+                ? "Eroare email"
+                : "Email netrimis"
+          }
+        />
+
+        <StatusBadge
+          active={
+            feature.vendorDiscountStatus ===
+            "ACCEPTED"
+          }
+          label={
+            getVendorStatusLabel(
+              feature
+            )
+          }
+        />
       </div>
 
       {!history && (
@@ -2413,6 +1824,27 @@ function FeatureCard({
               styles.tab
             }
             disabled={
+              sending
+            }
+            onClick={() =>
+              onSend(
+                feature
+              )
+            }
+          >
+            {sending
+              ? "Se trimite…"
+              : notified
+                ? "Retrimite vendorului"
+                : "Trimite vendorului"}
+          </button>
+
+          <button
+            type="button"
+            className={
+              styles.tab
+            }
+            disabled={
               deleting
             }
             onClick={() =>
@@ -2431,183 +1863,521 @@ function FeatureCard({
   );
 }
 
-/* =========================================================
-   REZULTAT PRODUS
-========================================================= */
-
-function ProductResultRow({
-  product,
-  onChoose,
-  selected = false,
+function StatusBadge({
+  active,
+  label,
 }) {
   return (
-    <div
+    <span
       style={{
-        border:
-          selected
-            ? "2px solid #22c55e"
-            : "1px solid #e5e7eb",
+        padding:
+          "5px 9px",
 
         borderRadius:
+          999,
+
+        fontSize:
           12,
 
-        padding:
-          10,
+        fontWeight:
+          700,
 
-        display:
-          "flex",
+        background:
+          active
+            ? "#dcfce7"
+            : "#f3f4f6",
 
-        gap:
-          12,
+        color:
+          active
+            ? "#166534"
+            : "#6b7280",
 
-        alignItems:
-          "center",
+        border:
+          active
+            ? "1px solid #bbf7d0"
+            : "1px solid #e5e7eb",
       }}
     >
-      {product?.images?.[0] && (
-        <img
-          src={
-            product.images[0]
-          }
-          alt={
-            product.title
-          }
-          style={{
-            width:
-              64,
+      {label}
+    </span>
+  );
+}
 
-            height:
-              64,
+function EditFeatureModal({
+  feature,
+  form,
+  setForm,
+  query,
+  setQuery,
+  results,
+  selectedResult,
+  searching,
+  saving,
+  onSearch,
+  onSelect,
+  onSubmit,
+  onClose,
+}) {
+  const isProduct =
+    feature.type ===
+    FEATURE_TYPES.PRODUCT_OF_DAY;
 
-            objectFit:
-              "cover",
+  return (
+    <div
+      role="presentation"
+      onMouseDown={
+        onClose
+      }
+      style={{
+        position:
+          "fixed",
 
-            borderRadius:
-              9,
-          }}
-        />
-      )}
+        inset:
+          0,
 
-      <div
+        zIndex:
+          10000,
+
+        background:
+          "rgba(17, 24, 39, 0.62)",
+
+        display:
+          "grid",
+
+        placeItems:
+          "center",
+
+        padding:
+          18,
+      }}
+    >
+      <form
+        onSubmit={
+          onSubmit
+        }
+        onMouseDown={(
+          event
+        ) =>
+          event.stopPropagation()
+        }
         style={{
-          flex:
-            1,
+          width:
+            "100%",
 
-          minWidth:
-            0,
+          maxWidth:
+            650,
+
+          maxHeight:
+            "92vh",
+
+          overflowY:
+            "auto",
+
+          background:
+            "#ffffff",
+
+          borderRadius:
+            17,
+
+          padding:
+            20,
+
+          display:
+            "grid",
+
+          gap:
+            15,
         }}
       >
-        <strong>
-          {product.title}
-        </strong>
-
         <div
-          className={
-            styles.subtle
-          }
+          style={{
+            display:
+              "flex",
+
+            justifyContent:
+              "space-between",
+
+            gap:
+              12,
+          }}
         >
-          {formatMoneyFromCents(
-            product.priceCents,
-            product.currency
-          )}
-          {" · "}
-          {product.category ||
-            "Fără categorie"}
+          <div>
+            <div
+              className={
+                styles.subtle
+              }
+            >
+              {getFeatureTypeLabel(
+                feature.type
+              )}
+            </div>
+
+            <h3
+              style={{
+                margin:
+                  "4px 0 0",
+              }}
+            >
+              Editează selecția
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            onClick={
+              onClose
+            }
+            style={{
+              border:
+                0,
+
+              background:
+                "transparent",
+
+              cursor:
+                "pointer",
+
+              fontSize:
+                25,
+            }}
+          >
+            ×
+          </button>
         </div>
 
-        <div
-          className={
-            styles.subtle
-          }
-        >
-          {product?.service
-            ?.profile?.displayName ||
-            product?.service
-              ?.title ||
-            product?.service
-              ?.vendor
-              ?.displayName ||
-            product?.vendor
-              ?.displayName ||
-            "Magazin necunoscut"}
-        </div>
-      </div>
+        <label>
+          {isProduct
+            ? "Data promovării"
+            : "Începutul săptămânii"}
 
-      {!selected &&
-        onChoose && (
+          <input
+            type="date"
+            value={
+              form.date
+            }
+            onChange={(
+              event
+            ) =>
+              setForm(
+                (
+                  current
+                ) => ({
+                  ...current,
+
+                  date:
+                    event.target
+                      .value,
+                })
+              )
+            }
+            style={{
+              width:
+                "100%",
+
+              marginTop:
+                6,
+            }}
+          />
+        </label>
+
+        <div>
+          <label>
+            {isProduct
+              ? "Produs"
+              : "Magazin"}
+          </label>
+
+          <div
+            style={{
+              display:
+                "flex",
+
+              gap:
+                8,
+
+              marginTop:
+                6,
+
+              flexWrap:
+                "wrap",
+            }}
+          >
+            <input
+              value={
+                query
+              }
+              onChange={(
+                event
+              ) =>
+                setQuery(
+                  event.target
+                    .value
+                )
+              }
+              placeholder={
+                isProduct
+                  ? "Caută un produs"
+                  : "Caută un magazin"
+              }
+              style={{
+                flex:
+                  "1 1 260px",
+              }}
+            />
+
+            <button
+              type="button"
+              className={
+                styles.tab
+              }
+              disabled={
+                searching
+              }
+              onClick={
+                onSearch
+              }
+            >
+              {searching
+                ? "Se caută…"
+                : query.trim()
+                  ? "Caută"
+                  : "Afișează"}
+            </button>
+          </div>
+        </div>
+
+        {!!results.length && (
+          <div
+            style={{
+              display:
+                "grid",
+
+              gap:
+                8,
+            }}
+          >
+            {results.map(
+              (result) => (
+                <SelectionResult
+                  key={
+                    result.id
+                  }
+                  result={
+                    result
+                  }
+                  isProduct={
+                    isProduct
+                  }
+                  onSelect={
+                    onSelect
+                  }
+                />
+              )
+            )}
+          </div>
+        )}
+
+        {selectedResult && (
+          <div>
+            <strong>
+              Selecție curentă
+            </strong>
+
+            <div
+              style={{
+                marginTop:
+                  8,
+              }}
+            >
+              <SelectionResult
+                result={
+                  selectedResult
+                }
+                isProduct={
+                  isProduct
+                }
+                selected
+              />
+            </div>
+          </div>
+        )}
+
+        <label>
+          Reducere oferită de Artfest
+
+          <select
+            value={
+              form.platformDiscountPercent
+            }
+            onChange={(
+              event
+            ) =>
+              setForm(
+                (
+                  current
+                ) => ({
+                  ...current,
+
+                  platformDiscountPercent:
+                    event.target
+                      .value,
+                })
+              )
+            }
+            style={{
+              width:
+                "100%",
+
+              marginTop:
+                6,
+            }}
+          >
+            {DISCOUNT_OPTIONS.map(
+              (discount) => (
+                <option
+                  key={
+                    discount
+                  }
+                  value={
+                    discount
+                  }
+                >
+                  {discount ===
+                  0
+                    ? "Fără reducere"
+                    : `${discount}%`}
+                </option>
+              )
+            )}
+          </select>
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={
+              form.force
+            }
+            onChange={(
+              event
+            ) =>
+              setForm(
+                (
+                  current
+                ) => ({
+                  ...current,
+
+                  force:
+                    event.target
+                      .checked,
+                })
+              )
+            }
+          />{" "}
+          Permite modificarea unei promovări
+          active sau foarte apropiate
+        </label>
+
+        <div
+          style={{
+            display:
+              "flex",
+
+            justifyContent:
+              "flex-end",
+
+            gap:
+              9,
+
+            flexWrap:
+              "wrap",
+          }}
+        >
           <button
             type="button"
             className={
               styles.tab
             }
-            onClick={() =>
-              onChoose(
-                product
-              )
+            onClick={
+              onClose
+            }
+            disabled={
+              saving
             }
           >
-            Selectează
+            Renunță
           </button>
-        )}
+
+          <button
+            type="submit"
+            className={
+              styles.tab
+            }
+            disabled={
+              saving
+            }
+          >
+            {saving
+              ? "Se salvează…"
+              : "Salvează modificările"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
 
-/* =========================================================
-   REZULTAT ARTIZAN
-========================================================= */
-
-function ArtisanResultRow({
-  service,
-  onChoose,
+function SelectionResult({
+  result,
+  isProduct,
+  onSelect,
   selected = false,
 }) {
   const title =
-    service?.profile
-      ?.displayName ||
-    service?.title ||
-    service?.vendor
-      ?.displayName ||
-    "Magazin fără nume";
+    isProduct
+      ? result?.title ||
+        "Produs"
+      : result?.profile
+          ?.displayName ||
+        result?.title ||
+        result?.vendor
+          ?.displayName ||
+        "Magazin";
 
   const image =
-    service?.profile
-      ?.coverUrl ||
-    service?.profile
-      ?.logoUrl ||
-    service?.vendor
-      ?.coverUrl ||
-    service?.vendor
-      ?.logoUrl ||
-    service?.mediaUrls?.[0] ||
-    null;
-
-  const productsCount =
-    service?._count
-      ?.products ??
-    service?.productsCount ??
-    service?.products?.length ??
-    0;
+    isProduct
+      ? result?.images?.[0] ||
+        null
+      : result?.profile
+          ?.coverUrl ||
+        result?.profile
+          ?.logoUrl ||
+        result?.vendor
+          ?.coverUrl ||
+        result?.vendor
+          ?.logoUrl ||
+        result?.mediaUrls?.[0] ||
+        null;
 
   return (
     <div
       style={{
+        padding:
+          10,
+
+        borderRadius:
+          11,
+
         border:
           selected
             ? "2px solid #22c55e"
             : "1px solid #e5e7eb",
 
-        borderRadius:
-          12,
-
-        padding:
-          10,
-
         display:
           "flex",
 
         gap:
-          12,
+          11,
 
         alignItems:
           "center",
@@ -2623,16 +2393,16 @@ function ArtisanResultRow({
           }
           style={{
             width:
-              64,
+              62,
 
             height:
-              64,
-
-            objectFit:
-              "cover",
+              62,
 
             borderRadius:
               9,
+
+            objectFit:
+              "cover",
           }}
         />
       )}
@@ -2650,43 +2420,48 @@ function ArtisanResultRow({
           {title}
         </strong>
 
-        <div
-          className={
-            styles.subtle
-          }
-        >
-          {service?.city ||
-            service?.profile
-              ?.city ||
-            service?.vendor
-              ?.city ||
-            "Localitate nespecificată"}
-          {" · "}
-          {productsCount} produse
-        </div>
+        {isProduct && (
+          <div
+            className={
+              styles.subtle
+            }
+          >
+            {formatMoneyFromCents(
+              result.priceCents,
+              result.currency
+            )}
+            {" · "}
+            {result.category ||
+              "Fără categorie"}
+          </div>
+        )}
 
-        <div
-          className={
-            styles.subtle
-          }
-        >
-          Vendor:{" "}
-          {service?.vendor
-            ?.displayName ||
-            "—"}
-        </div>
+        {!isProduct && (
+          <div
+            className={
+              styles.subtle
+            }
+          >
+            {result?.city ||
+              result?.profile
+                ?.city ||
+              result?.vendor
+                ?.city ||
+              "Localitate nespecificată"}
+          </div>
+        )}
       </div>
 
       {!selected &&
-        onChoose && (
+        onSelect && (
           <button
             type="button"
             className={
               styles.tab
             }
             onClick={() =>
-              onChoose(
-                service
+              onSelect(
+                result
               )
             }
           >

@@ -1,10 +1,8 @@
-/// backend/src/routes/adminHomepageFeatureRoutes.js
+// backend/src/routes/adminHomepageFeatureRoutes.js
 
 import express from "express";
 
-import {
-  prisma,
-} from "../db.js";
+import { prisma } from "../db.js";
 
 import {
   authRequired,
@@ -16,8 +14,15 @@ import {
   notifyVendorOnHomepageFeatureCreated,
 } from "../services/notifications.js";
 
-const router =
-  express.Router();
+import {
+  generateHomepageSchedule,
+} from "../services/homepageFeatureScheduler.js";
+
+import {
+  sendHomepageFeatureSelectedEmail,
+} from "../lib/mailer.js";
+
+const router = express.Router();
 
 const MIN_SCHEDULE_AHEAD_MS =
   24 * 60 * 60 * 1000;
@@ -40,8 +45,27 @@ router.use(
 );
 
 /* =========================================================
-   INCLUDE-URI
+   INCLUDE PRISMA
 ========================================================= */
+
+const vendorSelectForFeature = {
+  id: true,
+  displayName: true,
+  logoUrl: true,
+  coverUrl: true,
+  city: true,
+  email: true,
+  userId: true,
+
+  user: {
+    select: {
+      email: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+    },
+  },
+};
 
 const featureInclude = {
   product: {
@@ -51,15 +75,8 @@ const featureInclude = {
           profile: true,
 
           vendor: {
-            select: {
-              id: true,
-              displayName: true,
-              logoUrl: true,
-              coverUrl: true,
-              city: true,
-              email: true,
-              userId: true,
-            },
+            select:
+              vendorSelectForFeature,
           },
         },
       },
@@ -71,15 +88,8 @@ const featureInclude = {
       profile: true,
 
       vendor: {
-        select: {
-          id: true,
-          displayName: true,
-          logoUrl: true,
-          coverUrl: true,
-          city: true,
-          email: true,
-          userId: true,
-        },
+        select:
+          vendorSelectForFeature,
       },
 
       _count: {
@@ -98,29 +108,18 @@ const featureInclude = {
   },
 
   vendor: {
-    select: {
-      id: true,
-      displayName: true,
-      logoUrl: true,
-      coverUrl: true,
-      city: true,
-      email: true,
-      userId: true,
-    },
+    select:
+      vendorSelectForFeature,
   },
 };
-
 /* =========================================================
    HELPERS
 ========================================================= */
 
 function clampTake(value) {
-  const numeric =
-    Number(value);
+  const numeric = Number(value);
 
-  if (
-    !Number.isFinite(numeric)
-  ) {
+  if (!Number.isFinite(numeric)) {
     return DEFAULT_TAKE;
   }
 
@@ -134,23 +133,15 @@ function clampTake(value) {
 }
 
 function normalizeDiscount(value) {
-  const numeric =
-    Number(value);
+  const numeric = Number(value);
 
-  if (
-    !Number.isFinite(numeric)
-  ) {
+  if (!Number.isFinite(numeric)) {
     return 0;
   }
 
-  const rounded =
-    Math.round(numeric);
+  const rounded = Math.round(numeric);
 
-  if (
-    !ALLOWED_DISCOUNTS.has(
-      rounded
-    )
-  ) {
+  if (!ALLOWED_DISCOUNTS.has(rounded)) {
     return null;
   }
 
@@ -160,44 +151,28 @@ function normalizeDiscount(value) {
 function parseDateInput(value) {
   if (
     typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(
-      value
-    )
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
   ) {
     return null;
   }
 
-  const [
+  const [year, month, day] =
+    value.split("-").map(Number);
+
+  const date = new Date(
     year,
-    month,
+    month - 1,
     day,
-  ] = value
-    .split("-")
-    .map(Number);
+    0,
+    0,
+    0,
+    0
+  );
 
-  const date =
-    new Date(
-      year,
-      month - 1,
-      day,
-      0,
-      0,
-      0,
-      0
-    );
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return null;
   }
 
-  /*
-   * Protecție suplimentară pentru date precum:
-   * 2026-02-31, pe care JavaScript le-ar muta în martie.
-   */
   if (
     date.getFullYear() !== year ||
     date.getMonth() !== month - 1 ||
@@ -210,80 +185,58 @@ function parseDateInput(value) {
 }
 
 function getDayKey(date) {
-  const year =
-    date.getFullYear();
+  const year = date.getFullYear();
 
-  const month =
-    String(
-      date.getMonth() + 1
-    ).padStart(
-      2,
-      "0"
-    );
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
 
-  const day =
-    String(
-      date.getDate()
-    ).padStart(
-      2,
-      "0"
-    );
+  const day = String(
+    date.getDate()
+  ).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 }
 
 function getWeekKey(date) {
-  const d =
-    new Date(
-      Date.UTC(
-        date.getFullYear(),
-        date.getMonth(),
-        date.getDate()
-      )
-    );
+  const d = new Date(
+    Date.UTC(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate()
+    )
+  );
 
   const dayNum =
     d.getUTCDay() || 7;
 
   d.setUTCDate(
-    d.getUTCDate() +
-      4 -
-      dayNum
+    d.getUTCDate() + 4 - dayNum
   );
 
-  const yearStart =
-    new Date(
-      Date.UTC(
-        d.getUTCFullYear(),
-        0,
-        1
-      )
-    );
+  const yearStart = new Date(
+    Date.UTC(
+      d.getUTCFullYear(),
+      0,
+      1
+    )
+  );
 
-  const weekNo =
-    Math.ceil(
-      (
-        (
-          d -
-          yearStart
-        ) /
-          86400000 +
-        1
-      ) /
-        7
-    );
+  const weekNo = Math.ceil(
+    (
+      (d - yearStart) /
+        86400000 +
+      1
+    ) / 7
+  );
 
   return `${d.getUTCFullYear()}-W${String(
     weekNo
-  ).padStart(
-    2,
-    "0"
-  )}`;
+  ).padStart(2, "0")}`;
 }
 
 function getDayRange(date) {
-  const startsAt =
-    new Date(date);
+  const startsAt = new Date(date);
 
   startsAt.setHours(
     0,
@@ -292,8 +245,7 @@ function getDayRange(date) {
     0
   );
 
-  const endsAt =
-    new Date(startsAt);
+  const endsAt = new Date(startsAt);
 
   endsAt.setDate(
     endsAt.getDate() + 1
@@ -306,8 +258,7 @@ function getDayRange(date) {
 }
 
 function getWeekRange(date) {
-  const startsAt =
-    new Date(date);
+  const startsAt = new Date(date);
 
   startsAt.setHours(
     0,
@@ -329,8 +280,7 @@ function getWeekRange(date) {
       diffToMonday
   );
 
-  const endsAt =
-    new Date(startsAt);
+  const endsAt = new Date(startsAt);
 
   endsAt.setDate(
     endsAt.getDate() + 7
@@ -377,77 +327,20 @@ function validateAdvance({
 }
 
 function buildDuplicateMessage(type) {
-  return type ===
-    "PRODUCT_OF_DAY"
+  return type === "PRODUCT_OF_DAY"
     ? "Există deja un Produs al zilei programat pentru data selectată."
     : "Există deja un Artizan al săptămânii programat pentru săptămâna selectată.";
 }
 
 function resetVendorResponseData() {
   return {
-    vendorDiscountPercent:
-      0,
-
-    vendorDiscountStatus:
-      "PENDING",
-
-    vendorDiscountRespondedAt:
-      null,
-
-    vendorNotifiedAt:
-      null,
-
-    vendorEmailedAt:
-      null,
-
-    vendorEmailError:
-      null,
+    vendorDiscountPercent: 0,
+    vendorDiscountStatus: "PENDING",
+    vendorDiscountRespondedAt: null,
+    vendorNotifiedAt: null,
+    vendorEmailedAt: null,
+    vendorEmailError: null,
   };
-}
-
-async function notifyVendorSafely({
-  featureId,
-  context,
-}) {
-  try {
-    const notification =
-      await notifyVendorOnHomepageFeatureCreated(
-        featureId
-      );
-
-    /*
-     * Dacă notificarea a fost creată acum,
-     * marcăm momentul trimiterii.
-     *
-     * Dacă funcția returnează null, notificarea
-     * poate exista deja datorită dedupeKey.
-     */
-    if (notification) {
-      await prisma.homepageFeature.update({
-        where: {
-          id: featureId,
-        },
-
-        data: {
-          vendorNotifiedAt:
-            new Date(),
-        },
-      });
-    }
-
-    return notification;
-  } catch (error) {
-    console.error(
-      `[admin-homepage-features] ${context} notification failed`,
-      error
-    );
-
-    /*
-     * O eroare de notificare nu trebuie
-     * să anuleze promovarea salvată.
-     */
-    return null;
-  }
 }
 
 async function findEligibleProduct(
@@ -455,22 +348,17 @@ async function findEligibleProduct(
 ) {
   if (
     !productId ||
-    typeof productId !==
-      "string"
+    typeof productId !== "string"
   ) {
     return null;
   }
 
   return prisma.product.findFirst({
     where: {
-      id:
-        productId,
+      id: productId,
 
-      isActive:
-        true,
-
-      isHidden:
-        false,
+      isActive: true,
+      isHidden: false,
 
       moderationStatus:
         "APPROVED",
@@ -484,15 +372,11 @@ async function findEligibleProduct(
       },
 
       service: {
-        isActive:
-          true,
-
-        status:
-          "ACTIVE",
+        isActive: true,
+        status: "ACTIVE",
 
         vendor: {
-          isActive:
-            true,
+          isActive: true,
         },
       },
     },
@@ -500,11 +384,8 @@ async function findEligibleProduct(
     include: {
       service: {
         select: {
-          id:
-            true,
-
-          vendorId:
-            true,
+          id: true,
+          vendorId: true,
         },
       },
     },
@@ -516,35 +397,26 @@ async function findEligibleService(
 ) {
   if (
     !serviceId ||
-    typeof serviceId !==
-      "string"
+    typeof serviceId !== "string"
   ) {
     return null;
   }
 
   return prisma.vendorService.findFirst({
     where: {
-      id:
-        serviceId,
+      id: serviceId,
 
-      isActive:
-        true,
-
-      status:
-        "ACTIVE",
+      isActive: true,
+      status: "ACTIVE",
 
       vendor: {
-        isActive:
-          true,
+        isActive: true,
       },
 
       products: {
         some: {
-          isActive:
-            true,
-
-          isHidden:
-            false,
+          isActive: true,
+          isHidden: false,
 
           moderationStatus:
             "APPROVED",
@@ -553,15 +425,281 @@ async function findEligibleService(
     },
 
     select: {
-      id:
-        true,
-
-      vendorId:
-        true,
+      id: true,
+      vendorId: true,
     },
   });
 }
 
+async function sendVendorNotificationSafely(
+  feature
+) {
+  const featureId =
+    feature?.id;
+
+  if (!featureId) {
+    return {
+      ok: false,
+      notification: null,
+      notificationSent: false,
+      emailSent: false,
+      emailSkipped: false,
+      notificationError:
+        new Error(
+          "Missing homepage feature"
+        ),
+      emailError: null,
+    };
+  }
+
+  let notification =
+    null;
+
+  let notificationSent =
+    false;
+
+  let emailSent =
+    false;
+
+  let emailSkipped =
+    false;
+
+  let notificationError =
+    null;
+
+  let emailError =
+    null;
+
+  /*
+   * 1. Notificarea din platformă
+   */
+  try {
+    notification =
+      await notifyVendorOnHomepageFeatureCreated(
+        featureId
+      );
+
+    if (notification) {
+      notificationSent =
+        true;
+
+      await prisma.homepageFeature.update({
+        where: {
+          id:
+            featureId,
+        },
+
+        data: {
+          vendorNotifiedAt:
+            new Date(),
+        },
+      });
+    }
+  } catch (error) {
+    notificationError =
+      error;
+
+    console.error(
+      "[admin-homepage-features] vendor notification failed",
+      error
+    );
+  }
+
+  /*
+   * 2. Emailul
+   */
+  if (
+    feature.vendorEmailedAt
+  ) {
+    emailSkipped =
+      true;
+  } else {
+    try {
+      const vendor =
+        feature.vendor ||
+        feature.service?.vendor ||
+        feature.product?.service
+          ?.vendor ||
+        null;
+
+      const vendorEmail =
+        String(
+          vendor?.user?.email ||
+            vendor?.email ||
+            ""
+        ).trim();
+
+      if (!vendorEmail) {
+        throw new Error(
+          "Vendorul nu are o adresă de email."
+        );
+      }
+
+      const accountName =
+        String(
+          vendor?.user?.name ||
+            ""
+        ).trim();
+
+      const composedAccountName =
+        [
+          vendor?.user
+            ?.firstName,
+          vendor?.user
+            ?.lastName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+
+      const vendorName =
+        accountName ||
+        composedAccountName ||
+        vendor?.displayName ||
+        feature.service?.profile
+          ?.displayName ||
+        feature.product?.service
+          ?.profile?.displayName ||
+        "creator";
+
+      const storeName =
+        feature.service?.profile
+          ?.displayName ||
+        feature.product?.service
+          ?.profile?.displayName ||
+        vendor?.displayName ||
+        null;
+
+      console.log(
+        "[HOMEPAGE FEATURE EMAIL RECIPIENT]",
+        {
+          featureId:
+            feature.id,
+
+          vendorId:
+            vendor?.id ||
+            null,
+
+          userId:
+            vendor?.userId ||
+            null,
+
+          accountEmail:
+            vendor?.user
+              ?.email ||
+            null,
+
+          vendorEmail:
+            vendor?.email ||
+            null,
+
+          selectedEmail:
+            vendorEmail,
+        }
+      );
+
+      await sendHomepageFeatureSelectedEmail({
+        to:
+          vendorEmail,
+
+        userId:
+          vendor?.userId ||
+          null,
+
+        vendorName,
+
+        featureId:
+          feature.id,
+
+        featureType:
+          feature.type,
+
+        productTitle:
+          feature.product
+            ?.title ||
+          null,
+
+        storeName,
+
+        startsAt:
+          feature.startsAt,
+
+        endsAt:
+          feature.endsAt,
+
+        platformDiscountPercent:
+          feature
+            .platformDiscountPercent,
+      });
+
+      emailSent =
+        true;
+
+      await prisma.homepageFeature.update({
+        where: {
+          id:
+            featureId,
+        },
+
+        data: {
+          vendorEmailedAt:
+            new Date(),
+
+          vendorEmailError:
+            null,
+        },
+      });
+    } catch (error) {
+      emailError =
+        error;
+
+      const errorMessage =
+        String(
+          error?.message ||
+            error ||
+            "Email error"
+        ).slice(
+          0,
+          1000
+        );
+
+      console.error(
+        "[admin-homepage-features] vendor email failed",
+        error
+      );
+
+      await prisma.homepageFeature
+        .update({
+          where: {
+            id:
+              featureId,
+          },
+
+          data: {
+            vendorEmailError:
+              errorMessage,
+          },
+        })
+        .catch(
+          () => null
+        );
+    }
+  }
+
+  return {
+    ok:
+      !notificationError &&
+      !emailError,
+
+    notification,
+    notificationSent,
+    emailSent,
+    emailSkipped,
+
+    notificationError,
+    emailError,
+  };
+}
 /* =========================================================
    LISTĂ PROMOVĂRI
 ========================================================= */
@@ -582,13 +720,10 @@ router.get(
 
           orderBy: [
             {
-              startsAt:
-                "asc",
+              startsAt: "asc",
             },
-
             {
-              createdAt:
-                "desc",
+              createdAt: "desc",
             },
           ],
 
@@ -605,13 +740,128 @@ router.get(
         error
       );
 
-      return res.status(
-        500
-      ).json({
+      return res.status(500).json({
         ok: false,
 
         message:
           "Nu am putut încărca promovările homepage.",
+      });
+    }
+  }
+);
+
+/* =========================================================
+   GENERARE AUTOMATĂ CALENDAR
+========================================================= */
+
+/**
+ * POST /api/admin/homepage-features/generate
+ *
+ * Body opțional:
+ *
+ * {
+ *   productDays: 14,
+ *   artisanWeeks: 4,
+ *   platformDiscountPercent: 5
+ * }
+ *
+ * Completează numai perioadele lipsă.
+ * Nu trimite notificări automat.
+ */
+router.post(
+  "/generate",
+  async (req, res) => {
+    try {
+      const productDays = Math.min(
+        90,
+        Math.max(
+          1,
+          Math.round(
+            Number(
+              req.body?.productDays ||
+                14
+            )
+          )
+        )
+      );
+
+      const artisanWeeks = Math.min(
+        26,
+        Math.max(
+          1,
+          Math.round(
+            Number(
+              req.body?.artisanWeeks ||
+                4
+            )
+          )
+        )
+      );
+
+      const rawDiscount =
+        req.body
+          ?.platformDiscountPercent;
+
+      let platformDiscountPercent;
+
+      if (
+        rawDiscount !== undefined &&
+        rawDiscount !== null &&
+        rawDiscount !== ""
+      ) {
+        platformDiscountPercent =
+          normalizeDiscount(
+            rawDiscount
+          );
+
+        if (
+          platformDiscountPercent ===
+          null
+        ) {
+          return res.status(400).json({
+            ok: false,
+
+            message:
+              "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
+          });
+        }
+      }
+
+      const result =
+        await generateHomepageSchedule({
+          startDate:
+            new Date(),
+
+          productDays,
+          artisanWeeks,
+
+          ...(platformDiscountPercent !==
+          undefined
+            ? {
+                platformDiscountPercent,
+              }
+            : {}),
+        });
+
+      return res.status(201).json({
+        ok: true,
+
+        message:
+          "Calendarul de promovări a fost completat.",
+
+        ...result,
+      });
+    } catch (error) {
+      console.error(
+        "[admin-homepage-features] generate",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+
+        message:
+          "Nu am putut genera calendarul de promovări.",
       });
     }
   }
@@ -625,11 +875,9 @@ router.get(
   "/products",
   async (req, res) => {
     try {
-      const q =
-        String(
-          req.query.q ||
-            ""
-        ).trim();
+      const q = String(
+        req.query.q || ""
+      ).trim();
 
       const take =
         clampTake(
@@ -639,11 +887,8 @@ router.get(
       const products =
         await prisma.product.findMany({
           where: {
-            isActive:
-              true,
-
-            isHidden:
-              false,
+            isActive: true,
+            isHidden: false,
 
             moderationStatus:
               "APPROVED",
@@ -657,15 +902,11 @@ router.get(
             },
 
             service: {
-              isActive:
-                true,
-
-              status:
-                "ACTIVE",
+              isActive: true,
+              status: "ACTIVE",
 
               vendor: {
-                isActive:
-                  true,
+                isActive: true,
               },
             },
 
@@ -674,32 +915,23 @@ router.get(
                   OR: [
                     {
                       title: {
-                        contains:
-                          q,
-
-                        mode:
-                          "insensitive",
+                        contains: q,
+                        mode: "insensitive",
                       },
                     },
 
                     {
                       category: {
-                        contains:
-                          q,
-
-                        mode:
-                          "insensitive",
+                        contains: q,
+                        mode: "insensitive",
                       },
                     },
 
                     {
                       service: {
                         title: {
-                          contains:
-                            q,
-
-                          mode:
-                            "insensitive",
+                          contains: q,
+                          mode: "insensitive",
                         },
                       },
                     },
@@ -708,11 +940,8 @@ router.get(
                       service: {
                         profile: {
                           displayName: {
-                            contains:
-                              q,
-
-                            mode:
-                              "insensitive",
+                            contains: q,
+                            mode: "insensitive",
                           },
                         },
                       },
@@ -722,11 +951,8 @@ router.get(
                       service: {
                         vendor: {
                           displayName: {
-                            contains:
-                              q,
-
-                            mode:
-                              "insensitive",
+                            contains: q,
+                            mode: "insensitive",
                           },
                         },
                       },
@@ -739,22 +965,14 @@ router.get(
           include: {
             service: {
               include: {
-                profile:
-                  true,
+                profile: true,
 
                 vendor: {
                   select: {
-                    id:
-                      true,
-
-                    displayName:
-                      true,
-
-                    logoUrl:
-                      true,
-
-                    city:
-                      true,
+                    id: true,
+                    displayName: true,
+                    logoUrl: true,
+                    city: true,
                   },
                 },
               },
@@ -762,8 +980,7 @@ router.get(
           },
 
           orderBy: {
-            createdAt:
-              "desc",
+            createdAt: "desc",
           },
 
           take,
@@ -779,9 +996,7 @@ router.get(
         error
       );
 
-      return res.status(
-        500
-      ).json({
+      return res.status(500).json({
         ok: false,
 
         message:
@@ -799,11 +1014,9 @@ router.get(
   "/artisans",
   async (req, res) => {
     try {
-      const q =
-        String(
-          req.query.q ||
-            ""
-        ).trim();
+      const q = String(
+        req.query.q || ""
+      ).trim();
 
       const take =
         clampTake(
@@ -813,24 +1026,17 @@ router.get(
       const artisans =
         await prisma.vendorService.findMany({
           where: {
-            isActive:
-              true,
-
-            status:
-              "ACTIVE",
+            isActive: true,
+            status: "ACTIVE",
 
             vendor: {
-              isActive:
-                true,
+              isActive: true,
             },
 
             products: {
               some: {
-                isActive:
-                  true,
-
-                isHidden:
-                  false,
+                isActive: true,
+                isHidden: false,
 
                 moderationStatus:
                   "APPROVED",
@@ -842,32 +1048,23 @@ router.get(
                   OR: [
                     {
                       title: {
-                        contains:
-                          q,
-
-                        mode:
-                          "insensitive",
+                        contains: q,
+                        mode: "insensitive",
                       },
                     },
 
                     {
                       city: {
-                        contains:
-                          q,
-
-                        mode:
-                          "insensitive",
+                        contains: q,
+                        mode: "insensitive",
                       },
                     },
 
                     {
                       profile: {
                         displayName: {
-                          contains:
-                            q,
-
-                          mode:
-                            "insensitive",
+                          contains: q,
+                          mode: "insensitive",
                         },
                       },
                     },
@@ -875,11 +1072,8 @@ router.get(
                     {
                       vendor: {
                         displayName: {
-                          contains:
-                            q,
-
-                          mode:
-                            "insensitive",
+                          contains: q,
+                          mode: "insensitive",
                         },
                       },
                     },
@@ -889,25 +1083,15 @@ router.get(
           },
 
           include: {
-            profile:
-              true,
+            profile: true,
 
             vendor: {
               select: {
-                id:
-                  true,
-
-                displayName:
-                  true,
-
-                logoUrl:
-                  true,
-
-                coverUrl:
-                  true,
-
-                city:
-                  true,
+                id: true,
+                displayName: true,
+                logoUrl: true,
+                coverUrl: true,
+                city: true,
               },
             },
 
@@ -915,11 +1099,8 @@ router.get(
               select: {
                 products: {
                   where: {
-                    isActive:
-                      true,
-
-                    isHidden:
-                      false,
+                    isActive: true,
+                    isHidden: false,
 
                     moderationStatus:
                       "APPROVED",
@@ -930,8 +1111,7 @@ router.get(
           },
 
           orderBy: {
-            createdAt:
-              "desc",
+            createdAt: "desc",
           },
 
           take,
@@ -947,9 +1127,7 @@ router.get(
         error
       );
 
-      return res.status(
-        500
-      ).json({
+      return res.status(500).json({
         ok: false,
 
         message:
@@ -960,9 +1138,15 @@ router.get(
 );
 
 /* =========================================================
-   PROGRAMARE PRODUSUL ZILEI
+   CREARE / ÎNLOCUIRE MANUALĂ PRODUSUL ZILEI
 ========================================================= */
 
+/**
+ * Păstrăm ruta pentru compatibilitate cu
+ * formularul actual și pentru schimbări manuale.
+ *
+ * Nu trimite automat notificarea vendorului.
+ */
 router.post(
   "/product",
   async (req, res) => {
@@ -980,6 +1164,7 @@ router.post(
       if (!parsedDate) {
         return res.status(400).json({
           ok: false,
+
           message:
             "Data promovării nu este validă.",
         });
@@ -993,6 +1178,7 @@ router.post(
       if (discount === null) {
         return res.status(400).json({
           ok: false,
+
           message:
             "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
         });
@@ -1001,7 +1187,9 @@ router.post(
       const {
         startsAt,
         endsAt,
-      } = getDayRange(parsedDate);
+      } = getDayRange(
+        parsedDate
+      );
 
       const advanceError =
         validateAdvance({
@@ -1011,8 +1199,12 @@ router.post(
 
       if (advanceError) {
         return res
-          .status(advanceError.status)
-          .json(advanceError.body);
+          .status(
+            advanceError.status
+          )
+          .json(
+            advanceError.body
+          );
       }
 
       const product =
@@ -1023,69 +1215,51 @@ router.post(
       if (!product) {
         return res.status(404).json({
           ok: false,
+
           message:
             "Produsul nu există sau nu este eligibil.",
         });
       }
 
       const dateKey =
-        getDayKey(startsAt);
+        getDayKey(
+          startsAt
+        );
 
-      const existingFeature =
+      const existing =
         await prisma.homepageFeature.findUnique({
           where: {
             type_dateKey: {
               type:
                 "PRODUCT_OF_DAY",
+
               dateKey,
             },
           },
-
-          select: {
-            id: true,
-            vendorId: true,
-            productId: true,
-            serviceId: true,
-          },
         });
 
-      const vendorChanged =
+      const selectionChanged =
         Boolean(
-          existingFeature &&
-            existingFeature.vendorId !==
-              product.service.vendorId
+          existing &&
+            (
+              existing.productId !==
+                product.id ||
+              existing.serviceId !==
+                product.service.id ||
+              existing.vendorId !==
+                product.service.vendorId
+            )
         );
-
-      const productChanged =
-        Boolean(
-          existingFeature &&
-            existingFeature.productId !==
-              product.id
-        );
-
-      const serviceChanged =
-        Boolean(
-          existingFeature &&
-            existingFeature.serviceId !==
-              product.service.id
-        );
-
-      const shouldResetVendor =
-        vendorChanged ||
-        productChanged ||
-        serviceChanged;
 
       const feature =
-        existingFeature
+        existing
           ? await prisma.homepageFeature.update({
               where: {
-                id:
-                  existingFeature.id,
+                id: existing.id,
               },
 
               data: {
-                source:
-                  "MANUAL",
+                source: "MANUAL",
 
                 productId:
                   product.id,
@@ -1094,7 +1268,8 @@ router.post(
                   product.service.id,
 
                 vendorId:
-                  product.service.vendorId,
+                  product.service
+                    .vendorId,
 
                 startsAt,
                 endsAt,
@@ -1102,7 +1277,7 @@ router.post(
                 platformDiscountPercent:
                   discount,
 
-                ...(shouldResetVendor
+                ...(selectionChanged
                   ? resetVendorResponseData()
                   : {}),
               },
@@ -1116,9 +1291,7 @@ router.post(
                   "PRODUCT_OF_DAY",
 
                 dateKey,
-
-                source:
-                  "MANUAL",
+                source: "MANUAL",
 
                 productId:
                   product.id,
@@ -1127,7 +1300,8 @@ router.post(
                   product.service.id,
 
                 vendorId:
-                  product.service.vendorId,
+                  product.service
+                    .vendorId,
 
                 startsAt,
                 endsAt,
@@ -1142,28 +1316,9 @@ router.post(
                 featureInclude,
             });
 
-      /*
-       * Notificăm vendorul numai dacă:
-       * - promovarea este nouă;
-       * - produsul s-a schimbat;
-       * - magazinul/vendorul s-a schimbat.
-       */
-      if (
-        !existingFeature ||
-        shouldResetVendor
-      ) {
-        await notifyVendorSafely({
-          featureId:
-            feature.id,
-
-          context:
-            "product",
-        });
-      }
-
       return res
         .status(
-          existingFeature
+          existing
             ? 200
             : 201
         )
@@ -1173,32 +1328,33 @@ router.post(
         });
     } catch (error) {
       console.error(
-        "[admin-homepage-features] create product",
+        "[admin-homepage-features] product",
         error
       );
 
-      if (
-        error?.code ===
-        "P2002"
-      ) {
+      if (error?.code === "P2002") {
         return res.status(409).json({
           ok: false,
+
           message:
-            "Există deja un Produs al zilei programat pentru data selectată.",
+            buildDuplicateMessage(
+              "PRODUCT_OF_DAY"
+            ),
         });
       }
 
       return res.status(500).json({
         ok: false,
+
         message:
-          "Nu am putut programa Produsul zilei.",
+          "Nu am putut salva Produsul zilei.",
       });
     }
   }
 );
 
 /* =========================================================
-   PROGRAMARE ARTIZANUL SĂPTĂMÂNII
+   CREARE / ÎNLOCUIRE MANUALĂ ARTIZAN
 ========================================================= */
 
 router.post(
@@ -1220,6 +1376,7 @@ router.post(
       if (!parsedDate) {
         return res.status(400).json({
           ok: false,
+
           message:
             "Data de început nu este validă.",
         });
@@ -1233,6 +1390,7 @@ router.post(
       if (discount === null) {
         return res.status(400).json({
           ok: false,
+
           message:
             "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
         });
@@ -1253,8 +1411,12 @@ router.post(
 
       if (advanceError) {
         return res
-          .status(advanceError.status)
-          .json(advanceError.body);
+          .status(
+            advanceError.status
+          )
+          .json(
+            advanceError.body
+          );
       }
 
       const service =
@@ -1265,63 +1427,51 @@ router.post(
       if (!service) {
         return res.status(404).json({
           ok: false,
+
           message:
             "Magazinul nu există sau nu este eligibil.",
         });
       }
 
       const dateKey =
-        getWeekKey(startsAt);
+        getWeekKey(
+          startsAt
+        );
 
-      const existingFeature =
+      const existing =
         await prisma.homepageFeature.findUnique({
           where: {
             type_dateKey: {
               type:
                 "ARTISAN_OF_WEEK",
+
               dateKey,
             },
           },
-
-          select: {
-            id: true,
-            vendorId: true,
-            serviceId: true,
-          },
         });
 
-      const vendorChanged =
+      const selectionChanged =
         Boolean(
-          existingFeature &&
-            existingFeature.vendorId !==
-              service.vendorId
+          existing &&
+            (
+              existing.serviceId !==
+                service.id ||
+              existing.vendorId !==
+                service.vendorId
+            )
         );
-
-      const serviceChanged =
-        Boolean(
-          existingFeature &&
-            existingFeature.serviceId !==
-              service.id
-        );
-
-      const shouldResetVendor =
-        vendorChanged ||
-        serviceChanged;
 
       const feature =
-        existingFeature
+        existing
           ? await prisma.homepageFeature.update({
               where: {
-                id:
-                  existingFeature.id,
+                id: existing.id,
               },
 
               data: {
-                source:
-                  "MANUAL",
+                source: "MANUAL",
 
-                productId:
-                  null,
+                productId: null,
 
                 serviceId:
                   service.id,
@@ -1335,7 +1485,7 @@ router.post(
                 platformDiscountPercent:
                   discount,
 
-                ...(shouldResetVendor
+                ...(selectionChanged
                   ? resetVendorResponseData()
                   : {}),
               },
@@ -1349,12 +1499,9 @@ router.post(
                   "ARTISAN_OF_WEEK",
 
                 dateKey,
+                source: "MANUAL",
 
-                source:
-                  "MANUAL",
-
-                productId:
-                  null,
+                productId: null,
 
                 serviceId:
                   service.id,
@@ -1375,28 +1522,9 @@ router.post(
                 featureInclude,
             });
 
-      /*
-       * Notificăm vendorul numai dacă:
-       * - promovarea este nouă;
-       * - artizanul/magazinul s-a schimbat;
-       * - vendorul s-a schimbat.
-       */
-      if (
-        !existingFeature ||
-        shouldResetVendor
-      ) {
-        await notifyVendorSafely({
-          featureId:
-            feature.id,
-
-          context:
-            "artisan",
-        });
-      }
-
       return res
         .status(
-          existingFeature
+          existing
             ? 200
             : 201
         )
@@ -1406,25 +1534,26 @@ router.post(
         });
     } catch (error) {
       console.error(
-        "[admin-homepage-features] create artisan",
+        "[admin-homepage-features] artisan",
         error
       );
 
-      if (
-        error?.code ===
-        "P2002"
-      ) {
+      if (error?.code === "P2002") {
         return res.status(409).json({
           ok: false,
+
           message:
-            "Există deja un Artizan al săptămânii programat pentru săptămâna selectată.",
+            buildDuplicateMessage(
+              "ARTISAN_OF_WEEK"
+            ),
         });
       }
 
       return res.status(500).json({
         ok: false,
+
         message:
-          "Nu am putut programa Artizanul săptămânii.",
+          "Nu am putut salva Artizanul săptămânii.",
       });
     }
   }
@@ -1451,6 +1580,7 @@ router.patch(
       if (!existing) {
         return res.status(404).json({
           ok: false,
+
           message:
             "Promovarea nu există.",
         });
@@ -1465,14 +1595,11 @@ router.patch(
       if (discount === null) {
         return res.status(400).json({
           ok: false,
+
           message:
             "Reducerea Artfest trebuie să fie 0%, 5%, 10%, 15% sau 20%.",
         });
       }
-
-      /* =====================================================
-         EDITARE PRODUSUL ZILEI
-      ===================================================== */
 
       if (
         existing.type ===
@@ -1486,6 +1613,7 @@ router.patch(
         if (!parsedDate) {
           return res.status(400).json({
             ok: false,
+
             message:
               "Data promovării nu este validă.",
           });
@@ -1501,10 +1629,9 @@ router.patch(
         const advanceError =
           validateAdvance({
             startsAt,
+
             force:
-              req.body
-                ?.force ===
-              true,
+              req.body?.force === true,
           });
 
         if (advanceError) {
@@ -1525,6 +1652,7 @@ router.patch(
         if (!product) {
           return res.status(404).json({
             ok: false,
+
             message:
               "Produsul nu există sau nu este eligibil.",
           });
@@ -1544,20 +1672,15 @@ router.patch(
               dateKey,
 
               id: {
-                not:
-                  id,
+                not: id,
               },
-            },
-
-            select: {
-              id:
-                true,
             },
           });
 
         if (conflict) {
           return res.status(409).json({
             ok: false,
+
             message:
               buildDuplicateMessage(
                 "PRODUCT_OF_DAY"
@@ -1565,22 +1688,13 @@ router.patch(
           });
         }
 
-        const vendorChanged =
-          existing.vendorId !==
-          product.service.vendorId;
-
-        const productChanged =
+        const selectionChanged =
           existing.productId !==
-          product.id;
-
-        const serviceChanged =
+            product.id ||
           existing.serviceId !==
-          product.service.id;
-
-        const shouldResetVendor =
-          vendorChanged ||
-          productChanged ||
-          serviceChanged;
+            product.service.id ||
+          existing.vendorId !==
+            product.service.vendorId;
 
         const feature =
           await prisma.homepageFeature.update({
@@ -1590,9 +1704,7 @@ router.patch(
 
             data: {
               dateKey,
-
-              source:
-                "MANUAL",
+              source: "MANUAL",
 
               productId:
                 product.id,
@@ -1601,7 +1713,8 @@ router.patch(
                 product.service.id,
 
               vendorId:
-                product.service.vendorId,
+                product.service
+                  .vendorId,
 
               startsAt,
               endsAt,
@@ -1609,11 +1722,7 @@ router.patch(
               platformDiscountPercent:
                 discount,
 
-              /*
-               * Dacă ai schimbat produsul sau vendorul,
-               * răspunsul vechiului vendor nu mai este valabil.
-               */
-              ...(shouldResetVendor
+              ...(selectionChanged
                 ? resetVendorResponseData()
                 : {}),
             },
@@ -1622,27 +1731,11 @@ router.patch(
               featureInclude,
           });
 
-        if (
-          shouldResetVendor
-        ) {
-          await notifyVendorSafely({
-            featureId:
-              feature.id,
-
-            context:
-              "product update",
-          });
-        }
-
         return res.json({
           ok: true,
           feature,
         });
       }
-
-      /* =====================================================
-         EDITARE ARTIZANUL SĂPTĂMÂNII
-      ===================================================== */
 
       if (
         existing.type !==
@@ -1650,6 +1743,7 @@ router.patch(
       ) {
         return res.status(400).json({
           ok: false,
+
           message:
             "Tipul promovării nu este valid.",
         });
@@ -1657,13 +1751,13 @@ router.patch(
 
       const parsedDate =
         parseDateInput(
-          req.body
-            ?.weekStartDate
+          req.body?.weekStartDate
         );
 
       if (!parsedDate) {
         return res.status(400).json({
           ok: false,
+
           message:
             "Data de început nu este validă.",
         });
@@ -1679,10 +1773,9 @@ router.patch(
       const advanceError =
         validateAdvance({
           startsAt,
+
           force:
-            req.body
-              ?.force ===
-            true,
+            req.body?.force === true,
         });
 
       if (advanceError) {
@@ -1703,6 +1796,7 @@ router.patch(
       if (!service) {
         return res.status(404).json({
           ok: false,
+
           message:
             "Magazinul nu există sau nu este eligibil.",
         });
@@ -1722,20 +1816,15 @@ router.patch(
             dateKey,
 
             id: {
-              not:
-                id,
+              not: id,
             },
-          },
-
-          select: {
-            id:
-              true,
           },
         });
 
       if (conflict) {
         return res.status(409).json({
           ok: false,
+
           message:
             buildDuplicateMessage(
               "ARTISAN_OF_WEEK"
@@ -1743,17 +1832,11 @@ router.patch(
         });
       }
 
-      const vendorChanged =
-        existing.vendorId !==
-        service.vendorId;
-
-      const serviceChanged =
+      const selectionChanged =
         existing.serviceId !==
-        service.id;
-
-      const shouldResetVendor =
-        vendorChanged ||
-        serviceChanged;
+          service.id ||
+        existing.vendorId !==
+          service.vendorId;
 
       const feature =
         await prisma.homepageFeature.update({
@@ -1763,12 +1846,9 @@ router.patch(
 
           data: {
             dateKey,
+            source: "MANUAL",
 
-            source:
-              "MANUAL",
-
-            productId:
-              null,
+            productId: null,
 
             serviceId:
               service.id,
@@ -1782,11 +1862,7 @@ router.patch(
             platformDiscountPercent:
               discount,
 
-            /*
-             * Păstrăm reducerea vendorului dacă ai
-             * schimbat doar data sau procentul Artfest.
-             */
-            ...(shouldResetVendor
+            ...(selectionChanged
               ? resetVendorResponseData()
               : {}),
           },
@@ -1794,18 +1870,6 @@ router.patch(
           include:
             featureInclude,
         });
-
-      if (
-        shouldResetVendor
-      ) {
-        await notifyVendorSafely({
-          featureId:
-            feature.id,
-
-          context:
-            "artisan update",
-        });
-      }
 
       return res.json({
         ok: true,
@@ -1817,12 +1881,10 @@ router.patch(
         error
       );
 
-      if (
-        error?.code ===
-        "P2002"
-      ) {
+      if (error?.code === "P2002") {
         return res.status(409).json({
           ok: false,
+
           message:
             "Există deja o promovare pentru perioada selectată.",
         });
@@ -1830,8 +1892,185 @@ router.patch(
 
       return res.status(500).json({
         ok: false,
+
         message:
           "Nu am putut actualiza promovarea.",
+      });
+    }
+  }
+);
+
+/* =========================================================
+   TRIMITERE NOTIFICARE VENDOR
+========================================================= */
+
+/**
+ * POST /api/admin/homepage-features/:id/send-notification
+ *
+ * Notificarea pleacă numai după ce adminul
+ * verifică selecția și reducerea.
+ */
+router.post(
+  "/:id/send-notification",
+  async (req, res) => {
+    try {
+      const id = String(
+        req.params.id || ""
+      ).trim();
+
+      if (!id) {
+        return res.status(400).json({
+          ok: false,
+
+          message:
+            "ID-ul promovării nu este valid.",
+        });
+      }
+
+      const feature =
+        await prisma.homepageFeature.findUnique({
+          where: {
+            id,
+          },
+
+          include:
+            featureInclude,
+        });
+
+      if (!feature) {
+        return res.status(404).json({
+          ok: false,
+
+          message:
+            "Promovarea nu există.",
+        });
+      }
+
+      if (!feature.vendorId) {
+        return res.status(409).json({
+          ok: false,
+
+          message:
+            "Promovarea nu are un vendor asociat.",
+        });
+      }
+
+      const result =
+  await sendVendorNotificationSafely(
+    feature
+  );
+
+      const updated =
+        await prisma.homepageFeature.findUnique({
+          where: {
+            id: feature.id,
+          },
+
+          include:
+            featureInclude,
+        });
+if (
+  !result.notificationSent &&
+  !result.emailSent &&
+  !result.emailSkipped &&
+  !feature.vendorNotifiedAt
+) {
+  return res.status(500).json({
+    ok: false,
+
+    message:
+      "Promovarea există, dar notificarea și emailul nu au putut fi trimise.",
+
+    notificationError:
+      result.notificationError
+        ?.message ||
+      null,
+
+    emailError:
+      result.emailError
+        ?.message ||
+      null,
+
+    feature:
+      updated,
+  });
+}
+
+      const notificationDone =
+  result.notificationSent ||
+  Boolean(
+    feature.vendorNotifiedAt
+  );
+
+const emailDone =
+  result.emailSent ||
+  result.emailSkipped ||
+  Boolean(
+    feature.vendorEmailedAt
+  );
+
+let message =
+  "Trimiterea a fost procesată.";
+
+if (
+  notificationDone &&
+  emailDone
+) {
+  message =
+    result.emailSkipped
+      ? "Vendorul fusese deja notificat și emailul fusese deja trimis."
+      : "Notificarea și emailul au fost trimise vendorului.";
+} else if (
+  notificationDone
+) {
+  message =
+    "Notificarea a fost trimisă, dar emailul nu a putut fi trimis.";
+} else if (
+  emailDone
+) {
+  message =
+    "Emailul a fost trimis, dar notificarea din platformă nu a putut fi creată.";
+}
+
+return res.json({
+  ok:
+    notificationDone ||
+    emailDone,
+
+  created:
+    Boolean(
+      result.notification
+    ),
+
+  notificationSent:
+    notificationDone,
+
+  emailSent:
+    emailDone,
+
+  emailError:
+    result.emailError
+      ?.message ||
+    updated
+      ?.vendorEmailError ||
+    null,
+
+  message,
+
+  feature:
+    updated,
+});
+    } catch (error) {
+      console.error(
+        "[admin-homepage-features] send notification",
+        error
+      );
+
+      return res.status(500).json({
+        ok: false,
+
+        message:
+          "Nu am putut trimite notificarea vendorului.",
       });
     }
   }
@@ -1845,15 +2084,14 @@ router.delete(
   "/:id",
   async (req, res) => {
     try {
-      const id =
-        String(
-          req.params.id ||
-            ""
-        ).trim();
+      const id = String(
+        req.params.id || ""
+      ).trim();
 
       if (!id) {
         return res.status(400).json({
           ok: false,
+
           message:
             "ID-ul promovării nu este valid.",
         });
@@ -1866,14 +2104,14 @@ router.delete(
           },
 
           select: {
-            id:
-              true,
+            id: true,
           },
         });
 
       if (!existing) {
         return res.status(404).json({
           ok: false,
+
           message:
             "Promovarea nu există.",
         });
@@ -1897,6 +2135,7 @@ router.delete(
 
       return res.status(500).json({
         ok: false,
+
         message:
           "Nu am putut șterge promovarea.",
       });

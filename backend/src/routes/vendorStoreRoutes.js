@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
-
+import {
+  applyPromotionsToProducts,
+} from "../services/productPromotionPrice.js";
 /* Utils */
 const error = (res, code, status = 400, extra = {}) =>
   res.status(status).json({ error: code, message: code, ...extra });
@@ -439,75 +441,566 @@ router.post("/store/:slug/deactivate", async (req, res) => {
 });
 
 /** GET /api/vendors/store/:slug/products */
-router.get("/store/:slug/products", async (req, res) => {
-  const slug = String(req.params.slug || "").trim().toLowerCase();
-  if (!slug) return error(res, "invalid_slug", 400);
+router.get(
+  "/store/:slug/products",
+  async (req, res) => {
+    try {
+      const slug = String(
+        req.params.slug || ""
+      )
+        .trim()
+        .toLowerCase();
 
-  const meVendor =
-    req.meVendor ||
-    (await prisma.vendor.findUnique({ where: { userId: req.user.sub } }));
+      if (!slug) {
+        return error(
+          res,
+          "invalid_slug",
+          400
+        );
+      }
 
-  if (!meVendor) return error(res, "vendor_profile_missing", 404);
+      const meVendor =
+        req.meVendor ||
+        (await prisma.vendor.findUnique({
+          where: {
+            userId:
+              req.user.sub,
+          },
+        }));
 
-  const profile = await prisma.serviceProfile.findUnique({
-    where: { slug },
-    include: { service: { include: { type: true, vendor: true } } },
-  });
+      if (!meVendor) {
+        return error(
+          res,
+          "vendor_profile_missing",
+          404
+        );
+      }
 
-  if (
-    !profile ||
-    profile.service.vendorId !== meVendor.id ||
-    profile.service.type?.code !== "products"
-  ) {
-    return error(res, "store_not_found_or_forbidden", 404);
+      const profile =
+        await prisma.serviceProfile.findUnique({
+          where: {
+            slug,
+          },
+
+          include: {
+            service: {
+              include: {
+                type:
+                  true,
+
+                vendor:
+                  true,
+              },
+            },
+          },
+        });
+
+      if (
+        !profile ||
+        profile.service.vendorId !==
+          meVendor.id ||
+        profile.service.type?.code !==
+          "products"
+      ) {
+        return error(
+          res,
+          "store_not_found_or_forbidden",
+          404
+        );
+      }
+
+      const page =
+        Math.max(
+          1,
+          parseInt(
+            req.query.page ||
+              "1",
+            10
+          )
+        );
+
+      const limit =
+        Math.min(
+          60,
+          Math.max(
+            1,
+            parseInt(
+              req.query.limit ||
+                "60",
+              10
+            )
+          )
+        );
+
+      const skip =
+        (page - 1) *
+        limit;
+
+      const sort =
+        String(
+          req.query.sort ||
+            "new"
+        ).trim();
+
+      const status =
+        String(
+          req.query.status ||
+            "all"
+        ).trim();
+
+      const where = {
+        serviceId:
+          profile.serviceId,
+
+        ...(status === "active"
+          ? {
+              isActive:
+                true,
+            }
+          : {}),
+
+        ...(status === "inactive"
+          ? {
+              isActive:
+                false,
+            }
+          : {}),
+      };
+
+      const [
+        total,
+        products,
+      ] =
+        await Promise.all([
+          prisma.product.count({
+            where,
+          }),
+
+          prisma.product.findMany({
+            where,
+            skip,
+            take:
+              limit,
+
+            orderBy:
+              buildOrderBy(
+                sort
+              ),
+          }),
+        ]);
+
+      /*
+       * Aplică:
+       * - Produsul zilei;
+       * - Artizanul săptămânii;
+       * - promoțiile de colecție.
+       *
+       * Pentru Artizanul săptămânii,
+       * serviciul verifică serviceId și perioada
+       * startsAt <= acum < endsAt.
+       */
+      let promotedProducts =
+        products;
+
+      try {
+        promotedProducts =
+          await applyPromotionsToProducts(
+            products
+          );
+          
+      } catch (
+        promotionError
+      ) {
+        console.error(
+          "[vendor store products] promotion pricing failed:",
+          promotionError
+        );
+      }
+
+      const items =
+        promotedProducts.map(
+          (product) => {
+            const hasNumber = (
+              value
+            ) =>
+              value !== null &&
+              value !==
+                undefined &&
+              value !== "" &&
+              Number.isFinite(
+                Number(value)
+              );
+
+            const finalPriceCents =
+              hasNumber(
+                product
+                  .finalPriceCents
+              )
+                ? Number(
+                    product
+                      .finalPriceCents
+                  )
+                : hasNumber(
+                      product
+                        .discountedPriceCents
+                    )
+                  ? Number(
+                      product
+                        .discountedPriceCents
+                    )
+                  : hasNumber(
+                        product
+                          .priceCents
+                      )
+                    ? Number(
+                        product
+                          .priceCents
+                      )
+                    : null;
+
+            const originalPriceCents =
+              hasNumber(
+                product
+                  .originalPriceCents
+              )
+                ? Number(
+                    product
+                      .originalPriceCents
+                  )
+                : finalPriceCents;
+
+            const totalDiscountPercent =
+              Number(
+                product
+                  .totalDiscountPercent ??
+                  product
+                    .discountPercent ??
+                  product
+                    .discount
+                    ?.totalDiscountPercent ??
+                  0
+              );
+
+            const hasDiscount =
+              product
+                .hasDiscount ===
+                true &&
+              finalPriceCents !==
+                null &&
+              originalPriceCents !==
+                null &&
+              finalPriceCents <
+                originalPriceCents &&
+              totalDiscountPercent >
+                0;
+
+            return {
+              id:
+                product.id,
+
+              title:
+                product.title,
+
+              description:
+                product.description ||
+                "",
+
+              /*
+               * Preț final redus.
+               */
+              price:
+                finalPriceCents !==
+                null
+                  ? finalPriceCents /
+                    100
+                  : null,
+
+              priceCents:
+                finalPriceCents,
+
+              finalPrice:
+                finalPriceCents !==
+                null
+                  ? finalPriceCents /
+                    100
+                  : null,
+
+              finalPriceCents,
+
+              discountedPriceCents:
+                finalPriceCents,
+
+              /*
+               * Prețul normal se trimite numai
+               * când există reducere.
+               */
+              originalPrice:
+                hasDiscount
+                  ? originalPriceCents /
+                    100
+                  : null,
+
+              originalPriceCents:
+                hasDiscount
+                  ? originalPriceCents
+                  : null,
+
+              hasDiscount,
+
+              discountPercent:
+                hasDiscount
+                  ? totalDiscountPercent
+                  : 0,
+
+              totalDiscountPercent:
+                hasDiscount
+                  ? totalDiscountPercent
+                  : 0,
+
+              platformDiscountPercent:
+                hasDiscount
+                  ? Number(
+                      product
+                        .platformDiscountPercent ??
+                        product
+                          .discount
+                          ?.platformDiscountPercent ??
+                        0
+                    )
+                  : 0,
+
+              vendorDiscountPercent:
+                hasDiscount
+                  ? Number(
+                      product
+                        .vendorDiscountPercent ??
+                        product
+                          .discount
+                          ?.vendorDiscountPercent ??
+                        0
+                    )
+                  : 0,
+
+              hasActiveHomepageDiscount:
+                hasDiscount &&
+                (
+                  product
+                    .hasActiveHomepageDiscount ===
+                    true ||
+                  product
+                    .discount
+                    ?.active ===
+                    true
+                ),
+
+              promoLabel:
+                hasDiscount
+                  ? product
+                      .promoLabel ||
+                    product
+                      .discount
+                      ?.label ||
+                    "Reducere Artfest"
+                  : null,
+
+              promoFundingSource:
+                hasDiscount
+                  ? product
+                      .promoFundingSource ||
+                    product
+                      .discount
+                      ?.fundingSource ||
+                    null
+                  : null,
+
+              promoCollectionId:
+                hasDiscount
+                  ? product
+                      .promoCollectionId ||
+                    product
+                      .discount
+                      ?.collectionId ||
+                    null
+                  : null,
+
+              discount:
+                hasDiscount
+                  ? product
+                      .discount ||
+                    null
+                  : null,
+
+              images:
+                Array.isArray(
+                  product.images
+                )
+                  ? product.images
+                  : [],
+
+              currency:
+                product.currency ||
+                "RON",
+
+              category:
+                product.category ||
+                null,
+
+              isActive:
+                product.isActive,
+
+              isHidden:
+                Boolean(
+                  product.isHidden
+                ),
+
+              moderationStatus:
+                product
+                  .moderationStatus ||
+                "PENDING",
+
+              moderationMessage:
+                product
+                  .moderationMessage ||
+                null,
+
+              availability:
+                product
+                  .availability ||
+                "READY",
+
+              leadTimeDays:
+                product
+                  .leadTimeDays ??
+                null,
+
+              readyQty:
+                product
+                  .readyQty ??
+                0,
+
+              nextShipDate:
+                product
+                  .nextShipDate ||
+                null,
+
+              acceptsCustom:
+                Boolean(
+                  product
+                    .acceptsCustom
+                ),
+
+              orderMode:
+                product
+                  .orderMode ||
+                "READY_TO_BUY",
+
+              optionsSchema:
+                Array.isArray(
+                  product
+                    .optionsSchema
+                )
+                  ? product
+                      .optionsSchema
+                  : [],
+
+              customSchema:
+                Array.isArray(
+                  product
+                    .customSchema
+                )
+                  ? product
+                      .customSchema
+                  : [],
+
+              quoteSchema:
+                Array.isArray(
+                  product
+                    .quoteSchema
+                )
+                  ? product
+                      .quoteSchema
+                  : [],
+
+              color:
+                product.color ||
+                null,
+
+              materialMain:
+                product
+                  .materialMain ||
+                null,
+
+              technique:
+                product
+                  .technique ||
+                null,
+
+              styleTags:
+                Array.isArray(
+                  product
+                    .styleTags
+                )
+                  ? product
+                      .styleTags
+                  : [],
+
+              occasionTags:
+                Array.isArray(
+                  product
+                    .occasionTags
+                )
+                  ? product
+                      .occasionTags
+                  : [],
+
+              dimensions:
+                product
+                  .dimensions ||
+                null,
+
+              careInstructions:
+                product
+                  .careInstructions ||
+                null,
+
+              specialNotes:
+                product
+                  .specialNotes ||
+                null,
+
+              createdAt:
+                product.createdAt,
+
+              updatedAt:
+                product.updatedAt,
+            };
+          }
+        );
+
+      return res.json({
+        total,
+        page,
+        limit,
+        items,
+      });
+    } catch (routeError) {
+      console.error(
+        "[vendor store products]",
+        routeError
+      );
+
+      return res.status(
+        500
+      ).json({
+        error:
+          "server_error",
+
+        message:
+          "Nu am putut încărca produsele magazinului.",
+      });
+    }
   }
-
-  const page = Math.max(1, parseInt(req.query.page || "1", 10));
-  const limit = Math.min(60, Math.max(1, parseInt(req.query.limit || "24", 10)));
-  const skip = (page - 1) * limit;
-  const sort = (req.query.sort || "new").trim();
-  const status = (req.query.status || "all").trim();
-
-  const where = {
-    serviceId: profile.serviceId,
-    ...(status === "active" ? { isActive: true } : {}),
-    ...(status === "inactive" ? { isActive: false } : {}),
-  };
-
-  const [total, items] = await Promise.all([
-    prisma.product.count({ where }),
-    prisma.product.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: buildOrderBy(sort),
-    }),
-  ]);
-
-  res.json({
-    total,
-    page,
-    limit,
-    items: items.map((p) => ({
-      id: p.id,
-      title: p.title,
-      description: p.description || "",
-      price: Number.isFinite(p.priceCents) ? p.priceCents / 100 : null,
-      images: Array.isArray(p.images) ? p.images : [],
-      currency: p.currency || "RON",
-      category: p.category || null,
-      isActive: p.isActive,
-      isHidden: !!p.isHidden,
-      availability: p.availability || "READY",
-      leadTimeDays: p.leadTimeDays ?? null,
-      readyQty: p.readyQty ?? 0,
-      nextShipDate: p.nextShipDate || null,
-      acceptsCustom: !!p.acceptsCustom,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-    })),
-  });
-});
+);
 
 /** POST /api/vendors/store/:slug/products */
 router.post("/store/:slug/products", async (req, res) => {

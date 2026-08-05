@@ -664,7 +664,7 @@ export default function useProfilMagazin(slug, opts = {}) {
 
     const requestId = ++requestIdRef.current;
     const currentSlug = slug;
-    const cacheKey = `pm:v12:${currentSlug}`;
+    const cacheKey = `pm:v17:${currentSlug}`;
 
     const isCurrent = () =>
       requestIdRef.current === requestId;
@@ -875,32 +875,118 @@ export default function useProfilMagazin(slug, opts = {}) {
         }
       }
 
-      if (owner) {
-        try {
-          const privateProductsResponse = await api(
-            `/api/vendors/store/${encodeURIComponent(
-              currentSlug
-            )}/products`
-          );
+if (owner) {
+  try {
+    const [
+      publicProductsResponse,
+      privateProductsResponse,
+    ] = await Promise.all([
+      api(
+        `/api/public/store/${encodeURIComponent(
+          currentSlug
+        )}/products?limit=60`
+      ),
 
-          if (!isCurrent()) {
-            return;
-          }
+      api(
+        `/api/vendors/store/${encodeURIComponent(
+          currentSlug
+        )}/products?limit=60`
+      ),
+    ]);
 
-          itemsRaw = Array.isArray(
-            privateProductsResponse?.items
-          )
-            ? privateProductsResponse.items
-            : Array.isArray(privateProductsResponse)
-              ? privateProductsResponse
-              : [];
-        } catch (error) {
-          console.warn(
-            "Nu am putut încărca produsele owner:",
-            error
-          );
+    if (!isCurrent()) {
+      return;
+    }
+
+    const publicProducts =
+      Array.isArray(
+        publicProductsResponse?.items
+      )
+        ? publicProductsResponse.items
+        : [];
+
+    const privateProducts =
+      Array.isArray(
+        privateProductsResponse?.items
+      )
+        ? privateProductsResponse.items
+        : [];
+
+    const privateById = new Map(
+      privateProducts.map((product) => [
+        String(product.id),
+        product,
+      ])
+    );
+
+    /*
+     * Produsele active/publice vin direct din ruta publică,
+     * care conține prețurile reduse corecte.
+     */
+    const activePublicProducts =
+      publicProducts.map(
+        (publicProduct) => {
+          const privateProduct =
+            privateById.get(
+              String(publicProduct.id)
+            );
+
+          return {
+            ...privateProduct,
+            ...publicProduct,
+
+            /*
+             * Păstrăm explicit datele de administrare
+             * din ruta privată.
+             */
+            moderationStatus:
+              privateProduct?.moderationStatus ??
+              publicProduct.moderationStatus,
+
+            moderationMessage:
+              privateProduct?.moderationMessage ??
+              publicProduct.moderationMessage,
+
+            isHidden:
+              privateProduct?.isHidden ??
+              publicProduct.isHidden,
+
+            isActive:
+              privateProduct?.isActive ??
+              publicProduct.isActive,
+          };
         }
-      }
+      );
+
+    const publicIds = new Set(
+      publicProducts.map((product) =>
+        String(product.id)
+      )
+    );
+
+    /*
+     * Produsele ascunse/inactive nu există în ruta publică.
+     * Le adăugăm separat, fără promoție.
+     */
+    const privateOnlyProducts =
+      privateProducts.filter(
+        (product) =>
+          !publicIds.has(
+            String(product.id)
+          )
+      );
+
+    itemsRaw = [
+      ...activePublicProducts,
+      ...privateOnlyProducts,
+    ];
+  } catch (error) {
+    console.warn(
+      "Nu am putut combina produsele publice și private:",
+      error
+    );
+  }
+}
 
       setSellerData(normalizedShop);
       setProducts(itemsRaw);

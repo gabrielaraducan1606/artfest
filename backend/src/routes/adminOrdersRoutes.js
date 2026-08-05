@@ -596,27 +596,44 @@ router.post(
       }
 
       const items =
-        order.shipments.flatMap(
-          (shipment) =>
-            shipment.items.map(
-              (item) => ({
-                productId:
-                  item.productId ||
-                  null,
+  order.shipments.flatMap(
+    (shipment) =>
+      shipment.items.map(
+        (item) => ({
+          productId:
+            item.productId ||
+            null,
 
-                title:
-                  item.title,
+          title:
+            item.title,
 
-                qty:
-                  item.qty,
+          qty:
+            item.qty,
 
-                price:
-                  Number(
-                    item.price || 0
-                  ),
-              })
-            )
-        );
+          price:
+            Number(item.price || 0),
+
+          originalPrice:
+            item.originalPrice != null
+              ? Number(item.originalPrice)
+              : null,
+
+          hasDiscount:
+            item.originalPrice != null &&
+            Number(item.originalPrice) >
+              Number(item.price),
+
+          discountAmount:
+            Number(item.discountAmount || 0),
+
+          promoCollectionId:
+            item.promoCollectionId || null,
+
+          promoFundingSource:
+            item.promoFundingSource || null,
+        })
+      )
+  );
 
       await sendOrderConfirmationEmail({
         to: customer.email,
@@ -702,29 +719,52 @@ router.get(
           order.shipments
         );
 
-      const customer =
-        getOrderCustomer(order);
+    const customer =
+  getOrderCustomer(order);
 
-      /*
-       * Nu expunem hashul tokenului
-       * către frontend.
-       */
-      const {
-        guestAccessTokenHash,
-        ...safeOrder
-      } = order;
+const totalDiscount =
+  order.shipments
+    .flatMap(
+      (shipment) =>
+        shipment.items || []
+    )
+    .reduce(
+      (sum, item) =>
+        sum +
+        Number(
+          item.discountAmount ||
+            0
+        ),
+      0
+    );
 
-      return res.json({
-        ...safeOrder,
+/*
+ * Nu expunem hashul tokenului
+ * către frontend.
+ */
+const {
+  guestAccessTokenHash,
+  ...safeOrder
+} = order;
 
-        uiStatus,
+return res.json({
+  ...safeOrder,
 
-        isGuestOrder:
-          order.isGuestOrder === true ||
-          !order.userId,
+  uiStatus,
 
-        customer,
-      });
+  isGuestOrder:
+    order.isGuestOrder === true ||
+    !order.userId,
+
+  customer,
+
+  totalDiscount,
+
+  totalDiscountCents:
+    Math.round(
+      totalDiscount * 100
+    ),
+});
     } catch (error) {
       console.error(
         "ADMIN GET /orders/:id error",

@@ -44,37 +44,11 @@ router.use(
 ========================================================= */
 
 const vendorFeatureInclude = {
-  product: {
-    select: {
-      id: true,
-      title: true,
-      slug: true,
-      images: true,
-      priceCents: true,
-      currency: true,
-      orderMode: true,
-      availability: true,
-      serviceId: true,
-    },
-  },
+  product: true,
 
   service: {
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      city: true,
-      mediaUrls: true,
-
-      profile: {
-        select: {
-          displayName: true,
-          slug: true,
-          logoUrl: true,
-          coverUrl: true,
-          city: true,
-        },
-      },
+    include: {
+      profile: true,
     },
   },
 };
@@ -183,6 +157,15 @@ function clampPercent(
   );
 }
 
+function wasVendorContacted(
+  feature
+) {
+  return Boolean(
+    feature?.vendorNotifiedAt ||
+      feature?.vendorEmailedAt
+  );
+}
+
 function buildFeaturePayload(
   feature
 ) {
@@ -230,8 +213,20 @@ function buildFeaturePayload(
   const isExpired =
     endsAt <= now;
 
+  const vendorContacted =
+    wasVendorContacted(
+      feature
+    );
+
+  /*
+   * Vendorul poate răspunde doar dacă:
+   *
+   * - promovarea nu a expirat;
+   * - adminul i-a trimis notificare sau email.
+   */
   const canRespond =
-    !isExpired;
+    !isExpired &&
+    vendorContacted;
 
   return {
     ...feature,
@@ -243,11 +238,15 @@ function buildFeaturePayload(
     isUpcoming,
     isActive,
     isExpired,
+
+    vendorContacted,
     canRespond,
 
     responseRequired:
+      vendorContacted &&
+      !isExpired &&
       feature.vendorDiscountStatus ===
-      "PENDING",
+        "PENDING",
   };
 }
 
@@ -280,6 +279,7 @@ router.get(
           403
         ).json({
           ok: false,
+
           error:
             "no_vendor_for_user",
         });
@@ -326,6 +326,23 @@ router.get(
 
         where.vendorDiscountStatus =
           "PENDING";
+
+        /*
+         * Pentru pending afișăm doar promovările
+         * pe care adminul le-a trimis vendorului.
+         */
+        where.OR = [
+          {
+            vendorNotifiedAt: {
+              not: null,
+            },
+          },
+          {
+            vendorEmailedAt: {
+              not: null,
+            },
+          },
+        ];
       } else if (
         scope ===
         "expired"
@@ -411,6 +428,7 @@ router.get(
           403
         ).json({
           ok: false,
+
           error:
             "no_vendor_for_user",
         });
@@ -503,6 +521,7 @@ router.patch(
           403
         ).json({
           ok: false,
+
           error:
             "no_vendor_for_user",
         });
@@ -540,13 +559,23 @@ router.patch(
           select: {
             id: true,
             type: true,
+
             startsAt: true,
             endsAt: true,
+
             platformDiscountPercent:
               true,
+
             vendorDiscountPercent:
               true,
+
             vendorDiscountStatus:
+              true,
+
+            vendorNotifiedAt:
+              true,
+
+            vendorEmailedAt:
               true,
           },
         });
@@ -559,6 +588,28 @@ router.patch(
 
           message:
             "Promovarea nu există sau nu îți aparține.",
+        });
+      }
+
+      /*
+       * Vendorul nu poate seta reducerea înainte
+       * ca adminul să îi trimită invitația.
+       */
+      if (
+        !wasVendorContacted(
+          existing
+        )
+      ) {
+        return res.status(
+          409
+        ).json({
+          ok: false,
+
+          code:
+            "VENDOR_NOT_CONTACTED",
+
+          message:
+            "Administratorul nu a trimis încă invitația pentru această promovare.",
         });
       }
 
@@ -695,6 +746,7 @@ router.patch(
           403
         ).json({
           ok: false,
+
           error:
             "no_vendor_for_user",
         });
@@ -712,6 +764,12 @@ router.patch(
           select: {
             id: true,
             endsAt: true,
+
+            vendorNotifiedAt:
+              true,
+
+            vendorEmailedAt:
+              true,
           },
         });
 
@@ -726,6 +784,28 @@ router.patch(
         });
       }
 
+      /*
+       * Nu redeschidem răspunsul dacă promovarea
+       * nu a fost trimisă încă vendorului.
+       */
+      if (
+        !wasVendorContacted(
+          existing
+        )
+      ) {
+        return res.status(
+          409
+        ).json({
+          ok: false,
+
+          code:
+            "VENDOR_NOT_CONTACTED",
+
+          message:
+            "Administratorul nu a trimis încă invitația pentru această promovare.",
+        });
+      }
+
       if (
         new Date(
           existing.endsAt
@@ -735,6 +815,9 @@ router.patch(
           409
         ).json({
           ok: false,
+
+          code:
+            "PROMOTION_EXPIRED",
 
           message:
             "Promovarea a expirat.",
@@ -765,6 +848,9 @@ router.patch(
 
       return res.json({
         ok: true,
+
+        message:
+          "Alegerea reducerii a fost redeschisă.",
 
         feature:
           buildFeaturePayload(

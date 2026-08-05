@@ -246,37 +246,141 @@ export default function Navbar() {
   }
 }, []);
   /* ===== cart count refresh (guest + logged) ===== */
-  useEffect(() => {
-    async function refreshCart() {
-      if (me) {
-        try {
-          const cc = await api("/api/cart/count").catch(() => ({ count: 0 }));
-          setCartCount(cc.count || 0);
-        } catch {
-          setCartCount(0);
-        }
-      } else {
-        setCartCount(computeGuestCartCount());
+useEffect(() => {
+  let alive = true;
+
+  async function refreshCart() {
+    /*
+     * Citim mereu și coșul guest.
+     * Este fallback-ul corect dacă tokenul
+     * este expirat, chiar dacă me încă există
+     * temporar în context.
+     */
+    const guestCount =
+      computeGuestCartCount();
+
+    if (!me) {
+      if (alive) {
+        setCartCount(
+          guestCount
+        );
       }
+
+      return;
     }
 
-    refreshCart();
+    try {
+      const response =
+        await api(
+          "/api/cart/count"
+        );
 
-    const handler = () => refreshCart();
-    window.addEventListener("cart:changed", handler);
+      /*
+       * Compatibilitate cu helperul api(),
+       * dacă acesta întoarce __unauth în loc
+       * să arunce eroarea.
+       */
+      if (
+        response?.__unauth ||
+        response?.status === 401
+      ) {
+        if (alive) {
+          setCartCount(
+            guestCount
+          );
+        }
 
-    const onStorage = (e) => {
-  if (e.key === "artfest_guest_cart") {
+        return;
+      }
+
+      const serverCount =
+        Number(
+          response?.count ||
+            0
+        );
+
+      if (alive) {
+        /*
+         * În mod normal folosim coșul server.
+         * Dacă produsul tocmai a fost salvat
+         * ca guest din cauza unui token expirat,
+         * nu pierdem badge-ul.
+         */
+        setCartCount(
+          Math.max(
+            serverCount,
+            guestCount
+          )
+        );
+      }
+    } catch (error) {
+      const status =
+        error?.status ||
+        error?.response?.status ||
+        error?.data?.status;
+
+      if (alive) {
+        /*
+         * La 401 utilizatorul funcționează
+         * temporar ca guest.
+         */
+        if (status === 401) {
+          setCartCount(
+            guestCount
+          );
+        } else {
+          setCartCount(
+            guestCount
+          );
+        }
+      }
+    }
+  }
+
+  refreshCart();
+
+  function handleCartChanged() {
     refreshCart();
   }
-};
-    window.addEventListener("storage", onStorage);
 
-    return () => {
-      window.removeEventListener("cart:changed", handler);
-      window.removeEventListener("storage", onStorage);
-    };
-}, [me, computeGuestCartCount]);
+  function handleStorage(
+    event
+  ) {
+    if (
+      event.key ===
+      "artfest_guest_cart"
+    ) {
+      refreshCart();
+    }
+  }
+
+  window.addEventListener(
+    "cart:changed",
+    handleCartChanged
+  );
+
+  window.addEventListener(
+    "storage",
+    handleStorage
+  );
+
+  return () => {
+    alive = false;
+
+    window.removeEventListener(
+      "cart:changed",
+      handleCartChanged
+    );
+
+    window.removeEventListener(
+      "storage",
+      handleStorage
+    );
+  };
+}, [
+  me,
+  computeGuestCartCount,
+]);
 
   /* ===== wishlist + cart count ===== */
   useEffect(() => {
