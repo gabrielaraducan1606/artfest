@@ -13,6 +13,7 @@ export default function StoreHero({
   isOwner,
   shopName,
   shortText,
+  artisanWeekPromotion,
   origin,
   sdSlug,
   coverUrl,
@@ -348,9 +349,33 @@ Hai să ajungem împreună la 1000 de creatori!
           </div>
 
           <div>
-            <h1 className={styles.title}>
-              {shopName}
-            </h1>
+            <div
+  className={
+    styles.storeTitleRow
+  }
+>
+  <h1 className={styles.title}>
+    {shopName}
+  </h1>
+
+  {artisanWeekPromotion
+    ?.totalDiscountPercent >
+    0 && (
+    <span
+      className={
+        styles.artisanWeekBadge
+      }
+      title="Reducere valabilă pentru produsele eligibile ale Artizanului săptămânii"
+    >
+      ⭐ Artizanul săptămânii · -
+      {
+        artisanWeekPromotion
+          .totalDiscountPercent
+      }
+      %
+    </span>
+  )}
+</div>
 
             {sellerTypeLabel && (
               <div

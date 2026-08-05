@@ -792,3 +792,55 @@
     width: 100%;
   }
 }
+
+.storeTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.artisanWeekBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 7px 11px;
+
+  border: 1px solid
+    rgba(139, 94, 60, 0.22);
+
+  border-radius: 999px;
+
+  background:
+    linear-gradient(
+      135deg,
+      #fff7e8,
+      #f7ead8
+    );
+
+  color: #704525;
+
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+
+  white-space: nowrap;
+
+  box-shadow:
+    0 4px 12px
+    rgba(78, 51, 33, 0.08);
+}
+
+@media (max-width: 640px) {
+  .storeTitleRow {
+    align-items: flex-start;
+    gap: 7px;
+  }
+
+  .artisanWeekBadge {
+    padding: 6px 9px;
+    font-size: 12px;
+    white-space: normal;
+  }
+}

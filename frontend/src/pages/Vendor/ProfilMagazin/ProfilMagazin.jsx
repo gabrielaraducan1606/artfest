@@ -177,6 +177,10 @@ const heroActionsRef = useRef(null);
   });
 
   const [ambassador, setAmbassador] = useState(null);
+const [
+  artisanWeekPromotion,
+  setArtisanWeekPromotion,
+] = useState(null);
 
   useEffect(() => {
     if (!isOwner) return;
@@ -185,7 +189,128 @@ const heroActionsRef = useRef(null);
       .then(setAmbassador)
       .catch(() => setAmbassador(null));
   }, [isOwner]);
+useEffect(() => {
+  let alive = true;
 
+  async function loadArtisanWeekPromotion() {
+    if (!serviceId && !storeSlug) {
+      setArtisanWeekPromotion(null);
+      return;
+    }
+
+    try {
+      const response = await api(
+        "/api/public/homepage/artisan-of-the-week"
+      );
+
+      if (!alive) {
+        return;
+      }
+
+      const feature =
+        response?.feature || null;
+
+      const artisan =
+        response?.artisan || null;
+
+      const featuredServiceId =
+        artisan?.id ||
+        artisan?.serviceId ||
+        artisan?.service?.id ||
+        feature?.serviceId ||
+        null;
+
+      const featuredSlug =
+        artisan?.slug ||
+        artisan?.profile?.slug ||
+        artisan?.service?.profile?.slug ||
+        null;
+
+      const sameService =
+        featuredServiceId &&
+        serviceId &&
+        String(featuredServiceId) ===
+          String(serviceId);
+
+      const sameSlug =
+        featuredSlug &&
+        storeSlug &&
+        String(featuredSlug) ===
+          String(storeSlug);
+
+      const totalDiscountPercent =
+        Number(
+          feature?.totalDiscountPercent ??
+            artisan?.discount
+              ?.totalDiscountPercent ??
+            feature?.platformDiscountPercent ??
+            0
+        );
+
+      const active =
+        feature?.active === true ||
+        artisan?.discount?.active === true;
+
+      if (
+        (sameService || sameSlug) &&
+        active &&
+        totalDiscountPercent > 0
+      ) {
+        setArtisanWeekPromotion({
+          totalDiscountPercent,
+
+          platformDiscountPercent:
+            Number(
+              feature
+                ?.platformDiscountPercent ??
+                artisan?.discount
+                  ?.platformDiscountPercent ??
+                0
+            ),
+
+          vendorDiscountPercent:
+            Number(
+              feature
+                ?.vendorDiscountPercent ??
+                artisan?.discount
+                  ?.vendorDiscountPercent ??
+                0
+            ),
+
+          startsAt:
+            feature?.startsAt ||
+            null,
+
+          endsAt:
+            feature?.endsAt ||
+            null,
+        });
+
+        return;
+      }
+
+      setArtisanWeekPromotion(null);
+    } catch (error) {
+      console.warn(
+        "Nu am putut încărca Artizanul săptămânii:",
+        error
+      );
+
+      if (alive) {
+        setArtisanWeekPromotion(null);
+      }
+    }
+  }
+
+  loadArtisanWeekPromotion();
+
+  return () => {
+    alive = false;
+  };
+}, [
+  serviceId,
+  storeSlug,
+]);
   const owner = useStoreOwnerData({
     isOwner,
     sellerData,
@@ -744,6 +869,9 @@ quoteSchema: Array.isArray(full.quoteSchema)
           isUser={isUser}
           shopName={shopName}
           shortText={shortText}
+          artisanWeekPromotion={
+  artisanWeekPromotion
+}
           origin={origin}
           sdSlug={sdSlug || slug}
           coverUrl={coverUrl}
