@@ -3590,61 +3590,54 @@ const productUrl =
   </div>
 )}
           <div className={styles.ctaRow}>
-            {viewMode !== "vendor" && (
-              <>
-            {isQuoteOnly ? (
-  <button
-    className={styles.primaryBtn}
-    onClick={onRequestQuote}
-    type="button"
-  >
-    <MagicIcon /> Cere ofertă
-  </button>
-) : (
-  <>
-    <button
-      className={styles.primaryBtn}
-      onClick={addToCartAny}
-      disabled={
-        adding ||
-        isSoldOut
-      }
-      title={
-        isSoldOut
-          ? "Stoc epuizat"
-          : adding
-            ? "Se adaugă…"
-            : hasOrderOptions &&
-                missingRequiredSelection
-              ? "Alege opțiunile"
-              : "Adaugă în coș"
-      }
-      type="button"
-    >
-      <FaShoppingCart />{" "}
-      {isSoldOut
-        ? "Stoc epuizat"
-        : adding
-          ? "Se adaugă…"
-          : "Adaugă în coș"}
-    </button>
+  {viewMode !== "vendor" && (
+    <>
+      {!isQuoteOnly && (
+        <button
+          className={styles.primaryBtn}
+          onClick={addToCartAny}
+          disabled={
+            adding ||
+            isSoldOut
+          }
+          title={
+            isSoldOut
+              ? "Stoc epuizat"
+              : adding
+                ? "Se adaugă…"
+                : hasOrderOptions &&
+                    missingRequiredSelection
+                  ? "Alege opțiunile"
+                  : "Adaugă în coș"
+          }
+          type="button"
+        >
+          <FaShoppingCart />{" "}
+          {isSoldOut
+            ? "Stoc epuizat"
+            : adding
+              ? "Se adaugă…"
+              : "Adaugă în coș"}
+        </button>
+      )}
 
-    <button
-      className={styles.primaryBtn}
-      onClick={onRequestQuote}
-      type="button"
-    >
-      <MagicIcon /> Cere ofertă
-    </button>
-  </>
-)}
-{!isQuoteOnly && viewMode !== "vendor" && (
-  <p className={styles.quoteHint}>
-    Ai nevoie de mai multe bucăți decât sunt disponibile,
-    alte culori sau o variantă personalizată?{" "}
-    <strong>Poți cere o ofertă direct de la vânzător.</strong>
-  </p>
-)}
+      <button
+        className={styles.primaryBtn}
+        onClick={onRequestQuote}
+        type="button"
+      >
+        <MagicIcon /> Cere ofertă
+      </button>
+
+      {!isQuoteOnly && (
+        <p className={styles.quoteHint}>
+          Ai nevoie de mai multe bucăți decât sunt disponibile,
+          alte culori sau o variantă personalizată?{" "}
+          <strong>
+            Poți cere o ofertă direct de la vânzător.
+          </strong>
+        </p>
+      )}
                {!isQuoteOnly && (
   <div className={styles.qtyRow}>
     <button
