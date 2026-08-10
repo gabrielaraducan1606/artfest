@@ -314,6 +314,343 @@ async function handleOrderCheckoutCompleted(session) {
     });
   }
 }
+async function handleDepositCheckoutCompleted(
+  session
+) {
+  const shipmentId =
+    session?.metadata
+      ?.shipmentId;
+
+  if (!shipmentId) {
+    throw new Error(
+      "missing_shipmentId_metadata"
+    );
+  }
+
+  const paymentIntentId =
+    session.payment_intent
+      ? String(
+          session.payment_intent
+        )
+      : null;
+
+  await prisma.shipment.updateMany({
+    where: {
+      id:
+        shipmentId,
+
+      depositStatus: {
+        in: [
+          "PENDING",
+          "FAILED",
+        ],
+      },
+    },
+
+    data: {
+      stripeDepositSessionId:
+        String(
+          session.id
+        ),
+
+      stripeDepositPaymentIntentId:
+        paymentIntentId,
+
+      depositPaymentError:
+        null,
+    },
+  });
+}
+
+async function handleDepositPaymentIntentSucceeded(
+  paymentIntent
+) {
+  const shipmentId =
+    paymentIntent?.metadata?.shipmentId;
+
+  const vendorId =
+    paymentIntent?.metadata?.vendorId;
+
+  const orderId =
+    paymentIntent?.metadata?.orderId;
+
+  if (!shipmentId) {
+    throw new Error(
+      "missing_shipmentId_metadata"
+    );
+  }
+
+  if (!vendorId) {
+    throw new Error(
+      "missing_vendorId_metadata"
+    );
+  }
+
+  if (!orderId) {
+    throw new Error(
+      "missing_orderId_metadata"
+    );
+  }
+
+  const shipment =
+    await prisma.shipment.findUnique({
+      where: {
+        id: shipmentId,
+      },
+
+      include: {
+        order: true,
+
+        vendor: {
+          select: {
+            id: true,
+            stripeAccountId: true,
+          },
+        },
+      },
+    });
+
+  if (!shipment) {
+    throw new Error(
+      "shipment_not_found"
+    );
+  }
+
+  /*
+   * Protecție împotriva procesării duble
+   * a aceluiași webhook.
+   */
+  if (
+    shipment.depositStatus ===
+    "PAID"
+  ) {
+    return;
+  }
+
+  const {
+    chargeId,
+    feeNet,
+  } =
+    await getPaymentIntentChargeAndFee(
+      paymentIntent
+    );
+
+  const paidAmount =
+    Number(
+      paymentIntent.amount_received ||
+        paymentIntent.amount ||
+        0
+    ) / 100;
+
+  if (
+    !Number.isFinite(
+      paidAmount
+    ) ||
+    paidAmount <= 0
+  ) {
+    throw new Error(
+      "invalid_deposit_paid_amount"
+    );
+  }
+
+  const requestedAmount =
+    Number(
+      shipment.depositRequestedAmount ||
+        0
+    );
+
+  /*
+   * Nu acceptăm ca plătită o sumă diferită
+   * de avansul salvat în baza de date.
+   */
+  if (
+    Math.abs(
+      paidAmount -
+        requestedAmount
+    ) > 0.01
+  ) {
+    throw new Error(
+      "deposit_amount_mismatch"
+    );
+  }
+
+  const splits =
+    await computeOrderSplits({
+      orderId,
+    });
+
+  const vendorSplit =
+    (
+      splits.vendors ||
+      []
+    ).find(
+      (entry) =>
+        entry.vendorId ===
+        vendorId
+    );
+
+  if (!vendorSplit) {
+    throw new Error(
+      "vendor_split_not_found"
+    );
+  }
+
+  const commissionNet =
+    Number(
+      vendorSplit.commissionNet ||
+        0
+    );
+
+  /*
+   * Avansul acoperă:
+   * - comisionul Artfest;
+   * - taxa Stripe;
+   * - ce rămâne se transferă vendorului.
+   */
+  const vendorTransferNet =
+    Math.max(
+      0,
+      paidAmount -
+        commissionNet -
+        Number(
+          feeNet ||
+            0
+        )
+    );
+
+  let transferId =
+    null;
+
+  if (
+    vendorTransferNet > 0 &&
+    shipment.vendor
+      ?.stripeAccountId
+  ) {
+    const transfer =
+      await stripe.transfers.create({
+        amount:
+          Math.round(
+            vendorTransferNet *
+              100
+          ),
+
+        currency:
+          String(
+            shipment.order
+              ?.currency ||
+              "RON"
+          ).toLowerCase(),
+
+        destination:
+          shipment.vendor
+            .stripeAccountId,
+
+        transfer_group:
+          `deposit_${shipment.id}`,
+
+        metadata: {
+          kind:
+            "deposit_vendor_transfer",
+
+          orderId,
+
+          shipmentId,
+
+          vendorId,
+        },
+      });
+
+    transferId =
+      transfer.id;
+  }
+
+  const paidAt =
+    new Date();
+
+  await prisma.shipment.update({
+    where: {
+      id: shipment.id,
+    },
+
+    data: {
+      depositStatus:
+        "PAID",
+
+      depositPaidAmount:
+        paidAmount,
+
+      depositPaidAt:
+        paidAt,
+
+      stripeDepositPaymentIntentId:
+        String(
+          paymentIntent.id
+        ),
+
+      stripeDepositChargeId:
+        chargeId
+          ? String(
+              chargeId
+            )
+          : null,
+
+      depositPaymentError:
+        null,
+
+      depositMeta:
+        mergeMeta(
+          shipment.depositMeta,
+          {
+            stripeTransferId:
+              transferId,
+
+            stripeFeeNet:
+              Number(
+                feeNet ||
+                  0
+              ),
+
+            commissionNet,
+
+            vendorTransferNet,
+
+            paidAt:
+              paidAt.toISOString(),
+          }
+        ),
+    },
+  });
+}
+
+async function handleDepositCheckoutExpired(
+  session
+) {
+  const shipmentId =
+    session?.metadata
+      ?.shipmentId;
+
+  if (!shipmentId) {
+    return;
+  }
+
+  await prisma.shipment.updateMany({
+    where: {
+      id:
+        shipmentId,
+
+      depositStatus:
+        "PENDING",
+    },
+
+    data: {
+      depositStatus:
+        "EXPIRED",
+
+      depositPaymentError:
+        "checkout_session_expired",
+    },
+  });
+}
 
 async function handleCommissionInvoiceCheckoutCompleted(session) {
   const invoiceId = session?.metadata?.invoiceId;
@@ -696,31 +1033,98 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
+    if (
+  event.type ===
+  "checkout.session.completed"
+) {
+  const session =
+    event.data.object;
 
-      if (session.mode === "subscription") {
-        await handleSubscriptionCheckoutCompleted(session);
-      } else if (isVendorCommissionInvoicePayment(session)) {
-        await handleCommissionInvoiceCheckoutCompleted(session);
-      } else if (session?.metadata?.orderId) {
-        await handleOrderCheckoutCompleted(session);
-      }
-    }
+  if (
+    session?.metadata
+      ?.kind ===
+    "deposit_payment"
+  ) {
+    await handleDepositCheckoutCompleted(
+      session
+    );
+  } else if (
+    session.mode ===
+    "subscription"
+  ) {
+    await handleSubscriptionCheckoutCompleted(
+      session
+    );
+  } else if (
+    isVendorCommissionInvoicePayment(
+      session
+    )
+  ) {
+    await handleCommissionInvoiceCheckoutCompleted(
+      session
+    );
+  } else if (
+    session?.metadata
+      ?.orderId
+  ) {
+    await handleOrderCheckoutCompleted(
+      session
+    );
+  }
+}
 
-    if (event.type === "checkout.session.expired") {
-      await handleCheckoutSessionExpired(event.data.object);
-    }
+   if (
+  event.type ===
+  "checkout.session.expired"
+) {
+  const session =
+    event.data.object;
 
-    if (event.type === "payment_intent.succeeded") {
-      const pi = event.data.object;
+  if (
+    session?.metadata
+      ?.kind ===
+    "deposit_payment"
+  ) {
+    await handleDepositCheckoutExpired(
+      session
+    );
+  } else {
+    await handleCheckoutSessionExpired(
+      session
+    );
+  }
+}
 
-      if (isVendorCommissionInvoicePayment(pi)) {
-        await handleVendorCommissionInvoicePaymentSucceeded(pi);
-      } else if (pi?.metadata?.orderId) {
-        await handleOrderPaymentIntentSucceeded(pi);
-      }
-    }
+    if (
+  event.type ===
+  "payment_intent.succeeded"
+) {
+  const pi =
+    event.data.object;
+
+  if (
+    pi?.metadata?.kind ===
+    "deposit_payment"
+  ) {
+    await handleDepositPaymentIntentSucceeded(
+      pi
+    );
+  } else if (
+    isVendorCommissionInvoicePayment(
+      pi
+    )
+  ) {
+    await handleVendorCommissionInvoicePaymentSucceeded(
+      pi
+    );
+  } else if (
+    pi?.metadata?.orderId
+  ) {
+    await handleOrderPaymentIntentSucceeded(
+      pi
+    );
+  }
+}
 
     if (event.type === "invoice.payment_succeeded") {
       await handleSubscriptionInvoiceSucceeded(event.data.object);

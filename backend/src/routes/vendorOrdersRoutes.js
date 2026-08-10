@@ -1250,13 +1250,16 @@ router.get(
                 price: true,
 
                 selectedOptions:
-                  true,
+  true,
 
-                customAnswers:
-                  true,
+customAnswers:
+  true,
 
-                configurationKey:
-                  true,
+repeatedGroupAnswers:
+  true,
+
+configurationKey:
+  true,
 
                 originalPrice:
                   true,
@@ -1760,17 +1763,21 @@ router.get(
                       item.discountSource ||
                       null,
 
-                    selectedOptions:
-                      item.selectedOptions ||
-                      {},
+                   selectedOptions:
+  item.selectedOptions ||
+  {},
 
-                    customAnswers:
-                      item.customAnswers ||
-                      {},
+customAnswers:
+  item.customAnswers ||
+  {},
 
-                    configurationKey:
-                      item.configurationKey ||
-                      null,
+repeatedGroupAnswers:
+  item.repeatedGroupAnswers ||
+  {},
+
+configurationKey:
+  item.configurationKey ||
+  null,
 
                     image:
                       item.productId
@@ -2792,16 +2799,20 @@ router.get(
                 null,
 
               selectedOptions:
-                item.selectedOptions ||
-                {},
+  item.selectedOptions ||
+  {},
 
-              customAnswers:
-                item.customAnswers ||
-                {},
+customAnswers:
+  item.customAnswers ||
+  {},
 
-              configurationKey:
-                item.configurationKey ||
-                null,
+repeatedGroupAnswers:
+  item.repeatedGroupAnswers ||
+  {},
+
+configurationKey:
+  item.configurationKey ||
+  null,
 
               image:
                 item.productId

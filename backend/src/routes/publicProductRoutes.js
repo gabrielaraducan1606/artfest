@@ -161,6 +161,7 @@ nextShipDate: true,
 acceptsCustom: true,
   optionsSchema: true,
   customSchema: true,
+  repeatedGroups: true,
   quoteSchema: true,
 materialMain: true,
 technique: true,
@@ -550,6 +551,11 @@ discount:
         ? p.customSchema
         : [],
 
+        repeatedGroups:
+  Array.isArray(p.repeatedGroups)
+    ? p.repeatedGroups
+    : [],
+    
     quoteSchema:
       Array.isArray(p.quoteSchema)
         ? p.quoteSchema
@@ -1765,6 +1771,7 @@ router.get(
 
   optionsSchema: true,
   customSchema: true,
+  repeatedGroups: true,
   quoteSchema: true,
 
   materialMain: true,

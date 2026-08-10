@@ -190,13 +190,32 @@ function mapProduct(p) {
       p.orderMode || "DIRECT",
 
     optionsSchema:
-      p.optionsSchema || [],
+  Array.isArray(
+    p.optionsSchema
+  )
+    ? p.optionsSchema
+    : [],
 
-    customSchema:
-      p.customSchema || [],
+customSchema:
+  Array.isArray(
+    p.customSchema
+  )
+    ? p.customSchema
+    : [],
 
-    quoteSchema:
-      p.quoteSchema || [],
+repeatedGroups:
+  Array.isArray(
+    p.repeatedGroups
+  )
+    ? p.repeatedGroups
+    : [],
+
+quoteSchema:
+  Array.isArray(
+    p.quoteSchema
+  )
+    ? p.quoteSchema
+    : [],
 
     availability:
       p.availability
@@ -427,6 +446,112 @@ function normalizeProductImages(images) {
     .map((s) => String(s || "").trim())
     .filter((url) => /^https?:\/\//i.test(url))
     .slice(0, 12);
+}
+
+function normalizeSchemaArray(value) {
+  return Array.isArray(value)
+    ? value
+    : [];
+}
+
+function normalizeOrderModePayload(
+  value,
+  fallback = "DIRECT"
+) {
+  const raw = String(
+    value || fallback
+  )
+    .trim()
+    .toUpperCase();
+
+  if (
+    raw === "READY_TO_BUY" ||
+    raw === "DIRECT"
+  ) {
+    return "DIRECT";
+  }
+
+  if (
+    raw === "CUSTOMIZABLE" ||
+    raw === "OPTIONS"
+  ) {
+    return "OPTIONS";
+  }
+
+  if (raw === "QUOTE_ONLY") {
+    return "QUOTE_ONLY";
+  }
+
+  return null;
+}
+
+function normalizeOrderConfiguration({
+  orderMode,
+  optionsSchema,
+  customSchema,
+  repeatedGroups,
+  quoteSchema,
+}) {
+  const normalizedMode =
+    normalizeOrderModePayload(
+      orderMode
+    );
+
+  if (!normalizedMode) {
+    return {
+      error:
+        "invalid_order_mode",
+    };
+  }
+
+  if (
+    normalizedMode === "DIRECT"
+  ) {
+    return {
+      orderMode: "DIRECT",
+      optionsSchema: [],
+      customSchema: [],
+      repeatedGroups: [],
+      quoteSchema: [],
+    };
+  }
+
+  if (
+    normalizedMode === "OPTIONS"
+  ) {
+    return {
+      orderMode: "OPTIONS",
+
+      optionsSchema:
+        normalizeSchemaArray(
+          optionsSchema
+        ),
+
+      customSchema:
+        normalizeSchemaArray(
+          customSchema
+        ),
+
+      repeatedGroups:
+        normalizeSchemaArray(
+          repeatedGroups
+        ),
+
+      quoteSchema: [],
+    };
+  }
+
+  return {
+    orderMode: "QUOTE_ONLY",
+    optionsSchema: [],
+    customSchema: [],
+    repeatedGroups: [],
+
+    quoteSchema:
+      normalizeSchemaArray(
+        quoteSchema
+      ),
+  };
 }
 
 /* ================= Subscription / plan helpers ================= */
@@ -1025,6 +1150,11 @@ async function createProduct(req, res) {
       readyQty,
       nextShipDate,
       acceptsCustom = false,
+      orderMode = "READY_TO_BUY",
+optionsSchema = [],
+customSchema = [],
+repeatedGroups = [],
+quoteSchema = [],
       materialMain,
       technique,
       styleTags,
@@ -1038,12 +1168,6 @@ async function createProduct(req, res) {
       return res.status(400).json({ error: "invalid_title" });
     }
 
-    const priceNum = Number(price);
-    if (!Number.isFinite(priceNum) || priceNum < 0) {
-      return res.status(400).json({ error: "invalid_price" });
-    }
-
-    const priceCents = Math.round(priceNum * 100);
     const imgs = normalizeProductImages(images);
 
     let cat = null;
@@ -1070,6 +1194,33 @@ async function createProduct(req, res) {
       { availability, leadTimeDays, readyQty, nextShipDate },
       null
     );
+const orderConfig =
+  normalizeOrderConfiguration({
+    orderMode,
+    optionsSchema,
+    customSchema,
+    repeatedGroups,
+    quoteSchema,
+  });
+
+if (orderConfig.error) {
+  return res.status(400).json({
+    error: orderConfig.error,
+  });
+}
+let priceCents = 0;
+
+if (orderConfig.orderMode !== "QUOTE_ONLY") {
+  const priceNum = Number(price);
+
+  if (!Number.isFinite(priceNum) || priceNum < 0) {
+    return res.status(400).json({
+      error: "invalid_price",
+    });
+  }
+
+  priceCents = Math.round(priceNum * 100);
+}
 
     if (availNorm.error) {
       return res.status(400).json({ error: availNorm.error });
@@ -1113,6 +1264,20 @@ moderationStatus: "PENDING",
         readyQty: availNorm.readyQty,
         nextShipDate: availNorm.nextShipDate,
         acceptsCustom: !!acceptsCustom,
+        orderMode:
+  orderConfig.orderMode,
+
+optionsSchema:
+  orderConfig.optionsSchema,
+
+customSchema:
+  orderConfig.customSchema,
+
+repeatedGroups:
+  orderConfig.repeatedGroups,
+
+quoteSchema:
+  orderConfig.quoteSchema,
         materialMain: materialMain ? String(materialMain).trim() : null,
         technique: technique ? String(technique).trim() : null,
         styleTags: normalizeTags(styleTags),
@@ -1165,13 +1330,41 @@ async function updateProduct(req, res) {
 
     if (typeof req.body.description === "string") patch.description = req.body.description;
 
-    if (req.body.price !== undefined) {
-      const priceNum = Number(req.body.price);
-      if (!Number.isFinite(priceNum) || priceNum < 0) {
-        return res.status(400).json({ error: "invalid_price" });
-      }
-      patch.priceCents = Math.round(priceNum * 100);
-    }
+ const requestedOrderMode =
+  normalizeOrderModePayload(
+    req.body.orderMode ??
+      product.orderMode
+  );
+
+if (!requestedOrderMode) {
+  return res.status(400).json({
+    error: "invalid_order_mode",
+  });
+}
+
+if (
+  requestedOrderMode ===
+  "QUOTE_ONLY"
+) {
+  patch.priceCents = 0;
+} else if (
+  req.body.price !== undefined
+) {
+  const priceNum =
+    Number(req.body.price);
+
+  if (
+    !Number.isFinite(priceNum) ||
+    priceNum < 0
+  ) {
+    return res.status(400).json({
+      error: "invalid_price",
+    });
+  }
+
+  patch.priceCents =
+    Math.round(priceNum * 100);
+}
 
     if (Array.isArray(req.body.images)) {
   patch.images = normalizeProductImages(req.body.images);
@@ -1247,7 +1440,64 @@ if (
     if (typeof req.body.acceptsCustom === "boolean") {
       patch.acceptsCustom = req.body.acceptsCustom;
     }
+const hasOrderConfigurationUpdate =
+  req.body.orderMode !==
+    undefined ||
+  req.body.optionsSchema !==
+    undefined ||
+  req.body.customSchema !==
+    undefined ||
+  req.body.repeatedGroups !==
+    undefined ||
+  req.body.quoteSchema !==
+    undefined;
 
+if (hasOrderConfigurationUpdate) {
+  const orderConfig =
+    normalizeOrderConfiguration({
+      orderMode:
+        req.body.orderMode ??
+        product.orderMode,
+
+      optionsSchema:
+        req.body.optionsSchema ??
+        product.optionsSchema,
+
+      customSchema:
+        req.body.customSchema ??
+        product.customSchema,
+
+      repeatedGroups:
+        req.body.repeatedGroups ??
+        product.repeatedGroups,
+
+      quoteSchema:
+        req.body.quoteSchema ??
+        product.quoteSchema,
+    });
+
+  if (orderConfig.error) {
+    return res.status(400).json({
+      error:
+        orderConfig.error,
+    });
+  }
+
+  patch.orderMode =
+    orderConfig.orderMode;
+
+  patch.optionsSchema =
+    orderConfig.optionsSchema;
+
+  patch.customSchema =
+    orderConfig.customSchema;
+
+  patch.repeatedGroups =
+    orderConfig.repeatedGroups;
+
+  patch.quoteSchema =
+    orderConfig.quoteSchema;
+}
     // ===== VISIBILITY CONTROL =====
 if (typeof req.body.isActive === "boolean") {
   patch.isActive = req.body.isActive;
@@ -1271,7 +1521,12 @@ const contentFieldsChanged =
   req.body.occasionTags !== undefined ||
   req.body.dimensions !== undefined ||
   req.body.careInstructions !== undefined ||
-  req.body.specialNotes !== undefined;
+  req.body.specialNotes !== undefined ||
+  req.body.orderMode !== undefined ||
+  req.body.optionsSchema !== undefined ||
+  req.body.customSchema !== undefined ||
+  req.body.repeatedGroups !== undefined ||
+  req.body.quoteSchema !== undefined;
 
 if (contentFieldsChanged) {
   patch.moderationStatus = "PENDING";

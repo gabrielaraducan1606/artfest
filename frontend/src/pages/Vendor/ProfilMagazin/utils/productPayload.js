@@ -18,6 +18,10 @@ const customSchema = Array.isArray(prodForm.customSchema)
   ? prodForm.customSchema
   : [];
 
+const repeatedGroups = Array.isArray(prodForm.repeatedGroups)
+  ? prodForm.repeatedGroups
+  : [];
+
 const quoteSchema = Array.isArray(prodForm.quoteSchema)
   ? prodForm.quoteSchema
   : [];
@@ -62,7 +66,10 @@ const quoteSchema = Array.isArray(prodForm.quoteSchema)
     orderMode === "OPTIONS"
       ? customSchema
       : [],
-
+repeatedGroups:
+  orderMode === "OPTIONS"
+    ? repeatedGroups
+    : [],
   quoteSchema:
     orderMode === "QUOTE_ONLY"
       ? quoteSchema

@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../lib/api";
 import styles from "../css/AdminProductsTab.module.css";
+import AdminProductEditForm
+  from "./AdminProductEditModal.jsx";
 
 const PAGE_SIZE = 200;
 
@@ -687,21 +689,55 @@ console.log("items:", pageProducts.length, "total:", data?.total, "take:", data?
       )}
 
       {selectedProduct ? (
-        <ProductReviewModal
-          product={selectedProduct}
-          working={workingProductId === selectedProduct.id}
-          moderationMessage={moderationMessage}
-          setModerationMessage={setModerationMessage}
-          onClose={() => {
-            setSelectedProduct(null);
-            setModerationMessage("");
-          }}
-          onApprove={() => approveProduct(selectedProduct.id)}
-          onRequestChanges={(message) =>
-            requestChangesProduct(selectedProduct.id, message)
-          }
-          onReject={(message) => rejectProduct(selectedProduct.id, message)}
-        />
+       <ProductReviewModal
+  product={selectedProduct}
+  working={
+    workingProductId ===
+    selectedProduct.id
+  }
+  moderationMessage={
+    moderationMessage
+  }
+  setModerationMessage={
+    setModerationMessage
+  }
+  onClose={() => {
+    setSelectedProduct(
+      null
+    );
+
+    setModerationMessage(
+      ""
+    );
+  }}
+  onApprove={() =>
+    approveProduct(
+      selectedProduct.id
+    )
+  }
+  onRequestChanges={(
+    message
+  ) =>
+    requestChangesProduct(
+      selectedProduct.id,
+      message
+    )
+  }
+  onReject={(message) =>
+    rejectProduct(
+      selectedProduct.id,
+      message
+    )
+  }
+  onProductSaved={(
+    updatedProduct
+  ) => {
+    setProductEverywhere(
+      selectedProduct.id,
+      updatedProduct
+    );
+  }}
+/>
       ) : null}
     </div>
   );
@@ -716,243 +752,783 @@ function ProductReviewModal({
   onApprove,
   onRequestChanges,
   onReject,
+  onProductSaved,
 }) {
-  const images = Array.isArray(product.images) ? product.images : [];
-  const moderationStatus = String(
-    product.moderationStatus || "PENDING"
-  ).toUpperCase();
-  const isApproved = moderationStatus === "APPROVED";
+  const [modalMode, setModalMode] =
+    useState("details");
+
+  const images =
+    Array.isArray(product.images)
+      ? product.images
+      : [];
+
+  const moderationStatus =
+    String(
+      product.moderationStatus ||
+        "PENDING"
+    ).toUpperCase();
+
+  const isApproved =
+    moderationStatus ===
+    "APPROVED";
 
   return (
-    <div className={styles.modalBackdrop} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHead}>
+    <div
+      className={
+        styles.modalBackdrop
+      }
+      onClick={onClose}
+    >
+      <div
+        className={
+          styles.modal
+        }
+        onClick={(e) =>
+          e.stopPropagation()
+        }
+      >
+        {/* =========================
+            HEADER
+        ========================== */}
+
+        <div
+          className={
+            styles.modalHead
+          }
+        >
           <div>
-            <h3 className={styles.modalTitle}>
-              {product.title || "Produs fără titlu"}
+            <h3
+              className={
+                styles.modalTitle
+              }
+            >
+              {product.title ||
+                "Produs fără titlu"}
             </h3>
-            <p className={styles.modalSub}>ID: {product.id}</p>
+
+            <p
+              className={
+                styles.modalSub
+              }
+            >
+              ID: {product.id}
+            </p>
           </div>
 
-          <button type="button" className={styles.closeBtn} onClick={onClose}>
+          <button
+            type="button"
+            className={
+              styles.closeBtn
+            }
+            onClick={onClose}
+          >
             ×
           </button>
         </div>
 
-        <div className={styles.modalActions}>
+        {/* =========================
+            TABS
+        ========================== */}
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            marginBottom: 18,
+            paddingBottom: 10,
+            borderBottom:
+              "1px solid #e5e7eb",
+          }}
+        >
           <button
             type="button"
-            className={styles.approveBtn}
-            disabled={isApproved || working}
-            onClick={onApprove}
+            onClick={() =>
+              setModalMode(
+                "details"
+              )
+            }
+            style={{
+              padding:
+                "9px 14px",
+
+              borderRadius:
+                8,
+
+              cursor:
+                "pointer",
+
+              border:
+                modalMode ===
+                "details"
+                  ? "1px solid #111827"
+                  : "1px solid #d1d5db",
+
+              background:
+                modalMode ===
+                "details"
+                  ? "#111827"
+                  : "#ffffff",
+
+              color:
+                modalMode ===
+                "details"
+                  ? "#ffffff"
+                  : "#111827",
+
+              fontWeight:
+                600,
+            }}
           >
-            {isApproved
-              ? "Produs aprobat"
-              : working
-              ? "Se procesează..."
-              : "Aprobă produsul"}
+            Detalii produs
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setModalMode(
+                "edit"
+              )
+            }
+            style={{
+              padding:
+                "9px 14px",
+
+              borderRadius:
+                8,
+
+              cursor:
+                "pointer",
+
+              border:
+                modalMode ===
+                "edit"
+                  ? "1px solid #111827"
+                  : "1px solid #d1d5db",
+
+              background:
+                modalMode ===
+                "edit"
+                  ? "#111827"
+                  : "#ffffff",
+
+              color:
+                modalMode ===
+                "edit"
+                  ? "#ffffff"
+                  : "#111827",
+
+              fontWeight:
+                600,
+            }}
+          >
+            ✏️ Editează produsul
           </button>
         </div>
 
-        <div className={styles.moderationBox}>
-          <div className={styles.badgesCol}>
-            <StatusBadge tone={getModerationTone(moderationStatus)}>
-              {getModerationLabel(moderationStatus)}
-            </StatusBadge>
-          </div>
+        {/* =========================
+            DETALII
+        ========================== */}
 
-          {product.moderationMessage ? (
-            <p className={styles.moderationOldMessage}>
-              Ultimul mesaj: {product.moderationMessage}
-            </p>
-          ) : null}
-
-          <textarea
-            className={styles.textarea}
-            placeholder="Scrie motivul pentru modificări sau respingere..."
-            value={moderationMessage}
-            onChange={(e) => setModerationMessage(e.target.value)}
-          />
-
-          <div className={styles.modalActions}>
-            <button
-              type="button"
-              className={styles.warnBtn}
-              disabled={working || !moderationMessage.trim()}
-              onClick={() => onRequestChanges(moderationMessage)}
-            >
-              Cere modificări
-            </button>
-
-            <button
-              type="button"
-              className={styles.rejectBtn}
-              disabled={working || !moderationMessage.trim()}
-              onClick={() => onReject(moderationMessage)}
-            >
-              Respinge
-            </button>
-          </div>
-        </div>
-
-        <div className={styles.modalGrid}>
-          <div>
-            {images.length ? (
-              <div className={styles.gallery}>
-                {images.map((src, index) => (
-                  <a
-                    key={`${src}-${index}`}
-                    href={src}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <img
-                      src={src}
-                      alt={`Produs ${index + 1}`}
-                      className={styles.galleryImg}
-                    />
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div className={styles.noImages}>Produsul nu are poze.</div>
-            )}
-          </div>
-
-          <div className={styles.detailsPanel}>
-            <Detail
-              label="Preț"
-              value={formatPrice(product.price, product.currency)}
-            />
-            <Detail label="Categorie" value={product.category || "—"} />
-            <Detail label="Culoare" value={product.color || "—"} />
-            <Detail
-              label="Disponibilitate"
-              value={product.availability || "—"}
-            />
-            <Detail label="Stoc ready" value={product.readyQty ?? "—"} />
-            <Detail
-              label="Lead time"
-              value={
-                product.leadTimeDays ? `${product.leadTimeDays} zile` : "—"
+        {modalMode ===
+          "details" && (
+          <>
+            <div
+              className={
+                styles.modalActions
               }
-            />
-            <Detail
-              label="Livrare preorder"
-              value={formatDate(product.nextShipDate)}
-            />
-            <Detail
-              label="Acceptă custom"
-              value={product.acceptsCustom ? "Da" : "Nu"}
-            />
+            >
+              <button
+                type="button"
+                className={
+                  styles.approveBtn
+                }
+                disabled={
+                  isApproved ||
+                  working
+                }
+                onClick={
+                  onApprove
+                }
+              >
+                {isApproved
+                  ? "Produs aprobat"
+                  : working
+                  ? "Se procesează..."
+                  : "Aprobă produsul"}
+              </button>
+            </div>
 
-            <hr className={styles.modalSep} />
+            {/* =========================
+                MODERARE
+            ========================== */}
 
-            <Detail label="Vendor" value={product.vendor?.displayName || "—"} />
+            <div
+              className={
+                styles.moderationBox
+              }
+            >
+              <div
+                className={
+                  styles.badgesCol
+                }
+              >
+                <StatusBadge
+                  tone={getModerationTone(
+                    moderationStatus
+                  )}
+                >
+                  {getModerationLabel(
+                    moderationStatus
+                  )}
+                </StatusBadge>
+              </div>
 
-<Detail
-  label="Vendor ID"
-  value={product.vendor?.id || product.service?.vendorId || "—"}
-/>
+              {product.moderationMessage ? (
+                <p
+                  className={
+                    styles.moderationOldMessage
+                  }
+                >
+                  Ultimul mesaj:{" "}
+                  {
+                    product.moderationMessage
+                  }
+                </p>
+              ) : null}
 
-<Detail
-  label="Email vendor"
-  value={product.vendor?.email || product.service?.email || "—"}
-/>
+              <textarea
+                className={
+                  styles.textarea
+                }
+                placeholder="Scrie motivul pentru modificări sau respingere..."
+                value={
+                  moderationMessage
+                }
+                onChange={(e) =>
+                  setModerationMessage(
+                    e.target.value
+                  )
+                }
+              />
 
-<Detail
-  label="Telefon vendor"
-  value={product.vendor?.phone || product.service?.phone || "—"}
-/>
+              <div
+                className={
+                  styles.modalActions
+                }
+              >
+                <button
+                  type="button"
+                  className={
+                    styles.warnBtn
+                  }
+                  disabled={
+                    working ||
+                    !moderationMessage.trim()
+                  }
+                  onClick={() =>
+                    onRequestChanges(
+                      moderationMessage
+                    )
+                  }
+                >
+                  Cere modificări
+                </button>
 
-<Detail
-  label="Oraș vendor"
-  value={product.vendor?.city || product.service?.city || "—"}
-/>
+                <button
+                  type="button"
+                  className={
+                    styles.rejectBtn
+                  }
+                  disabled={
+                    working ||
+                    !moderationMessage.trim()
+                  }
+                  onClick={() =>
+                    onReject(
+                      moderationMessage
+                    )
+                  }
+                >
+                  Respinge
+                </button>
+              </div>
+            </div>
 
-<Detail
-  label="Adresă vendor"
-  value={product.vendor?.address || product.service?.address || "—"}
-/>
+            {/* =========================
+                POZE + DETALII
+            ========================== */}
 
-<Detail
-  label="Website vendor"
-  value={product.vendor?.website || product.service?.website || "—"}
-/>
+            <div
+              className={
+                styles.modalGrid
+              }
+            >
+              <div>
+                {images.length ? (
+                  <div
+                    className={
+                      styles.gallery
+                    }
+                  >
+                    {images.map(
+                      (
+                        src,
+                        index
+                      ) => (
+                        <a
+                          key={`${src}-${index}`}
+                          href={src}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <img
+                            src={
+                              src
+                            }
+                            alt={`Produs ${
+                              index +
+                              1
+                            }`}
+                            className={
+                              styles.galleryImg
+                            }
+                          />
+                        </a>
+                      )
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className={
+                      styles.noImages
+                    }
+                  >
+                    Produsul nu
+                    are poze.
+                  </div>
+                )}
+              </div>
 
-<Detail
-  label="Vendor activ"
-  value={product.vendor?.isActive ? "Da" : "Nu"}
-/>
+              <div
+                className={
+                  styles.detailsPanel
+                }
+              >
+                <Detail
+                  label="Preț"
+                  value={formatPrice(
+                    product.price,
+                    product.currency
+                  )}
+                />
 
-<Detail label="Store" value={product.service?.displayName || "—"} />
-<Detail label="Slug store" value={product.service?.slug || "—"} />
-<Detail label="Service ID" value={product.service?.id || "—"} />
+                <Detail
+                  label="Categorie"
+                  value={
+                    product.category ||
+                    "—"
+                  }
+                />
 
-<Detail
-  label="Status store"
-  value={product.service?.status || "—"}
-/>
+                <Detail
+                  label="Culoare"
+                  value={
+                    product.color ||
+                    "—"
+                  }
+                />
 
-<Detail
-  label="Store activ"
-  value={product.service?.isActive ? "Da" : "Nu"}
-/>
+                <Detail
+                  label="Mod comandă"
+                  value={
+                    product.orderMode ||
+                    "—"
+                  }
+                />
 
-            <hr className={styles.modalSep} />
+                <Detail
+                  label="Disponibilitate"
+                  value={
+                    product.availability ||
+                    "—"
+                  }
+                />
 
-            <Detail
-              label="Produs activ"
-              value={product.isActive ? "Da" : "Nu"}
-            />
-            <Detail
-              label="Produs ascuns"
-              value={product.isHidden ? "Da" : "Nu"}
-            />
-            <Detail label="Trimis la" value={formatDate(product.submittedAt)} />
-            <Detail
-              label="Verificat la"
-              value={formatDate(product.reviewedAt)}
-            />
-            <Detail label="Aprobat la" value={formatDate(product.approvedAt)} />
-            <Detail label="Creat la" value={formatDate(product.createdAt)} />
-            <Detail
-              label="Actualizat la"
-              value={formatDate(product.updatedAt)}
-            />
-          </div>
-        </div>
+                <Detail
+                  label="Stoc ready"
+                  value={
+                    product.readyQty ??
+                    "—"
+                  }
+                />
 
-        <div className={styles.descriptionBox}>
-          <h4>Descriere</h4>
-          <p>{product.description || "Fără descriere."}</p>
-        </div>
+                <Detail
+                  label="Lead time"
+                  value={
+                    product.leadTimeDays
+                      ? `${product.leadTimeDays} zile`
+                      : "—"
+                  }
+                />
 
-        <div className={styles.descriptionBox}>
-          <h4>Detalii produs</h4>
-          <Detail label="Material" value={product.materialMain || "—"} />
-          <Detail label="Tehnică" value={product.technique || "—"} />
-          <Detail label="Dimensiuni" value={product.dimensions || "—"} />
-          <Detail label="Îngrijire" value={product.careInstructions || "—"} />
-          <Detail label="Note speciale" value={product.specialNotes || "—"} />
-        </div>
+                <Detail
+                  label="Livrare preorder"
+                  value={formatDate(
+                    product.nextShipDate
+                  )}
+                />
 
-        <div className={styles.descriptionBox}>
-          <h4>Tag-uri</h4>
-          <p>
-            Stil:{" "}
-            {Array.isArray(product.styleTags) && product.styleTags.length
-              ? product.styleTags.join(", ")
-              : "—"}
-          </p>
-          <p>
-            Ocazii:{" "}
-            {Array.isArray(product.occasionTags) &&
-            product.occasionTags.length
-              ? product.occasionTags.join(", ")
-              : "—"}
-          </p>
-        </div>
+                <Detail
+                  label="Acceptă custom"
+                  value={
+                    product.acceptsCustom
+                      ? "Da"
+                      : "Nu"
+                  }
+                />
+
+                <hr
+                  className={
+                    styles.modalSep
+                  }
+                />
+
+                <Detail
+                  label="Vendor"
+                  value={
+                    product.vendor
+                      ?.displayName ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Vendor ID"
+                  value={
+                    product.vendor
+                      ?.id ||
+                    product.service
+                      ?.vendorId ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Email vendor"
+                  value={
+                    product.vendor
+                      ?.email ||
+                    product.service
+                      ?.email ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Telefon vendor"
+                  value={
+                    product.vendor
+                      ?.phone ||
+                    product.service
+                      ?.phone ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Oraș vendor"
+                  value={
+                    product.vendor
+                      ?.city ||
+                    product.service
+                      ?.city ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Adresă vendor"
+                  value={
+                    product.vendor
+                      ?.address ||
+                    product.service
+                      ?.address ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Website vendor"
+                  value={
+                    product.vendor
+                      ?.website ||
+                    product.service
+                      ?.website ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Vendor activ"
+                  value={
+                    product.vendor
+                      ?.isActive
+                      ? "Da"
+                      : "Nu"
+                  }
+                />
+
+                <Detail
+                  label="Store"
+                  value={
+                    product.service
+                      ?.displayName ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Slug store"
+                  value={
+                    product.service
+                      ?.slug ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Service ID"
+                  value={
+                    product.service
+                      ?.id ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Status store"
+                  value={
+                    product.service
+                      ?.status ||
+                    "—"
+                  }
+                />
+
+                <Detail
+                  label="Store activ"
+                  value={
+                    product.service
+                      ?.isActive
+                      ? "Da"
+                      : "Nu"
+                  }
+                />
+
+                <hr
+                  className={
+                    styles.modalSep
+                  }
+                />
+
+                <Detail
+                  label="Produs activ"
+                  value={
+                    product.isActive
+                      ? "Da"
+                      : "Nu"
+                  }
+                />
+
+                <Detail
+                  label="Produs ascuns"
+                  value={
+                    product.isHidden
+                      ? "Da"
+                      : "Nu"
+                  }
+                />
+
+                <Detail
+                  label="Trimis la"
+                  value={formatDate(
+                    product.submittedAt
+                  )}
+                />
+
+                <Detail
+                  label="Verificat la"
+                  value={formatDate(
+                    product.reviewedAt
+                  )}
+                />
+
+                <Detail
+                  label="Aprobat la"
+                  value={formatDate(
+                    product.approvedAt
+                  )}
+                />
+
+                <Detail
+                  label="Creat la"
+                  value={formatDate(
+                    product.createdAt
+                  )}
+                />
+
+                <Detail
+                  label="Actualizat la"
+                  value={formatDate(
+                    product.updatedAt
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* =========================
+                DESCRIERE
+            ========================== */}
+
+            <div
+              className={
+                styles.descriptionBox
+              }
+            >
+              <h4>
+                Descriere
+              </h4>
+
+              <p>
+                {product.description ||
+                  "Fără descriere."}
+              </p>
+            </div>
+
+            {/* =========================
+                DETALII PRODUS
+            ========================== */}
+
+            <div
+              className={
+                styles.descriptionBox
+              }
+            >
+              <h4>
+                Detalii produs
+              </h4>
+
+              <Detail
+                label="Material"
+                value={
+                  product.materialMain ||
+                  "—"
+                }
+              />
+
+              <Detail
+                label="Tehnică"
+                value={
+                  product.technique ||
+                  "—"
+                }
+              />
+
+              <Detail
+                label="Dimensiuni"
+                value={
+                  product.dimensions ||
+                  "—"
+                }
+              />
+
+              <Detail
+                label="Îngrijire"
+                value={
+                  product.careInstructions ||
+                  "—"
+                }
+              />
+
+              <Detail
+                label="Note speciale"
+                value={
+                  product.specialNotes ||
+                  "—"
+                }
+              />
+            </div>
+
+            {/* =========================
+                TAG-URI
+            ========================== */}
+
+            <div
+              className={
+                styles.descriptionBox
+              }
+            >
+              <h4>
+                Tag-uri
+              </h4>
+
+              <p>
+                Stil:{" "}
+                {Array.isArray(
+                  product.styleTags
+                ) &&
+                product.styleTags
+                  .length
+                  ? product.styleTags.join(
+                      ", "
+                    )
+                  : "—"}
+              </p>
+
+              <p>
+                Ocazii:{" "}
+                {Array.isArray(
+                  product.occasionTags
+                ) &&
+                product
+                  .occasionTags
+                  .length
+                  ? product.occasionTags.join(
+                      ", "
+                    )
+                  : "—"}
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* =========================
+            EDITARE
+        ========================== */}
+
+        {modalMode ===
+          "edit" && (
+          <AdminProductEditForm
+            product={
+              product
+            }
+            onCancel={() =>
+              setModalMode(
+                "details"
+              )
+            }
+            onSaved={(
+              updatedProduct
+            ) => {
+              onProductSaved?.(
+                updatedProduct
+              );
+
+              setModalMode(
+                "details"
+              );
+            }}
+          />
+        )}
       </div>
     </div>
   );

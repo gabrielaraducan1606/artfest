@@ -99,6 +99,8 @@ import publicHomepageRoutes from "./src/routes/homepagePublicRoutes.js";
 import adminHomepageFeatureRoutes from "./src/routes/adminHomepageFeatureRoutes.js";
 import vendorHomepageFeatureRoutes from "./src/routes/vendorHomepageFeatureRoutes.js";
 import vendorQuotesRouter from "./src/routes/assistantRoutes/assistant/vendorQuotesRoutes.js";
+import adminProductsEditRoutes
+  from "./src/routes/adminProductEditRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -443,6 +445,11 @@ app.use(
 app.use(
   "/api/vendor/homepage-features",
   vendorHomepageFeatureRoutes
+);
+
+app.use(
+  "/api/admin",
+  adminProductsEditRoutes
 );
 app.use("/api", productAiRoutes);
 // în app.js / routes index

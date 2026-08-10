@@ -685,7 +685,9 @@ optionsSchema: Array.isArray(full.optionsSchema)
 customSchema: Array.isArray(full.customSchema)
   ? full.customSchema
   : [],
-
+repeatedGroups: Array.isArray(full.repeatedGroups)
+  ? full.repeatedGroups
+  : [],
 quoteSchema: Array.isArray(full.quoteSchema)
   ? full.quoteSchema
   : [],

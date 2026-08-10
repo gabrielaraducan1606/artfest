@@ -286,6 +286,7 @@ function applyOrderModeRules(
 
       optionsSchema: [],
       customSchema: [],
+      repeatedGroups: [],
       quoteSchema: [],
     };
   }
@@ -325,7 +326,7 @@ function applyOrderModeRules(
 
     optionsSchema: [],
     customSchema: [],
-
+repeatedGroups: [],
     quoteSchema:
       currentQuoteFields.length > 0
         ? currentQuoteFields
@@ -791,7 +792,10 @@ export default function ProductOrderModeSection({
     openCustomPanel,
     setOpenCustomPanel,
   ] = useState(false);
-
+const [
+  openRepeatedPanel,
+  setOpenRepeatedPanel,
+] = useState(false);
   const [
     optionPresets,
     setOptionPresets,
@@ -813,6 +817,115 @@ export default function ProductOrderModeSection({
     getSchemaFields(
       form.customSchema
     );
+
+    const repeatedGroups =
+  Array.isArray(
+    form.repeatedGroups
+  )
+    ? form.repeatedGroups
+    : [];
+
+const repeatedGroup =
+  repeatedGroups[0] || null;
+
+const repeatedEnabled =
+  !!repeatedGroup;
+
+const availableRepeatedFields =
+  useMemo(
+    () => [
+      ...optionFields.map(
+        (field) => ({
+          ...field,
+          source: "option",
+        })
+      ),
+
+      ...customFields.map(
+        (field) => ({
+          ...field,
+          source: "custom",
+        })
+      ),
+    ],
+    [
+      optionFields,
+      customFields,
+    ]
+  );
+
+  useEffect(() => {
+  if (!repeatedEnabled) {
+    return;
+  }
+
+  const validKeys = new Set(
+    availableRepeatedFields
+      .map((field) => field?.key)
+      .filter(Boolean)
+  );
+
+  setForm((current) => {
+    const groups =
+      Array.isArray(
+        current.repeatedGroups
+      )
+        ? current.repeatedGroups
+        : [];
+
+    if (!groups.length) {
+      return current;
+    }
+
+    const group = groups[0];
+
+    const currentFields =
+      Array.isArray(group.fields)
+        ? group.fields
+        : [];
+
+    const cleanedFields =
+      currentFields.filter(
+        (field) =>
+          field?.key &&
+          validKeys.has(field.key)
+      );
+
+    /*
+     * Nu facem update dacă nu s-a
+     * schimbat nimic.
+     */
+    if (
+      cleanedFields.length ===
+        currentFields.length &&
+      cleanedFields.every(
+        (field, index) =>
+          field.key ===
+          currentFields[index]?.key
+      )
+    ) {
+      return current;
+    }
+
+    return markManualChange(
+      current,
+      {
+        repeatedGroups: [
+          {
+            ...group,
+            fields: cleanedFields,
+          },
+
+          ...groups.slice(1),
+        ],
+      }
+    );
+  });
+}, [
+  repeatedEnabled,
+  availableRepeatedFields,
+  setForm,
+]);
 
  const quoteFields =
   Array.isArray(quoteSchema)
@@ -902,32 +1015,40 @@ export default function ProductOrderModeSection({
     return [];
   };
 
-  const openSection = (
-    section
-  ) => {
-   setMobileSummaryOpen(false);
+const openSection = (
+  section
+) => {
+  setMobileSummaryOpen(false);
 
-    if (section === "options") {
-      setOpenOptionsPanel(true);
-      setOpenCustomPanel(false);
-    }
+  if (section === "options") {
+    setOpenOptionsPanel(true);
+    setOpenCustomPanel(false);
+    setOpenRepeatedPanel(false);
+  }
 
-    if (section === "custom") {
-      setOpenOptionsPanel(false);
-      setOpenCustomPanel(true);
-    }
+  if (section === "custom") {
+    setOpenOptionsPanel(false);
+    setOpenCustomPanel(true);
+    setOpenRepeatedPanel(false);
+  }
 
-    window.setTimeout(() => {
-      document
-        .getElementById(
-          `manual-section-${section}`
-        )
-        ?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-    }, 50);
-  };
+  if (section === "repeated") {
+    setOpenOptionsPanel(false);
+    setOpenCustomPanel(false);
+    setOpenRepeatedPanel(true);
+  }
+
+  window.setTimeout(() => {
+    document
+      .getElementById(
+        `manual-section-${section}`
+      )
+      ?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+  }, 50);
+};
 
   const selectMode = (
     modeValue
@@ -1281,6 +1402,114 @@ export default function ProductOrderModeSection({
     );
   };
 
+  const enableRepeatedGroup = () => {
+  setForm((current) =>
+    markManualChange(
+      current,
+      {
+        repeatedGroups: [
+          {
+            id: "main_repeated_group",
+            key: "items",
+
+            label:
+              "Membri / elemente",
+
+            itemLabel:
+              "Membru",
+
+            minItems: 1,
+            maxItems: 10,
+
+            required: true,
+            fields: [],
+          },
+        ],
+      }
+    )
+  );
+};
+
+const disableRepeatedGroup = () => {
+  setForm((current) =>
+    markManualChange(
+      current,
+      {
+        repeatedGroups: [],
+      }
+    )
+  );
+};
+
+const toggleRepeatedField = (
+  selectedField
+) => {
+  if (!selectedField?.key) {
+    return;
+  }
+
+  setForm((current) => {
+    const groups =
+      Array.isArray(
+        current.repeatedGroups
+      )
+        ? current.repeatedGroups
+        : [];
+
+    if (!groups.length) {
+      return current;
+    }
+
+    const group =
+      groups[0];
+
+    const fields =
+      Array.isArray(
+        group.fields
+      )
+        ? group.fields
+        : [];
+
+    const exists =
+      fields.some(
+        (field) =>
+          field.key ===
+          selectedField.key
+      );
+
+    const nextFields =
+      exists
+        ? fields.filter(
+            (field) =>
+              field.key !==
+              selectedField.key
+          )
+        : [
+            ...fields,
+
+            {
+              ...selectedField,
+
+              source:
+                selectedField.source ||
+                "custom",
+            },
+          ];
+
+    return markManualChange(
+      current,
+      {
+        repeatedGroups: [
+          {
+            ...group,
+            fields: nextFields,
+          },
+        ],
+      }
+    );
+  });
+};
+
   const toggleQuoteField = (
     field
   ) => {
@@ -1354,6 +1583,21 @@ export default function ProductOrderModeSection({
           )
           .join(", ")
       : "Niciun câmp";
+
+      const repeatedSummary =
+  repeatedEnabled &&
+  Array.isArray(
+    repeatedGroup?.fields
+  ) &&
+  repeatedGroup.fields.length
+    ? repeatedGroup.fields
+        .map(
+          (field) =>
+            field.label
+        )
+        .filter(Boolean)
+        .join(", ")
+    : "Nu";
 
   const quoteSummary =
     quoteFields.length
@@ -2262,13 +2506,221 @@ return (
                         )}
                       </div>
                     )}
+                                   </div>
+                )}
+              </div>
+
+              {/* =========================
+                  SET / GRUP
+              ========================= */}
+              <div
+                id="manual-section-repeated"
+                className={
+                  styles.orderAccordionItem
+                }
+              >
+                <button
+                  type="button"
+                  className={
+                    styles.orderAccordionHeader
+                  }
+                  onClick={() =>
+                    setOpenRepeatedPanel(
+                      (open) => !open
+                    )
+                  }
+                >
+                  <span>
+                    <strong>
+                      Este un set / grup?
+                    </strong>
+
+                    <small>
+                      {repeatedEnabled
+                        ? `${
+                            repeatedGroup
+                              ?.fields
+                              ?.length || 0
+                          } informații pentru fiecare`
+                        : "Pentru produse unde aceleași informații se completează pentru fiecare membru"}
+                    </small>
+                  </span>
+
+                  <span
+                    className={
+                      styles.orderAccordionIcon
+                    }
+                  >
+                    {openRepeatedPanel
+                      ? "−"
+                      : "+"}
+                  </span>
+                </button>
+
+                {openRepeatedPanel && (
+                  <div
+                    className={
+                      styles.orderAccordionBody
+                    }
+                  >
+                    <div
+                      className={
+                        styles.tip
+                      }
+                      style={{
+                        marginBottom: 14,
+                      }}
+                    >
+                      Folosește această
+                      opțiune dacă aceleași
+                      informații trebuie
+                      completate separat
+                      pentru mai multe
+                      persoane sau produse.
+
+                      <br />
+                      <br />
+
+                      Exemplu: pentru un set
+                      de tricouri, clientul
+                      poate adăuga mai mulți
+                      membri, iar pentru
+                      fiecare trebuie aleasă
+                      mărimea sau introdus
+                      textul imprimat.
+                    </div>
+
+                    <label
+                      className={
+                        styles.checkbox
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={
+                          repeatedEnabled
+                        }
+                        onChange={(
+                          event
+                        ) => {
+                          if (
+                            event.target
+                              .checked
+                          ) {
+                            enableRepeatedGroup();
+                          } else {
+                            disableRepeatedGroup();
+                          }
+                        }}
+                      />
+
+                      Da, clientul trebuie
+                      să completeze
+                      informații pentru
+                      fiecare membru /
+                      produs
+                    </label>
+
+                    {repeatedEnabled && (
+                      <div
+                        style={{
+                          marginTop: 16,
+                        }}
+                      >
+                        <strong
+                          style={{
+                            display:
+                              "block",
+                            marginBottom:
+                              10,
+                          }}
+                        >
+                          Ce trebuie
+                          completat pentru
+                          fiecare?
+                        </strong>
+
+                        {!availableRepeatedFields
+                          .length ? (
+                          <div
+                            className={
+                              styles.tip
+                            }
+                          >
+                            Adaugă mai întâi
+                            o variantă sau un
+                            câmp de
+                            personalizare
+                            deasupra.
+
+                            <br />
+
+                            De exemplu:
+                            Mărime, Culoare,
+                            Nume sau Text pe
+                            produs.
+                          </div>
+                        ) : (
+                          <div
+                            className={
+                              styles.orderCheckboxGrid
+                            }
+                          >
+                            {availableRepeatedFields.map(
+                              (
+                                field
+                              ) => {
+                                const checked =
+                                  Array.isArray(
+                                    repeatedGroup
+                                      ?.fields
+                                  ) &&
+                                  repeatedGroup.fields.some(
+                                    (
+                                      item
+                                    ) =>
+                                      item.key ===
+                                      field.key
+                                  );
+
+                                return (
+                                  <label
+                                    key={`${field.source}-${field.key}`}
+                                    className={
+                                      styles.checkbox
+                                    }
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={
+                                        checked
+                                      }
+                                      onChange={() =>
+                                        toggleRepeatedField(
+                                          field
+                                        )
+                                      }
+                                    />
+
+                                    {
+                                      field.label
+                                    }
+                                  </label>
+                                );
+                              }
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
+
             </div>
           )}
 
-         {value === "QUOTE_ONLY" && (
+{value === "QUOTE_ONLY" && (
   <div
     id="manual-section-quote"
     className={styles.fieldGroup}
@@ -2791,6 +3243,14 @@ return (
             openSection("custom")
           }
         />
+        <SummaryRow
+  title="Se repetă pentru fiecare"
+  value={repeatedSummary}
+  muted={!repeatedEnabled}
+  onEdit={() =>
+    openSection("repeated")
+  }
+/>
       </>
     )}
 

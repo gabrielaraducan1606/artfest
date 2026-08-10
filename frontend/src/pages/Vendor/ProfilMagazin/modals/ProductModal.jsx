@@ -327,18 +327,26 @@ export default function ProductModal({
                 ? nextOptionsSchema
                 : [],
 
-            customSchema:
-              nextOrderMode === "OPTIONS"
-                ? nextCustomSchema
-                : [],
+           customSchema:
+  nextOrderMode === "OPTIONS"
+    ? nextCustomSchema
+    : [],
 
-            quoteSchema:
-              nextOrderMode ===
-              "QUOTE_ONLY"
-                ? previous.quoteSchema ||
-                  []
-                : [],
+repeatedGroups:
+  nextOrderMode === "OPTIONS"
+    ? Array.isArray(
+        previous.repeatedGroups
+      )
+      ? previous.repeatedGroups
+      : []
+    : [],
 
+quoteSchema:
+  nextOrderMode ===
+  "QUOTE_ONLY"
+    ? previous.quoteSchema ||
+      []
+    : [],
             /*
              * Salvăm analiza completă.
              */
@@ -589,18 +597,25 @@ export default function ProductModal({
                 : [],
 
             customSchema:
-              Array.isArray(
-                parsed.customSchema
-              )
-                ? parsed.customSchema
-                : [],
+  Array.isArray(
+    parsed.customSchema
+  )
+    ? parsed.customSchema
+    : [],
 
-            quoteSchema:
-              Array.isArray(
-                parsed.quoteSchema
-              )
-                ? parsed.quoteSchema
-                : [],
+repeatedGroups:
+  Array.isArray(
+    parsed.repeatedGroups
+  )
+    ? parsed.repeatedGroups
+    : [],
+
+quoteSchema:
+  Array.isArray(
+    parsed.quoteSchema
+  )
+    ? parsed.quoteSchema
+    : [],
 
             aiGeneratedFields:
               Array.isArray(
@@ -662,9 +677,10 @@ export default function ProductModal({
             orderMode:
               "READY_TO_BUY",
 
-            optionsSchema: [],
-            customSchema: [],
-            quoteSchema: [],
+          optionsSchema: [],
+customSchema: [],
+repeatedGroups: [],
+quoteSchema: [],
 
             acceptsCustom: null,
 
@@ -691,8 +707,9 @@ export default function ProductModal({
             "READY_TO_BUY",
 
           optionsSchema: [],
-          customSchema: [],
-          quoteSchema: [],
+customSchema: [],
+repeatedGroups: [],
+quoteSchema: [],
 
           acceptsCustom: null,
 
@@ -1600,9 +1617,10 @@ export default function ProductModal({
               orderMode:
                 "READY_TO_BUY",
 
-              optionsSchema: [],
-              customSchema: [],
-              quoteSchema: [],
+           optionsSchema: [],
+customSchema: [],
+repeatedGroups: [],
+quoteSchema: [],
 
               acceptsCustom: null,
               availability: "",

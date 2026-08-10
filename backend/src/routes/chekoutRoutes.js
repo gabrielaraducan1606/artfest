@@ -64,6 +64,9 @@ function mapCartItemForCheckout(
     customAnswers:
       it.customAnswers || {},
 
+    repeatedGroupAnswers:
+      it.repeatedGroupAnswers || {},
+
     configurationKey:
       it.configurationKey ||
       "default",
@@ -100,7 +103,8 @@ function mapCartItemForCheckout(
     discountPercent:
       hasDiscount
         ? Number(
-            pricing?.discountPercent ||
+            pricing
+              ?.discountPercent ||
               0
           )
         : 0,
@@ -108,7 +112,8 @@ function mapCartItemForCheckout(
     totalDiscountPercent:
       hasDiscount
         ? Number(
-            pricing?.totalDiscountPercent ||
+            pricing
+              ?.totalDiscountPercent ||
               0
           )
         : 0,
@@ -116,7 +121,8 @@ function mapCartItemForCheckout(
     platformDiscountPercent:
       hasDiscount
         ? Number(
-            pricing?.platformDiscountPercent ||
+            pricing
+              ?.platformDiscountPercent ||
               0
           )
         : 0,
@@ -124,7 +130,8 @@ function mapCartItemForCheckout(
     vendorDiscountPercent:
       hasDiscount
         ? Number(
-            pricing?.vendorDiscountPercent ||
+            pricing
+              ?.vendorDiscountPercent ||
               0
           )
         : 0,
@@ -166,14 +173,9 @@ function mapCartItemForCheckout(
 
     discount:
       pricing?.discount || {
-        active:
-          false,
-
-        source:
-          null,
-
-        totalDiscountPercent:
-          0,
+        active: false,
+        source: null,
+        totalDiscountPercent: 0,
       },
 
     currency:
@@ -504,122 +506,219 @@ function validateContactPerson(contactPerson) {
   return null;
 }
 
-async function getGuestCart(rawItems = []) {
-  if (!Array.isArray(rawItems)) {
+async function getGuestCart(
+  rawItems = []
+) {
+  if (
+    !Array.isArray(
+      rawItems
+    )
+  ) {
     return [];
   }
 
   const normalizedItems = [];
-  const itemsByConfiguration = new Map();
+  const itemsByConfiguration =
+    new Map();
 
-  for (const rawItem of rawItems) {
-    const productId = normalizeText(rawItem?.productId);
+  for (
+    const rawItem of
+    rawItems
+  ) {
+    const productId =
+      normalizeText(
+        rawItem?.productId
+      );
 
     if (!productId) {
       continue;
     }
 
-    const qty = Math.min(
-      99,
-      Math.max(1, Number.parseInt(rawItem?.qty, 10) || 1)
-    );
+    const qty =
+      Math.min(
+        99,
+        Math.max(
+          1,
+          Number.parseInt(
+            rawItem?.qty,
+            10
+          ) || 1
+        )
+      );
 
     const selectedOptions =
       rawItem?.selectedOptions &&
-      typeof rawItem.selectedOptions === "object" &&
-      !Array.isArray(rawItem.selectedOptions)
+      typeof rawItem
+        .selectedOptions ===
+        "object" &&
+      !Array.isArray(
+        rawItem.selectedOptions
+      )
         ? rawItem.selectedOptions
         : {};
 
     const customAnswers =
       rawItem?.customAnswers &&
-      typeof rawItem.customAnswers === "object" &&
-      !Array.isArray(rawItem.customAnswers)
+      typeof rawItem
+        .customAnswers ===
+        "object" &&
+      !Array.isArray(
+        rawItem.customAnswers
+      )
         ? rawItem.customAnswers
         : {};
 
+    const repeatedGroupAnswers =
+      rawItem
+        ?.repeatedGroupAnswers &&
+      typeof rawItem
+        .repeatedGroupAnswers ===
+        "object" &&
+      !Array.isArray(
+        rawItem
+          .repeatedGroupAnswers
+      )
+        ? rawItem
+            .repeatedGroupAnswers
+        : {};
+
     const configurationKey =
-      normalizeText(rawItem?.configurationKey) || "default";
+      normalizeText(
+        rawItem
+          ?.configurationKey
+      ) || "default";
 
-    const itemKey = `${productId}:${configurationKey}`;
+    const itemKey =
+      `${productId}:${configurationKey}`;
 
-    const existing = itemsByConfiguration.get(itemKey);
+    const existing =
+      itemsByConfiguration.get(
+        itemKey
+      );
 
     if (existing) {
-      existing.qty = Math.min(99, existing.qty + qty);
+      existing.qty =
+        Math.min(
+          99,
+          existing.qty +
+            qty
+        );
     } else {
       const item = {
         productId,
         qty,
+
         selectedOptions,
         customAnswers,
+        repeatedGroupAnswers,
+
         configurationKey,
       };
 
-      normalizedItems.push(item);
-      itemsByConfiguration.set(itemKey, item);
+      normalizedItems.push(
+        item
+      );
+
+      itemsByConfiguration.set(
+        itemKey,
+        item
+      );
     }
   }
 
   const productIds = [
-    ...new Set(normalizedItems.map((item) => item.productId)),
+    ...new Set(
+      normalizedItems.map(
+        (item) =>
+          item.productId
+      )
+    ),
   ];
 
   if (!productIds.length) {
     return [];
   }
 
-  const products = await prisma.product.findMany({
-    where: {
-      id: {
-        in: productIds,
+  const products =
+    await prisma.product.findMany({
+      where: {
+        id: {
+          in: productIds,
+        },
       },
-    },
-    select: {
-      id: true,
-      title: true,
-      images: true,
-      priceCents: true,
-      category: true,
-      currency: true,
-      acceptsCustom: true,
-      styleTags: true,
-      occasionTags: true,
-      availability: true,
-      readyQty: true,
-      isActive: true,
-      isHidden: true,
-      moderationStatus: true,
-      service: {
-        select: {
-          id: true,
-          title: true,
-          vendorId: true,
-          estimatedShippingFeeCents: true,
-          freeShippingThresholdCents: true,
-          shippingNotes: true,
-          vendor: {
-            select: {
-              billing: true,
+
+      select: {
+        id: true,
+        title: true,
+        images: true,
+        priceCents: true,
+        category: true,
+        currency: true,
+        acceptsCustom: true,
+
+        styleTags: true,
+        occasionTags: true,
+
+        availability: true,
+        readyQty: true,
+        isActive: true,
+        isHidden: true,
+        moderationStatus: true,
+
+        service: {
+          select: {
+            id: true,
+            title: true,
+            vendorId: true,
+
+            estimatedShippingFeeCents:
+              true,
+
+            freeShippingThresholdCents:
+              true,
+
+            shippingNotes:
+              true,
+
+            vendor: {
+              select: {
+                billing: true,
+              },
             },
           },
         },
       },
-    },
-  });
+    });
 
-  const productsById = new Map(
-    products.map((product) => [product.id, product])
-  );
+  const productsById =
+    new Map(
+      products.map(
+        (product) => [
+          product.id,
+          product,
+        ]
+      )
+    );
 
-  if (products.length !== productIds.length) {
-    throw new Error("product_not_found");
+  if (
+    products.length !==
+    productIds.length
+  ) {
+    throw new Error(
+      "product_not_found"
+    );
   }
 
-  return normalizedItems.map((item) => ({
-    ...item,
-    product: productsById.get(item.productId),
-  }));
+  return normalizedItems.map(
+    (item) => ({
+      ...item,
+
+      product:
+        productsById.get(
+          item.productId
+        ),
+    })
+  );
 }
 
 /**
@@ -690,12 +789,19 @@ router.get(
                 id: true,
                 title: true,
                 images: true,
-                priceCents: true,
+
+                priceCents:
+                  true,
+
                 category: true,
                 currency: true,
-                acceptsCustom: true,
+
+                acceptsCustom:
+                  true,
+
                 styleTags: true,
-                occasionTags: true,
+                occasionTags:
+                  true,
 
                 service: {
                   select: {
@@ -734,10 +840,8 @@ router.get(
         return res.json({
           items: [],
           groups: [],
-          currency:
-            "RON",
-          subtotal:
-            0,
+          currency: "RON",
+          subtotal: 0,
         });
       }
 
@@ -789,8 +893,7 @@ router.get(
             const pricing =
               pricingByProductId.get(
                 product.id
-              ) ||
-              null;
+              ) || null;
 
             const finalPriceCents =
               Number(
@@ -814,8 +917,8 @@ router.get(
               Boolean(
                 pricing
                   ?.hasDiscount &&
-                  finalPriceCents <
-                    originalPriceCents
+                finalPriceCents <
+                  originalPriceCents
               );
 
             return {
@@ -848,8 +951,14 @@ router.get(
                 item.customAnswers ||
                 {},
 
+              repeatedGroupAnswers:
+                item
+                  .repeatedGroupAnswers ||
+                {},
+
               configurationKey:
-                item.configurationKey ||
+                item
+                  .configurationKey ||
                 "default",
 
               price:
@@ -982,8 +1091,7 @@ router.get(
                       Number(
                         service
                           .estimatedShippingFeeCents
-                      ) /
-                        100
+                      ) / 100
                     )
                   : null,
 
@@ -995,8 +1103,7 @@ router.get(
                       Number(
                         service
                           .freeShippingThresholdCents
-                      ) /
-                        100
+                      ) / 100
                     )
                   : null,
 
@@ -1095,13 +1202,9 @@ router.get(
         );
 
       return res.json({
-        items:
-          mapped,
-
+        items: mapped,
         groups,
-
         currency,
-
         subtotal,
       });
     } catch (error) {
@@ -1110,15 +1213,15 @@ router.get(
         error
       );
 
-      return res.status(
-        500
-      ).json({
-        error:
-          "checkout_summary_failed",
+      return res
+        .status(500)
+        .json({
+          error:
+            "checkout_summary_failed",
 
-        message:
-          "Nu am putut încărca sumarul comenzii.",
-      });
+          message:
+            "Nu am putut încărca sumarul comenzii.",
+        });
     }
   }
 );
@@ -1137,10 +1240,8 @@ router.post(
         return res.json({
           items: [],
           groups: [],
-          currency:
-            "RON",
-          subtotal:
-            0,
+          currency: "RON",
+          subtotal: 0,
         });
       }
 
@@ -1174,8 +1275,7 @@ router.post(
             const pricing =
               pricingByProductId.get(
                 product?.id
-              ) ||
-              null;
+              ) || null;
 
             const finalPriceCents =
               Number(
@@ -1199,8 +1299,8 @@ router.post(
               Boolean(
                 pricing
                   ?.hasDiscount &&
-                  finalPriceCents <
-                    originalPriceCents
+                finalPriceCents <
+                  originalPriceCents
               );
 
             return {
@@ -1224,8 +1324,7 @@ router.post(
                 Array.isArray(
                   product?.images
                 ) &&
-                product
-                  .images[0]
+                product.images[0]
                   ? product
                       .images[0]
                   : null,
@@ -1234,15 +1333,23 @@ router.post(
                 item.qty,
 
               selectedOptions:
-                item.selectedOptions ||
+                item
+                  .selectedOptions ||
                 {},
 
               customAnswers:
-                item.customAnswers ||
+                item
+                  .customAnswers ||
+                {},
+
+              repeatedGroupAnswers:
+                item
+                  .repeatedGroupAnswers ||
                 {},
 
               configurationKey:
-                item.configurationKey ||
+                item
+                  .configurationKey ||
                 "default",
 
               price:
@@ -1385,8 +1492,7 @@ router.post(
                       Number(
                         service
                           .estimatedShippingFeeCents
-                      ) /
-                        100
+                      ) / 100
                     )
                   : null,
 
@@ -1398,8 +1504,7 @@ router.post(
                       Number(
                         service
                           .freeShippingThresholdCents
-                      ) /
-                        100
+                      ) / 100
                     )
                   : null,
 
@@ -1538,13 +1643,9 @@ router.post(
         );
 
       return res.json({
-        items:
-          mapped,
-
+        items: mapped,
         groups,
-
         currency,
-
         subtotal,
       });
     } catch (error) {
@@ -1557,26 +1658,26 @@ router.post(
         error?.message ===
         "product_not_found"
       ) {
-        return res.status(
-          404
-        ).json({
-          error:
-            "product_not_found",
+        return res
+          .status(404)
+          .json({
+            error:
+              "product_not_found",
 
-          message:
-            "Un produs din coș nu mai există.",
-        });
+            message:
+              "Un produs din coș nu mai există.",
+          });
       }
 
-      return res.status(
-        500
-      ).json({
-        error:
-          "guest_summary_failed",
+      return res
+        .status(500)
+        .json({
+          error:
+            "guest_summary_failed",
 
-        message:
-          "Nu am putut încărca sumarul coșului.",
-      });
+          message:
+            "Nu am putut încărca sumarul coșului.",
+        });
     }
   }
 );
@@ -2151,17 +2252,21 @@ for (const item of cart) {
         price:
           dec(finalUnitPrice),
 
-        selectedOptions:
-          item.selectedOptions ||
-          {},
+       selectedOptions:
+  item.selectedOptions ||
+  {},
 
-        customAnswers:
-          item.customAnswers ||
-          {},
+customAnswers:
+  item.customAnswers ||
+  {},
 
-        configurationKey:
-          item.configurationKey ||
-          "default",
+repeatedGroupAnswers:
+  item.repeatedGroupAnswers ||
+  {},
+
+configurationKey:
+  item.configurationKey ||
+  "default",
 
         originalPrice:
           hasDiscount
@@ -2874,16 +2979,20 @@ const groups =
           dec(finalUnitPrice),
 
         selectedOptions:
-          item.selectedOptions ||
-          {},
+  item.selectedOptions ||
+  {},
 
-        customAnswers:
-          item.customAnswers ||
-          {},
+customAnswers:
+  item.customAnswers ||
+  {},
 
-        configurationKey:
-          item.configurationKey ||
-          "default",
+repeatedGroupAnswers:
+  item.repeatedGroupAnswers ||
+  {},
+
+configurationKey:
+  item.configurationKey ||
+  "default",
 
         originalPrice:
           hasDiscount

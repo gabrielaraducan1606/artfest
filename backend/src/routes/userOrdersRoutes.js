@@ -238,11 +238,10 @@ router.get("/my", async (req, res) => {
 
     promoFundingSource: true,
 
-    selectedOptions: true,
-
-    customAnswers: true,
-
-    configurationKey: true,
+   selectedOptions: true,
+customAnswers: true,
+repeatedGroupAnswers: true,
+configurationKey: true,
   },
 },
           },
@@ -390,6 +389,9 @@ router.get("/my", async (req, res) => {
             customAnswers:
               item.customAnswers ||
               {},
+
+              repeatedGroupAnswers:
+  item.repeatedGroupAnswers || {},
 
             configurationKey:
               item.configurationKey ||
@@ -597,17 +599,17 @@ const flatItems =
               item.promoFundingSource ||
               null,
 
-            selectedOptions:
-              item.selectedOptions ||
-              {},
+           selectedOptions:
+  item.selectedOptions || {},
 
-            customAnswers:
-              item.customAnswers ||
-              {},
+customAnswers:
+  item.customAnswers || {},
 
-            configurationKey:
-              item.configurationKey ||
-              null,
+repeatedGroupAnswers:
+  item.repeatedGroupAnswers || {},
+
+configurationKey:
+  item.configurationKey || null,
 
             image:
               item.productId
@@ -1101,6 +1103,15 @@ router.post(
           ? item.customAnswers
           : {};
 
+          const repeatedGroupAnswers =
+  item.repeatedGroupAnswers &&
+  typeof item.repeatedGroupAnswers === "object" &&
+  !Array.isArray(
+    item.repeatedGroupAnswers
+  )
+    ? item.repeatedGroupAnswers
+    : {};
+
       /*
        * Folosim configurația originală.
        *
@@ -1212,28 +1223,31 @@ router.post(
         },
 
         update: {
-          qty:
-            nextQty,
+  qty: nextQty,
 
-          selectedOptions,
+  selectedOptions,
 
-          customAnswers,
-        },
+  customAnswers,
 
-        create: {
-          userId,
+  repeatedGroupAnswers,
+},
 
-          productId:
-            item.productId,
+       create: {
+  userId,
 
-          qty,
+  productId:
+    item.productId,
 
-          selectedOptions,
+  qty,
 
-          customAnswers,
+  selectedOptions,
 
-          configurationKey,
-        },
+  customAnswers,
+
+  repeatedGroupAnswers,
+
+  configurationKey,
+},
       });
 
       added++;

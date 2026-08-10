@@ -139,19 +139,25 @@ export default function ProductModalWizard({
     ) &&
     Number(form.leadTimeDays) > 0;
 
-  const hasOrderFields =
-    (
-      Array.isArray(
-        form.optionsSchema
-      ) &&
-      form.optionsSchema.length > 0
-    ) ||
-    (
-      Array.isArray(
-        form.customSchema
-      ) &&
-      form.customSchema.length > 0
-    );
+const hasOrderFields =
+  (
+    Array.isArray(
+      form.optionsSchema
+    ) &&
+    form.optionsSchema.length > 0
+  ) ||
+  (
+    Array.isArray(
+      form.customSchema
+    ) &&
+    form.customSchema.length > 0
+  ) ||
+  (
+    Array.isArray(
+      form.repeatedGroups
+    ) &&
+    form.repeatedGroups.length > 0
+  );
 
   const hasQuoteFields =
     Array.isArray(
@@ -310,8 +316,9 @@ export default function ProductModalWizard({
       nextShipDate: "",
 
       optionsSchema: [],
-      customSchema: [],
-      quoteSchema: [],
+customSchema: [],
+repeatedGroups: [],
+quoteSchema: [],
 
       aiVisionAnalysis:
         null,

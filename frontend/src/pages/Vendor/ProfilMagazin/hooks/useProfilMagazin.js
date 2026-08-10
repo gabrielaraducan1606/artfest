@@ -389,10 +389,11 @@ const EMPTY_PROD_FORM = {
   nextShipDate: "",
   acceptsCustom: false,
 
-  orderMode: "READY_TO_BUY",
-  optionsSchema: [],
-  customSchema: [],
-  quoteSchema: [],
+orderMode: "READY_TO_BUY",
+optionsSchema: [],
+customSchema: [],
+repeatedGroups: [],
+quoteSchema: [],
 
   aiVisionAnalysis: null,
   aiOrderAnalysis: null,
@@ -1263,6 +1264,11 @@ if (owner) {
         prodForm.customSchema
       );
 
+      const repeatedGroups =
+  normalizeSchemaArray(
+    prodForm.repeatedGroups
+  );
+
     const rawQuoteSchema =
       normalizeSchemaArray(
         prodForm.quoteSchema
@@ -1442,7 +1448,10 @@ if (owner) {
         orderMode === "OPTIONS"
           ? customSchema
           : [],
-
+repeatedGroups:
+  orderMode === "OPTIONS"
+    ? repeatedGroups
+    : [],
       quoteSchema,
 
       acceptsCustom:

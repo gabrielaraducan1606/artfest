@@ -496,22 +496,6 @@ router.post(
         }
 
         if (
-          resolvedProduct
-            .orderMode !==
-          "QUOTE_ONLY"
-        ) {
-          return res
-            .status(409)
-            .json({
-              error:
-                "product_not_quote_only",
-
-              message:
-                "Acest produs nu este configurat pentru cerere de ofertă.",
-            });
-        }
-
-        if (
           !resolvedProduct
             .service ||
           !resolvedProduct

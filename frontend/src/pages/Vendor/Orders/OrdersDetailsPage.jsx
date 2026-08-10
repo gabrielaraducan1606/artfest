@@ -40,6 +40,255 @@ function formatDate(d) {
   }
 }
 
+function getObjectEntries(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return [];
+  }
+
+  return Object.entries(value).filter(
+    ([, itemValue]) => {
+      if (
+        itemValue === null ||
+        itemValue === undefined
+      ) {
+        return false;
+      }
+
+      if (
+        typeof itemValue === "string"
+      ) {
+        return itemValue.trim() !== "";
+      }
+
+      return true;
+    }
+  );
+}
+
+function readableValue(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map(readableValue)
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    return (
+      value.label ||
+      value.value ||
+      value.name ||
+      JSON.stringify(value)
+    );
+  }
+
+  return String(value);
+}
+
+function readableLabel(key) {
+  return String(key || "")
+    .replace(/[_-]+/g, " ")
+    .replace(
+      /\b\w/g,
+      (letter) =>
+        letter.toUpperCase()
+    );
+}
+
+function ProductConfiguration({
+  item,
+}) {
+  const optionEntries =
+    getObjectEntries(
+      item?.selectedOptions
+    );
+
+  const customEntries =
+    getObjectEntries(
+      item?.customAnswers
+    );
+
+  const repeatedEntries =
+    getObjectEntries(
+      item?.repeatedGroupAnswers
+    );
+
+  const hasAny =
+    optionEntries.length > 0 ||
+    customEntries.length > 0 ||
+    repeatedEntries.length > 0;
+
+  if (!hasAny) {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      {optionEntries.length > 0 && (
+        <div>
+          <strong>
+            Opțiuni
+          </strong>
+
+          {optionEntries.map(
+            ([key, value]) => (
+              <div
+                key={`option-${key}`}
+              >
+                {readableLabel(key)}
+                :{" "}
+                {readableValue(value)}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {customEntries.length > 0 && (
+        <div
+          style={{
+            marginTop:
+              optionEntries.length
+                ? 8
+                : 0,
+          }}
+        >
+          <strong>
+            Personalizare
+          </strong>
+
+          {customEntries.map(
+            ([key, value]) => (
+              <div
+                key={`custom-${key}`}
+              >
+                {readableLabel(key)}
+                :{" "}
+                {readableValue(value)}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {repeatedEntries.length > 0 && (
+        <div
+          style={{
+            marginTop:
+              optionEntries.length ||
+              customEntries.length
+                ? 10
+                : 0,
+          }}
+        >
+          <strong>
+            Detalii pentru fiecare membru
+          </strong>
+
+          {repeatedEntries.map(
+            ([groupKey, members]) => {
+              if (
+                !Array.isArray(members)
+              ) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={`group-${groupKey}`}
+                >
+                  {members.map(
+                    (
+                      member,
+                      memberIndex
+                    ) => {
+                      const entries =
+                        getObjectEntries(
+                          member
+                        );
+
+                      if (
+                        !entries.length
+                      ) {
+                        return null;
+                      }
+
+                      return (
+                        <div
+                          key={`${groupKey}-${memberIndex}`}
+                          style={{
+                            marginTop:
+                              8,
+                            padding:
+                              "8px 10px",
+                            border:
+                              "1px solid rgba(0,0,0,0.08)",
+                            borderRadius:
+                              8,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight:
+                                700,
+                              marginBottom:
+                                4,
+                            }}
+                          >
+                            Membru{" "}
+                            {memberIndex +
+                              1}
+                          </div>
+
+                          {entries.map(
+                            ([
+                              key,
+                              value,
+                            ]) => (
+                              <div
+                                key={`${groupKey}-${memberIndex}-${key}`}
+                              >
+                                {readableLabel(
+                                  key
+                                )}
+                                :{" "}
+                                {readableValue(
+                                  value
+                                )}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              );
+            }
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* 🔹 motive anulare – la fel ca în lista de comenzi */
 const CANCEL_REASONS = [
   { value: "client_no_answer", label: "Clientul nu răspunde la telefon" },
@@ -542,32 +791,12 @@ const [imagePreview, setImagePreview] = useState(null);
           )}
 
           <div>
-            <div>{it.title}</div>
+  <div>{it.title}</div>
 
-            <div
-              style={{
-                marginTop: 6,
-                fontSize: 13,
-                color: "#6b7280",
-              }}
-            >
-              {Object.entries(it.selectedOptions || {}).map(
-                ([key, value]) => (
-                  <div key={`option-${key}`}>
-                    <strong>{key}:</strong> {String(value)}
-                  </div>
-                )
-              )}
-
-              {Object.entries(it.customAnswers || {}).map(
-                ([key, value]) => (
-                  <div key={`custom-${key}`}>
-                    <strong>{key}:</strong> {String(value)}
-                  </div>
-                )
-              )}
-            </div>
-          </div>
+  <ProductConfiguration
+    item={it}
+  />
+</div>
         </div>
       </td>
 

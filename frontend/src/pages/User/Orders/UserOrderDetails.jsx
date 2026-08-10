@@ -79,6 +79,247 @@ function formatDate(d) {
   }
 }
 
+function getObjectEntries(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return [];
+  }
+
+  return Object.entries(value).filter(
+    ([, itemValue]) => {
+      if (
+        itemValue === null ||
+        itemValue === undefined
+      ) {
+        return false;
+      }
+
+      if (typeof itemValue === "string") {
+        return itemValue.trim() !== "";
+      }
+
+      return true;
+    }
+  );
+}
+
+function readableValue(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map(readableValue)
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    return (
+      value.label ||
+      value.value ||
+      value.name ||
+      JSON.stringify(value)
+    );
+  }
+
+  return String(value);
+}
+
+function readableLabel(key) {
+  return String(key || "")
+    .replace(/[_-]+/g, " ")
+    .replace(
+      /\b\w/g,
+      (letter) =>
+        letter.toUpperCase()
+    );
+}
+
+function ProductConfiguration({
+  item,
+}) {
+  const optionEntries =
+    getObjectEntries(
+      item?.selectedOptions
+    );
+
+  const customEntries =
+    getObjectEntries(
+      item?.customAnswers
+    );
+
+  const repeatedEntries =
+    getObjectEntries(
+      item?.repeatedGroupAnswers
+    );
+
+  const hasAny =
+    optionEntries.length > 0 ||
+    customEntries.length > 0 ||
+    repeatedEntries.length > 0;
+
+  if (!hasAny) {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      {optionEntries.length > 0 && (
+        <div>
+          <strong>Opțiuni</strong>
+
+          {optionEntries.map(
+            ([key, value]) => (
+              <div
+                key={`option-${key}`}
+              >
+                {readableLabel(key)}
+                :{" "}
+                {readableValue(value)}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {customEntries.length > 0 && (
+        <div
+          style={{
+            marginTop:
+              optionEntries.length
+                ? 6
+                : 0,
+          }}
+        >
+          <strong>
+            Personalizare
+          </strong>
+
+          {customEntries.map(
+            ([key, value]) => (
+              <div
+                key={`custom-${key}`}
+              >
+                {readableLabel(key)}
+                :{" "}
+                {readableValue(value)}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {repeatedEntries.length > 0 && (
+        <div
+          style={{
+            marginTop:
+              optionEntries.length ||
+              customEntries.length
+                ? 8
+                : 0,
+          }}
+        >
+          <strong>
+            Detalii personalizare
+          </strong>
+
+          {repeatedEntries.map(
+            ([groupKey, members]) => {
+              if (
+                !Array.isArray(members)
+              ) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={`group-${groupKey}`}
+                >
+                  {members.map(
+                    (
+                      member,
+                      memberIndex
+                    ) => {
+                      const entries =
+                        getObjectEntries(
+                          member
+                        );
+
+                      if (!entries.length) {
+                        return null;
+                      }
+
+                      return (
+                        <div
+                          key={`${groupKey}-${memberIndex}`}
+                          style={{
+                            marginTop: 6,
+                            padding:
+                              "7px 9px",
+                            border:
+                              "1px solid rgba(0,0,0,0.08)",
+                            borderRadius:
+                              8,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight:
+                                700,
+                              marginBottom:
+                                3,
+                            }}
+                          >
+                            Personalizare{" "}
+                            {memberIndex + 1}
+                          </div>
+
+                          {entries.map(
+                            ([
+                              key,
+                              value,
+                            ]) => (
+                              <div
+                                key={`${groupKey}-${memberIndex}-${key}`}
+                              >
+                                {readableLabel(
+                                  key
+                                )}
+                                :{" "}
+                                {readableValue(
+                                  value
+                                )}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              );
+            }
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MyOrderDetailsPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -705,7 +946,9 @@ export default function MyOrderDetailsPage() {
     </strong>
   )}
 </div>
-
+<ProductConfiguration
+  item={it}
+/>
 <div className={styles.itemMeta}>
   Total linie:{" "}
   <strong>
@@ -772,23 +1015,28 @@ export default function MyOrderDetailsPage() {
                     </div>
                   )}
 
-                  <div className={styles.itemInfo}>
-                    <div className={styles.itemTitle}>
-                      {it.productId ? (
-                        <Link
-                          to={`/produs/${it.productId}`}
-                          className={styles.itemTitleLink}
-                        >
-                          {it.title}
-                        </Link>
-                      ) : (
-                        it.title
-                      )}
-                    </div>
-                   <div className={styles.itemMeta}>
-  Cantitate:{" "}
-  <b>{it.qty}</b>
-</div>
+                <div className={styles.itemInfo}>
+  <div className={styles.itemTitle}>
+    {it.productId ? (
+      <Link
+        to={`/produs/${it.productId}`}
+        className={styles.itemTitleLink}
+      >
+        {it.title}
+      </Link>
+    ) : (
+      it.title
+    )}
+  </div>
+
+  <ProductConfiguration
+    item={it}
+  />
+
+  <div className={styles.itemMeta}>
+    Cantitate:{" "}
+    <b>{it.qty}</b>
+  </div>
 
 <div className={styles.itemMeta}>
   Preț unitar:{" "}

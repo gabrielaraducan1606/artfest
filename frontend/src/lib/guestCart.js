@@ -44,9 +44,24 @@ function load() {
         .map((item) => ({
           productId: String(item.productId),
           qty: Math.max(1, Number.parseInt(item.qty, 10) || 1),
-          selectedOptions: normalizeObject(item.selectedOptions),
-          customAnswers: normalizeObject(item.customAnswers),
-          configurationKey: item.configurationKey || "default",
+          selectedOptions:
+  normalizeObject(
+    item.selectedOptions
+  ),
+
+customAnswers:
+  normalizeObject(
+    item.customAnswers
+  ),
+
+repeatedGroupAnswers:
+  normalizeObject(
+    item.repeatedGroupAnswers
+  ),
+
+configurationKey:
+  item.configurationKey ||
+  "default",
         }));
     }
 
@@ -62,9 +77,10 @@ function load() {
         .map(([productId, qty]) => ({
           productId,
           qty: Math.max(1, Number.parseInt(qty, 10) || 1),
-          selectedOptions: {},
-          customAnswers: {},
-          configurationKey: "default",
+         selectedOptions: {},
+customAnswers: {},
+repeatedGroupAnswers: {},
+configurationKey: "default",
         }));
     }
 
@@ -97,7 +113,79 @@ function normalizeQty(qty) {
 
   return Math.min(99, Math.max(0, parsed));
 }
+function stableStringify(value) {
+  if (
+    value === null ||
+    typeof value !== "object"
+  ) {
+    return JSON.stringify(value);
+  }
 
+  if (Array.isArray(value)) {
+    return `[${value
+      .map(stableStringify)
+      .join(",")}]`;
+  }
+
+  const keys =
+    Object.keys(value).sort();
+
+  return `{${keys
+    .map(
+      (key) =>
+        `${JSON.stringify(
+          key
+        )}:${stableStringify(
+          value[key]
+        )}`
+    )
+    .join(",")}}`;
+}
+
+function buildGuestConfigurationKey({
+  selectedOptions = {},
+  customAnswers = {},
+  repeatedGroupAnswers = {},
+}) {
+  const raw =
+    stableStringify({
+      selectedOptions:
+        normalizeObject(
+          selectedOptions
+        ),
+
+      customAnswers:
+        normalizeObject(
+          customAnswers
+        ),
+
+      repeatedGroupAnswers:
+        normalizeObject(
+          repeatedGroupAnswers
+        ),
+    });
+
+  /*
+   * Pentru localStorage nu avem nevoie
+   * de hash criptografic.
+   */
+  let hash = 0;
+
+  for (
+    let i = 0;
+    i < raw.length;
+    i += 1
+  ) {
+    hash =
+      (hash * 31 +
+        raw.charCodeAt(i)) |
+      0;
+  }
+
+  return `guest_${Math.abs(
+    hash
+  )}`;
+}
 /* ===========================
    API compatibil Cart.jsx
 =========================== */
@@ -106,39 +194,98 @@ export const guestCart = {
      Adaugă produs/configurație
   -------------------------- */
   add(
-    productId,
-    qty = 1,
-    {
-      selectedOptions = {},
-      customAnswers = {},
-      configurationKey = "default",
-    } = {}
-  ) {
-    const cart = load();
-    const normalizedQty = Math.max(1, normalizeQty(qty));
-    const normalizedKey = configurationKey || "default";
+  productId,
+  qty = 1,
+  {
+    selectedOptions = {},
+    customAnswers = {},
+    repeatedGroupAnswers = {},
+    configurationKey = "default",
+  } = {}
+) {
+  const cart = load();
 
-    const existing = cart.find(
-      (item) =>
-        item.productId === String(productId) &&
-        item.configurationKey === normalizedKey
+  const normalizedQty =
+    Math.max(
+      1,
+      normalizeQty(qty)
     );
 
-    if (existing) {
-      existing.qty = Math.min(99, existing.qty + normalizedQty);
-    } else {
-      cart.push({
-        productId: String(productId),
-        qty: normalizedQty,
-        selectedOptions: normalizeObject(selectedOptions),
-        customAnswers: normalizeObject(customAnswers),
-        configurationKey: normalizedKey,
+  const normalizedKey =
+  configurationKey &&
+  configurationKey !==
+    "default"
+    ? configurationKey
+    : buildGuestConfigurationKey({
+        selectedOptions,
+        customAnswers,
+        repeatedGroupAnswers,
       });
-    }
+  const existing =
+    cart.find(
+      (item) =>
+        item.productId ===
+          String(productId) &&
+        item.configurationKey ===
+          normalizedKey
+    );
 
-    save(cart);
-  },
+  if (existing) {
+    existing.qty =
+      Math.min(
+        99,
+        existing.qty +
+          normalizedQty
+      );
 
+    /*
+     * Păstrăm și configurația
+     * actualizată.
+     */
+    existing.selectedOptions =
+      normalizeObject(
+        selectedOptions
+      );
+
+    existing.customAnswers =
+      normalizeObject(
+        customAnswers
+      );
+
+    existing.repeatedGroupAnswers =
+      normalizeObject(
+        repeatedGroupAnswers
+      );
+  } else {
+    cart.push({
+      productId:
+        String(productId),
+
+      qty:
+        normalizedQty,
+
+      selectedOptions:
+        normalizeObject(
+          selectedOptions
+        ),
+
+      customAnswers:
+        normalizeObject(
+          customAnswers
+        ),
+
+      repeatedGroupAnswers:
+        normalizeObject(
+          repeatedGroupAnswers
+        ),
+
+      configurationKey:
+        normalizedKey,
+    });
+  }
+
+  save(cart);
+},
   /* -------------------------
      Setează cantitatea exactă
   -------------------------- */

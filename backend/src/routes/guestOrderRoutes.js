@@ -392,17 +392,21 @@ originalPriceCents:
               item.promoFundingSource ||
               null,
 
-            selectedOptions:
-              item.selectedOptions ||
-              {},
+           selectedOptions:
+  item.selectedOptions ||
+  {},
 
-            customAnswers:
-              item.customAnswers ||
-              {},
+customAnswers:
+  item.customAnswers ||
+  {},
 
-            configurationKey:
-              item.configurationKey ||
-              null,
+repeatedGroupAnswers:
+  item.repeatedGroupAnswers ||
+  {},
+
+configurationKey:
+  item.configurationKey ||
+  null,
 
             image:
               item.productId

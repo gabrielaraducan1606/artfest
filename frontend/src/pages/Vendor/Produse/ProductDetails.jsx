@@ -88,6 +88,7 @@ const emptyProdForm = {
   orderMode: "READY_TO_BUY",
   optionsSchema: [],
   customSchema: [],
+  repeatedGroups: [],
   quoteSchema: [],
 
   color: "",
@@ -198,6 +199,10 @@ const [selectedOptions, setSelectedOptions] = useState({});
 const [customAnswers, setCustomAnswers] = useState({});
 const [customizationOpen, setCustomizationOpen] = useState(false);
 const [validationErrors, setValidationErrors] = useState({});
+const [
+  repeatedGroupAnswers,
+  setRepeatedGroupAnswers,
+] = useState({});
   const [revRating, setRevRating] = useState(0);
   const [revText, setRevText] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -264,6 +269,7 @@ setFavorites(new Set());
     setDeferredSections(false);
     setSelectedOptions({});
 setCustomAnswers({});
+setRepeatedGroupAnswers({});
     setCustomizationOpen(false);
     setValidationErrors({});
   }, [id]);
@@ -507,56 +513,466 @@ const customSchema = useMemo(() => {
 
   return [];
 }, [product?.customSchema]);
+
+const repeatedGroups = useMemo(() => {
+  if (
+    !Array.isArray(
+      product?.repeatedGroups
+    )
+  ) {
+    return [];
+  }
+
+  const allFields = [
+    ...optionsSchema,
+    ...customSchema,
+  ];
+
+  const fieldsByKey =
+    new Map(
+      allFields
+        .filter(
+          (field) =>
+            field?.key
+        )
+        .map(
+          (field) => [
+            String(
+              field.key
+            ),
+            field,
+          ]
+        )
+    );
+
+  return product.repeatedGroups
+    .map((group) => {
+      if (
+        !group ||
+        typeof group !==
+          "object"
+      ) {
+        return null;
+      }
+
+      const rawFields =
+        Array.isArray(
+          group.fields
+        )
+          ? group.fields
+          : [];
+
+      const fields =
+        rawFields
+          .map((field) => {
+            /*
+             * Format vechi/nou:
+             * fields: ["marime", "culoare"]
+             */
+            if (
+              typeof field ===
+              "string"
+            ) {
+              return (
+                fieldsByKey.get(
+                  field
+                ) || {
+                  key: field,
+                  label: field,
+                  type: "text",
+                  required: false,
+                }
+              );
+            }
+
+            /*
+             * Dacă avem deja
+             * obiectul complet.
+             */
+            if (
+              field &&
+              typeof field ===
+                "object"
+            ) {
+              const key =
+                field.key;
+
+              if (!key) {
+                return null;
+              }
+
+              return {
+                ...(
+                  fieldsByKey.get(
+                    String(key)
+                  ) || {}
+                ),
+                ...field,
+              };
+            }
+
+            return null;
+          })
+          .filter(Boolean);
+
+      return {
+        ...group,
+        fields,
+      };
+    })
+    .filter(Boolean);
+}, [
+  product?.repeatedGroups,
+  optionsSchema,
+  customSchema,
+]);
+
+const repeatedFieldKeys = useMemo(() => {
+  const keys = new Set();
+
+  for (const group of repeatedGroups) {
+    const fields = Array.isArray(
+      group?.fields
+    )
+      ? group.fields
+      : [];
+
+    for (const field of fields) {
+      if (field?.key) {
+        keys.add(field.key);
+      }
+    }
+  }
+
+  return keys;
+}, [repeatedGroups]);
+
+const topLevelOptionsSchema = useMemo(
+  () =>
+    optionsSchema.filter(
+      (field) =>
+        !repeatedFieldKeys.has(
+          field.key
+        )
+    ),
+  [
+    optionsSchema,
+    repeatedFieldKeys,
+  ]
+);
+
+const topLevelCustomSchema = useMemo(
+  () =>
+    customSchema.filter(
+      (field) =>
+        !repeatedFieldKeys.has(
+          field.key
+        )
+    ),
+  [
+    customSchema,
+    repeatedFieldKeys,
+  ]
+);
+
 const hasOrderOptions =
-  optionsSchema.length > 0 ||
-  customSchema.length > 0;
+  topLevelOptionsSchema.length > 0 ||
+  topLevelCustomSchema.length > 0 ||
+  repeatedGroups.length > 0;
+
+  const createEmptyRepeatedItem =
+  useCallback((group) => {
+    const item = {};
+
+    const fields =
+      Array.isArray(group?.fields)
+        ? group.fields
+        : [];
+
+    for (const field of fields) {
+      if (!field?.key) {
+        continue;
+      }
+
+      item[field.key] = "";
+    }
+
+    return item;
+  }, []);
+
+useEffect(() => {
+  if (!repeatedGroups.length) {
+    setRepeatedGroupAnswers({});
+    return;
+  }
+
+  setRepeatedGroupAnswers(
+    (current) => {
+      const next = {
+        ...current,
+      };
+
+      for (const group of repeatedGroups) {
+        const groupKey =
+          group?.key || group?.id;
+
+        if (!groupKey) {
+          continue;
+        }
+
+        const existing =
+          Array.isArray(
+            next[groupKey]
+          )
+            ? next[groupKey]
+            : [];
+
+        if (existing.length) {
+          continue;
+        }
+
+        next[groupKey] = [
+          createEmptyRepeatedItem(
+            group
+          ),
+        ];
+      }
+
+      return next;
+    }
+  );
+}, [
+  repeatedGroups,
+  createEmptyRepeatedItem,
+]);
+
+const addRepeatedItem =
+  useCallback(
+    (group) => {
+      const groupKey =
+        group?.key || group?.id;
+
+      if (!groupKey) {
+        return;
+      }
+
+      setRepeatedGroupAnswers(
+        (current) => {
+          const items =
+            Array.isArray(
+              current[groupKey]
+            )
+              ? current[groupKey]
+              : [];
+
+          if (items.length >= 10) {
+            return current;
+          }
+
+          return {
+            ...current,
+
+            [groupKey]: [
+              ...items,
+              createEmptyRepeatedItem(
+                group
+              ),
+            ],
+          };
+        }
+      );
+    },
+    [createEmptyRepeatedItem]
+  );
+
+const removeRepeatedItem =
+  useCallback(
+    (
+      group,
+      itemIndex
+    ) => {
+      const groupKey =
+        group?.key || group?.id;
+
+      if (!groupKey) {
+        return;
+      }
+
+      setRepeatedGroupAnswers(
+        (current) => {
+          const items =
+            Array.isArray(
+              current[groupKey]
+            )
+              ? current[groupKey]
+              : [];
+
+          if (items.length <= 1) {
+            return current;
+          }
+
+          return {
+            ...current,
+
+            [groupKey]:
+              items.filter(
+                (_, index) =>
+                  index !== itemIndex
+              ),
+          };
+        }
+      );
+    },
+    []
+  );
+
+const updateRepeatedItemField =
+  useCallback(
+    (
+      group,
+      itemIndex,
+      fieldKey,
+      value
+    ) => {
+      const groupKey =
+        group?.key || group?.id;
+
+      if (
+        !groupKey ||
+        !fieldKey
+      ) {
+        return;
+      }
+
+      setRepeatedGroupAnswers(
+        (current) => {
+          const items =
+            Array.isArray(
+              current[groupKey]
+            )
+              ? current[groupKey]
+              : [];
+
+          const nextItems =
+            items.map(
+              (item, index) =>
+                index === itemIndex
+                  ? {
+                      ...item,
+                      [fieldKey]:
+                        value,
+                    }
+                  : item
+            );
+
+          return {
+            ...current,
+            [groupKey]:
+              nextItems,
+          };
+        }
+      );
+
+      setValidationErrors(
+        (current) => {
+          const errorKey =
+            `repeated:${groupKey}:${itemIndex}:${fieldKey}`;
+
+          if (!current[errorKey]) {
+            return current;
+          }
+
+          const next = {
+            ...current,
+          };
+
+          delete next[errorKey];
+
+          return next;
+        }
+      );
+    },
+    []
+  );
+
   const myVendorId = me?.vendor?.id ?? null;
   const myUserId = me?.id ?? me?.sub ?? null;
 
-  const missingRequiredSelection =
-  useMemo(() => {
-    const missingOption =
-      optionsSchema.some(
-        (field) => {
-          if (
-            field?.required === false
-          ) {
+const missingRequiredSelection = useMemo(() => {
+  const missingOption =
+    topLevelOptionsSchema.some((field) => {
+      if (field?.required === false) {
+        return false;
+      }
+
+      return !String(
+        selectedOptions[field.key] || ""
+      ).trim();
+    });
+
+  const missingCustomAnswer =
+    topLevelCustomSchema.some((field) => {
+      if (!field?.required) {
+        return false;
+      }
+
+      return !String(
+        customAnswers[field.key] || ""
+      ).trim();
+    });
+
+  const missingRepeatedAnswer =
+    repeatedGroups.some((group) => {
+      const groupKey =
+        group?.key || group?.id;
+
+      if (!groupKey) {
+        return false;
+      }
+
+      const items = Array.isArray(
+        repeatedGroupAnswers[groupKey]
+      )
+        ? repeatedGroupAnswers[groupKey]
+        : [];
+
+      if (!items.length) {
+        return true;
+      }
+
+      const fields = Array.isArray(
+        group?.fields
+      )
+        ? group.fields
+        : [];
+
+      return items.some((item) =>
+        fields.some((field) => {
+          if (field?.required === false) {
             return false;
           }
 
           return !String(
-            selectedOptions[
-              field.key
-            ] || ""
+            item?.[field.key] ?? ""
           ).trim();
-        }
+        })
       );
+    });
 
-    const missingCustomAnswer =
-      customSchema.some(
-        (field) => {
-          if (!field?.required) {
-            return false;
-          }
+  return (
+    missingOption ||
+    missingCustomAnswer ||
+    missingRepeatedAnswer
+  );
+}, [
+  topLevelOptionsSchema,
+  topLevelCustomSchema,
+  repeatedGroups,
+  selectedOptions,
+  customAnswers,
+  repeatedGroupAnswers,
+]);
 
-          return !String(
-            customAnswers[
-              field.key
-            ] || ""
-          ).trim();
-        }
-      );
-
-    return (
-      missingOption ||
-      missingCustomAnswer
-    );
-  }, [
-    optionsSchema,
-    customSchema,
-    selectedOptions,
-    customAnswers,
-  ]);
 
   const ownerVendorId =
     product?.service?.vendor?.id ??
@@ -674,7 +1090,11 @@ const onAddToCart = useCallback(async () => {
     const nextErrors = {};
     let hasCustomError = false;
 
-    for (const field of optionsSchema) {
+    /*
+     * Variante care se aleg o singură dată
+     * pentru întreg produsul.
+     */
+    for (const field of topLevelOptionsSchema) {
       const value = String(
         selectedOptions[field.key] || ""
       ).trim();
@@ -685,15 +1105,18 @@ const onAddToCart = useCallback(async () => {
       ) {
         nextErrors[
           `option:${field.key}`
-        ] =
-          `Alege ${
-            field.label ||
-            "această opțiune"
-          }.`;
+        ] = `Alege ${
+          field.label ||
+          "această opțiune"
+        }.`;
       }
     }
 
-    for (const field of customSchema) {
+    /*
+     * Personalizări care se completează
+     * o singură dată.
+     */
+    for (const field of topLevelCustomSchema) {
       const value = String(
         customAnswers[field.key] || ""
       ).trim();
@@ -704,14 +1127,79 @@ const onAddToCart = useCallback(async () => {
       ) {
         nextErrors[
           `custom:${field.key}`
-        ] =
-          `Completează ${
-            field.label ||
-            "acest câmp"
-          }.`;
+        ] = `Completează ${
+          field.label ||
+          "acest câmp"
+        }.`;
 
         hasCustomError = true;
       }
+    }
+
+    /*
+     * Câmpurile care se completează
+     * separat pentru fiecare membru.
+     */
+    for (const group of repeatedGroups) {
+      const groupKey =
+        group?.key || group?.id;
+
+      if (!groupKey) {
+        continue;
+      }
+
+      const items = Array.isArray(
+        repeatedGroupAnswers[groupKey]
+      )
+        ? repeatedGroupAnswers[groupKey]
+        : [];
+
+      const fields = Array.isArray(
+        group?.fields
+      )
+        ? group.fields
+        : [];
+
+      /*
+       * Dacă grupul există, avem nevoie
+       * de cel puțin un membru.
+       */
+      if (!items.length) {
+        nextErrors[
+          `repeated:${groupKey}`
+        ] =
+          "Adaugă cel puțin un membru.";
+
+        continue;
+      }
+
+      items.forEach(
+        (item, itemIndex) => {
+          for (const field of fields) {
+            if (
+              field?.required === false
+            ) {
+              continue;
+            }
+
+            const value = String(
+              item?.[field.key] ?? ""
+            ).trim();
+
+            if (!value) {
+              nextErrors[
+                `repeated:${groupKey}:${itemIndex}:${field.key}`
+              ] =
+                `Completează ${
+                  field.label ||
+                  "acest câmp"
+                } pentru membrul ${
+                  itemIndex + 1
+                }.`;
+            }
+          }
+        }
+      );
     }
 
     if (
@@ -723,29 +1211,22 @@ const onAddToCart = useCallback(async () => {
       );
 
       if (hasCustomError) {
-        setCustomizationOpen(
-          true
-        );
+        setCustomizationOpen(true);
       }
 
-      requestAnimationFrame(
-        () => {
-          const firstInvalid =
-            document.querySelector(
-              '[data-validation-error="true"]'
-            );
+      requestAnimationFrame(() => {
+        const firstInvalid =
+          document.querySelector(
+            '[data-validation-error="true"]'
+          );
 
-          if (firstInvalid) {
-            firstInvalid.scrollIntoView({
-              behavior:
-                "smooth",
-
-              block:
-                "center",
-            });
-          }
+        if (firstInvalid) {
+          firstInvalid.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
         }
-      );
+      });
 
       return;
     }
@@ -758,27 +1239,27 @@ const onAddToCart = useCallback(async () => {
   try {
     let addedAsGuest = false;
 
+    const configuration = {
+      selectedOptions,
+      customAnswers,
+      repeatedGroupAnswers,
+    };
+
     if (me) {
       try {
-        const response =
-          await api(
-            "/api/cart/add",
-            {
-              method:
-                "POST",
+        const response = await api(
+          "/api/cart/add",
+          {
+            method: "POST",
 
-              body: {
-                productId:
-                  product.id,
+            body: {
+              productId: product.id,
+              qty,
 
-                qty,
-
-                selectedOptions,
-
-                customAnswers,
-              },
-            }
-          );
+              ...configuration,
+            },
+          }
+        );
 
         /*
          * Unele versiuni ale helperului api()
@@ -791,10 +1272,7 @@ const onAddToCart = useCallback(async () => {
           addToGuestCart(
             product.id,
             qty,
-            {
-              selectedOptions,
-              customAnswers,
-            }
+            configuration
           );
 
           addedAsGuest = true;
@@ -829,18 +1307,13 @@ const onAddToCart = useCallback(async () => {
          */
         if (
           status === 401 ||
-          errorCode ===
-            "unauthorized" ||
-          errorCode ===
-            "AUTH_REQUIRED"
+          errorCode === "unauthorized" ||
+          errorCode === "AUTH_REQUIRED"
         ) {
           addToGuestCart(
             product.id,
             qty,
-            {
-              selectedOptions,
-              customAnswers,
-            }
+            configuration
           );
 
           addedAsGuest = true;
@@ -852,28 +1325,18 @@ const onAddToCart = useCallback(async () => {
       addToGuestCart(
         product.id,
         qty,
-        {
-          selectedOptions,
-          customAnswers,
-        }
+        configuration
       );
 
       addedAsGuest = true;
     }
 
-    /*
-     * Actualizează badge-ul coșului.
-     */
     window.dispatchEvent(
       new CustomEvent(
         "cart:changed"
       )
     );
 
-    /*
-     * Ștergem cache-ul vechi al paginii coșului,
-     * ca produsul nou să fie încărcat imediat.
-     */
     try {
       sessionStorage.removeItem(
         "cart:ui-cache:v1"
@@ -969,11 +1432,16 @@ const onAddToCart = useCallback(async () => {
   isSoldOut,
   me,
   qty,
+
   selectedOptions,
   customAnswers,
+  repeatedGroupAnswers,
+
   hasOrderOptions,
-  optionsSchema,
-  customSchema,
+
+  topLevelOptionsSchema,
+  topLevelCustomSchema,
+  repeatedGroups,
 ]);
   const addToCartAny = onAddToCart;
 
@@ -1663,233 +2131,515 @@ const productUrl =
   return data.url;
 }, []);
 
-  const openEditModal = useCallback(async () => {
-    if (!product?.id) return;
+ const openEditModal = useCallback(async () => {
+  if (!product?.id) {
+    return;
+  }
 
-    try {
-      await ensureCategories();
+  try {
+    await ensureCategories();
 
-      const full = await api(
-        `/api/vendors/products/${encodeURIComponent(product.id)}`
-      );
+    const full = await api(
+      `/api/vendors/products/${encodeURIComponent(
+        product.id
+      )}`
+    );
 
-      if (!mountedRef.current) return;
+    if (!mountedRef.current) {
+      return;
+    }
 
-      setEditingProduct(full);
+    setEditingProduct(full);
 
-      const price =
-        typeof full?.price === "number"
-          ? full.price
-          : Number.isFinite(full?.priceCents)
-          ? full.priceCents / 100
+    const price =
+      typeof full?.price === "number"
+        ? full.price
+        : Number.isFinite(
+              Number(full?.priceCents)
+            )
+          ? Number(
+              full.priceCents
+            ) / 100
           : 0;
 
-      setProdForm({
-        id: full.id || full._id || "",
-        title: full.title || "",
-        description: full.description || "",
-        price,
-        images: Array.isArray(full.images) ? full.images : [],
-        category: full.category || "",
-        currency: full.currency || "RON",
-        isActive: full.isActive !== false,
+    setProdForm({
+      id:
+        full.id ||
+        full._id ||
+        "",
 
-        availability: (full.availability || "READY").toUpperCase(),
-        leadTimeDays: Number.isFinite(Number(full.leadTimeDays))
-          ? String(Number(full.leadTimeDays))
+      title:
+        full.title || "",
+
+      description:
+        full.description || "",
+
+      price,
+
+      images:
+        Array.isArray(
+          full.images
+        )
+          ? full.images
+          : [],
+
+      category:
+        full.category || "",
+
+      currency:
+        full.currency || "RON",
+
+      isActive:
+        full.isActive !== false,
+
+      availability:
+        (
+          full.availability ||
+          "READY"
+        ).toUpperCase(),
+
+      leadTimeDays:
+        Number.isFinite(
+          Number(
+            full.leadTimeDays
+          )
+        )
+          ? String(
+              Number(
+                full.leadTimeDays
+              )
+            )
           : "",
-        readyQty:
-          full.readyQty === null || full.readyQty === undefined
-            ? ""
-            : Number.isFinite(Number(full.readyQty))
-            ? String(Number(full.readyQty))
+
+      readyQty:
+        full.readyQty === null ||
+        full.readyQty ===
+          undefined
+          ? ""
+          : Number.isFinite(
+                Number(
+                  full.readyQty
+                )
+              )
+            ? String(
+                Number(
+                  full.readyQty
+                )
+              )
             : "",
-        nextShipDate: full.nextShipDate
-          ? String(full.nextShipDate).slice(0, 10)
+
+      nextShipDate:
+        full.nextShipDate
+          ? String(
+              full.nextShipDate
+            ).slice(0, 10)
           : "",
-        acceptsCustom: !!full.acceptsCustom,
-        isHidden: !!full.isHidden,
 
-        color: full.color || "",
-        materialMain: full.materialMain || "",
-        technique: full.technique || "",
-        styleTags: Array.isArray(full.styleTags)
-          ? full.styleTags.join(", ")
-          : full.styleTags || "",
-        occasionTags: Array.isArray(full.occasionTags)
-          ? full.occasionTags.join(", ")
-          : full.occasionTags || "",
-        dimensions: full.dimensions || "",
-        careInstructions: full.careInstructions || "",
-        specialNotes: full.specialNotes || "",
-        orderMode:
-  full.orderMode === "DIRECT"
-    ? "READY_TO_BUY"
-    : full.orderMode === "CUSTOMIZABLE"
-      ? "OPTIONS"
-      : full.orderMode || "READY_TO_BUY",
+      acceptsCustom:
+        !!full.acceptsCustom,
 
-optionsSchema: Array.isArray(full.optionsSchema)
-  ? full.optionsSchema
-  : Array.isArray(full.optionsSchema?.fields)
-    ? full.optionsSchema.fields
-    : [],
+      isHidden:
+        !!full.isHidden,
 
-customSchema: Array.isArray(full.customSchema)
-  ? full.customSchema
-  : Array.isArray(full.customSchema?.fields)
-    ? full.customSchema.fields
-    : [],
+      color:
+        full.color || "",
 
-quoteSchema: Array.isArray(full.quoteSchema)
-  ? full.quoteSchema
-  : Array.isArray(full.quoteSchema?.fields)
-    ? full.quoteSchema.fields
-    : [],
-      });
+      materialMain:
+        full.materialMain || "",
 
-      setEditOpen(true);
-    } catch (e) {
-      alert(e?.message || "Nu am putut încărca produsul pentru editare.");
-    }
-  }, [product?.id, ensureCategories]);
+      technique:
+        full.technique || "",
 
-  const handleSaveProduct = useCallback(
+      styleTags:
+        Array.isArray(
+          full.styleTags
+        )
+          ? full.styleTags.join(
+              ", "
+            )
+          : full.styleTags ||
+            "",
+
+      occasionTags:
+        Array.isArray(
+          full.occasionTags
+        )
+          ? full.occasionTags.join(
+              ", "
+            )
+          : full.occasionTags ||
+            "",
+
+      dimensions:
+        full.dimensions || "",
+
+      careInstructions:
+        full.careInstructions ||
+        "",
+
+      specialNotes:
+        full.specialNotes || "",
+
+      orderMode:
+        full.orderMode ===
+        "DIRECT"
+          ? "READY_TO_BUY"
+          : full.orderMode ===
+              "CUSTOMIZABLE"
+            ? "OPTIONS"
+            : full.orderMode ||
+              "READY_TO_BUY",
+
+      optionsSchema:
+        Array.isArray(
+          full.optionsSchema
+        )
+          ? full.optionsSchema
+          : Array.isArray(
+                full.optionsSchema
+                  ?.fields
+              )
+            ? full.optionsSchema
+                .fields
+            : [],
+
+      customSchema:
+        Array.isArray(
+          full.customSchema
+        )
+          ? full.customSchema
+          : Array.isArray(
+                full.customSchema
+                  ?.fields
+              )
+            ? full.customSchema
+                .fields
+            : [],
+
+      repeatedGroups:
+        Array.isArray(
+          full.repeatedGroups
+        )
+          ? full.repeatedGroups
+          : [],
+
+      quoteSchema:
+        Array.isArray(
+          full.quoteSchema
+        )
+          ? full.quoteSchema
+          : Array.isArray(
+                full.quoteSchema
+                  ?.fields
+              )
+            ? full.quoteSchema
+                .fields
+            : [],
+    });
+
+    setEditOpen(true);
+  } catch (error) {
+    alert(
+      error?.message ||
+        "Nu am putut încărca produsul pentru editare."
+    );
+  }
+}, [
+  product?.id,
+  ensureCategories,
+]);
+
+ const handleSaveProduct =
+  useCallback(
     async (e) => {
       e?.preventDefault?.();
 
-      if (!editingProduct || !prodForm.id) {
-        alert("Nu am găsit produsul pentru salvare.");
+      if (
+        !editingProduct ||
+        !prodForm.id
+      ) {
+        alert(
+          "Nu am găsit produsul pentru salvare."
+        );
+
         return;
       }
 
       try {
         setSavingProd(true);
 
-        const title = (prodForm.title || "").trim();
-        const description = prodForm.description || "";
-        const price = Number(prodForm.price);
-        const imagesArr = Array.isArray(prodForm.images) ? prodForm.images : [];
-        const category = (prodForm.category || "").trim();
+        const title = String(
+          prodForm.title || ""
+        ).trim();
 
-        const color = (prodForm.color || "").trim() || null;
-        const materialMain = (prodForm.materialMain || "").trim() || null;
-        const technique = (prodForm.technique || "").trim() || null;
-        const styleTags = (prodForm.styleTags || "").trim();
-        const occasionTags = (prodForm.occasionTags || "").trim();
-        const dimensions = (prodForm.dimensions || "").trim() || null;
+        const description =
+          prodForm.description || "";
+
+        const price = Number(
+          prodForm.price
+        );
+
+        const imagesArr =
+          Array.isArray(
+            prodForm.images
+          )
+            ? prodForm.images
+            : [];
+
+        const category = String(
+          prodForm.category || ""
+        ).trim();
+
+        const color =
+          String(
+            prodForm.color || ""
+          ).trim() || null;
+
+        const materialMain =
+          String(
+            prodForm.materialMain ||
+              ""
+          ).trim() || null;
+
+        const technique =
+          String(
+            prodForm.technique ||
+              ""
+          ).trim() || null;
+
+        const styleTags = String(
+          prodForm.styleTags || ""
+        ).trim();
+
+        const occasionTags = String(
+          prodForm.occasionTags ||
+            ""
+        ).trim();
+
+        const dimensions =
+          String(
+            prodForm.dimensions ||
+              ""
+          ).trim() || null;
+
         const careInstructions =
-          (prodForm.careInstructions || "").trim() || null;
-        const specialNotes = (prodForm.specialNotes || "").trim() || null;
+          String(
+            prodForm.careInstructions ||
+              ""
+          ).trim() || null;
+
+        const specialNotes =
+          String(
+            prodForm.specialNotes ||
+              ""
+          ).trim() || null;
 
         if (!title) {
-          alert("Te rog adaugă un titlu.");
-          setSavingProd(false);
+          alert(
+            "Te rog adaugă un titlu."
+          );
+
           return;
         }
 
-        if (!Number.isFinite(price) || price < 0) {
+        if (
+          !Number.isFinite(price) ||
+          price < 0
+        ) {
           alert("Preț invalid.");
-          setSavingProd(false);
+
           return;
         }
 
         if (!category) {
-          alert("Selectează categoria produsului.");
-          setSavingProd(false);
+          alert(
+            "Selectează categoria produsului."
+          );
+
           return;
         }
 
-       const normalizedOrderMode =
-  prodForm.orderMode === "DIRECT"
-    ? "READY_TO_BUY"
-    : prodForm.orderMode === "CUSTOMIZABLE"
-      ? "OPTIONS"
-      : prodForm.orderMode || "READY_TO_BUY";
+        const normalizedOrderMode =
+          prodForm.orderMode ===
+          "DIRECT"
+            ? "READY_TO_BUY"
+            : prodForm.orderMode ===
+                "CUSTOMIZABLE"
+              ? "OPTIONS"
+              : prodForm.orderMode ||
+                "READY_TO_BUY";
 
-const basePayload = {
-  title,
-  description,
-  price,
-  images: imagesArr,
-  category,
-  currency: prodForm.currency || "RON",
-  isActive: prodForm.isActive !== false,
-  isHidden: !!prodForm.isHidden,
+        const optionsSchema =
+          Array.isArray(
+            prodForm.optionsSchema
+          )
+            ? prodForm.optionsSchema
+            : [];
 
-  orderMode: normalizedOrderMode,
+        const customSchema =
+          Array.isArray(
+            prodForm.customSchema
+          )
+            ? prodForm.customSchema
+            : [];
 
-  acceptsCustom:
-    normalizedOrderMode === "OPTIONS" ||
-    normalizedOrderMode === "QUOTE_ONLY" ||
-    prodForm.acceptsCustom === true,
+        const repeatedGroups =
+          Array.isArray(
+            prodForm.repeatedGroups
+          )
+            ? prodForm.repeatedGroups
+            : [];
 
-  optionsSchema:
-    normalizedOrderMode === "OPTIONS" &&
-    Array.isArray(prodForm.optionsSchema)
-      ? prodForm.optionsSchema
-      : [],
+        const quoteSchema =
+          Array.isArray(
+            prodForm.quoteSchema
+          )
+            ? prodForm.quoteSchema
+            : [];
 
-  customSchema:
-    normalizedOrderMode === "OPTIONS" &&
-    Array.isArray(prodForm.customSchema)
-      ? prodForm.customSchema
-      : [],
+        const basePayload = {
+          title,
+          description,
+          price,
+          images: imagesArr,
+          category,
 
-  quoteSchema:
-    normalizedOrderMode === "QUOTE_ONLY" &&
-    Array.isArray(prodForm.quoteSchema)
-      ? prodForm.quoteSchema
-      : [],
+          currency:
+            prodForm.currency ||
+            "RON",
 
-  color,
-  materialMain,
-  technique,
-  styleTags,
-  occasionTags,
-  dimensions,
-  careInstructions,
-  specialNotes,
-};
+          isActive:
+            prodForm.isActive !==
+            false,
 
-        const av = String(prodForm.availability || "READY").toUpperCase();
+          isHidden:
+            !!prodForm.isHidden,
+
+          orderMode:
+            normalizedOrderMode,
+
+          acceptsCustom:
+            normalizedOrderMode ===
+              "OPTIONS" ||
+            normalizedOrderMode ===
+              "QUOTE_ONLY" ||
+            prodForm.acceptsCustom ===
+              true,
+
+          optionsSchema:
+            normalizedOrderMode ===
+            "OPTIONS"
+              ? optionsSchema
+              : [],
+
+          customSchema:
+            normalizedOrderMode ===
+            "OPTIONS"
+              ? customSchema
+              : [],
+
+          repeatedGroups:
+            normalizedOrderMode ===
+            "OPTIONS"
+              ? repeatedGroups
+              : [],
+
+          quoteSchema:
+            normalizedOrderMode ===
+            "QUOTE_ONLY"
+              ? quoteSchema
+              : [],
+
+          color,
+          materialMain,
+          technique,
+          styleTags,
+          occasionTags,
+          dimensions,
+          careInstructions,
+          specialNotes,
+        };
+
+        const av = String(
+          prodForm.availability ||
+            "READY"
+        ).toUpperCase();
 
         const payload = {
           ...basePayload,
+
           availability: av,
           leadTimeDays: null,
           readyQty: null,
           nextShipDate: null,
         };
 
-        if (av === "MADE_TO_ORDER") {
-          const lt = Number(prodForm.leadTimeDays || 0);
-          payload.leadTimeDays = Number.isFinite(lt) && lt > 0 ? lt : 1;
+        if (
+          av ===
+          "MADE_TO_ORDER"
+        ) {
+          const leadTime =
+            Number(
+              prodForm.leadTimeDays ||
+                0
+            );
+
+          payload.leadTimeDays =
+            Number.isFinite(
+              leadTime
+            ) &&
+            leadTime > 0
+              ? leadTime
+              : 1;
         }
 
         if (av === "READY") {
-          if (prodForm.readyQty !== "" && prodForm.readyQty != null) {
-            const rq = Number(prodForm.readyQty);
-            payload.readyQty = Number.isFinite(rq) && rq >= 0 ? rq : 0;
+          if (
+            prodForm.readyQty !==
+              "" &&
+            prodForm.readyQty != null
+          ) {
+            const readyQty =
+              Number(
+                prodForm.readyQty
+              );
+
+            payload.readyQty =
+              Number.isFinite(
+                readyQty
+              ) &&
+              readyQty >= 0
+                ? readyQty
+                : 0;
           } else {
-            payload.readyQty = null;
+            payload.readyQty =
+              null;
           }
         }
 
         if (av === "PREORDER") {
-          payload.nextShipDate = prodForm.nextShipDate
-            ? dateOnlyToISO(prodForm.nextShipDate)
-            : null;
+          payload.nextShipDate =
+            prodForm.nextShipDate
+              ? dateOnlyToISO(
+                  prodForm.nextShipDate
+                )
+              : null;
         }
 
-        if (av === "SOLD_OUT") {
+        if (
+          av === "SOLD_OUT"
+        ) {
           payload.readyQty = 0;
         }
 
-        const pid = editingProduct.id || editingProduct._id;
+        const pid =
+          editingProduct.id ||
+          editingProduct._id;
 
         const saved = await api(
-          `/api/vendors/products/${encodeURIComponent(pid)}`,
+          `/api/vendors/products/${encodeURIComponent(
+            pid
+          )}`,
           {
             method: "PUT",
             body: payload,
@@ -1898,25 +2648,39 @@ const basePayload = {
 
         try {
           window.dispatchEvent(
-            new CustomEvent("vendor:productUpdated", {
-              detail: { product: saved },
-            })
+            new CustomEvent(
+              "vendor:productUpdated",
+              {
+                detail: {
+                  product: saved,
+                },
+              }
+            )
           );
         } catch {
-          /* noop */
+          // ignore
         }
 
-        setProduct((prev) => ({ ...(prev || {}), ...(saved || {}) }));
+        setProduct((prev) => ({
+          ...(prev || {}),
+          ...(saved || {}),
+        }));
 
         setEditOpen(false);
         setEditingProduct(null);
-      } catch (er) {
-        alert(er?.message || "Nu am putut salva produsul.");
+      } catch (error) {
+        alert(
+          error?.message ||
+            "Nu am putut salva produsul."
+        );
       } finally {
         setSavingProd(false);
       }
     },
-    [editingProduct, prodForm]
+    [
+      editingProduct,
+      prodForm,
+    ]
   );
 
   const hasStructuredDetails = getHasStructuredDetails(
@@ -2147,9 +2911,9 @@ const basePayload = {
       </div>
     </div>
 
-    {optionsSchema.length > 0 && (
+    {topLevelOptionsSchema.length > 0 && (
       <div className={styles.configuratorOptions}>
-        {optionsSchema.map((field) => {
+        {topLevelOptionsSchema.map((field) => {
           const rawValues = Array.isArray(field?.options)
             ? field.options
             : Array.isArray(field?.values)
@@ -2329,7 +3093,7 @@ const basePayload = {
       </div>
     )}
 
-    {customSchema.length > 0 && (
+    {topLevelCustomSchema.length > 0 && (
       <div className={styles.customizationCard}>
         <button
           type="button"
@@ -2366,7 +3130,7 @@ const basePayload = {
 
         {customizationOpen && (
           <div className={styles.customizationFields}>
-            {customSchema.map((field) => {
+            {topLevelCustomSchema.map((field) => {
               const value = customAnswers[field.key] || "";
               const fieldType = field.type || "text";
 
@@ -2478,7 +3242,312 @@ const basePayload = {
         )}
       </div>
     )}
+{repeatedGroups.map((group) => {
+  const groupKey =
+    group?.key || group?.id;
 
+  if (!groupKey) {
+    return null;
+  }
+
+  const fields =
+    Array.isArray(group?.fields)
+      ? group.fields
+      : [];
+
+  if (!fields.length) {
+    return null;
+  }
+
+  const items =
+    Array.isArray(
+      repeatedGroupAnswers[
+        groupKey
+      ]
+    )
+      ? repeatedGroupAnswers[
+          groupKey
+        ]
+      : [];
+
+  return (
+    <div
+      key={groupKey}
+      className={
+        styles.customizationCard
+      }
+      style={{
+        marginTop: 16,
+      }}
+    >
+      <div
+        style={{
+          padding: 16,
+        }}
+      >
+        <strong>
+          Completează pentru fiecare
+          membru
+        </strong>
+
+        <p
+          className={
+            styles.customizationHint
+          }
+        >
+          Pentru fiecare persoană din
+          set, completează informațiile
+          de mai jos.
+        </p>
+
+        {items.map(
+          (item, itemIndex) => (
+            <div
+              key={`${groupKey}-${itemIndex}`}
+              style={{
+                marginTop: 14,
+                padding: 14,
+                border:
+                  "1px solid rgba(0,0,0,0.1)",
+                borderRadius: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    "space-between",
+                  alignItems: "center",
+                  marginBottom: 12,
+                }}
+              >
+                <strong>
+                  Membru{" "}
+                  {itemIndex + 1}
+                </strong>
+
+                {items.length > 1 && (
+                  <button
+                    type="button"
+                    className={
+                      styles.linkBtn
+                    }
+                    onClick={() =>
+                      removeRepeatedItem(
+                        group,
+                        itemIndex
+                      )
+                    }
+                  >
+                    Șterge
+                  </button>
+                )}
+              </div>
+
+           {fields.map(
+  (field, fieldIndex) => {
+                  const value =
+                    item?.[
+                      field.key
+                    ] ?? "";
+
+                  const fieldType =
+                    field?.type ||
+                    "text";
+
+                  const values =
+                    Array.isArray(
+                      field?.options
+                    )
+                      ? field.options
+                      : Array.isArray(
+                            field?.values
+                          )
+                        ? field.values
+                        : [];
+
+                  const errorKey =
+                    `repeated:${groupKey}:${itemIndex}:${field.key}`;
+
+                  return (
+                  <div
+  key={`${groupKey}-${field.key || field.label || "field"}-${fieldIndex}`}
+                      data-validation-error={
+                        validationErrors[
+                          errorKey
+                        ]
+                          ? "true"
+                          : undefined
+                      }
+                      className={
+                        styles.customizationField
+                      }
+                    >
+                      <label
+                        className={
+                          styles.customizationLabel
+                        }
+                      >
+                        {field.label}
+
+                        {field.required !==
+                          false && (
+                          <span
+                            className={
+                              styles.requiredMark
+                            }
+                          >
+                            *
+                          </span>
+                        )}
+                      </label>
+
+                      {values.length >
+                      0 ? (
+                        <select
+                          className={
+                            styles.customizationInput
+                          }
+                          value={value}
+                          onChange={(e) =>
+                            updateRepeatedItemField(
+                              group,
+                              itemIndex,
+                              field.key,
+                              e.target.value
+                            )
+                          }
+                        >
+                          <option value="">
+                            Alege...
+                          </option>
+
+                          {values.map(
+                            (
+                              option,
+                              index
+                            ) => {
+                              const value =
+                                typeof option ===
+                                "string"
+                                  ? option
+                                  : option?.value ||
+                                    option?.key ||
+                                    option?.label ||
+                                    "";
+
+                              const label =
+                                typeof option ===
+                                "string"
+                                  ? option
+                                  : option?.label ||
+                                    option?.value ||
+                                    option?.key ||
+                                    "";
+
+                              return (
+                                <option
+                                  key={`${value}-${index}`}
+                                  value={
+                                    value
+                                  }
+                                >
+                                  {label}
+                                </option>
+                              );
+                            }
+                          )}
+                        </select>
+                      ) : fieldType ===
+                        "textarea" ? (
+                        <textarea
+                          className={
+                            styles.customizationTextarea
+                          }
+                          value={value}
+                          placeholder={
+                            field.placeholder ||
+                            "Completează aici..."
+                          }
+                          onChange={(e) =>
+                            updateRepeatedItemField(
+                              group,
+                              itemIndex,
+                              field.key,
+                              e.target.value
+                            )
+                          }
+                        />
+                      ) : (
+                        <input
+                          className={
+                            styles.customizationInput
+                          }
+                          type={
+                            fieldType ===
+                            "date"
+                              ? "date"
+                              : "text"
+                          }
+                          value={value}
+                          placeholder={
+                            field.placeholder ||
+                            "Completează aici..."
+                          }
+                          onChange={(e) =>
+                            updateRepeatedItemField(
+                              group,
+                              itemIndex,
+                              field.key,
+                              e.target.value
+                            )
+                          }
+                        />
+                      )}
+
+                      {validationErrors[
+                        errorKey
+                      ] && (
+                        <p
+                          className={
+                            styles.fieldErrorMessage
+                          }
+                        >
+                          {
+                            validationErrors[
+                              errorKey
+                            ]
+                          }
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          )
+        )}
+
+        {items.length < 10 && (
+          <button
+            type="button"
+            className={
+              styles.linkBtn
+            }
+            style={{
+              marginTop: 12,
+            }}
+            onClick={() =>
+              addRepeatedItem(group)
+            }
+          >
+            + Adaugă membru
+          </button>
+        )}
+      </div>
+    </div>
+  );
+})}
     {(Object.values(selectedOptions).some((value) =>
       String(value || "").trim()
     ) ||
@@ -2523,7 +3592,7 @@ const basePayload = {
           <div className={styles.ctaRow}>
             {viewMode !== "vendor" && (
               <>
-                {isQuoteOnly ? (
+            {isQuoteOnly ? (
   <button
     className={styles.primaryBtn}
     onClick={onRequestQuote}
@@ -2532,34 +3601,50 @@ const basePayload = {
     <MagicIcon /> Cere ofertă
   </button>
 ) : (
-  <button
-    className={styles.primaryBtn}
-    onClick={addToCartAny}
-    disabled={
-      adding ||
-      isSoldOut
-    }
-    title={
-      isSoldOut
+  <>
+    <button
+      className={styles.primaryBtn}
+      onClick={addToCartAny}
+      disabled={
+        adding ||
+        isSoldOut
+      }
+      title={
+        isSoldOut
+          ? "Stoc epuizat"
+          : adding
+            ? "Se adaugă…"
+            : hasOrderOptions &&
+                missingRequiredSelection
+              ? "Alege opțiunile"
+              : "Adaugă în coș"
+      }
+      type="button"
+    >
+      <FaShoppingCart />{" "}
+      {isSoldOut
         ? "Stoc epuizat"
         : adding
           ? "Se adaugă…"
-          : hasOrderOptions &&
-              missingRequiredSelection
-            ? "Alege opțiunile"
-            : "Adaugă în coș"
-    }
-    type="button"
-  >
-    <FaShoppingCart />{" "}
-    {isSoldOut
-      ? "Stoc epuizat"
-      : adding
-        ? "Se adaugă…"
-        : "Adaugă în coș"}
-  </button>
-)}
+          : "Adaugă în coș"}
+    </button>
 
+    <button
+      className={styles.primaryBtn}
+      onClick={onRequestQuote}
+      type="button"
+    >
+      <MagicIcon /> Cere ofertă
+    </button>
+  </>
+)}
+{!isQuoteOnly && viewMode !== "vendor" && (
+  <p className={styles.quoteHint}>
+    Ai nevoie de mai multe bucăți decât sunt disponibile,
+    alte culori sau o variantă personalizată?{" "}
+    <strong>Poți cere o ofertă direct de la vânzător.</strong>
+  </p>
+)}
                {!isQuoteOnly && (
   <div className={styles.qtyRow}>
     <button

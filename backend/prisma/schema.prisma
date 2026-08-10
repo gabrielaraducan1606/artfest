@@ -641,10 +641,10 @@ model Product {
 
   // Date completate de client:
   // nume, mesaj, fotografie, instrucțiuni etc.
-  customSchema Json?
-
+  customSchema   Json?
+  repeatedGroups Json?
   // Formular pentru cererea de ofertă.
-  quoteSchema Json?
+  quoteSchema    Json?
 
   // ==================== Analiză AI ====================
 
@@ -937,10 +937,11 @@ model CartItem {
   productId String
   qty       Int    @default(1)
 
-  selectedOptions Json?
-  customAnswers   Json?
+selectedOptions      Json?
+customAnswers        Json?
+repeatedGroupAnswers Json?
 
-  configurationKey String @default("default") @db.VarChar(64)
+configurationKey String @default("default") @db.VarChar(64)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1183,6 +1184,19 @@ model Shipment {
   direction         ShipmentDirection @default(OUTBOUND)
   returnRequestId   String?
 
+  depositStatus                PaymentDepositStatus @default(NOT_REQUESTED)
+  depositPercent               Int?
+  depositRequestedAmount       Decimal?             @db.Decimal(10, 2)
+  depositPaidAmount            Decimal?             @db.Decimal(10, 2)
+  remainingCodAmount           Decimal?             @db.Decimal(10, 2)
+  depositRequestedAt           DateTime?
+  depositPaidAt                DateTime?
+  depositExpiresAt             DateTime?
+  stripeDepositSessionId       String?              @db.VarChar(255)
+  stripeDepositPaymentIntentId String?              @db.VarChar(255)
+  stripeDepositChargeId        String?              @db.VarChar(255)
+  depositPaymentError          String?
+
   order                  Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendor                 Vendor              @relation(fields: [vendorId], references: [id])
   service                VendorService?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
@@ -1206,6 +1220,21 @@ model Shipment {
   @@index([vendorId, serviceId, createdAt], map: "ship_vendor_service_created_idx")
   @@index([vendorId, serviceId, status, createdAt], map: "ship_vendor_service_status_created_idx")
   @@index([direction])
+  @@index([depositStatus])
+  @@index([depositExpiresAt])
+  @@index([stripeDepositSessionId])
+  @@index([stripeDepositPaymentIntentId])
+  @@index([stripeDepositChargeId])
+  @@index([vendorId, depositStatus, createdAt], map: "ship_vendor_deposit_status_created_idx")
+}
+
+enum PaymentDepositStatus {
+  NOT_REQUESTED
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
 }
 
 model ShipmentItem {
@@ -1218,6 +1247,7 @@ model ShipmentItem {
 
   selectedOptions  Json?
   customAnswers    Json?
+  repeatedGroupAnswers Json?
   configurationKey String @default("default") @db.VarChar(64)
 
   /**

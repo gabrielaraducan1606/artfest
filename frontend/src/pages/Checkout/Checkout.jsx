@@ -465,6 +465,72 @@ function getItemVatBreakdown(item) {
   };
 }
 
+function getObjectEntries(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return [];
+  }
+
+  return Object.entries(value).filter(
+    ([, itemValue]) => {
+      if (
+        itemValue === null ||
+        itemValue === undefined
+      ) {
+        return false;
+      }
+
+      if (
+        typeof itemValue === "string"
+      ) {
+        return itemValue.trim() !== "";
+      }
+
+      return true;
+    }
+  );
+}
+
+function getReadableConfigValue(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map(getReadableConfigValue)
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    return (
+      value.label ||
+      value.value ||
+      value.name ||
+      JSON.stringify(value)
+    );
+  }
+
+  return String(value);
+}
+
+function formatConfigLabel(key) {
+  return String(key || "")
+    .replace(/[_-]+/g, " ")
+    .replace(
+      /\b\w/g,
+      (letter) =>
+        letter.toUpperCase()
+    );
+}
+
 export default function Checkout() {
   const nav = useNavigate();
 const [me, setMe] = useState(null);
@@ -1396,7 +1462,180 @@ if (me) {
                         )}
                       </div>
 
-                      <div className={styles.itemTitle}>{it.title}</div>
+                      <div className={styles.itemTitle}>
+  <div>
+    {it.title}
+  </div>
+
+  {getObjectEntries(
+    it.selectedOptions
+  ).length > 0 && (
+    <div
+      style={{
+        marginTop: 8,
+        fontSize: 13,
+        lineHeight: 1.45,
+        fontWeight: 400,
+      }}
+    >
+      <strong>
+        Variante
+      </strong>
+
+      {getObjectEntries(
+        it.selectedOptions
+      ).map(
+        ([key, value]) => (
+          <div
+            key={`option-${key}`}
+          >
+            {formatConfigLabel(
+              key
+            )}
+            :{" "}
+            {getReadableConfigValue(
+              value
+            )}
+          </div>
+        )
+      )}
+    </div>
+  )}
+
+  {getObjectEntries(
+    it.customAnswers
+  ).length > 0 && (
+    <div
+      style={{
+        marginTop: 8,
+        fontSize: 13,
+        lineHeight: 1.45,
+        fontWeight: 400,
+      }}
+    >
+      <strong>
+        Personalizare
+      </strong>
+
+      {getObjectEntries(
+        it.customAnswers
+      ).map(
+        ([key, value]) => (
+          <div
+            key={`custom-${key}`}
+          >
+            {formatConfigLabel(
+              key
+            )}
+            :{" "}
+            {getReadableConfigValue(
+              value
+            )}
+          </div>
+        )
+      )}
+    </div>
+  )}
+
+  {getObjectEntries(
+    it.repeatedGroupAnswers
+  ).length > 0 && (
+    <div
+      style={{
+        marginTop: 10,
+        fontSize: 13,
+        lineHeight: 1.45,
+        fontWeight: 400,
+      }}
+    >
+      <strong>
+        Detalii pentru fiecare membru
+      </strong>
+
+      {getObjectEntries(
+        it.repeatedGroupAnswers
+      ).map(
+        ([groupKey, members]) => {
+          if (
+            !Array.isArray(
+              members
+            )
+          ) {
+            return null;
+          }
+
+          return (
+            <div
+              key={`group-${groupKey}`}
+            >
+              {members.map(
+                (
+                  member,
+                  memberIndex
+                ) => {
+                  const entries =
+                    getObjectEntries(
+                      member
+                    );
+
+                  if (
+                    !entries.length
+                  ) {
+                    return null;
+                  }
+
+                  return (
+                    <div
+                      key={`${groupKey}-${memberIndex}`}
+                      style={{
+                        marginTop:
+                          8,
+                        paddingLeft:
+                          10,
+                        borderLeft:
+                          "2px solid rgba(0,0,0,0.08)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontWeight:
+                            700,
+                        }}
+                      >
+                        Membru{" "}
+                        {memberIndex +
+                          1}
+                      </div>
+
+                      {entries.map(
+                        ([
+                          key,
+                          value,
+                        ]) => (
+                          <div
+                            key={`${groupKey}-${memberIndex}-${key}`}
+                          >
+                            {formatConfigLabel(
+                              key
+                            )}
+                            :{" "}
+                            {getReadableConfigValue(
+                              value
+                            )}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          );
+        }
+      )}
+    </div>
+  )}
+</div>
                       <div className={styles.itemQty}>x{it.qty}</div>
 
                       <div className={styles.itemPrice}>

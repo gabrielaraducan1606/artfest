@@ -66,14 +66,24 @@ function normalizeCartData(value) {
 
 function buildConfigurationKey(
   selectedOptions = {},
-  customAnswers = {}
+  customAnswers = {},
+  repeatedGroupAnswers = {}
 ) {
   const normalized = JSON.stringify({
     selectedOptions:
-      normalizeCartData(selectedOptions),
+      normalizeCartData(
+        selectedOptions
+      ),
 
     customAnswers:
-      normalizeCartData(customAnswers),
+      normalizeCartData(
+        customAnswers
+      ),
+
+    repeatedGroupAnswers:
+      normalizeCartData(
+        repeatedGroupAnswers
+      ),
   });
 
   return crypto
@@ -572,30 +582,26 @@ async function getCartForUser(
   const t0 = Date.now();
 
   const cartItems =
-    await prisma.cartItem.findMany({
-      where: {
-        userId,
-      },
+  await prisma.cartItem.findMany({
+    where: {
+      userId,
+    },
 
-      select: {
-        id: true,
-        productId: true,
-        qty: true,
+    select: {
+      id: true,
+      productId: true,
+      qty: true,
 
-        selectedOptions:
-          true,
+      selectedOptions: true,
+      customAnswers: true,
+      repeatedGroupAnswers: true,
+      configurationKey: true,
+    },
 
-        customAnswers:
-          true,
-
-        configurationKey:
-          true,
-      },
-
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
 
   const t1 = Date.now();
 
@@ -746,17 +752,21 @@ console.log(
             qty:
               cartItem.qty,
 
-            selectedOptions:
-              cartItem.selectedOptions ||
-              {},
+           selectedOptions:
+  cartItem.selectedOptions ||
+  {},
 
-            customAnswers:
-              cartItem.customAnswers ||
-              {},
+customAnswers:
+  cartItem.customAnswers ||
+  {},
 
-            configurationKey:
-              cartItem.configurationKey ||
-              "default",
+repeatedGroupAnswers:
+  cartItem.repeatedGroupAnswers ||
+  {},
+
+configurationKey:
+  cartItem.configurationKey ||
+  "default",
 
             product: null,
           };
@@ -844,17 +854,21 @@ console.log(
           qty:
             cartItem.qty,
 
-          selectedOptions:
-            cartItem.selectedOptions ||
-            {},
+         selectedOptions:
+  cartItem.selectedOptions ||
+  {},
 
-          customAnswers:
-            cartItem.customAnswers ||
-            {},
+customAnswers:
+  cartItem.customAnswers ||
+  {},
 
-          configurationKey:
-            cartItem.configurationKey ||
-            "default",
+repeatedGroupAnswers:
+  cartItem.repeatedGroupAnswers ||
+  {},
+
+configurationKey:
+  cartItem.configurationKey ||
+  "default",
 
           product: {
             id:
@@ -1046,8 +1060,8 @@ router.post(
       qty = 1,
 
       selectedOptions = {},
-
       customAnswers = {},
+      repeatedGroupAnswers = {},
     } =
       req.body || {};
 
@@ -1080,10 +1094,16 @@ router.post(
         customAnswers
       );
 
+    const safeRepeatedGroupAnswers =
+      normalizeCartData(
+        repeatedGroupAnswers
+      );
+
     const configurationKey =
       buildConfigurationKey(
         safeSelectedOptions,
-        safeCustomAnswers
+        safeCustomAnswers,
+        safeRepeatedGroupAnswers
       );
 
     const prod =
@@ -1108,10 +1128,10 @@ router.post(
           moderationStatus:
             true,
 
-         service: {
-  select: {
-    id: true,
-    vendorId: true,
+          service: {
+            select: {
+              id: true,
+              vendorId: true,
 
               vendor: {
                 select: {
@@ -1146,7 +1166,8 @@ router.post(
     }
 
     /*
-     * Produs CERERE OFERTĂ
+     * Produsele exclusiv CERERE OFERTĂ
+     * nu intră în coș.
      */
     if (
       String(
@@ -1166,9 +1187,6 @@ router.post(
         });
     }
 
-    /*
-     * Produs indisponibil
-     */
     if (
       !productIsPublicAvailable(
         prod
@@ -1320,6 +1338,9 @@ router.post(
 
           customAnswers:
             safeCustomAnswers,
+
+          repeatedGroupAnswers:
+            safeRepeatedGroupAnswers,
         },
 
         create: {
@@ -1337,6 +1358,9 @@ router.post(
           customAnswers:
             safeCustomAnswers,
 
+          repeatedGroupAnswers:
+            safeRepeatedGroupAnswers,
+
           configurationKey,
         },
       });
@@ -1347,7 +1371,6 @@ router.post(
     });
   }
 );
-
 /* =========================================================
    UPDATE
 ========================================================= */
@@ -1699,7 +1722,6 @@ router.post(
 /* =========================================================
    MERGE GUEST CART
 ========================================================= */
-
 router.post(
   "/cart/merge",
   authRequired,
@@ -1714,11 +1736,8 @@ router.post(
     if (!arr.length) {
       return res.json({
         ok: true,
-
         merged: 0,
-
         skipped: 0,
-
         items: [],
       });
     }
@@ -1743,8 +1762,7 @@ router.post(
       await prisma.product.findMany({
         where: {
           id: {
-            in:
-              productIds,
+            in: productIds,
           },
         },
 
@@ -1768,8 +1786,7 @@ router.post(
             select: {
               vendor: {
                 select: {
-                  userId:
-                    true,
+                  userId: true,
                 },
               },
             },
@@ -1788,12 +1805,10 @@ router.post(
       );
 
     let merged = 0;
-
     let skipped = 0;
 
     for (
-      const rawItem of
-      arr
+      const rawItem of arr
     ) {
       const productId =
         String(
@@ -1868,15 +1883,27 @@ router.post(
             ?.customAnswers
         );
 
-      const configurationKey =
-        String(
+      const repeatedGroupAnswers =
+        normalizeCartData(
           rawItem
-            ?.configurationKey ||
-            ""
-        ).trim() ||
+            ?.repeatedGroupAnswers
+        );
+
+      /*
+       * IMPORTANT:
+       *
+       * Nu păstrăm configurationKey
+       * generat în guestCart.
+       *
+       * Backend-ul își construiește
+       * propria cheie SHA256 din
+       * configurația completă.
+       */
+      const configurationKey =
         buildConfigurationKey(
           selectedOptions,
-          customAnswers
+          customAnswers,
+          repeatedGroupAnswers
         );
 
       const existing =
@@ -1961,6 +1988,8 @@ router.post(
           selectedOptions,
 
           customAnswers,
+
+          repeatedGroupAnswers,
         },
 
         create: {
@@ -1973,6 +2002,8 @@ router.post(
           selectedOptions,
 
           customAnswers,
+
+          repeatedGroupAnswers,
 
           configurationKey,
         },
@@ -1999,7 +2030,6 @@ router.post(
     });
   }
 );
-
 /* =========================================================
    COUNT
 ========================================================= */

@@ -88,6 +88,29 @@ const getConfigurationEntries = (value) => {
   });
 };
 
+const getRepeatedGroupEntries = (
+  repeatedGroupAnswers
+) => {
+  if (
+    !repeatedGroupAnswers ||
+    typeof repeatedGroupAnswers !==
+      "object" ||
+    Array.isArray(
+      repeatedGroupAnswers
+    )
+  ) {
+    return [];
+  }
+
+  return Object.entries(
+    repeatedGroupAnswers
+  ).filter(
+    ([, items]) =>
+      Array.isArray(items) &&
+      items.length > 0
+  );
+};
+
 const DEFAULT_MAX_QTY = 9999;
 
 const getMaxQty = (product = {}) => {
@@ -211,8 +234,11 @@ const [rows, setRows] =
           qty,
           _localQty: qty,
           selectedOptions: x.selectedOptions || {},
-          customAnswers: x.customAnswers || {},
-          configurationKey: x.configurationKey || "default",
+customAnswers: x.customAnswers || {},
+repeatedGroupAnswers:
+  x.repeatedGroupAnswers || {},
+configurationKey:
+  x.configurationKey || "default",
           product: {
             id: x.productId,
             title: "Produs indisponibil",
@@ -435,8 +461,11 @@ discount:
   _localQty: qty,
 
   selectedOptions: x.selectedOptions || {},
-  customAnswers: x.customAnswers || {},
-  configurationKey: x.configurationKey || "default",
+customAnswers: x.customAnswers || {},
+repeatedGroupAnswers:
+  x.repeatedGroupAnswers || {},
+configurationKey:
+  x.configurationKey || "default",
 
   product,
 };
@@ -620,7 +649,23 @@ availabilityMessage:
       const max = getMaxQty(product);
       const qty = clampQty(it.qty, max);
 
-      return { ...it, qty, _localQty: qty, product };
+      return {
+  ...it,
+
+  qty,
+  _localQty: qty,
+
+  selectedOptions:
+    it.selectedOptions || {},
+
+  customAnswers:
+    it.customAnswers || {},
+
+  repeatedGroupAnswers:
+    it.repeatedGroupAnswers || {},
+
+  product,
+};
     });
 
     if (!signal?.aborted) setRows(mapped);
@@ -1162,10 +1207,14 @@ const goCheckout = useCallback(() => {
 const customAnswerEntries = getConfigurationEntries(
   r.customAnswers
 );
-
+const repeatedGroupEntries =
+  getRepeatedGroupEntries(
+    r.repeatedGroupAnswers
+  );
 const hasConfiguration =
   selectedOptionEntries.length > 0 ||
-  customAnswerEntries.length > 0;
+  customAnswerEntries.length > 0 ||
+  repeatedGroupEntries.length > 0;
                     const img = p.images?.[0]
                       ? resolveFileUrl(p.images[0])
                       : productPlaceholder(200, 160, "Produs");
@@ -1260,6 +1309,89 @@ const hasConfiguration =
         ))}
       </div>
     )}
+
+    {repeatedGroupEntries.length > 0 && (
+  <div
+    className={
+      styles.configurationGroup
+    }
+  >
+    <div
+      className={
+        styles.configurationTitle
+      }
+    >
+      Pentru fiecare membru
+    </div>
+
+    {repeatedGroupEntries.map(
+      ([groupKey, items]) => (
+        <div
+          key={`repeated-${groupKey}`}
+        >
+          {items.map(
+            (item, itemIndex) => {
+              const entries =
+                getConfigurationEntries(
+                  item
+                );
+
+              if (!entries.length) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={`${groupKey}-${itemIndex}`}
+                  style={{
+                    marginTop: 10,
+                    paddingTop: 10,
+                    borderTop:
+                      itemIndex > 0
+                        ? "1px solid rgba(0,0,0,0.08)"
+                        : "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      marginBottom: 6,
+                    }}
+                  >
+                    Membru{" "}
+                    {itemIndex + 1}
+                  </div>
+
+                  {entries.map(
+                    ([key, value]) => (
+                      <div
+                        key={`${groupKey}-${itemIndex}-${key}`}
+                        className={
+                          styles.configurationRow
+                        }
+                      >
+                        <span>
+                          {key}
+                        </span>
+
+                        <strong>
+                          {getReadableValue(
+                            value
+                          )}
+                        </strong>
+                      </div>
+                    )
+                  )}
+                </div>
+              );
+            }
+          )}
+        </div>
+      )
+    )}
+  </div>
+)}
+
   </div>
 )}
                           {typeof p.price === "number" && (
