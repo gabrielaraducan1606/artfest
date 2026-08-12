@@ -2,11 +2,11 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { stripe } from "../lib/stripe.js";
-// import {
-  // computeOrderSplits,
-  // allocateStripeFee,
-  //computeVendorPayouts,
-//} from "../payments/marketplaceCalc.js";
+import {
+  computeOrderSplits,
+  allocateStripeFee,
+  computeVendorPayouts,
+} from "../payments/marketplaceCalc.js";
 
 import {
   createVendorNotification,
@@ -1058,6 +1058,11 @@ async function handleOrderPaymentIntentSucceeded(
     );
   }
 
+  /*
+   * ==========================================
+   * CHARGE + TAXA STRIPE
+   * ==========================================
+   */
   const {
     chargeId,
     feeNet,
@@ -1066,10 +1071,40 @@ async function handleOrderPaymentIntentSucceeded(
       pi
     );
 
+  if (!chargeId) {
+    throw new Error(
+      "order_charge_not_found"
+    );
+  }
+
+  const amountReceived =
+    Number(
+      pi?.amount_received ||
+        pi?.amount ||
+        0
+    ) / 100;
+
+  if (
+    !Number.isFinite(
+      amountReceived
+    ) ||
+    amountReceived <= 0
+  ) {
+    throw new Error(
+      "invalid_order_paid_amount"
+    );
+  }
+
+  /*
+   * ==========================================
+   * COMANDA
+   * ==========================================
+   */
   const order =
     await prisma.order.findUnique({
       where: {
-        id: orderId,
+        id:
+          orderId,
       },
     });
 
@@ -1080,15 +1115,16 @@ async function handleOrderPaymentIntentSucceeded(
   }
 
   /*
-   * Evităm să suprascriem inutil
-   * o comandă deja confirmată.
+   * Confirmăm plata în DB.
    */
   if (
-    order.status !== "PAID"
+    order.status !== "PAID" ||
+    !order.stripeChargeId
   ) {
     await prisma.order.update({
       where: {
-        id: orderId,
+        id:
+          orderId,
       },
 
       data: {
@@ -1096,38 +1132,541 @@ async function handleOrderPaymentIntentSucceeded(
           "PAID",
 
         paidAt:
+          order.paidAt ||
           new Date(),
 
         stripeChargeId:
-          chargeId
-            ? String(
-                chargeId
-              )
-            : null,
+          String(
+            chargeId
+          ),
       },
     });
   }
 
   /*
-   * =====================================================
-   * SPLIT / TRANSFER VENDOR DEZACTIVAT MOMENTAN
-   * =====================================================
+   * ==========================================
+   * CALCUL MARKETPLACE
+   * ==========================================
    *
-   * Clientul a plătit integral.
+   * Pentru fiecare vendor:
    *
-   * Banii rămân momentan în contul Stripe
-   * al platformei.
-   *
-   * NU:
-   * - calculăm payout-ul vendorului aici;
-   * - facem stripe.transfers.create();
-   * - creăm VendorEarningEntry pentru acest transfer.
-   *
-   * Vom reactiva distribuirea automată ulterior.
+   * produse + transport
+   * - comision Artfest
+   * - taxa Stripe alocată
+   * = transfer vendor
    */
+  const splits =
+    await computeOrderSplits(
+      orderId
+    );
+
+  const splitGross =
+    Number(
+      splits?.order
+        ?.totalGross ||
+        0
+    );
+
+  if (
+    !Number.isFinite(
+      splitGross
+    ) ||
+    splitGross <= 0
+  ) {
+    throw new Error(
+      "invalid_order_split_total"
+    );
+  }
+
+  /*
+   * Nu transferăm mai mult decât
+   * clientul a plătit efectiv.
+   */
+  if (
+    splitGross -
+      amountReceived >
+    0.01
+  ) {
+    throw new Error(
+      "order_payment_amount_mismatch"
+    );
+  }
+
+  const vendorsWithFee =
+    allocateStripeFee({
+      vendors:
+        splits.vendors,
+
+      feeNet:
+        Number(
+          feeNet ||
+            0
+        ),
+    });
+
+  const payouts =
+    computeVendorPayouts({
+      vendors:
+        vendorsWithFee,
+    });
+
+  if (
+    !Array.isArray(
+      payouts
+    ) ||
+    payouts.length === 0
+  ) {
+    throw new Error(
+      "order_has_no_vendor_payouts"
+    );
+  }
+
+  /*
+   * Protecție suplimentară:
+   *
+   * totalul transferurilor către vendori
+   * nu trebuie să depășească suma plătită
+   * minus taxa Stripe.
+   */
+  const totalVendorPayout =
+    payouts.reduce(
+      (
+        total,
+        payout
+      ) =>
+        total +
+        Number(
+          payout
+            ?.vendorPayoutNet ||
+            0
+        ),
+      0
+    );
+
+  const maxTransferable =
+    Math.max(
+      0,
+
+      Number(
+        (
+          amountReceived -
+          Number(
+            feeNet ||
+              0
+          )
+        ).toFixed(2)
+      )
+    );
+
+  if (
+    Number(
+      totalVendorPayout.toFixed(
+        2
+      )
+    ) -
+      maxTransferable >
+    0.01
+  ) {
+    throw new Error(
+      "vendor_payout_exceeds_charge_net"
+    );
+  }
+
+  /*
+   * ==========================================
+   * CONTURI STRIPE CONNECT
+   * ==========================================
+   */
+  const vendorIds =
+    payouts.map(
+      (payout) =>
+        String(
+          payout.vendorId
+        )
+    );
+
+  const vendors =
+    await prisma.vendor.findMany({
+      where: {
+        id: {
+          in:
+            vendorIds,
+        },
+      },
+
+      select: {
+        id:
+          true,
+
+        stripeAccountId:
+          true,
+
+        stripeChargesEnabled:
+          true,
+
+        stripePayoutsEnabled:
+          true,
+
+        stripeDetailsSubmitted:
+          true,
+
+        stripeConnectStatus:
+          true,
+      },
+    });
+
+  const vendorById =
+    new Map(
+      vendors.map(
+        (vendor) => [
+          String(
+            vendor.id
+          ),
+          vendor,
+        ]
+      )
+    );
+
+  const currency =
+    String(
+      pi?.currency ||
+        splits?.order
+          ?.currency ||
+        order.currency ||
+        "RON"
+    ).toLowerCase();
+
+  /*
+   * ==========================================
+   * TRANSFER FIECĂRUI VENDOR
+   * ==========================================
+   */
+  for (
+    const payout of
+    payouts
+  ) {
+    const vendorId =
+      String(
+        payout.vendorId
+      );
+
+    const vendor =
+      vendorById.get(
+        vendorId
+      );
+
+    if (!vendor) {
+      throw new Error(
+        `vendor_not_found:${vendorId}`
+      );
+    }
+
+    const stripeReady =
+      Boolean(
+        vendor
+          .stripeAccountId
+      ) &&
+      vendor
+        .stripeChargesEnabled ===
+        true &&
+      vendor
+        .stripePayoutsEnabled ===
+        true &&
+      vendor
+        .stripeDetailsSubmitted ===
+        true &&
+      vendor
+        .stripeConnectStatus ===
+        "enabled";
+
+    if (!stripeReady) {
+      throw new Error(
+        `vendor_stripe_not_active:${vendorId}`
+      );
+    }
+
+    const amountCents =
+      Math.round(
+        Number(
+          payout
+            .vendorPayoutNet ||
+            0
+        ) *
+          100
+      );
+
+    if (
+      !Number.isFinite(
+        amountCents
+      ) ||
+      amountCents <= 0
+    ) {
+      throw new Error(
+        `invalid_vendor_payout:${vendorId}`
+      );
+    }
+
+    /*
+     * Stripe Connect transfer.
+     *
+     * source_transaction leagă
+     * transferul de plata clientului.
+     *
+     * idempotencyKey previne
+     * transferul dublu dacă Stripe
+     * retrimite webhook-ul.
+     */
+    const transfer =
+      await stripe.transfers.create(
+        {
+          amount:
+            amountCents,
+
+          currency,
+
+          destination:
+            vendor
+              .stripeAccountId,
+
+          source_transaction:
+            chargeId,
+
+          transfer_group:
+            `order_${orderId}`,
+
+          metadata: {
+            kind:
+              "order_vendor_transfer",
+
+            orderId:
+              String(
+                orderId
+              ),
+
+            vendorId,
+
+            paymentIntentId:
+              String(
+                pi.id
+              ),
+
+            commissionBps:
+              String(
+                payout
+                  .commissionBps ||
+                  0
+              ),
+          },
+        },
+
+        {
+          idempotencyKey:
+            `order-transfer-${orderId}-${vendorId}-${pi.id}`,
+        }
+      );
+
+    /*
+     * ==========================================
+     * LEDGER ARTFEST
+     * ==========================================
+     *
+     * Nu vrem duplicate în
+     * VendorEarningEntry.
+     */
+    const existingEntry =
+      await prisma.vendorEarningEntry.findFirst({
+        where: {
+          stripeTransferId:
+            String(
+              transfer.id
+            ),
+        },
+
+        select: {
+          id:
+            true,
+        },
+      });
+
+    if (!existingEntry) {
+      await prisma.vendorEarningEntry.create({
+        data: {
+          vendorId,
+
+          orderId:
+            String(
+              orderId
+            ),
+
+          type:
+            "SALE",
+
+          currency:
+            String(
+              splits?.order
+                ?.currency ||
+                order.currency ||
+                "RON"
+            ).toUpperCase(),
+
+          /*
+           * Net produse fără TVA.
+           */
+          itemsNet:
+            Number(
+              payout
+                .itemsNetExVat ||
+                0
+            ),
+
+          commissionNet:
+            Number(
+              payout
+                .commissionNet ||
+                0
+            ),
+
+          vendorNet:
+            Number(
+              payout
+                .vendorPayoutNet ||
+                0
+            ),
+
+          stripeTransferId:
+            String(
+              transfer.id
+            ),
+
+          meta: {
+            kind:
+              "online_order_vendor_transfer",
+
+            paymentIntentId:
+              String(
+                pi.id
+              ),
+
+            chargeId:
+              String(
+                chargeId
+              ),
+
+            transferGroup:
+              `order_${orderId}`,
+
+            gross:
+              Number(
+                payout.gross ||
+                  0
+              ),
+
+            itemsGross:
+              Number(
+                payout
+                  .itemsGross ||
+                  0
+              ),
+
+            itemsNetExVat:
+              Number(
+                payout
+                  .itemsNetExVat ||
+                  0
+              ),
+
+            itemsVat:
+              Number(
+                payout
+                  .itemsVat ||
+                  0
+              ),
+
+            shippingGross:
+              Number(
+                payout
+                  .shippingGross ||
+                  0
+              ),
+
+            shippingNetExVat:
+              Number(
+                payout
+                  .shippingNetExVat ||
+                  0
+              ),
+
+            shippingVat:
+              Number(
+                payout
+                  .shippingVat ||
+                  0
+              ),
+
+            stripeFeeAllocated:
+              Number(
+                payout
+                  .stripeFeeAllocated ||
+                  0
+              ),
+
+            commissionBps:
+              Number(
+                payout
+                  .commissionBps ||
+                  0
+              ),
+
+            planCode:
+              payout
+                .planCode ||
+                null,
+
+            planName:
+              payout
+                .planName ||
+                null,
+          },
+        },
+      });
+    }
+
+    console.log(
+      "[order payment] vendor transfer processed",
+      {
+        orderId,
+
+        vendorId,
+
+        transferId:
+          transfer.id,
+
+        vendorPayoutNet:
+          Number(
+            payout
+              .vendorPayoutNet ||
+              0
+          ),
+
+        commissionNet:
+          Number(
+            payout
+              .commissionNet ||
+              0
+          ),
+
+        stripeFeeAllocated:
+          Number(
+            payout
+              .stripeFeeAllocated ||
+              0
+          ),
+      }
+    );
+  }
 
   console.log(
-    "[order payment] payment confirmed - vendor split disabled",
+    "[order payment] payment + vendor splits processed",
     {
       orderId,
 
@@ -1136,27 +1675,34 @@ async function handleOrderPaymentIntentSucceeded(
         null,
 
       chargeId:
-        chargeId ||
-        null,
+        String(
+          chargeId
+        ),
+
+      amountReceived,
 
       stripeFeeNet:
         Number(
-          feeNet || 0
+          feeNet ||
+            0
         ),
 
-      amountReceived:
+      totalVendorPayout:
         Number(
-          pi?.amount_received ||
-            pi?.amount ||
+          totalVendorPayout.toFixed(
+            2
+          )
+        ),
+
+      platformCommissionNet:
+        Number(
+          splits?.order
+            ?.totalCommissionNet ||
             0
-        ) / 100,
+        ),
 
       currency:
-        String(
-          pi?.currency ||
-            order.currency ||
-            "RON"
-        ).toUpperCase(),
+        currency.toUpperCase(),
     }
   );
 }

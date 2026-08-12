@@ -819,7 +819,12 @@
     grid-template-columns:
       1fr;
 
-    height: auto;
+    /*
+     * Păstrăm aceeași înălțime indiferent dacă este activ
+     * Produsul zilei sau Artizanul săptămânii.
+     * Astfel rotația automată la 2 secunde nu mai mută pagina.
+     */
+    height: 540px;
 
     border-radius: 18px;
   }
@@ -828,13 +833,13 @@
     width: 100%;
     height: 210px;
 
-    min-height: 0;
+    min-height: 210px;
   }
 
   .spotlightContent {
     width: 100%;
-    height: auto;
-    min-height: 265px;
+    height: 330px;
+    min-height: 330px;
 
     padding:
       17px
@@ -842,6 +847,7 @@
       19px;
 
     box-sizing: border-box;
+    overflow: hidden;
   }
 
   .spotlightTabs {
@@ -873,15 +879,25 @@
   }
 
   .spotlightTitle {
+    display: -webkit-box;
+    overflow: hidden;
+
     font-size: 1.4rem;
     line-height: 1.08;
+
+    -webkit-box-orient: vertical;
   }
 
   .spotlightDescription {
+    display: -webkit-box;
+    overflow: hidden;
+
     margin-top: 8px;
 
     font-size: 0.73rem;
     line-height: 1.45;
+
+    -webkit-box-orient: vertical;
   }
 
   .spotlightMeta {
@@ -900,7 +916,8 @@
 
     gap: 12px;
 
-    margin-top: 15px;
+    min-height: 62px;
+    margin-top: auto;
   }
 
   .spotlightFooterArtisan {
@@ -919,6 +936,8 @@
     border-radius: 10px;
 
     font-size: 0.65rem;
+
+    white-space: nowrap;
   }
 
   .spotlightArrowLeft,
@@ -1018,17 +1037,25 @@
 ========================================================= */
 
 @media (max-width: 380px) {
+  .spotlightCard {
+    height: 540px;
+  }
+
   .spotlightMedia {
     height: 190px;
+    min-height: 190px;
   }
 
   .spotlightContent {
-    min-height: 265px;
+    height: 350px;
+    min-height: 350px;
 
     padding:
       15px
       13px
       17px;
+
+    overflow: hidden;
   }
 
   .spotlightTab {
@@ -1043,12 +1070,21 @@
     font-size: 0.69rem;
   }
 
+  /*
+   * Pe telefoanele foarte înguste footer-ul poate rămâne
+   * pe coloană. Înălțimea cardului este însă fixă,
+   * deci schimbarea dintre cele două selecții nu mai
+   * produce saltul întregii pagini.
+   */
   .spotlightFooter {
     align-items:
       flex-start;
 
     flex-direction:
       column;
+
+    gap: 8px;
+    min-height: 92px;
   }
 
   .spotlightFooterArtisan {

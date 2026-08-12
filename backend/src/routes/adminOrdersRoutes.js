@@ -1,6 +1,7 @@
 // src/routes/adminOrdersRoutes.js
 import { Router } from "express";
 import { prisma } from "../db.js";
+import { stripe } from "../lib/stripe.js";
 import {
   authRequired,
   requireRole,
@@ -1138,6 +1139,803 @@ router.patch(
         message:
           "Notele comenzii nu au putut fi salvate.",
       });
+    }
+  }
+);
+
+/* ----------------------------------------------------
+   POST /api/admin/orders/:id/refund
+
+   Refund manual inițiat exclusiv de ADMIN.
+
+   CARD:
+   - reverse transferurile către vendori
+   - refund integral al plății clientului
+
+   COD + avans:
+   - reverse transferul avansului
+   - refund doar suma plătită ca avans
+
+   COD fără avans:
+   - nu există nimic de refundat prin Stripe
+----------------------------------------------------- */
+router.post(
+  "/orders/:id/refund",
+  async (req, res) => {
+    const orderId =
+      normalizeText(
+        req.params.id
+      );
+
+    if (!orderId) {
+      return res.status(400).json({
+        error:
+          "order_id_required",
+
+        message:
+          "Lipsește ID-ul comenzii.",
+      });
+    }
+
+    try {
+      /*
+       * ==========================================
+       * ÎNCĂRCĂM COMANDA
+       * ==========================================
+       */
+      const order =
+        await prisma.order.findUnique({
+          where: {
+            id:
+              orderId,
+          },
+
+          include: {
+            shipments: {
+              include: {
+                vendor: {
+                  select: {
+                    id: true,
+                    displayName: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+      if (!order) {
+        return res.status(404).json({
+          error:
+            "order_not_found",
+
+          message:
+            "Comanda nu a fost găsită.",
+        });
+      }
+
+      const paymentMethod =
+        String(
+          order.paymentMethod ||
+            ""
+        ).toUpperCase();
+
+      /*
+       * ==========================================
+       * CAZ 1 — PLATĂ INTEGRALĂ CU CARDUL
+       * ==========================================
+       */
+      if (
+        paymentMethod ===
+        "CARD"
+      ) {
+        const chargeId =
+          order.stripeChargeId
+            ? String(
+                order.stripeChargeId
+              )
+            : null;
+
+        if (!chargeId) {
+          return res
+            .status(409)
+            .json({
+              error:
+                "card_charge_missing",
+
+              message:
+                "Comanda nu are o plată Stripe confirmată care să poată fi rambursată.",
+            });
+        }
+
+        /*
+         * Găsim toate transferurile
+         * făcute către vendorii comenzii.
+         *
+         * În webhook-ul plății integrale
+         * salvăm stripeTransferId în
+         * VendorEarningEntry.
+         */
+        const earningEntries =
+          await prisma.vendorEarningEntry.findMany({
+            where: {
+              orderId:
+                order.id,
+
+              stripeTransferId: {
+                not:
+                  null,
+              },
+            },
+
+            select: {
+              id: true,
+              vendorId: true,
+              stripeTransferId:
+                true,
+            },
+          });
+
+        if (
+          !earningEntries.length
+        ) {
+          return res
+            .status(409)
+            .json({
+              error:
+                "vendor_transfers_missing",
+
+              message:
+                "Nu am găsit transferurile Stripe către vendori. Rambursarea a fost oprită pentru verificare manuală.",
+            });
+        }
+
+        const reversals = [];
+
+        /*
+         * ==========================================
+         * 1. RECUPERĂM TRANSFERURILE VENDORILOR
+         * ==========================================
+         */
+        for (
+          const entry of
+          earningEntries
+        ) {
+          const transferId =
+            entry
+              .stripeTransferId
+              ? String(
+                  entry
+                    .stripeTransferId
+                )
+              : null;
+
+          if (!transferId) {
+            continue;
+          }
+
+          /*
+           * Citim transferul direct din Stripe,
+           * ca să știm cât a fost deja reversat.
+           */
+          const transfer =
+            await stripe.transfers.retrieve(
+              transferId
+            );
+
+          const transferAmount =
+            Number(
+              transfer.amount ||
+                0
+            );
+
+          const amountReversed =
+            Number(
+              transfer.amount_reversed ||
+                0
+            );
+
+          const remainingToReverse =
+            Math.max(
+              0,
+
+              transferAmount -
+                amountReversed
+            );
+
+          /*
+           * Dacă a fost deja reversat complet,
+           * nu mai trimitem încă o operațiune.
+           */
+          if (
+            remainingToReverse <=
+            0
+          ) {
+            reversals.push({
+              vendorId:
+                entry.vendorId,
+
+              transferId,
+
+              alreadyReversed:
+                true,
+
+              amountCents:
+                0,
+            });
+
+            continue;
+          }
+
+          const reversal =
+            await stripe.transfers.createReversal(
+              transferId,
+              {
+                amount:
+                  remainingToReverse,
+
+                metadata: {
+                  kind:
+                    "admin_order_refund",
+
+                  orderId:
+                    String(
+                      order.id
+                    ),
+
+                  vendorId:
+                    String(
+                      entry.vendorId
+                    ),
+                },
+              },
+              {
+                idempotencyKey:
+                  `admin-order-refund-reversal-${order.id}-${transferId}`,
+              }
+            );
+
+          reversals.push({
+            vendorId:
+              entry.vendorId,
+
+            transferId,
+
+            reversalId:
+              reversal.id,
+
+            amountCents:
+              Number(
+                reversal.amount ||
+                  remainingToReverse
+              ),
+          });
+        }
+
+        /*
+         * ==========================================
+         * 2. REFUND CLIENT
+         * ==========================================
+         *
+         * Refundăm doar suma care NU a fost
+         * deja rambursată.
+         */
+        const charge =
+          await stripe.charges.retrieve(
+            chargeId
+          );
+
+        const chargeAmount =
+          Number(
+            charge.amount ||
+              0
+          );
+
+        const amountAlreadyRefunded =
+          Number(
+            charge.amount_refunded ||
+              0
+          );
+
+        const remainingRefundAmount =
+          Math.max(
+            0,
+
+            chargeAmount -
+              amountAlreadyRefunded
+          );
+
+        /*
+         * Dacă plata a fost deja rambursată,
+         * nu mai facem încă un refund.
+         */
+        if (
+          remainingRefundAmount <=
+          0
+        ) {
+          return res.json({
+            ok:
+              true,
+
+            alreadyRefunded:
+              true,
+
+            message:
+              "Plata acestei comenzi era deja rambursată integral.",
+
+            reversals,
+          });
+        }
+
+        const refund =
+          await stripe.refunds.create(
+            {
+              charge:
+                chargeId,
+
+              amount:
+                remainingRefundAmount,
+
+              metadata: {
+                kind:
+                  "admin_order_refund",
+
+                orderId:
+                  String(
+                    order.id
+                  ),
+
+                orderNumber:
+                  String(
+                    order.orderNumber ||
+                      ""
+                  ),
+              },
+            },
+            {
+              idempotencyKey:
+                `admin-order-refund-${order.id}-${chargeId}`,
+            }
+          );
+
+        /*
+         * Adăugăm o urmă simplă în notele
+         * Admin, fără să avem nevoie acum
+         * de migrare Prisma.
+         */
+        const who =
+          req.user?.email ||
+          req.user?.id ||
+          req.user?.sub ||
+          "admin";
+
+        const refundNote =
+          `[${new Date().toISOString()} | ${who}] ` +
+          `Refund Stripe ${refund.id} — ` +
+          `${(
+            remainingRefundAmount /
+            100
+          ).toFixed(2)} ${String(
+            order.currency ||
+              "RON"
+          ).toUpperCase()}`;
+
+        const oldNotes =
+          normalizeText(
+            order.adminNotes
+          );
+
+        await prisma.order.update({
+          where: {
+            id:
+              order.id,
+          },
+
+          data: {
+            adminNotes:
+              oldNotes
+                ? `${oldNotes}\n${refundNote}`
+                : refundNote,
+          },
+        });
+
+        return res.json({
+          ok:
+            true,
+
+          type:
+            "CARD_FULL_REFUND",
+
+          refundId:
+            refund.id,
+
+          refundedAmount:
+            Number(
+              (
+                remainingRefundAmount /
+                100
+              ).toFixed(2)
+            ),
+
+          currency:
+            String(
+              order.currency ||
+                "RON"
+            ).toUpperCase(),
+
+          reversals,
+
+          message:
+            "Plata a fost rambursată integral clientului, iar transferurile către vendori au fost reversate.",
+        });
+      }
+
+      /*
+       * ==========================================
+       * CAZ 2 — COD + AVANS STRIPE
+       * ==========================================
+       */
+      if (
+        paymentMethod ===
+        "COD"
+      ) {
+        const paidDepositShipments =
+          (
+            order.shipments ||
+            []
+          ).filter(
+            (shipment) =>
+              shipment.depositStatus ===
+                "PAID" &&
+              shipment
+                .stripeDepositChargeId
+          );
+
+        if (
+          !paidDepositShipments
+            .length
+        ) {
+          return res
+            .status(409)
+            .json({
+              error:
+                "no_online_payment_to_refund",
+
+              message:
+                "Această comandă este ramburs și nu are niciun avans Stripe plătit.",
+            });
+        }
+
+        const refundedDeposits =
+          [];
+
+        /*
+         * O comandă poate avea mai multe
+         * shipments / vendori și, implicit,
+         * mai multe avansuri.
+         */
+        for (
+          const shipment of
+          paidDepositShipments
+        ) {
+          const existingMeta =
+            shipment.depositMeta &&
+            typeof shipment.depositMeta ===
+              "object" &&
+            !Array.isArray(
+              shipment.depositMeta
+            )
+              ? shipment.depositMeta
+              : {};
+
+          const transferId =
+            existingMeta
+              .stripeTransferId
+              ? String(
+                  existingMeta
+                    .stripeTransferId
+                )
+              : null;
+
+          const chargeId =
+            String(
+              shipment
+                .stripeDepositChargeId
+            );
+
+          /*
+           * ======================================
+           * 1. REVERSE TRANSFER AVANS VENDOR
+           * ======================================
+           */
+          let reversalId =
+            existingMeta
+              .refundReversalId ||
+            null;
+
+          if (transferId) {
+            const transfer =
+              await stripe.transfers.retrieve(
+                transferId
+              );
+
+            const transferAmount =
+              Number(
+                transfer.amount ||
+                  0
+              );
+
+            const amountReversed =
+              Number(
+                transfer.amount_reversed ||
+                  0
+              );
+
+            const remainingToReverse =
+              Math.max(
+                0,
+
+                transferAmount -
+                  amountReversed
+              );
+
+            if (
+              remainingToReverse >
+              0
+            ) {
+              const reversal =
+                await stripe.transfers.createReversal(
+                  transferId,
+                  {
+                    amount:
+                      remainingToReverse,
+
+                    metadata: {
+                      kind:
+                        "admin_deposit_refund",
+
+                      orderId:
+                        String(
+                          order.id
+                        ),
+
+                      shipmentId:
+                        String(
+                          shipment.id
+                        ),
+
+                      vendorId:
+                        String(
+                          shipment.vendorId
+                        ),
+                    },
+                  },
+                  {
+                    idempotencyKey:
+                      `admin-deposit-refund-reversal-${shipment.id}-${transferId}`,
+                  }
+                );
+
+              reversalId =
+                reversal.id;
+            }
+          }
+
+          /*
+           * ======================================
+           * 2. REFUND AVANS CLIENT
+           * ======================================
+           */
+          const charge =
+            await stripe.charges.retrieve(
+              chargeId
+            );
+
+          const chargeAmount =
+            Number(
+              charge.amount ||
+                0
+            );
+
+          const amountAlreadyRefunded =
+            Number(
+              charge.amount_refunded ||
+                0
+            );
+
+          const remainingRefundAmount =
+            Math.max(
+              0,
+
+              chargeAmount -
+                amountAlreadyRefunded
+            );
+
+          let refundId =
+            existingMeta
+              .stripeRefundId ||
+            null;
+
+          if (
+            remainingRefundAmount >
+            0
+          ) {
+            const refund =
+              await stripe.refunds.create(
+                {
+                  charge:
+                    chargeId,
+
+                  amount:
+                    remainingRefundAmount,
+
+                  metadata: {
+                    kind:
+                      "admin_deposit_refund",
+
+                    orderId:
+                      String(
+                        order.id
+                      ),
+
+                    shipmentId:
+                      String(
+                        shipment.id
+                      ),
+
+                    vendorId:
+                      String(
+                        shipment.vendorId
+                      ),
+                  },
+                },
+                {
+                  idempotencyKey:
+                    `admin-deposit-refund-${shipment.id}-${chargeId}`,
+                }
+              );
+
+            refundId =
+              refund.id;
+          }
+
+          /*
+           * Păstrăm datele refund-ului
+           * în depositMeta, câmp pe care
+           * îl ai deja în Prisma.
+           */
+          const refundedAt =
+            new Date();
+
+          await prisma.shipment.update({
+            where: {
+              id:
+                shipment.id,
+            },
+
+            data: {
+              depositMeta: {
+                ...existingMeta,
+
+                refunded:
+                  true,
+
+                refundedAt:
+                  refundedAt.toISOString(),
+
+                stripeRefundId:
+                  refundId,
+
+                refundReversalId:
+                  reversalId,
+
+                refundedAmount:
+                  Number(
+                    (
+                      chargeAmount /
+                      100
+                    ).toFixed(2)
+                  ),
+
+                refundReason:
+                  "ADMIN_MANUAL_REFUND",
+              },
+            },
+          });
+
+          refundedDeposits.push({
+            shipmentId:
+              shipment.id,
+
+            vendorId:
+              shipment.vendorId,
+
+            stripeRefundId:
+              refundId,
+
+            reversalId,
+
+            refundedAmount:
+              Number(
+                (
+                  chargeAmount /
+                  100
+                ).toFixed(2)
+              ),
+          });
+        }
+
+        return res.json({
+          ok:
+            true,
+
+          type:
+            "COD_DEPOSIT_REFUND",
+
+          refunds:
+            refundedDeposits,
+
+          message:
+            "Avansul plătit online a fost rambursat clientului, iar transferul către vendor a fost reversat.",
+        });
+      }
+
+      /*
+       * Metodă de plată necunoscută.
+       */
+      return res
+        .status(409)
+        .json({
+          error:
+            "unsupported_payment_method",
+
+          message:
+            "Această comandă nu are o plată online care poate fi rambursată.",
+        });
+    } catch (error) {
+      console.error(
+        "ADMIN /orders/:id/refund error",
+        error
+      );
+
+      /*
+       * Dacă vendorul nu mai are suficient
+       * sold Stripe pentru transfer reversal,
+       * NU continuăm cu refund-ul clientului.
+       *
+       * Astfel Artfest nu suportă automat
+       * pierderea.
+       */
+      if (
+  error?.code === "balance_insufficient"
+) {
+  return res.status(409).json({
+    error: "stripe_reversal_failed",
+    message:
+      "Nu am putut recupera suma de la vendor în Stripe. Rambursarea clientului NU a fost efectuată. Verifică soldul contului Stripe Connect al vendorului.",
+  });
+} {
+        return res
+          .status(409)
+          .json({
+            error:
+              "stripe_reversal_failed",
+
+            message:
+              "Nu am putut recupera suma de la vendor în Stripe. Rambursarea clientului NU a fost efectuată. Verifică soldul contului Stripe Connect al vendorului.",
+          });
+      }
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "admin_order_refund_failed",
+
+          message:
+            error?.message ||
+            "Rambursarea nu a putut fi procesată.",
+        });
     }
   }
 );

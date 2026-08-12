@@ -673,33 +673,48 @@ setItems((prev) => {
   setSuggestLoading(false);
 }, []);
 
-  useEffect(() => {
-    let alive = true;
+ useEffect(() => {
+  let alive = true;
 
-    (async () => {
-      try {
-        const meData = await api("/api/auth/me").catch(() => null);
+  const loadMe = async () => {
+    try {
+      const meData = await api(
+        "/api/auth/me"
+      ).catch(() => null);
 
-        if (!alive) return;
+      if (!alive) return;
 
-        if (!meData || meData?.__unauth) {
-          setMe(null);
-          setFavorites(new Set());
-          return;
-        }
-
-        setMe(meData?.user || null);
-      } catch {
-        if (!alive) return;
+      if (
+        !meData ||
+        meData?.__unauth
+      ) {
         setMe(null);
         setFavorites(new Set());
+        return;
       }
-    })();
 
-    return () => {
-      alive = false;
-    };
-  }, []);
+      setMe(
+        meData?.user || null
+      );
+    } catch {
+      if (!alive) return;
+
+      setMe(null);
+      setFavorites(new Set());
+    }
+  };
+
+  const timer =
+    window.setTimeout(
+      loadMe,
+      250
+    );
+
+  return () => {
+    alive = false;
+    window.clearTimeout(timer);
+  };
+}, []);
 
   useEffect(() => {
     let alive = true;
@@ -816,10 +831,26 @@ useEffect(() => {
         });
       });
 
-      /*
-       * Cerem versiunea actuală din backend.
-       */
-      await loadProducts(1, false);
+     /*
+ * Avem deja produsele salvate.
+ * Nu blocăm revenirea pe pagină cu încă un request.
+ *
+ * Actualizarea se poate face ulterior, fără să afecteze
+ * afișarea imediată.
+ */
+const refresh = () => {
+  if (!active) return;
+
+  loadProducts(1, false).catch(() => {});
+};
+
+if ("requestIdleCallback" in window) {
+  window.requestIdleCallback(refresh, {
+    timeout: 2500,
+  });
+} else {
+  window.setTimeout(refresh, 1200);
+}
     } catch (error) {
       console.error(
         "Products restore error:",
@@ -918,16 +949,29 @@ useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const first = entries[0];
-        if (!first?.isIntersecting) return;
-        if (loading || refreshing || isLoadingMore || !hasMore) return;
+   const observer = new IntersectionObserver(
+  (entries) => {
+    const first = entries[0];
 
-        setPage((prev) => prev + 1);
-      },
-      { root: null, rootMargin: "900px 0px", threshold: 0 }
-    );
+    if (!first?.isIntersecting) return;
+
+    if (
+      loading ||
+      refreshing ||
+      isLoadingMore ||
+      !hasMore
+    ) {
+      return;
+    }
+
+    setPage((prev) => prev + 1);
+  },
+  {
+    root: null,
+    rootMargin: "450px 0px",
+    threshold: 0,
+  }
+);
 
     observer.observe(el);
     return () => observer.disconnect();

@@ -2002,38 +2002,135 @@ const groups =
     const total = dec(subtotal + shippingTotal);
 
     const vendorIds = [
-      ...new Set(groups.map((g) => String(g.vendorId)).filter(Boolean)),
-    ];
+  ...new Set(
+    groups
+      .map((g) => String(g.vendorId))
+      .filter(Boolean)
+  ),
+];
 
-    const vendors = await prisma.vendor.findMany({
-      where: { id: { in: vendorIds } },
-      select: {
-  id: true,
-  displayName: true,
-  address: true,
-  city: true,
-  email: true,
-  emailOnNewOrder: true,
-  user: {
-    select: {
-      email: true,
+const vendors =
+  await prisma.vendor.findMany({
+    where: {
+      id: {
+        in: vendorIds,
+      },
     },
-  },
-},
+
+    select: {
+      id: true,
+      displayName: true,
+      address: true,
+      city: true,
+      email: true,
+      emailOnNewOrder: true,
+
+      /*
+       * Necesare pentru a verifica
+       * dacă plata online poate fi folosită.
+       */
+      stripeAccountId: true,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDetailsSubmitted: true,
+      stripeConnectStatus: true,
+
+      user: {
+        select: {
+          email: true,
+        },
+      },
+    },
+  });
+
+/*
+ * ==========================================
+ * VERIFICARE STRIPE CONNECT PENTRU CARD
+ * ==========================================
+ *
+ * Dacă utilizatorul a ales plata cu cardul,
+ * TOȚI vendorii din comandă trebuie să aibă
+ * Stripe Connect complet activ.
+ *
+ * Verificarea se face înainte să:
+ * - creăm comanda;
+ * - scădem stocul;
+ * - inițiem plata.
+ */
+if (pm === "CARD") {
+  /*
+   * Protecție suplimentară:
+   * trebuie să fi găsit toți vendorii.
+   */
+  if (
+    vendors.length !==
+    vendorIds.length
+  ) {
+    return res.status(400).json({
+      error:
+        "vendor_not_found",
+
+      message:
+        "Plata online nu poate fi inițiată pentru această comandă. Te rugăm să alegi plata ramburs.",
+    });
+  }
+
+  const unavailableVendor =
+    vendors.find((vendor) => {
+      const stripeReady =
+        Boolean(
+          vendor.stripeAccountId
+        ) &&
+        vendor.stripeChargesEnabled ===
+          true &&
+        vendor.stripePayoutsEnabled ===
+          true &&
+        vendor.stripeDetailsSubmitted ===
+          true &&
+        vendor.stripeConnectStatus ===
+          "enabled";
+
+      return !stripeReady;
     });
 
-    const storeAddresses = {};
-    for (const v of vendors) {
-      storeAddresses[v.id] = {
-        name: v.displayName || "Magazin",
-        street: v.address || "",
-        city: v.city || "",
-        county: normalizedAddress.county || "",
-        postalCode: "",
-        country: "România",
-      };
-    }
+  if (unavailableVendor) {
+    return res.status(400).json({
+      error:
+        "vendor_stripe_not_active",
 
+      message:
+        "Plata online nu este disponibilă momentan pentru toate produsele din această comandă. Te rugăm să alegi plata ramburs.",
+    });
+  }
+}
+
+const storeAddresses = {};
+
+for (const v of vendors) {
+  storeAddresses[v.id] = {
+    name:
+      v.displayName ||
+      "Magazin",
+
+    street:
+      v.address ||
+      "",
+
+    city:
+      v.city ||
+      "",
+
+    county:
+      normalizedAddress.county ||
+      "",
+
+    postalCode:
+      "",
+
+    country:
+      "România",
+  };
+}
     const shippingAddressForOrder =
       ct === "PJ" && !shipToDifferentAddress
         ? {
@@ -2592,27 +2689,83 @@ const groups =
     ];
 
     const vendors = await prisma.vendor.findMany({
-      where: {
-        id: {
-          in: vendorIds,
-        },
-      },
-      select: {
-        id: true,
-        displayName: true,
-        address: true,
-        city: true,
-        email: true,
-        emailOnNewOrder: true,
-        user: {
-          select: {
-            email: true,
-          },
-        },
-      },
-    });
+  where: {
+    id: {
+      in: vendorIds,
+    },
+  },
 
-    const storeAddresses = {};
+  select: {
+    id: true,
+    displayName: true,
+    address: true,
+    city: true,
+    email: true,
+    emailOnNewOrder: true,
+
+    /*
+     * Necesare pentru plata online.
+     */
+    stripeAccountId: true,
+    stripeChargesEnabled: true,
+    stripePayoutsEnabled: true,
+    stripeDetailsSubmitted: true,
+    stripeConnectStatus: true,
+
+    user: {
+      select: {
+        email: true,
+      },
+    },
+  },
+});
+
+/*
+ * ==========================================
+ * VERIFICARE STRIPE CONNECT PENTRU GUEST CARD
+ * ==========================================
+ *
+ * Dacă guest-ul a ales plata cu cardul,
+ * toți vendorii trebuie să aibă Stripe Connect activ.
+ */
+if (pm === "CARD") {
+  /*
+   * Trebuie să fi găsit toți vendorii
+   * din comandă.
+   */
+  if (vendors.length !== vendorIds.length) {
+    return res.status(400).json({
+      error: "vendor_not_found",
+
+      message:
+        "Plata online nu poate fi inițiată pentru această comandă. Te rugăm să alegi plata ramburs.",
+    });
+  }
+
+  const unavailableVendor = vendors.find(
+    (vendor) => {
+      const stripeReady =
+        Boolean(vendor.stripeAccountId) &&
+        vendor.stripeChargesEnabled === true &&
+        vendor.stripePayoutsEnabled === true &&
+        vendor.stripeDetailsSubmitted === true &&
+        vendor.stripeConnectStatus === "enabled";
+
+      return !stripeReady;
+    }
+  );
+
+  if (unavailableVendor) {
+    return res.status(400).json({
+      error: "vendor_stripe_not_active",
+
+      message:
+        "Plata online nu este disponibilă momentan pentru toate produsele din această comandă. Te rugăm să alegi plata ramburs.",
+    });
+  }
+}
+
+const storeAddresses = {};
 
     for (const vendor of vendors) {
       storeAddresses[vendor.id] = {

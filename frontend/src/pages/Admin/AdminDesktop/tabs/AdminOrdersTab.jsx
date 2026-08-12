@@ -159,16 +159,36 @@ export default function AdminOrdersTab({ orders, forcedUserId, forcedVendorId })
     const q = filters.q.trim().toLowerCase();
     if (q) {
       list = list.filter((o) => {
-        const id = String(o.id || "").toLowerCase();
-        const userId = String(o.userId || "").toLowerCase();
-        const vendors = (o._vendors || []).join(" ").toLowerCase();
-        const payment = String(o.paymentMethod || "").toLowerCase();
-        return (
-          id.includes(q) ||
-          userId.includes(q) ||
-          vendors.includes(q) ||
-          payment.includes(q)
-        );
+       const id =
+  String(o.id || "").toLowerCase();
+
+const orderNumber =
+  String(
+    o.orderNumber || ""
+  ).toLowerCase();
+
+const userId =
+  String(
+    o.userId || ""
+  ).toLowerCase();
+
+const vendors =
+  (o._vendors || [])
+    .join(" ")
+    .toLowerCase();
+
+const payment =
+  String(
+    o.paymentMethod || ""
+  ).toLowerCase();
+
+return (
+  id.includes(q) ||
+  orderNumber.includes(q) ||
+  userId.includes(q) ||
+  vendors.includes(q) ||
+  payment.includes(q)
+);
       });
     }
 
@@ -250,7 +270,7 @@ async function handleOpenOrder(
           <span>Caută</span>
           <input
             type="text"
-            placeholder="ID comandă, userId, vendor, metodă plată"
+            placeholder="Număr comandă, ID, userId, vendor, metodă plată"
             value={filters.q}
             onChange={(e) =>
               handleFilterChange((f) => ({ ...f, q: e.target.value }))
@@ -957,6 +977,67 @@ const totalDiscount =
     }
   };
 
+  const handleRefundPayment = async () => {
+  if (!localOrder?.id) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Sigur vrei să rambursezi plata pentru comanda ${
+      localOrder.orderNumber || localOrder.id
+    }?\n\n` +
+      `Această acțiune va returna banii clientului și nu trebuie folosită decât după verificarea situației.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setActionLoading(true);
+  setActionError("");
+  setActionMessage("");
+
+  try {
+    const result = await api(
+      `/api/admin/orders/${encodeURIComponent(
+        localOrder.id
+      )}/refund`,
+      {
+        method: "POST",
+      }
+    );
+
+    setActionMessage(
+      result?.message ||
+        "Rambursarea a fost inițiată cu succes."
+    );
+
+    /*
+     * Dacă backend-ul ne trimite
+     * comanda actualizată, actualizăm
+     * imediat drawer-ul.
+     */
+    if (result?.order) {
+      setLocalOrder(result.order);
+    }
+  } catch (e) {
+    console.error(
+      "Admin refund failed:",
+      e
+    );
+
+    const msg =
+      e?.response?.data?.message ||
+      e?.data?.message ||
+      e?.message ||
+      "Nu am putut rambursa plata.";
+
+    setActionError(msg);
+  } finally {
+    setActionLoading(false);
+  }
+};
+
   const node = (
     <div className={styles.drawerOverlay} onClick={onClose}>
       <aside
@@ -1562,6 +1643,28 @@ const totalDiscount =
               >
                 Anulează comanda
               </button>
+              <button
+  type="button"
+  className={styles.adminActionBtnDanger}
+  onClick={handleRefundPayment}
+  disabled={
+    actionLoading ||
+    (
+      localOrder.paymentMethod !== "CARD" &&
+      paidDepositTotal <= 0
+    )
+  }
+  title={
+    localOrder.paymentMethod === "CARD" ||
+    paidDepositTotal > 0
+      ? "Rambursează suma plătită online clientului"
+      : "Această comandă nu are o plată online de rambursat"
+  }
+>
+  {actionLoading
+    ? "Se procesează..."
+    : "Rambursează plata"}
+</button>
             </div>
 
             {actionError && (
