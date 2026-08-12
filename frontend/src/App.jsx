@@ -161,6 +161,20 @@ function RequireUser({ children }) {
   return children;
 }
 
+function RequireAuthenticated({ children }) {
+  const { me, loading } = useAuth();
+
+  if (loading) {
+    return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
+  }
+
+  if (!me) {
+    return <Navigate to="/autentificare" replace />;
+  }
+
+  return children;
+}
+
 function RequireVendor({ children }) {
   const { me, loading } = useAuth();
   if (loading) return <div style={{ padding: 24 }}>Se verifică sesiunea…</div>;
@@ -326,17 +340,17 @@ export default function App() {
             <Route
               path="/comenzile-mele"
               element={
-                <RequireUser>
+                <RequireAuthenticated>
                   <OrdersPage />
-                </RequireUser>
+                </RequireAuthenticated>
               }
             />
             <Route
               path="/comanda/:id"
               element={
-                <RequireUser>
+                <RequireAuthenticated>
                   <MyOrderDetailsPage />
-                </RequireUser>
+                </RequireAuthenticated>
               }
             />
 
