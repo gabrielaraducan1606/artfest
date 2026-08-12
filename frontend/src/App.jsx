@@ -49,7 +49,7 @@ import VendorSupportPage from "./pages/Vendor/VendorSupport/VendorSupportPage.js
 import UserSupportPage from "./pages/User/UserSupport/UserSupportPage.jsx";
 import GuestSupportPage from "./pages/Guest/GuestSupport/GuestSupportPage.jsx";
 import AdminSupportPage from "./pages/Admin/AdminSupport/AdminSupportPage.jsx";
-
+import GuestOrderPage from "./pages/Guest/GuestOrder/GuestOrder.jsx";
 import SettingsPage from "./pages/Vendor/Settings/Settings";
 import NotificationsPage from "./pages/Vendor/Notifications/Notifications";
 
@@ -216,7 +216,10 @@ export default function App() {
           <Route element={<AppLayout />}>
             {/* Public */}
             <Route path="/" element={<Home />} />
-
+<Route
+  path="/comanda-guest/:id"
+  element={<GuestOrderPage />}
+/>
             {/* Checkout */}
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/multumim" element={<ThankYou />} />

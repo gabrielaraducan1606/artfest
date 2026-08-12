@@ -134,24 +134,7 @@ function ProductCard({
   useEffect(() => {
     setLocalFav(!!isFav);
   }, [isFav]);
-console.log("[PRODUCT CARD DATA]", {
-  id: p?.id,
-  title: p?.title,
-  price: p?.price,
-  priceCents: p?.priceCents,
-  originalPrice: p?.originalPrice,
-  originalPriceCents: p?.originalPriceCents,
-  finalPrice: p?.finalPrice,
-  finalPriceCents: p?.finalPriceCents,
-  discountedPriceCents: p?.discountedPriceCents,
-  hasDiscount: p?.hasDiscount,
-  hasActiveHomepageDiscount:
-    p?.hasActiveHomepageDiscount,
-  discountPercent: p?.discountPercent,
-  totalDiscountPercent:
-    p?.totalDiscountPercent,
-  promoLabel: p?.promoLabel,
-});
+
   const safe = useMemo(() => {
     const images = Array.isArray(p?.images) ? p.images : [];
 

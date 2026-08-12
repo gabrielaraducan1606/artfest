@@ -57,10 +57,24 @@ async function withLockHandling(promiseFn) {
     const status = e?.status || e?.response?.status;
     const data = e?.data || e?.response?.data;
 
-    if (status === 409 && data?.error === "ORDER_LOCKED_AWAITING_AWB") {
+    if (
+      status === 409 &&
+      data?.error === "ORDER_LOCKED_AWAITING_AWB"
+    ) {
       alert(
         data?.message ||
           "Comanda este blocată temporar din backend. Verifică setările de livrare."
+      );
+      return null;
+    }
+
+    if (
+      status === 409 &&
+      data?.error === "deposit_payment_pending"
+    ) {
+      alert(
+        data?.message ||
+          "Nu poți începe comanda până când clientul nu plătește avansul."
       );
       return null;
     }
@@ -144,8 +158,9 @@ const [billingGate, setBillingGate] = useState(null);
   // modals state
   const [cancelOrder, setCancelOrder] = useState(null);
 
-  const [startingMessageOrderId, setStartingMessageOrderId] = useState(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+const [startingMessageOrderId, setStartingMessageOrderId] = useState(null);
+const [requestingDepositOrderId, setRequestingDepositOrderId] = useState(null);
+const [filtersOpen, setFiltersOpen] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil((data?.total || 0) / pageSize));
 
@@ -557,14 +572,79 @@ setData({
                                   o.status ||
                                   "—"}
                               </span>
+{o.paymentMethod && (
+  <div className={styles.clientNote}>
+    {o.paymentMethod === "COD"
+      ? "Plată la livrare"
+      : "Card online"}
+  </div>
+)}
+           {o.deposit?.status === "PENDING" && (
+  <div
+    style={{
+      marginTop: 6,
+      padding: "6px 9px",
+      borderRadius: 8,
+      background: "#fff7ed",
+      border: "1px solid #fed7aa",
+      color: "#9a3412",
+      fontSize: 12,
+      fontWeight: 600,
+    }}
+  >
+    ⚠ Avans solicitat:{" "}
+    {formatMoney(
+      o.deposit.requestedAmount
+    )}
+  </div>
+)}
 
-                              {o.paymentMethod && (
-                                <div className={styles.clientNote}>
-                                  {o.paymentMethod === "COD"
-                                    ? "Plată la livrare"
-                                    : "Card online"}
-                                </div>
-                              )}
+{o.deposit?.status === "PAID" && (
+  <div
+    style={{
+      marginTop: 6,
+      padding: "7px 9px",
+      borderRadius: 8,
+      background: "#ecfdf3",
+      border: "1px solid #a7f3d0",
+      color: "#166534",
+      fontSize: 12,
+      lineHeight: 1.5,
+    }}
+  >
+    <strong>
+      ✓ Avans plătit:{" "}
+      {formatMoney(
+        o.deposit.paidAmount
+      )}
+    </strong>
+
+    {o.deposit
+      ?.remainingCodAmount != null && (
+      <>
+        <br />
+
+        Rest de încasat la livrare:{" "}
+        <strong>
+          {formatMoney(
+            o.deposit
+              .remainingCodAmount
+          )}
+        </strong>
+      </>
+    )}
+
+    <br />
+
+    <span
+      style={{
+        fontWeight: 600,
+      }}
+    >
+      Poți începe pregătirea comenzii.
+    </span>
+  </div>
+)}
 
                               {cancelReasonLabel && (
                                 <div className={styles.clientNote}>
@@ -626,43 +706,109 @@ setData({
                               </button>
                             )}
 
-                            {o.status === "new" && (
-                              <button
-                                className={styles.secondaryBtn}
-                                onClick={async (e) => {
-                                  e.stopPropagation();
+                          {o.status === "new" &&
+  o.paymentMethod === "COD" &&
+  (!o.deposit ||
+    o.deposit.status === "NOT_REQUESTED") && (
+    <button
+      type="button"
+      className={styles.primaryBtn}
+      disabled={requestingDepositOrderId === o.id}
+      onClick={async (e) => {
+        e.stopPropagation();
 
-                                  try {
-                                    const ok = await withLockHandling(() =>
-                                      api(`/api/vendor/orders/${o.id}/status`, {
-                                        method: "PATCH",
-                                        headers: {
-                                          "Content-Type": "application/json",
-                                        },
-                                        body: JSON.stringify({
-                                          status: "preparing",
-                                        }),
-                                      })
-                                    );
-                                    if (!ok) return;
+        const confirmed = window.confirm(
+          "Solicităm clientului un avans de 15% din valoarea produselor?"
+        );
 
-                                    setData((prev) => ({
-                                      ...prev,
-                                      items: prev.items.map((x) =>
-                                        x.id === o.id
-                                          ? { ...x, status: "preparing" }
-                                          : x
-                                      ),
-                                    }));
-                                  } catch {
-                                    alert("Nu am putut marca 'În pregătire'.");
-                                  }
-                                }}
-                              >
-                                În pregătire
-                              </button>
-                            )}
+        if (!confirmed) return;
 
+        try {
+          setRequestingDepositOrderId(o.id);
+
+          const result = await api(
+            `/api/vendor/orders/${o.id}/request-deposit`,
+            {
+              method: "POST",
+            }
+          );
+
+          setData((prev) => ({
+            ...prev,
+            items: prev.items.map((item) =>
+              item.id === o.id
+                ? {
+                    ...item,
+                    deposit: result.deposit,
+                  }
+                : item
+            ),
+          }));
+        } catch (error) {
+          const message =
+            error?.data?.message ||
+            error?.response?.data?.message ||
+            error?.message ||
+            "Nu am putut solicita avansul.";
+
+          alert(message);
+        } finally {
+          setRequestingDepositOrderId(null);
+        }
+      }}
+    >
+      {requestingDepositOrderId === o.id ? (
+        <>
+          <Loader2 size={16} className={styles.spin} />
+          Se solicită…
+        </>
+      ) : (
+        "Solicită avans 15%"
+      )}
+    </button>
+  )}
+
+{o.status === "new" &&
+  o.deposit?.status !== "PENDING" && (
+    <button
+      className={styles.secondaryBtn}
+      onClick={async (e) => {
+        e.stopPropagation();
+
+        try {
+          const ok = await withLockHandling(() =>
+            api(`/api/vendor/orders/${o.id}/status`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                status: "preparing",
+              }),
+            })
+          );
+
+          if (!ok) return;
+
+          setData((prev) => ({
+            ...prev,
+            items: prev.items.map((x) =>
+              x.id === o.id
+                ? {
+                    ...x,
+                    status: "preparing",
+                  }
+                : x
+            ),
+          }));
+        } catch {
+          alert("Nu am putut marca 'În pregătire'.");
+        }
+      }}
+    >
+      În pregătire
+    </button>
+  )}
                             {(o.status === "preparing" ||
                               o.status === "confirmed") && (
                               <button

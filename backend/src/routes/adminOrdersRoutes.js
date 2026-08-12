@@ -198,6 +198,244 @@ function getOrderCustomer(order) {
 }
 
 /* ----------------------------------------------------
+   Helper: date avans pentru Admin
+----------------------------------------------------- */
+function getDepositAdminData(
+  shipment
+) {
+  if (!shipment) {
+    return null;
+  }
+
+  const meta =
+    shipment.depositMeta &&
+    typeof shipment.depositMeta ===
+      "object" &&
+    !Array.isArray(
+      shipment.depositMeta
+    )
+      ? shipment.depositMeta
+      : {};
+
+  return {
+    status:
+      shipment.depositStatus ||
+      "NOT_REQUESTED",
+
+    percent:
+      shipment.depositPercent != null
+        ? Number(
+            shipment.depositPercent
+          )
+        : null,
+
+    requestedAmount:
+      shipment.depositRequestedAmount != null
+        ? Number(
+            shipment.depositRequestedAmount
+          )
+        : null,
+
+    paidAmount:
+      shipment.depositPaidAmount != null
+        ? Number(
+            shipment.depositPaidAmount
+          )
+        : null,
+
+    remainingCodAmount:
+      shipment.remainingCodAmount != null
+        ? Number(
+            shipment.remainingCodAmount
+          )
+        : null,
+
+    requestedAt:
+      shipment.depositRequestedAt ||
+      null,
+
+    paidAt:
+      shipment.depositPaidAt ||
+      null,
+
+    expiresAt:
+      shipment.depositExpiresAt ||
+      null,
+
+    stripeCheckoutSessionId:
+      shipment.stripeDepositSessionId ||
+      null,
+
+    stripePaymentIntentId:
+      shipment.stripeDepositPaymentIntentId ||
+      null,
+
+    stripeChargeId:
+      shipment.stripeDepositChargeId ||
+      null,
+
+    paymentError:
+      shipment.depositPaymentError ||
+      null,
+
+    stripeTransferId:
+      meta.stripeTransferId ||
+      null,
+
+    stripeFeeNet:
+      meta.stripeFeeNet != null
+        ? Number(
+            meta.stripeFeeNet
+          )
+        : null,
+
+    vendorTransferNet:
+      meta.vendorTransferNet != null
+        ? Number(
+            meta.vendorTransferNet
+          )
+        : null,
+
+    commissionCollected:
+      meta.commissionCollected != null
+        ? Number(
+            meta.commissionCollected
+          )
+        : 0,
+
+    commissionHandling:
+      meta.commissionHandling ||
+      null,
+  };
+}
+
+function buildOrderDepositSummary(
+  shipments = []
+) {
+  const deposits =
+    (shipments || []).map(
+      (shipment) => ({
+        shipmentId:
+          shipment.id,
+
+        vendorId:
+          shipment.vendorId ||
+          null,
+
+        vendorName:
+          shipment.vendor
+            ?.displayName ||
+          null,
+
+        ...getDepositAdminData(
+          shipment
+        ),
+      })
+    );
+
+  const activeDeposits =
+    deposits.filter(
+      (deposit) =>
+        deposit.status !==
+        "NOT_REQUESTED"
+    );
+
+  return {
+    hasDeposit:
+      activeDeposits.length > 0,
+
+    hasPendingDeposit:
+      activeDeposits.some(
+        (deposit) =>
+          deposit.status ===
+          "PENDING"
+      ),
+
+    hasPaidDeposit:
+      activeDeposits.some(
+        (deposit) =>
+          deposit.status ===
+          "PAID"
+      ),
+
+    requestedTotal:
+      Number(
+        activeDeposits
+          .reduce(
+            (
+              sum,
+              deposit
+            ) =>
+              sum +
+              Number(
+                deposit.requestedAmount ||
+                  0
+              ),
+            0
+          )
+          .toFixed(2)
+      ),
+
+    paidTotal:
+      Number(
+        activeDeposits
+          .reduce(
+            (
+              sum,
+              deposit
+            ) =>
+              sum +
+              Number(
+                deposit.paidAmount ||
+                  0
+              ),
+            0
+          )
+          .toFixed(2)
+      ),
+
+    stripeFeeTotal:
+      Number(
+        activeDeposits
+          .reduce(
+            (
+              sum,
+              deposit
+            ) =>
+              sum +
+              Number(
+                deposit.stripeFeeNet ||
+                  0
+              ),
+            0
+          )
+          .toFixed(2)
+      ),
+
+    vendorTransferTotal:
+      Number(
+        activeDeposits
+          .reduce(
+            (
+              sum,
+              deposit
+            ) =>
+              sum +
+              Number(
+                deposit.vendorTransferNet ||
+                  0
+              ),
+            0
+          )
+          .toFixed(2)
+      ),
+
+    deposits:
+      activeDeposits,
+  };
+}
+
+/* ----------------------------------------------------
    POST /api/admin/orders/:id/cancel
 
    Anulează comanda:
@@ -747,8 +985,36 @@ const {
   ...safeOrder
 } = order;
 
+/*
+ * Adăugăm și un obiect `deposit`
+ * normalizat pe fiecare shipment.
+ */
+const safeShipments =
+  (safeOrder.shipments || []).map(
+    (shipment) => ({
+      ...shipment,
+
+      deposit:
+        getDepositAdminData(
+          shipment
+        ),
+    })
+  );
+
+/*
+ * Rezumatul tuturor avansurilor
+ * din comandă.
+ */
+const depositSummary =
+  buildOrderDepositSummary(
+    safeOrder.shipments || []
+  );
+
 return res.json({
   ...safeOrder,
+
+  shipments:
+    safeShipments,
 
   uiStatus,
 
@@ -764,6 +1030,8 @@ return res.json({
     Math.round(
       totalDiscount * 100
     ),
+
+  depositSummary,
 });
     } catch (error) {
       console.error(

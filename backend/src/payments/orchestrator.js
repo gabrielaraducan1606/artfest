@@ -6,65 +6,246 @@ function getAppUrl() {
   return (process.env.APP_URL || process.env.FRONTEND_URL || "").replace(/\/+$/, "");
 }
 
-export async function createPaymentForOrder(order) {
-  const appUrl = getAppUrl();
-  if (!appUrl) throw new Error("APP_URL/FRONTEND_URL missing");
+export async function createPaymentForOrder(
+  order
+) {
+  const appUrl =
+    getAppUrl();
 
-  const amountCents = Math.round(Number(order.total || 0) * 100);
-  if (!Number.isFinite(amountCents) || amountCents <= 0) {
-    throw new Error("invalid_order_total");
+  if (!appUrl) {
+    throw new Error(
+      "APP_URL/FRONTEND_URL missing"
+    );
   }
 
-  const addr = order.shippingAddress || {};
-  const currency = String(order.currency || "RON").toLowerCase();
+  const amountCents =
+    Math.round(
+      Number(
+        order.total || 0
+      ) * 100
+    );
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    payment_method_types: ["card"],
-    customer_email: addr.email || undefined,
+  if (
+    !Number.isFinite(
+      amountCents
+    ) ||
+    amountCents <= 0
+  ) {
+    throw new Error(
+      "invalid_order_total"
+    );
+  }
 
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency,
-          unit_amount: amountCents,
-          product_data: {
-            name: `Comandă ${order.orderNumber || order.id}`,
+  const address =
+    order.shippingAddress ||
+    {};
+
+  const currency =
+    String(
+      order.currency ||
+        "RON"
+    ).toLowerCase();
+
+  /*
+   * Comandă guest dacă:
+   * - isGuestOrder === true
+   * sau
+   * - nu există userId
+   */
+  const isGuestOrder =
+    order.isGuestOrder === true ||
+    !order.userId;
+
+  /*
+   * Pentru guest avem nevoie de tokenul
+   * public de acces.
+   *
+   * IMPORTANT:
+   * în DB avem doar HASH-ul tokenului,
+   * deci tokenul original NU poate fi
+   * reconstruit aici.
+   *
+   * De aceea ruta guest trebuie să trimită
+   * guestAccessToken către această funcție.
+   */
+  const guestAccessToken =
+    order.guestAccessToken ||
+    null;
+
+  let successUrl;
+  let cancelUrl;
+
+ if (
+  isGuestOrder &&
+  !guestAccessToken
+) {
+  throw new Error(
+    "guest_access_token_missing"
+  );
+}
+
+if (isGuestOrder)  {
+    /*
+     * Guest:
+     * după Stripe ajunge direct
+     * la pagina publică a comenzii.
+     */
+    successUrl =
+      `${appUrl}/comanda-guest/${encodeURIComponent(
+        order.id
+      )}` +
+      `?token=${encodeURIComponent(
+        guestAccessToken
+      )}` +
+      `&payment=success`;
+
+    cancelUrl =
+      `${appUrl}/comanda-guest/${encodeURIComponent(
+        order.id
+      )}` +
+      `?token=${encodeURIComponent(
+        guestAccessToken
+      )}` +
+      `&payment=cancelled`;
+  } else {
+    /*
+     * User autentificat.
+     */
+    successUrl =
+      `${appUrl}/comanda/${encodeURIComponent(
+        order.id
+      )}` +
+      `?payment=success`;
+
+    cancelUrl =
+      `${appUrl}/comanda/${encodeURIComponent(
+        order.id
+      )}` +
+      `?payment=cancelled`;
+  }
+
+  const session =
+    await stripe.checkout.sessions.create({
+      mode:
+        "payment",
+
+      payment_method_types: [
+        "card",
+      ],
+
+      customer_email:
+        address.email ||
+        order.customerEmail ||
+        undefined,
+
+      line_items: [
+        {
+          quantity:
+            1,
+
+          price_data: {
+            currency,
+
+            unit_amount:
+              amountCents,
+
+            product_data: {
+              name:
+                `Comandă ${
+                  order.orderNumber ||
+                  order.id
+                }`,
+            },
           },
         },
-      },
-    ],
+      ],
 
-    success_url: `${appUrl}/checkout/success?orderId=${encodeURIComponent(order.id)}`,
-    cancel_url: `${appUrl}/checkout/cancel?orderId=${encodeURIComponent(order.id)}`,
+      success_url:
+        successUrl,
 
-    metadata: {
-      orderId: order.id,
-      orderNumber: order.orderNumber || "",
-      kind: "order_payment",
-    },
+      cancel_url:
+        cancelUrl,
 
-    payment_intent_data: {
       metadata: {
-        orderId: order.id,
-        orderNumber: order.orderNumber || "",
-        kind: "order_payment",
+        kind:
+          "order_payment",
+
+        orderId:
+          String(
+            order.id
+          ),
+
+        orderNumber:
+          String(
+            order.orderNumber ||
+              ""
+          ),
+
+        isGuestOrder:
+          isGuestOrder
+            ? "true"
+            : "false",
       },
-      // super util pt raportare (transfer_group folosit apoi la transfers)
-      transfer_group: `order_${order.id}`,
-    },
-  });
+
+      payment_intent_data: {
+        transfer_group:
+          `order_${order.id}`,
+
+        metadata: {
+          kind:
+            "order_payment",
+
+          orderId:
+            String(
+              order.id
+            ),
+
+          orderNumber:
+            String(
+              order.orderNumber ||
+                ""
+            ),
+
+          isGuestOrder:
+            isGuestOrder
+              ? "true"
+              : "false",
+        },
+      },
+    });
 
   await prisma.order.update({
-    where: { id: order.id },
-    data: { stripeCheckoutSessionId: session.id },
+    where: {
+      id:
+        order.id,
+    },
+
+    data: {
+      stripeCheckoutSessionId:
+        session.id,
+    },
   });
 
   return {
-    provider: "stripe",
-    checkoutSessionId: session.id,
-    url: session.url, // FE face redirect aici
+    provider:
+      "stripe",
+
+    checkoutSessionId:
+      session.id,
+
+    /*
+     * Checkout.jsx-ul tău caută
+     * result.payment.redirectUrl.
+     */
+    redirectUrl:
+      session.url,
+
+    /*
+     * Îl păstrăm și pentru
+     * compatibilitate cu cod mai vechi.
+     */
+    url:
+      session.url,
   };
 }
 

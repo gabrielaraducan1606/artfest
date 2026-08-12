@@ -2,11 +2,19 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { stripe } from "../lib/stripe.js";
+// import {
+  // computeOrderSplits,
+  // allocateStripeFee,
+  //computeVendorPayouts,
+//} from "../payments/marketplaceCalc.js";
+
 import {
-  computeOrderSplits,
-  allocateStripeFee,
-  computeVendorPayouts,
-} from "../payments/marketplaceCalc.js";
+  createVendorNotification,
+} from "../services/notifications.js";
+
+import {
+  sendVendorDepositPaidEmail,
+} from "../lib/mailer.js";
 
 const router = Router();
 
@@ -392,6 +400,11 @@ async function handleDepositPaymentIntentSucceeded(
     );
   }
 
+  /*
+   * Încărcăm shipment-ul împreună
+   * cu order-ul și contul Stripe
+   * al vendorului.
+   */
   const shipment =
     await prisma.shipment.findUnique({
       where: {
@@ -401,12 +414,27 @@ async function handleDepositPaymentIntentSucceeded(
       include: {
         order: true,
 
-        vendor: {
-          select: {
-            id: true,
-            stripeAccountId: true,
-          },
-        },
+       vendor: {
+  select: {
+    id: true,
+
+    displayName: true,
+    email: true,
+    userId: true,
+
+    user: {
+      select: {
+        email: true,
+      },
+    },
+
+    stripeAccountId: true,
+    stripeChargesEnabled: true,
+    stripePayoutsEnabled: true,
+    stripeDetailsSubmitted: true,
+    stripeConnectStatus: true,
+  },
+},
       },
     });
 
@@ -417,8 +445,33 @@ async function handleDepositPaymentIntentSucceeded(
   }
 
   /*
-   * Protecție împotriva procesării duble
-   * a aceluiași webhook.
+   * Verificăm că metadata Stripe
+   * corespunde shipment-ului real.
+   */
+  if (
+    String(shipment.vendorId) !==
+    String(vendorId)
+  ) {
+    throw new Error(
+      "deposit_vendor_mismatch"
+    );
+  }
+
+  if (
+    String(shipment.orderId) !==
+    String(orderId)
+  ) {
+    throw new Error(
+      "deposit_order_mismatch"
+    );
+  }
+
+  /*
+   * Dacă avansul a fost deja procesat,
+   * nu mai facem nimic.
+   *
+   * Protecție suplimentară pentru
+   * webhook-uri duplicate.
    */
   if (
     shipment.depositStatus ===
@@ -427,6 +480,38 @@ async function handleDepositPaymentIntentSucceeded(
     return;
   }
 
+  /*
+   * Vendorul trebuie să aibă
+   * Stripe Connect complet activ.
+   */
+  const stripeReady =
+    Boolean(
+      shipment.vendor
+        ?.stripeAccountId
+    ) &&
+    shipment.vendor
+      ?.stripeChargesEnabled ===
+      true &&
+    shipment.vendor
+      ?.stripePayoutsEnabled ===
+      true &&
+    shipment.vendor
+      ?.stripeDetailsSubmitted ===
+      true &&
+    shipment.vendor
+      ?.stripeConnectStatus ===
+      "enabled";
+
+  if (!stripeReady) {
+    throw new Error(
+      "vendor_stripe_not_active"
+    );
+  }
+
+  /*
+   * Obținem charge-ul și taxa Stripe
+   * reală aferentă plății.
+   */
   const {
     chargeId,
     feeNet,
@@ -435,6 +520,15 @@ async function handleDepositPaymentIntentSucceeded(
       paymentIntent
     );
 
+  if (!chargeId) {
+    throw new Error(
+      "deposit_charge_not_found"
+    );
+  }
+
+  /*
+   * Suma efectiv încasată de Stripe.
+   */
   const paidAmount =
     Number(
       paymentIntent.amount_received ||
@@ -460,9 +554,20 @@ async function handleDepositPaymentIntentSucceeded(
     );
 
   /*
-   * Nu acceptăm ca plătită o sumă diferită
-   * de avansul salvat în baza de date.
+   * Suma plătită trebuie să fie
+   * aceeași cu avansul solicitat.
    */
+  if (
+    !Number.isFinite(
+      requestedAmount
+    ) ||
+    requestedAmount <= 0
+  ) {
+    throw new Error(
+      "invalid_deposit_requested_amount"
+    );
+  }
+
   if (
     Math.abs(
       paidAmount -
@@ -474,91 +579,141 @@ async function handleDepositPaymentIntentSucceeded(
     );
   }
 
-  const splits =
-    await computeOrderSplits({
-      orderId,
-    });
-
-  const vendorSplit =
-    (
-      splits.vendors ||
-      []
-    ).find(
-      (entry) =>
-        entry.vendorId ===
-        vendorId
-    );
-
-  if (!vendorSplit) {
-    throw new Error(
-      "vendor_split_not_found"
-    );
-  }
-
-  const commissionNet =
-    Number(
-      vendorSplit.commissionNet ||
-        0
-    );
-
   /*
-   * Avansul acoperă:
-   * - comisionul Artfest;
-   * - taxa Stripe;
-   * - ce rămâne se transferă vendorului.
+   * =====================================================
+   * REGULA FINANCIARĂ PENTRU AVANS
+   * =====================================================
+   *
+   * Avansul NU încasează acum
+   * comisionul Artfest.
+   *
+   * Vendorul primește:
+   *
+   * avans plătit
+   * -
+   * taxa Stripe
+   *
+   * Comisionul Artfest rămâne pe
+   * fluxul normal COD și se calculează
+   * ulterior când comanda este
+   * finalizată conform regulilor
+   * marketplace-ului.
    */
+
+  const stripeFeeNet =
+    Number(
+      feeNet || 0
+    );
+
   const vendorTransferNet =
     Math.max(
       0,
-      paidAmount -
-        commissionNet -
-        Number(
-          feeNet ||
-            0
-        )
+      Number(
+        (
+          paidAmount -
+          stripeFeeNet
+        ).toFixed(2)
+      )
     );
 
+  if (
+    vendorTransferNet <= 0
+  ) {
+    throw new Error(
+      "deposit_not_enough_for_transfer"
+    );
+  }
+
+  /*
+   * Verificăm dacă transferul a fost
+   * deja creat într-o procesare
+   * anterioară.
+   */
+  const existingMeta =
+    shipment.depositMeta &&
+    typeof shipment.depositMeta ===
+      "object"
+      ? shipment.depositMeta
+      : {};
+
   let transferId =
+    existingMeta
+      ?.stripeTransferId ||
     null;
 
-  if (
-    vendorTransferNet > 0 &&
-    shipment.vendor
-      ?.stripeAccountId
-  ) {
+  /*
+   * Dacă nu există transfer,
+   * îl trimitem către contul
+   * Stripe Connect al vendorului.
+   */
+  if (!transferId) {
+    const amountCents =
+      Math.round(
+        vendorTransferNet *
+          100
+      );
+
+    const currency =
+      String(
+        shipment.order
+          ?.currency ||
+          "RON"
+      ).toLowerCase();
+
     const transfer =
-      await stripe.transfers.create({
-        amount:
-          Math.round(
-            vendorTransferNet *
-              100
-          ),
+      await stripe.transfers.create(
+        {
+          amount:
+            amountCents,
 
-        currency:
-          String(
-            shipment.order
-              ?.currency ||
-              "RON"
-          ).toLowerCase(),
+          currency,
 
-        destination:
-          shipment.vendor
-            .stripeAccountId,
+          destination:
+            shipment.vendor
+              .stripeAccountId,
 
-        transfer_group:
-          `deposit_${shipment.id}`,
+          /*
+           * Transferul este legat
+           * direct de charge-ul
+           * acestei plăți.
+           */
+          source_transaction:
+            chargeId,
 
-        metadata: {
-          kind:
-            "deposit_vendor_transfer",
+          transfer_group:
+            `deposit_${shipment.id}`,
 
-          orderId,
+          metadata: {
+            kind:
+              "deposit_vendor_transfer",
 
-          shipmentId,
+            orderId:
+              String(orderId),
 
-          vendorId,
+            shipmentId:
+              String(
+                shipmentId
+              ),
+
+            vendorId:
+              String(
+                vendorId
+              ),
+
+            commissionHandling:
+              "COD_LEDGER",
+          },
         },
-      });
+
+        /*
+         * Protecție Stripe împotriva
+         * transferurilor duplicate.
+         */
+        {
+          idempotencyKey:
+            `deposit-transfer-${shipment.id}-${paymentIntent.id}`,
+        }
+      );
 
     transferId =
       transfer.id;
@@ -567,6 +722,9 @@ async function handleDepositPaymentIntentSucceeded(
   const paidAt =
     new Date();
 
+  /*
+   * Salvăm rezultatul plății.
+   */
   await prisma.shipment.update({
     where: {
       id: shipment.id,
@@ -588,31 +746,46 @@ async function handleDepositPaymentIntentSucceeded(
         ),
 
       stripeDepositChargeId:
-        chargeId
-          ? String(
-              chargeId
-            )
-          : null,
+        String(
+          chargeId
+        ),
 
       depositPaymentError:
         null,
 
       depositMeta:
         mergeMeta(
-          shipment.depositMeta,
+          existingMeta,
           {
             stripeTransferId:
               transferId,
 
-            stripeFeeNet:
-              Number(
-                feeNet ||
-                  0
-              ),
-
-            commissionNet,
+            stripeFeeNet,
 
             vendorTransferNet,
+
+            /*
+             * Foarte important:
+             * Artfest nu a încasat
+             * comision din avans.
+             */
+            commissionCollected:
+              0,
+
+            commissionHandling:
+              "COD_LEDGER",
+
+            paidAmount,
+
+            paymentIntentId:
+              String(
+                paymentIntent.id
+              ),
+
+            chargeId:
+              String(
+                chargeId
+              ),
 
             paidAt:
               paidAt.toISOString(),
@@ -620,6 +793,187 @@ async function handleDepositPaymentIntentSucceeded(
         ),
     },
   });
+/*
+ * =====================================================
+ * NOTIFICARE VENDOR — AVANS ACHITAT
+ * =====================================================
+ */
+
+const currency =
+  String(
+    shipment.order?.currency ||
+      "RON"
+  ).toUpperCase();
+
+const displayNo =
+  shipment.order?.orderNumber ||
+  shipment.order?.id ||
+  orderId;
+
+const remainingCodAmount =
+  shipment.remainingCodAmount != null
+    ? Number(
+        shipment.remainingCodAmount
+      )
+    : null;
+
+/*
+ * Notificare în platformă.
+ *
+ * createVendorNotification este dedupe-safe,
+ * deci nu vom crea notificări duplicate dacă
+ * Stripe retrimite același webhook.
+ */
+try {
+  await createVendorNotification(
+    vendorId,
+    {
+      dedupeKey:
+        `deposit_paid:${shipment.id}:${paymentIntent.id}`,
+
+      type:
+        "system",
+
+      title:
+        "Avans achitat ✓",
+
+      body:
+        `Clientul a achitat avansul de ${paidAmount.toFixed(
+          2
+        )} ${currency} pentru comanda #${displayNo}.` +
+        (
+          remainingCodAmount != null
+            ? ` Rest de încasat la livrare: ${remainingCodAmount.toFixed(
+                2
+              )} ${currency}.`
+            : ""
+        ) +
+        " Poți începe pregătirea comenzii.",
+
+      link:
+        `/vendor/orders?order=${encodeURIComponent(
+          orderId
+        )}`,
+
+      meta: {
+        kind:
+          "deposit_paid",
+
+        orderId:
+          String(orderId),
+
+        orderNumber:
+          String(displayNo),
+
+        shipmentId:
+          String(shipmentId),
+
+        vendorId:
+          String(vendorId),
+
+        depositPaidAmount:
+          paidAmount,
+
+        remainingCodAmount,
+
+        stripeFeeNet,
+
+        vendorTransferNet,
+
+        stripeTransferId:
+          transferId,
+
+        stripePaymentIntentId:
+          String(
+            paymentIntent.id
+          ),
+
+        stripeChargeId:
+          String(
+            chargeId
+          ),
+      },
+    }
+  );
+} catch (notificationError) {
+  /*
+   * Plata NU trebuie anulată dacă
+   * notificarea nu poate fi creată.
+   */
+  console.error(
+    "[deposit] vendor notification failed:",
+    notificationError
+  );
+}
+
+/*
+ * Email către vendor.
+ */
+const vendorEmail =
+  shipment.vendor?.email ||
+  shipment.vendor?.user?.email ||
+  null;
+
+if (vendorEmail) {
+  try {
+    await sendVendorDepositPaidEmail({
+      to:
+        vendorEmail,
+
+      userId:
+        shipment.vendor?.userId ||
+        null,
+
+      vendorName:
+        shipment.vendor?.displayName ||
+        "Artizan",
+
+      orderId:
+        String(orderId),
+
+      orderNumber:
+        String(displayNo),
+
+      depositAmount:
+        paidAmount,
+
+      remainingCodAmount,
+
+      stripeFeeNet,
+
+      transferredAmount:
+        vendorTransferNet,
+
+      currency,
+    });
+  } catch (mailError) {
+    /*
+     * La fel: emailul nu trebuie să
+     * transforme plata reușită într-un
+     * webhook eșuat.
+     */
+    console.error(
+      "[deposit] vendor email failed:",
+      mailError
+    );
+  }
+}
+  console.log(
+    "[deposit] payment processed",
+    {
+      orderId,
+      shipmentId,
+      vendorId,
+
+      paidAmount,
+
+      stripeFeeNet,
+
+      vendorTransferNet,
+
+      transferId,
+    }
+  );
 }
 
 async function handleDepositCheckoutExpired(
@@ -692,81 +1046,119 @@ async function handleCommissionInvoiceCheckoutCompleted(session) {
   });
 }
 
-async function handleOrderPaymentIntentSucceeded(pi) {
-  const orderId = pi?.metadata?.orderId;
-  if (!orderId) throw new Error("missing_orderId_metadata");
+async function handleOrderPaymentIntentSucceeded(
+  pi
+) {
+  const orderId =
+    pi?.metadata?.orderId;
 
-  const { chargeId, feeNet } = await getPaymentIntentChargeAndFee(pi);
-
-  const order = await prisma.order.findUnique({ where: { id: orderId } });
-  if (!order) throw new Error("order_not_found");
-
-  if (order.status !== "PAID") {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: "PAID",
-        paidAt: new Date(),
-        stripeChargeId: chargeId ? String(chargeId) : null,
-      },
-    });
+  if (!orderId) {
+    throw new Error(
+      "missing_orderId_metadata"
+    );
   }
 
-  const splits = await computeOrderSplits({ orderId });
-  const vendorsWithFee = allocateStripeFee({
-    vendors: splits.vendors,
+  const {
+    chargeId,
     feeNet,
-  });
-  const payouts = computeVendorPayouts({ vendors: vendorsWithFee });
+  } =
+    await getPaymentIntentChargeAndFee(
+      pi
+    );
 
-  const vendors = await prisma.vendor.findMany({
-    where: { id: { in: payouts.map((p) => p.vendorId) } },
-    select: { id: true, stripeAccountId: true },
-  });
-
-  const stripeByVendor = new Map(vendors.map((v) => [v.id, v.stripeAccountId || null]));
-
-  for (const p of payouts) {
-    const acct = stripeByVendor.get(p.vendorId);
-
-    if (!acct) {
-      console.warn("[payout] vendor has no stripeAccountId:", p.vendorId);
-      continue;
-    }
-
-    const amountCents = Math.round(Number(p.vendorPayoutNet || 0) * 100);
-    if (!Number.isFinite(amountCents) || amountCents <= 0) continue;
-
-    const transfer = await stripe.transfers.create({
-      amount: amountCents,
-      currency: (splits.order.currency || "RON").toLowerCase(),
-      destination: acct,
-      transfer_group: `order_${orderId}`,
-      metadata: {
-        orderId,
-        vendorId: p.vendorId,
+  const order =
+    await prisma.order.findUnique({
+      where: {
+        id: orderId,
       },
     });
 
-    await prisma.vendorEarningEntry.create({
+  if (!order) {
+    throw new Error(
+      "order_not_found"
+    );
+  }
+
+  /*
+   * Evităm să suprascriem inutil
+   * o comandă deja confirmată.
+   */
+  if (
+    order.status !== "PAID"
+  ) {
+    await prisma.order.update({
+      where: {
+        id: orderId,
+      },
+
       data: {
-        vendorId: p.vendorId,
-        orderId,
-        type: "SALE",
-        currency: splits.order.currency || "RON",
-        itemsNet: p.itemsNet,
-        commissionNet: p.commissionNet,
-        vendorNet: p.vendorPayoutNet,
-        stripeTransferId: transfer.id,
-        meta: {
-          stripeFeeAllocated: p.stripeFeeAllocated,
-          shippingNet: p.shippingNet,
-          commissionBps: p.commissionBps,
-          planCode: p.planCode,
-        },
+        status:
+          "PAID",
+
+        paidAt:
+          new Date(),
+
+        stripeChargeId:
+          chargeId
+            ? String(
+                chargeId
+              )
+            : null,
       },
     });
   }
+
+  /*
+   * =====================================================
+   * SPLIT / TRANSFER VENDOR DEZACTIVAT MOMENTAN
+   * =====================================================
+   *
+   * Clientul a plătit integral.
+   *
+   * Banii rămân momentan în contul Stripe
+   * al platformei.
+   *
+   * NU:
+   * - calculăm payout-ul vendorului aici;
+   * - facem stripe.transfers.create();
+   * - creăm VendorEarningEntry pentru acest transfer.
+   *
+   * Vom reactiva distribuirea automată ulterior.
+   */
+
+  console.log(
+    "[order payment] payment confirmed - vendor split disabled",
+    {
+      orderId,
+
+      paymentIntentId:
+        pi?.id ||
+        null,
+
+      chargeId:
+        chargeId ||
+        null,
+
+      stripeFeeNet:
+        Number(
+          feeNet || 0
+        ),
+
+      amountReceived:
+        Number(
+          pi?.amount_received ||
+            pi?.amount ||
+            0
+        ) / 100,
+
+      currency:
+        String(
+          pi?.currency ||
+            order.currency ||
+            "RON"
+        ).toUpperCase(),
+    }
+  );
 }
 
 async function handleVendorCommissionInvoicePaymentSucceeded(pi) {

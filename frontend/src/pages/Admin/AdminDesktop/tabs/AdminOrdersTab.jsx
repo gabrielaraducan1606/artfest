@@ -211,7 +211,37 @@ export default function AdminOrdersTab({ orders, forcedUserId, forcedVendorId })
     setFilters(createDefaultFilters());
     setPage(1);
   };
+async function handleOpenOrder(
+  order
+) {
+  if (!order?.id) {
+    return;
+  }
 
+  // Deschidem imediat cu datele din listă
+  setSelectedOrder(order);
+
+  try {
+    // Apoi încărcăm detaliile complete
+    const details =
+      await api(
+        `/api/admin/orders/${encodeURIComponent(
+          order.id
+        )}`
+      );
+
+    if (details) {
+      setSelectedOrder(
+        details
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Admin order details load failed:",
+      error
+    );
+  }
+}
   return (
     <>
       {/* Filtre */}
@@ -305,11 +335,11 @@ export default function AdminOrdersTab({ orders, forcedUserId, forcedVendorId })
       )}
 
       {/* Tabel + paginare */}
-      <OrdersTable
-        rows={paginatedOrders}
-        totalItems={totalItems}
-        onRowClick={setSelectedOrder}
-      />
+     <OrdersTable
+  rows={paginatedOrders}
+  totalItems={totalItems}
+  onRowClick={handleOpenOrder}
+/>
 
       <Pagination
         page={currentPage}
@@ -328,6 +358,180 @@ export default function AdminOrdersTab({ orders, forcedUserId, forcedVendorId })
   );
 }
 
+function getOrderDeposits(order) {
+  const fromSummary =
+    order?.depositSummary?.deposits;
+
+  if (Array.isArray(fromSummary)) {
+    return fromSummary;
+  }
+
+  return (order?.shipments || [])
+    .map((shipment) => {
+      if (!shipment?.deposit) {
+        return null;
+      }
+
+      return {
+        shipmentId: shipment.id,
+        vendorId: shipment.vendorId,
+        vendorName:
+          shipment.vendor?.displayName ||
+          null,
+
+        ...shipment.deposit,
+      };
+    })
+    .filter(Boolean);
+}
+
+function getDepositState(order) {
+  const deposits =
+    getOrderDeposits(order).filter(
+      (deposit) =>
+        deposit?.status &&
+        deposit.status !==
+          "NOT_REQUESTED"
+    );
+
+  if (!deposits.length) {
+    return {
+      code: "NONE",
+      label: "—",
+    };
+  }
+
+  if (
+    deposits.some(
+      (deposit) =>
+        deposit.status === "PENDING"
+    )
+  ) {
+    return {
+      code: "PENDING",
+      label: "Avans solicitat",
+    };
+  }
+
+  if (
+    deposits.every(
+      (deposit) =>
+        deposit.status === "PAID"
+    )
+  ) {
+    return {
+      code: "PAID",
+      label: "Avans plătit",
+    };
+  }
+
+  if (
+    deposits.some(
+      (deposit) =>
+        deposit.status === "PAID"
+    )
+  ) {
+    return {
+      code: "PARTIAL",
+      label: "Parțial plătit",
+    };
+  }
+
+  if (
+    deposits.some(
+      (deposit) =>
+        deposit.status === "EXPIRED"
+    )
+  ) {
+    return {
+      code: "EXPIRED",
+      label: "Avans expirat",
+    };
+  }
+
+  if (
+    deposits.some(
+      (deposit) =>
+        deposit.status === "FAILED"
+    )
+  ) {
+    return {
+      code: "FAILED",
+      label: "Plată eșuată",
+    };
+  }
+
+  return {
+    code: "OTHER",
+    label: "Avans",
+  };
+}
+
+function DepositBadge({ order }) {
+  const state =
+    getDepositState(order);
+
+  if (state.code === "NONE") {
+    return (
+      <span className={styles.subtle}>
+        —
+      </span>
+    );
+  }
+
+  const style = {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "4px 8px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  };
+
+  if (state.code === "PAID") {
+    return (
+      <span
+        style={{
+          ...style,
+          background: "#dcfce7",
+          color: "#166534",
+        }}
+      >
+        ✓ {state.label}
+      </span>
+    );
+  }
+
+  if (
+    state.code === "PENDING" ||
+    state.code === "PARTIAL"
+  ) {
+    return (
+      <span
+        style={{
+          ...style,
+          background: "#fef3c7",
+          color: "#92400e",
+        }}
+      >
+        ⚠ {state.label}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      style={{
+        ...style,
+        background: "#fee2e2",
+        color: "#991b1b",
+      }}
+    >
+      {state.label}
+    </span>
+  );
+}
 /* ----------------------------------------------------
    Tabel comenzi
 ----------------------------------------------------- */
@@ -352,8 +556,9 @@ function OrdersTable({ rows, onRowClick, totalItems }) {
             <th>User ID</th>
             <th>Status</th>
             <th>Metodă plată</th>
-            <th>Total</th>
-            <th># Shipments</th>
+<th>Avans</th>
+<th>Total</th>
+<th># Shipments</th>
             <th>Vendori</th>
             <th>Creat la</th>
           </tr>
@@ -388,12 +593,21 @@ function OrdersTable({ rows, onRowClick, totalItems }) {
               <td>
                 <StatusBadge uiStatus={o._uiStatus} />
               </td>
-              <td>{o.paymentMethod || "—"}</td>
               <td>
-                {o._total != null
-                  ? `${o._total.toFixed(2)} ${o.currency || "RON"}`
-                  : "—"}
-              </td>
+  {o.paymentMethod || "—"}
+</td>
+
+<td>
+  <DepositBadge order={o} />
+</td>
+
+<td>
+  {o._total != null
+    ? `${o._total.toFixed(2)} ${
+        o.currency || "RON"
+      }`
+    : "—"}
+</td>
               <td>{o._shipmentsCount ?? 0}</td>
               <td>{o._vendors?.join(", ") || "—"}</td>
               <td>{formatDate(o.createdAt)}</td>
@@ -523,7 +737,72 @@ function OrderDetailsDrawer({ order, onClose }) {
     localOrder.total != null ? localOrder.total : subtotal + shippingTotal
   );
   const currency = localOrder.currency || "RON";
+const deposits =
+  getOrderDeposits(localOrder).filter(
+    (deposit) =>
+      deposit?.status &&
+      deposit.status !==
+        "NOT_REQUESTED"
+  );
 
+const depositSummary =
+  localOrder.depositSummary || {};
+
+const requestedDepositTotal =
+  Number(
+    depositSummary.requestedTotal ??
+      deposits.reduce(
+        (sum, deposit) =>
+          sum +
+          Number(
+            deposit.requestedAmount ||
+              0
+          ),
+        0
+      )
+  );
+
+const paidDepositTotal =
+  Number(
+    depositSummary.paidTotal ??
+      deposits.reduce(
+        (sum, deposit) =>
+          sum +
+          Number(
+            deposit.paidAmount ||
+              0
+          ),
+        0
+      )
+  );
+
+const stripeFeeTotal =
+  Number(
+    depositSummary.stripeFeeTotal ??
+      deposits.reduce(
+        (sum, deposit) =>
+          sum +
+          Number(
+            deposit.stripeFeeNet ||
+              0
+          ),
+        0
+      )
+  );
+
+const vendorTransferTotal =
+  Number(
+    depositSummary.vendorTransferTotal ??
+      deposits.reduce(
+        (sum, deposit) =>
+          sum +
+          Number(
+            deposit.vendorTransferNet ||
+              0
+          ),
+        0
+      )
+  );
   const shippingAddress =
   localOrder.shippingAddress || {};
 
@@ -797,7 +1076,251 @@ const totalDiscount =
   </span>
 </div>
           </section>
+{/* Avans / Stripe */}
+{deposits.length > 0 && (
+  <section
+    className={styles.drawerSection}
+  >
+    <h4>💳 Avans & plăți Stripe</h4>
 
+    <div
+      className={styles.drawerField}
+    >
+      <span>Status avans</span>
+
+      <DepositBadge
+        order={localOrder}
+      />
+    </div>
+
+    <div
+      className={styles.drawerField}
+    >
+      <span>Avans solicitat</span>
+
+      <strong>
+        {requestedDepositTotal.toFixed(
+          2
+        )}{" "}
+        {currency}
+      </strong>
+    </div>
+
+    <div
+      className={styles.drawerField}
+    >
+      <span>Avans plătit</span>
+
+      <strong>
+        {paidDepositTotal.toFixed(2)}{" "}
+        {currency}
+      </strong>
+    </div>
+
+    {stripeFeeTotal > 0 && (
+      <div
+        className={styles.drawerField}
+      >
+        <span>Taxă Stripe</span>
+
+        <span>
+          {stripeFeeTotal.toFixed(2)}{" "}
+          {currency}
+        </span>
+      </div>
+    )}
+
+    {vendorTransferTotal > 0 && (
+      <div
+        className={styles.drawerField}
+      >
+        <span>
+          Transfer către vendor
+        </span>
+
+        <strong>
+          {vendorTransferTotal.toFixed(
+            2
+          )}{" "}
+          {currency}
+        </strong>
+      </div>
+    )}
+
+    <div
+      style={{
+        marginTop: 14,
+        display: "grid",
+        gap: 10,
+      }}
+    >
+      {deposits.map(
+        (deposit) => (
+          <div
+            key={
+              deposit.shipmentId ||
+              deposit.stripePaymentIntentId
+            }
+            style={{
+              padding: 12,
+              border:
+                "1px solid #e5e7eb",
+              borderRadius: 10,
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 700,
+                marginBottom: 8,
+              }}
+            >
+              {deposit.vendorName ||
+                "Vendor"}
+            </div>
+
+            <div
+              className={
+                styles.drawerListMeta
+              }
+            >
+              Status:{" "}
+              <strong>
+                {deposit.status ||
+                  "—"}
+              </strong>
+
+              <br />
+
+              Procent:{" "}
+              {deposit.percent != null
+                ? `${deposit.percent}%`
+                : "—"}
+
+              <br />
+
+              Solicitat:{" "}
+              {Number(
+                deposit.requestedAmount ||
+                  0
+              ).toFixed(2)}{" "}
+              {currency}
+
+              <br />
+
+              Plătit:{" "}
+              {Number(
+                deposit.paidAmount ||
+                  0
+              ).toFixed(2)}{" "}
+              {currency}
+
+              {deposit.remainingCodAmount !=
+                null && (
+                <>
+                  <br />
+                  Rămas ramburs:{" "}
+                  {Number(
+                    deposit.remainingCodAmount
+                  ).toFixed(2)}{" "}
+                  {currency}
+                </>
+              )}
+
+              {deposit.stripeFeeNet !=
+                null && (
+                <>
+                  <br />
+                  Taxă Stripe:{" "}
+                  {Number(
+                    deposit.stripeFeeNet
+                  ).toFixed(2)}{" "}
+                  {currency}
+                </>
+              )}
+
+              {deposit.vendorTransferNet !=
+                null && (
+                <>
+                  <br />
+                  Transfer vendor:{" "}
+                  <strong>
+                    {Number(
+                      deposit.vendorTransferNet
+                    ).toFixed(2)}{" "}
+                    {currency}
+                  </strong>
+                </>
+              )}
+
+              {deposit.paidAt && (
+                <>
+                  <br />
+                  Plătit la:{" "}
+                  {formatDate(
+                    deposit.paidAt
+                  )}
+                </>
+              )}
+
+              {deposit.stripePaymentIntentId && (
+                <>
+                  <br />
+                  Payment Intent:{" "}
+                  <code>
+                    {
+                      deposit.stripePaymentIntentId
+                    }
+                  </code>
+                </>
+              )}
+
+              {deposit.stripeChargeId && (
+                <>
+                  <br />
+                  Charge:{" "}
+                  <code>
+                    {
+                      deposit.stripeChargeId
+                    }
+                  </code>
+                </>
+              )}
+
+              {deposit.stripeTransferId && (
+                <>
+                  <br />
+                  Transfer:{" "}
+                  <code>
+                    {
+                      deposit.stripeTransferId
+                    }
+                  </code>
+                </>
+              )}
+
+              {deposit.paymentError && (
+                <>
+                  <br />
+                  <span
+                    style={{
+                      color: "#b91c1c",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Eroare:{" "}
+                    {
+                      deposit.paymentError
+                    }
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  </section>
+)}
           {/* Adresă livrare */}
           <section className={styles.drawerSection}>
             <h4>Adresă livrare</h4>

@@ -2693,21 +2693,55 @@ if (me) {
       name="paymentMethod"
       value="COD"
       checked={paymentMethod === "COD"}
-      onChange={() => setPaymentMethod("COD")}
+      onChange={() =>
+        setPaymentMethod("COD")
+      }
     />
-    <span>Plată la livrare (ramburs)</span>
+
+    <span>
+      Plată la livrare (ramburs)
+    </span>
   </label>
 
-  <label className={`${styles.radio} ${styles.disabledOption}`}>
-    <input
-      type="radio"
-      name="paymentMethod"
-      value="CARD"
-      disabled
-    />
-    <span>Card online — indisponibil momentan</span>
-  </label>
+<label className={styles.radio}>
+  <input
+    type="radio"
+    name="paymentMethod"
+    value="CARD"
+    checked={paymentMethod === "CARD"}
+    onChange={() =>
+      setPaymentMethod("CARD")
+    }
+  />
+
+  <span>
+    Plată online cu cardul
+  </span>
+</label>
 </div>
+
+{paymentMethod === "COD" && (
+  <div
+    style={{
+      marginTop: 12,
+      padding: "12px 14px",
+      borderRadius: 10,
+      background: "#fff8e7",
+      border: "1px solid #f0d99b",
+      fontSize: 13,
+      lineHeight: 1.5,
+      color: "#6b5621",
+    }}
+  >
+    <strong>
+      Important:
+    </strong>{" "}
+    pentru anumite comenzi, vânzătorul poate solicita după plasarea
+    comenzii un avans de 15% înainte de a începe pregătirea produselor.
+    Dacă este necesar, vei primi o notificare și un link securizat pentru
+    plată.
+  </div>
+)}
 
               <div className={styles.divider} />
 

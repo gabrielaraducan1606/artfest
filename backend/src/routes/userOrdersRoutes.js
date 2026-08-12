@@ -135,6 +135,127 @@ function computeTotalsCents(order) {
   return { currency, totalCents: Math.round(total * 100) };
 }
 
+function serializeShipmentDeposit(
+  shipment
+) {
+  if (!shipment) {
+    return null;
+  }
+
+  return {
+    shipmentId:
+      shipment.id,
+
+    status:
+      shipment.depositStatus ||
+      "NOT_REQUESTED",
+
+    percent:
+      shipment.depositPercent !=
+      null
+        ? Number(
+            shipment.depositPercent
+          )
+        : null,
+
+    requestedAmount:
+      shipment.depositRequestedAmount !=
+      null
+        ? Number(
+            shipment.depositRequestedAmount
+          )
+        : null,
+
+    paidAmount:
+      shipment.depositPaidAmount !=
+      null
+        ? Number(
+            shipment.depositPaidAmount
+          )
+        : null,
+
+    remainingCodAmount:
+      shipment.remainingCodAmount !=
+      null
+        ? Number(
+            shipment.remainingCodAmount
+          )
+        : null,
+
+    requestedAt:
+      shipment.depositRequestedAt ||
+      null,
+
+    paidAt:
+      shipment.depositPaidAt ||
+      null,
+
+    expiresAt:
+      shipment.depositExpiresAt ||
+      null,
+
+    payable:
+      shipment.depositStatus ===
+        "PENDING" &&
+      (
+        !shipment.depositExpiresAt ||
+        new Date(
+          shipment.depositExpiresAt
+        ).getTime() >
+          Date.now()
+      ),
+  };
+}
+
+function getOrderDeposits(
+  shipments = []
+) {
+  return shipments
+    .map(
+      serializeShipmentDeposit
+    )
+    .filter(
+      (deposit) =>
+        deposit &&
+        deposit.status !==
+          "NOT_REQUESTED"
+    );
+}
+
+function getActiveOrderDeposit(
+  shipments = []
+) {
+  const deposits =
+    getOrderDeposits(
+      shipments
+    );
+
+  return (
+    deposits.find(
+      (deposit) =>
+        deposit.status ===
+        "PENDING"
+    ) ||
+    deposits.find(
+      (deposit) =>
+        deposit.status ===
+        "PAID"
+    ) ||
+    deposits.find(
+      (deposit) =>
+        deposit.status ===
+        "FAILED"
+    ) ||
+    deposits.find(
+      (deposit) =>
+        deposit.status ===
+        "EXPIRED"
+    ) ||
+    deposits[0] ||
+    null
+  );
+}
+
 /* ----------------------------------------------------
    GET /api/user/orders/my
    Optimized:
@@ -214,10 +335,38 @@ router.get("/my", async (req, res) => {
         shippingTotal: true,
         total: true,
         shippingAddress: true,
-        shipments: {
-          select: {
-            id: true,
-            status: true,
+       shipments: {
+  select: {
+    id:
+      true,
+
+    status:
+      true,
+
+    depositStatus:
+      true,
+
+    depositPercent:
+      true,
+
+    depositRequestedAmount:
+      true,
+
+    depositPaidAmount:
+      true,
+
+    remainingCodAmount:
+      true,
+
+    depositRequestedAt:
+      true,
+
+    depositPaidAt:
+      true,
+
+    depositExpiresAt:
+      true,
+
          items: {
   select: {
     id: true,
@@ -410,21 +559,57 @@ configurationKey: true,
         }
       )
   );
+const deposits =
+  getOrderDeposits(
+    o.shipments
+  );
 
-      collected.push({
-        id: o.id,
-        orderNumber: o.orderNumber || null,
-        createdAt: o.createdAt,
-        status: uiStatus,
-        totalCents,
-        currency,
-        items: flatItems,
-        cancellable: isOrderCancellable(o, o.shipments),
-        customerType,
-        shippingAddress: addr,
-        shippingStage,
-        returnEligible,
-      });
+const activeDeposit =
+  getActiveOrderDeposit(
+    o.shipments
+  );
+
+collected.push({
+  id:
+    o.id,
+
+  orderNumber:
+    o.orderNumber ||
+    null,
+
+  createdAt:
+    o.createdAt,
+
+  status:
+    uiStatus,
+
+  totalCents,
+
+  currency,
+
+  items:
+    flatItems,
+
+  cancellable:
+    isOrderCancellable(
+      o,
+      o.shipments
+    ),
+
+  customerType,
+
+  shippingAddress:
+    addr,
+
+  shippingStage,
+
+  returnEligible,
+
+  deposits,
+
+  deposit:
+    activeDeposit,
+});
 
       if (collected.length >= limit) break;
     }
@@ -447,228 +632,677 @@ configurationKey: true,
 
 /* ----------------------------------------------------
    GET /api/user/orders/:id
-   (pt pagina /comanda/:id – detalii comandă user)
 ----------------------------------------------------- */
-router.get("/:id", async (req, res) => {
-  const userId = req.user.sub;
-  const ref = String(req.params.id);
+router.get(
+  "/:id",
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.sub;
 
-  const o = await prisma.order.findFirst({
-    where: {
-      userId,
-      OR: [{ id: ref }, { orderNumber: ref }],
-    },
-    include: {
-      shipments: {
-        include: {
-          items: true,
-          vendor: {
-            select: { id: true, displayName: true, address: true, city: true },
+      const ref =
+        String(
+          req.params.id ||
+            ""
+        ).trim();
+
+      const order =
+        await prisma.order.findFirst({
+          where: {
+            userId,
+
+            OR: [
+              {
+                id:
+                  ref,
+              },
+
+              {
+                orderNumber:
+                  ref,
+              },
+            ],
           },
-        },
-      },
-    },
-  });
 
-  if (!o) return res.status(404).json({ error: "not_found" });
+          include: {
+            shipments: {
+              include: {
+                items:
+                  true,
 
-  const status = computeUiStatus(o, o.shipments);
-  const shippingStage = computeShippingStage(o.shipments);
+                vendor: {
+                  select: {
+                    id:
+                      true,
 
-  const returnEligible = status === "DELIVERED";
+                    displayName:
+                      true,
 
-  const currency = o.currency || "RON";
+                    address:
+                      true,
 
-  const subtotal = Number(o.subtotal || 0);
-  const shippingTotal = Number(o.shippingTotal || 0);
-  const total = Number(o.total || subtotal + shippingTotal);
+                    city:
+                      true,
+                  },
+                },
+              },
+            },
+          },
+        });
 
-  const subtotalCents = Math.round(subtotal * 100);
-  const shippingCents = Math.round(shippingTotal * 100);
-  const totalCents = Math.round(total * 100);
+      if (!order) {
+        return res.status(404).json({
+          error:
+            "not_found",
 
-  const addr = o.shippingAddress || {};
-  const isCompany = !!(addr.companyName || addr.companyCui);
-  const customerType = isCompany ? "PJ" : "PF";
+          message:
+            "Comanda nu a fost găsită.",
+        });
+      }
 
-  // imagini produse
-  const productIdSet = new Set();
-  for (const s of o.shipments) {
-    for (const it of s.items) {
-      if (it.productId) productIdSet.add(it.productId);
+      const status =
+        computeUiStatus(
+          order,
+          order.shipments
+        );
+
+      const shippingStage =
+        computeShippingStage(
+          order.shipments
+        );
+
+      const returnEligible =
+        status ===
+        "DELIVERED";
+
+      const currency =
+        order.currency ||
+        "RON";
+
+      const subtotal =
+        Number(
+          order.subtotal ||
+            0
+        );
+
+      const shippingTotal =
+        Number(
+          order.shippingTotal ||
+            0
+        );
+
+      const total =
+        Number(
+          order.total ||
+            subtotal +
+              shippingTotal
+        );
+
+      const subtotalCents =
+        Math.round(
+          subtotal *
+            100
+        );
+
+      const shippingCents =
+        Math.round(
+          shippingTotal *
+            100
+        );
+
+      const totalCents =
+        Math.round(
+          total *
+            100
+        );
+
+      const address =
+        order.shippingAddress ||
+        {};
+
+      const isCompany =
+        Boolean(
+          address.companyName ||
+            address.companyCui
+        );
+
+      const customerType =
+        isCompany
+          ? "PJ"
+          : "PF";
+
+      const productIdSet =
+        new Set();
+
+      for (
+        const shipment of
+        order.shipments
+      ) {
+        for (
+          const item of
+          shipment.items
+        ) {
+          if (
+            item.productId
+          ) {
+            productIdSet.add(
+              item.productId
+            );
+          }
+        }
+      }
+
+      let imageMap =
+        new Map();
+
+      if (
+        productIdSet.size
+      ) {
+        const products =
+          await prisma.product.findMany({
+            where: {
+              id: {
+                in:
+                  Array.from(
+                    productIdSet
+                  ),
+              },
+            },
+
+            select: {
+              id:
+                true,
+
+              images:
+                true,
+            },
+          });
+
+        imageMap =
+          new Map(
+            products.map(
+              (product) => [
+                product.id,
+
+                Array.isArray(
+                  product.images
+                ) &&
+                product.images[0]
+                  ? product.images[0]
+                  : null,
+              ]
+            )
+          );
+      }
+
+      const flatItems =
+        order.shipments.flatMap(
+          (shipment) =>
+            shipment.items.map(
+              (item) => {
+                const price =
+                  Number(
+                    item.price ||
+                      0
+                  );
+
+                const originalPrice =
+                  item.originalPrice !=
+                  null
+                    ? Number(
+                        item.originalPrice
+                      )
+                    : null;
+
+                const hasDiscount =
+                  originalPrice !=
+                    null &&
+                  originalPrice >
+                    price;
+
+                const discountPercent =
+                  hasDiscount &&
+                  originalPrice >
+                    0
+                    ? Math.round(
+                        (
+                          (
+                            originalPrice -
+                            price
+                          ) /
+                          originalPrice
+                        ) *
+                          100
+                      )
+                    : 0;
+
+                return {
+                  id:
+                    item.id,
+
+                  productId:
+                    item.productId,
+
+                  title:
+                    item.title,
+
+                  qty:
+                    item.qty,
+
+                  price,
+
+                  priceCents:
+                    Math.round(
+                      price *
+                        100
+                    ),
+
+                  originalPrice:
+                    hasDiscount
+                      ? originalPrice
+                      : null,
+
+                  originalPriceCents:
+                    hasDiscount
+                      ? Math.round(
+                          originalPrice *
+                            100
+                        )
+                      : null,
+
+                  hasDiscount,
+
+                  discountPercent,
+
+                  discountAmount:
+                    Number(
+                      item.discountAmount ||
+                        0
+                    ),
+
+                  promoCollectionId:
+                    item.promoCollectionId ||
+                    null,
+
+                  promoFundingSource:
+                    item.promoFundingSource ||
+                    null,
+
+                  selectedOptions:
+                    item.selectedOptions ||
+                    {},
+
+                  customAnswers:
+                    item.customAnswers ||
+                    {},
+
+                  configurationKey:
+                    item.configurationKey ||
+                    null,
+
+                  image:
+                    item.productId
+                      ? imageMap.get(
+                          item.productId
+                        ) ||
+                        null
+                      : null,
+
+                  shipmentId:
+                    shipment.id,
+                };
+              }
+            )
+        );
+
+      const deposits =
+        getOrderDeposits(
+          order.shipments
+        );
+
+      const activeDeposit =
+        getActiveOrderDeposit(
+          order.shipments
+        );
+
+      return res.json({
+        id:
+          order.id,
+
+        orderNumber:
+          order.orderNumber ||
+          null,
+
+        createdAt:
+          order.createdAt,
+
+        status,
+
+        shippingStage,
+
+        returnEligible,
+
+        currency,
+
+        subtotal,
+
+        shippingTotal,
+
+        total,
+
+        subtotalCents,
+
+        shippingCents,
+
+        totalCents,
+
+        shippingAddress:
+          address,
+
+        customerType,
+
+        items:
+          flatItems,
+
+        deposits,
+
+        deposit:
+          activeDeposit,
+
+        shipments:
+          order.shipments.map(
+            (shipment) => ({
+              id:
+                shipment.id,
+
+              provider:
+                shipment.courierProvider,
+
+              service:
+                shipment.courierService,
+
+              status:
+                shipment.status,
+
+              trackingUrl:
+                shipment.trackingUrl,
+
+              awb:
+                shipment.awb,
+
+              vendorId:
+                shipment.vendorId ||
+                null,
+
+              vendorName:
+                shipment.vendor
+                  ? shipment.vendor
+                      .displayName ||
+                    "Artizan"
+                  : shipment.vendorId
+                  ? "Artizan"
+                  : null,
+
+              deposit:
+                serializeShipmentDeposit(
+                  shipment
+                ),
+
+              storeAddress:
+                shipment.vendor
+                  ? {
+                      name:
+                        shipment.vendor
+                          .displayName ||
+                        "Magazin",
+
+                      street:
+                        shipment.vendor
+                          .address ||
+                        "",
+
+                      city:
+                        shipment.vendor
+                          .city ||
+                        "",
+
+                      county:
+                        address.county ||
+                        "",
+
+                      postalCode:
+                        address.postalCode ||
+                        "",
+
+                      country:
+                        "România",
+                    }
+                  : null,
+            })
+          ),
+
+        cancellable:
+          isOrderCancellable(
+            order,
+            order.shipments
+          ),
+      });
+    } catch (error) {
+      console.error(
+        "GET /api/user/orders/:id failed:",
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          "order_read_failed",
+
+        message:
+          "Nu am putut încărca această comandă.",
+      });
     }
   }
+);
 
-  let imageMap = new Map();
-  if (productIdSet.size) {
-    const products = await prisma.product.findMany({
-      where: { id: { in: Array.from(productIdSet) } },
-      select: { id: true, images: true },
-    });
+/* ----------------------------------------------------
+   POST /api/user/orders/:orderId/shipments/:shipmentId/pay-deposit
+----------------------------------------------------- */
+router.post(
+  "/:orderId/shipments/:shipmentId/pay-deposit",
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.sub;
 
-    imageMap = new Map(
-      products.map((p) => [
-        p.id,
-        Array.isArray(p.images) && p.images[0] ? p.images[0] : null,
-      ])
-    );
-  }
+      const orderId =
+        String(
+          req.params.orderId ||
+            ""
+        ).trim();
 
-const flatItems =
-  o.shipments.flatMap(
-    (shipment) =>
-      shipment.items.map(
-        (item) => {
-          const price =
-            Number(
-              item.price || 0
-            );
+      const shipmentId =
+        String(
+          req.params.shipmentId ||
+            ""
+        ).trim();
 
-          const originalPrice =
-            item.originalPrice != null
-              ? Number(
-                  item.originalPrice
-                )
-              : null;
-
-          const hasDiscount =
-            originalPrice != null &&
-            originalPrice > price;
-
-          const discountPercent =
-            hasDiscount &&
-            originalPrice > 0
-              ? Math.round(
-                  (
-                    (
-                      originalPrice -
-                      price
-                    ) /
-                    originalPrice
-                  ) * 100
-                )
-              : 0;
-
-          return {
+      const shipment =
+        await prisma.shipment.findFirst({
+          where: {
             id:
-              item.id,
+              shipmentId,
 
-            productId:
-              item.productId,
+            orderId,
 
-            title:
-              item.title,
+            order: {
+              userId,
+            },
+          },
 
-            qty:
-              item.qty,
+          select: {
+            id:
+              true,
 
-            price,
+            orderId:
+              true,
 
-            priceCents:
-              Math.round(
-                price * 100
-              ),
+            depositStatus:
+              true,
 
-            originalPrice:
-              hasDiscount
-                ? originalPrice
-                : null,
+            depositRequestedAmount:
+              true,
 
-            originalPriceCents:
-              hasDiscount
-                ? Math.round(
-                    originalPrice * 100
-                  )
-                : null,
+            depositPaidAmount:
+              true,
 
-            hasDiscount,
+            depositExpiresAt:
+              true,
 
-            discountPercent,
+            depositMeta:
+              true,
 
-            discountAmount:
-              Number(
-                item.discountAmount ||
-                  0
-              ),
+            stripeDepositSessionId:
+              true,
+          },
+        });
 
-            promoCollectionId:
-              item.promoCollectionId ||
-              null,
+      if (!shipment) {
+        return res.status(404).json({
+          error:
+            "deposit_not_found",
 
-            promoFundingSource:
-              item.promoFundingSource ||
-              null,
+          message:
+            "Solicitarea de avans nu a fost găsită.",
+        });
+      }
 
-           selectedOptions:
-  item.selectedOptions || {},
+      if (
+        shipment.depositStatus ===
+        "PAID"
+      ) {
+        return res.status(409).json({
+          error:
+            "deposit_already_paid",
 
-customAnswers:
-  item.customAnswers || {},
+          message:
+            "Avansul a fost deja achitat.",
+        });
+      }
 
-repeatedGroupAnswers:
-  item.repeatedGroupAnswers || {},
+      if (
+        shipment.depositStatus !==
+        "PENDING"
+      ) {
+        return res.status(409).json({
+          error:
+            "deposit_not_payable",
 
-configurationKey:
-  item.configurationKey || null,
+          message:
+            shipment.depositStatus ===
+            "EXPIRED"
+              ? "Solicitarea de avans a expirat."
+              : "Acest avans nu poate fi achitat în starea actuală.",
+        });
+      }
 
-            image:
-              item.productId
-                ? imageMap.get(
-                    item.productId
-                  ) || null
-                : null,
+      const expired =
+        shipment.depositExpiresAt &&
+        new Date(
+          shipment.depositExpiresAt
+        ).getTime() <=
+          Date.now();
 
-            shipmentId:
+      if (expired) {
+        await prisma.shipment.updateMany({
+          where: {
+            id:
               shipment.id,
-          };
-        }
-      )
-  );
 
-  res.json({
-    id: o.id,
-    orderNumber: o.orderNumber || null,
-    createdAt: o.createdAt,
-    status,
-    shippingStage,
-    returnEligible,
-    currency,
-subtotal,
-shippingTotal,
-total,
-subtotalCents,
-shippingCents,
-totalCents,
-shippingAddress: addr,
-    customerType,
-    items: flatItems,
-    shipments: o.shipments.map((s) => ({
-      id: s.id,
-      provider: s.courierProvider,
-      service: s.courierService,
-      status: s.status,
-      trackingUrl: s.trackingUrl,
-      awb: s.awb,
-      vendorId: s.vendorId || null,
-      vendorName: s.vendor
-        ? s.vendor.displayName || "Artizan"
-        : s.vendorId
-        ? "Artizan"
-        : null,
-      storeAddress: s.vendor
-        ? {
-            name: s.vendor.displayName || "Magazin",
-            street: s.vendor.address || "",
-            city: s.vendor.city || "",
-            county: addr.county || "",
-            postalCode: addr.postalCode || "",
-            country: "România",
-          }
-        : null,
-    })),
-    cancellable: isOrderCancellable(o, o.shipments),
-  });
-});
+            depositStatus:
+              "PENDING",
+          },
+
+          data: {
+            depositStatus:
+              "EXPIRED",
+
+            depositPaymentError:
+              "deposit_expired",
+          },
+        });
+
+        return res.status(409).json({
+          error:
+            "deposit_expired",
+
+          message:
+            "Solicitarea de avans a expirat. Vânzătorul trebuie să trimită o solicitare nouă.",
+        });
+      }
+
+      const meta =
+        shipment.depositMeta &&
+        typeof shipment.depositMeta ===
+          "object" &&
+        !Array.isArray(
+          shipment.depositMeta
+        )
+          ? shipment.depositMeta
+          : {};
+
+      const checkoutUrl =
+        typeof meta.checkoutUrl ===
+          "string"
+          ? meta.checkoutUrl.trim()
+          : "";
+
+      if (!checkoutUrl) {
+        return res.status(409).json({
+          error:
+            "deposit_checkout_missing",
+
+          message:
+            "Linkul pentru plata avansului nu este disponibil.",
+        });
+      }
+
+      return res.json({
+        ok:
+          true,
+
+        shipmentId:
+          shipment.id,
+
+        orderId:
+          shipment.orderId,
+
+        amount:
+          shipment.depositRequestedAmount !=
+          null
+            ? Number(
+                shipment.depositRequestedAmount
+              )
+            : null,
+
+        url:
+          checkoutUrl,
+      });
+    } catch (error) {
+      console.error(
+        "POST user pay deposit failed:",
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          "deposit_payment_open_failed",
+
+        message:
+          "Nu am putut deschide plata avansului.",
+      });
+    }
+  }
+);
 
 /* ----------------------------------------------------
    POST /api/user/orders/:id/cancel

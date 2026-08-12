@@ -1,228 +1,998 @@
 // src/payments/marketplaceCalc.js
-import { prisma } from "../db.js";
 
-/**
- * IMPORTANT:
- * - În DB, ShipmentItem.price este presupus "gross" (include TVA), exact cât a plătit clientul per unitate.
- * - Comisionul platformei se calculează pe NET fără TVA (doar pe produse).
- * - Transportul NU intră în baza de comision (în exemplul tău).
- * - Stripe fee total se aplică o singură dată pe charge și îl aloci proporțional la vendors (după gross).
- */
+import {
+  prisma,
+} from "../db.js";
 
-const dec2 = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
+/* =========================================================
+   Helpers
+========================================================= */
 
-function parseVatRateToFraction(vatRate) {
-  // Acceptă: "19", 19, "0.19", 0.19, "19%", null
-  if (vatRate == null) return 0;
-
-  const raw = String(vatRate).trim().replace("%", "");
-  const x = Number(raw);
-  if (!Number.isFinite(x) || x < 0) return 0;
-
-  // dacă e > 1, considerăm că e procent (19 => 0.19)
-  if (x > 1) return x / 100;
-  return x; // deja fracție (0.19)
+function dec2(value) {
+  return Number.parseFloat(
+    Number(
+      value || 0
+    ).toFixed(2)
+  );
 }
 
-async function getActivePlanForVendor(vendorId) {
-  const now = new Date();
+function safeNumber(
+  value,
+  fallback = 0
+) {
+  const parsed =
+    Number(value);
 
-  const sub = await prisma.vendorSubscription.findFirst({
-    where: { vendorId, status: "active", endAt: { gt: now } },
-    include: { plan: true },
-    orderBy: { endAt: "desc" },
-  });
-
-  if (sub?.plan) return sub.plan;
-
-  const starter = await prisma.subscriptionPlan.findUnique({
-    where: { code: "starter" },
-  });
-
-  return starter ?? { code: "starter", name: "Starter", commissionBps: 0 };
+  return Number.isFinite(
+    parsed
+  )
+    ? parsed
+    : fallback;
 }
 
-/**
- * Returnează:
- * - per vendor: itemsGross, itemsNetExVat, itemsVat, shippingGross, shippingNetExVat, shippingVat
- * - commissionNet (platform) calculat pe itemsNetExVat
+/*
+ * Acceptă:
  *
- * NOTE:
- * - Dacă vendor nu e TVA activ, vatRate = 0 => net=gross.
+ * 19
+ * "19"
+ * "19%"
+ * 0.19
+ * "0.19"
+ *
+ * și returnează:
+ *
+ * 0.19
  */
-export async function computeOrderSplits(orderId) {
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    include: {
-      shipments: {
-        include: {
-          items: true,
+function parseVatRateToFraction(
+  vatRate
+) {
+  if (
+    vatRate == null
+  ) {
+    return 0;
+  }
+
+  const raw =
+    String(
+      vatRate
+    )
+      .trim()
+      .replace(
+        "%",
+        ""
+      );
+
+  const value =
+    Number(raw);
+
+  if (
+    !Number.isFinite(
+      value
+    ) ||
+    value < 0
+  ) {
+    return 0;
+  }
+
+  /*
+   * 19 => 0.19
+   */
+  if (value > 1) {
+    return (
+      value /
+      100
+    );
+  }
+
+  /*
+   * 0.19 => 0.19
+   */
+  return value;
+}
+
+/* =========================================================
+   Plan activ vendor
+
+   IMPORTANT:
+   folosim aceeași logică de bază ca în vendorOrdersRoutes.
+
+   Astfel evităm ca marketplaceCalc să creadă că vendorul
+   are comision 0 doar pentru că nu găsește un plan "starter".
+========================================================= */
+
+async function getActivePlanForVendor(
+  vendorId
+) {
+  const now =
+    new Date();
+
+  /*
+   * 1. Abonament activ sau trial activ.
+   */
+  const active =
+    await prisma.vendorSubscription.findFirst({
+      where: {
+        vendorId,
+
+        OR: [
+          {
+            status:
+              "active",
+
+            endAt: {
+              gt:
+                now,
+            },
+          },
+
+          {
+            trialEndsAt: {
+              gt:
+                now,
+            },
+          },
+        ],
+      },
+
+      include: {
+        plan:
+          true,
+      },
+
+      orderBy: [
+        {
+          startAt:
+            "desc",
+        },
+
+        {
+          createdAt:
+            "desc",
+        },
+      ],
+    });
+
+  if (
+    active?.plan
+  ) {
+    return active.plan;
+  }
+
+  /*
+   * 2. Dacă nu avem unul activ, folosim ultimul plan
+   * asociat vendorului.
+   *
+   * Este util pentru vendorii vechi sau pentru situații
+   * de migrare a sistemului de abonamente.
+   */
+  const latest =
+    await prisma.vendorSubscription.findFirst({
+      where: {
+        vendorId,
+      },
+
+      include: {
+        plan:
+          true,
+      },
+
+      orderBy: {
+        createdAt:
+          "desc",
+      },
+    });
+
+  if (
+    latest?.plan
+  ) {
+    return latest.plan;
+  }
+
+  /*
+   * 3. Încercăm planul Basic din DB.
+   */
+  const basic =
+    await prisma.subscriptionPlan.findUnique({
+      where: {
+        code:
+          "basic",
+      },
+    });
+
+  if (basic) {
+    return basic;
+  }
+
+  /*
+   * 4. Fallback defensiv.
+   *
+   * Ideal acest caz să nu fie atins în producție.
+   */
+  return {
+    code:
+      "basic",
+
+    name:
+      "Basic",
+
+    commissionBps:
+      0,
+  };
+}
+
+/* =========================================================
+   VAT vendor map
+========================================================= */
+
+async function getVendorVatMap(
+  vendorIds
+) {
+  if (
+    !Array.isArray(
+      vendorIds
+    ) ||
+    vendorIds.length ===
+      0
+  ) {
+    return new Map();
+  }
+
+  const vendors =
+    await prisma.vendor.findMany({
+      where: {
+        id: {
+          in:
+            vendorIds,
         },
       },
-    },
-  });
-  if (!order) throw new Error("order_not_found");
 
-  // luăm vatRate per vendor din VendorBilling (batch query)
-  const vendorIds = Array.from(
-    new Set((order.shipments || []).map((s) => String(s.vendorId)))
-  );
+      select: {
+        id:
+          true,
 
-  const vendorRows = await prisma.vendor.findMany({
-    where: { id: { in: vendorIds } },
-    select: {
-      id: true,
-      billing: {
-        select: {
-          tvaActive: true,
-          vatRate: true,
-          vatStatus: true,
+        billing: {
+          select: {
+            vatStatus:
+              true,
+
+            vatRate:
+              true,
+          },
         },
       },
-    },
-  });
+    });
 
-  const vatByVendor = new Map(
-    vendorRows.map((v) => {
-      const tvaActive = !!v.billing?.tvaActive;
-      const vatFraction = tvaActive ? parseVatRateToFraction(v.billing?.vatRate) : 0;
-      return [String(v.id), { tvaActive, vatFraction }];
-    })
+  return new Map(
+    vendors.map(
+      (vendor) => {
+        const vatStatus =
+          vendor.billing
+            ?.vatStatus ||
+          null;
+
+        const vatFraction =
+          vatStatus ===
+          "payer"
+            ? parseVatRateToFraction(
+                vendor.billing
+                  ?.vatRate
+              )
+            : 0;
+
+        return [
+          String(
+            vendor.id
+          ),
+
+          {
+            vatStatus,
+            vatFraction,
+          },
+        ];
+      }
+    )
   );
+}
 
-  const byVendor = new Map();
+/* =========================================================
+   COMPUTE ORDER SPLITS
 
-  for (const sh of order.shipments || []) {
-    const vendorId = String(sh.vendorId);
+   Reguli:
 
-    const { vatFraction } = vatByVendor.get(vendorId) || { vatFraction: 0 };
+   - ShipmentItem.price = prețul efectiv plătit de client
+     pentru o unitate, cu TVA inclus dacă vendorul este
+     plătitor TVA.
 
-    // PRODUSE
-    const itemsGross = dec2(
-      (sh.items || []).reduce(
-        (s, it) => s + Number(it.price || 0) * Number(it.qty || 0),
+   - Comisionul Artfest se calculează numai pe PRODUSE.
+
+   - Comisionul nu se calculează pe transport.
+
+   - Pentru vendor plătitor TVA:
+       itemsNetExVat = gross / (1 + TVA)
+
+   - Pentru vendor neplătitor TVA:
+       itemsNetExVat = gross
+
+========================================================= */
+
+export async function computeOrderSplits(
+  orderId
+) {
+  const order =
+    await prisma.order.findUnique({
+      where: {
+        id:
+          orderId,
+      },
+
+      include: {
+        shipments: {
+          include: {
+            items:
+              true,
+          },
+        },
+      },
+    });
+
+  if (!order) {
+    throw new Error(
+      "order_not_found"
+    );
+  }
+
+  const shipments =
+    Array.isArray(
+      order.shipments
+    )
+      ? order.shipments
+      : [];
+
+  const vendorIds =
+    Array.from(
+      new Set(
+        shipments
+          .map(
+            (
+              shipment
+            ) =>
+              shipment
+                ?.vendorId
+                ? String(
+                    shipment.vendorId
+                  )
+                : null
+          )
+          .filter(
+            Boolean
+          )
+      )
+    );
+
+  const vatByVendor =
+    await getVendorVatMap(
+      vendorIds
+    );
+
+  const byVendor =
+    new Map();
+
+  /* =======================================================
+     Calcul gross/net per shipment
+  ======================================================= */
+
+  for (
+    const shipment of
+    shipments
+  ) {
+    if (
+      !shipment
+        ?.vendorId
+    ) {
+      continue;
+    }
+
+    const vendorId =
+      String(
+        shipment.vendorId
+      );
+
+    const vatInfo =
+      vatByVendor.get(
+        vendorId
+      ) || {
+        vatStatus:
+          null,
+
+        vatFraction:
+          0,
+      };
+
+    const vatFraction =
+      safeNumber(
+        vatInfo
+          .vatFraction,
+        0
+      );
+
+    /* -----------------------------------------------------
+       Produse
+    ----------------------------------------------------- */
+
+    const shipmentItems =
+      Array.isArray(
+        shipment.items
+      )
+        ? shipment.items
+        : [];
+
+    const itemsGross =
+      dec2(
+        shipmentItems.reduce(
+          (
+            total,
+            item
+          ) => {
+            const price =
+              safeNumber(
+                item
+                  ?.price,
+                0
+              );
+
+            const qty =
+              safeNumber(
+                item?.qty,
+                0
+              );
+
+            return (
+              total +
+              price *
+                qty
+            );
+          },
+          0
+        )
+      );
+
+    const itemsNetExVat =
+      vatFraction >
+      0
+        ? dec2(
+            itemsGross /
+              (
+                1 +
+                vatFraction
+              )
+          )
+        : itemsGross;
+
+    const itemsVat =
+      dec2(
+        itemsGross -
+          itemsNetExVat
+      );
+
+    /* -----------------------------------------------------
+       Transport
+
+       În logica actuală:
+       transportul aparține vendorului,
+       dar NU intră în baza comisionului Artfest.
+    ----------------------------------------------------- */
+
+    const shippingGross =
+      dec2(
+        safeNumber(
+          shipment.price,
+          0
+        )
+      );
+
+    const shippingNetExVat =
+      vatFraction >
+      0
+        ? dec2(
+            shippingGross /
+              (
+                1 +
+                vatFraction
+              )
+          )
+        : shippingGross;
+
+    const shippingVat =
+      dec2(
+        shippingGross -
+          shippingNetExVat
+      );
+
+    /* -----------------------------------------------------
+       Inițializare vendor
+    ----------------------------------------------------- */
+
+    if (
+      !byVendor.has(
+        vendorId
+      )
+    ) {
+      byVendor.set(
+        vendorId,
+        {
+          vendorId,
+
+          vatStatus:
+            vatInfo
+              .vatStatus,
+
+          vatFraction,
+
+          /*
+           * Produse
+           */
+          itemsGross:
+            0,
+
+          itemsNetExVat:
+            0,
+
+          itemsVat:
+            0,
+
+          /*
+           * Transport
+           */
+          shippingGross:
+            0,
+
+          shippingNetExVat:
+            0,
+
+          shippingVat:
+            0,
+        }
+      );
+    }
+
+    const vendorRow =
+      byVendor.get(
+        vendorId
+      );
+
+    vendorRow.itemsGross =
+      dec2(
+        vendorRow
+          .itemsGross +
+          itemsGross
+      );
+
+    vendorRow.itemsNetExVat =
+      dec2(
+        vendorRow
+          .itemsNetExVat +
+          itemsNetExVat
+      );
+
+    vendorRow.itemsVat =
+      dec2(
+        vendorRow
+          .itemsVat +
+          itemsVat
+      );
+
+    vendorRow.shippingGross =
+      dec2(
+        vendorRow
+          .shippingGross +
+          shippingGross
+      );
+
+    vendorRow.shippingNetExVat =
+      dec2(
+        vendorRow
+          .shippingNetExVat +
+          shippingNetExVat
+      );
+
+    vendorRow.shippingVat =
+      dec2(
+        vendorRow
+          .shippingVat +
+          shippingVat
+      );
+  }
+
+  const vendors =
+    Array.from(
+      byVendor.values()
+    );
+
+  /* =======================================================
+     Comision Artfest per vendor
+  ======================================================= */
+
+  for (
+    const vendor of
+    vendors
+  ) {
+    const plan =
+      await getActivePlanForVendor(
+        vendor.vendorId
+      );
+
+    let commissionBps =
+      safeNumber(
+        plan
+          ?.commissionBps,
+        0
+      );
+
+    if (
+      commissionBps <
+      0
+    ) {
+      commissionBps =
+        0;
+    }
+
+    vendor.planCode =
+      plan?.code ||
+      "basic";
+
+    vendor.planName =
+      plan?.name ||
+      "Basic";
+
+    vendor.commissionBps =
+      commissionBps;
+
+    /*
+     * IMPORTANT:
+     *
+     * Comision Artfest:
+     *
+     * doar produse
+     * x net fără TVA
+     * x procentul planului
+     */
+    vendor.commissionNet =
+      dec2(
+        (
+          vendor
+            .itemsNetExVat *
+          commissionBps
+        ) /
+          10000
+      );
+  }
+
+  /* =======================================================
+     Totaluri comandă
+  ======================================================= */
+
+  const totalItemsGross =
+    dec2(
+      vendors.reduce(
+        (
+          total,
+          vendor
+        ) =>
+          total +
+          safeNumber(
+            vendor
+              .itemsGross,
+            0
+          ),
         0
       )
     );
 
-    // net fără TVA (dacă TVA=0 => net=gross)
-    const itemsNetExVat = vatFraction > 0 ? dec2(itemsGross / (1 + vatFraction)) : itemsGross;
-    const itemsVat = dec2(itemsGross - itemsNetExVat);
+  const totalShippingGross =
+    dec2(
+      vendors.reduce(
+        (
+          total,
+          vendor
+        ) =>
+          total +
+          safeNumber(
+            vendor
+              .shippingGross,
+            0
+          ),
+        0
+      )
+    );
 
-    // TRANSPORT (în modelul tău, shipping ajunge la vendor)
-    const shippingGross = dec2(Number(sh.price || 0));
-    const shippingNetExVat =
-      vatFraction > 0 ? dec2(shippingGross / (1 + vatFraction)) : shippingGross;
-    const shippingVat = dec2(shippingGross - shippingNetExVat);
+  const totalGross =
+    dec2(
+      totalItemsGross +
+        totalShippingGross
+    );
 
-    if (!byVendor.has(vendorId)) {
-      byVendor.set(vendorId, {
-        vendorId,
-
-        // produse
-        itemsGross: 0,
-        itemsNetExVat: 0,
-        itemsVat: 0,
-
-        // transport
-        shippingGross: 0,
-        shippingNetExVat: 0,
-        shippingVat: 0,
-      });
-    }
-
-    const row = byVendor.get(vendorId);
-
-    row.itemsGross = dec2(row.itemsGross + itemsGross);
-    row.itemsNetExVat = dec2(row.itemsNetExVat + itemsNetExVat);
-    row.itemsVat = dec2(row.itemsVat + itemsVat);
-
-    row.shippingGross = dec2(row.shippingGross + shippingGross);
-    row.shippingNetExVat = dec2(row.shippingNetExVat + shippingNetExVat);
-    row.shippingVat = dec2(row.shippingVat + shippingVat);
-  }
-
-  const vendors = Array.from(byVendor.values());
-
-  // attach commission bps per vendor (din plan) + calc comision pe NET fără TVA
-  for (const v of vendors) {
-    const plan = await getActivePlanForVendor(v.vendorId);
-    const bps = Number(plan?.commissionBps ?? 0);
-
-    v.planCode = plan?.code || "starter";
-    v.commissionBps = Number.isFinite(bps) ? bps : 0;
-
-    // ✅ comision doar pe produse, pe net fără TVA
-    v.commissionNet = dec2((v.itemsNetExVat * v.commissionBps) / 10000);
-  }
-
-  const totalItemsGross = dec2(vendors.reduce((s, v) => s + v.itemsGross, 0));
-  const totalShippingGross = dec2(
-    vendors.reduce((s, v) => s + v.shippingGross, 0)
-  );
-  const totalGross = dec2(totalItemsGross + totalShippingGross);
+  const totalCommissionNet =
+    dec2(
+      vendors.reduce(
+        (
+          total,
+          vendor
+        ) =>
+          total +
+          safeNumber(
+            vendor
+              .commissionNet,
+            0
+          ),
+        0
+      )
+    );
 
   return {
     order: {
-      id: order.id,
-      currency: order.currency || "RON",
+      id:
+        order.id,
+
+      currency:
+        order.currency ||
+        "RON",
+
       totalGross,
+
       totalItemsGross,
+
       totalShippingGross,
+
+      totalCommissionNet,
     },
+
     vendors,
   };
 }
 
-/**
- * feeNet = fee Stripe real (RON) de pe charge (o singură dată),
- * îl alocăm proporțional după gross share per vendor:
- *   weight = itemsGross + shippingGross
- */
-export function allocateStripeFee(vendors, feeNet) {
-  feeNet = dec2(feeNet);
-  if (feeNet <= 0) return vendors.map((v) => ({ ...v, stripeFeeAllocated: 0 }));
+/* =========================================================
+   ALLOCATE STRIPE FEE
 
-  const weights = vendors.map((v) => ({
-    vendorId: v.vendorId,
-    gross: dec2((v.itemsGross || 0) + (v.shippingGross || 0)),
-  }));
+   Se folosește pentru plata integrală a unei comenzi.
 
-  const sumGross = dec2(weights.reduce((s, w) => s + w.gross, 0));
-  if (sumGross <= 0) return vendors.map((v) => ({ ...v, stripeFeeAllocated: 0 }));
+   Stripe percepe fee o singură dată pentru charge.
 
-  let allocated = 0;
+   Îl împărțim între vendori proporțional cu valoarea lor
+   brută din comandă:
 
-  return vendors.map((v, idx) => {
-    const gross = dec2((v.itemsGross || 0) + (v.shippingGross || 0));
+   produse + transport.
+========================================================= */
 
-    let part = 0;
-    if (idx < vendors.length - 1) {
-      part = dec2((feeNet * gross) / sumGross);
-      allocated = dec2(allocated + part);
-    } else {
-      part = dec2(feeNet - allocated); // remainder
+export function allocateStripeFee({
+  vendors,
+  feeNet,
+}) {
+  const safeVendors =
+    Array.isArray(
+      vendors
+    )
+      ? vendors
+      : [];
+
+  const totalFee =
+    dec2(
+      feeNet
+    );
+
+  if (
+    totalFee <=
+      0 ||
+    safeVendors.length ===
+      0
+  ) {
+    return safeVendors.map(
+      (vendor) => ({
+        ...vendor,
+
+        stripeFeeAllocated:
+          0,
+      })
+    );
+  }
+
+  const weights =
+    safeVendors.map(
+      (vendor) => {
+        const gross =
+          dec2(
+            safeNumber(
+              vendor
+                .itemsGross,
+              0
+            ) +
+              safeNumber(
+                vendor
+                  .shippingGross,
+                0
+              )
+          );
+
+        return {
+          vendorId:
+            vendor
+              .vendorId,
+
+          gross,
+        };
+      }
+    );
+
+  const totalGross =
+    dec2(
+      weights.reduce(
+        (
+          total,
+          weight
+        ) =>
+          total +
+          weight.gross,
+        0
+      )
+    );
+
+  if (
+    totalGross <=
+    0
+  ) {
+    return safeVendors.map(
+      (vendor) => ({
+        ...vendor,
+
+        stripeFeeAllocated:
+          0,
+      })
+    );
+  }
+
+  let allocated =
+    0;
+
+  return safeVendors.map(
+    (
+      vendor,
+      index
+    ) => {
+      const gross =
+        dec2(
+          safeNumber(
+            vendor
+              .itemsGross,
+            0
+          ) +
+            safeNumber(
+              vendor
+                .shippingGross,
+              0
+            )
+        );
+
+      let part =
+        0;
+
+      /*
+       * Ultimul vendor primește diferența de rotunjire,
+       * astfel încât suma totală alocată să fie exact feeNet.
+       */
+      if (
+        index <
+        safeVendors.length -
+          1
+      ) {
+        part =
+          dec2(
+            (
+              totalFee *
+              gross
+            ) /
+              totalGross
+          );
+
+        allocated =
+          dec2(
+            allocated +
+              part
+          );
+      } else {
+        part =
+          dec2(
+            totalFee -
+              allocated
+          );
+      }
+
+      return {
+        ...vendor,
+
+        stripeFeeAllocated:
+          part,
+      };
     }
-
-    return { ...v, stripeFeeAllocated: part };
-  });
+  );
 }
 
-/**
- * Vendor payout:
- * vendor primește GROSS (include TVA + transport),
- * minus comisionul tău (pe net fără TVA din produse),
- * minus partea lui din fee Stripe alocată.
- */
-export function computeVendorPayouts(vendors) {
-  return vendors.map((v) => {
-    const gross = dec2((v.itemsGross || 0) + (v.shippingGross || 0));
-    const payout = dec2(gross - (v.commissionNet || 0) - (v.stripeFeeAllocated || 0));
+/* =========================================================
+   COMPUTE VENDOR PAYOUTS
 
-    return {
-      ...v,
-      gross,
-      vendorPayoutNet: payout,
-    };
-  });
+   Plata integrală cu cardul:
+
+   vendor payout =
+       produse gross
+     + transport gross
+     - comision Artfest
+     - Stripe fee alocat
+========================================================= */
+
+export function computeVendorPayouts({
+  vendors,
+}) {
+  const safeVendors =
+    Array.isArray(
+      vendors
+    )
+      ? vendors
+      : [];
+
+  return safeVendors.map(
+    (vendor) => {
+      const gross =
+        dec2(
+          safeNumber(
+            vendor
+              .itemsGross,
+            0
+          ) +
+            safeNumber(
+              vendor
+                .shippingGross,
+              0
+            )
+        );
+
+      const commissionNet =
+        dec2(
+          safeNumber(
+            vendor
+              .commissionNet,
+            0
+          )
+        );
+
+      const stripeFeeAllocated =
+        dec2(
+          safeNumber(
+            vendor
+              .stripeFeeAllocated,
+            0
+          )
+        );
+
+      const vendorPayoutNet =
+        dec2(
+          Math.max(
+            0,
+
+            gross -
+              commissionNet -
+              stripeFeeAllocated
+          )
+        );
+
+      return {
+        ...vendor,
+
+        gross,
+
+        commissionNet,
+
+        stripeFeeAllocated,
+
+        vendorPayoutNet,
+      };
+    }
+  );
 }

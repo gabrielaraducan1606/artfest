@@ -2489,14 +2489,6 @@ router.post("/checkout/guest/place", async (req, res) => {
     const pmRaw = String(paymentMethod || "").toUpperCase();
     const pm = pmRaw === "CARD" ? "CARD" : "COD";
 
-    if (pm === "CARD") {
-      return res.status(400).json({
-        error: "guest_card_payment_not_ready",
-        message:
-          "Plata cu cardul pentru comenzile fără cont nu este disponibilă momentan. Selectează plata ramburs.",
-      });
-    }
-
     const normalizedAddress = buildNormalizedShippingAddress(address || {});
 
     const normalizedBillingAddress =
@@ -3139,36 +3131,158 @@ configurationKey:
       );
     }
 
-    try {
-      await sendOrderConfirmationEmail({
-        to: customerEmail,
-        order: created,
-        items: checkoutItems,
-        storeAddresses,
-      });
-    } catch (err) {
-      console.error(
-        "Eroare la trimiterea emailului guest:",
-        err
-      );
-    }
+   try {
+  const frontendUrl = (
+    process.env.APP_URL ||
+    process.env.FRONTEND_URL ||
+    "http://localhost:5173"
+  ).replace(/\/+$/, "");
 
-    return res.json({
-      ok: true,
-      orderId: created.id,
-      orderNumber: created.orderNumber,
+  const guestOrderUrl =
+    `${frontendUrl}/comanda-guest/${encodeURIComponent(
+      created.id
+    )}` +
+    `?token=${encodeURIComponent(
+      guestAccess.token
+    )}`;
 
-      guestAccessToken: guestAccess.token,
+  await sendOrderConfirmationEmail({
+    to: customerEmail,
 
-      total: Number(created.total),
-      subtotal: Number(created.subtotal),
+    order: created,
 
-      shippingTotal: Number(
+    items: checkoutItems,
+
+    storeAddresses,
+
+    // Guest-ul nu are userId.
+    userId: null,
+
+    // Spunem explicit mailerului că este comandă guest.
+    isGuest: true,
+
+    // Link direct către pagina publică a comenzii guest.
+    actionUrl: guestOrderUrl,
+  });
+} catch (err) {
+  console.error(
+    "Eroare la trimiterea emailului guest:",
+    err
+  );
+}
+
+   /*
+ * =====================================================
+ * RĂSPUNS CHECKOUT GUEST
+ * =====================================================
+ */
+
+if (pm === "COD") {
+  return res.json({
+    ok: true,
+
+    orderId:
+      created.id,
+
+    orderNumber:
+      created.orderNumber,
+
+    guestAccessToken:
+      guestAccess.token,
+
+    total:
+      Number(
+        created.total
+      ),
+
+    subtotal:
+      Number(
+        created.subtotal
+      ),
+
+    shippingTotal:
+      Number(
         created.shippingTotal
       ),
 
-      currency: created.currency || "RON",
-    });
+    currency:
+      created.currency ||
+      "RON",
+  });
+}
+
+/*
+ * Plata integrală cu cardul.
+ */
+try {
+ const payment =
+  await createPaymentForOrder({
+    ...created,
+
+    guestAccessToken:
+      guestAccess.token,
+  });
+
+  return res.json({
+    ok: true,
+
+    orderId:
+      created.id,
+
+    orderNumber:
+      created.orderNumber,
+
+    guestAccessToken:
+      guestAccess.token,
+
+    total:
+      Number(
+        created.total
+      ),
+
+    subtotal:
+      Number(
+        created.subtotal
+      ),
+
+    shippingTotal:
+      Number(
+        created.shippingTotal
+      ),
+
+    currency:
+      created.currency ||
+      "RON",
+
+    payment,
+  });
+} catch (paymentError) {
+  console.error(
+    "Eroare la inițierea plății guest:",
+    paymentError
+  );
+
+  return res.status(500).json({
+    error:
+      "guest_payment_init_failed",
+
+    message:
+      "Comanda a fost creată, dar nu am putut iniția plata cu cardul.",
+
+    orderId:
+      created.id,
+
+    orderNumber:
+      created.orderNumber,
+
+    /*
+     * Îl păstrăm pentru ca guest-ul
+     * să poată reveni la comandă.
+     */
+    guestAccessToken:
+      guestAccess.token,
+  });
+}
   } catch (err) {
     console.error(
       "Eroare la plasarea comenzii guest:",

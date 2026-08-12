@@ -668,218 +668,790 @@ export async function sendOrderConfirmationEmail({
   items,
   storeAddresses,
   userId = null,
+
+  /*
+   * Pentru guest putem trimite
+   * direct linkul securizat către
+   * pagina comenzii.
+   */
+  actionUrl = null,
+
+  /*
+   * Folosit pentru textul butonului
+   * și mesajele din email.
+   */
+  isGuest = false,
 }) {
-  if (!to || !order) return;
+  if (!to || !order) {
+    return;
+  }
 
-  const currency = order.currency || "RON";
-  const total = formatMoney(order.total, currency);
-  const subtotal = formatMoney(order.subtotal, currency);
-  const shippingTotal = formatMoney(order.shippingTotal, currency);
+  const currency =
+    order.currency ||
+    "RON";
 
-  const address = order.shippingAddress || {};
+  const total =
+    formatMoney(
+      order.total,
+      currency
+    );
+
+  const subtotal =
+    formatMoney(
+      order.subtotal,
+      currency
+    );
+
+  const shippingTotal =
+    formatMoney(
+      order.shippingTotal,
+      currency
+    );
+
+  const address =
+    order.shippingAddress ||
+    {};
+
   const customerName =
     address.name ||
     `${address.lastName || ""} ${address.firstName || ""}`.trim() ||
+    order.customerName ||
     "client";
 
-  // ✅ AFIȘĂM NUMĂRUL DE COMANDĂ PUBLIC (fallback pe id)
-  const displayNo = order.orderNumber || order.id;
+  /*
+   * Numărul public al comenzii.
+   */
+  const displayNo =
+    order.orderNumber ||
+    order.id;
 
-  // ✅ link-ul rămâne pe ID (intern)
-  const orderLink = APP_URL
-    ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(order.id)}`
-    : null;
+  /*
+   * USER:
+   * /comenzile-mele?order=...
+   *
+   * GUEST:
+   * actionUrl primit din ruta care
+   * creează comanda:
+   *
+   * /comanda-guest/:id?token=...
+   */
+  const orderLink =
+    actionUrl ||
+    (
+      APP_URL
+        ? `${APP_URL}/comenzile-mele?order=${encodeURIComponent(
+            order.id
+          )}`
+        : null
+    );
+
+  const orderButtonLabel =
+    isGuest
+      ? "Vezi comanda"
+      : "Vezi comanda în contul tău";
 
   const itemsRows =
-    (items || [])
+    (
+      items ||
+      []
+    )
       .map(
         (it) => `
 <tr>
-  <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;">${it.title}</td>
-  <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;text-align:center;">x${it.qty}</td>
-  <td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatMoney(
-    it.price * it.qty,
-    currency
-  )}</td>
-</tr>`
+  <td
+    style="
+      padding:8px;
+      border-bottom:1px solid #e5e7eb;
+      color:#374151;
+    "
+  >
+    ${it.title || "Produs"}
+  </td>
+
+  <td
+    style="
+      padding:8px;
+      border-bottom:1px solid #e5e7eb;
+      text-align:center;
+      color:#374151;
+    "
+  >
+    x${Number(it.qty || 1)}
+  </td>
+
+  <td
+    style="
+      padding:8px;
+      border-bottom:1px solid #e5e7eb;
+      text-align:right;
+      color:#374151;
+    "
+  >
+    ${formatMoney(
+      Number(it.price || 0) *
+        Number(it.qty || 1),
+      currency
+    )}
+  </td>
+</tr>
+`
       )
       .join("") ||
-    `<tr><td colspan="3" style="padding:8px;text-align:center;color:#6b7280;">Detaliile produselor nu sunt disponibile.</td></tr>`;
+    `
+<tr>
+  <td
+    colspan="3"
+    style="
+      padding:12px;
+      text-align:center;
+      color:#6b7280;
+    "
+  >
+    Produsele comenzii nu sunt disponibile.
+  </td>
+</tr>
+`;
 
-  const storeAddressesMap =
-    storeAddresses || (order.meta && order.meta.storeAddresses) || null;
+  /* =========================================================
+     Adrese retur magazine
+  ========================================================= */
 
-  let storeAddressesHtml = "";
-  let storeAddressesTextLines = [];
+  const safeStoreAddresses =
+    Array.isArray(
+      storeAddresses
+    )
+      ? storeAddresses
+      : [];
 
-  if (storeAddressesMap && typeof storeAddressesMap === "object") {
-    const entries = Object.values(storeAddressesMap);
-    if (entries.length) {
-      storeAddressesHtml = `
-<h3 style="color:#111827;margin:20px 0 8px;font-size:16px;">Adrese retur magazine</h3>
-<div style="color:#374151;margin:0 0 16px;line-height:1.5;">
-  ${entries
-    .map((a) => {
-      const line1 = a.street || "";
-      const line2 = [a.postalCode, a.city].filter(Boolean).join(" ");
-      const line3 = [a.county, a.country].filter(Boolean).join(", ");
-      return `
-<p style="margin:0 0 8px;">
-  <strong>${a.name || "Magazin"}</strong><br>
-  ${line1}${line1 && (line2 || line3) ? "<br>" : ""}
-  ${line2 || ""}${line2 && line3 ? "<br>" : ""}
-  ${line3 || ""}
-</p>`;
-    })
-    .join("")}
-</div>`.trim();
+  const storeAddressesHtml =
+    safeStoreAddresses.length
+      ? `
+        <h3
+          style="
+            color:#111827;
+            margin:20px 0 8px;
+            font-size:16px;
+          "
+        >
+          Adrese magazine
+        </h3>
 
-      storeAddressesTextLines = entries.flatMap((a) => {
-        const lines = [];
-        lines.push(`- ${a.name || "Magazin"}`);
-        if (a.street) lines.push(`  ${a.street}`);
-        const cityLine = [a.postalCode, a.city].filter(Boolean).join(" ");
-        if (cityLine) lines.push(`  ${cityLine}`);
-        const regionLine = [a.county, a.country].filter(Boolean).join(", ");
-        if (regionLine) lines.push(`  ${regionLine}`);
-        return lines;
-      });
-    }
-  }
+        ${safeStoreAddresses
+          .map(
+            (store) => `
+          <div
+            style="
+              background:#f9fafb;
+              border:1px solid #e5e7eb;
+              border-radius:10px;
+              padding:12px;
+              margin-bottom:8px;
+              color:#374151;
+              line-height:1.5;
+            "
+          >
+            ${
+              store?.name
+                ? `<strong>${store.name}</strong><br>`
+                : ""
+            }
+
+            ${
+              store?.address ||
+              ""
+            }
+
+            ${
+              store?.city
+                ? `<br>${store.city}`
+                : ""
+            }
+
+            ${
+              store?.county
+                ? `, ${store.county}`
+                : ""
+            }
+          </div>
+        `
+          )
+          .join("")}
+      `
+      : "";
+
+  const storeAddressesTextLines =
+    safeStoreAddresses
+      .map(
+        (store) => {
+          return [
+            store?.name ||
+              "",
+            [
+              store?.address,
+              store?.city,
+              store?.county,
+            ]
+              .filter(Boolean)
+              .join(", "),
+          ]
+            .filter(Boolean)
+            .join(" - ");
+        }
+      )
+      .filter(Boolean);
+
+  /* =========================================================
+     Subject
+  ========================================================= */
+
+  const emailSubject =
+    `Confirmare comandă #${displayNo} - ${BRAND_NAME}`;
+
+  /* =========================================================
+     HTML
+  ========================================================= */
 
   const html = `
-<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
-  <div style="text-align:center;margin-bottom:20px;">
-    <img src="${EMAIL_LOGO_URL}" alt="${BRAND_NAME} logo" width="120" height="120"
-      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;">
+<div
+  style="
+    font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+    max-width:640px;
+    margin:auto;
+    padding:20px;
+    background:#f9fafb;
+    border-radius:12px;
+  "
+>
+  <div
+    style="
+      text-align:center;
+      margin-bottom:20px;
+    "
+  >
+    <img
+      src="${EMAIL_LOGO_URL}"
+      alt="${BRAND_NAME} logo"
+      width="120"
+      style="
+        display:block;
+        margin:0 auto;
+        border:0;
+        outline:none;
+        text-decoration:none;
+        max-width:120px;
+        height:auto;
+      "
+    >
   </div>
 
-  <h2 style="color:#111827;margin:0 0 8px;">Mulțumim pentru comandă, ${customerName}!</h2>
-  <p style="color:#374151;margin:0 0 12px;">Comanda ta pe <strong>${BRAND_NAME}</strong> a fost înregistrată cu succes.</p>
-  <p style="color:#374151;margin:0 0 16px;">
-   <strong>Număr comandă:</strong> ${displayNo}<br>
-    <strong>Metodă de plată:</strong> ${
-      order.paymentMethod === "COD"
-        ? "Plată la livrare (ramburs)"
-        : "Card online"
+  <div
+    style="
+      background:#ffffff;
+      border-radius:14px;
+      padding:22px;
+      border:1px solid #e5e7eb;
+    "
+  >
+    <h2
+      style="
+        color:#111827;
+        margin:0 0 12px;
+      "
+    >
+      Mulțumim pentru comandă!
+    </h2>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 10px;
+        line-height:1.6;
+      "
+    >
+      Bună,
+      <strong>${customerName}</strong>!
+    </p>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 16px;
+        line-height:1.6;
+      "
+    >
+      Comanda ta pe
+      <strong>${BRAND_NAME}</strong>
+      a fost înregistrată și trimisă către
+      ${
+        isGuest
+          ? "artizan."
+          : "magazin."
+      }
+    </p>
+
+    <div
+      style="
+        background:#f8f6f4;
+        border-radius:10px;
+        padding:14px;
+        margin-bottom:18px;
+      "
+    >
+      <p
+        style="
+          margin:0 0 6px;
+          color:#374151;
+        "
+      >
+        <strong>Număr comandă:</strong>
+        #${displayNo}
+      </p>
+
+      <p
+        style="
+          margin:0;
+          color:#374151;
+        "
+      >
+        <strong>Metodă de plată:</strong>
+        ${
+          order.paymentMethod ===
+          "COD"
+            ? "Plată la livrare (ramburs)"
+            : "Card online"
+        }
+      </p>
+    </div>
+
+    ${
+      isGuest
+        ? `
+          <div
+            style="
+              background:#fffaf0;
+              border:1px solid #f0dba5;
+              border-radius:10px;
+              padding:14px;
+              margin-bottom:18px;
+              color:#5f4b30;
+              line-height:1.6;
+            "
+          >
+            <strong>
+              Ai plasat comanda fără cont.
+            </strong>
+
+            <br>
+
+            Poți urmări comanda folosind linkul securizat din acest email.
+            Nu este nevoie să îți creezi cont Artfest.
+          </div>
+        `
+        : ""
     }
+
+    <h3
+      style="
+        color:#111827;
+        margin:20px 0 8px;
+        font-size:16px;
+      "
+    >
+      Produse
+    </h3>
+
+    <table
+      width="100%"
+      cellspacing="0"
+      cellpadding="0"
+      style="
+        width:100%;
+        border-collapse:collapse;
+        margin-bottom:18px;
+      "
+    >
+      <thead>
+        <tr>
+          <th
+            style="
+              padding:8px;
+              text-align:left;
+              border-bottom:1px solid #d1d5db;
+              color:#6b7280;
+              font-size:12px;
+            "
+          >
+            Produs
+          </th>
+
+          <th
+            style="
+              padding:8px;
+              text-align:center;
+              border-bottom:1px solid #d1d5db;
+              color:#6b7280;
+              font-size:12px;
+            "
+          >
+            Cant.
+          </th>
+
+          <th
+            style="
+              padding:8px;
+              text-align:right;
+              border-bottom:1px solid #d1d5db;
+              color:#6b7280;
+              font-size:12px;
+            "
+          >
+            Total
+          </th>
+        </tr>
+      </thead>
+
+      <tbody>
+        ${itemsRows}
+      </tbody>
+
+      <tfoot>
+        <tr>
+          <td
+            colspan="2"
+            style="
+              padding:8px;
+              text-align:right;
+              color:#6b7280;
+            "
+          >
+            Subtotal
+          </td>
+
+          <td
+            style="
+              padding:8px;
+              text-align:right;
+              color:#374151;
+            "
+          >
+            ${subtotal}
+          </td>
+        </tr>
+
+        <tr>
+          <td
+            colspan="2"
+            style="
+              padding:8px;
+              text-align:right;
+              color:#6b7280;
+            "
+          >
+            Transport
+          </td>
+
+          <td
+            style="
+              padding:8px;
+              text-align:right;
+              color:#374151;
+            "
+          >
+            ${shippingTotal}
+          </td>
+        </tr>
+
+        <tr>
+          <td
+            colspan="2"
+            style="
+              padding:10px 8px;
+              text-align:right;
+              border-top:1px solid #e5e7eb;
+              color:#111827;
+            "
+          >
+            <strong>Total</strong>
+          </td>
+
+          <td
+            style="
+              padding:10px 8px;
+              text-align:right;
+              border-top:1px solid #e5e7eb;
+              color:#111827;
+            "
+          >
+            <strong>${total}</strong>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <h3
+      style="
+        color:#111827;
+        margin:20px 0 8px;
+        font-size:16px;
+      "
+    >
+      Adresă livrare
+    </h3>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 16px;
+        line-height:1.5;
+      "
+    >
+      ${customerName}<br>
+
+      ${
+        address.street ||
+        ""
+      }<br>
+
+      ${`${address.postalCode || ""} ${address.city || ""}`.trim()}<br>
+
+      ${
+        address.county ||
+        ""
+      }
+
+      ${
+        address.phone
+          ? `<br>Tel: ${address.phone}`
+          : ""
+      }
+    </p>
+
+    ${storeAddressesHtml}
+
+    ${
+      orderLink
+        ? `
+          <p
+            style="
+              text-align:center;
+              margin:24px 0 12px;
+            "
+          >
+            <a
+              href="${orderLink}"
+              style="
+                background:#6f4e43;
+                color:#ffffff;
+                padding:13px 22px;
+                border-radius:10px;
+                text-decoration:none;
+                font-weight:700;
+                display:inline-block;
+              "
+            >
+              ${orderButtonLabel}
+            </a>
+          </p>
+
+          <p
+            style="
+              color:#6b7280;
+              font-size:12px;
+              margin:0 0 8px;
+              text-align:center;
+              word-break:break-all;
+            "
+          >
+            Dacă butonul nu funcționează,
+            accesează:
+            <a
+              href="${orderLink}"
+              style="
+                color:#6f4e43;
+              "
+            >
+              ${orderLink}
+            </a>
+          </p>
+        `
+        : ""
+    }
+
+    ${
+      isGuest
+        ? `
+          <p
+            style="
+              color:#6b7280;
+              font-size:12px;
+              margin:16px 0 0;
+              line-height:1.5;
+              text-align:center;
+            "
+          >
+            Păstrează acest email. Linkul de mai sus îți oferă acces securizat
+            la detaliile comenzii.
+          </p>
+        `
+        : ""
+    }
+  </div>
+
+  <p
+    style="
+      font-size:12px;
+      color:#9ca3af;
+      text-align:center;
+      margin:20px 0 0;
+    "
+  >
+    Acest email a fost generat automat de ${BRAND_NAME}.
   </p>
+</div>
+`.trim();
 
-  <h3 style="color:#111827;margin:16px 0 8px;font-size:16px;">Produse comandate</h3>
-  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#ffffff;border-radius:8px;overflow:hidden;">
-    <thead>
-      <tr style="background:#f3f4f6;">
-        <th align="left" style="padding:8px 8px;font-size:14px;color:#374151;">Produs</th>
-        <th align="center" style="padding:8px 8px;font-size:14px;color:#374151;">Cantitate</th>
-        <th align="right" style="padding:8px 8px;font-size:14px;color:#374151;">Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${itemsRows}
-    </tbody>
-    <tfoot>
-      <tr>
-        <td colspan="2" style="padding:8px 8px;text-align:right;color:#4b5563;">Subtotal</td>
-        <td style="padding:8px 8px;text-align:right;"><strong>${subtotal}</strong></td>
-      </tr>
-      <tr>
-        <td colspan="2" style="padding:4px 8px;text-align:right;color:#4b5563;">Transport</td>
-        <td style="padding:4px 8px;text-align:right;"><strong>${shippingTotal}</strong></td>
-      </tr>
-      <tr>
-        <td colspan="2" style="padding:8px 8px;text-align:right;color:#111827;">Total</td>
-        <td style="padding:8px 8px;text-align:right;font-size:16px;"><strong>${total}</strong></td>
-      </tr>
-    </tfoot>
-  </table>
-
-  <h3 style="color:#111827;margin:20px 0 8px;font-size:16px;">Adresă livrare</h3>
-  <p style="color:#374151;margin:0 0 16px;line-height:1.5;">
-    ${customerName}<br>
-    ${address.street || ""}<br>
-    ${`${address.postalCode || ""} ${address.city || ""}`.trim()}<br>
-    ${address.county || ""}<br>
-    Tel: ${address.phone || ""}
-  </p>
-
-  ${storeAddressesHtml}
-
-  ${
-    orderLink
-      ? `<p style="text-align:center;margin:24px 0 12px;">
-           <a href="${orderLink}" style="background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-             Vezi comanda în contul tău
-           </a>
-         </p>
-         <p style="color:#6b7280;font-size:13px;margin:0 0 8px;text-align:center;">
-           Sau accesează linkul: <a href="${orderLink}" style="color:#4f46e5;">${orderLink}</a>
-         </p>`
-      : ""
-  }
-
-  <hr style="margin:30px 0;border:none;border-top:1px solid #e5e7eb;">
-  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0;">
-    Acest email a fost generat automat de ${BRAND_NAME}. Te rugăm să nu răspunzi la acest mesaj.
-  </p>
-</div>`.trim();
+  /* =========================================================
+     Text fallback
+  ========================================================= */
 
   const textLines = [
     `Mulțumim pentru comandă, ${customerName}!`,
     "",
     `Comanda ta pe ${BRAND_NAME} a fost înregistrată.`,
-   `Număr comandă: ${displayNo}`,
+    `Număr comandă: ${displayNo}`,
+
     `Metodă de plată: ${
-      order.paymentMethod === "COD"
+      order.paymentMethod ===
+      "COD"
         ? "Plată la livrare (ramburs)"
         : "Card online"
     }`,
+
     "",
+
+    isGuest
+      ? "Ai plasat comanda fără cont. Poți urmări comanda folosind linkul securizat primit în acest email."
+      : "",
+
     "Produse:",
-    ...(items || []).map(
+
+    ...(
+      items ||
+      []
+    ).map(
       (it) =>
-        `- ${it.title} x${it.qty} = ${formatMoney(
-          it.price * it.qty,
+        `- ${
+          it.title ||
+          "Produs"
+        } x${Number(
+          it.qty || 1
+        )} = ${formatMoney(
+          Number(
+            it.price ||
+            0
+          ) *
+            Number(
+              it.qty ||
+              1
+            ),
           currency
         )}`
     ),
+
     "",
+
     `Subtotal: ${subtotal}`,
     `Transport: ${shippingTotal}`,
     `Total: ${total}`,
+
     "",
+
     "Adresă livrare:",
+
     customerName,
-    address.street || "",
+
+    address.street ||
+      "",
+
     `${address.postalCode || ""} ${address.city || ""}`.trim(),
-    address.county || "",
-    address.phone ? `Tel: ${address.phone}` : "",
+
+    address.county ||
+      "",
+
+    address.phone
+      ? `Tel: ${address.phone}`
+      : "",
+
     "",
-    storeAddressesTextLines.length ? "Adrese retur magazine:" : "",
+
+    storeAddressesTextLines.length
+      ? "Adrese magazine:"
+      : "",
+
     ...storeAddressesTextLines,
+
     "",
-    orderLink ? `Poți vedea comanda aici: ${orderLink}` : "",
-  ].filter(Boolean);
 
-  const text = textLines.join("\n");
+    orderLink
+      ? `${
+          isGuest
+            ? "Vezi comanda"
+            : "Poți vedea comanda aici"
+        }: ${orderLink}`
+      : "",
 
-  // ✅ subject pe orderNumber (fallback id)
-  const emailSubject = `Confirmare comandă #${displayNo} - ${BRAND_NAME}`;
+    isGuest
+      ? "Păstrează acest email pentru a putea reveni la comandă."
+      : "",
+  ].filter(
+    Boolean
+  );
+
+  const text =
+    textLines.join(
+      "\n"
+    );
+
+  /* =========================================================
+     Send
+  ========================================================= */
 
   return sendMailLogged({
-    senderKey: "noreply",
+    senderKey:
+      "noreply",
+
     to,
-    subject: emailSubject,
-    template: "order_confirmation",
+
+    subject:
+      emailSubject,
+
+    template:
+      "order_confirmation",
+
     userId,
-    orderId: order.id,
-    toName: customerName,
+
+    orderId:
+      order.id,
+
+    toName:
+      customerName,
+
     mailOptions: {
-      ...senderEnvelope("noreply"),
+      ...senderEnvelope(
+        "noreply"
+      ),
+
       to,
-      subject: emailSubject,
+
+      subject:
+        emailSubject,
+
       html,
+
       text,
-      headers: AUTO_HEADERS,
+
+      headers:
+        AUTO_HEADERS,
     },
   });
 }
@@ -1899,6 +2471,572 @@ export async function sendHomepageFeatureSelectedEmail({
       to,
       subject,
       html,
+      text,
+
+      headers:
+        AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendDepositRequestedEmail({
+  to,
+  userId = null,
+  orderId,
+  orderNumber,
+  customerName,
+  vendorName,
+  depositPercent,
+  depositAmount,
+  remainingCodAmount,
+  expiresAt,
+  currency = "RON",
+  actionUrl = null,
+}) {
+  if (
+    !to ||
+    !orderId
+  ) {
+    return;
+  }
+
+  const displayNo =
+    orderNumber ||
+    orderId;
+
+  const depositLabel =
+    formatMoney(
+      depositAmount,
+      currency
+    );
+
+  const remainingLabel =
+    remainingCodAmount != null
+      ? formatMoney(
+          remainingCodAmount,
+          currency
+        )
+      : null;
+
+  const expiresLabel =
+    expiresAt
+      ? new Intl.DateTimeFormat(
+          "ro-RO",
+          {
+            dateStyle: "medium",
+            timeStyle: "short",
+          }
+        ).format(
+          new Date(
+            expiresAt
+          )
+        )
+      : null;
+
+const orderLink =
+  actionUrl ||
+  (
+    APP_URL
+      ? `${APP_URL}/comanda/${encodeURIComponent(
+          orderId
+        )}#avans`
+      : null
+  );
+
+  const subject =
+    `Avans solicitat pentru comanda #${displayNo} - ${BRAND_NAME}`;
+
+  const html = `
+<div style="font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:auto;padding:20px;background:#f9fafb;border-radius:12px">
+  <div style="text-align:center;margin-bottom:20px;">
+    <img
+      src="${EMAIL_LOGO_URL}"
+      alt="${BRAND_NAME} logo"
+      width="120"
+      style="display:block;margin:0 auto;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;"
+    >
+  </div>
+
+  <div style="background:#ffffff;border-radius:14px;padding:22px;border:1px solid #e5e7eb;">
+    <h2 style="color:#111827;margin:0 0 12px;">
+      Ai un avans de achitat
+    </h2>
+
+    <p style="color:#374151;margin:0 0 12px;line-height:1.6;">
+      Bună, <strong>${customerName || "client"}</strong>,
+    </p>
+
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
+      ${
+        vendorName
+          ? `Artizanul <strong>${vendorName}</strong>`
+          : "Artizanul"
+      } a solicitat un avans pentru comanda
+      <strong>#${displayNo}</strong>.
+    </p>
+
+    <div
+      style="
+        background:#fff8e8;
+        border:1px solid #f3d48a;
+        border-radius:12px;
+        padding:16px;
+        margin:16px 0;
+      "
+    >
+      <div style="margin-bottom:8px;color:#374151;">
+        <strong>Avans solicitat:</strong>
+        ${depositLabel}
+        ${
+          depositPercent != null
+            ? ` (${depositPercent}%)`
+            : ""
+        }
+      </div>
+
+      ${
+        remainingLabel
+          ? `
+            <div style="margin-bottom:8px;color:#374151;">
+              <strong>Rest de achitat la livrare:</strong>
+              ${remainingLabel}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        expiresLabel
+          ? `
+            <div style="color:#374151;">
+              <strong>Poți achita avansul până la:</strong>
+              ${expiresLabel}
+            </div>
+          `
+          : ""
+      }
+    </div>
+
+    <p style="color:#374151;margin:0 0 16px;line-height:1.6;">
+      Pentru a continua, deschide comanda și achită avansul online.
+    </p>
+
+    ${
+      orderLink
+        ? `
+          <p style="text-align:center;margin:24px 0 12px;">
+            <a
+              href="${orderLink}"
+              style="
+                background:#6f4e43;
+                color:#ffffff;
+                padding:13px 22px;
+                border-radius:10px;
+                text-decoration:none;
+                font-weight:700;
+                display:inline-block;
+              "
+            >
+              Vezi și achită avansul
+            </a>
+          </p>
+
+          <p style="color:#6b7280;font-size:12px;text-align:center;margin:0;">
+            Dacă butonul nu funcționează, accesează:
+            <a href="${orderLink}">
+              ${orderLink}
+            </a>
+          </p>
+        `
+        : ""
+    }
+  </div>
+
+  <p style="font-size:12px;color:#9ca3af;text-align:center;margin:20px 0 0;">
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    `Bună, ${customerName || "client"},`,
+    "",
+    `${vendorName || "Artizanul"} a solicitat un avans pentru comanda #${displayNo}.`,
+    `Avans solicitat: ${depositLabel}${
+      depositPercent != null
+        ? ` (${depositPercent}%)`
+        : ""
+    }`,
+    remainingLabel
+      ? `Rest de achitat la livrare: ${remainingLabel}`
+      : "",
+    expiresLabel
+      ? `Avansul poate fi achitat până la: ${expiresLabel}`
+      : "",
+    "",
+    orderLink
+      ? `Vezi și achită avansul: ${orderLink}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey:
+      "noreply",
+
+    to,
+
+    subject,
+
+    template:
+      "deposit_requested",
+
+    userId,
+
+    orderId,
+
+    toName:
+      customerName ||
+      null,
+
+    mailOptions: {
+      ...senderEnvelope(
+        "noreply"
+      ),
+
+      to,
+
+      subject,
+      html,
+      text,
+
+      headers:
+        AUTO_HEADERS,
+    },
+  });
+}
+
+export async function sendVendorDepositPaidEmail({
+  to,
+  userId = null,
+  vendorName,
+  orderId,
+  orderNumber,
+  depositAmount,
+  remainingCodAmount = null,
+  stripeFeeNet = null,
+  transferredAmount = null,
+  currency = "RON",
+}) {
+  if (
+    !to ||
+    !orderId
+  ) {
+    return;
+  }
+
+  const displayNo =
+    orderNumber ||
+    orderId;
+
+  const depositLabel =
+    formatMoney(
+      depositAmount,
+      currency
+    );
+
+  const remainingLabel =
+    remainingCodAmount != null
+      ? formatMoney(
+          remainingCodAmount,
+          currency
+        )
+      : null;
+
+  const stripeFeeLabel =
+    stripeFeeNet != null
+      ? formatMoney(
+          stripeFeeNet,
+          currency
+        )
+      : null;
+
+  const transferredLabel =
+    transferredAmount != null
+      ? formatMoney(
+          transferredAmount,
+          currency
+        )
+      : null;
+
+  const orderLink =
+    APP_URL
+      ? `${APP_URL}/vendor/orders?order=${encodeURIComponent(
+          orderId
+        )}`
+      : null;
+
+  const subject =
+    `Avans achitat pentru comanda #${displayNo} - ${BRAND_NAME}`;
+
+  const html = `
+<div
+  style="
+    font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+    max-width:640px;
+    margin:auto;
+    padding:20px;
+    background:#f9fafb;
+    border-radius:12px;
+  "
+>
+  <div
+    style="
+      text-align:center;
+      margin-bottom:20px;
+    "
+  >
+    <img
+      src="${EMAIL_LOGO_URL}"
+      alt="${BRAND_NAME} logo"
+      width="120"
+      style="
+        display:block;
+        margin:0 auto;
+        border:0;
+        outline:none;
+        text-decoration:none;
+        max-width:120px;
+        height:auto;
+      "
+    >
+  </div>
+
+  <div
+    style="
+      background:#ffffff;
+      border-radius:14px;
+      padding:22px;
+      border:1px solid #e5e7eb;
+    "
+  >
+    <h2
+      style="
+        color:#111827;
+        margin:0 0 12px;
+      "
+    >
+      Avansul a fost achitat ✓
+    </h2>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 12px;
+        line-height:1.6;
+      "
+    >
+      Bună,
+      <strong>${vendorName || "Artizan"}</strong>,
+    </p>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 16px;
+        line-height:1.6;
+      "
+    >
+      Clientul a achitat avansul pentru comanda
+      <strong>#${displayNo}</strong>.
+      Poți începe pregătirea comenzii.
+    </p>
+
+    <div
+      style="
+        background:#ecfdf3;
+        border:1px solid #a7f3d0;
+        border-radius:12px;
+        padding:16px;
+        margin:16px 0;
+      "
+    >
+      <div
+        style="
+          margin-bottom:8px;
+          color:#166534;
+        "
+      >
+        <strong>
+          Avans achitat:
+        </strong>
+
+        ${depositLabel}
+      </div>
+
+      ${
+        remainingLabel
+          ? `
+            <div
+              style="
+                margin-bottom:8px;
+                color:#374151;
+              "
+            >
+              <strong>
+                Rest de încasat la livrare:
+              </strong>
+
+              ${remainingLabel}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        transferredLabel
+          ? `
+            <div
+              style="
+                margin-bottom:8px;
+                color:#374151;
+              "
+            >
+              <strong>
+                Transfer către contul tău Stripe:
+              </strong>
+
+              ${transferredLabel}
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        stripeFeeLabel
+          ? `
+            <div
+              style="
+                color:#6b7280;
+                font-size:13px;
+              "
+            >
+              Taxă procesare Stripe:
+              ${stripeFeeLabel}
+            </div>
+          `
+          : ""
+      }
+    </div>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 16px;
+        line-height:1.6;
+      "
+    >
+      Suma achitată de client a fost procesată,
+      iar partea aferentă ție a fost transferată
+      către contul tău Stripe Connect.
+    </p>
+
+    ${
+      orderLink
+        ? `
+          <p
+            style="
+              text-align:center;
+              margin:24px 0 12px;
+            "
+          >
+            <a
+              href="${orderLink}"
+              style="
+                background:#6f4e43;
+                color:#ffffff;
+                padding:13px 22px;
+                border-radius:10px;
+                text-decoration:none;
+                font-weight:700;
+                display:inline-block;
+              "
+            >
+              Vezi comanda
+            </a>
+          </p>
+        `
+        : ""
+    }
+  </div>
+
+  <p
+    style="
+      font-size:12px;
+      color:#9ca3af;
+      text-align:center;
+      margin:20px 0 0;
+    "
+  >
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    `Bună, ${vendorName || "Artizan"},`,
+    "",
+    `Avansul pentru comanda #${displayNo} a fost achitat.`,
+    `Avans achitat: ${depositLabel}`,
+    remainingLabel
+      ? `Rest de încasat la livrare: ${remainingLabel}`
+      : "",
+    transferredLabel
+      ? `Transfer către contul tău Stripe: ${transferredLabel}`
+      : "",
+    stripeFeeLabel
+      ? `Taxă Stripe: ${stripeFeeLabel}`
+      : "",
+    "",
+    "Poți începe pregătirea comenzii.",
+    orderLink
+      ? `Vezi comanda: ${orderLink}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey:
+      "noreply",
+
+    to,
+
+    subject,
+
+    template:
+      "vendor_deposit_paid",
+
+    userId,
+
+    orderId,
+
+    toName:
+      vendorName ||
+      null,
+
+    mailOptions: {
+      ...senderEnvelope(
+        "noreply"
+      ),
+
+      to,
+
+      subject,
+
+      html,
+
       text,
 
       headers:

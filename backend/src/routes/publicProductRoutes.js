@@ -555,7 +555,7 @@ discount:
   Array.isArray(p.repeatedGroups)
     ? p.repeatedGroups
     : [],
-    
+
     quoteSchema:
       Array.isArray(p.quoteSchema)
         ? p.quoteSchema
@@ -1194,14 +1194,30 @@ res.set("Expires", "0");
       },
     };
 
-    async function mapWithPromos(rows) {
-      const sorted = sortPromotedFirst(rows);
-      const promoByProductId = await getActiveCollectionPromosForProducts(sorted);
+  async function mapWithPromos(rows) {
+  const sorted =
+    sortPromotedFirst(rows);
 
-      return sorted.map((product) =>
-        mapPublicProduct(product, promoByProductId.get(product.id) || null)
+  let promotedProducts =
+    sorted;
+
+  try {
+    promotedProducts =
+      await applyPromotionsToProducts(
+        sorted
       );
-    }
+  } catch (promotionError) {
+    console.error(
+      "[public recommended] promotion pricing failed:",
+      promotionError
+    );
+  }
+
+  return promotedProducts.map(
+    (product) =>
+      mapPublicProduct(product)
+  );
+}
 
     const latestRaw = await prisma.product.findMany({
       where: baseWhere,
@@ -1563,32 +1579,82 @@ router.get("/products/feed", async (req, res, next) => {
       select: baseProductSelect,
     });
 
-    const hasMore = rows.length > limit;
-    const slice = hasMore ? rows.slice(0, limit) : rows;
+    const hasMore =
+  rows.length > limit;
 
-    const promoByProductId = await getActiveCollectionPromosForProducts(slice);
+const slice =
+  hasMore
+    ? rows.slice(0, limit)
+    : rows;
 
-    let favoriteIds = new Set();
+let promotedSlice =
+  slice;
 
-    if (viewerId && slice.length) {
-      const ids = slice.map((p) => p.id);
-
-      const favorites = await prisma.favorite.findMany({
-        where: {
-          userId: viewerId,
-          productId: { in: ids },
-        },
-        select: { productId: true },
-      });
-
-      favoriteIds = new Set(favorites.map((x) => x.productId));
-    }
-
-    const items = slice.map((product) =>
-      mapPublicProduct(product, promoByProductId.get(product.id) || null, {
-        favorited: favoriteIds.has(product.id),
-      })
+try {
+  promotedSlice =
+    await applyPromotionsToProducts(
+      slice
     );
+} catch (promotionError) {
+  console.error(
+    "[public products feed] promotion pricing failed:",
+    promotionError
+  );
+}
+
+let favoriteIds =
+  new Set();
+
+if (
+  viewerId &&
+  slice.length
+) {
+  const ids =
+    slice.map(
+      (product) =>
+        product.id
+    );
+
+  const favorites =
+    await prisma.favorite.findMany({
+      where: {
+        userId:
+          viewerId,
+
+        productId: {
+          in: ids,
+        },
+      },
+
+      select: {
+        productId:
+          true,
+      },
+    });
+
+  favoriteIds =
+    new Set(
+      favorites.map(
+        (favorite) =>
+          favorite.productId
+      )
+    );
+}
+
+const items =
+  promotedSlice.map(
+    (product) =>
+      mapPublicProduct(
+        product,
+        null,
+        {
+          favorited:
+            favoriteIds.has(
+              product.id
+            ),
+        }
+      )
+  );
 
     res.json({
       items,
@@ -2118,12 +2184,28 @@ router.get("/store/:slug/initial", async (req, res, next) => {
       select: baseProductSelect,
     });
 
-    const promoByProductId = await getActiveCollectionPromosForProducts(productsRaw);
+    let promotedProducts =
+  productsRaw;
 
-    const products = productsRaw.map((p) =>
-      mapPublicProduct(p, promoByProductId.get(p.id) || null)
+try {
+  promotedProducts =
+    await applyPromotionsToProducts(
+      productsRaw
     );
+} catch (promotionError) {
+  console.error(
+    "[public store initial] promotion pricing failed:",
+    promotionError
+  );
+}
 
+const products =
+  promotedProducts.map(
+    (product) =>
+      mapPublicProduct(
+        product
+      )
+  );
     res.set("Cache-Control", "public, max-age=0, must-revalidate");
     res.json({ shop, products });
   } catch (e) {

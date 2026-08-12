@@ -1124,3 +1124,124 @@ export async function notifyVendorOnHomepageFeatureCreated(
     },
   });
 }
+
+export async function notifyUserDepositRequested({
+  orderId,
+  shipmentId,
+}) {
+  const shipment =
+    await prisma.shipment.findFirst({
+      where: {
+        id: shipmentId,
+        orderId,
+      },
+
+     select: {
+  id: true,
+  depositStatus: true,
+  depositPercent: true,
+  depositRequestedAmount: true,
+  remainingCodAmount: true,
+  depositRequestedAt: true, // 👈 ADAUGĂ ASTA
+
+  order: {
+    select: {
+      id: true,
+      orderNumber: true,
+      userId: true,
+      currency: true,
+    },
+  },
+
+  vendor: {
+    select: {
+      displayName: true,
+    },
+  },
+},
+    });
+
+  if (
+    !shipment ||
+    !shipment.order ||
+    !shipment.order.userId
+  ) {
+    return null;
+  }
+
+  if (
+    shipment.depositStatus !==
+    "PENDING"
+  ) {
+    return null;
+  }
+
+  const order =
+    shipment.order;
+
+  const displayNumber =
+    order.orderNumber ||
+    order.id;
+
+  const currency =
+    order.currency ||
+    "RON";
+
+  const depositPercent =
+    Number(
+      shipment.depositPercent ||
+        0
+    );
+
+  const requestedAmount =
+    Number(
+      shipment.depositRequestedAmount ||
+        0
+    );
+
+  const remainingCodAmount =
+    Number(
+      shipment.remainingCodAmount ||
+        0
+    );
+
+  const vendorName =
+    shipment.vendor
+      ?.displayName ||
+    "Vânzătorul";
+
+  const dedupeKey =
+  `deposit_requested:` +
+  `${order.userId}:` +
+  `${shipment.id}:` +
+  `${shipment.depositRequestedAt?.getTime?.() || Date.now()}`;
+
+  return createUserNotification(
+    order.userId,
+    {
+      dedupeKey,
+
+      type:
+        "order",
+
+      title:
+        `Avans solicitat pentru comanda #${displayNumber}`,
+
+      body:
+        `${vendorName} a solicitat un avans de ` +
+        `${depositPercent}% în valoare de ` +
+        `${requestedAmount.toFixed(2)} ${currency}. ` +
+        `După plata avansului, restul de ` +
+        `${remainingCodAmount.toFixed(2)} ${currency} ` +
+        `va fi achitat la livrare.`,
+
+      link:
+  `/comanda/${encodeURIComponent(
+    order.id
+  )}?shipmentId=${encodeURIComponent(
+    shipment.id
+  )}#avans`,
+    }
+  );
+}
+

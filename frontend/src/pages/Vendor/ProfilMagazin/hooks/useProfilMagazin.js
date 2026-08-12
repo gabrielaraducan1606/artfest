@@ -712,6 +712,7 @@ export default function useProfilMagazin(slug, opts = {}) {
       let ownerFromPrivateRoute = false;
 
       try {
+        
         const initial = await api(
           `/api/public/store/${encodeURIComponent(
             currentSlug

@@ -9,14 +9,28 @@ import {
   notifyUserOnOrderStatusChange,
   notifyUserOnInvoiceIssued,
   notifyUserOnShipmentPickupScheduled,
+  notifyUserDepositRequested,
 } from "../services/notifications.js";
 import {
   sendShipmentPickupEmail,
   sendOrderConfirmationEmail,
+  sendDepositRequestedEmail,
 } from "../lib/mailer.js";
+
+import {
+  createDepositPaymentForShipment,
+} from "../payments/orchestrator.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
+
+function getFrontendUrl() {
+  return (
+    process.env.APP_URL ||
+    process.env.FRONTEND_URL ||
+    "http://localhost:5173"
+  ).replace(/\/+$/, "");
+}
 
 // --- SSE: vendor orders updates (in-memory subscribers per vendor)
 const vendorSubscribers = new Map(); // vendorId -> Set(res)
@@ -1236,12 +1250,36 @@ router.get(
               true,
 
             cancelReason:
-              true,
+  true,
 
-            cancelReasonNote:
-              true,
+cancelReasonNote:
+  true,
 
-            items: {
+depositStatus:
+  true,
+
+depositPercent:
+  true,
+
+depositRequestedAmount:
+  true,
+
+depositPaidAmount:
+  true,
+
+remainingCodAmount:
+  true,
+
+depositRequestedAt:
+  true,
+
+depositPaidAt:
+  true,
+
+depositExpiresAt:
+  true,
+
+items: {
               select: {
                 id: true,
                 productId: true,
@@ -1250,16 +1288,13 @@ router.get(
                 price: true,
 
                 selectedOptions:
-  true,
+                  true,
 
-customAnswers:
-  true,
+                customAnswers:
+                  true,
 
-repeatedGroupAnswers:
-  true,
-
-configurationKey:
-  true,
+                configurationKey:
+                  true,
 
                 originalPrice:
                   true,
@@ -1763,21 +1798,17 @@ configurationKey:
                       item.discountSource ||
                       null,
 
-                   selectedOptions:
-  item.selectedOptions ||
-  {},
+                    selectedOptions:
+                      item.selectedOptions ||
+                      {},
 
-customAnswers:
-  item.customAnswers ||
-  {},
+                    customAnswers:
+                      item.customAnswers ||
+                      {},
 
-repeatedGroupAnswers:
-  item.repeatedGroupAnswers ||
-  {},
-
-configurationKey:
-  item.configurationKey ||
-  null,
+                    configurationKey:
+                      item.configurationKey ||
+                      null,
 
                     image:
                       item.productId
@@ -1847,12 +1878,58 @@ configurationKey:
               "",
 
             paymentMethod:
-              order.paymentMethod ||
-              null,
+  order.paymentMethod ||
+  null,
 
-            invoiceNumber:
-              order.invoiceNumber ||
-              null,
+deposit: {
+  status:
+    shipment.depositStatus ||
+    "NOT_REQUESTED",
+
+  percent:
+    shipment.depositPercent != null
+      ? Number(
+          shipment.depositPercent
+        )
+      : null,
+
+  requestedAmount:
+    shipment.depositRequestedAmount != null
+      ? Number(
+          shipment.depositRequestedAmount
+        )
+      : null,
+
+  paidAmount:
+    shipment.depositPaidAmount != null
+      ? Number(
+          shipment.depositPaidAmount
+        )
+      : null,
+
+  remainingCodAmount:
+    shipment.remainingCodAmount != null
+      ? Number(
+          shipment.remainingCodAmount
+        )
+      : null,
+
+  requestedAt:
+    shipment.depositRequestedAt ||
+    null,
+
+  paidAt:
+    shipment.depositPaidAt ||
+    null,
+
+  expiresAt:
+    shipment.depositExpiresAt ||
+    null,
+},
+
+invoiceNumber:
+  order.invoiceNumber ||
+  null,
 
             invoiceDate:
               order.invoiceDate ||
@@ -2799,20 +2876,16 @@ router.get(
                 null,
 
               selectedOptions:
-  item.selectedOptions ||
-  {},
+                item.selectedOptions ||
+                {},
 
-customAnswers:
-  item.customAnswers ||
-  {},
+              customAnswers:
+                item.customAnswers ||
+                {},
 
-repeatedGroupAnswers:
-  item.repeatedGroupAnswers ||
-  {},
-
-configurationKey:
-  item.configurationKey ||
-  null,
+              configurationKey:
+                item.configurationKey ||
+                null,
 
               image:
                 item.productId
@@ -2830,10 +2903,48 @@ configurationKey:
         "",
 
       paymentMethod:
-        order.paymentMethod ||
-        null,
+  order.paymentMethod ||
+  null,
 
-      shipment: {
+deposit: {
+  status:
+    shipment.depositStatus ||
+    "NOT_REQUESTED",
+
+  percent:
+    shipment.depositPercent != null
+      ? Number(shipment.depositPercent)
+      : null,
+
+  requestedAmount:
+    shipment.depositRequestedAmount != null
+      ? Number(shipment.depositRequestedAmount)
+      : null,
+
+  paidAmount:
+    shipment.depositPaidAmount != null
+      ? Number(shipment.depositPaidAmount)
+      : null,
+
+  remainingCodAmount:
+    shipment.remainingCodAmount != null
+      ? Number(shipment.remainingCodAmount)
+      : null,
+
+  requestedAt:
+    shipment.depositRequestedAt ||
+    null,
+
+  paidAt:
+    shipment.depositPaidAt ||
+    null,
+
+  expiresAt:
+    shipment.depositExpiresAt ||
+    null,
+},
+
+shipment: {
         id:
           shipment.id,
 
@@ -2907,86 +3018,651 @@ configurationKey:
     });
   }
 );
-async function restoreShipmentStockAfterStatusChange(
-  tx,
-  shipmentId
-) {
-  const shipment =
-    await tx.shipment.findUnique({
-      where: {
-        id: shipmentId,
-      },
 
-      select: {
-        id: true,
+/* ----------------------------------------------------
+   POST /api/vendor/orders/:id/request-deposit
+----------------------------------------------------- */
+router.post(
+  "/orders/:id/request-deposit",
+  requireVendor,
+  async (req, res) => {
+    try {
+      const vendorId =
+        req.user.vendorId;
 
-        items: {
-          select: {
-            productId: true,
-            qty: true,
+      const orderRef =
+        String(
+          req.params.id ||
+            ""
+        ).trim();
+
+      const shipment =
+        await findShipmentByOrderRef({
+          vendorId,
+
+          orderRef,
+
+          include: {
+            order: true,
+            items: true,
+
+           vendor: {
+  select: {
+    displayName: true,
+
+    stripeAccountId: true,
+    stripeChargesEnabled: true,
+    stripePayoutsEnabled: true,
+    stripeDetailsSubmitted: true,
+    stripeConnectStatus: true,
+  },
+},
           },
-        },
-      },
-    });
+        });
 
-  if (!shipment) {
-    throw new Error(
-      "shipment_not_found"
-    );
-  }
+      if (!shipment) {
+        return res.status(404).json({
+          error:
+            "order_not_found",
 
-  const qtyByProductId =
-    new Map();
+          message:
+            "Comanda nu a fost găsită.",
+        });
+      }
 
-  for (
-    const item of shipment.items || []
-  ) {
-    if (!item.productId) {
-      continue;
-    }
+      if (
+        shipment.order
+          ?.paymentMethod !==
+        "COD"
+      ) {
+        return res.status(409).json({
+          error:
+            "deposit_only_for_cod",
 
-    const qty = Number(
-      item.qty || 0
-    );
+          message:
+            "Avansul poate fi solicitat doar pentru comenzile ramburs.",
+        });
+      }
 
-    if (
-      !Number.isInteger(qty) ||
-      qty <= 0
-    ) {
-      continue;
-    }
+      if (
+        shipment.status !==
+        "PENDING"
+      ) {
+        return res.status(409).json({
+          error:
+            "deposit_order_already_started",
 
-    qtyByProductId.set(
-      item.productId,
-      (
-        qtyByProductId.get(
-          item.productId
-        ) || 0
-      ) + qty
-    );
-  }
+          message:
+            "Avansul poate fi solicitat doar înainte de începerea comenzii.",
+        });
+      }
 
-  for (
-    const [
-      productId,
-      qty,
-    ] of qtyByProductId
-  ) {
-    await tx.product.updateMany({
-      where: {
-        id: productId,
-      },
+      const depositCanBeRequested =
+  [
+    "NOT_REQUESTED",
+    "EXPIRED",
+    "FAILED",
+  ].includes(
+    shipment.depositStatus
+  );
 
-      data: {
-        readyQty: {
-          increment: qty,
-        },
+if (!depositCanBeRequested) {
+  return res.status(409).json({
+    error:
+      "deposit_already_requested",
 
-        availability: "READY",
-      },
-    });
-  }
+    message:
+      shipment.depositStatus === "PAID"
+        ? "Avansul pentru această comandă a fost deja plătit."
+        : "Există deja o solicitare de avans activă pentru această comandă.",
+  });
 }
+
+      const stripeReady =
+        Boolean(
+          shipment.vendor
+            ?.stripeAccountId
+        ) &&
+        shipment.vendor
+          ?.stripeChargesEnabled ===
+          true &&
+        shipment.vendor
+          ?.stripePayoutsEnabled ===
+          true &&
+        shipment.vendor
+          ?.stripeDetailsSubmitted ===
+          true &&
+        shipment.vendor
+          ?.stripeConnectStatus ===
+          "enabled";
+console.log(
+  "[REQUEST DEPOSIT STRIPE CHECK]",
+  {
+    vendorId,
+
+    stripeAccountId:
+      shipment.vendor
+        ?.stripeAccountId,
+
+    stripeChargesEnabled:
+      shipment.vendor
+        ?.stripeChargesEnabled,
+
+    stripePayoutsEnabled:
+      shipment.vendor
+        ?.stripePayoutsEnabled,
+
+    stripeDetailsSubmitted:
+      shipment.vendor
+        ?.stripeDetailsSubmitted,
+
+    stripeConnectStatus:
+      shipment.vendor
+        ?.stripeConnectStatus,
+
+    stripeReady,
+  }
+);
+      if (!stripeReady) {
+        return res.status(409).json({
+          error:
+            "stripe_not_active",
+
+          message:
+            "Activează plățile online înainte de a solicita avans.",
+        });
+      }
+
+      const productsTotal =
+        round2(
+          (
+            shipment.items ||
+            []
+          ).reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              Number(
+                item.price ||
+                  0
+              ) *
+                Number(
+                  item.qty ||
+                    0
+                ),
+            0
+          )
+        );
+
+      if (
+        productsTotal <=
+        0
+      ) {
+        return res.status(409).json({
+          error:
+            "invalid_order_total",
+
+          message:
+            "Valoarea produselor din comandă nu este validă.",
+        });
+      }
+
+      const depositPercent =
+        15;
+
+      const depositRequestedAmount =
+        round2(
+          (
+            productsTotal *
+            depositPercent
+          ) /
+            100
+        );
+
+      const shippingAmount =
+        round2(
+          Number(
+            shipment.price ||
+              0
+          )
+        );
+
+      const remainingCodAmount =
+        round2(
+          productsTotal +
+            shippingAmount -
+            depositRequestedAmount
+        );
+
+      const requestedAt =
+        new Date();
+
+      const expiresAt =
+        new Date(
+          requestedAt.getTime() +
+            24 *
+              60 *
+              60 *
+              1000
+        );
+
+      const updated =
+        await prisma.shipment.update({
+          where: {
+            id:
+              shipment.id,
+          },
+
+          data: {
+            depositStatus:
+              "PENDING",
+
+            depositPercent,
+
+            depositRequestedAmount,
+
+            depositPaidAmount:
+              null,
+
+            remainingCodAmount,
+
+            depositRequestedAt:
+              requestedAt,
+
+            depositPaidAt:
+              null,
+
+            depositExpiresAt:
+              expiresAt,
+
+            stripeDepositSessionId:
+              null,
+
+            stripeDepositPaymentIntentId:
+              null,
+
+            depositPaymentError:
+              null,
+          },
+        });
+
+      let payment;
+
+      try {
+        payment =
+          await createDepositPaymentForShipment({
+            shipmentId:
+              updated.id,
+          });
+      } catch (
+        paymentError
+      ) {
+        await prisma.shipment.update({
+          where: {
+            id:
+              updated.id,
+          },
+
+          data: {
+            depositStatus:
+              "NOT_REQUESTED",
+
+            depositPercent:
+              null,
+
+            depositRequestedAmount:
+              null,
+
+            depositPaidAmount:
+              null,
+
+            remainingCodAmount:
+              null,
+
+            depositRequestedAt:
+              null,
+
+            depositPaidAt:
+              null,
+
+            depositExpiresAt:
+              null,
+
+            stripeDepositSessionId:
+              null,
+
+            stripeDepositPaymentIntentId:
+              null,
+
+            depositMeta:
+              null,
+
+            depositPaymentError:
+              String(
+                paymentError
+                  ?.message ||
+                  paymentError
+              ),
+          },
+        });
+
+        throw paymentError;
+      }
+
+      try {
+        await notifyUserDepositRequested({
+          orderId:
+            shipment.orderId,
+
+          shipmentId:
+            updated.id,
+        });
+      } catch (
+        notificationError
+      ) {
+        console.error(
+          "notifyUserDepositRequested failed:",
+          notificationError
+        );
+      }
+
+    try {
+  const order =
+    shipment.order;
+
+  const shippingAddress =
+    order?.shippingAddress ||
+    {};
+
+  let customerEmail =
+    shippingAddress.email ||
+    order?.customerEmail ||
+    null;
+
+  let customerName =
+    shippingAddress.name ||
+    order?.customerName ||
+    null;
+
+  /*
+   * Pentru clientul cu cont,
+   * dacă emailul nu este în comandă,
+   * îl luăm din User.
+   */
+  if (
+    !customerEmail &&
+    order?.userId
+  ) {
+    const user =
+      await prisma.user.findUnique({
+        where: {
+          id:
+            order.userId,
+        },
+
+        select: {
+          email:
+            true,
+
+          name:
+            true,
+        },
+      });
+
+    customerEmail =
+      user?.email ||
+      null;
+
+    if (!customerName) {
+      customerName =
+        user?.name ||
+        null;
+    }
+  }
+
+  if (customerEmail) {
+    const frontendUrl =
+      getFrontendUrl();
+
+    let actionUrl =
+      `${frontendUrl}/comanda/${encodeURIComponent(
+        order.id
+      )}#avans`;
+
+    /*
+     * ================================================
+     * GUEST
+     * ================================================
+     *
+     * Guest-ul nu are sesiune și nu poate folosi
+     * ruta /api/user/...
+     *
+     * Îi generăm un token semnat valabil 24h,
+     * strict pentru această comandă + shipment.
+     */
+    if (
+      order?.isGuestOrder ===
+        true ||
+      !order?.userId
+    ) {
+      if (
+        !process.env.JWT_SECRET
+      ) {
+        throw new Error(
+          "JWT_SECRET missing for guest deposit access"
+        );
+      }
+
+      const guestDepositToken =
+        jwt.sign(
+          {
+            type:
+              "guest_deposit_access",
+
+            orderId:
+              order.id,
+
+            shipmentId:
+              updated.id,
+          },
+
+          process.env.JWT_SECRET,
+
+          {
+            expiresIn:
+              "24h",
+          }
+        );
+
+      actionUrl =
+        `${frontendUrl}/comanda-guest/${encodeURIComponent(
+          order.id
+        )}` +
+        `?depositToken=${encodeURIComponent(
+          guestDepositToken
+        )}` +
+        `#avans`;
+    }
+
+    await sendDepositRequestedEmail({
+      to:
+        customerEmail,
+
+      userId:
+        order?.userId ||
+        null,
+
+      orderId:
+        order.id,
+
+      orderNumber:
+        order.orderNumber ||
+        null,
+
+      customerName:
+        customerName ||
+        "client",
+
+      vendorName:
+        shipment.vendor
+          ?.displayName ||
+        "Artizanul",
+
+      depositPercent:
+        updated.depositPercent,
+
+      depositAmount:
+        updated.depositRequestedAmount !=
+        null
+          ? Number(
+              updated.depositRequestedAmount
+            )
+          : null,
+
+      remainingCodAmount:
+        updated.remainingCodAmount !=
+        null
+          ? Number(
+              updated.remainingCodAmount
+            )
+          : null,
+
+      expiresAt:
+        updated.depositExpiresAt,
+
+      currency:
+        order.currency ||
+        "RON",
+
+      /*
+       * Important:
+       *
+       * - user logat:
+       *   /comanda/:id#avans
+       *
+       * - guest:
+       *   /comanda-guest/:id?depositToken=...
+       */
+      actionUrl,
+    });
+  }
+} catch (
+  emailError
+) {
+  console.error(
+    "sendDepositRequestedEmail failed:",
+    emailError
+  );
+}
+
+      ordersCache.clear();
+
+      return res.json({
+        ok:
+          true,
+
+        shipmentId:
+          updated.id,
+
+        payment: {
+          provider:
+            payment.provider,
+
+          checkoutSessionId:
+            payment.checkoutSessionId,
+
+          /*
+           * Acest URL este returnat vendorului
+           * doar pentru debugging.
+           *
+           * Clientul îl va obține din ruta
+           * protejată pay-deposit.
+           */
+          url:
+            payment.url,
+        },
+
+        deposit: {
+          status:
+            updated.depositStatus,
+
+          percent:
+            updated.depositPercent,
+
+          requestedAmount:
+            updated.depositRequestedAmount !=
+            null
+              ? Number(
+                  updated.depositRequestedAmount
+                )
+              : null,
+
+          paidAmount:
+            updated.depositPaidAmount !=
+            null
+              ? Number(
+                  updated.depositPaidAmount
+                )
+              : null,
+
+          remainingCodAmount:
+            updated.remainingCodAmount !=
+            null
+              ? Number(
+                  updated.remainingCodAmount
+                )
+              : null,
+
+          requestedAt:
+            updated.depositRequestedAt,
+
+          paidAt:
+            updated.depositPaidAt,
+
+          expiresAt:
+            updated.depositExpiresAt,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Request deposit failed:",
+        error
+      );
+
+      const knownErrors = {
+        stripe_not_active:
+          "Plățile online nu sunt active pentru acest magazin.",
+
+        invalid_deposit_amount:
+          "Suma avansului nu este validă.",
+
+        deposit_not_pending:
+          "Avansul nu este în așteptarea plății.",
+
+        deposit_only_for_cod:
+          "Avansul este disponibil doar pentru comenzile ramburs.",
+
+        shipment_not_found:
+          "Livrarea nu a fost găsită.",
+      };
+
+      const message =
+        knownErrors[
+          error?.message
+        ] ||
+        "Nu am putut solicita avansul.";
+
+      return res.status(500).json({
+        error:
+          "request_deposit_failed",
+
+        message,
+      });
+    }
+  }
+);
 
 /* ----------------------------------------------------
    PATCH /api/vendor/orders/:id/status
@@ -3033,7 +3709,16 @@ router.patch("/orders/:id/status", requireVendor, async (req, res) => {
   });
 
   if (!s) return res.status(404).json({ error: "not_found" });
-
+if (
+  nextUi === "preparing" &&
+  s.depositStatus === "PENDING"
+) {
+  return res.status(409).json({
+    error: "deposit_payment_pending",
+    message:
+      "Nu poți începe comanda până când clientul nu plătește avansul.",
+  });
+}
   if (isAwaitingAwbLock(s)) {
     return lock409(res);
   }

@@ -163,7 +163,17 @@ function OrderCardBase({
     !!order.returnEligible &&
     order.status ===
       "DELIVERED";
+const deposit =
+  order?.deposit ||
+  null;
 
+const hasPendingDeposit =
+  deposit?.status ===
+    "PENDING";
+
+const hasPaidDeposit =
+  deposit?.status ===
+    "PAID";
   const createdLabel =
     useMemo(() => {
       const created =
@@ -182,11 +192,13 @@ function OrderCardBase({
       );
     }, [order.createdAt]);
 
-  const goToDetails = () => {
-    navigate(
-      `/comanda/${order.id}`
-    );
-  };
+ const goToDetails = () => {
+  navigate(
+    hasPendingDeposit
+      ? `/comanda/${order.id}#avans`
+      : `/comanda/${order.id}`
+  );
+};
 
   const isCompany =
     order.customerType ===
@@ -332,6 +344,108 @@ function OrderCardBase({
           </b>
         </div>
       </header>
+{hasPendingDeposit && (
+  <div
+    style={{
+      marginTop: 10,
+      marginBottom: 10,
+      padding: "12px 14px",
+      borderRadius: 12,
+      border:
+        "1px solid rgba(190, 130, 25, 0.28)",
+      background:
+        "rgba(255, 186, 40, 0.08)",
+    }}
+  >
+    <div
+      style={{
+        fontWeight: 800,
+        marginBottom: 4,
+      }}
+    >
+      ⚠️ Avans de achitat
+    </div>
+
+    <div
+      className={
+        styles.subtle
+      }
+    >
+      Artizanul a solicitat
+      {deposit?.percent != null
+        ? ` un avans de ${deposit.percent}%`
+        : " un avans"}
+      {deposit?.requestedAmount != null
+        ? ` · ${new Intl.NumberFormat(
+            "ro-RO",
+            {
+              style: "currency",
+              currency:
+                order.currency ||
+                "RON",
+            }
+          ).format(
+            Number(
+              deposit.requestedAmount
+            )
+          )}`
+        : ""}
+      .
+    </div>
+
+    <button
+      type="button"
+      className={
+        styles.btnWarn
+      }
+      style={{
+        marginTop: 8,
+      }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        navigate(
+          `/comanda/${order.id}#avans`
+        );
+      }}
+    >
+      Vezi și achită avansul
+    </button>
+  </div>
+)}
+{hasPaidDeposit && (
+  <div
+    style={{
+      marginTop: 10,
+      marginBottom: 10,
+      padding: "10px 12px",
+      borderRadius: 10,
+      border:
+        "1px solid rgba(40, 130, 70, 0.2)",
+      background:
+        "rgba(40, 130, 70, 0.05)",
+      fontWeight: 700,
+    }}
+  >
+    ✓ Avans achitat
+    {deposit?.paidAmount != null
+      ? ` · ${new Intl.NumberFormat(
+          "ro-RO",
+          {
+            style: "currency",
+            currency:
+              order.currency ||
+              "RON",
+          }
+        ).format(
+          Number(
+            deposit.paidAmount
+          )
+        )}`
+      : ""}
+  </div>
+)}
 
       {isCompany && (
         <div

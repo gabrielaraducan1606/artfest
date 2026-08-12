@@ -79,6 +79,42 @@ function formatDate(d) {
   }
 }
 
+function moneyAmount(
+  amount = 0,
+  currency = "RON"
+) {
+  return new Intl.NumberFormat(
+    "ro-RO",
+    {
+      style: "currency",
+      currency,
+    }
+  ).format(
+    Number(amount || 0)
+  );
+}
+
+function getDepositStatusLabel(
+  status
+) {
+  switch (status) {
+    case "PENDING":
+      return "Avans de achitat";
+
+    case "PAID":
+      return "Avans achitat";
+
+    case "EXPIRED":
+      return "Solicitare expirată";
+
+    case "FAILED":
+      return "Plata nu a fost finalizată";
+
+    default:
+      return "";
+  }
+}
+
 function getObjectEntries(value) {
   if (
     !value ||
@@ -328,6 +364,10 @@ export default function MyOrderDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [busyAction, setBusyAction] = useState(null); // "cancel" | "reorder" | null
+const [
+  busyDepositShipmentId,
+  setBusyDepositShipmentId,
+] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -464,6 +504,101 @@ export default function MyOrderDetailsPage() {
     alert(message);
   } finally {
     setBusyAction(
+      null
+    );
+  }
+}
+
+async function handlePayDeposit(
+  shipment
+) {
+  if (
+    !order?.id ||
+    !shipment?.id
+  ) {
+    return;
+  }
+
+  const deposit =
+    shipment.deposit;
+
+  if (
+    !deposit ||
+    deposit.status !==
+      "PENDING"
+  ) {
+    alert(
+      "Acest avans nu mai este disponibil pentru plată."
+    );
+
+    return;
+  }
+
+  if (
+    deposit.payable ===
+    false
+  ) {
+    alert(
+      "Solicitarea de avans a expirat sau nu mai poate fi achitată."
+    );
+
+    await load();
+
+    return;
+  }
+
+  try {
+    setBusyDepositShipmentId(
+      shipment.id
+    );
+
+    const response =
+      await api(
+        `/api/user/orders/${encodeURIComponent(
+          order.id
+        )}/shipments/${encodeURIComponent(
+          shipment.id
+        )}/pay-deposit`,
+        {
+          method: "POST",
+        }
+      );
+
+    const checkoutUrl =
+      response?.url;
+
+    if (!checkoutUrl) {
+      throw new Error(
+        "Nu am primit linkul pentru plata avansului."
+      );
+    }
+
+    window.location.assign(
+      checkoutUrl
+    );
+  } catch (error) {
+    console.error(
+      "Pay deposit failed:",
+      error
+    );
+
+    const message =
+      error?.data?.message ||
+      error?.response?.data
+        ?.message ||
+      error?.message ||
+      "Nu am putut deschide plata avansului.";
+
+    alert(message);
+
+    /*
+     * Dacă între timp avansul
+     * a expirat sau a fost plătit,
+     * reîncărcăm comanda.
+     */
+    await load();
+  } finally {
+    setBusyDepositShipmentId(
       null
     );
   }
@@ -833,7 +968,322 @@ export default function MyOrderDetailsPage() {
                   Nu există produse asociate acestui pachet.
                 </p>
               )}
+{s.deposit &&
+  s.deposit.status !==
+    "NOT_REQUESTED" && (
+    <div
+  id={
+    s.deposit?.status ===
+    "PENDING"
+      ? "avans"
+      : undefined
+  }
+  style={{
+        marginBottom: 16,
+        padding: 16,
+        borderRadius: 14,
+        border:
+          s.deposit.status ===
+          "PAID"
+            ? "1px solid rgba(40, 130, 70, 0.22)"
+            : s.deposit.status ===
+                "PENDING"
+              ? "1px solid rgba(170, 120, 30, 0.28)"
+              : "1px solid rgba(120, 120, 120, 0.18)",
+        background:
+          s.deposit.status ===
+          "PAID"
+            ? "rgba(40, 130, 70, 0.06)"
+            : s.deposit.status ===
+                "PENDING"
+              ? "rgba(190, 140, 40, 0.07)"
+              : "rgba(120, 120, 120, 0.05)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent:
+            "space-between",
+          gap: 12,
+          alignItems:
+            "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: 16,
+              marginBottom: 4,
+            }}
+          >
+            {getDepositStatusLabel(
+              s.deposit.status
+            )}
+          </div>
 
+          {s.deposit.status ===
+            "PENDING" && (
+            <p
+              className={
+                styles.subtle
+              }
+              style={{
+                margin: 0,
+                maxWidth: 620,
+              }}
+            >
+              Artizanul a solicitat un
+              avans pentru confirmarea
+              și pregătirea comenzii.
+            </p>
+          )}
+
+          {s.deposit.status ===
+            "PAID" && (
+            <p
+              className={
+                styles.subtle
+              }
+              style={{
+                margin: 0,
+              }}
+            >
+              Plata avansului a fost
+              înregistrată cu succes.
+            </p>
+          )}
+
+          {s.deposit.status ===
+            "EXPIRED" && (
+            <p
+              className={
+                styles.subtle
+              }
+              style={{
+                margin: 0,
+              }}
+            >
+              Termenul pentru plata
+              acestui avans a expirat.
+              Poți contacta artizanul
+              dacă dorești o nouă
+              solicitare.
+            </p>
+          )}
+
+          {s.deposit.status ===
+            "FAILED" && (
+            <p
+              className={
+                styles.subtle
+              }
+              style={{
+                margin: 0,
+              }}
+            >
+              Plata nu a fost
+              finalizată. Dacă
+              solicitarea este încă
+              activă, poți încerca din
+              nou.
+            </p>
+          )}
+        </div>
+
+        {s.deposit.percent != null && (
+          <span
+            className={
+              styles.badge
+            }
+          >
+            {s.deposit.percent}% avans
+          </span>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(160px, 1fr))",
+          gap: 10,
+          marginTop: 14,
+        }}
+      >
+        {s.deposit.requestedAmount !=
+          null && (
+          <div>
+            <div
+              className={
+                styles.subtle
+              }
+            >
+              Avans solicitat
+            </div>
+
+            <strong>
+              {moneyAmount(
+                s.deposit
+                  .requestedAmount,
+                order.currency
+              )}
+            </strong>
+          </div>
+        )}
+
+        {s.deposit.paidAmount !=
+          null && (
+          <div>
+            <div
+              className={
+                styles.subtle
+              }
+            >
+              Avans achitat
+            </div>
+
+            <strong>
+              {moneyAmount(
+                s.deposit.paidAmount,
+                order.currency
+              )}
+            </strong>
+          </div>
+        )}
+
+        {s.deposit
+          .remainingCodAmount !=
+          null && (
+          <div>
+            <div
+              className={
+                styles.subtle
+              }
+            >
+              Rest de achitat la
+              livrare
+            </div>
+
+            <strong>
+              {moneyAmount(
+                s.deposit
+                  .remainingCodAmount,
+                order.currency
+              )}
+            </strong>
+          </div>
+        )}
+
+        {s.deposit.expiresAt &&
+          s.deposit.status ===
+            "PENDING" && (
+            <div>
+              <div
+                className={
+                  styles.subtle
+                }
+              >
+                Plata este disponibilă
+                până la
+              </div>
+
+              <strong>
+                {formatDate(
+                  s.deposit
+                    .expiresAt
+                )}
+              </strong>
+            </div>
+          )}
+      </div>
+
+      {s.deposit.status ===
+        "PENDING" && (
+        <div
+          style={{
+            marginTop: 16,
+          }}
+        >
+          <button
+            type="button"
+            className={
+              styles.btnPrimary
+            }
+            disabled={
+              busyDepositShipmentId ===
+                s.id ||
+              !s.deposit.payable
+            }
+            onClick={() =>
+              handlePayDeposit(
+                s
+              )
+            }
+          >
+            {busyDepositShipmentId ===
+            s.id ? (
+              <>
+                <Loader2
+                  size={16}
+                  className={
+                    styles.spin
+                  }
+                  style={{
+                    marginRight: 6,
+                  }}
+                />
+                Se deschide plata…
+              </>
+            ) : s.deposit.payable ? (
+              "Plătește avansul"
+            ) : (
+              "Avans expirat"
+            )}
+          </button>
+
+          <p
+            className={
+              styles.subtle
+            }
+            style={{
+              margin:
+                "8px 0 0",
+              fontSize: 12,
+            }}
+          >
+            Plata online este procesată
+            securizat. După achitarea
+            avansului, restul indicat
+            mai sus rămâne de achitat
+            conform comenzii.
+          </p>
+        </div>
+      )}
+
+      {s.deposit.status ===
+        "PAID" &&
+        s.deposit.paidAt && (
+          <p
+            className={
+              styles.subtle
+            }
+            style={{
+              margin:
+                "12px 0 0",
+              fontSize: 12,
+            }}
+          >
+            Achitat la{" "}
+            {formatDate(
+              s.deposit.paidAt
+            )}
+          </p>
+        )}
+    </div>
+  )}
               {s.items.length > 0 && (
                 <ul className={styles.itemList}>
                   {s.items.map((it) => {

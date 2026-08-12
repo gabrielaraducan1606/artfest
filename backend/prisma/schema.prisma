@@ -1196,6 +1196,7 @@ model Shipment {
   stripeDepositPaymentIntentId String?              @db.VarChar(255)
   stripeDepositChargeId        String?              @db.VarChar(255)
   depositPaymentError          String?
+depositMeta                  Json?
 
   order                  Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendor                 Vendor              @relation(fields: [vendorId], references: [id])
