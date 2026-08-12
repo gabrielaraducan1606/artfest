@@ -611,3 +611,29 @@ html[data-theme="dark"] .table tbody tr:nth-child(even) {
   margin: 6px 0;
   opacity: 0.9;
 }
+
+/* ================== Stripe finance ================== */
+
+.stripeSummaryRow {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stripeSummaryRow .summaryCard {
+  min-width: 0;
+}
+
+.stripeSummaryRow .summaryValue {
+  word-break: break-word;
+}
+
+@media (max-width: 1000px) {
+  .stripeSummaryRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .stripeSummaryRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

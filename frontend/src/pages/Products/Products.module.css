@@ -858,3 +858,178 @@
 .seoFaqItem p {
   margin: 0;
 }
+
+/* =========================
+   Category rail
+========================= */
+
+.categoryRailWrap {
+  width: 100%;
+  margin: 14px 0 4px;
+}
+
+.categoryRail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  width: 100%;
+
+  overflow-x: auto;
+  overflow-y: hidden;
+
+  padding: 2px 2px 8px;
+
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+
+  scroll-snap-type: x proximity;
+}
+
+.categoryRail::-webkit-scrollbar {
+  display: none;
+}
+
+.categoryChip {
+  flex: 0 0 auto;
+
+  min-height: 36px;
+
+  padding: 0 14px;
+
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+
+  background: var(--surface);
+  color: var(--color-text);
+
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 800;
+
+  white-space: nowrap;
+
+  cursor: pointer;
+
+  scroll-snap-align: start;
+
+  transition:
+    background .16s ease,
+    color .16s ease,
+    border-color .16s ease,
+    transform .1s ease,
+    box-shadow .16s ease;
+}
+
+.categoryChip:hover {
+  border-color:
+    color-mix(
+      in oklab,
+      var(--color-primary) 45%,
+      var(--color-border)
+    );
+
+  background:
+    color-mix(
+      in oklab,
+      var(--color-primary) 8%,
+      var(--surface)
+    );
+
+  color: var(--color-primary);
+}
+
+.categoryChip:active {
+  transform: scale(.97);
+}
+
+.categoryChipActive {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+
+  box-shadow:
+    0 6px 16px
+    color-mix(
+      in oklab,
+      var(--color-primary) 20%,
+      transparent
+    );
+}
+
+.categoryChipActive:hover {
+  border-color: var(--color-hover);
+  background: var(--color-hover);
+  color: #fff;
+}
+
+/* mobil */
+@media (max-width: 768px) {
+  .categoryRailWrap {
+    width: calc(100% + 24px);
+    margin-left: -12px;
+    margin-top: 12px;
+    margin-bottom: 2px;
+  }
+
+  .categoryRail {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .categoryChip {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+}
+
+/* telefoane mici */
+@media (max-width: 480px) {
+  .categoryRailWrap {
+    width: calc(100% + 28px);
+    margin-left: -14px;
+  }
+
+  .categoryRail {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .categoryChip {
+    min-height: 33px;
+    padding: 0 11px;
+    font-size: 11px;
+  }
+}
+
+/* =========================================================
+   EMBEDDED PRODUCTS
+========================================================= */
+
+.embeddedProductsToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+
+  margin-bottom: 4px;
+}
+
+.embeddedProductsToolbar > span {
+  color: var(--color-text);
+
+  font-family: var(--font-title);
+
+  font-size: 1.25rem;
+  font-weight: 850;
+
+  letter-spacing: -0.025em;
+}
+
+@media (max-width: 768px) {
+  .embeddedProductsToolbar > span {
+    font-size: 1.05rem;
+  }
+}

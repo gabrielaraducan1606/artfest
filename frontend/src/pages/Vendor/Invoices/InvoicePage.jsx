@@ -177,6 +177,50 @@ function getInvoiceDisplayNumber(inv) {
   return inv?.number || "—";
 }
 
+function getStripePayoutStatusLabel(status) {
+  const labels = {
+    paid: "Plătit",
+    pending: "În așteptare",
+    in_transit: "În drum spre cont",
+    failed: "Eșuat",
+    canceled: "Anulat",
+  };
+
+  return labels[status] || status || "—";
+}
+
+function getPayoutScheduleLabel(schedule) {
+  if (!schedule?.interval) {
+    return "—";
+  }
+
+  if (schedule.interval === "daily") {
+    return "Zilnic";
+  }
+
+  if (schedule.interval === "weekly") {
+    const days = schedule.weeklyPayoutDays || [];
+
+    return days.length
+      ? `Săptămânal · ${days.join(", ")}`
+      : "Săptămânal";
+  }
+
+  if (schedule.interval === "monthly") {
+    const days = schedule.monthlyPayoutDays || [];
+
+    return days.length
+      ? `Lunar · ziua ${days.join(", ")}`
+      : "Lunar";
+  }
+
+  if (schedule.interval === "manual") {
+    return "Manual";
+  }
+
+  return schedule.interval;
+}
+
 function BillingDetails({ billing }) {
   if (!billing) return null;
 
@@ -233,6 +277,10 @@ export default function VendorInvoicesPage() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [autoPaySaving, setAutoPaySaving] = useState(false);
 
+  const [stripeFinance, setStripeFinance] = useState(null);
+  const [stripeLoading, setStripeLoading] = useState(true);
+  const [stripeErr, setStripeErr] = useState("");
+
   useEffect(() => {
     let alive = true;
 
@@ -241,18 +289,28 @@ export default function VendorInvoicesPage() {
         setSummaryLoading(true);
         setEntriesLoading(true);
         setCommissionLoading(true);
+        setStripeLoading(true);
+
         setSummaryErr("");
         setEntriesErr("");
         setCommissionErr("");
+        setStripeErr("");
 
-        const [summaryRes, entriesRes, statementsRes, invoicesRes, billingRes] =
-          await Promise.allSettled([
-            apiGet("/vendor/payouts/summary"),
-            apiGet("/vendor/payouts/entries?eligible=true"),
-            apiGet("/vendor/payouts"),
-            apiGet("/vendors/me/invoices"),
-            apiGet("/vendors/me/billing"),
-          ]);
+        const [
+          summaryRes,
+          entriesRes,
+          statementsRes,
+          invoicesRes,
+          billingRes,
+          stripeRes,
+        ] = await Promise.allSettled([
+          apiGet("/vendor/payouts/summary"),
+          apiGet("/vendor/payouts/entries?eligible=true"),
+          apiGet("/vendor/payouts"),
+          apiGet("/vendors/me/invoices"),
+          apiGet("/vendors/me/billing"),
+          apiGet("/vendor/stripe/finance"),
+        ]);
 
         if (!alive) return;
 
@@ -285,17 +343,29 @@ export default function VendorInvoicesPage() {
         } else {
           setBilling(null);
         }
+
+        if (stripeRes.status === "fulfilled") {
+          setStripeFinance(stripeRes.value);
+        } else {
+          setStripeFinance(null);
+          setStripeErr(
+            stripeRes.reason?.message ||
+              "Nu am putut încărca informațiile Stripe."
+          );
+        }
       } catch (err) {
         if (alive) {
           setSummaryErr(err?.message || "Nu am putut încărca situația financiară.");
           setEntriesErr(err?.message || "Nu am putut încărca tranzacțiile.");
           setCommissionErr(err?.message || "Nu am putut încărca facturile.");
+          setStripeErr(err?.message || "Nu am putut încărca informațiile Stripe.");
         }
       } finally {
         if (alive) {
           setSummaryLoading(false);
           setEntriesLoading(false);
           setCommissionLoading(false);
+          setStripeLoading(false);
         }
       }
     }
@@ -410,6 +480,185 @@ export default function VendorInvoicesPage() {
           </a>
         </div>
       </header>
+
+      <section
+        className={styles.tableWrap}
+        aria-label="Încasări Stripe"
+        style={{ marginBottom: 18 }}
+      >
+        <div className={styles.sectionHead}>
+          <div>
+            <h2 className={styles.sectionTitle}>Încasările tale</h2>
+            <p className={styles.info}>
+              Vezi banii disponibili în Stripe, sumele în procesare și transferurile
+              către contul tău bancar.
+            </p>
+          </div>
+        </div>
+
+        {stripeLoading ? (
+          <p className={styles.info}>Se încarcă informațiile Stripe…</p>
+        ) : stripeErr ? (
+          <p className={styles.error} role="alert">
+            {stripeErr}
+          </p>
+        ) : !stripeFinance?.connected ? (
+          <div className={styles.billingCard}>
+            <strong>Stripe Connect nu este activ.</strong>
+            <p className={styles.info}>
+              Activează plata online pentru a putea primi încasările direct în contul tău.
+            </p>
+          </div>
+        ) : (
+          <>
+            <section
+  className={`${styles.summaryRow} ${styles.stripeSummaryRow}`}
+  aria-label="Sold Stripe"
+>
+              <div className={styles.summaryCard}>
+                <span className={styles.summaryLabel}>Disponibil în Stripe</span>
+                <span className={styles.summaryValue}>
+                  {formatMoney(
+                    stripeFinance?.balance?.available,
+                    stripeFinance?.balance?.currency || "RON"
+                  )}
+                </span>
+                <span className={styles.summaryPill}>Disponibil pentru payout</span>
+              </div>
+
+              <div className={styles.summaryCard}>
+                <span className={styles.summaryLabel}>În procesare</span>
+                <span className={styles.summaryValue}>
+                  {formatMoney(
+                    stripeFinance?.balance?.pending,
+                    stripeFinance?.balance?.currency || "RON"
+                  )}
+                </span>
+                <span className={styles.summaryPill}>
+                  Fonduri care nu sunt încă disponibile
+                </span>
+              </div>
+
+              <div className={styles.summaryCard}>
+                <span className={styles.summaryLabel}>Următorul payout</span>
+                <span className={styles.summaryValue}>
+                  {stripeFinance?.nextPayout
+                    ? formatMoney(
+                        stripeFinance.nextPayout.amount,
+                        stripeFinance.nextPayout.currency || "RON"
+                      )
+                    : "—"}
+                </span>
+                <span className={styles.summaryPill}>
+                  {stripeFinance?.nextPayout?.arrivalDate
+                    ? `Estimare în cont: ${formatDate(
+                        stripeFinance.nextPayout.arrivalDate
+                      )}`
+                    : "Stripe nu a creat încă următorul payout"}
+                </span>
+              </div>
+
+              <div className={styles.summaryCard}>
+                <span className={styles.summaryLabel}>Program payout</span>
+                <span className={styles.summaryValue}>
+                  {getPayoutScheduleLabel(stripeFinance?.payoutSchedule)}
+                </span>
+                <span className={styles.summaryPill}>
+                  Transfer automat către contul bancar
+                </span>
+              </div>
+            </section>
+
+            <div className={styles.billingCard} style={{ marginTop: 16 }}>
+              <div className={styles.billingGrid}>
+                <div>
+                  <strong>Status Stripe</strong>
+                  <div>
+                    Încasări:{" "}
+                    {stripeFinance?.stripeStatus?.chargesEnabled
+                      ? "✓ active"
+                      : "inactive"}
+                  </div>
+                  <div>
+                    Payout-uri:{" "}
+                    {stripeFinance?.stripeStatus?.payoutsEnabled
+                      ? "✓ active"
+                      : "inactive"}
+                  </div>
+                </div>
+
+                <div>
+                  <strong>Ultimul transfer bancar</strong>
+                  {stripeFinance?.lastPaidPayout ? (
+                    <>
+                      <div>
+                        {formatMoney(
+                          stripeFinance.lastPaidPayout.amount,
+                          stripeFinance.lastPaidPayout.currency || "RON"
+                        )}
+                      </div>
+                      <div>
+                        {formatDate(stripeFinance.lastPaidPayout.arrivalDate)}
+                      </div>
+                    </>
+                  ) : (
+                    <div>Nu există încă.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <section
+              className={styles.tableWrap}
+              aria-label="Transferuri către contul bancar"
+              style={{ marginTop: 16 }}
+            >
+              <div className={styles.sectionHead}>
+                <div>
+                  <h3 className={styles.sectionTitle}>
+                    Transferuri către contul bancar
+                  </h3>
+                  <p className={styles.info}>
+                    Istoricul payout-urilor efectuate de Stripe către contul tău.
+                  </p>
+                </div>
+              </div>
+
+              {!stripeFinance?.payouts?.length ? (
+                <p className={styles.info}>Nu există încă transferuri bancare.</p>
+              ) : (
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Creat</th>
+                      <th>Sumă</th>
+                      <th>Status</th>
+                      <th>Estimare / sosire</th>
+                      <th>Tip</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stripeFinance.payouts.map((payout) => (
+                      <tr key={payout.id}>
+                        <td>{formatDateTime(payout.createdAt)}</td>
+                        <td>
+                          {formatMoney(
+                            payout.amount,
+                            payout.currency || "RON"
+                          )}
+                        </td>
+                        <td>{getStripePayoutStatusLabel(payout.status)}</td>
+                        <td>{formatDate(payout.arrivalDate)}</td>
+                        <td>{payout.automatic ? "Automat" : "Manual"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </section>
+          </>
+        )}
+      </section>
 
       {summaryLoading ? (
         <p className={styles.info}>Se încarcă situația financiară…</p>

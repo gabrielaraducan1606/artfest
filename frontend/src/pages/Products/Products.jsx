@@ -180,10 +180,61 @@ function extractFacetsFromItems(itemsList = []) {
   };
 }
 
-export default function ProductsPage() {
+export default function ProductsPage({
+  embedded = false,
+}) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+const goToProductsParams = useCallback(
+  (
+    nextParams,
+    options = {}
+  ) => {
+    const p =
+      nextParams instanceof URLSearchParams
+        ? new URLSearchParams(
+            nextParams
+          )
+        : new URLSearchParams(
+            nextParams || ""
+          );
 
+    if (embedded) {
+      /*
+       * Rămânem în MobileCategories.
+       */
+      p.set(
+        "tab",
+        "produse"
+      );
+    } else {
+      /*
+       * Pe pagina normală /produse
+       * nu avem nevoie de tab.
+       */
+      p.delete("tab");
+    }
+
+    const query =
+      p.toString();
+
+    const pathname =
+      embedded
+        ? window.location.pathname
+        : "/produse";
+
+    navigate(
+      query
+        ? `${pathname}?${query}`
+        : pathname,
+      options
+    );
+  },
+  [
+    embedded,
+    navigate,
+  ]
+);
   const searchRef = useRef(null);
   const sentinelRef = useRef(null);
 
@@ -270,7 +321,7 @@ const visualSearchId =
   });
 
   const [filtersOpen, setFiltersOpen] = useState(false);
-
+const [categoryRail, setCategoryRail] = useState([]);
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
 const [suggestionsClosed, setSuggestionsClosed] = useState(false);
@@ -736,7 +787,37 @@ setItems((prev) => {
       alive = false;
     };
   }, [me]);
+useEffect(() => {
+  let alive = true;
 
+  const loadCategories = async () => {
+    try {
+      const res = await api(
+        "/api/public/categories"
+      );
+
+      if (!alive) return;
+
+      const list =
+        Array.isArray(res?.items)
+          ? res.items
+          : [];
+
+      setCategoryRail(list);
+    } catch (error) {
+      console.warn(
+        "Categories rail load failed:",
+        error
+      );
+    }
+  };
+
+  loadCategories();
+
+  return () => {
+    alive = false;
+  };
+}, []);
 useEffect(() => {
   let active = true;
 
@@ -776,17 +857,11 @@ useEffect(() => {
         return;
       }
 
-      /*
-       * Restaurăm produsele și poziția.
-       */
       setItems(saved.items);
 
-      /*
-       * Important:
-       * păstrăm pagina 1 ca să nu pornească
-       * simultan requestul de infinite scroll.
-       */
-      setPage(1);
+setPage(
+  Number(saved.page || 1)
+);
 
       setHasMore(
         saved.hasMore ?? true
@@ -1165,13 +1240,21 @@ if (requiresConfiguration) {
 
   setSuggestions(null);
 
-  navigate(`/produse?${p.toString()}`, {
+  goToProductsParams(
+  p,
+  {
     replace: true,
-  });
+  }
+);
 }, 450);
 
   return () => clearTimeout(handle);
-}, [localFilters.q, qParam, params, navigate]);
+}, [
+  localFilters.q,
+  qParam,
+  params,
+  goToProductsParams,
+]);
 
   const categoryLabelMap = useMemo(() => {
     const map = {};
@@ -1182,6 +1265,54 @@ if (requiresConfiguration) {
     }
     return map;
   }, [items]);
+
+const handleCategoryRailClick =
+  useCallback(
+    (categoryKey) => {
+      const p =
+        new URLSearchParams(
+          params
+        );
+
+      if (categoryKey) {
+        p.set(
+          "categorie",
+          categoryKey
+        );
+      } else {
+        p.delete(
+          "categorie"
+        );
+        p.delete(
+          "category"
+        );
+      }
+
+      /*
+       * Când schimbăm categoria,
+       * revenim la prima pagină.
+       */
+      p.set("page", "1");
+
+      /*
+       * Căutarea vizuală nu trebuie
+       * păstrată când utilizatorul
+       * navighează manual prin categorii.
+       */
+      p.delete("ids");
+      p.delete(
+        "visualSearchId"
+      );
+
+      setSuggestions(null);
+
+    goToProductsParams(p);
+    },
+   [
+  goToProductsParams,
+  params,
+]
+  );
 
   const applyFilters = useCallback(() => {
     const f = localFilters;
@@ -1221,12 +1352,12 @@ if (visualSearchId) {
 
     setFiltersOpen(false);
     setSuggestions(null);
-    navigate(`/produse?${p.toString()}`);
+   goToProductsParams(p);
 }, [
   ids,
   visualSearchId,
   localFilters,
-  navigate,
+  goToProductsParams,
 ]);
 
   const resetFilters = useCallback(() => {
@@ -1249,8 +1380,12 @@ if (visualSearchId) {
 
     setFiltersOpen(false);
     setSuggestions(null);
-    navigate("/produse");
-  }, [navigate]);
+    goToProductsParams(
+  new URLSearchParams()
+);
+  }, [
+  goToProductsParams,
+]);
 
 const clearImageSearch =
   useCallback(() => {
@@ -1265,15 +1400,11 @@ const clearImageSearch =
     );
     p.delete("page");
 
-    const query =
-      p.toString();
-
-    navigate(
-      query
-        ? `/produse?${query}`
-        : "/produse"
-    );
-  }, [navigate, params]);
+    goToProductsParams(p);
+  }, [
+  goToProductsParams,
+  params,
+]);
 
   const handleSuggestionCategoryClick = useCallback(
     (catKey) => {
@@ -1282,9 +1413,12 @@ const clearImageSearch =
       p.set("categorie", catKey);
       p.set("page", "1");
       setSuggestions(null);
-      navigate(`/produse?${p.toString()}`);
+      goToProductsParams(p);
     },
-    [localFilters.q, navigate]
+    [
+  localFilters.q,
+  goToProductsParams,
+]
   );
 
  const handleSuggestionProductClick = useCallback(
@@ -1301,9 +1435,9 @@ const clearImageSearch =
       const p = new URLSearchParams(params);
       p.set("categorie", catKey);
       p.set("page", "1");
-      navigate(`/produse?${p.toString()}`);
+      goToProductsParams(p);
     },
-    [navigate, params]
+    [goToProductsParams, params]
   );
 
   const productCards = useMemo(() => {
@@ -1361,86 +1495,161 @@ const clearImageSearch =
 
   return (
     <section className={styles.page}>
-      <SEO
-  title={
-    currentSeoCategory
-      ? `${currentSeoCategory.title} | Produse`
-      : "Produse handmade"
-  }
-  description={
-    currentSeoCategory
-      ? currentSeoCategory.description
-      : "Descoperă produse handmade, cadouri personalizate și creații artizanale românești pe Artfest."
-  }
-  canonical={
-    currentSeoCategory
-      ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
-      : "https://artfest.ro/produse"
-  }
-  url={
-    currentSeoCategory
-      ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
-      : "https://artfest.ro/produse"
-  }
-/>
+     {!embedded && (
+  <SEO
+    title={
+      currentSeoCategory
+        ? `${currentSeoCategory.title} | Produse`
+        : "Produse handmade"
+    }
+    description={
+      currentSeoCategory
+        ? currentSeoCategory.description
+        : "Descoperă produse handmade, cadouri personalizate și creații artizanale românești pe Artfest."
+    }
+    canonical={
+      currentSeoCategory
+        ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
+        : "https://artfest.ro/produse"
+    }
+    url={
+      currentSeoCategory
+        ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
+        : "https://artfest.ro/produse"
+    }
+  />
+)}
       <header className={styles.head}>
-        <div className={styles.headTop}>
-  <div className={styles.categoryHeroText}>
-    <span className={styles.categoryEyebrow}>
-      Artfest Marketplace
-    </span>
+    {!embedded && (
+  <div className={styles.headTop}>
+    <div className={styles.categoryHeroText}>
+      <span
+        className={
+          styles.categoryEyebrow
+        }
+      >
+        Artfest Marketplace
+      </span>
 
-   <h1 className={styles.h1}>
-  {visualSearchId
-    ? "Produse similare cu fotografia ta"
-    : currentSeoCategory?.h1 ||
-      "Produse"}
-</h1>
+      <h1
+        className={
+          styles.h1
+        }
+      >
+        {visualSearchId
+          ? "Produse similare cu fotografia ta"
+          : currentSeoCategory?.h1 ||
+            "Produse"}
+      </h1>
 
-{visualSearchId && (
-  <p
+      {visualSearchId && (
+        <p
+          className={
+            styles.categoryIntro
+          }
+        >
+          Am analizat stilul,
+          culorile, materialele și
+          forma din fotografie pentru
+          a selecta cele mai potrivite
+          produse Artfest.
+        </p>
+      )}
+
+      {!visualSearchId &&
+      currentSeoCategory?.intro ? (
+        <p
+          className={
+            styles.categoryIntro
+          }
+        >
+          {
+            currentSeoCategory.intro
+          }
+        </p>
+      ) : null}
+    </div>
+
+    <div
+      className={
+        styles.headActions
+      }
+    >
+      <button
+        type="button"
+        className={
+          styles.iconCircle
+        }
+        onClick={() =>
+          setFiltersOpen(true)
+        }
+        title="Filtrează produse"
+        aria-label="Filtrează produse"
+      >
+        <FaFilter />
+      </button>
+
+      <button
+        type="button"
+        className={
+          styles.iconCircle
+        }
+        onClick={
+          resetFilters
+        }
+        title="Resetează filtrele"
+        aria-label="Resetează filtrele"
+      >
+        <FaUndoAlt />
+      </button>
+    </div>
+  </div>
+)}
+{embedded && (
+  <div
     className={
-      styles.categoryIntro
+      styles.embeddedProductsToolbar
     }
   >
-    Am analizat stilul,
-    culorile, materialele și
-    forma din fotografie pentru
-    a selecta cele mai potrivite
-    produse Artfest.
-  </p>
+    <span>
+      Descoperă produse
+    </span>
+
+    <div
+      className={
+        styles.headActions
+      }
+    >
+      <button
+        type="button"
+        className={
+          styles.iconCircle
+        }
+        onClick={() =>
+          setFiltersOpen(true)
+        }
+        title="Filtrează produse"
+        aria-label="Filtrează produse"
+      >
+        <FaFilter />
+      </button>
+
+      <button
+        type="button"
+        className={
+          styles.iconCircle
+        }
+        onClick={
+          resetFilters
+        }
+        title="Resetează filtrele"
+        aria-label="Resetează filtrele"
+      >
+        <FaUndoAlt />
+      </button>
+    </div>
+  </div>
 )}
-
-    {!visualSearchId &&
-currentSeoCategory?.intro ? (
-      <p className={styles.categoryIntro}>
-        {currentSeoCategory.intro}
-      </p>
-    ) : null}
-  </div>
-
-  <div className={styles.headActions}>
-    <button
-      type="button"
-      className={styles.iconCircle}
-      onClick={() => setFiltersOpen(true)}
-      title="Filtrează produse"
-      aria-label="Filtrează produse"
-    >
-      <FaFilter />
-    </button>
-
-    <button
-      type="button"
-      className={styles.iconCircle}
-      onClick={resetFilters}
-      title="Resetează filtrele"
-      aria-label="Resetează filtrele"
-    >
-      <FaUndoAlt />
-    </button>
-  </div>
-</div>
        <form
   ref={searchRef}
   className={styles.searchRow}
@@ -1595,13 +1804,70 @@ currentSeoCategory?.intro ? (
             )}
         </form>
 
-        <SmartSearchSummary
-          q={qParam}
-          smart={smartInfo}
-          applied={appliedFiltersInfo}
-          categoryParam={categoryParam}
-          onApplySmartCategory={handleApplySmartCategory}
-        />
+{!visualSearchId && (
+  <div className={styles.categoryRailWrap}>
+    <div
+      className={styles.categoryRail}
+      aria-label="Categorii produse"
+    >
+      <button
+        type="button"
+        className={`${styles.categoryChip} ${
+          !categoryParam
+            ? styles.categoryChipActive
+            : ""
+        }`}
+        onClick={() =>
+          handleCategoryRailClick("")
+        }
+      >
+        Toate
+      </button>
+
+      {categoryRail.map((category) => {
+        const key = category?.key;
+
+        if (!key) {
+          return null;
+        }
+
+        const label =
+          category?.label ||
+          humanizeCategory(key);
+
+        const active =
+          categoryParam === key;
+
+        return (
+          <button
+            key={key}
+            type="button"
+            className={`${styles.categoryChip} ${
+              active
+                ? styles.categoryChipActive
+                : ""
+            }`}
+            onClick={() =>
+              handleCategoryRailClick(
+                key
+              )
+            }
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  </div>
+)}
+
+<SmartSearchSummary
+  q={qParam}
+  smart={smartInfo}
+  applied={appliedFiltersInfo}
+  categoryParam={categoryParam}
+  onApplySmartCategory={handleApplySmartCategory}
+/>
 
         <ActiveFilterChips params={params} navigate={navigate} />
 
@@ -1937,35 +2203,73 @@ currentSeoCategory?.intro ? (
   {productCards}
 </div>
           )}
-{currentSeoCategory && (
-  <>
-    <CategoryJsonLd category={currentSeoCategory} />
+{!embedded &&
+  currentSeoCategory && (
+    <>
+      <CategoryJsonLd
+        category={
+          currentSeoCategory
+        }
+      />
 
-    <section className={styles.seoSection}>
-      {currentSeoCategory.seoTitle && (
-        <h2>{currentSeoCategory.seoTitle}</h2>
-      )}
-
-      {currentSeoCategory.seoText && (
-        <p>{currentSeoCategory.seoText}</p>
-      )}
-
-      {Array.isArray(currentSeoCategory.faq) &&
-        currentSeoCategory.faq.length > 0 && (
-          <div className={styles.seoFaq}>
-            <h2>Întrebări frecvente</h2>
-
-            {currentSeoCategory.faq.map((item, index) => (
-              <div key={index} className={styles.seoFaqItem}>
-                <h3>{item.q}</h3>
-                <p>{item.a}</p>
-              </div>
-            ))}
-          </div>
+      <section
+        className={
+          styles.seoSection
+        }
+      >
+        {currentSeoCategory.seoTitle && (
+          <h2>
+            {
+              currentSeoCategory.seoTitle
+            }
+          </h2>
         )}
-    </section>
-  </>
-)}
+
+        {currentSeoCategory.seoText && (
+          <p>
+            {
+              currentSeoCategory.seoText
+            }
+          </p>
+        )}
+
+        {Array.isArray(
+          currentSeoCategory.faq
+        ) &&
+          currentSeoCategory.faq.length >
+            0 && (
+            <div
+              className={
+                styles.seoFaq
+              }
+            >
+              <h2>
+                Întrebări frecvente
+              </h2>
+
+              {currentSeoCategory.faq.map(
+                (item, index) => (
+                  <div
+                    key={index}
+                    className={
+                      styles.seoFaqItem
+                    }
+                  >
+                    <h3>
+                      {item.q}
+                    </h3>
+
+                    <p>
+                      {item.a}
+                    </p>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+      </section>
+    </>
+  )}
           <div ref={sentinelRef} style={{ height: 1 }} />
 
           {isLoadingMore && (

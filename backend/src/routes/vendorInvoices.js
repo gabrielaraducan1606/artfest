@@ -36,8 +36,19 @@ const INVOICE_STATUS_LABELS = {
 
 async function getCurrentVendorByUser(userId) {
   return prisma.vendor.findUnique({
-    where: { userId },
-    select: { id: true },
+    where: {
+      userId,
+    },
+
+    select: {
+      id: true,
+
+      stripeAccountId: true,
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDetailsSubmitted: true,
+      stripeConnectStatus: true,
+    },
   });
 }
 
@@ -54,7 +65,88 @@ function round2(n) {
 function formatMoney(value, currency = "RON") {
   return `${round2(value).toFixed(2)} ${currency}`;
 }
+function stripeAmountToMoney(
+  amount = 0
+) {
+  return round2(
+    Number(amount || 0) / 100
+  );
+}
 
+function stripeTimestampToIso(
+  timestamp
+) {
+  if (!timestamp) {
+    return null;
+  }
+
+  const date =
+    new Date(
+      Number(timestamp) * 1000
+    );
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return date.toISOString();
+}
+
+function getStripeBalanceAmount(
+  rows,
+  currency = "RON"
+) {
+  const normalizedCurrency =
+    String(currency || "RON")
+      .toLowerCase();
+
+  const row =
+    (rows || []).find(
+      (item) =>
+        String(
+          item?.currency || ""
+        ).toLowerCase() ===
+        normalizedCurrency
+    );
+
+  return stripeAmountToMoney(
+    row?.amount || 0
+  );
+}
+
+function formatPayoutSchedule(
+  settings
+) {
+  const schedule =
+    settings?.payments
+      ?.payouts
+      ?.schedule ||
+    null;
+
+  if (!schedule) {
+    return null;
+  }
+
+  return {
+    interval:
+      schedule.interval ||
+      null,
+
+    weeklyPayoutDays:
+      schedule
+        .weekly_payout_days ||
+      [],
+
+    monthlyPayoutDays:
+      schedule
+        .monthly_payout_days ||
+      [],
+  };
+}
 function getEntryTypeLabel(type) {
   return ENTRY_TYPE_LABELS[type] || type || "—";
 }
@@ -467,6 +559,371 @@ router.get("/vendor/payouts/summary", authRequired, async (req, res) => {
     });
   }
 });
+
+// GET /api/vendor/stripe/finance
+router.get(
+  "/vendor/stripe/finance",
+  authRequired,
+  async (req, res) => {
+    try {
+      const vendor =
+        await getCurrentVendorByUser(
+          req.user.sub
+        );
+
+      if (!vendor) {
+        return res
+          .status(403)
+          .json({
+            error:
+              "not_a_vendor",
+          });
+      }
+
+      /*
+       * Vendor fără Stripe Connect.
+       *
+       * Nu dăm eroare 500.
+       * Frontend-ul poate afișa
+       * mesajul de activare Stripe.
+       */
+      if (
+        !vendor.stripeAccountId
+      ) {
+        return res.json({
+          connected:
+            false,
+
+          stripeStatus: {
+            accountId:
+              null,
+
+            connectStatus:
+              vendor
+                .stripeConnectStatus ||
+              "not_started",
+
+            chargesEnabled:
+              false,
+
+            payoutsEnabled:
+              false,
+
+            detailsSubmitted:
+              false,
+          },
+
+          balance: {
+            currency:
+              "RON",
+
+            available:
+              0,
+
+            pending:
+              0,
+          },
+
+          payoutSchedule:
+            null,
+
+          nextPayout:
+            null,
+
+          payouts:
+            [],
+        });
+      }
+
+      const stripeAccountId =
+        String(
+          vendor.stripeAccountId
+        );
+
+      /*
+       * Citim în paralel:
+       *
+       * - soldul Stripe Connect;
+       * - ultimele payout-uri;
+       * - programul payout-urilor;
+       * - starea actuală a contului.
+       */
+      const [
+        balance,
+        payoutsResult,
+        balanceSettings,
+        stripeAccount,
+      ] =
+        await Promise.all([
+          stripe.balance.retrieve(
+            {},
+            {
+              stripeAccount:
+                stripeAccountId,
+            }
+          ),
+
+          stripe.payouts.list(
+            {
+              limit:
+                20,
+            },
+            {
+              stripeAccount:
+                stripeAccountId,
+            }
+          ),
+
+          stripe.balanceSettings.retrieve(
+            {},
+            {
+              stripeAccount:
+                stripeAccountId,
+            }
+          ),
+
+          stripe.accounts.retrieve(
+            stripeAccountId
+          ),
+        ]);
+
+      /*
+       * Pentru moment folosim RON
+       * ca monedă principală Artfest.
+       *
+       * Dacă în viitor ai EUR etc.,
+       * putem întoarce toate monedele.
+       */
+      const currency =
+        "RON";
+
+      const available =
+        getStripeBalanceAmount(
+          balance?.available,
+          currency
+        );
+
+      const pending =
+        getStripeBalanceAmount(
+          balance?.pending,
+          currency
+        );
+
+      /*
+       * Normalizăm payout-urile pentru FE.
+       */
+      const payouts =
+        (payoutsResult?.data || [])
+          .map(
+            (payout) => ({
+              id:
+                payout.id,
+
+              amount:
+                stripeAmountToMoney(
+                  payout.amount
+                ),
+
+              currency:
+                String(
+                  payout.currency ||
+                    currency
+                ).toUpperCase(),
+
+              status:
+                payout.status ||
+                null,
+
+              automatic:
+                payout.automatic ===
+                true,
+
+              method:
+                payout.method ||
+                null,
+
+              createdAt:
+                stripeTimestampToIso(
+                  payout.created
+                ),
+
+              arrivalDate:
+                stripeTimestampToIso(
+                  payout.arrival_date
+                ),
+
+              failureCode:
+                payout.failure_code ||
+                null,
+
+              failureMessage:
+                payout.failure_message ||
+                null,
+            })
+          );
+
+      /*
+       * "Următorul payout":
+       *
+       * alegem primul payout
+       * pending / in_transit.
+       *
+       * Dacă Stripe nu l-a creat încă,
+       * nextPayout rămâne null.
+       */
+      const nextPayout =
+        payouts.find(
+          (payout) =>
+            [
+              "pending",
+              "in_transit",
+            ].includes(
+              payout.status
+            )
+        ) ||
+        null;
+
+      /*
+       * Ultimul payout plătit.
+       */
+      const lastPaidPayout =
+        payouts.find(
+          (payout) =>
+            payout.status ===
+            "paid"
+        ) ||
+        null;
+
+      /*
+       * Sincronizăm și starea Stripe
+       * live în DB.
+       *
+       * Asta ne ajută dacă webhook-ul
+       * account.updated a întârziat.
+       */
+      const connectStatus =
+        stripeAccount
+          ?.payouts_enabled
+          ? "enabled"
+          : stripeAccount
+              ?.requirements
+              ?.disabled_reason
+          ? "restricted"
+          : stripeAccount
+              ?.details_submitted
+          ? "pending"
+          : "not_started";
+
+      try {
+        await prisma.vendor.update({
+          where: {
+            id:
+              vendor.id,
+          },
+
+          data: {
+            stripeChargesEnabled:
+              Boolean(
+                stripeAccount
+                  ?.charges_enabled
+              ),
+
+            stripePayoutsEnabled:
+              Boolean(
+                stripeAccount
+                  ?.payouts_enabled
+              ),
+
+            stripeDetailsSubmitted:
+              Boolean(
+                stripeAccount
+                  ?.details_submitted
+              ),
+
+            stripeConnectStatus:
+              connectStatus,
+          },
+        });
+      } catch (
+        syncError
+      ) {
+        /*
+         * Nu stricăm pagina financiară
+         * dacă sincronizarea DB eșuează.
+         */
+        console.error(
+          "Stripe finance vendor sync failed:",
+          syncError
+        );
+      }
+
+      return res.json({
+        connected:
+          true,
+
+        stripeStatus: {
+          accountId:
+            stripeAccountId,
+
+          connectStatus,
+
+          chargesEnabled:
+            Boolean(
+              stripeAccount
+                ?.charges_enabled
+            ),
+
+          payoutsEnabled:
+            Boolean(
+              stripeAccount
+                ?.payouts_enabled
+            ),
+
+          detailsSubmitted:
+            Boolean(
+              stripeAccount
+                ?.details_submitted
+            ),
+        },
+
+        balance: {
+          currency,
+
+          available,
+
+          pending,
+        },
+
+        payoutSchedule:
+          formatPayoutSchedule(
+            balanceSettings
+          ),
+
+        nextPayout,
+
+        lastPaidPayout,
+
+        payouts,
+      });
+    } catch (err) {
+      console.error(
+        "GET /vendor/stripe/finance FAILED:",
+        err
+      );
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "vendor_stripe_finance_failed",
+
+          message:
+            err?.message ||
+            "Nu am putut încărca informațiile financiare Stripe.",
+        });
+    }
+  }
+);
 
 // GET /api/vendors/me/invoices
 router.get("/vendors/me/invoices", authRequired, async (req, res) => {

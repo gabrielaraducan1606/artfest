@@ -1,4 +1,5 @@
 // src/pages/Stores/StoresPage.jsx
+
 import {
   useEffect,
   useMemo,
@@ -6,12 +7,16 @@ import {
   useCallback,
   useRef,
 } from "react";
+
 import {
   useSearchParams,
   useNavigate,
 } from "react-router-dom";
+
 import { api } from "../../lib/api";
+
 import styles from "./StoresPage.module.css";
+
 import {
   FaSearch,
   FaUndoAlt,
@@ -19,276 +24,963 @@ import {
   FaTimes,
 } from "react-icons/fa";
 
+/* =========================================================
+   SORT
+========================================================= */
+
 const SORTS = [
-  { v: "new", label: "Cele mai noi" },
-  { v: "popular", label: "Populare" },
-  { v: "name_asc", label: "Nume A–Z" },
-  { v: "name_desc", label: "Nume Z–A" },
+  {
+    v: "new",
+    label: "Cele mai noi",
+  },
+  {
+    v: "popular",
+    label: "Populare",
+  },
+  {
+    v: "name_asc",
+    label: "Nume A–Z",
+  },
+  {
+    v: "name_desc",
+    label: "Nume Z–A",
+  },
 ];
 
-export default function StoresPage() {
-  const navigate = useNavigate();
-  const [params] = useSearchParams();
+const LIMIT = 24;
 
-  // === query params din URL ===
-  const qParam = params.get("q") || "";
-  const cityParam = params.get("city") || ""; // slug
-  const sortParam = params.get("sort") || "new";
+/* =========================================================
+   COMPONENT
+========================================================= */
 
-  const limit = 24;
+export default function StoresPage({
+  embedded = false,
+}) {
+  const navigate =
+    useNavigate();
 
-  // === state listă ===
-  const [items, setItems] = useState([]);
-  const [total, setTotal] = useState(null); // ✅ null când nu e furnizat
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [params] =
+    useSearchParams();
 
-  // === infinite scroll ===
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  /* =======================================================
+     NAVIGARE FILTRE
 
-  // sentinel pentru IntersectionObserver
-  const sentinelRef = useRef(null);
-  const ioRef = useRef(null);
+     Normal:
+       /magazine?q=...
 
-  // === orașe pentru filtre ===
-  const [cityOptions, setCityOptions] = useState([]);
-  const cityLabelMap = useMemo(() => {
-    const map = new Map();
-    cityOptions.forEach((c) => map.set(c.slug, c.label));
-    return map;
-  }, [cityOptions]);
+     Embedded:
+       /ruta-mobile-categories?tab=magazine&q=...
+  ======================================================= */
 
-  // === filtre locale ===
-  const [localFilters, setLocalFilters] = useState({
+  const goToStoresParams =
+    useCallback(
+      (
+        nextParams,
+        options = {}
+      ) => {
+        const p =
+          nextParams instanceof
+          URLSearchParams
+            ? new URLSearchParams(
+                nextParams
+              )
+            : new URLSearchParams(
+                nextParams ||
+                  ""
+              );
+
+        if (embedded) {
+          p.set(
+            "tab",
+            "magazine"
+          );
+        } else {
+          p.delete(
+            "tab"
+          );
+        }
+
+        const query =
+          p.toString();
+
+        const pathname =
+          embedded
+            ? window.location
+                .pathname
+            : "/magazine";
+
+        navigate(
+          query
+            ? `${pathname}?${query}`
+            : pathname,
+          options
+        );
+      },
+      [
+        embedded,
+        navigate,
+      ]
+    );
+
+  /* =======================================================
+     QUERY PARAMS
+  ======================================================= */
+
+  const qParam =
+    params.get("q") || "";
+
+  const cityParam =
+    params.get("city") ||
+    "";
+
+  const sortParam =
+    params.get("sort") ||
+    "new";
+
+  /* =======================================================
+     STATE LISTĂ
+  ======================================================= */
+
+  const [
+    items,
+    setItems,
+  ] = useState([]);
+
+  const [
+    total,
+    setTotal,
+  ] = useState(null);
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
+
+  const [
+    error,
+    setError,
+  ] = useState(null);
+
+  /* =======================================================
+     INFINITE SCROLL
+  ======================================================= */
+
+  const [
+    page,
+    setPage,
+  ] = useState(1);
+
+  const [
+    hasMore,
+    setHasMore,
+  ] = useState(true);
+
+  const [
+    isLoadingMore,
+    setIsLoadingMore,
+  ] = useState(false);
+
+  const sentinelRef =
+    useRef(null);
+
+  const ioRef =
+    useRef(null);
+
+  /* =======================================================
+     ORAȘE
+  ======================================================= */
+
+  const [
+    cityOptions,
+    setCityOptions,
+  ] = useState([]);
+
+  const cityLabelMap =
+    useMemo(() => {
+      const map =
+        new Map();
+
+      cityOptions.forEach(
+        (city) => {
+          map.set(
+            city.slug,
+            city.label
+          );
+        }
+      );
+
+      return map;
+    }, [cityOptions]);
+
+  /* =======================================================
+     FILTRE LOCALE
+  ======================================================= */
+
+  const [
+    localFilters,
+    setLocalFilters,
+  ] = useState({
     q: qParam,
     city: cityParam,
     sort: sortParam,
   });
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [
+    filtersOpen,
+    setFiltersOpen,
+  ] = useState(false);
 
-  // === autocomplete sugestii ===
-  const [suggestions, setSuggestions] = useState(null);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const searchAreaRef = useRef(null);
+  /* =======================================================
+     AUTOCOMPLETE
+  ======================================================= */
 
-  // sync URL -> filtre locale + reset listă
+  const [
+    suggestions,
+    setSuggestions,
+  ] = useState(null);
+
+  const [
+    suggestLoading,
+    setSuggestLoading,
+  ] = useState(false);
+
+  const searchAreaRef =
+    useRef(null);
+
+  /* =======================================================
+     SYNC URL -> FILTRE
+  ======================================================= */
+
   useEffect(() => {
-    setLocalFilters({ q: qParam, city: cityParam, sort: sortParam });
+    setLocalFilters({
+      q: qParam,
+      city: cityParam,
+      sort: sortParam,
+    });
+
     setItems([]);
+
     setPage(1);
+
     setHasMore(true);
+
     setTotal(null);
-  }, [qParam, cityParam, sortParam]);
+  }, [
+    qParam,
+    cityParam,
+    sortParam,
+  ]);
 
-  // Escape modal
+  /* =======================================================
+     ESCAPE MODAL
+  ======================================================= */
+
   useEffect(() => {
-    if (!filtersOpen) return;
-    const onKey = (e) => e.key === "Escape" && setFiltersOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [filtersOpen]);
-
-  // load cities once
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api("/api/public/stores/cities");
-        setCityOptions(res?.cities || []);
-      } catch (e) {
-        console.error("load cities error", e);
-        setCityOptions([]);
-      }
-    })();
-  }, []);
-
-  const load = useCallback(
-    async (pageToLoad = 1, append = false) => {
-      if (pageToLoad === 1 && !append) setLoading(true);
-      else setIsLoadingMore(true);
-
-      setError(null);
-
-      try {
-        const p = new URLSearchParams();
-        p.set("page", String(pageToLoad));
-        p.set("limit", String(limit));
-        if (qParam) p.set("q", qParam);
-        if (cityParam) p.set("city", cityParam);
-        if (sortParam) p.set("sort", sortParam);
-
-        const res = await api(`/api/public/stores?${p.toString()}`);
-
-        const newItems = Array.isArray(res?.items) ? res.items : [];
-        const apiHasMore = !!res?.hasMore;
-
-        setItems((prev) => (append ? [...prev, ...newItems] : newItems));
-        setHasMore(apiHasMore);
-
-        // total doar când vine (page=1)
-        setTotal(typeof res?.total === "number" ? res.total : null);
-      } catch (e) {
-        console.error(e);
-        setError("A apărut o eroare la încărcarea magazinelor.");
-        if (!append) {
-          setItems([]);
-          setTotal(null);
-        }
-        setHasMore(false);
-      } finally {
-        if (pageToLoad === 1 && !append) setLoading(false);
-        else setIsLoadingMore(false);
-      }
-    },
-    [qParam, cityParam, sortParam]
-  );
-
-  // prima pagină când se schimbă filtrele
-  useEffect(() => {
-    load(1, false);
-  }, [load]);
-
-  // autocomplete
-  useEffect(() => {
-    const q = (localFilters.q || "").trim();
-    if (!q || q.length < 2) {
-      setSuggestions(null);
+    if (!filtersOpen) {
       return;
     }
 
-    const handle = setTimeout(async () => {
-      try {
-        setSuggestLoading(true);
-        const data = await api(`/api/public/stores/suggest?q=${encodeURIComponent(q)}`);
-        setSuggestions(data || null);
-      } catch (e) {
-        console.error("store suggest error", e);
-        setSuggestions(null);
-      } finally {
-        setSuggestLoading(false);
+    const onKey = (
+      event
+    ) => {
+      if (
+        event.key ===
+        "Escape"
+      ) {
+        setFiltersOpen(
+          false
+        );
       }
-    }, 250);
-
-    return () => clearTimeout(handle);
-  }, [localFilters.q]);
-
-  // click outside -> close suggestions
-  useEffect(() => {
-    if (!suggestions) return;
-    const handleClickOutside = (e) => {
-      if (!searchAreaRef.current) return;
-      if (searchAreaRef.current.contains(e.target)) return;
-      setSuggestions(null);
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [suggestions]);
 
-  const applyFilters = () => {
-    const f = localFilters;
-    const p = new URLSearchParams();
-    if (f.q) p.set("q", f.q);
-    if (f.city) p.set("city", f.city);
-    if (f.sort) p.set("sort", f.sort);
-
-    setFiltersOpen(false);
-    setSuggestions(null);
-    navigate(`/magazine?${p.toString()}`);
-  };
-
-  const resetFilters = () => {
-    setLocalFilters({ q: "", city: "", sort: "new" });
-    setFiltersOpen(false);
-    setSuggestions(null);
-    navigate("/magazine");
-  };
-
-  const handleSuggestionClick = (store) => {
-    setSuggestions(null);
-    const to = store.profileSlug
-      ? `/magazin/${encodeURIComponent(store.profileSlug)}`
-      : `/magazin/${store.id}`;
-    navigate(to);
-  };
-
-  // ✅ IntersectionObserver infinite scroll
-  useEffect(() => {
-    if (!sentinelRef.current) return;
-
-    // dacă nu mai avem, oprim
-    if (!hasMore || loading || isLoadingMore) return;
-
-    // cleanup vechi observer
-    if (ioRef.current) {
-      ioRef.current.disconnect();
-      ioRef.current = null;
-    }
-
-    ioRef.current = new IntersectionObserver(
-      (entries) => {
-        const first = entries[0];
-        if (!first?.isIntersecting) return;
-        // evităm multiple increments
-        setPage((prev) => prev + 1);
-      },
-      { root: null, rootMargin: "800px", threshold: 0.01 }
+    window.addEventListener(
+      "keydown",
+      onKey
     );
 
-    ioRef.current.observe(sentinelRef.current);
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        onKey
+      );
+    };
+  }, [filtersOpen]);
+
+  /* =======================================================
+     LOAD CITIES
+  ======================================================= */
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadCities =
+      async () => {
+        try {
+          const res =
+            await api(
+              "/api/public/stores/cities"
+            );
+
+          if (!alive) {
+            return;
+          }
+
+          setCityOptions(
+            Array.isArray(
+              res?.cities
+            )
+              ? res.cities
+              : []
+          );
+        } catch (error) {
+          console.error(
+            "load cities error",
+            error
+          );
+
+          if (!alive) {
+            return;
+          }
+
+          setCityOptions(
+            []
+          );
+        }
+      };
+
+    loadCities();
 
     return () => {
-      if (ioRef.current) ioRef.current.disconnect();
-      ioRef.current = null;
+      alive = false;
     };
-  }, [hasMore, loading, isLoadingMore, items.length]);
+  }, []);
 
-  // când crește page (>1), încarcă următoarea pagină
+  /* =======================================================
+     LOAD STORES
+  ======================================================= */
+
+  const load =
+    useCallback(
+      async (
+        pageToLoad = 1,
+        append = false
+      ) => {
+        if (
+          pageToLoad === 1 &&
+          !append
+        ) {
+          setLoading(
+            true
+          );
+        } else {
+          setIsLoadingMore(
+            true
+          );
+        }
+
+        setError(null);
+
+        try {
+          const p =
+            new URLSearchParams();
+
+          p.set(
+            "page",
+            String(
+              pageToLoad
+            )
+          );
+
+          p.set(
+            "limit",
+            String(LIMIT)
+          );
+
+          if (qParam) {
+            p.set(
+              "q",
+              qParam
+            );
+          }
+
+          if (cityParam) {
+            p.set(
+              "city",
+              cityParam
+            );
+          }
+
+          if (sortParam) {
+            p.set(
+              "sort",
+              sortParam
+            );
+          }
+
+          const res =
+            await api(
+              `/api/public/stores?${p.toString()}`
+            );
+
+          const newItems =
+            Array.isArray(
+              res?.items
+            )
+              ? res.items
+              : [];
+
+          const apiHasMore =
+            !!res?.hasMore;
+
+          setItems(
+            (prev) =>
+              append
+                ? [
+                    ...prev,
+                    ...newItems,
+                  ]
+                : newItems
+          );
+
+          setHasMore(
+            apiHasMore
+          );
+
+          setTotal(
+            typeof res?.total ===
+              "number"
+              ? res.total
+              : null
+          );
+        } catch (error) {
+          console.error(
+            "Stores load error:",
+            error
+          );
+
+          setError(
+            "A apărut o eroare la încărcarea magazinelor."
+          );
+
+          if (!append) {
+            setItems([]);
+
+            setTotal(null);
+          }
+
+          setHasMore(
+            false
+          );
+        } finally {
+          if (
+            pageToLoad === 1 &&
+            !append
+          ) {
+            setLoading(
+              false
+            );
+          } else {
+            setIsLoadingMore(
+              false
+            );
+          }
+        }
+      },
+      [
+        qParam,
+        cityParam,
+        sortParam,
+      ]
+    );
+
+  /* =======================================================
+     PRIMA PAGINĂ
+  ======================================================= */
+
   useEffect(() => {
-    if (page === 1) return;
-    load(page, true);
-  }, [page, load]);
+    load(
+      1,
+      false
+    );
+  }, [load]);
+
+  /* =======================================================
+     AUTOCOMPLETE
+  ======================================================= */
+
+  useEffect(() => {
+    const q =
+      (
+        localFilters.q ||
+        ""
+      ).trim();
+
+    if (
+      !q ||
+      q.length < 2
+    ) {
+      setSuggestions(
+        null
+      );
+
+      setSuggestLoading(
+        false
+      );
+
+      return;
+    }
+
+    const handle =
+      window.setTimeout(
+        async () => {
+          try {
+            setSuggestLoading(
+              true
+            );
+
+            const data =
+              await api(
+                `/api/public/stores/suggest?q=${encodeURIComponent(
+                  q
+                )}`
+              );
+
+            setSuggestions(
+              data || null
+            );
+          } catch (
+            error
+          ) {
+            console.error(
+              "store suggest error",
+              error
+            );
+
+            setSuggestions(
+              null
+            );
+          } finally {
+            setSuggestLoading(
+              false
+            );
+          }
+        },
+        250
+      );
+
+    return () => {
+      window.clearTimeout(
+        handle
+      );
+    };
+  }, [
+    localFilters.q,
+  ]);
+
+  /* =======================================================
+     CLICK OUTSIDE SUGGESTIONS
+  ======================================================= */
+
+  useEffect(() => {
+    if (!suggestions) {
+      return;
+    }
+
+    const handleClickOutside =
+      (event) => {
+        if (
+          !searchAreaRef.current
+        ) {
+          return;
+        }
+
+        if (
+          searchAreaRef.current.contains(
+            event.target
+          )
+        ) {
+          return;
+        }
+
+        setSuggestions(
+          null
+        );
+      };
+
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
+
+    document.addEventListener(
+      "touchstart",
+      handleClickOutside
+    );
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+
+      document.removeEventListener(
+        "touchstart",
+        handleClickOutside
+      );
+    };
+  }, [suggestions]);
+
+  /* =======================================================
+     APPLY FILTERS
+  ======================================================= */
+
+  const applyFilters =
+    useCallback(() => {
+      const f =
+        localFilters;
+
+      const p =
+        new URLSearchParams();
+
+      if (f.q) {
+        p.set(
+          "q",
+          f.q
+        );
+      }
+
+      if (f.city) {
+        p.set(
+          "city",
+          f.city
+        );
+      }
+
+      if (f.sort) {
+        p.set(
+          "sort",
+          f.sort
+        );
+      }
+
+      setFiltersOpen(
+        false
+      );
+
+      setSuggestions(
+        null
+      );
+
+      goToStoresParams(
+        p
+      );
+    }, [
+      localFilters,
+      goToStoresParams,
+    ]);
+
+  /* =======================================================
+     RESET FILTERS
+  ======================================================= */
+
+  const resetFilters =
+    useCallback(() => {
+      setLocalFilters({
+        q: "",
+        city: "",
+        sort: "new",
+      });
+
+      setFiltersOpen(
+        false
+      );
+
+      setSuggestions(
+        null
+      );
+
+      goToStoresParams(
+        new URLSearchParams()
+      );
+    }, [
+      goToStoresParams,
+    ]);
+
+  /* =======================================================
+     CLICK SUGGESTION
+  ======================================================= */
+
+  const handleSuggestionClick =
+    useCallback(
+      (store) => {
+        setSuggestions(
+          null
+        );
+
+        const to =
+          store.profileSlug
+            ? `/magazin/${encodeURIComponent(
+                store.profileSlug
+              )}`
+            : `/magazin/${store.id}`;
+
+        navigate(to);
+      },
+      [navigate]
+    );
+
+  /* =======================================================
+     INFINITE SCROLL
+  ======================================================= */
+
+  useEffect(() => {
+    const element =
+      sentinelRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    if (
+      !hasMore ||
+      loading ||
+      isLoadingMore
+    ) {
+      return;
+    }
+
+    if (
+      ioRef.current
+    ) {
+      ioRef.current.disconnect();
+
+      ioRef.current =
+        null;
+    }
+
+    ioRef.current =
+      new IntersectionObserver(
+        (entries) => {
+          const first =
+            entries[0];
+
+          if (
+            !first?.isIntersecting
+          ) {
+            return;
+          }
+
+          setPage(
+            (prev) =>
+              prev + 1
+          );
+        },
+        {
+          root: null,
+
+          /*
+           * Nu încărcăm pagina următoare
+           * mult prea devreme.
+           */
+          rootMargin:
+            "450px 0px",
+
+          threshold: 0,
+        }
+      );
+
+    ioRef.current.observe(
+      element
+    );
+
+    return () => {
+      if (
+        ioRef.current
+      ) {
+        ioRef.current.disconnect();
+      }
+
+      ioRef.current =
+        null;
+    };
+  }, [
+    hasMore,
+    loading,
+    isLoadingMore,
+    items.length,
+  ]);
+
+  /* =======================================================
+     LOAD NEXT PAGE
+  ======================================================= */
+
+  useEffect(() => {
+    if (
+      page === 1
+    ) {
+      return;
+    }
+
+    load(
+      page,
+      true
+    );
+  }, [
+    page,
+    load,
+  ]);
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
-    <section className={styles.page}>
-      <header className={styles.head}>
-        <div className={styles.headTop}>
-          <h1 className={styles.h1}>Magazine</h1>
-          <div className={styles.headActions}>
-            <button
-              type="button"
-              className={styles.iconCircle}
-              onClick={() => setFiltersOpen(true)}
-              title="Filtrează magazine"
-              aria-label="Filtrează magazine"
+    <section
+      className={
+        styles.page
+      }
+    >
+      {/* =================================================
+          HEADER
+      ================================================= */}
+
+      <header
+        className={
+          styles.head
+        }
+      >
+        {/* HEADER NORMAL */}
+
+        {!embedded && (
+          <div
+            className={
+              styles.headTop
+            }
+          >
+            <h1
+              className={
+                styles.h1
+              }
             >
-              <FaFilter />
-            </button>
-            <button
-              type="button"
-              className={styles.iconCircle}
-              onClick={resetFilters}
-              title="Resetează filtrele"
-              aria-label="Resetează filtrele"
+              Magazine
+            </h1>
+
+            <div
+              className={
+                styles.headActions
+              }
             >
-              <FaUndoAlt />
-            </button>
+              <button
+                type="button"
+                className={
+                  styles.iconCircle
+                }
+                onClick={() =>
+                  setFiltersOpen(
+                    true
+                  )
+                }
+                title="Filtrează magazine"
+                aria-label="Filtrează magazine"
+              >
+                <FaFilter />
+              </button>
+
+              <button
+                type="button"
+                className={
+                  styles.iconCircle
+                }
+                onClick={
+                  resetFilters
+                }
+                title="Resetează filtrele"
+                aria-label="Resetează filtrele"
+              >
+                <FaUndoAlt />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* HEADER EMBEDDED */}
+
+        {embedded && (
+          <div
+            className={
+              styles.embeddedStoresToolbar
+            }
+          >
+            <span>
+              Descoperă
+              magazine
+            </span>
+
+            <div
+              className={
+                styles.headActions
+              }
+            >
+              <button
+                type="button"
+                className={
+                  styles.iconCircle
+                }
+                onClick={() =>
+                  setFiltersOpen(
+                    true
+                  )
+                }
+                title="Filtrează magazine"
+                aria-label="Filtrează magazine"
+              >
+                <FaFilter />
+              </button>
+
+              <button
+                type="button"
+                className={
+                  styles.iconCircle
+                }
+                onClick={
+                  resetFilters
+                }
+                title="Resetează filtrele"
+                aria-label="Resetează filtrele"
+              >
+                <FaUndoAlt />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* SEARCH */}
 
         <form
-          ref={searchAreaRef}
-          className={styles.searchRow}
-          onSubmit={(e) => {
-            e.preventDefault();
+          ref={
+            searchAreaRef
+          }
+          className={
+            styles.searchRow
+          }
+          onSubmit={(
+            event
+          ) => {
+            event.preventDefault();
+
             applyFilters();
           }}
         >
-          <div className={styles.searchShell}>
+          <div
+            className={
+              styles.searchShell
+            }
+          >
             <button
               type="submit"
-              className={styles.searchIconBtn}
+              className={
+                styles.searchIconBtn
+              }
               aria-label="Caută magazine"
             >
               <FaSearch />
@@ -297,66 +989,181 @@ export default function StoresPage() {
             <input
               className={`${styles.input} ${styles.searchInput}`}
               placeholder="Caută magazine după nume sau descriere…"
-              value={localFilters.q}
-              onChange={(e) =>
-                setLocalFilters((f) => ({ ...f, q: e.target.value }))
+              value={
+                localFilters.q
+              }
+              onChange={(
+                event
+              ) =>
+                setLocalFilters(
+                  (prev) => ({
+                    ...prev,
+                    q:
+                      event
+                        .target
+                        .value,
+                  })
+                )
               }
               autoComplete="off"
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setSuggestions(null);
+              onKeyDown={(
+                event
+              ) => {
+                if (
+                  event.key ===
+                  "Escape"
+                ) {
+                  setSuggestions(
+                    null
+                  );
+                }
               }}
             />
           </div>
 
+          {/* SUGGESTIONS */}
+
           {localFilters.q &&
-            localFilters.q.length >= 2 &&
-            (suggestLoading || suggestions) && (
-              <div className={styles.suggestBox}>
+            localFilters.q
+              .length >= 2 &&
+            (
+              suggestLoading ||
+              suggestions
+            ) && (
+              <div
+                className={
+                  styles.suggestBox
+                }
+              >
                 {suggestLoading && (
-                  <div className={styles.suggestLoading}>
-                    Se încarcă sugestiile…
+                  <div
+                    className={
+                      styles.suggestLoading
+                    }
+                  >
+                    Se încarcă
+                    sugestiile…
                   </div>
                 )}
 
                 {!suggestLoading &&
-                  suggestions?.stores &&
-                  suggestions.stores.length > 0 && (
-                    <div className={styles.suggestList}>
-                      {suggestions.stores.map((s) => {
-                        const title = s.storeName || s.displayName || "Magazin";
-                        const subtitle = [s.city].filter(Boolean).join(" • ");
-                        return (
-                          <button
-                            key={s.id}
-                            type="button"
-                            className={styles.suggestItem}
-                            onClick={() => handleSuggestionClick(s)}
-                          >
-                            {s.logoUrl && (
-                              <img
-                                src={s.logoUrl}
-                                alt={title}
-                                className={styles.suggestThumb}
-                              />
-                            )}
-                            <div className={styles.suggestText}>
-                              <div className={styles.suggestTitle}>{title}</div>
-                              {subtitle && (
-                                <div className={styles.suggestSubtitle}>
-                                  {subtitle}
-                                </div>
+                  suggestions
+                    ?.stores &&
+                  suggestions
+                    .stores
+                    .length >
+                    0 && (
+                    <div
+                      className={
+                        styles.suggestList
+                      }
+                    >
+                      {suggestions.stores.map(
+                        (
+                          store
+                        ) => {
+                          const title =
+                            store.storeName ||
+                            store.displayName ||
+                            "Magazin";
+
+                          const subtitle =
+                            [
+                              store.city,
+                            ]
+                              .filter(
+                                Boolean
+                              )
+                              .join(
+                                " • "
+                              );
+
+                          return (
+                            <button
+                              key={
+                                store.id
+                              }
+                              type="button"
+                              className={
+                                styles.suggestItem
+                              }
+                              onClick={() =>
+                                handleSuggestionClick(
+                                  store
+                                )
+                              }
+                            >
+                              {store.logoUrl && (
+                                <img
+                                  src={
+                                    store.logoUrl
+                                  }
+                                  alt={
+                                    title
+                                  }
+                                  className={
+                                    styles.suggestThumb
+                                  }
+                                  loading="lazy"
+                                  decoding="async"
+                                />
                               )}
-                            </div>
-                          </button>
-                        );
-                      })}
+
+                              <div
+                                className={
+                                  styles.suggestText
+                                }
+                              >
+                                <div
+                                  className={
+                                    styles.suggestTitle
+                                  }
+                                >
+                                  {
+                                    title
+                                  }
+                                </div>
+
+                                {subtitle && (
+                                  <div
+                                    className={
+                                      styles.suggestSubtitle
+                                    }
+                                  >
+                                    {
+                                      subtitle
+                                    }
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        }
+                      )}
                     </div>
                   )}
 
                 {!suggestLoading &&
-                  (!suggestions?.stores || suggestions.stores.length === 0) && (
-                    <div className={styles.suggestEmpty}>
-                      Nu avem sugestii pentru „{localFilters.q}”.
+                  (
+                    !suggestions
+                      ?.stores ||
+                    suggestions
+                      .stores
+                      .length ===
+                      0
+                  ) && (
+                    <div
+                      className={
+                        styles.suggestEmpty
+                      }
+                    >
+                      Nu avem
+                      sugestii pentru
+                      „
+                      {
+                        localFilters.q
+                      }
+                      ”.
                     </div>
                   )}
               </div>
@@ -365,39 +1172,91 @@ export default function StoresPage() {
 
         <FilterSummary
           q={qParam}
-          citySlug={cityParam}
-          sort={sortParam}
-          cityLabelMap={cityLabelMap}
+          citySlug={
+            cityParam
+          }
+          sort={
+            sortParam
+          }
+          cityLabelMap={
+            cityLabelMap
+          }
         />
       </header>
 
-      {/* total doar dacă există */}
-      {!loading && !error && typeof total === "number" && total > 0 && (
-        <div className={styles.resultsInfo}>
-          {total === 1 ? "1 magazin găsit." : `${total} magazine găsite.`}
-        </div>
-      )}
+      {/* =================================================
+          TOTAL
+      ================================================= */}
+
+      {!loading &&
+        !error &&
+        typeof total ===
+          "number" &&
+        total > 0 && (
+          <div
+            className={
+              styles.resultsInfo
+            }
+          >
+            {total === 1
+              ? "1 magazin găsit."
+              : `${total} magazine găsite.`}
+          </div>
+        )}
+
+      {/* =================================================
+          FILTER MODAL
+      ================================================= */}
 
       {filtersOpen && (
         <div
-          className={styles.filtersOverlay}
-          onClick={() => setFiltersOpen(false)}
+          className={
+            styles.filtersOverlay
+          }
+          onClick={() =>
+            setFiltersOpen(
+              false
+            )
+          }
         >
           <div
-            className={styles.filtersModal}
-            onClick={(e) => e.stopPropagation()}
+            className={
+              styles.filtersModal
+            }
+            onClick={(
+              event
+            ) =>
+              event.stopPropagation()
+            }
             role="dialog"
             aria-modal="true"
             aria-labelledby="stores-filters-title"
           >
-            <div className={styles.filtersModalHead}>
-              <h2 className={styles.filtersTitle} id="stores-filters-title">
-                Filtre magazine
+            <div
+              className={
+                styles.filtersModalHead
+              }
+            >
+              <h2
+                className={
+                  styles.filtersTitle
+                }
+                id="stores-filters-title"
+              >
+                Filtre
+                magazine
               </h2>
+
               <button
                 type="button"
-                className={styles.iconCircle}
-                onClick={() => setFiltersOpen(false)}
+                className={
+                  styles.iconCircle
+                }
+                onClick={() =>
+                  setFiltersOpen(
+                    false
+                  )
+                }
                 aria-label="Închide filtrele"
                 title="Închide filtrele"
               >
@@ -405,57 +1264,147 @@ export default function StoresPage() {
               </button>
             </div>
 
-            <div className={styles.filters}>
+            <div
+              className={
+                styles.filters
+              }
+            >
               <input
-                className={styles.input}
+                className={
+                  styles.input
+                }
                 placeholder="Caută magazine…"
-                value={localFilters.q}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({ ...f, q: e.target.value }))
+                value={
+                  localFilters.q
+                }
+                onChange={(
+                  event
+                ) =>
+                  setLocalFilters(
+                    (
+                      prev
+                    ) => ({
+                      ...prev,
+                      q:
+                        event
+                          .target
+                          .value,
+                    })
+                  )
                 }
               />
 
               <select
-                className={styles.select}
-                value={localFilters.city}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({ ...f, city: e.target.value }))
+                className={
+                  styles.select
+                }
+                value={
+                  localFilters.city
+                }
+                onChange={(
+                  event
+                ) =>
+                  setLocalFilters(
+                    (
+                      prev
+                    ) => ({
+                      ...prev,
+                      city:
+                        event
+                          .target
+                          .value,
+                    })
+                  )
                 }
               >
-                <option value="">Toate orașele</option>
-                {cityOptions.map((c) => (
-                  <option key={c.slug} value={c.slug}>
-                    {c.label}
-                  </option>
-                ))}
+                <option value="">
+                  Toate orașele
+                </option>
+
+                {cityOptions.map(
+                  (city) => (
+                    <option
+                      key={
+                        city.slug
+                      }
+                      value={
+                        city.slug
+                      }
+                    >
+                      {
+                        city.label
+                      }
+                    </option>
+                  )
+                )}
               </select>
 
               <select
-                className={styles.select}
-                value={localFilters.sort}
-                onChange={(e) =>
-                  setLocalFilters((f) => ({ ...f, sort: e.target.value }))
+                className={
+                  styles.select
+                }
+                value={
+                  localFilters.sort
+                }
+                onChange={(
+                  event
+                ) =>
+                  setLocalFilters(
+                    (
+                      prev
+                    ) => ({
+                      ...prev,
+                      sort:
+                        event
+                          .target
+                          .value,
+                    })
+                  )
                 }
               >
-                {SORTS.map((s) => (
-                  <option key={s.v} value={s.v}>
-                    {s.label}
-                  </option>
-                ))}
+                {SORTS.map(
+                  (sort) => (
+                    <option
+                      key={
+                        sort.v
+                      }
+                      value={
+                        sort.v
+                      }
+                    >
+                      {
+                        sort.label
+                      }
+                    </option>
+                  )
+                )}
               </select>
 
-              <div className={styles.filterActions}>
+              <div
+                className={
+                  styles.filterActions
+                }
+              >
                 <button
                   type="button"
-                  className={styles.btnApply}
-                  onClick={applyFilters}
+                  className={
+                    styles.btnApply
+                  }
+                  onClick={
+                    applyFilters
+                  }
                 >
                   Aplică filtre
                 </button>
+
                 <button
                   type="button"
-                  className={styles.btnReset}
-                  onClick={resetFilters}
+                  className={
+                    styles.btnReset
+                  }
+                  onClick={
+                    resetFilters
+                  }
                 >
                   Resetează
                 </button>
@@ -465,76 +1414,228 @@ export default function StoresPage() {
         </div>
       )}
 
+      {/* =================================================
+          CONTENT
+      ================================================= */}
+
       {loading ? (
-        <div className={styles.loading}>Se încarcă…</div>
+        <div
+          className={
+            styles.loading
+          }
+        >
+          Se încarcă…
+        </div>
       ) : error ? (
-        <div className={styles.errorBox}>{error}</div>
-      ) : items.length === 0 ? (
-        <EmptyState />
+        <div
+          className={
+            styles.errorBox
+          }
+        >
+          {error}
+        </div>
+      ) : items.length ===
+        0 ? (
+        <EmptyState
+          onReset={
+            resetFilters
+          }
+        />
       ) : (
         <>
-          <ul className={styles.grid}>
-            {items.map((s) => (
-              <StoreCard
-                key={s.id}
-                s={s}
-                onClick={() => {
-                  const to = s.profileSlug
-                    ? `/magazin/${encodeURIComponent(s.profileSlug)}`
-                    : `/magazin/${s.id}`;
-                  navigate(to);
-                }}
-              />
-            ))}
+          <ul
+            className={
+              styles.grid
+            }
+          >
+            {items.map(
+              (store) => (
+                <StoreCard
+                  key={
+                    store.id
+                  }
+                  s={
+                    store
+                  }
+                  onClick={() => {
+                    const to =
+                      store.profileSlug
+                        ? `/magazin/${encodeURIComponent(
+                            store.profileSlug
+                          )}`
+                        : `/magazin/${store.id}`;
+
+                    navigate(
+                      to
+                    );
+                  }}
+                />
+              )
+            )}
           </ul>
 
           {isLoadingMore && (
-            <div className={styles.loading}>
-              Se încarcă mai multe magazine…
+            <div
+              className={
+                styles.loading
+              }
+            >
+              Se încarcă mai
+              multe magazine…
             </div>
           )}
 
-          {/* sentinel pentru IO */}
-          <div ref={sentinelRef} style={{ height: 1 }} />
+          <div
+            ref={
+              sentinelRef
+            }
+            style={{
+              height: 1,
+            }}
+          />
 
-          {!hasMore && (typeof total !== "number" ? items.length > 0 : total > 0) && (
-            <div className={styles.resultsInfo}>
-              Ai ajuns la finalul listei.
-            </div>
-          )}
+          {!hasMore &&
+            (
+              typeof total !==
+              "number"
+                ? items.length >
+                  0
+                : total > 0
+            ) && (
+              <div
+                className={
+                  styles.resultsInfo
+                }
+              >
+                Ai ajuns la
+                finalul listei.
+              </div>
+            )}
         </>
       )}
     </section>
   );
 }
 
-function StoreCard({ s, onClick }) {
-  const title = s.storeName || s.displayName || "Magazin";
-  const subtitle = [s.city, s.category].filter(Boolean).join(" • ");
+/* =========================================================
+   STORE CARD
+========================================================= */
+
+function StoreCard({
+  s,
+  onClick,
+}) {
+  const title =
+    s.storeName ||
+    s.displayName ||
+    "Magazin";
+
+  const subtitle =
+    [
+      s.city,
+      s.category,
+    ]
+      .filter(Boolean)
+      .join(" • ");
 
   return (
-    <li className={styles.card}>
-      <button className={styles.cardLink} onClick={onClick} aria-label={title}>
-        <div className={styles.thumbWrap}>
+    <li
+      className={
+        styles.card
+      }
+    >
+      <button
+        type="button"
+        className={
+          styles.cardLink
+        }
+        onClick={
+          onClick
+        }
+        aria-label={
+          title
+        }
+      >
+        <div
+          className={
+            styles.thumbWrap
+          }
+        >
           <img
-            src={s.logoUrl || "/placeholder-store.png"}
-            alt={title}
-            className={styles.thumb}
+            src={
+              s.logoUrl ||
+              "/placeholder-store.png"
+            }
+            alt={
+              title
+            }
+            className={
+              styles.thumb
+            }
             loading="lazy"
+            decoding="async"
           />
         </div>
-        <div className={styles.cardBody}>
-          <div className={styles.title} title={title}>
+
+        <div
+          className={
+            styles.cardBody
+          }
+        >
+          <div
+            className={
+              styles.title
+            }
+            title={
+              title
+            }
+          >
             {title}
           </div>
-          {subtitle && <div className={styles.meta}>{subtitle}</div>}
-          <div className={styles.badges}>
-            <span className={styles.badge}>
-              {s.productsCount} {s.productsCount === 1 ? "produs" : "produse"}
+
+          {subtitle && (
+            <div
+              className={
+                styles.meta
+              }
+            >
+              {
+                subtitle
+              }
+            </div>
+          )}
+
+          <div
+            className={
+              styles.badges
+            }
+          >
+            <span
+              className={
+                styles.badge
+              }
+            >
+              {
+                s.productsCount ||
+                0
+              }{" "}
+              {Number(
+                s.productsCount
+              ) === 1
+                ? "produs"
+                : "produse"}
             </span>
           </div>
+
           {s.about && (
-            <p className={styles.about} title={s.about}>
+            <p
+              className={
+                styles.about
+              }
+              title={
+                s.about
+              }
+            >
               {s.about}
             </p>
           )}
@@ -544,46 +1645,134 @@ function StoreCard({ s, onClick }) {
   );
 }
 
-function EmptyState() {
+/* =========================================================
+   EMPTY STATE
+========================================================= */
+
+function EmptyState({
+  onReset,
+}) {
   return (
-    <div className={styles.empty}>
-      <div className={styles.emptyTitle}>
-        Nu am găsit magazine pentru filtrele alese.
+    <div
+      className={
+        styles.empty
+      }
+    >
+      <div
+        className={
+          styles.emptyTitle
+        }
+      >
+        Nu am găsit
+        magazine pentru
+        filtrele alese.
       </div>
-      <a className={styles.btnPrimary} href="/magazine">
+
+      <button
+        type="button"
+        className={
+          styles.btnPrimary
+        }
+        onClick={
+          onReset
+        }
+      >
         Resetează filtrele
-      </a>
+      </button>
     </div>
   );
 }
 
-function FilterSummary({ q, citySlug, sort, cityLabelMap }) {
-  if (!q && !citySlug && !sort) return null;
+/* =========================================================
+   FILTER SUMMARY
+========================================================= */
+
+function FilterSummary({
+  q,
+  citySlug,
+  sort,
+  cityLabelMap,
+}) {
+  const hasMeaningfulSort =
+    sort &&
+    sort !== "new";
+
+  if (
+    !q &&
+    !citySlug &&
+    !hasMeaningfulSort
+  ) {
+    return null;
+  }
 
   const sortLabelMap = {
-    new: "Cele mai noi",
-    popular: "Populare",
-    name_asc: "Nume A–Z",
-    name_desc: "Nume Z–A",
+    new:
+      "Cele mai noi",
+
+    popular:
+      "Populare",
+
+    name_asc:
+      "Nume A–Z",
+
+    name_desc:
+      "Nume Z–A",
   };
 
-  const cityLabel = citySlug ? cityLabelMap.get(citySlug) || citySlug : "";
+  const cityLabel =
+    citySlug
+      ? cityLabelMap.get(
+          citySlug
+        ) ||
+        citySlug
+      : "";
 
   return (
-    <div className={styles.chipWrap}>
+    <div
+      className={
+        styles.chipWrap
+      }
+    >
       {q && (
-        <span className={styles.chip}>
-          <strong>Cauți:</strong> „{q}”
+        <span
+          className={
+            styles.chip
+          }
+        >
+          <strong>
+            Cauți:
+          </strong>{" "}
+          „{q}”
         </span>
       )}
+
       {cityLabel && (
-        <span className={styles.chip}>
-          <strong>Oraș:</strong> {cityLabel}
+        <span
+          className={
+            styles.chip
+          }
+        >
+          <strong>
+            Oraș:
+          </strong>{" "}
+          {cityLabel}
         </span>
       )}
-      {sort && (
-        <span className={styles.chip}>
-          <strong>Sortare:</strong> {sortLabelMap[sort] || sort}
+
+      {hasMeaningfulSort && (
+        <span
+          className={
+            styles.chip
+          }
+        >
+          <strong>
+            Sortare:
+          </strong>{" "}
+          {
+            sortLabelMap[
+              sort
+            ] || sort
+          }
         </span>
       )}
     </div>

@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Users,
   Package,
+  Boxes,
   Heart,
   Settings,
   LifeBuoy,
@@ -939,16 +940,21 @@ const completeness = dashboardHealth.percent;
         icon: <LifeBuoy size={20} />,
         badge: supportUnread,
       },
-      {
-        to: "/magazine",
-        label: "Magazinele mele",
-        icon: <Store size={20} />,
-      },
-      {
-        to: "/setari",
-        label: "Setări",
-        icon: <Settings size={20} />,
-      },
+    {
+  to: "/magazine",
+  label: "Magazinele mele",
+  icon: <Store size={20} />,
+},
+{
+  to: "/vendor/catalog",
+  label: "Catalog produse",
+  icon: <Boxes size={20} />,
+},
+{
+  to: "/setari",
+  label: "Setări",
+  icon: <Settings size={20} />,
+},
       {
         to: "/vendor/invoices",
         label: "Facturi",

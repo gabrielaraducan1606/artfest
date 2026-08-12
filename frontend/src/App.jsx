@@ -67,6 +67,7 @@ import ShopPlanner from "./pages/Vendor/Planner/ShopPlanner";
 import VendorOrdersPage from "./pages/Vendor/Orders/Orders";
 import OrderDetailsPage from "./pages/Vendor/Orders/OrdersDetailsPage";
 import VendorHomepagePromotions from "./pages/Vendor/Promotions/VendorPromotions.jsx";
+import CatalogProdusePage from "./pages/Vendor/CatalogProduse/CatalogProduse.jsx";
 import VendorInvoicesPage from "./pages/Vendor/Invoices/InvoicePage.jsx";
 import UserInvoicesPage from "./pages/User/Invoices/UserInvoicesPage";
 import UserDesktop from "./pages/User/UserDesktop/UserDesktop.jsx";
@@ -377,6 +378,14 @@ export default function App() {
                 </RequireVendor>
               }
             />
+            <Route
+  path="/vendor/catalog"
+  element={
+    <RequireVendor>
+      <CatalogProdusePage />
+    </RequireVendor>
+  }
+/>
             <Route
               path="/onboarding"
               element={
