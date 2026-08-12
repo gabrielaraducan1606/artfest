@@ -3376,51 +3376,67 @@ console.log(
     order?.shippingAddress ||
     {};
 
-  let customerEmail =
-    shippingAddress.email ||
+ let customerEmail =
+  null;
+
+let customerName =
+  shippingAddress.name ||
+  order?.customerName ||
+  null;
+
+/*
+ * ================================================
+ * CLIENT AUTENTIFICAT
+ * ================================================
+ *
+ * Pentru un client cu cont folosim cu prioritate
+ * emailul contului care a plasat comanda.
+ *
+ * Astfel evităm să trimitem accidental emailul
+ * către o adresă greșită din shippingAddress.
+ */
+if (order?.userId) {
+  const customerUser =
+    await prisma.user.findUnique({
+      where: {
+        id:
+          order.userId,
+      },
+
+      select: {
+        email:
+          true,
+
+        name:
+          true,
+      },
+    });
+
+  customerEmail =
+    customerUser?.email ||
     order?.customerEmail ||
+    shippingAddress.email ||
     null;
 
-  let customerName =
-    shippingAddress.name ||
-    order?.customerName ||
-    null;
-
-  /*
-   * Pentru clientul cu cont,
-   * dacă emailul nu este în comandă,
-   * îl luăm din User.
-   */
-  if (
-    !customerEmail &&
-    order?.userId
-  ) {
-    const user =
-      await prisma.user.findUnique({
-        where: {
-          id:
-            order.userId,
-        },
-
-        select: {
-          email:
-            true,
-
-          name:
-            true,
-        },
-      });
-
-    customerEmail =
-      user?.email ||
+  if (!customerName) {
+    customerName =
+      customerUser?.name ||
       null;
-
-    if (!customerName) {
-      customerName =
-        user?.name ||
-        null;
-    }
   }
+} else {
+  /*
+   * ================================================
+   * GUEST
+   * ================================================
+   *
+   * Guest-ul nu are User în baza de date,
+   * deci folosim emailul introdus la comandă.
+   */
+  customerEmail =
+    order?.customerEmail ||
+    shippingAddress.email ||
+    null;
+}
 
   if (customerEmail) {
     const frontendUrl =
