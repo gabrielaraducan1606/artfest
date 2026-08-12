@@ -4,6 +4,9 @@ import { prisma } from "../db.js";
 import { authRequired } from "../api/auth.js";
 import { sendOrderCancelledByUserNotifications } from "../services/orderMessaging.js";
 import { sendOrderCancelledByUserEmail } from "../lib/mailer.js";
+import {
+  createDepositPaymentForShipment,
+} from "../payments/orchestrator.js";
 
 const router = Router();
 
@@ -1239,54 +1242,51 @@ router.post(
             "Solicitarea de avans a expirat. Vânzătorul trebuie să trimită o solicitare nouă.",
         });
       }
+const payment =
+  await createDepositPaymentForShipment({
+    shipmentId:
+      shipment.id,
+  });
 
-      const meta =
-        shipment.depositMeta &&
-        typeof shipment.depositMeta ===
-          "object" &&
-        !Array.isArray(
-          shipment.depositMeta
+if (!payment?.url) {
+  return res.status(500).json({
+    error:
+      "deposit_checkout_missing",
+
+    message:
+      "Nu am putut deschide plata avansului.",
+  });
+}
+
+return res.json({
+  ok:
+    true,
+
+  shipmentId:
+    shipment.id,
+
+  orderId:
+    shipment.orderId,
+
+  amount:
+    shipment.depositRequestedAmount !=
+    null
+      ? Number(
+          shipment.depositRequestedAmount
         )
-          ? shipment.depositMeta
-          : {};
+      : null,
 
-      const checkoutUrl =
-        typeof meta.checkoutUrl ===
-          "string"
-          ? meta.checkoutUrl.trim()
-          : "";
+  provider:
+    payment.provider ||
+    "stripe",
 
-      if (!checkoutUrl) {
-        return res.status(409).json({
-          error:
-            "deposit_checkout_missing",
+  checkoutSessionId:
+    payment.checkoutSessionId ||
+    null,
 
-          message:
-            "Linkul pentru plata avansului nu este disponibil.",
-        });
-      }
-
-      return res.json({
-        ok:
-          true,
-
-        shipmentId:
-          shipment.id,
-
-        orderId:
-          shipment.orderId,
-
-        amount:
-          shipment.depositRequestedAmount !=
-          null
-            ? Number(
-                shipment.depositRequestedAmount
-              )
-            : null,
-
-        url:
-          checkoutUrl,
-      });
+  url:
+    payment.url,
+});
     } catch (error) {
       console.error(
         "POST user pay deposit failed:",
