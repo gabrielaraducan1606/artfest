@@ -42,7 +42,7 @@ export default function CookieBanner() {
         statistici și marketing.
 
         <a
-          href="/politica-cookie"
+          href="/cookies"
           className={styles.link}
         >
           Află mai multe
