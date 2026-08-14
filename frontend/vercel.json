@@ -9,16 +9,16 @@
       "destination": "https://artfest.onrender.com/google-shopping-feed.xml"
     },
     {
-      "source": "/api/(.*)",
-      "destination": "https://artfest.onrender.com/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://artfest.onrender.com/api/:path*"
     },
     {
-      "source": "/legal/(.*)",
-      "destination": "https://artfest.onrender.com/legal/$1"
+      "source": "/legal/:path*",
+      "destination": "https://artfest.onrender.com/legal/:path*"
     },
     {
       "source": "/(.*)",
-      "destination": "/"
+      "destination": "/index.html"
     }
   ]
 }

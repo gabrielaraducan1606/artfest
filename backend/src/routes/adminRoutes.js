@@ -100,6 +100,20 @@ function mapMarketingPrefs(prefs) {
   };
 }
 
+function mapCookieConsents(consents = []) {
+  return consents.map((c) => ({
+    id: c.id,
+    anonymousId: c.anonymousId || null,
+    necessary: !!c.necessary,
+    analytics: !!c.analytics,
+    marketing: !!c.marketing,
+    consentVersion: c.consentVersion || null,
+    action: c.action || null,
+    source: c.source || null,
+    createdAt: toIso(c.createdAt),
+  }));
+}
+
 function mapVendorBilling(billing) {
   if (!billing) return null;
 
@@ -155,7 +169,27 @@ const adminUserSelect = {
       checksum: true,
       givenAt: true,
     },
-    orderBy: { givenAt: "desc" },
+    orderBy: {
+      givenAt: "desc",
+    },
+  },
+
+  cookieConsents: {
+    select: {
+      id: true,
+      anonymousId: true,
+      necessary: true,
+      analytics: true,
+      marketing: true,
+      consentVersion: true,
+      action: true,
+      source: true,
+      createdAt: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: 10,
   },
 
   marketingPrefs: {
@@ -192,6 +226,7 @@ const adminUserSelect = {
       Notification: true,
       MessageThread: true,
       orders: true,
+      cookieConsents: true,
     },
   },
 };
@@ -236,29 +271,49 @@ const adminVendorSelect = {
       lastLoginAt: true,
       marketingOptIn: true,
 
-      UserConsent: {
-        select: {
-          document: true,
-          version: true,
-          checksum: true,
-          givenAt: true,
-        },
-        orderBy: { givenAt: "desc" },
-      },
+     UserConsent: {
+  select: {
+    document: true,
+    version: true,
+    checksum: true,
+    givenAt: true,
+  },
+  orderBy: {
+    givenAt: "desc",
+  },
+},
 
-      marketingPrefs: {
-        select: {
-          userId: true,
-          marketingOptIn: true,
-          sourcePreference: true,
-          topics: true,
-          emailEnabled: true,
-          smsEnabled: true,
-          pushEnabled: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      },
+cookieConsents: {
+  select: {
+    id: true,
+    anonymousId: true,
+    necessary: true,
+    analytics: true,
+    marketing: true,
+    consentVersion: true,
+    action: true,
+    source: true,
+    createdAt: true,
+  },
+  orderBy: {
+    createdAt: "desc",
+  },
+  take: 10,
+},
+
+marketingPrefs: {
+  select: {
+    userId: true,
+    marketingOptIn: true,
+    sourcePreference: true,
+    topics: true,
+    emailEnabled: true,
+    smsEnabled: true,
+    pushEnabled: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+},
     },
   },
 
@@ -342,26 +397,59 @@ router.get("/users", async (_req, res) => {
       select: adminUserSelect,
     });
 
-    const dto = users.map((u) => ({
-      ...u,
-      createdAt: toIso(u.createdAt),
-      emailVerifiedAt: toIso(u.emailVerifiedAt),
-      lastLoginAt: toIso(u.lastLoginAt),
-      inactiveNotifiedAt: toIso(u.inactiveNotifiedAt),
-      scheduledDeletionAt: toIso(u.scheduledDeletionAt),
+    const dto = users.map((u) => {
+  const cookieConsents =
+    mapCookieConsents(
+      u.cookieConsents
+    );
 
-      UserConsent: mapUserConsentList(u.UserConsent),
-      marketingPrefs: mapMarketingPrefs(u.marketingPrefs),
+  return {
+    ...u,
 
-      consentSummary: buildUserConsentsSummary(u),
+    createdAt:
+      toIso(u.createdAt),
 
-      vendor: u.vendor
-        ? {
-            ...u.vendor,
-            createdAt: toIso(u.vendor.createdAt),
-          }
-        : null,
-    }));
+    emailVerifiedAt:
+      toIso(u.emailVerifiedAt),
+
+    lastLoginAt:
+      toIso(u.lastLoginAt),
+
+    inactiveNotifiedAt:
+      toIso(u.inactiveNotifiedAt),
+
+    scheduledDeletionAt:
+      toIso(u.scheduledDeletionAt),
+
+    UserConsent:
+      mapUserConsentList(
+        u.UserConsent
+      ),
+
+    cookieConsents,
+
+    latestCookieConsent:
+      cookieConsents[0] || null,
+
+    marketingPrefs:
+      mapMarketingPrefs(
+        u.marketingPrefs
+      ),
+
+    consentSummary:
+      buildUserConsentsSummary(u),
+
+    vendor: u.vendor
+      ? {
+          ...u.vendor,
+          createdAt:
+            toIso(
+              u.vendor.createdAt
+            ),
+        }
+      : null,
+  };
+});
 
     res.json({ users: dto });
   } catch (e) {
@@ -392,29 +480,49 @@ router.get("/vendors", async (_req, res) => {
             lastLoginAt: true,
             marketingOptIn: true,
 
-            UserConsent: {
-              select: {
-                document: true,
-                version: true,
-                checksum: true,
-                givenAt: true,
-              },
-              orderBy: { givenAt: "desc" },
-            },
+           UserConsent: {
+  select: {
+    document: true,
+    version: true,
+    checksum: true,
+    givenAt: true,
+  },
+  orderBy: {
+    givenAt: "desc",
+  },
+},
 
-            marketingPrefs: {
-              select: {
-                userId: true,
-                marketingOptIn: true,
-                sourcePreference: true,
-                topics: true,
-                emailEnabled: true,
-                smsEnabled: true,
-                pushEnabled: true,
-                createdAt: true,
-                updatedAt: true,
-              },
-            },
+cookieConsents: {
+  select: {
+    id: true,
+    anonymousId: true,
+    necessary: true,
+    analytics: true,
+    marketing: true,
+    consentVersion: true,
+    action: true,
+    source: true,
+    createdAt: true,
+  },
+  orderBy: {
+    createdAt: "desc",
+  },
+  take: 10,
+},
+
+marketingPrefs: {
+  select: {
+    userId: true,
+    marketingOptIn: true,
+    sourcePreference: true,
+    topics: true,
+    emailEnabled: true,
+    smsEnabled: true,
+    pushEnabled: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+},
           },
         },
        billing: {
@@ -609,18 +717,53 @@ services: services.map((service) => {
   };
 }),
         user: v.user
-          ? {
-              id: v.user.id,
-              email: v.user.email,
-              role: v.user.role,
-              createdAt: toIso(v.user.createdAt),
-              lastLoginAt: toIso(v.user.lastLoginAt),
-              marketingOptIn: !!v.user.marketingOptIn,
-              UserConsent: mapUserConsentList(v.user.UserConsent),
-              marketingPrefs: mapMarketingPrefs(v.user.marketingPrefs),
-              consentSummary: buildUserConsentsSummary(v.user),
-            }
-          : null,
+  ? (() => {
+      const cookieConsents =
+        mapCookieConsents(
+          v.user.cookieConsents
+        );
+
+      return {
+        id: v.user.id,
+        email: v.user.email,
+        role: v.user.role,
+
+        createdAt:
+          toIso(
+            v.user.createdAt
+          ),
+
+        lastLoginAt:
+          toIso(
+            v.user.lastLoginAt
+          ),
+
+        marketingOptIn:
+          !!v.user.marketingOptIn,
+
+        UserConsent:
+          mapUserConsentList(
+            v.user.UserConsent
+          ),
+
+        cookieConsents,
+
+        latestCookieConsent:
+          cookieConsents[0] ||
+          null,
+
+        marketingPrefs:
+          mapMarketingPrefs(
+            v.user.marketingPrefs
+          ),
+
+        consentSummary:
+          buildUserConsentsSummary(
+            v.user
+          ),
+      };
+    })()
+  : null,
 
               billing: mapVendorBilling(v.billing),
 
@@ -689,6 +832,122 @@ router.get("/user-consents", async (_req, res) => {
     res.status(500).json({ error: "admin_user_consents_failed" });
   }
 });
+
+/**
+ * GET /cookie-consents
+ * audit global pentru consimțământ cookies
+ */
+router.get(
+  "/cookie-consents",
+  async (req, res) => {
+    try {
+    const limit =
+  Math.max(
+    1,
+    Math.min(
+      Number(
+        req.query.limit
+      ) || 200,
+      500
+    )
+  );
+
+      const items =
+        await prisma.cookieConsent.findMany({
+          orderBy: {
+            createdAt:
+              "desc",
+          },
+
+          take: limit,
+
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+                name: true,
+                role: true,
+              },
+            },
+          },
+        });
+
+      const consents =
+        items.map((c) => ({
+          id: c.id,
+
+          userId:
+            c.userId ||
+            null,
+
+          anonymousId:
+            c.anonymousId ||
+            null,
+
+          userEmail:
+            c.user?.email ||
+            null,
+
+          userName:
+            c.user?.name ||
+            [
+              c.user?.firstName,
+              c.user?.lastName,
+            ]
+              .filter(Boolean)
+              .join(" ") ||
+            null,
+
+          userRole:
+            c.user?.role ||
+            null,
+
+          necessary:
+            !!c.necessary,
+
+          analytics:
+            !!c.analytics,
+
+          marketing:
+            !!c.marketing,
+
+          consentVersion:
+            c.consentVersion ||
+            null,
+
+          action:
+            c.action ||
+            null,
+
+          source:
+            c.source ||
+            null,
+
+          createdAt:
+            toIso(
+              c.createdAt
+            ),
+        }));
+
+      res.json({
+        consents,
+      });
+    } catch (e) {
+      console.error(
+        "ADMIN /cookie-consents error",
+        e
+      );
+
+      res.status(500).json({
+        error:
+          "admin_cookie_consents_failed",
+      });
+    }
+  }
+);
 
 /**
  * POST /vendors/:id/stripe/sync

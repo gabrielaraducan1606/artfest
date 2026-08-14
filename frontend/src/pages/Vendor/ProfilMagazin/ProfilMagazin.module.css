@@ -844,3 +844,35 @@
     white-space: normal;
   }
 }
+
+.error {
+  margin-top: 12px;
+  padding: 12px 14px;
+
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+
+  background: #fef2f2;
+  color: #b91c1c;
+
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.5;
+
+  white-space: pre-line;
+}
+
+.error::before {
+  content: "⚠ ";
+  font-weight: 800;
+}
+
+.vendorGateHelpError {
+  display: block;
+  margin-top: 8px;
+
+  color: #b91c1c;
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.4;
+}

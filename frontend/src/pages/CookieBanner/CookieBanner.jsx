@@ -1,44 +1,127 @@
 // src/components/Cookie/CookieBanner.jsx
-import { useEffect, useState } from "react";
-import { saveConsent, hasAnyDecision, defaultConsent } from "../../lib/cookieConsent.js";
-import styles from "./CookieBanner.module.css"; // creezi un css simplu
+
+import {
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  saveConsent,
+  hasAnyDecision,
+  defaultConsent,
+} from "../../lib/cookieConsent.js";
+
+import styles from "./CookieBanner.module.css";
 
 export default function CookieBanner() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] =
+    useState(false);
 
   useEffect(() => {
-    setOpen(!hasAnyDecision());
+    setOpen(
+      !hasAnyDecision()
+    );
   }, []);
 
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   return (
-    <div className={styles.bar} role="dialog" aria-label="Setări cookie">
-      <div className={styles.text}>
-        Folosim cookie-uri pentru a-ți îmbunătăți experiența. Unele sunt strict necesare.
-        Poți alege consimțământul pentru statistici și marketing.
-        <a href="/politica-cookie" className={styles.link}>Află mai multe</a>.
+    <div
+      className={styles.bar}
+      role="dialog"
+      aria-label="Setări cookie"
+    >
+      <div
+        className={styles.text}
+      >
+        Folosim cookie-uri pentru
+        funcționarea platformei și,
+        doar cu acordul tău, pentru
+        statistici și marketing.
+
+        <a
+          href="/politica-cookie"
+          className={styles.link}
+        >
+          Află mai multe
+        </a>
+        .
       </div>
-      <div className={styles.actions}>
+
+      <div
+        className={
+          styles.actions
+        }
+      >
         <button
           className={styles.btn}
           onClick={() => {
-            saveConsent({ ...defaultConsent, analytics: false, marketing: false });
+            saveConsent(
+              {
+                ...defaultConsent,
+
+                analytics:
+                  false,
+
+                marketing:
+                  false,
+              },
+              {
+                action:
+                  "NECESSARY_ONLY",
+
+                source:
+                  "COOKIE_BANNER",
+              }
+            );
+
             setOpen(false);
           }}
         >
           Doar necesare
         </button>
+
         <button
-          className={styles.btnPrimary}
+          className={
+            styles.btnPrimary
+          }
           onClick={() => {
-            saveConsent({ necessary: true, analytics: true, marketing: true });
+            saveConsent(
+              {
+                necessary:
+                  true,
+
+                analytics:
+                  true,
+
+                marketing:
+                  true,
+              },
+              {
+                action:
+                  "ACCEPT_ALL",
+
+                source:
+                  "COOKIE_BANNER",
+              }
+            );
+
             setOpen(false);
           }}
         >
           Accept toate
         </button>
-        <a className={styles.btnLink} href="/preferinte-cookie">Preferințe</a>
+
+        <a
+          className={
+            styles.btnLink
+          }
+          href="/preferinte-cookie"
+        >
+          Preferințe
+        </a>
       </div>
     </div>
   );

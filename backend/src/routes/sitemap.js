@@ -6,26 +6,6 @@ const router = express.Router();
 
 const BASE_URL = "https://artfest.ro";
 
-const IMPORTANT_SLUGS = new Set([
-  "invitatii-nunta",
-  "invitatii-botez",
-  "aranjamente-florale-naturale",
-  "aranjamente-florale-artificiale",
-  "aranjamente-flori-plusate",
-  "aranjamente-ceara",
-  "aranjamente-sapun",
-  "flori-plusate",
-  "flori-ceara",
-  "flori-sapun",
-  "lumanari-decor",
-  "lumanari-parfumate",
-  "lumanari-biserica",
-  "cadouri-botez",
-  "tavita-mot",
-  "halate-personalizate",
-  "prosoape-personalizate",
-]);
-
 function escapeXml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -40,32 +20,39 @@ function categoryKeyToSlug(key) {
 }
 
 function formatDate(value) {
-  if (!value) return new Date().toISOString().slice(0, 10);
-  return new Date(value).toISOString().slice(0, 10);
+  if (!value) return null;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 10);
 }
 
-function renderUrl(u, today) {
+function renderUrl(u) {
+  const lastmod = u.lastmod
+    ? `\n    <lastmod>${escapeXml(u.lastmod)}</lastmod>`
+    : "";
+
   return `  <url>
-    <loc>${escapeXml(BASE_URL + u.loc)}</loc>
-    <lastmod>${u.lastmod || today}</lastmod>
-    <priority>${u.priority}</priority>
+    <loc>${escapeXml(BASE_URL + u.loc)}</loc>${lastmod}
   </url>`;
 }
 
 router.get("/sitemap.xml", async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-
     const staticUrls = [
-      { loc: "/", priority: "1.0" },
-      { loc: "/produse", priority: "0.9" },
-      { loc: "/magazine", priority: "0.9" },
-      { loc: "/categorii", priority: "0.9" },
-      { loc: "/termenii-si-conditiile", priority: "0.4" },
-      { loc: "/confidentialitate", priority: "0.4" },
-      { loc: "/politica-cookie", priority: "0.3" },
-      { loc: "/politica-de-retur", priority: "0.3" },
-      { loc: "/preferinte-cookie", priority: "0.3" },
+      { loc: "/" },
+      { loc: "/produse" },
+      { loc: "/magazine" },
+      { loc: "/categorii" },
+      { loc: "/termenii-si-conditiile" },
+      { loc: "/confidentialitate" },
+      { loc: "/politica-cookie" },
+      { loc: "/politica-de-retur" },
+      { loc: "/preferinte-cookie" },
     ];
 
     const categoryUrls = CATEGORIES_DETAILED
@@ -75,7 +62,6 @@ router.get("/sitemap.xml", async (req, res) => {
 
         return {
           loc: `/categorii/${slug}`,
-          priority: IMPORTANT_SLUGS.has(slug) ? "0.9" : "0.8",
         };
       });
 
@@ -96,7 +82,6 @@ router.get("/sitemap.xml", async (req, res) => {
       .filter((c) => c.slug)
       .map((c) => ({
         loc: `/colectii/${c.slug}`,
-        priority: "0.85",
         lastmod: formatDate(c.updatedAt),
       }));
 
@@ -129,7 +114,6 @@ router.get("/sitemap.xml", async (req, res) => {
 
     const productUrls = products.map((p) => ({
       loc: `/produs/${p.id}`,
-      priority: "0.75",
       lastmod: formatDate(p.updatedAt),
     }));
 
@@ -169,7 +153,6 @@ router.get("/sitemap.xml", async (req, res) => {
       .filter((s) => s.slug)
       .map((s) => ({
         loc: `/magazin/${s.slug}`,
-        priority: "0.8",
         lastmod: formatDate(s.updatedAt),
       }));
 
@@ -183,14 +166,25 @@ router.get("/sitemap.xml", async (req, res) => {
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.map((u) => renderUrl(u, today)).join("\n")}
+${urls.map((u) => renderUrl(u)).join("\n")}
 </urlset>`;
 
-    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader(
+      "Content-Type",
+      "application/xml; charset=utf-8"
+    );
+
     res.status(200).send(xml);
   } catch (e) {
-    console.error("GET /sitemap.xml error:", e);
-    res.status(500).type("text/plain").send("sitemap_error");
+    console.error(
+      "GET /sitemap.xml error:",
+      e
+    );
+
+    res
+      .status(500)
+      .type("text/plain")
+      .send("sitemap_error");
   }
 });
 

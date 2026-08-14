@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api } from "../../../lib/api.js";
+import { SEO } from "../../../components/Seo/SeoProvider";
 import styles from "./ProductDetails.module.css";
 import {
   FaChevronLeft,
@@ -32,6 +33,10 @@ import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 import { addToGuestCart } from "../../../utils/guestCart";
+import {
+  trackViewContent,
+  trackAddToCart,
+} from "../../../../services/analytics.js";
 import {
   MagicIcon,
 } from "../../../components/AIAssistant/Personalization/PersonalizationIcons.jsx";
@@ -231,7 +236,10 @@ const [
   const [deferredSections, setDeferredSections] = useState(false);
 
   const mountedRef = useRef(true);
-  const requestSeqRef = useRef(0);
+const requestSeqRef = useRef(0);
+
+const trackedViewContentRef =
+  useRef(null);
 
   const touchStartX = useRef(null);
   const touchEndX = useRef(null);
@@ -406,7 +414,48 @@ const displayPrice =
 
 const originalDisplayPrice =
   priceDisplay.originalPrice;
+useEffect(() => {
+  if (!product?.id) {
+    return;
+  }
 
+  /*
+   * Evităm trimiterea de două ori
+   * pentru același produs la rerender.
+   */
+  if (
+    trackedViewContentRef.current ===
+    product.id
+  ) {
+    return;
+  }
+
+  trackedViewContentRef.current =
+    product.id;
+
+  trackViewContent({
+    ...product,
+
+    /*
+     * Pentru tracking trimitem
+     * prețul REAL afișat clientului,
+     * inclusiv reducerea Artfest.
+     */
+    price:
+      displayPrice ??
+      product.price ??
+      0,
+
+    currency:
+      product.currency ||
+      "RON",
+  });
+}, [
+  product?.id,
+  displayPrice,
+  product?.currency,
+  product
+]);
 const hasHomepageDiscount =
   priceDisplay.hasDiscount;
 
@@ -1237,7 +1286,6 @@ const onAddToCart = useCallback(async () => {
   setAdding(true);
 
   try {
-    let addedAsGuest = false;
 
     const configuration = {
       selectedOptions,
@@ -1275,7 +1323,6 @@ const onAddToCart = useCallback(async () => {
             configuration
           );
 
-          addedAsGuest = true;
         }
 
         if (
@@ -1316,7 +1363,6 @@ const onAddToCart = useCallback(async () => {
             configuration
           );
 
-          addedAsGuest = true;
         } else {
           throw error;
         }
@@ -1328,32 +1374,51 @@ const onAddToCart = useCallback(async () => {
         configuration
       );
 
-      addedAsGuest = true;
     }
 
-    window.dispatchEvent(
-      new CustomEvent(
-        "cart:changed"
-      )
-    );
+  window.dispatchEvent(
+  new CustomEvent(
+    "cart:changed"
+  )
+);
 
-    try {
-      sessionStorage.removeItem(
-        "cart:ui-cache:v1"
-      );
+try {
+  sessionStorage.removeItem(
+    "cart:ui-cache:v1"
+  );
 
-      sessionStorage.removeItem(
-        "cart:ui-cache:v2"
-      );
-    } catch {
-      // ignore
-    }
+  sessionStorage.removeItem(
+    "cart:ui-cache:v2"
+  );
+} catch {
+  // ignore
+}
 
-    alert(
-      addedAsGuest
-        ? "Produs adăugat în coș."
-        : "Produs adăugat în coș."
-    );
+/*
+ * META + GA
+ *
+ * Ajungem aici DOAR dacă produsul
+ * a fost adăugat cu succes în coș.
+ */
+trackAddToCart({
+  ...product,
+
+  price:
+    displayPrice ??
+    product.price ??
+    0,
+
+  currency:
+    product.currency ||
+    "RON",
+
+  quantity:
+    qty,
+});
+
+alert(
+  "Produs adăugat în coș."
+);
   } catch (error) {
     console.error(
       "Add to cart error:",
@@ -1442,6 +1507,7 @@ const onAddToCart = useCallback(async () => {
   topLevelOptionsSchema,
   topLevelCustomSchema,
   repeatedGroups,
+  displayPrice
 ]);
   const addToCartAny = onAddToCart;
 
@@ -1933,20 +1999,6 @@ useEffect(() => {
     ]
   );
 
-  useEffect(() => {
-    if (product?.title) {
-      document.title = `${product.title} – ${
-        product.vendor?.displayName ||
-        product?.service?.profile?.displayName ||
-        "Magazin"
-      }`;
-    }
-  }, [
-    product?.title,
-    product?.vendor?.displayName,
-    product?.service?.profile?.displayName,
-  ]);
-
   const hasDescription =
     typeof product?.description === "string" &&
     product.description.trim().length > 0;
@@ -1978,10 +2030,48 @@ useEffect(() => {
   product?.vendor?.displayName ||
   "Artfest";
 
-const productUrl =
-  typeof window !== "undefined"
-    ? window.location.href
-    : `https://artfest.ro/produs/${product?.id}`;
+const productUrl = product?.id
+  ? `https://artfest.ro/produs/${product.id}`
+  : "https://artfest.ro/produse";
+
+const seoTitle = useMemo(() => {
+  if (!product?.title) {
+    return "Produs handmade";
+  }
+
+  return `${product.title} | ${storeName}`;
+}, [
+  product?.title,
+  storeName,
+]);
+
+const seoDescription = useMemo(() => {
+  const rawDescription =
+    typeof product?.description === "string"
+      ? product.description
+      : "";
+  const cleanDescription = rawDescription
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (cleanDescription) {
+    return cleanDescription.length > 155
+      ? `${cleanDescription.slice(0, 152).trim()}...`
+      : cleanDescription;
+  }
+
+  return `Descoperă ${
+    product?.title || "acest produs handmade"
+  } realizat de ${storeName}. Vezi detalii, preț și opțiuni de personalizare pe Artfest.`;
+}, [
+  product?.title,
+  product?.description,
+  storeName,
+]);
+
+
+const seoImage =
+  imagesForLd?.[0] || undefined;
 
   const jsonLd = useMemo(() => {
   const data = {
@@ -2707,13 +2797,22 @@ const productUrl =
     );
   }
 
-  return (
-    <div className={styles.pageWrap}>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
+ return (
+  <div className={styles.pageWrap}>
+   <SEO
+  title={seoTitle}
+  description={seoDescription}
+  canonical={productUrl}
+  url={productUrl}
+  image={seoImage}
+/>
 
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{
+        __html: JSON.stringify(jsonLd),
+      }}
+    />
       <div className={styles.breadcrumbs}>
         <button
           className={styles.linkBtn}

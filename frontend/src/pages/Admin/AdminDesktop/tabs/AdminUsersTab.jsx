@@ -14,6 +14,7 @@ function createDefaultUserFilters() {
     role: "ALL", // ALL | USER | VENDOR | ADMIN
     verified: "ALL", // ALL | YES | NO
     marketing: "ALL", // ALL | YES | NO
+    cookieMarketing: "ALL", // ALL | YES | NO | NONE
     hasVendor: "ALL", // ALL | YES | NO
     hasTickets: "ALL", // ALL | YES | NO
     status: "ALL", // ALL | ACTIVE | SUSPENDED
@@ -91,6 +92,16 @@ export default function AdminUsersTab({ users, variant = "all", onGoToOrders }) 
       list = list.filter((u) => !!u.marketingOptIn);
     } else if (filters.marketing === "NO") {
       list = list.filter((u) => !u.marketingOptIn);
+    }
+
+    if (filters.cookieMarketing === "YES") {
+      list = list.filter((u) => u.latestCookieConsent?.marketing === true);
+    } else if (filters.cookieMarketing === "NO") {
+      list = list.filter(
+        (u) => u.latestCookieConsent && u.latestCookieConsent.marketing === false
+      );
+    } else if (filters.cookieMarketing === "NONE") {
+      list = list.filter((u) => !u.latestCookieConsent);
     }
 
     if (filters.hasVendor === "YES") {
@@ -228,6 +239,24 @@ export default function AdminUsersTab({ users, variant = "all", onGoToOrders }) 
             <option value="ALL">Toți</option>
             <option value="YES">Acceptă marketing</option>
             <option value="NO">Nu acceptă marketing</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Cookies marketing</span>
+          <select
+            value={filters.cookieMarketing}
+            onChange={(e) =>
+              handleFilterChange((f) => ({
+                ...f,
+                cookieMarketing: e.target.value,
+              }))
+            }
+          >
+            <option value="ALL">Toți</option>
+            <option value="YES">Acceptat</option>
+            <option value="NO">Refuzat</option>
+            <option value="NONE">Fără decizie</option>
           </select>
         </label>
 
@@ -373,6 +402,7 @@ function UsersTable({ rows, onRowClick, totalItems }) {
             <th>Ultima conectare</th>
             <th>Verificat</th>
             <th>Marketing</th>
+            <th>Cookies marketing</th>
             <th>Vendor?</th>
             <th># Favorite</th>
             <th># Cart</th>
@@ -467,6 +497,13 @@ function UsersTable({ rows, onRowClick, totalItems }) {
                 <td>{u.lastLoginAt ? formatDate(u.lastLoginAt) : "—"}</td>
                 <td>{u.emailVerifiedAt ? "Da" : "Nu"}</td>
                 <td>{u.marketingOptIn ? "Da" : "Nu"}</td>
+                <td>
+                  {u.latestCookieConsent
+                    ? u.latestCookieConsent.marketing
+                      ? "Acceptat"
+                      : "Refuzat"
+                    : "Fără decizie"}
+                </td>
                 <td>
                   {u.vendor
                     ? `${u.vendor.displayName || ""} (${
@@ -602,6 +639,13 @@ function UserDetailsDrawer({ user, onClose, onGoToOrders }) {
 
   const marketingPrefs = localUser.marketingPrefs;
   const consents = localUser.UserConsent || [];
+
+  const cookieConsents = Array.isArray(localUser.cookieConsents)
+    ? localUser.cookieConsents
+    : [];
+
+  const latestCookieConsent =
+    localUser.latestCookieConsent || cookieConsents[0] || null;
 
   const handleGoOrders = () => {
     onGoToOrders?.({ userId: localUser.id });
@@ -811,6 +855,76 @@ function UserDetailsDrawer({ user, onClose, onGoToOrders }) {
           {/* Marketing & consimțăminte */}
           <section className={styles.drawerSection}>
             <h4>Marketing & consimțăminte</h4>
+
+            <div className={styles.drawerField}>
+              <span>Cookies necesare</span>
+              <span>{latestCookieConsent ? "Active" : "Fără decizie"}</span>
+            </div>
+
+            <div className={styles.drawerField}>
+              <span>Cookies analytics</span>
+              <span>
+                {latestCookieConsent
+                  ? latestCookieConsent.analytics
+                    ? "Acceptat"
+                    : "Refuzat"
+                  : "Fără decizie"}
+              </span>
+            </div>
+
+            <div className={styles.drawerField}>
+              <span>Cookies marketing</span>
+              <span>
+                {latestCookieConsent
+                  ? latestCookieConsent.marketing
+                    ? "Acceptat"
+                    : "Refuzat"
+                  : "Fără decizie"}
+              </span>
+            </div>
+
+            {latestCookieConsent && (
+              <>
+                <div className={styles.drawerField}>
+                  <span>Ultima acțiune cookies</span>
+                  <span>{latestCookieConsent.action || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Sursă cookies</span>
+                  <span>{latestCookieConsent.source || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Versiune consent</span>
+                  <span>{latestCookieConsent.consentVersion || "—"}</span>
+                </div>
+
+                <div className={styles.drawerField}>
+                  <span>Ultima modificare cookies</span>
+                  <span>{formatDate(latestCookieConsent.createdAt)}</span>
+                </div>
+              </>
+            )}
+
+            {cookieConsents.length > 0 && (
+              <div className={styles.drawerField}>
+                <span>Istoric cookies</span>
+                <span>
+                  {cookieConsents
+                    .map(
+                      (c) =>
+                        `${c.action || "—"} · Analytics ${
+                          c.analytics ? "On" : "Off"
+                        } · Marketing ${c.marketing ? "On" : "Off"} · ${formatDate(
+                          c.createdAt
+                        )}`
+                    )
+                    .join(" | ")}
+                </span>
+              </div>
+            )}
+
             {marketingPrefs ? (
               <>
                 <div className={styles.drawerField}>

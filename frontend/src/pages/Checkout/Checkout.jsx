@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import {
+  trackBeginCheckout,
+} from "../../../services/analytics.js";
+import {
   getGuestCart,
   clearGuestCart,
 } from "../../utils/guestCart";
@@ -589,7 +592,8 @@ const [me, setMe] = useState(null);
 
   const [fieldErrors, setFieldErrors] = useState({});
   const [activeStep, setActiveStep] = useState(1);
-
+const checkoutTrackedRef =
+  useRef(false);
   const addressSectionRef = useRef(null);
   const paymentSectionRef = useRef(null);
 
@@ -756,6 +760,61 @@ const [me, setMe] = useState(null);
     () => round2(vatTotals.totalGross + shippingTotal),
     [vatTotals.totalGross, shippingTotal]
   );
+
+  useEffect(() => {
+  /*
+   * Așteptăm până când checkout-ul
+   * a terminat încărcarea.
+   */
+  if (loading) {
+    return;
+  }
+
+  /*
+   * Nu trimitem InitiateCheckout
+   * pentru un coș gol.
+   */
+  if (!items.length) {
+    return;
+  }
+
+  /*
+   * Trimitem evenimentul o singură
+   * dată pentru această vizită
+   * în checkout.
+   */
+  if (checkoutTrackedRef.current) {
+    return;
+  }
+
+  const numItems =
+    items.reduce(
+      (total, item) =>
+        total +
+        Number(
+          item?.qty || 0
+        ),
+      0
+    );
+
+  checkoutTrackedRef.current =
+    true;
+
+  trackBeginCheckout(
+    grandTotal,
+    {
+      currency:
+        currency || "RON",
+
+      numItems,
+    }
+  );
+}, [
+  loading,
+  items,
+  grandTotal,
+  currency,
+]);
 
   const isAddressStepValid = useMemo(() => {
     if (customerType === "PF") {

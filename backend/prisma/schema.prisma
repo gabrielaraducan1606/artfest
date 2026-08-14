@@ -84,14 +84,24 @@ model User {
   supportMessages         SupportMessage[]
   supportReads            SupportRead[]
   supportTickets          SupportTicket[]
-  UserConsent             UserConsent[]
-  marketingPrefs          UserMarketingPrefs?
+
+  // Consimțăminte pentru documente juridice:
+  // TOS, Privacy etc.
+  UserConsent UserConsent[]
+
+  // Istoricul deciziilor privind cookies.
+  cookieConsents CookieConsent[]
+
+  // Preferințe de comunicare:
+  // email / SMS / push.
+  marketingPrefs UserMarketingPrefs?
+
   vendorBlocks            UserVendorBlock[]
   vendor                  Vendor?
   orders                  Order[]
-  handedOverShipments     Shipment[]               @relation("ShipmentHandedOverBy")
+  handedOverShipments     Shipment[]             @relation("ShipmentHandedOverBy")
   returnRequests          ReturnRequest[]
-  supportTicketsDeleted   SupportTicket[]          @relation("SupportTicketDeletedBy")
+  supportTicketsDeleted   SupportTicket[]        @relation("SupportTicketDeletedBy")
   newsletterSubscriptions NewsletterSubscriber[]
   VendorAcceptance        VendorAcceptance[]
   quoteRequests           QuoteRequest[]
@@ -937,11 +947,11 @@ model CartItem {
   productId String
   qty       Int    @default(1)
 
-selectedOptions      Json?
-customAnswers        Json?
-repeatedGroupAnswers Json?
+  selectedOptions      Json?
+  customAnswers        Json?
+  repeatedGroupAnswers Json?
 
-configurationKey String @default("default") @db.VarChar(64)
+  configurationKey String @default("default") @db.VarChar(64)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1032,6 +1042,82 @@ model UserConsent {
 
   @@unique([userId, document, version], name: "userId_document_version")
   @@index([userId, document])
+}
+
+model CookieConsent {
+  id String @id @default(cuid())
+
+  /**
+   * Poate fi null pentru vizitatorii
+   * care nu sunt autentificați.
+   */
+  userId String?
+
+  /**
+   * ID anonim generat în browser.
+   * Îl vom folosi pentru guest.
+   */
+  anonymousId String? @db.VarChar(100)
+
+  /**
+   * Necessary rămâne întotdeauna true.
+   */
+  necessary Boolean @default(true)
+
+  /**
+   * Analytics:
+   * Google Analytics etc.
+   */
+  analytics Boolean @default(false)
+
+  /**
+   * Marketing:
+   * Meta Pixel, remarketing etc.
+   */
+  marketing Boolean @default(false)
+
+  /**
+   * Versiunea mecanismului /
+   * politicii de cookies.
+   * Dacă pe viitor modifici
+   * politica, poți trece la 2.0.
+   */
+  consentVersion String @default("1.0") @db.VarChar(32)
+
+  /**
+   * Exemple:
+   * ACCEPT_ALL
+   * NECESSARY_ONLY
+   * CUSTOM
+   * WITHDRAW
+   */
+  action String @db.VarChar(32)
+
+  /**
+   * De unde a venit alegerea:
+   * COOKIE_BANNER
+   * COOKIE_PREFERENCES
+   */
+  source String? @db.VarChar(64)
+
+  /**
+   * Nu stocăm IP-ul brut.
+   * Vom putea salva un hash.
+   */
+  ipHash String? @db.VarChar(64)
+
+  /**
+   * User Agent pentru audit tehnic.
+   */
+  userAgent String? @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([anonymousId, createdAt])
+  @@index([createdAt])
 }
 
 model VendorPolicy {
@@ -1196,7 +1282,7 @@ model Shipment {
   stripeDepositPaymentIntentId String?              @db.VarChar(255)
   stripeDepositChargeId        String?              @db.VarChar(255)
   depositPaymentError          String?
-depositMeta                  Json?
+  depositMeta                  Json?
 
   order                  Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendor                 Vendor              @relation(fields: [vendorId], references: [id])
@@ -1246,10 +1332,10 @@ model ShipmentItem {
   qty        Int
   price      Decimal @db.Decimal(10, 2)
 
-  selectedOptions  Json?
-  customAnswers    Json?
+  selectedOptions      Json?
+  customAnswers        Json?
   repeatedGroupAnswers Json?
-  configurationKey String @default("default") @db.VarChar(64)
+  configurationKey     String @default("default") @db.VarChar(64)
 
   /**
    * Snapshot preț și reducere.

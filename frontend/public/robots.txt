@@ -1,11 +1,4 @@
 User-agent: *
 Allow: /
 
-# blocăm pagini inutile pentru SEO
-Disallow: /checkout
-Disallow: /cos
-Disallow: /wishlist
-Disallow: /autentificare
-Disallow: /inregistrare
-
 Sitemap: https://artfest.ro/sitemap.xml

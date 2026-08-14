@@ -101,6 +101,7 @@ import vendorHomepageFeatureRoutes from "./src/routes/vendorHomepageFeatureRoute
 import vendorQuotesRouter from "./src/routes/assistantRoutes/assistant/vendorQuotesRoutes.js";
 import adminProductsEditRoutes
   from "./src/routes/adminProductEditRoutes.js";
+import cookiesRoutes from "./src/routes/cookiesRoutes.js";
 
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
@@ -411,7 +412,10 @@ app.post("/api/admin/monitor/incidents/:id/ack", requireAdminMonitorToken, async
 // ✅ PUBLIC – înainte de auth
 app.use("/api/public", publicAdsRoutes);
 app.use("/api/public", publicCategories);
-
+app.use(
+  "/api/cookies",
+  cookiesRoutes
+);
 app.use(adminEmailLogsRoutes);
 app.use("/api/ambassadors", ambassadorRoutes);
 app.use("/api/admin/maintenance", adminMaintenanceRoutes);

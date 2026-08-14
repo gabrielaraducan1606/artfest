@@ -40,7 +40,7 @@ export default function ThankYou() {
 
   /*
    * Pentru comenzile guest,
-   * Checkout-ul pune deja tokenul
+   * Checkout-ul pune tokenul
    * în URL-ul /multumim.
    */
   const guestToken =
@@ -59,8 +59,7 @@ export default function ThankYou() {
   ========================================================= */
 
   const ordersListPath =
-    me?.role ===
-    "VENDOR"
+    me?.role === "VENDOR"
       ? `/vendor/orders?tab=client${
           orderId
             ? `&order=${encodeURIComponent(
@@ -81,12 +80,10 @@ export default function ThankYou() {
       : null;
 
   const orderDetailsPath =
-    me?.role ===
-    "VENDOR"
+    me?.role === "VENDOR"
       ? ordersListPath
       : isGuest
-        ? guestOrderPath ||
-          "/"
+        ? guestOrderPath || "/"
         : orderId
           ? `/comanda/${encodeURIComponent(
               orderId
@@ -132,6 +129,11 @@ export default function ThankYou() {
       false
     );
 
+  /*
+   * Protecție împotriva trimiterii
+   * de două ori a Purchase în aceeași
+   * montare a paginii.
+   */
   const purchaseTrackedRef =
     React.useRef(
       false
@@ -146,15 +148,6 @@ export default function ThankYou() {
       return;
     }
 
-    if (
-      purchaseTrackedRef.current
-    ) {
-      return;
-    }
-
-    purchaseTrackedRef.current =
-      true;
-
     let cancelled =
       false;
 
@@ -166,9 +159,10 @@ export default function ThankYou() {
       try {
         let data;
 
-        /*
-         * USER autentificat
-         */
+        /* ================================================
+           USER AUTENTIFICAT
+        ================================================ */
+
         if (me) {
           data =
             await api(
@@ -178,9 +172,10 @@ export default function ThankYou() {
             );
         }
 
-        /*
-         * GUEST
-         */
+        /* ================================================
+           GUEST
+        ================================================ */
+
         else if (
           guestToken
         ) {
@@ -194,16 +189,19 @@ export default function ThankYou() {
             );
         }
 
-        /*
-         * Dacă nu avem nici user,
-         * nici token guest, nu avem
-         * cum să citim comanda.
-         */
+        /* ================================================
+           FĂRĂ ACCES
+        ================================================ */
+
         else {
           throw new Error(
             "order_access_missing"
           );
         }
+
+        /* =====================================================
+           ITEMS
+        ===================================================== */
 
         const items =
           Array.isArray(
@@ -211,6 +209,10 @@ export default function ThankYou() {
           )
             ? data.items
             : [];
+
+        /* =====================================================
+           TOTAL
+        ===================================================== */
 
         const total =
           Number(
@@ -220,14 +222,10 @@ export default function ThankYou() {
               data?.grandTotal ||
               data?.finalTotal ||
               data?.amount ||
-              data?.totals
-                ?.total ||
-              data?.pricing
-                ?.total ||
-              data?.order
-                ?.total ||
-              data?.order
-                ?.totalPrice ||
+              data?.totals?.total ||
+              data?.pricing?.total ||
+              data?.order?.total ||
+              data?.order?.totalPrice ||
               items.reduce(
                 (
                   sum,
@@ -236,13 +234,9 @@ export default function ThankYou() {
                   const price =
                     Number(
                       item?.price ||
-                        item
-                          ?.unitPrice ||
-                        item
-                          ?.product
-                          ?.price ||
-                        item
-                          ?.productPrice ||
+                        item?.unitPrice ||
+                        item?.product?.price ||
+                        item?.productPrice ||
                         0
                     );
 
@@ -263,23 +257,161 @@ export default function ThankYou() {
               )
           );
 
+        /* =====================================================
+           CURRENCY
+        ===================================================== */
+
         const currency =
           data?.currency ||
           "RON";
+
+        /* =====================================================
+           ORDER NUMBER
+        ===================================================== */
 
         const orderNumber =
           data?.orderNumber ||
           orderNoFromUrl ||
           orderId;
 
-        trackPurchase({
-          id:
-            orderId,
+        /* =====================================================
+           PAYMENT STATE REAL DIN BACKEND
+        ===================================================== */
 
-          total,
+        /*
+         * În schema Prisma:
+         *
+         * paymentMethod:
+         * COD | CARD
+         */
+        const paymentMethod =
+          String(
+            data?.paymentMethod ||
+              ""
+          )
+            .trim()
+            .toUpperCase();
 
-          currency,
-        });
+        /*
+         * Acesta este statusul REAL
+         * al Order-ului din Prisma:
+         *
+         * PENDING
+         * PAID
+         * CANCELLED
+         * FULFILLED
+         */
+        const orderStatus =
+          String(
+            data?.orderStatus ||
+              ""
+          )
+            .trim()
+            .toUpperCase();
+
+        /*
+         * Momentul în care Stripe
+         * a confirmat plata.
+         */
+        const paidAt =
+          data?.paidAt ||
+          null;
+
+        /* =====================================================
+           DECIZIE PURCHASE
+        ===================================================== */
+
+        /*
+         * COD:
+         *
+         * Considerăm Purchase în
+         * momentul în care comanda
+         * a fost plasată cu succes.
+         */
+        const isCodPurchase =
+          paymentMethod ===
+          "COD";
+
+        /*
+         * CARD:
+         *
+         * Nu raportăm Purchase doar
+         * pentru că s-a creat comanda.
+         *
+         * Trebuie să existe dovadă
+         * că plata a fost confirmată:
+         *
+         * - Order.status === PAID
+         * SAU
+         * - paidAt există.
+         */
+        const isPaidCardPurchase =
+          paymentMethod ===
+            "CARD" &&
+          (
+            orderStatus ===
+              "PAID" ||
+            Boolean(
+              paidAt
+            )
+          );
+
+        const shouldTrackPurchase =
+          isCodPurchase ||
+          isPaidCardPurchase;
+
+        /* =====================================================
+           PURCHASE
+        ===================================================== */
+
+        if (
+          shouldTrackPurchase &&
+          !purchaseTrackedRef.current
+        ) {
+          purchaseTrackedRef.current =
+            true;
+
+          trackPurchase({
+            id:
+              orderId,
+
+            total,
+
+            currency,
+          });
+
+          console.log(
+            "[PURCHASE] tracked",
+            {
+              orderId,
+              orderNumber,
+              total,
+              currency,
+              paymentMethod,
+              orderStatus,
+              paidAt,
+            }
+          );
+        } else if (
+          !purchaseTrackedRef.current
+        ) {
+          console.log(
+            "[PURCHASE] not tracked",
+            {
+              orderId,
+              orderNumber,
+              total,
+              currency,
+              paymentMethod,
+              orderStatus,
+              paidAt,
+            }
+          );
+        }
+
+        /* =====================================================
+           UI
+        ===================================================== */
 
         if (
           !cancelled
@@ -288,10 +420,14 @@ export default function ThankYou() {
             orderNumber
           );
 
-          sessionStorage.setItem(
-            `orderNo:${orderId}`,
-            orderNumber
-          );
+          try {
+            sessionStorage.setItem(
+              `orderNo:${orderId}`,
+              orderNumber
+            );
+          } catch {
+            // ignore
+          }
         }
       } catch (
         error
@@ -330,6 +466,10 @@ export default function ThankYou() {
     guestToken,
     me,
   ]);
+
+  /* =========================================================
+     Număr afișat
+  ========================================================= */
 
   const shownNo =
     loading
@@ -438,8 +578,10 @@ export default function ThankYou() {
                 style={{
                   margin:
                     "7px 0 0",
+
                   fontSize:
                     13,
+
                   opacity:
                     0.8,
                 }}
@@ -498,7 +640,7 @@ export default function ThankYou() {
         )}
 
         {/* =================================================
-            Acțiuni
+            ACȚIUNI
         ================================================= */}
 
         <div
@@ -508,19 +650,17 @@ export default function ThankYou() {
         >
           {orderId &&
             orderDetailsPath && (
-            <Link
-              to={
-                orderDetailsPath
-              }
-              className={
-                styles.primaryBtn
-              }
-            >
-              {isGuest
-                ? "Vezi comanda"
-                : "Vezi comanda"}
-            </Link>
-          )}
+              <Link
+                to={
+                  orderDetailsPath
+                }
+                className={
+                  styles.primaryBtn
+                }
+              >
+                Vezi comanda
+              </Link>
+            )}
 
           <Link
             to="/produse"
@@ -528,8 +668,7 @@ export default function ThankYou() {
               styles.secondaryBtn
             }
           >
-            Continuă
-            cumpărăturile
+            Continuă cumpărăturile
           </Link>
         </div>
 
@@ -541,6 +680,7 @@ export default function ThankYou() {
             style={{
               marginTop:
                 14,
+
               fontSize:
                 12,
             }}

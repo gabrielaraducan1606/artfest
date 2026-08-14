@@ -1,41 +1,200 @@
 // src/pages/CookiePreferences.jsx
-import { useEffect, useState } from "react";
-import { readConsent, saveConsent } from "../../lib/cookieConsent.js";
+
+import {
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  readConsent,
+  saveConsent,
+} from "../../lib/cookieConsent.js";
 
 export default function CookiePreferences() {
-  const [analytics, setAnalytics] = useState(false);
-  const [marketing, setMarketing] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [analytics, setAnalytics] =
+    useState(false);
+
+  const [marketing, setMarketing] =
+    useState(false);
+
+  const [saved, setSaved] =
+    useState(false);
 
   useEffect(() => {
-    const c = readConsent();
-    setAnalytics(!!c.analytics);
-    setMarketing(!!c.marketing);
+    const consent =
+      readConsent();
+
+    setAnalytics(
+      consent?.analytics === true
+    );
+
+    setMarketing(
+      consent?.marketing === true
+    );
   }, []);
 
+  function getAction() {
+    if (
+      analytics === true &&
+      marketing === true
+    ) {
+      return "ACCEPT_ALL";
+    }
+
+    if (
+      analytics === false &&
+      marketing === false
+    ) {
+      return "NECESSARY_ONLY";
+    }
+
+    return "CUSTOM";
+  }
+
   const onSave = () => {
-    saveConsent({ analytics, marketing });
+    saveConsent(
+      {
+        necessary: true,
+        analytics,
+        marketing,
+      },
+      {
+        action: getAction(),
+        source:
+          "COOKIE_PREFERENCES",
+      }
+    );
+
     setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+
+    window.setTimeout(() => {
+      setSaved(false);
+    }, 2500);
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Preferințe cookie</h1>
-      <p>Cookie-urile necesare sunt întotdeauna active. Poți controla mai jos consimțământul pentru statistici și marketing.</p>
+    <div
+      style={{
+        padding: 24,
+        maxWidth: 720,
+        margin: "0 auto",
+      }}
+    >
+      <h1>
+        Preferințe cookie
+      </h1>
 
-      <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
-        <input type="checkbox" checked={analytics} onChange={(e) => setAnalytics(e.target.checked)} />
-        <span>Statistici (ex: Google Analytics)</span>
-      </label>
+      <p
+        style={{
+          lineHeight: 1.6,
+        }}
+      >
+        Cookie-urile strict necesare
+        sunt întotdeauna active.
+        Poți controla mai jos
+        utilizarea cookie-urilor
+        pentru statistici și
+        marketing.
+      </p>
 
-      <label style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
-        <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
-        <span>Marketing/Remarketing (ex: Meta, Google Ads)</span>
-      </label>
+      <div
+        style={{
+          padding: 16,
+          marginTop: 20,
+          border:
+            "1px solid #e5e5e5",
+          borderRadius: 12,
+        }}
+      >
+        <label
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            marginBottom: 16,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={analytics}
+            onChange={(event) =>
+              setAnalytics(
+                event.target.checked
+              )
+            }
+          />
 
-      <button onClick={onSave} style={{ padding: "10px 14px" }}>Salvează</button>
-      {saved && <div style={{ marginTop: 8, color: "green" }}>Preferințe salvate.</div>}
+          <span>
+            <strong>
+              Statistici
+            </strong>
+            <br />
+            <small>
+              Ne ajută să înțelegem
+              cum este folosită
+              platforma, de exemplu
+              prin Google Analytics.
+            </small>
+          </span>
+        </label>
+
+        <label
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={marketing}
+            onChange={(event) =>
+              setMarketing(
+                event.target.checked
+              )
+            }
+          />
+
+          <span>
+            <strong>
+              Marketing și remarketing
+            </strong>
+            <br />
+            <small>
+              Permite utilizarea
+              instrumentelor de
+              publicitate precum
+              Meta Pixel și Google Ads.
+            </small>
+          </span>
+        </label>
+      </div>
+
+      <button
+        type="button"
+        onClick={onSave}
+        style={{
+          marginTop: 20,
+          padding:
+            "11px 18px",
+          cursor: "pointer",
+        }}
+      >
+        Salvează preferințele
+      </button>
+
+      {saved && (
+        <div
+          style={{
+            marginTop: 12,
+          }}
+        >
+          Preferințele au fost
+          salvate.
+        </div>
+      )}
     </div>
   );
 }

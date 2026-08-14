@@ -968,20 +968,51 @@ router.get(
           order.shipments
         );
 
-      return res.json({
-        id:
-          order.id,
+     return res.json({
+  id:
+    order.id,
 
-        orderNumber:
-          order.orderNumber ||
-          null,
+  orderNumber:
+    order.orderNumber ||
+    null,
 
-        createdAt:
-          order.createdAt,
+  createdAt:
+    order.createdAt,
 
-        status,
+  /*
+   * Status calculat pentru UI.
+   */
+  status,
 
-        shippingStage,
+  /*
+   * Status real din Order:
+   * PENDING | PAID | CANCELLED | FULFILLED
+   */
+  orderStatus:
+    order.status,
+
+  /*
+   * COD | CARD
+   */
+  paymentMethod:
+    order.paymentMethod,
+
+  /*
+   * Pentru plata cu cardul.
+   */
+  paidAt:
+    order.paidAt ||
+    null,
+
+  stripeCheckoutSessionId:
+    order.stripeCheckoutSessionId ||
+    null,
+
+  stripePaymentIntentId:
+    order.stripePaymentIntentId ||
+    null,
+
+  shippingStage,
 
         returnEligible,
 
