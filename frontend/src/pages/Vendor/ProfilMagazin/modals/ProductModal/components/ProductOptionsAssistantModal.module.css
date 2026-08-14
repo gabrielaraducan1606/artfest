@@ -1,0 +1,490 @@
+.modalContent {
+  width: 100%;
+  box-sizing: border-box;
+
+  max-height: min(780px, calc(100dvh - 32px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  padding: 24px;
+
+  color: var(--color-text);
+  background: var(--surface);
+
+  scrollbar-width: thin;
+}
+
+/* =========================
+   GRID OPȚIUNI
+========================= */
+
+.choicesGrid {
+  display: grid;
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.choiceCard {
+  min-width: 0;
+  min-height: 94px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+
+  padding: 14px;
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+
+  background: var(--surface);
+  color: var(--color-text);
+
+  text-align: left;
+
+  cursor: pointer;
+
+  font-family: var(--font-body);
+
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.choiceCard:hover {
+  border-color: var(--color-primary);
+}
+
+.choiceCard:active {
+  transform: scale(0.985);
+}
+
+.choiceCardSelected {
+  border: 2px solid var(--color-primary);
+
+  background:
+    color-mix(
+      in srgb,
+      var(--color-primary) 9%,
+      var(--surface)
+    );
+}
+
+.choiceIcon {
+  font-size: 21px;
+  line-height: 1;
+
+  margin-bottom: 7px;
+}
+
+.choiceLabel {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+
+  overflow-wrap: anywhere;
+}
+
+.selectedText {
+  margin-top: 6px;
+
+  font-size: 0.8rem;
+  font-weight: 600;
+
+  color: var(--color-primary);
+}
+
+/* =========================
+   SECȚIUNI
+========================= */
+
+.section {
+  margin-top: 20px;
+  padding-top: 18px;
+
+  border-top: 1px solid var(--color-border);
+}
+
+.inlineRow {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+
+  width: 100%;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+
+  box-sizing: border-box;
+
+  padding: 11px 12px;
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+
+  background: var(--surface);
+  color: var(--color-text);
+
+  font: inherit;
+
+  outline: none;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+
+  box-shadow:
+    0 0 0 3px
+    color-mix(
+      in srgb,
+      var(--color-primary) 12%,
+      transparent
+    );
+}
+
+.input::placeholder {
+  color: var(--color-muted);
+}
+
+/* =========================
+   BUTON ADAUGĂ
+========================= */
+
+.addButton {
+  flex: 0 0 auto;
+
+  min-height: 42px;
+
+  padding: 11px 15px;
+
+  border: 0;
+  border-radius: var(--radius);
+
+  background: var(--color-primary);
+  color: #fff;
+
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.addButton:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.addButton:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.addButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =========================
+   ACȚIUNI JOS
+========================= */
+
+.actions {
+  position: sticky;
+  bottom: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  margin:
+    24px
+    -24px
+    -24px;
+
+  padding:
+    14px
+    24px
+    calc(14px + env(safe-area-inset-bottom));
+
+  border-top: 1px solid var(--color-border);
+
+  background: var(--surface);
+
+  z-index: 10;
+}
+
+.secondaryButton,
+.primaryButton {
+  min-height: 44px;
+
+  padding: 11px 16px;
+
+  border-radius: var(--radius);
+
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.secondaryButton {
+  border: 1px solid var(--color-border);
+
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.secondaryButton:hover {
+  background:
+    color-mix(
+      in srgb,
+      var(--color-text) 4%,
+      var(--surface)
+    );
+}
+
+.primaryButton {
+  border: 0;
+
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.primaryButton:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.secondaryButton:active,
+.primaryButton:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.primaryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* =========================
+   TABLETĂ
+========================= */
+
+@media (max-width: 768px) {
+  .modalContent {
+    max-height: calc(100dvh - 24px);
+
+    padding: 20px 18px;
+  }
+
+  .choicesGrid {
+    gap: 8px;
+  }
+
+  .choiceCard {
+    min-height: 82px;
+
+    padding: 11px 12px;
+  }
+
+  .choiceIcon {
+    font-size: 19px;
+    margin-bottom: 5px;
+  }
+
+  .choiceLabel {
+    font-size: 0.9rem;
+  }
+
+  .selectedText {
+    margin-top: 4px;
+
+    font-size: 0.75rem;
+  }
+
+  .actions {
+    margin:
+      22px
+      -18px
+      -20px;
+
+    padding:
+      12px
+      18px
+      calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+/* =========================
+   MOBIL
+========================= */
+
+@media (max-width: 600px) {
+  .modalContent {
+    max-height: calc(100dvh - 12px);
+
+    padding: 16px 14px;
+
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .choicesGrid {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+
+    gap: 6px;
+  }
+
+  .choiceCard {
+    min-height: 68px;
+
+    padding: 8px 10px;
+
+    border-radius: 12px;
+  }
+
+  .choiceCardSelected {
+    border-width: 2px;
+  }
+
+  .choiceIcon {
+    font-size: 18px;
+
+    margin-bottom: 4px;
+  }
+
+  .choiceLabel {
+    font-size: 0.84rem;
+    line-height: 1.15;
+  }
+
+  .selectedText {
+    margin-top: 3px;
+
+    font-size: 0.7rem;
+    line-height: 1.1;
+  }
+
+  .section {
+    margin-top: 16px;
+    padding-top: 14px;
+  }
+
+  .inlineRow {
+    flex-direction: column;
+
+    gap: 7px;
+  }
+
+  .input {
+    min-height: 42px;
+
+    padding: 10px 11px;
+
+    font-size: 0.9rem;
+  }
+
+  .addButton {
+    width: 100%;
+
+    min-height: 42px;
+
+    padding: 10px 12px;
+  }
+
+  .actions {
+    gap: 8px;
+
+    margin:
+      18px
+      -14px
+      -16px;
+
+    padding:
+      10px
+      14px
+      calc(10px + env(safe-area-inset-bottom));
+
+    box-shadow:
+      0 -6px 14px
+      rgba(0, 0, 0, 0.04);
+  }
+
+  .secondaryButton,
+  .primaryButton {
+    min-height: 42px;
+
+    padding: 10px 13px;
+
+    font-size: 0.86rem;
+  }
+}
+
+/* =========================
+   TELEFOANE FOARTE MICI
+========================= */
+
+@media (max-width: 360px) {
+  .modalContent {
+    padding: 14px 12px;
+  }
+
+  .choicesGrid {
+    gap: 5px;
+  }
+
+  .choiceCard {
+    min-height: 64px;
+
+    padding: 7px 8px;
+  }
+
+  .choiceIcon {
+    font-size: 17px;
+  }
+
+  .choiceLabel {
+    font-size: 0.8rem;
+  }
+
+  .selectedText {
+    font-size: 0.67rem;
+  }
+
+  .actions {
+    margin:
+      16px
+      -12px
+      -14px;
+
+    padding:
+      9px
+      12px
+      calc(9px + env(safe-area-inset-bottom));
+  }
+
+  .secondaryButton,
+  .primaryButton {
+    padding: 9px 10px;
+
+    font-size: 0.82rem;
+  }
+}

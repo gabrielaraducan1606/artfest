@@ -371,14 +371,16 @@ export default function ThankYou() {
           purchaseTrackedRef.current =
             true;
 
-          trackPurchase({
-            id:
-              orderId,
+         trackPurchase({
+  id:
+    orderId,
 
-            total,
+  total,
 
-            currency,
-          });
+  currency,
+
+  items,
+});
 
           console.log(
             "[PURCHASE] tracked",

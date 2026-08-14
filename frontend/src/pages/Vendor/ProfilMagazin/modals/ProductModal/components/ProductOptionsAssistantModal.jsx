@@ -5,6 +5,7 @@ import {
 } from "react";
 
 import Modal from "../../../ui/Modal";
+import modalStyles from "./ProductOptionsAssistantModal.module.css";
 
 /* =====================================================
    OPȚIUNI PREDEFINITE
@@ -953,6 +954,7 @@ export default function ProductOptionsAssistantModal({
       maxWidth={620}
     >
       <div
+        className={modalStyles.modalContent}
         style={{
           padding: 24,
           color:
@@ -1001,6 +1003,7 @@ export default function ProductOptionsAssistantModal({
             </p>
 
             <div
+              className={modalStyles.choicesGrid}
               style={{
                 display: "grid",
                 gridTemplateColumns:
@@ -1023,6 +1026,11 @@ export default function ProductOptionsAssistantModal({
                         toggleField(
                           field
                         )
+                      }
+                      className={
+                        selected
+                          ? `${modalStyles.choiceCard} ${modalStyles.choiceCardSelected}`
+                          : modalStyles.choiceCard
                       }
                       style={choiceStyle(
                         selected
@@ -1062,6 +1070,7 @@ export default function ProductOptionsAssistantModal({
             </div>
 
             <div
+              className={modalStyles.section}
               style={{
                 marginTop: 20,
                 paddingTop: 16,
@@ -1087,6 +1096,7 @@ export default function ProductOptionsAssistantModal({
               </p>
 
               <div
+                className={modalStyles.inlineRow}
                 style={{
                   display: "flex",
                   gap: 8,
@@ -1238,6 +1248,7 @@ export default function ProductOptionsAssistantModal({
             </div>
 
             <div
+              className={modalStyles.actions}
               style={{
                 display: "flex",
                 justifyContent:
@@ -1407,6 +1418,7 @@ export default function ProductOptionsAssistantModal({
               )}
 
               <div
+                className={modalStyles.inlineRow}
                 style={{
                   display: "flex",
                   gap: 8,
@@ -1558,6 +1570,7 @@ export default function ProductOptionsAssistantModal({
               )}
 
               <div
+                className={modalStyles.actions}
                 style={{
                   display: "flex",
                   justifyContent:
@@ -1703,6 +1716,7 @@ export default function ProductOptionsAssistantModal({
             </div>
 
             <div
+              className={modalStyles.actions}
               style={{
                 display: "flex",
                 justifyContent:
@@ -1929,6 +1943,7 @@ export default function ProductOptionsAssistantModal({
             )}
 
             <div
+              className={modalStyles.actions}
               style={{
                 display: "flex",
                 justifyContent:
@@ -2192,6 +2207,7 @@ export default function ProductOptionsAssistantModal({
             )}
 
             <div
+              className={modalStyles.actions}
               style={{
                 display: "flex",
                 justifyContent:

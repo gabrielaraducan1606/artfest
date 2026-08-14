@@ -556,10 +556,67 @@ export const trackBeginCheckout =
       options?.currency ||
       "RON";
 
+    /*
+     * Produsele trebuie să folosească
+     * exact aceleași ID-uri ca feed-ul
+     * Meta Catalog.
+     */
+    const items =
+      Array.isArray(
+        options?.items
+      )
+        ? options.items
+        : [];
+
+    const contentIds =
+      items
+        .map(
+          (item) =>
+            item?.productId ||
+            item?.product?.id ||
+            item?.id
+        )
+        .filter(Boolean)
+        .map(String);
+
+    const contents =
+      items
+        .map((item) => {
+          const id =
+            item?.productId ||
+            item?.product?.id ||
+            item?.id;
+
+          if (!id) {
+            return null;
+          }
+
+          return {
+            id:
+              String(id),
+
+            quantity:
+              Number(
+                item?.quantity ||
+                  item?.qty ||
+                  1
+              ) || 1,
+          };
+        })
+        .filter(Boolean);
+
     const numItems =
-      Number(
-        options?.numItems ||
-          0
+      contents.reduce(
+        (
+          sum,
+          item
+        ) =>
+          sum +
+          Number(
+            item?.quantity ||
+              0
+          ),
+        0
       );
 
     /*
@@ -570,6 +627,45 @@ export const trackBeginCheckout =
       {
         currency,
         value,
+
+        items:
+          items
+            .map((item) => {
+              const id =
+                item?.productId ||
+                item?.product?.id ||
+                item?.id;
+
+              if (!id) {
+                return null;
+              }
+
+              return {
+                item_id:
+                  String(id),
+
+                item_name:
+                  item?.title ||
+                  item?.product?.title ||
+                  "",
+
+                price:
+                  Number(
+                    item?.price ||
+                      item?.unitPrice ||
+                      item?.product?.price ||
+                      0
+                  ),
+
+                quantity:
+                  Number(
+                    item?.quantity ||
+                      item?.qty ||
+                      1
+                  ) || 1,
+              };
+            })
+            .filter(Boolean),
       }
     );
 
@@ -582,12 +678,39 @@ export const trackBeginCheckout =
         currency,
         value,
 
+        content_type:
+          "product",
+
+        ...(contentIds.length > 0
+          ? {
+              content_ids:
+                contentIds,
+            }
+          : {}),
+
+        ...(contents.length > 0
+          ? {
+              contents,
+            }
+          : {}),
+
         ...(numItems > 0
           ? {
               num_items:
                 numItems,
             }
           : {}),
+      }
+    );
+
+    console.log(
+      "[META] InitiateCheckout",
+      {
+        value,
+        currency,
+        contentIds,
+        contents,
+        numItems,
       }
     );
   };
@@ -643,12 +766,64 @@ export const trackPurchase =
           ""
       );
 
+    /*
+     * Produsele comenzii.
+     *
+     * Trebuie să folosim exact product.id
+     * din catalogul Meta.
+     */
+    const items =
+      Array.isArray(
+        order?.items
+      )
+        ? order.items
+        : [];
+
+    const contentIds =
+      items
+        .map(
+          (item) =>
+            item?.productId ||
+            item?.product?.id ||
+            item?.id
+        )
+        .filter(Boolean)
+        .map(String);
+
+    const contents =
+      items
+        .map((item) => {
+          const id =
+            item?.productId ||
+            item?.product?.id ||
+            item?.id;
+
+          if (!id) {
+            return null;
+          }
+
+          return {
+            id:
+              String(id),
+
+            quantity:
+              Number(
+                item?.quantity ||
+                  item?.qty ||
+                  1
+              ) || 1,
+          };
+        })
+        .filter(Boolean);
+
     console.log(
       "PURCHASE EVENT",
       {
         transactionId,
         value,
         currency,
+        contentIds,
+        contents,
       }
     );
 
@@ -663,6 +838,45 @@ export const trackPurchase =
 
         value,
         currency,
+
+        items:
+          items
+            .map((item) => {
+              const id =
+                item?.productId ||
+                item?.product?.id ||
+                item?.id;
+
+              if (!id) {
+                return null;
+              }
+
+              return {
+                item_id:
+                  String(id),
+
+                item_name:
+                  item?.title ||
+                  item?.product?.title ||
+                  "",
+
+                price:
+                  Number(
+                    item?.price ||
+                      item?.unitPrice ||
+                      item?.product?.price ||
+                      0
+                  ),
+
+                quantity:
+                  Number(
+                    item?.quantity ||
+                      item?.qty ||
+                      1
+                  ) || 1,
+              };
+            })
+            .filter(Boolean),
       }
     );
 
@@ -706,6 +920,19 @@ export const trackPurchase =
 
         content_type:
           "product",
+
+        ...(contentIds.length > 0
+          ? {
+              content_ids:
+                contentIds,
+            }
+          : {}),
+
+        ...(contents.length > 0
+          ? {
+              contents,
+            }
+          : {}),
       }
     );
   };

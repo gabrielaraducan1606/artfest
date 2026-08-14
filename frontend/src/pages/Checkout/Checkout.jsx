@@ -801,14 +801,16 @@ const checkoutTrackedRef =
     true;
 
   trackBeginCheckout(
-    grandTotal,
-    {
-      currency:
-        currency || "RON",
+  grandTotal,
+  {
+    currency:
+      currency || "RON",
 
-      numItems,
-    }
-  );
+    numItems,
+
+    items,
+  }
+);
 }, [
   loading,
   items,

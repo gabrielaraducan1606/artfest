@@ -6,7 +6,10 @@ import {
 } from "react";
 
 import styles from "../../../components/css/ProductModal.module.css";
-
+import ProductOptionsAssistantModal
+  from "./ProductOptionsAssistantModal";
+  import OptionsManualChoiceModal
+  from "./OptionsManualChoiceModal";
 const ORDER_MODES = [
   {
     value: "READY_TO_BUY",
@@ -773,6 +776,24 @@ export default function ProductOrderModeSection({
   setMobileSummaryOpen,
 ] = useState(false);
 
+const [
+  optionsAssistantOpen,
+  setOptionsAssistantOpen,
+] = useState(false);
+const [
+  manualOptionsPromptOpen,
+  setManualOptionsPromptOpen,
+] = useState(false);
+
+const [
+  manualOptionsConfirmed,
+  setManualOptionsConfirmed,
+] = useState(false);
+
+const [
+  pendingOptionsAction,
+  setPendingOptionsAction,
+] = useState(null);
   const [
     newOptionLabel,
     setNewOptionLabel,
@@ -1050,19 +1071,61 @@ const openSection = (
   }, 50);
 };
 
-  const selectMode = (
-    modeValue
-  ) => {
-    setForm((current) => ({
-      ...applyOrderModeRules(
-        current,
-        modeValue
-      ),
+ const selectMode = (
+  modeValue
+) => {
+  setForm((current) => ({
+    ...applyOrderModeRules(
+      current,
+      modeValue
+    ),
 
-      aiManuallyEdited: true,
-    }));
-  };
+    aiManuallyEdited: true,
+  }));
 
+  if (modeValue === "OPTIONS") {
+    setOptionsAssistantOpen(true);
+  }
+};
+const requestManualOptionsAction = (
+  action
+) => {
+  if (manualOptionsConfirmed) {
+    action();
+    return;
+  }
+
+  setPendingOptionsAction(
+    () => action
+  );
+
+  setManualOptionsPromptOpen(true);
+};
+
+const continueManualOptions = () => {
+  const action =
+    pendingOptionsAction;
+
+  setManualOptionsConfirmed(true);
+  setManualOptionsPromptOpen(false);
+  setPendingOptionsAction(null);
+
+  if (typeof action === "function") {
+    action();
+  }
+};
+
+const chooseGuidedOptions = () => {
+  setManualOptionsPromptOpen(false);
+  setPendingOptionsAction(null);
+
+  setOptionsAssistantOpen(true);
+};
+
+const closeManualOptionsPrompt = () => {
+  setManualOptionsPromptOpen(false);
+  setPendingOptionsAction(null);
+};
   const setPrice = (
     rawValue
   ) => {
@@ -1609,7 +1672,8 @@ const toggleRepeatedField = (
       : "Formular standard";
 
 return (
-  <div className={styles.productSection}>
+  <>
+    <div className={styles.productSection}>
     {orderHelpOpen && (
   <div className={styles.helpOverlay}>
     <div className={styles.helpModal}>
@@ -1954,6 +2018,19 @@ return (
                 styles.orderAccordionWrap
               }
             >
+              <button
+  type="button"
+  className={styles.primaryBtn}
+  onClick={() =>
+    setOptionsAssistantOpen(true)
+  }
+  style={{
+    width: "100%",
+    marginBottom: 12,
+  }}
+>
+  ✨ Configurează opțiunile pas cu pas
+</button>
               <div
                 id="manual-section-options"
                 className={
@@ -1965,11 +2042,16 @@ return (
                   className={
                     styles.orderAccordionHeader
                   }
-                  onClick={() =>
-                    setOpenOptionsPanel(
-                      (open) => !open
-                    )
-                  }
+                 onClick={() => {
+  if (!manualOptionsConfirmed) {
+    setManualOptionsPromptOpen(true);
+    return;
+  }
+
+  setOpenOptionsPanel(
+    (open) => !open
+  );
+}}
                 >
                   <span>
                     <strong>
@@ -2021,11 +2103,14 @@ return (
                                 optionFields,
                                 field.key
                               )}
-                              onChange={() =>
-                                toggleOptionField(
-                                  field
-                                )
-                              }
+                             onChange={() =>
+  requestManualOptionsAction(
+    () =>
+      toggleOptionField(
+        field
+      )
+  )
+}
                             />
 
                             {field.label}
@@ -2039,43 +2124,39 @@ return (
                         styles.orderInlineRow
                       }
                     >
-                      <input
-                        className={
-                          styles.input
-                        }
-                        value={
-                          newOptionLabel
-                        }
-                        onChange={(
-                          event
-                        ) =>
-                          setNewOptionLabel(
-                            event.target
-                              .value
-                          )
-                        }
-                        onKeyDown={(
-                          event
-                        ) => {
-                          if (
-                            event.key ===
-                            "Enter"
-                          ) {
-                            event.preventDefault();
-                            addCustomOptionField();
-                          }
-                        }}
-                        placeholder="Creează atribut nou, ex: Model"
-                      />
+                   <input
+  className={styles.input}
+  value={newOptionLabel}
+  onFocus={() => {
+    if (!manualOptionsConfirmed) {
+      setManualOptionsPromptOpen(true);
+    }
+  }}
+  onChange={(event) =>
+    setNewOptionLabel(event.target.value)
+  }
+  onKeyDown={(event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+
+      requestManualOptionsAction(
+        addCustomOptionField
+      );
+    }
+  }}
+  placeholder="Creează atribut nou, ex: Model"
+/>
 
                       <button
                         type="button"
                         className={
                           styles.smallBtn
                         }
-                        onClick={
-                          addCustomOptionField
-                        }
+                        onClick={() =>
+  requestManualOptionsAction(
+    addCustomOptionField
+  )
+}
                         disabled={
                           !newOptionLabel.trim()
                         }
@@ -2232,11 +2313,16 @@ return (
                   className={
                     styles.orderAccordionHeader
                   }
-                  onClick={() =>
-                    setOpenCustomPanel(
-                      (open) => !open
-                    )
-                  }
+                onClick={() => {
+  if (!manualOptionsConfirmed) {
+    setManualOptionsPromptOpen(true);
+    return;
+  }
+
+  setOpenCustomPanel(
+    (open) => !open
+  );
+}}
                 >
                   <span>
                     <strong>
@@ -2289,10 +2375,13 @@ return (
                                 field.key
                               )}
                               onChange={() =>
-                                toggleCustomField(
-                                  field
-                                )
-                              }
+  requestManualOptionsAction(
+    () =>
+      toggleCustomField(
+        field
+      )
+  )
+}
                             />
 
                             {field.label}
@@ -2324,13 +2413,13 @@ return (
                         onKeyDown={(
                           event
                         ) => {
-                          if (
-                            event.key ===
-                            "Enter"
-                          ) {
-                            event.preventDefault();
-                            addCustomInputField();
-                          }
+                          if (event.key === "Enter") {
+  event.preventDefault();
+
+  requestManualOptionsAction(
+    addCustomInputField
+  );
+}
                         }}
                         placeholder="Adaugă câmp nou, ex: Inițiale"
                       />
@@ -2340,9 +2429,11 @@ return (
                         className={
                           styles.smallBtn
                         }
-                        onClick={
-                          addCustomInputField
-                        }
+                        onClick={() =>
+  requestManualOptionsAction(
+    addCustomInputField
+  )
+}
                         disabled={
                           !newCustomLabel.trim()
                         }
@@ -3266,7 +3357,26 @@ return (
     )}
   </div>
 </aside>
-      </div>
+            </div>
     </div>
-  );
+
+    <ProductOptionsAssistantModal
+      open={optionsAssistantOpen}
+      onClose={() =>
+        setOptionsAssistantOpen(false)
+      }
+      form={form}
+      setForm={setForm}
+      optionPresets={optionPresets}
+    />
+    <OptionsManualChoiceModal
+  open={manualOptionsPromptOpen}
+  onClose={closeManualOptionsPrompt}
+  onGuided={chooseGuidedOptions}
+  onContinueManual={
+    continueManualOptions
+  }
+/>
+  </>
+);
 }
