@@ -102,22 +102,21 @@ export default function ProductImagesSection({
 
               <div>
                 <strong>
-                  ✨ Analizează produsul cu AI
-                </strong>
+  ✨ Completează automat cu AI
+</strong>
 
                 <p>
                   După încărcarea fotografiilor,
-                  poți apăsa pe „Analizează
-                  produsul cu AI”.
+apasă pe „Completează automat
+cu AI”.
                 </p>
 
                 <p>
-                  AI-ul analizează imaginile și
-                  încearcă să completeze automat
-                  informații precum titlul,
-                  descrierea, categoria,
-                  materialul, tehnica și culoarea
-                  produsului.
+                 AI-ul folosește fotografiile
+produsului pentru a completa
+automat titlul, descrierea,
+categoria, materialul, tehnica,
+culoarea și alte informații.
                 </p>
 
                 <p>
@@ -555,10 +554,10 @@ export default function ProductImagesSection({
                 }
               >
                 {aiLoading
-                  ? "Analizez produsul..."
-                  : !allImagesReadyForAi
-                  ? "Se încarcă imaginile..."
-                  : "✨ Analizează produsul cu AI"}
+  ? "Completez automat..."
+  : !allImagesReadyForAi
+  ? "Se încarcă imaginile..."
+  : "✨ Completează automat cu AI"}
               </button>
 
               <button
@@ -589,10 +588,10 @@ export default function ProductImagesSection({
             styles.tip
           }
         >
-          AI folosește poza marcată cu ★.
-          Încarcă pozele, apoi poți analiza
-          produsul sau edita fotografia
-          principală cu AI.
+        AI folosește fotografiile produsului
+pentru a completa automat detaliile.
+Poza marcată cu ★ este folosită
+pentru editarea imaginii cu AI.
         </div>
       </div>
     </>

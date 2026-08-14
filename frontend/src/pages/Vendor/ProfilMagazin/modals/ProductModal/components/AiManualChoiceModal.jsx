@@ -9,15 +9,25 @@ export default function AiManualChoiceModal({
   uploadingImages = 0,
   hasImages = false,
 }) {
+  const aiDisabled =
+    aiLoading ||
+    uploadingImages > 0 ||
+    !hasImages;
+
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      maxWidth={480}
-    >
+   <Modal
+  open={open}
+  onClose={() => {
+    if (!aiLoading) {
+      onClose();
+    }
+  }}
+  maxWidth={480}
+>
       <div
         style={{
           padding: "26px",
+          color: "var(--color-text)",
         }}
       >
         <div
@@ -30,19 +40,23 @@ export default function AiManualChoiceModal({
         </div>
 
         <h3
-          style={{
-            margin: "0 0 10px",
-            fontSize: "22px",
-          }}
-        >
-          Vrei să completezi manual?
-        </h3>
+  style={{
+    margin: "0 0 10px",
+    fontSize: "22px",
+    fontFamily: "var(--font-title)",
+    color: "var(--color-text)",
+  }}
+>
+  {aiLoading
+    ? "Completez produsul cu AI..."
+    : "Vrei să completezi manual?"}
+</h3>
 
         <p
           style={{
             margin: "0 0 8px",
             lineHeight: 1.6,
-            color: "#555",
+            color: "var(--color-muted)",
           }}
         >
           Artfest poate completa automat
@@ -54,7 +68,7 @@ export default function AiManualChoiceModal({
           style={{
             margin: "0 0 22px",
             lineHeight: 1.6,
-            color: "#555",
+            color: "var(--color-muted)",
           }}
         >
           Îți putem pregăti titlul,
@@ -73,11 +87,27 @@ export default function AiManualChoiceModal({
           <button
             type="button"
             onClick={onUseAi}
-            disabled={
-              aiLoading ||
-              uploadingImages > 0 ||
-              !hasImages
-            }
+            disabled={aiDisabled}
+            style={{
+              width: "100%",
+              padding: "13px 16px",
+              border: "none",
+              borderRadius: "var(--radius)",
+              background: aiDisabled
+                ? "var(--color-border)"
+                : "var(--color-primary)",
+              color: aiDisabled
+                ? "var(--color-muted)"
+                : "#fff",
+              fontFamily: "var(--font-body)",
+              fontSize: "14px",
+              fontWeight: 700,
+              cursor: aiDisabled
+                ? "not-allowed"
+                : "pointer",
+              boxShadow: "var(--shadow-sm)",
+              opacity: aiDisabled ? 0.7 : 1,
+            }}
           >
             {aiLoading
               ? "Se completează..."
@@ -89,7 +119,7 @@ export default function AiManualChoiceModal({
               style={{
                 margin: 0,
                 fontSize: "13px",
-                color: "#777",
+                color: "var(--color-muted)",
                 textAlign: "center",
               }}
             >
@@ -98,12 +128,27 @@ export default function AiManualChoiceModal({
             </p>
           )}
 
-          <button
-            type="button"
-            onClick={onContinueManual}
-          >
-            Continui manual
-          </button>
+         {!aiLoading && (
+  <button
+    type="button"
+    onClick={onContinueManual}
+    style={{
+      width: "100%",
+      padding: "12px 16px",
+      borderRadius: "var(--radius)",
+      background: "var(--surface)",
+      color: "var(--color-text)",
+      border:
+        "1px solid var(--color-border)",
+      fontFamily: "var(--font-body)",
+      fontSize: "14px",
+      fontWeight: 600,
+      cursor: "pointer",
+    }}
+  >
+    Continui manual
+  </button>
+)}
         </div>
       </div>
     </Modal>

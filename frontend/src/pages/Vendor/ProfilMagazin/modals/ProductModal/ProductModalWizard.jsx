@@ -797,8 +797,8 @@ quoteSchema: [],
               }
             >
               <strong>
-                Analiză AI:
-              </strong>
+  Completat cu AI:
+</strong>
 
               <br />
 
@@ -806,7 +806,7 @@ quoteSchema: [],
                 .aiVisionAnalysis
                 .visualProductType
                 ? `Produs detectat: ${form.aiVisionAnalysis.visualProductType}`
-                : "Produs analizat din imagini"}
+                : "Produs completat automat din imagini"}
 
               {typeof form.aiConfidence ===
                 "number" && (

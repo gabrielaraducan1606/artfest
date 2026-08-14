@@ -12,7 +12,7 @@ import { uploadFile as uploadFileHelper } from "../../../../lib/uploadFile";
 import { api } from "../../../../lib/api";
 
 import ProductModalWizard from "./ProductModal/ProductModalWizard";
-
+import AiManualChoiceModal from "./ProductModal/components/AiManualChoiceModal.jsx";
 import { COLORS_DETAILED } from "../../../../../../backend/src/constants/colors.js";
 import { MATERIALS_DETAILED } from "../../../../../../backend/src/constants/materials.js";
 import { TECHNIQUES_DETAILED } from "../../../../../../backend/src/constants/tehniques.js";
@@ -48,7 +48,20 @@ export default function ProductModal({
 
   const [aiLoading, setAiLoading] =
     useState(false);
+const [
+  manualPromptOpen,
+  setManualPromptOpen,
+] = useState(false);
 
+const [
+  pendingManualEdit,
+  setPendingManualEdit,
+] = useState(null);
+
+const [
+  manualModeConfirmed,
+  setManualModeConfirmed,
+] = useState(false);
   const [
     aiImageLoading,
     setAiImageLoading,
@@ -147,28 +160,61 @@ export default function ProductModal({
       ]
     );
 
-  const updateField = useCallback(
-    (field) => (eventOrValue) => {
-      const value =
-        eventOrValue?.target?.value ??
-        eventOrValue;
+ const applyFieldValue = useCallback(
+  (field, value) => {
+    setForm((current) => ({
+      ...current,
 
-      setForm((current) => ({
-        ...current,
-        [field]: value,
+      [field]: value,
 
-        /*
-         * Dacă produsul a fost analizat deja,
-         * marcăm intervenția utilizatorului.
-         */
-        aiManuallyEdited:
-          current.aiAnalyzedAt
-            ? true
-            : current.aiManuallyEdited,
-      }));
-    },
-    [setForm]
-  );
+      aiManuallyEdited:
+        current.aiAnalyzedAt
+          ? true
+          : current.aiManuallyEdited,
+    }));
+  },
+  [setForm]
+);
+
+const updateField = useCallback(
+  (field) => (eventOrValue) => {
+    const value =
+      eventOrValue?.target?.value ??
+      eventOrValue;
+
+    /*
+     * La prima încercare de completare manuală
+     * pentru un produs nou, recomandăm AI-ul.
+     */
+    if (
+  !editingProduct &&
+  !form.aiAnalyzedAt &&
+  !manualModeConfirmed &&
+  (form.images || []).length > 0
+) {
+      setPendingManualEdit({
+        field,
+        value,
+      });
+
+      setManualPromptOpen(true);
+
+      return;
+    }
+
+    applyFieldValue(
+      field,
+      value
+    );
+  },
+  [
+    editingProduct,
+    form.aiAnalyzedAt,
+    manualModeConfirmed,
+    applyFieldValue,
+    form.images
+  ]
+);
 
   /* =====================================================
      ANALIZĂ GENERALĂ DUPĂ IMAGINI
@@ -429,6 +475,53 @@ quoteSchema:
       getReadyImagesForAi,
     ]);
 
+    const continueManualEditing =
+  useCallback(() => {
+    const pending =
+      pendingManualEdit;
+
+    /*
+     * De aici înainte, pentru produsul acesta,
+     * nu mai afișăm întrebarea.
+     */
+    setManualModeConfirmed(true);
+    setManualPromptOpen(false);
+    setPendingManualEdit(null);
+
+    /*
+     * Aplicăm și valoarea pe care utilizatorul
+     * încercase deja să o introducă.
+     */
+    if (
+      pending?.field
+    ) {
+      applyFieldValue(
+        pending.field,
+        pending.value
+      );
+    }
+  }, [
+    pendingManualEdit,
+    applyFieldValue,
+  ]);
+
+const chooseAiCompletion =
+  useCallback(async () => {
+    setPendingManualEdit(null);
+
+    await handleAiAnalyze();
+
+    setManualPromptOpen(false);
+  }, [
+    handleAiAnalyze,
+  ]);
+
+const closeManualPrompt =
+  useCallback(() => {
+    setManualPromptOpen(false);
+    setPendingManualEdit(null);
+  }, []);
+
   /* =====================================================
      ÎMBUNĂTĂȚIRE IMAGINE
   ===================================================== */
@@ -560,14 +653,18 @@ quoteSchema:
      INIȚIALIZARE MODAL / DRAFT
   ===================================================== */
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
+useEffect(() => {
+  if (!open) {
+    return;
+  }
 
-    setActiveStep("images");
+  setActiveStep("images");
 
-    if (!editingProduct) {
+  setManualPromptOpen(false);
+  setPendingManualEdit(null);
+  setManualModeConfirmed(false);
+
+  if (!editingProduct) {
       try {
         const saved =
           localStorage.getItem(
@@ -1851,6 +1948,7 @@ const removeQuoteFieldOption =
     [setForm]
   );
   return (
+  <>
     <Modal
       open={open}
       onClose={() =>
@@ -2033,7 +2131,24 @@ removeQuoteFieldOption={
             setPriceWarningConfirmed
           }
         />
-      </div>
+            </div>
     </Modal>
-  );
+
+    <AiManualChoiceModal
+      open={manualPromptOpen}
+      onClose={closeManualPrompt}
+      onUseAi={chooseAiCompletion}
+      onContinueManual={
+        continueManualEditing
+      }
+      aiLoading={aiLoading}
+      uploadingImages={
+        uploadingImages
+      }
+      hasImages={
+        (form.images || []).length > 0
+      }
+    />
+  </>
+);
 }
