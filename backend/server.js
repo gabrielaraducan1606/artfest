@@ -412,12 +412,13 @@ app.post("/api/admin/monitor/incidents/:id/ack", requireAdminMonitorToken, async
 // ✅ PUBLIC – înainte de auth
 app.use("/api/public", publicAdsRoutes);
 app.use("/api/public", publicCategories);
+
+app.use("/api", metaCatalogFeedRoutes);
 app.use(
   "/api/cookies",
   cookiesRoutes
 );
 
-app.use("/", metaCatalogFeedRoutes);
 
 app.use(adminEmailLogsRoutes);
 app.use("/api/ambassadors", ambassadorRoutes);
