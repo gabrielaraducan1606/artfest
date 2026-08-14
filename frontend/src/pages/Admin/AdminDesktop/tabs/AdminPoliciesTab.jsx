@@ -333,6 +333,7 @@ function normalizeUserConsents(userConsents = []) {
   });
 }
 export default function AdminPoliciesTab({
+  users = [],
   userConsents = [],
   vendorAgreements = [],
 }) {
@@ -348,10 +349,81 @@ export default function AdminPoliciesTab({
 
   const [selectedVendor, setSelectedVendor] = useState(null);
 
-const normalizedUserRows = useMemo(
-  () => normalizeUserConsents(userConsents),
-  [userConsents]
-);
+  const normalizedUserRows = useMemo(() => {
+    const legalRows = normalizeUserConsents(userConsents);
+
+    const legalByUserId = new Map();
+    const legalByEmail = new Map();
+
+    for (const row of legalRows) {
+      if (row?.userId) {
+        legalByUserId.set(row.userId, row);
+      }
+
+      if (row?.email) {
+        legalByEmail.set(String(row.email).toLowerCase(), row);
+      }
+    }
+
+    return (users || []).map((user) => {
+      const legal =
+        legalByUserId.get(user.id) ||
+        legalByEmail.get(String(user.email || "").toLowerCase()) ||
+        {};
+
+      const cookieHistory = Array.isArray(user.cookieConsents)
+        ? user.cookieConsents
+        : [];
+
+      const latestCookie =
+        user.latestCookieConsent || cookieHistory[0] || null;
+
+      return {
+        ...legal,
+
+        userId: user.id,
+        email: user.email || "",
+        role: user.role || "USER",
+        createdAt: user.createdAt || legal.createdAt || null,
+
+        tosAccepted: !!legal.tosAccepted,
+        tosVersion: legal.tosVersion || null,
+        tosGivenAt: legal.tosGivenAt || null,
+        tosHistory: Array.isArray(legal.tosHistory) ? legal.tosHistory : [],
+
+        privacyAccepted: !!legal.privacyAccepted,
+        privacyVersion: legal.privacyVersion || null,
+        privacyGivenAt: legal.privacyGivenAt || null,
+        privacyHistory: Array.isArray(legal.privacyHistory)
+          ? legal.privacyHistory
+          : [],
+
+        returnsAccepted: !!legal.returnsAccepted,
+        returnsVersion: legal.returnsVersion || null,
+        returnsGivenAt: legal.returnsGivenAt || null,
+        returnsHistory: Array.isArray(legal.returnsHistory)
+          ? legal.returnsHistory
+          : [],
+
+        marketingOptIn: !!user.marketingOptIn,
+        marketingVersion: legal.marketingVersion || null,
+        marketingGivenAt: legal.marketingGivenAt || null,
+        marketingHistory: Array.isArray(legal.marketingHistory)
+          ? legal.marketingHistory
+          : [],
+
+        cookieConsents: cookieHistory,
+        latestCookieConsent: latestCookie,
+        cookiesAccepted: !!latestCookie,
+        cookieAnalytics: latestCookie ? !!latestCookie.analytics : null,
+        cookieMarketing: latestCookie ? !!latestCookie.marketing : null,
+        cookieAction: latestCookie?.action || null,
+        cookieSource: latestCookie?.source || null,
+        cookieVersion: latestCookie?.consentVersion || null,
+        cookieGivenAt: latestCookie?.createdAt || null,
+      };
+    });
+  }, [users, userConsents]);
 
   const handleUserFilterChange = (updater) => {
     setUserFilters((prev) => {
@@ -581,7 +653,24 @@ if (userFilters.hasMarketing === "YES") {
             </label>
 
             <label>
-              <span>Marketing</span>
+              <span>Cookies</span>
+              <select
+                value={userFilters.hasCookies}
+                onChange={(e) =>
+                  handleUserFilterChange((f) => ({
+                    ...f,
+                    hasCookies: e.target.value,
+                  }))
+                }
+              >
+                <option value="ALL">Toți</option>
+                <option value="YES">Cu decizie cookies</option>
+                <option value="NO">Fără decizie cookies</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Marketing comunicări</span>
               <select
                 value={userFilters.hasMarketing}
                 onChange={(e) =>
@@ -1321,6 +1410,7 @@ function UserConsentsTable({ rows, totalItems }) {
         <thead>
           <tr>
             <th>Utilizator</th>
+            <th>Rol</th>
             <th>Creat la</th>
             <th>TOS</th>
             <th>Privacy</th>
@@ -1343,6 +1433,10 @@ function UserConsentsTable({ rows, totalItems }) {
                     {r.userId ? `ID: ${r.userId}` : "Fără ID"}
                   </div>
                 </div>
+              </td>
+
+              <td>
+                <strong>{r.role || "USER"}</strong>
               </td>
 
               <td>{formatDate(r.createdAt)}</td>
@@ -1402,13 +1496,44 @@ function UserConsentsTable({ rows, totalItems }) {
 </td>
 
               <td>
-  {renderConsent(
-    r.privacyHistory,
-    r.privacyAccepted,
-    r.privacyVersion,
-    r.privacyGivenAt
-  )}
-</td>
+                {!r.latestCookieConsent ? (
+                  <span>Fără decizie</span>
+                ) : (
+                  <div>
+                    <div>
+                      <strong>
+                        Analytics: {r.cookieAnalytics ? "Acceptat" : "Refuzat"}
+                      </strong>
+                    </div>
+
+                    <div style={{ marginTop: 4 }}>
+                      <strong>
+                        Marketing: {r.cookieMarketing ? "Acceptat" : "Refuzat"}
+                      </strong>
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.72,
+                        marginTop: 5,
+                      }}
+                    >
+                      {r.cookieAction || "—"} · {r.cookieSource || "—"}
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.72,
+                        marginTop: 3,
+                      }}
+                    >
+                      v{r.cookieVersion || "?"} · {formatDate(r.cookieGivenAt)}
+                    </div>
+                  </div>
+                )}
+              </td>
 
            <td>
   {renderConsent(

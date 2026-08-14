@@ -100,15 +100,19 @@ export default function AdminDesktop() {
     setOrders(d.orders || []);
   }, []);
 
-  const loadPolicies = useCallback(async () => {
-    const [uc, va] = await Promise.all([
-      api("/api/admin/user-consents"),
-      api("/api/admin/vendor-acceptances").catch(() => ({ agreements: [] })),
-    ]);
+ const loadPolicies = useCallback(async () => {
+  const [u, uc, va] = await Promise.all([
+    api("/api/admin/users"),
+    api("/api/admin/user-consents"),
+    api("/api/admin/vendor-acceptances").catch(() => ({
+      agreements: [],
+    })),
+  ]);
 
-    setUserConsents(uc.consents || []);
-    setVendorAgreements(va.agreements || []);
-  }, []);
+  setUsers(u.users || []);
+  setUserConsents(uc.consents || []);
+  setVendorAgreements(va.agreements || []);
+}, []);
 
   const loadVendorPlans = useCallback(async () => {
     const d = await api("/api/admin/vendors/plans?take=50&skip=0");
@@ -239,12 +243,15 @@ export default function AdminDesktop() {
     }
 
     if (
-      activeTab === TAB_IDS.policies &&
-      !userConsents.length &&
-      !vendorAgreements.length
-    ) {
-      return <EmptyState text="Nu există încă înregistrări de consimțăminte sau acorduri." />;
-    }
+  activeTab === TAB_IDS.policies &&
+  !users.length &&
+  !userConsents.length &&
+  !vendorAgreements.length
+) {
+  return (
+    <EmptyState text="Nu există încă utilizatori, consimțăminte sau acorduri." />
+  );
+}
 
     if (activeTab === TAB_IDS.adminAllUsers) {
       return (
@@ -301,10 +308,11 @@ export default function AdminDesktop() {
 
     if (activeTab === TAB_IDS.policies) {
       return (
-        <AdminPoliciesTab
-          userConsents={userConsents}
-          vendorAgreements={vendorAgreements}
-        />
+       <AdminPoliciesTab
+  users={users}
+  userConsents={userConsents}
+  vendorAgreements={vendorAgreements}
+/>
       );
     }
 
