@@ -102,7 +102,7 @@ import vendorQuotesRouter from "./src/routes/assistantRoutes/assistant/vendorQuo
 import adminProductsEditRoutes
   from "./src/routes/adminProductEditRoutes.js";
 import cookiesRoutes from "./src/routes/cookiesRoutes.js";
-
+import metaCatalogFeedRoutes from "./src/routes/metaCatalogFeedRoutes.js";
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
 // Încarcă .env DOAR în development
@@ -416,6 +416,9 @@ app.use(
   "/api/cookies",
   cookiesRoutes
 );
+
+app.use("/", metaCatalogFeedRoutes);
+
 app.use(adminEmailLogsRoutes);
 app.use("/api/ambassadors", ambassadorRoutes);
 app.use("/api/admin/maintenance", adminMaintenanceRoutes);
