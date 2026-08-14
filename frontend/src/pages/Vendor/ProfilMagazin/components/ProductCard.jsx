@@ -319,7 +319,9 @@ promoLabel:
 
   const isQuoteOnly = safe.orderMode === "QUOTE_ONLY";
 
-  const href = safe.id ? `/produs/${safe.id}${loc.search || ""}` : null;
+  const href = safe.id
+  ? `/produs/${safe.id}`
+  : null;
 
   const imgCount = safe.images.length;
   const activeIndex = imgCount ? Math.min(idx, imgCount - 1) : 0;

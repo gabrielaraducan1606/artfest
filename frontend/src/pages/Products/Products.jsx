@@ -182,6 +182,8 @@ function extractFacetsFromItems(itemsList = []) {
 
 export default function ProductsPage({
   embedded = false,
+  forcedCategory = "",
+  forcedSeoCategory = null,
 }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -213,15 +215,21 @@ const goToProductsParams = useCallback(
        * nu avem nevoie de tab.
        */
       p.delete("tab");
+      
     }
-
+if (forcedCategory) {
+  p.delete("categorie");
+  p.delete("category");
+}
     const query =
       p.toString();
 
     const pathname =
-      embedded
-        ? window.location.pathname
-        : "/produse";
+  embedded
+    ? window.location.pathname
+    : forcedSeoCategory?.slug
+      ? `/categorii/${forcedSeoCategory.slug}`
+      : "/produse";
 
     navigate(
       query
@@ -231,9 +239,11 @@ const goToProductsParams = useCallback(
     );
   },
   [
-    embedded,
-    navigate,
-  ]
+  embedded,
+  navigate,
+  forcedSeoCategory?.slug,
+  forcedCategory
+]
 );
   const searchRef = useRef(null);
   const sentinelRef = useRef(null);
@@ -256,8 +266,19 @@ const goToProductsParams = useCallback(
 const visualSearchId =
   params.get("visualSearchId") || "";
   const qParam = params.get("q") || "";
-  const categoryParam = params.get("categorie") || params.get("category") || "";
-  const currentSeoCategory = categoryParam ? SEO_CATEGORIES[categoryParam] : null;
+ const categoryParam =
+  forcedCategory ||
+  params.get("categorie") ||
+  params.get("category") ||
+  "";
+
+const currentSeoCategory =
+  forcedSeoCategory ||
+  (
+    categoryParam
+      ? SEO_CATEGORIES[categoryParam]
+      : null
+  );
   const cityParam = params.get("city") || "";
   const sortParam = params.get("sort") || "new";
   const minPriceParam = params.get("minPrice") || params.get("min") || "";
@@ -1266,97 +1287,228 @@ if (requiresConfiguration) {
     return map;
   }, [items]);
 
-const handleCategoryRailClick =
-  useCallback(
-    (categoryKey) => {
-      const p =
-        new URLSearchParams(
-          params
-        );
+const handleCategoryRailClick = useCallback(
+  (categoryKey) => {
+    /*
+     * Dacă suntem pe o pagină SEO de categorie:
+     * /categorii/:slug
+     *
+     * navigăm direct către URL-ul SEO al
+     * noii categorii.
+     */
+    if (forcedCategory) {
+      if (!categoryKey) {
+        navigate("/produse");
+        return;
+      }
 
-      if (categoryKey) {
-        p.set(
-          "categorie",
-          categoryKey
+      const nextSeoCategory =
+        SEO_CATEGORIES[categoryKey];
+
+      if (nextSeoCategory?.slug) {
+        navigate(
+          `/categorii/${nextSeoCategory.slug}`
         );
-      } else {
-        p.delete(
-          "categorie"
-        );
-        p.delete(
-          "category"
-        );
+        return;
       }
 
       /*
-       * Când schimbăm categoria,
-       * revenim la prima pagină.
+       * Fallback pentru categorii care nu au
+       * încă o intrare SEO dedicată.
        */
-      p.set("page", "1");
-
-      /*
-       * Căutarea vizuală nu trebuie
-       * păstrată când utilizatorul
-       * navighează manual prin categorii.
-       */
-      p.delete("ids");
-      p.delete(
-        "visualSearchId"
+      navigate(
+        `/produse?categorie=${encodeURIComponent(
+          categoryKey
+        )}&page=1`
       );
 
-      setSuggestions(null);
+      return;
+    }
 
-    goToProductsParams(p);
-    },
-   [
-  goToProductsParams,
-  params,
-]
-  );
+    /*
+     * Comportamentul normal al /produse.
+     */
+    const p =
+      new URLSearchParams(params);
 
-  const applyFilters = useCallback(() => {
-    const f = localFilters;
-    const p = new URLSearchParams();
-if (visualSearchId) {
-  p.set(
-    "visualSearchId",
-    visualSearchId
-  );
-}
-    if (ids) p.set("ids", ids);
-
-    if (f.q) p.set("q", f.q);
-    if (f.category) p.set("categorie", f.category);
-    if (f.city) p.set("city", f.city);
-    if (f.minPrice) p.set("minPrice", f.minPrice);
-    if (f.maxPrice) p.set("maxPrice", f.maxPrice);
-
-    if (f.color) p.set("color", f.color);
-    if (f.material) p.set("materialMain", f.material);
-    if (f.technique) p.set("technique", f.technique);
-    if (f.styleTag) p.set("styleTag", f.styleTag);
-    if (f.occasionTag) p.set("occasionTag", f.occasionTag);
-    if (f.availability) p.set("availability", f.availability);
-    if (f.leadTimeMax) p.set("leadTimeMax", f.leadTimeMax);
-    if (f.acceptsCustom) p.set("acceptsCustom", "1");
-
-    if (
-  !ids &&
-  !visualSearchId &&
-  f.sort
-) {
-  p.set("sort", f.sort);
-}
+    if (categoryKey) {
+      p.set(
+        "categorie",
+        categoryKey
+      );
+    } else {
+      p.delete("categorie");
+      p.delete("category");
+    }
 
     p.set("page", "1");
 
-    setFiltersOpen(false);
+    p.delete("ids");
+    p.delete("visualSearchId");
+
     setSuggestions(null);
-   goToProductsParams(p);
+
+    goToProductsParams(p);
+  },
+  [
+    forcedCategory,
+    navigate,
+    goToProductsParams,
+    params,
+  ]
+);
+
+ const applyFilters = useCallback(() => {
+  const f = localFilters;
+
+  /*
+   * Dacă suntem pe /categorii/:slug și utilizatorul
+   * schimbă categoria din filtrul modal, mergem către
+   * URL-ul SEO al noii categorii.
+   */
+  if (
+    forcedCategory &&
+    f.category &&
+    f.category !== forcedCategory
+  ) {
+    const nextSeoCategory =
+      SEO_CATEGORIES[f.category];
+
+    if (nextSeoCategory?.slug) {
+      navigate(
+        `/categorii/${nextSeoCategory.slug}`
+      );
+
+      return;
+    }
+
+    navigate(
+      `/produse?categorie=${encodeURIComponent(
+        f.category
+      )}&page=1`
+    );
+
+    return;
+  }
+
+  const p = new URLSearchParams();
+
+  if (visualSearchId) {
+    p.set(
+      "visualSearchId",
+      visualSearchId
+    );
+  }
+
+  if (ids) {
+    p.set("ids", ids);
+  }
+
+  if (f.q) {
+    p.set("q", f.q);
+  }
+
+  if (!forcedCategory && f.category) {
+    p.set(
+      "categorie",
+      f.category
+    );
+  }
+
+  if (f.city) {
+    p.set("city", f.city);
+  }
+
+  if (f.minPrice) {
+    p.set(
+      "minPrice",
+      f.minPrice
+    );
+  }
+
+  if (f.maxPrice) {
+    p.set(
+      "maxPrice",
+      f.maxPrice
+    );
+  }
+
+  if (f.color) {
+    p.set("color", f.color);
+  }
+
+  if (f.material) {
+    p.set(
+      "materialMain",
+      f.material
+    );
+  }
+
+  if (f.technique) {
+    p.set(
+      "technique",
+      f.technique
+    );
+  }
+
+  if (f.styleTag) {
+    p.set(
+      "styleTag",
+      f.styleTag
+    );
+  }
+
+  if (f.occasionTag) {
+    p.set(
+      "occasionTag",
+      f.occasionTag
+    );
+  }
+
+  if (f.availability) {
+    p.set(
+      "availability",
+      f.availability
+    );
+  }
+
+  if (f.leadTimeMax) {
+    p.set(
+      "leadTimeMax",
+      f.leadTimeMax
+    );
+  }
+
+  if (f.acceptsCustom) {
+    p.set(
+      "acceptsCustom",
+      "1"
+    );
+  }
+
+  if (
+    !ids &&
+    !visualSearchId &&
+    f.sort
+  ) {
+    p.set(
+      "sort",
+      f.sort
+    );
+  }
+
+  p.set("page", "1");
+
+  setFiltersOpen(false);
+  setSuggestions(null);
+
+  goToProductsParams(p);
 }, [
   ids,
   visualSearchId,
   localFilters,
+  forcedCategory,
+  navigate,
   goToProductsParams,
 ]);
 
@@ -1406,20 +1558,59 @@ const clearImageSearch =
   params,
 ]);
 
-  const handleSuggestionCategoryClick = useCallback(
-    (catKey) => {
-      const p = new URLSearchParams();
-      p.set("q", localFilters.q || "");
-      p.set("categorie", catKey);
-      p.set("page", "1");
-      setSuggestions(null);
-      goToProductsParams(p);
-    },
-    [
-  localFilters.q,
-  goToProductsParams,
-]
-  );
+ const handleSuggestionCategoryClick = useCallback(
+  (catKey) => {
+    setSuggestions(null);
+
+    if (forcedCategory) {
+      const nextSeoCategory =
+        SEO_CATEGORIES[catKey];
+
+      if (nextSeoCategory?.slug) {
+        navigate(
+          `/categorii/${nextSeoCategory.slug}`
+        );
+        return;
+      }
+
+      navigate(
+        `/produse?categorie=${encodeURIComponent(
+          catKey
+        )}&page=1`
+      );
+
+      return;
+    }
+
+    const p =
+      new URLSearchParams();
+
+    if (localFilters.q) {
+      p.set(
+        "q",
+        localFilters.q
+      );
+    }
+
+    p.set(
+      "categorie",
+      catKey
+    );
+
+    p.set(
+      "page",
+      "1"
+    );
+
+    goToProductsParams(p);
+  },
+  [
+    forcedCategory,
+    localFilters.q,
+    navigate,
+    goToProductsParams,
+  ]
+);
 
  const handleSuggestionProductClick = useCallback(
   (id) => {
@@ -1431,14 +1622,49 @@ const clearImageSearch =
 );
 
   const handleApplySmartCategory = useCallback(
-    (catKey) => {
-      const p = new URLSearchParams(params);
-      p.set("categorie", catKey);
-      p.set("page", "1");
-      goToProductsParams(p);
-    },
-    [goToProductsParams, params]
-  );
+  (catKey) => {
+    if (forcedCategory) {
+      const nextSeoCategory =
+        SEO_CATEGORIES[catKey];
+
+      if (nextSeoCategory?.slug) {
+        navigate(
+          `/categorii/${nextSeoCategory.slug}`
+        );
+        return;
+      }
+
+      navigate(
+        `/produse?categorie=${encodeURIComponent(
+          catKey
+        )}&page=1`
+      );
+
+      return;
+    }
+
+    const p =
+      new URLSearchParams(params);
+
+    p.set(
+      "categorie",
+      catKey
+    );
+
+    p.set(
+      "page",
+      "1"
+    );
+
+    goToProductsParams(p);
+  },
+  [
+    forcedCategory,
+    navigate,
+    goToProductsParams,
+    params,
+  ]
+);
 
   const productCards = useMemo(() => {
     return items.map((p) => {
