@@ -1210,3 +1210,107 @@ html[data-theme="dark"]
     font-size: 18px;
   }
 }
+
+/* =========================================================
+   FIX DESKTOP / TABLETĂ > 680px
+   Păstrează footerul și CTA-ul vizibile chiar și la titluri lungi.
+   Nu afectează deloc layout-ul mobil definit la max-width: 680px.
+========================================================= */
+
+@media (min-width: 681px) {
+  .spotlightContent {
+    justify-content: flex-start;
+
+    padding:
+      clamp(
+        22px,
+        2.8vw,
+        34px
+      );
+
+    overflow: hidden;
+  }
+
+  .spotlightTabs {
+    flex: 0 0 auto;
+    margin-bottom: 12px;
+  }
+
+  .spotlightEyebrow,
+  .spotlightCategory,
+  .spotlightDiscountBadge,
+  .spotlightMeta {
+    flex: 0 0 auto;
+  }
+
+  .spotlightTitle {
+    display: -webkit-box;
+    overflow: hidden;
+
+    flex: 0 1 auto;
+
+    font-size:
+      clamp(
+        1.65rem,
+        2.7vw,
+        2.55rem
+      );
+
+    line-height: 1.03;
+
+    -webkit-box-orient: vertical;
+  }
+
+
+  .spotlightMeta {
+    margin-top: 12px;
+  }
+
+  .spotlightFooter {
+    flex: 0 0 auto;
+
+    margin-top: auto;
+    padding-top: 14px;
+  }
+
+  .spotlightCta {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .spotlightPriceGroup,
+  .spotlightArtisanDiscount {
+    min-width: 0;
+  }
+}
+
+/* Un pic mai compact pe tabletă / desktop îngust,
+   fără să atingem mobilul. */
+@media (min-width: 681px) and (max-width: 900px) {
+  .spotlightContent {
+    padding: 22px 24px;
+  }
+
+  .spotlightTabs {
+    margin-bottom: 10px;
+  }
+
+  .spotlightTitle {
+    font-size:
+      clamp(
+        1.45rem,
+        2.8vw,
+        2.05rem
+      );
+
+  }
+
+  .spotlightMeta {
+    margin-top: 10px;
+  }
+
+  .spotlightFooter {
+    gap: 12px;
+    padding-top: 10px;
+  }
+}

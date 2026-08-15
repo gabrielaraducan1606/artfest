@@ -1,5 +1,3 @@
-// src/components/Cookie/CookieBanner.jsx
-
 import {
   useEffect,
   useState,
@@ -29,99 +27,104 @@ export default function CookieBanner() {
 
   return (
     <div
-      className={styles.bar}
+      className={styles.overlay}
       role="dialog"
+      aria-modal="true"
       aria-label="Setări cookie"
     >
       <div
-        className={styles.text}
+        className={styles.banner}
       >
-        Folosim cookie-uri pentru
-        funcționarea platformei și,
-        doar cu acordul tău, pentru
-        statistici și marketing.
-
-        <a
-          href="/cookies"
-          className={styles.link}
+        <div
+          className={styles.text}
         >
-          Află mai multe
-        </a>
-        .
-      </div>
+          Folosim cookie-uri pentru
+          funcționarea platformei și,
+          doar cu acordul tău, pentru
+          statistici și marketing.
 
-      <div
-        className={
-          styles.actions
-        }
-      >
-        <button
-          className={styles.btn}
-          onClick={() => {
-            saveConsent(
-              {
-                ...defaultConsent,
+          <a
+            href="/cookies"
+            className={styles.link}
+          >
+            Află mai multe
+          </a>
+          .
+        </div>
 
-                analytics:
-                  false,
-
-                marketing:
-                  false,
-              },
-              {
-                action:
-                  "NECESSARY_ONLY",
-
-                source:
-                  "COOKIE_BANNER",
-              }
-            );
-
-            setOpen(false);
-          }}
+        <div
+          className={styles.actions}
         >
-          Doar necesare
-        </button>
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={() => {
+              saveConsent(
+                {
+                  ...defaultConsent,
 
-        <button
-          className={
-            styles.btnPrimary
-          }
-          onClick={() => {
-            saveConsent(
-              {
-                necessary:
-                  true,
+                  analytics:
+                    false,
 
-                analytics:
-                  true,
+                  marketing:
+                    false,
+                },
+                {
+                  action:
+                    "NECESSARY_ONLY",
 
-                marketing:
-                  true,
-              },
-              {
-                action:
-                  "ACCEPT_ALL",
+                  source:
+                    "COOKIE_BANNER",
+                }
+              );
 
-                source:
-                  "COOKIE_BANNER",
-              }
-            );
+              setOpen(false);
+            }}
+          >
+            Doar necesare
+          </button>
 
-            setOpen(false);
-          }}
-        >
-          Accept toate
-        </button>
+          <button
+            type="button"
+            className={
+              styles.btnPrimary
+            }
+            onClick={() => {
+              saveConsent(
+                {
+                  necessary:
+                    true,
 
-        <a
-          className={
-            styles.btnLink
-          }
-          href="/preferinte-cookie"
-        >
-          Preferințe
-        </a>
+                  analytics:
+                    true,
+
+                  marketing:
+                    true,
+                },
+                {
+                  action:
+                    "ACCEPT_ALL",
+
+                  source:
+                    "COOKIE_BANNER",
+                }
+              );
+
+              setOpen(false);
+            }}
+          >
+            Accept toate
+          </button>
+
+          <a
+            className={
+              styles.btnLink
+            }
+            href="/preferinte-cookie"
+          >
+            Preferințe
+          </a>
+        </div>
       </div>
     </div>
   );
