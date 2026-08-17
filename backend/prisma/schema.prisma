@@ -104,7 +104,13 @@ model User {
   supportTicketsDeleted   SupportTicket[]        @relation("SupportTicketDeletedBy")
   newsletterSubscriptions NewsletterSubscriber[]
   VendorAcceptance        VendorAcceptance[]
-  quoteRequests           QuoteRequest[]
+
+  // Cereri de ofertă trimise direct unui vendor.
+  quoteRequests QuoteRequest[]
+
+  // Cereri publice create de client,
+  // la care pot răspunde mai mulți vendori.
+  customerRequests CustomerRequest[]
 
   @@index([vendorDeactivateToken])
   @@index([emailChangeToken])
@@ -317,7 +323,7 @@ model Vendor {
   stripeDisabledReason   String?             @db.VarChar(255)
   stripeOnboardedAt      DateTime?
 
-  homepageFeatures HomepageFeature[] // ← ADĂUGAT
+  homepageFeatures HomepageFeature[]
 
   ambassadorProfile AmbassadorProfile?
   commentReplies    Comment[]          @relation("VendorCommentReplies")
@@ -337,6 +343,7 @@ model Vendor {
   storeReviewReplies StoreReviewReply[]
   supportTickets     SupportTicket[]
   blocks             UserVendorBlock[]
+
   user               User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   VendorAcceptance   VendorAcceptance[]
   billing            VendorBilling?
@@ -349,7 +356,13 @@ model Vendor {
   payouts            VendorPayout[]
   chatUsage          ChatUsage[]
   returnRequests     ReturnRequest[]
-  quoteRequests      QuoteRequest[]
+
+  // Cereri de ofertă trimise direct acestui vendor.
+  quoteRequests QuoteRequest[]
+
+  // Ofertele trimise de acest vendor
+  // la cererile publice ale clienților.
+  customerRequestOffers CustomerRequestOffer[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -2710,5 +2723,86 @@ model QuoteOffer {
   quoteRequest QuoteRequest @relation(fields: [quoteRequestId], references: [id], onDelete: Cascade)
 
   @@index([quoteRequestId, createdAt])
+  @@index([status])
+}
+
+enum CustomerRequestStatus {
+  OPEN
+  ACCEPTED
+  CLOSED
+  CANCELLED
+  EXPIRED
+}
+
+enum CustomerRequestOfferStatus {
+  SENT
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+  EXPIRED
+}
+
+enum CustomerRequestBudgetType {
+  TOTAL
+  PER_ITEM
+}
+
+model CustomerRequest {
+  id               String                     @id @default(cuid())
+  userId           String
+  title            String                     @db.VarChar(180)
+  description      String
+  category         String?                    @db.VarChar(64)
+  quantity         Int?
+  budgetMinCents   Int?
+  budgetMaxCents   Int?
+  budgetType       CustomerRequestBudgetType?
+  currency         String                     @default("RON")
+  deliveryDeadline DateTime?
+  city             String?
+  citySlug         String?                    @db.VarChar(64)
+  images           String[]                   @default([])
+  details          Json?
+  status           CustomerRequestStatus      @default(OPEN)
+  expiresAt        DateTime?
+  acceptedOfferId  String?                    @unique
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offers        CustomerRequestOffer[] @relation("CustomerRequestOffers")
+  acceptedOffer CustomerRequestOffer?  @relation("AcceptedCustomerRequestOffer", fields: [acceptedOfferId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([category, status, createdAt])
+  @@index([citySlug, status, createdAt])
+  @@index([expiresAt])
+}
+
+model CustomerRequestOffer {
+  id                String                     @id @default(cuid())
+  requestId         String
+  vendorId          String
+  status            CustomerRequestOfferStatus @default(SENT)
+  unitPriceCents    Int?
+  totalPriceCents   Int?
+  shippingCents     Int?
+  currency          String                     @default("RON")
+  productionDays    Int?
+  estimatedDelivery DateTime?
+  message           String?
+  images            String[]                   @default([])
+  validUntil        DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  request     CustomerRequest  @relation("CustomerRequestOffers", fields: [requestId], references: [id], onDelete: Cascade)
+  vendor      Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  acceptedFor CustomerRequest? @relation("AcceptedCustomerRequestOffer")
+
+  @@unique([requestId, vendorId])
+  @@index([requestId, createdAt])
+  @@index([vendorId, createdAt])
   @@index([status])
 }
