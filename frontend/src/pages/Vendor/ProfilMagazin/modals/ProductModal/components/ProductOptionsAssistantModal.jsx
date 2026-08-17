@@ -265,16 +265,57 @@ export default function ProductOptionsAssistantModal({
 
     setRequiredMap(nextRequired);
 
-    const nonPresetCustom =
-      existingCustom.filter(
-        (field) =>
-          !FIELD_CHOICES.some(
-            (item) =>
-              item.key === field.key
-          )
-      );
+    const dynamicOptions =
+  existingOptions
+    .filter(
+      (field) =>
+        !FIELD_CHOICES.some(
+          (item) =>
+            item.key === field.key
+        )
+    )
+    .map((field) => ({
+      ...field,
 
-    setCustomFields(nonPresetCustom);
+      icon: "➕",
+      kind: "option",
+
+      type:
+        field.type ||
+        "select",
+
+      suggestions:
+        Array.isArray(
+          field.options
+        )
+          ? field.options
+          : [],
+    }));
+
+const dynamicCustom =
+  existingCustom
+    .filter(
+      (field) =>
+        !FIELD_CHOICES.some(
+          (item) =>
+            item.key === field.key
+        )
+    )
+    .map((field) => ({
+      ...field,
+
+      icon: "✏️",
+      kind: "custom",
+
+      type:
+        field.type ||
+        "text",
+    }));
+
+setCustomFields([
+  ...dynamicOptions,
+  ...dynamicCustom,
+]);
 
     setRepeatedEnabled(
       existingRepeated.length > 0

@@ -593,6 +593,13 @@ const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
     nextShipDate: "",
     acceptsCustom: false,
 
+    // mod comandă + configurare opțiuni
+    orderMode: "READY_TO_BUY",
+    optionsSchema: [],
+    customSchema: [],
+    repeatedGroups: [],
+    quoteSchema: [],
+
     // detalii structurate
     materialMain: "",
     technique: "",
@@ -722,6 +729,12 @@ const onFilesPicked = useCallback(async (files) => {
         nextShipDate: "",
         acceptsCustom: false,
 
+        orderMode: "READY_TO_BUY",
+        optionsSchema: [],
+        customSchema: [],
+        repeatedGroups: [],
+        quoteSchema: [],
+
         materialMain: "",
         technique: "",
         styleTags: "",
@@ -786,6 +799,20 @@ const onFilesPicked = useCallback(async (files) => {
             ? String(p.nextShipDate).slice(0, 10)
             : "",
           acceptsCustom: !!p?.acceptsCustom,
+
+          orderMode: p?.orderMode || "READY_TO_BUY",
+          optionsSchema: Array.isArray(p?.optionsSchema)
+            ? p.optionsSchema
+            : [],
+          customSchema: Array.isArray(p?.customSchema)
+            ? p.customSchema
+            : [],
+          repeatedGroups: Array.isArray(p?.repeatedGroups)
+            ? p.repeatedGroups
+            : [],
+          quoteSchema: Array.isArray(p?.quoteSchema)
+            ? p.quoteSchema
+            : [],
 
           materialMain: p?.materialMain || "",
           technique: p?.technique || "",
@@ -889,6 +916,20 @@ const onFilesPicked = useCallback(async (files) => {
           : null,
       acceptsCustom: !!form.acceptsCustom,
 
+      orderMode: form.orderMode || "READY_TO_BUY",
+      optionsSchema: Array.isArray(form.optionsSchema)
+        ? form.optionsSchema
+        : [],
+      customSchema: Array.isArray(form.customSchema)
+        ? form.customSchema
+        : [],
+      repeatedGroups: Array.isArray(form.repeatedGroups)
+        ? form.repeatedGroups
+        : [],
+      quoteSchema: Array.isArray(form.quoteSchema)
+        ? form.quoteSchema
+        : [],
+
       materialMain: form.materialMain || null,
       technique: form.technique || null,
       styleTags: (form.styleTags || "").trim(),
@@ -928,6 +969,20 @@ const onFilesPicked = useCallback(async (files) => {
         ? new Date(initial.nextShipDate).toISOString()
         : null,
       acceptsCustom: !!initial?.acceptsCustom,
+
+      orderMode: initial?.orderMode || "READY_TO_BUY",
+      optionsSchema: Array.isArray(initial?.optionsSchema)
+        ? initial.optionsSchema
+        : [],
+      customSchema: Array.isArray(initial?.customSchema)
+        ? initial.customSchema
+        : [],
+      repeatedGroups: Array.isArray(initial?.repeatedGroups)
+        ? initial.repeatedGroups
+        : [],
+      quoteSchema: Array.isArray(initial?.quoteSchema)
+        ? initial.quoteSchema
+        : [],
 
       materialMain: initial?.materialMain || null,
       technique: initial?.technique || null,
@@ -1018,6 +1073,32 @@ const onFilesPicked = useCallback(async (files) => {
         availability: form.availability,
         acceptsCustom: !!form.acceptsCustom,
 
+        orderMode: form.orderMode || "READY_TO_BUY",
+
+        optionsSchema:
+          form.orderMode === "OPTIONS" &&
+          Array.isArray(form.optionsSchema)
+            ? form.optionsSchema
+            : [],
+
+        customSchema:
+          form.orderMode === "OPTIONS" &&
+          Array.isArray(form.customSchema)
+            ? form.customSchema
+            : [],
+
+        repeatedGroups:
+          form.orderMode === "OPTIONS" &&
+          Array.isArray(form.repeatedGroups)
+            ? form.repeatedGroups
+            : [],
+
+        quoteSchema:
+          form.orderMode === "QUOTE_ONLY" &&
+          Array.isArray(form.quoteSchema)
+            ? form.quoteSchema
+            : [],
+
         materialMain: form.materialMain || null,
         technique: form.technique || null,
         styleTags: form.styleTags,
@@ -1080,6 +1161,21 @@ const onFilesPicked = useCallback(async (files) => {
                   updated?.nextShipDate ?? body.nextShipDate ?? null,
                 acceptsCustom:
                   updated?.acceptsCustom ?? body.acceptsCustom ?? false,
+
+                orderMode:
+                  updated?.orderMode ?? body.orderMode ?? "READY_TO_BUY",
+                optionsSchema: Array.isArray(updated?.optionsSchema)
+                  ? updated.optionsSchema
+                  : body.optionsSchema,
+                customSchema: Array.isArray(updated?.customSchema)
+                  ? updated.customSchema
+                  : body.customSchema,
+                repeatedGroups: Array.isArray(updated?.repeatedGroups)
+                  ? updated.repeatedGroups
+                  : body.repeatedGroups,
+                quoteSchema: Array.isArray(updated?.quoteSchema)
+                  ? updated.quoteSchema
+                  : body.quoteSchema,
 
                 materialMain:
                   updated?.materialMain ?? body.materialMain ?? null,

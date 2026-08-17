@@ -9,6 +9,7 @@ import React, {
   useCallback,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import { api } from "../../lib/api";
 import {
   productPlaceholder,
@@ -72,6 +73,22 @@ const getReadableValue = (value) => {
   if (value === false) return "Nu";
 
   return String(value ?? "");
+};
+
+const isImageUrl = (value) => {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const url = value.trim();
+
+  return (
+    /^https?:\/\//i.test(url) &&
+    (
+      url.includes("/customizations/") ||
+      /\.(jpg|jpeg|png|webp|gif|heic|heif|bmp|tiff|avif)(\?.*)?$/i.test(url)
+    )
+  );
 };
 
 const getConfigurationEntries = (value) => {
@@ -176,6 +193,31 @@ const [rows, setRows] =
 
   const [pending, setPending] = useState(() => new Set());
   const [favIds, setFavIds] = useState(() => new Set());
+  const [previewImage, setPreviewImage] = useState(null);
+
+  const closePreviewImage = useCallback(() => {
+    setPreviewImage(null);
+  }, []);
+
+  useEffect(() => {
+    if (!previewImage) return;
+
+    const previousOverflow = document.body.style.overflow;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        closePreviewImage();
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewImage, closePreviewImage]);
 
   const myVendorId = me?.vendor?.id || null;
 
@@ -1292,24 +1334,43 @@ const hasConfiguration =
       </div>
     )}
 
-    {customAnswerEntries.length > 0 && (
-      <div className={styles.configurationGroup}>
-        <div className={styles.configurationTitle}>
-          Personalizare
-        </div>
+   {customAnswerEntries.map(([key, value]) => {
+  const imageValue = isImageUrl(value);
 
-        {customAnswerEntries.map(([key, value]) => (
-          <div
-            key={`custom-${key}`}
-            className={styles.configurationRow}
-          >
-            <span>{key}</span>
-            <strong>{getReadableValue(value)}</strong>
-          </div>
-        ))}
-      </div>
-    )}
+  return (
+    <div
+      key={`custom-${key}`}
+      className={styles.configurationRow}
+    >
+      <span>{key}</span>
 
+     {imageValue ? (
+  <button
+    type="button"
+    className={styles.previewTrigger}
+    onClick={() =>
+      setPreviewImage({
+        url: resolveFileUrl(value),
+        label: key,
+      })
+    }
+    aria-label={`Deschide poza pentru ${key}`}
+    title="Deschide poza"
+  >
+    <img
+      src={resolveFileUrl(value)}
+      alt={`Personalizare ${key}`}
+      className={styles.previewThumb}
+    />
+  </button>
+) : (
+  <strong>
+    {getReadableValue(value)}
+  </strong>
+)}
+    </div>
+  );
+})}
     {repeatedGroupEntries.length > 0 && (
   <div
     className={
@@ -1673,6 +1734,52 @@ const hasConfiguration =
           </button>
         </div>
       )}
+
+      {previewImage &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className={styles.modalOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Previzualizare poză personalizare"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                closePreviewImage();
+              }
+            }}
+          >
+            <div
+              className={styles.modalContent}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={closePreviewImage}
+                aria-label="Închide poza"
+                title="Închide"
+              >
+                ×
+              </button>
+
+              <img
+                src={previewImage.url}
+                alt={
+                  previewImage.label
+                    ? `Personalizare ${previewImage.label}`
+                    : "Poză personalizare"
+                }
+                className={styles.modalImage}
+                onError={(event) => {
+                  event.currentTarget.alt =
+                    "Imaginea nu a putut fi încărcată";
+                }}
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

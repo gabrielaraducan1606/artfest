@@ -456,4 +456,84 @@ router.post("/support", authRequired, (req, res) => {
   });
 });
 
+/**
+ * POST /api/upload/customization
+ * Pentru poze trimise de client
+ * la personalizarea unui produs.
+ *
+ * Merge atât pentru utilizatori autentificați,
+ * cât și pentru guest.
+ *
+ * FormData:
+ * file=<binary>
+ */
+router.post(
+  "/customization",
+  (req, res) => {
+    uploadImage.single("file")(
+      req,
+      res,
+      async (err) => {
+        if (err) {
+          return handleUploadError(
+            err,
+            res,
+            "customization"
+          );
+        }
+
+        try {
+          if (!req.file) {
+            return res
+              .status(400)
+              .json({
+                error: "no_file",
+                message:
+                  "Nu ai trimis nicio imagine.",
+              });
+          }
+
+          const authenticatedUserId =
+            getUserId(req);
+
+          const guestId =
+            `guest-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 10)}`;
+
+          const userId =
+            authenticatedUserId ||
+            guestId;
+
+          const uploaded =
+            await uploadToR2({
+              file: req.file,
+              folder:
+                "customizations",
+              userId,
+            });
+
+          return res.json({
+            ok: true,
+            url: uploaded.url,
+            key: uploaded.key,
+            name: uploaded.name,
+            size: uploaded.size,
+            mimeType:
+              uploaded.mimeType,
+            guest:
+              !authenticatedUserId,
+          });
+        } catch (err) {
+          return handleUploadError(
+            err,
+            res,
+            "customization"
+          );
+        }
+      }
+    );
+  }
+);
+
 export default router;

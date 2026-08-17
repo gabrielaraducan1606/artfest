@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import { api } from "../../lib/api";
 import {
   trackBeginCheckout,
@@ -524,6 +525,19 @@ function getReadableConfigValue(value) {
   return String(value);
 }
 
+function isCustomizationImage(value) {
+  if (typeof value !== "string") return false;
+
+  const url = value.trim();
+  if (!url) return false;
+
+  return (
+    /^(https?:\/\/|data:image\/|blob:)/i.test(url) ||
+    url.includes("/customizations/") ||
+    /\.(jpg|jpeg|png|webp|gif|heic|heif|bmp|tiff|avif)(\?.*)?$/i.test(url)
+  );
+}
+
 function formatConfigLabel(key) {
   return String(key || "")
     .replace(/[_-]+/g, " ")
@@ -579,6 +593,7 @@ const [me, setMe] = useState(null);
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("COD");
+  const [previewImage, setPreviewImage] = useState(null);
 
   const [counties, setCounties] = useState([]);
   const [countiesLoading, setCountiesLoading] = useState(true);
@@ -641,6 +656,26 @@ const checkoutTrackedRef =
     }),
     []
   );
+
+  useEffect(() => {
+    if (!previewImage) return;
+
+    const previousOverflow = document.body.style.overflow;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setPreviewImage(null);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewImage]);
 
   const filteredCounties = useMemo(() => {
     if (!counties.length) return [];
@@ -1581,19 +1616,75 @@ if (me) {
       {getObjectEntries(
         it.customAnswers
       ).map(
-        ([key, value]) => (
-          <div
-            key={`custom-${key}`}
-          >
-            {formatConfigLabel(
-              key
-            )}
-            :{" "}
-            {getReadableConfigValue(
+        ([key, value]) => {
+          const imageValue =
+            isCustomizationImage(
               value
-            )}
-          </div>
-        )
+            );
+
+          return (
+            <div
+              key={`custom-${key}`}
+              className={
+                imageValue
+                  ? styles.configImageRow
+                  : undefined
+              }
+            >
+              <span>
+                {formatConfigLabel(
+                  key
+                )}
+                :
+              </span>
+
+              {imageValue ? (
+                <button
+                  type="button"
+                  className={
+                    styles.previewTrigger
+                  }
+                  onClick={() =>
+                    setPreviewImage({
+                      url: resolveFileUrl(
+                        value
+                      ),
+                      label:
+                        formatConfigLabel(
+                          key
+                        ),
+                    })
+                  }
+                  aria-label={`Deschide poza pentru ${formatConfigLabel(
+                    key
+                  )}`}
+                  title="Deschide poza"
+                >
+                  <img
+                    src={resolveFileUrl(
+                      value
+                    )}
+                    alt={`Personalizare ${formatConfigLabel(
+                      key
+                    )}`}
+                    className={
+                      styles.previewThumb
+                    }
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </button>
+              ) : (
+                <>
+                  {" "}
+                  {getReadableConfigValue(
+                    value
+                  )}
+                </>
+              )}
+            </div>
+          );
+        }
       )}
     </div>
   )}
@@ -1672,19 +1763,75 @@ if (me) {
                         ([
                           key,
                           value,
-                        ]) => (
-                          <div
-                            key={`${groupKey}-${memberIndex}-${key}`}
-                          >
-                            {formatConfigLabel(
-                              key
-                            )}
-                            :{" "}
-                            {getReadableConfigValue(
+                        ]) => {
+                          const imageValue =
+                            isCustomizationImage(
                               value
-                            )}
-                          </div>
-                        )
+                            );
+
+                          return (
+                            <div
+                              key={`${groupKey}-${memberIndex}-${key}`}
+                              className={
+                                imageValue
+                                  ? styles.configImageRow
+                                  : undefined
+                              }
+                            >
+                              <span>
+                                {formatConfigLabel(
+                                  key
+                                )}
+                                :
+                              </span>
+
+                              {imageValue ? (
+                                <button
+                                  type="button"
+                                  className={
+                                    styles.previewTrigger
+                                  }
+                                  onClick={() =>
+                                    setPreviewImage({
+                                      url: resolveFileUrl(
+                                        value
+                                      ),
+                                      label:
+                                        formatConfigLabel(
+                                          key
+                                        ),
+                                    })
+                                  }
+                                  aria-label={`Deschide poza pentru ${formatConfigLabel(
+                                    key
+                                  )}`}
+                                  title="Deschide poza"
+                                >
+                                  <img
+                                    src={resolveFileUrl(
+                                      value
+                                    )}
+                                    alt={`Personalizare ${formatConfigLabel(
+                                      key
+                                    )}`}
+                                    className={
+                                      styles.previewThumb
+                                    }
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
+                                </button>
+                              ) : (
+                                <>
+                                  {" "}
+                                  {getReadableConfigValue(
+                                    value
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+                        }
                       )}
                     </div>
                   );
@@ -2869,6 +3016,55 @@ if (me) {
           </aside>
         </div>
       )}
+
+      {previewImage &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className={styles.modalOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Previzualizare poză personalizare"
+            onMouseDown={(event) => {
+              if (
+                event.target ===
+                event.currentTarget
+              ) {
+                setPreviewImage(null);
+              }
+            }}
+          >
+            <div
+              className={styles.modalContent}
+              onMouseDown={(event) =>
+                event.stopPropagation()
+              }
+            >
+              <button
+                type="button"
+                className={styles.modalClose}
+                onClick={() =>
+                  setPreviewImage(null)
+                }
+                aria-label="Închide poza"
+                title="Închide"
+              >
+                ×
+              </button>
+
+              <img
+                src={previewImage.url}
+                alt={
+                  previewImage.label
+                    ? `Personalizare ${previewImage.label}`
+                    : "Poză personalizare"
+                }
+                className={styles.modalImage}
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

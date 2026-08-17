@@ -792,3 +792,137 @@
   font-size: 12px;
   color: #666;
 }
+
+/* ================== Poză personalizare / preview ================== */
+
+.configImageRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.previewTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.previewTrigger:hover .previewThumb {
+  transform: scale(1.04);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.previewTrigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.previewThumb {
+  width: 54px;
+  height: 54px;
+  display: block;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.78);
+  overscroll-behavior: contain;
+  touch-action: manipulation;
+}
+
+.modalContent {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 92vw;
+  max-height: 90vh;
+  padding: 12px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.modalImage {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 88vw;
+  max-height: 82vh;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.modalClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.76);
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.modalClose:hover {
+  background: rgba(0, 0, 0, 0.9);
+}
+
+.modalClose:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .modalOverlay {
+    padding: 12px;
+  }
+
+  .modalContent {
+    max-width: 96vw;
+    max-height: 92vh;
+    padding: 8px;
+  }
+
+  .modalImage {
+    max-width: calc(96vw - 16px);
+    max-height: 84vh;
+  }
+
+  .modalClose {
+    top: 8px;
+    right: 8px;
+  }
+}

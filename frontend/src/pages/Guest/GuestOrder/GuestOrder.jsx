@@ -132,6 +132,427 @@ function getDepositTitle(
   }
 }
 
+function getObjectEntries(value) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return [];
+  }
+
+  return Object.entries(value).filter(
+    ([, itemValue]) => {
+      if (
+        itemValue === null ||
+        itemValue === undefined
+      ) {
+        return false;
+      }
+
+      if (
+        typeof itemValue === "string"
+      ) {
+        return itemValue.trim() !== "";
+      }
+
+      return true;
+    }
+  );
+}
+
+function readableValue(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map(readableValue)
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    return (
+      value.label ||
+      value.value ||
+      value.name ||
+      JSON.stringify(value)
+    );
+  }
+
+  return String(value);
+}
+
+function readableLabel(key) {
+  return String(key || "")
+    .replace(/[_-]+/g, " ")
+    .replace(
+      /\b\w/g,
+      (letter) =>
+        letter.toUpperCase()
+    );
+}
+
+function isCustomizationImage(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const url = value.trim();
+
+  if (!url) {
+    return false;
+  }
+
+  return (
+    /^(https?:\/\/|data:image\/|blob:)/i.test(url) ||
+    url.includes("/customizations/") ||
+    /\.(jpg|jpeg|png|webp|gif|heic|heif|bmp|tiff|avif)(\?.*)?$/i.test(url)
+  );
+}
+
+function ProductConfiguration({
+  item,
+  onPreviewImage,
+}) {
+  const optionEntries =
+    getObjectEntries(
+      item?.selectedOptions
+    );
+
+  const customEntries =
+    getObjectEntries(
+      item?.customAnswers
+    );
+
+  const repeatedEntries =
+    getObjectEntries(
+      item?.repeatedGroupAnswers
+    );
+
+  const hasAny =
+    optionEntries.length > 0 ||
+    customEntries.length > 0 ||
+    repeatedEntries.length > 0;
+
+  if (!hasAny) {
+    return null;
+  }
+
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      {optionEntries.length > 0 && (
+        <div>
+          <strong>
+            Opțiuni
+          </strong>
+
+          {optionEntries.map(
+            ([key, value]) => (
+              <div
+                key={`option-${key}`}
+              >
+                {readableLabel(key)}
+                :{" "}
+                {readableValue(value)}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {customEntries.length > 0 && (
+        <div
+          style={{
+            marginTop:
+              optionEntries.length
+                ? 6
+                : 0,
+          }}
+        >
+          <strong>
+            Personalizare
+          </strong>
+
+          {customEntries.map(
+            ([key, value]) => {
+              const imageValue =
+                isCustomizationImage(
+                  value
+                );
+
+              return (
+                <div
+                  key={`custom-${key}`}
+                  style={
+                    imageValue
+                      ? {
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          marginTop: 4,
+                        }
+                      : undefined
+                  }
+                >
+                  <span>
+                    {readableLabel(key)}:
+                  </span>
+
+                  {imageValue ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewImage?.(
+                          value
+                        )
+                      }
+                      aria-label={`Deschide poza pentru ${readableLabel(
+                        key
+                      )}`}
+                      title="Deschide poza"
+                      style={{
+                        display:
+                          "inline-flex",
+                        alignItems:
+                          "center",
+                        justifyContent:
+                          "center",
+                        padding: 0,
+                        border: 0,
+                        background:
+                          "transparent",
+                        cursor:
+                          "zoom-in",
+                        borderRadius:
+                          8,
+                      }}
+                    >
+                      <img
+                        src={value}
+                        alt={`Personalizare ${readableLabel(
+                          key
+                        )}`}
+                        style={{
+                          width: 54,
+                          height: 54,
+                          objectFit:
+                            "cover",
+                          borderRadius:
+                            8,
+                          border:
+                            "1px solid #e5e7eb",
+                          display:
+                            "block",
+                        }}
+                      />
+                    </button>
+                  ) : (
+                    <>
+                      {" "}
+                      {readableValue(
+                        value
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            }
+          )}
+        </div>
+      )}
+
+      {repeatedEntries.length > 0 && (
+        <div
+          style={{
+            marginTop:
+              optionEntries.length ||
+              customEntries.length
+                ? 8
+                : 0,
+          }}
+        >
+          <strong>
+            Detalii personalizare
+          </strong>
+
+          {repeatedEntries.map(
+            ([groupKey, members]) => {
+              if (
+                !Array.isArray(
+                  members
+                )
+              ) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={`group-${groupKey}`}
+                >
+                  {members.map(
+                    (
+                      member,
+                      memberIndex
+                    ) => {
+                      const entries =
+                        getObjectEntries(
+                          member
+                        );
+
+                      if (
+                        !entries.length
+                      ) {
+                        return null;
+                      }
+
+                      return (
+                        <div
+                          key={`${groupKey}-${memberIndex}`}
+                          style={{
+                            marginTop: 6,
+                            padding:
+                              "7px 9px",
+                            border:
+                              "1px solid rgba(0,0,0,0.08)",
+                            borderRadius:
+                              8,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight:
+                                700,
+                              marginBottom:
+                                3,
+                            }}
+                          >
+                            Personalizare{" "}
+                            {memberIndex +
+                              1}
+                          </div>
+
+                          {entries.map(
+                            ([
+                              key,
+                              value,
+                            ]) => {
+                              const imageValue =
+                                isCustomizationImage(
+                                  value
+                                );
+
+                              return (
+                                <div
+                                  key={`${groupKey}-${memberIndex}-${key}`}
+                                  style={
+                                    imageValue
+                                      ? {
+                                          display:
+                                            "flex",
+                                          alignItems:
+                                            "center",
+                                          gap: 8,
+                                          marginTop:
+                                            4,
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  <span>
+                                    {readableLabel(
+                                      key
+                                    )}
+                                    :
+                                  </span>
+
+                                  {imageValue ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onPreviewImage?.(
+                                          value
+                                        )
+                                      }
+                                      aria-label={`Deschide poza pentru ${readableLabel(
+                                        key
+                                      )}`}
+                                      title="Deschide poza"
+                                      style={{
+                                        display:
+                                          "inline-flex",
+                                        alignItems:
+                                          "center",
+                                        justifyContent:
+                                          "center",
+                                        padding: 0,
+                                        border: 0,
+                                        background:
+                                          "transparent",
+                                        cursor:
+                                          "zoom-in",
+                                        borderRadius:
+                                          8,
+                                      }}
+                                    >
+                                      <img
+                                        src={value}
+                                        alt={`Personalizare ${readableLabel(
+                                          key
+                                        )}`}
+                                        style={{
+                                          width:
+                                            54,
+                                          height:
+                                            54,
+                                          objectFit:
+                                            "cover",
+                                          borderRadius:
+                                            8,
+                                          border:
+                                            "1px solid #e5e7eb",
+                                          display:
+                                            "block",
+                                        }}
+                                      />
+                                    </button>
+                                  ) : (
+                                    <>
+                                      {" "}
+                                      {readableValue(
+                                        value
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
+                </div>
+              );
+            }
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getImageUrl(
   item
 ) {
@@ -191,6 +612,11 @@ export default function GuestOrderPage() {
     setBusyDepositId,
   ] = useState(null);
 
+  const [
+    imagePreview,
+    setImagePreview,
+  ] = useState(null);
+
   /*
    * Tokenul normal este primit după
    * plasarea comenzii guest.
@@ -237,6 +663,46 @@ export default function GuestOrderPage() {
       guestToken,
       depositToken,
     ]);
+
+  useEffect(() => {
+    if (!imagePreview) {
+      return;
+    }
+
+    const previousOverflow =
+      document.body.style.overflow;
+
+    const handleKeyDown = (
+      event
+    ) => {
+      if (
+        event.key ===
+        "Escape"
+      ) {
+        setImagePreview(
+          null
+        );
+      }
+    };
+
+    document.body.style.overflow =
+      "hidden";
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
+
+    return () => {
+      document.body.style.overflow =
+        previousOverflow;
+
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown
+      );
+    };
+  }, [imagePreview]);
 
   /* =======================================================
      Load comandă
@@ -1655,12 +2121,24 @@ export default function GuestOrderPage() {
                               "Produs"}
                           </strong>
 
+                          <ProductConfiguration
+                            item={
+                              item
+                            }
+                            onPreviewImage={
+                              setImagePreview
+                            }
+                          />
+
                           <div
                             style={{
                               ...subtleStyle,
 
                               fontSize:
                                 13,
+
+                              marginTop:
+                                6,
                             }}
                           >
                             Cantitate:{" "}
@@ -1908,6 +2386,166 @@ export default function GuestOrderPage() {
             )}
           </div>
         </section>
+
+        {imagePreview && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Previzualizare imagine"
+            onMouseDown={(
+              event
+            ) => {
+              if (
+                event.target ===
+                event.currentTarget
+              ) {
+                setImagePreview(
+                  null
+                );
+              }
+            }}
+            style={{
+              position:
+                "fixed",
+
+              inset:
+                0,
+
+              zIndex:
+                999999,
+
+              display:
+                "flex",
+
+              alignItems:
+                "center",
+
+              justifyContent:
+                "center",
+
+              padding:
+                20,
+
+              background:
+                "rgba(0,0,0,0.86)",
+            }}
+          >
+            <div
+              onMouseDown={(
+                event
+              ) =>
+                event.stopPropagation()
+              }
+              style={{
+                position:
+                  "relative",
+
+                display:
+                  "flex",
+
+                alignItems:
+                  "center",
+
+                justifyContent:
+                  "center",
+
+                maxWidth:
+                  "95vw",
+
+                maxHeight:
+                  "92vh",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  setImagePreview(
+                    null
+                  )
+                }
+                aria-label="Închide imaginea"
+                title="Închide"
+                style={{
+                  position:
+                    "absolute",
+
+                  top:
+                    10,
+
+                  right:
+                    10,
+
+                  zIndex:
+                    2,
+
+                  width:
+                    38,
+
+                  height:
+                    38,
+
+                  display:
+                    "inline-flex",
+
+                  alignItems:
+                    "center",
+
+                  justifyContent:
+                    "center",
+
+                  padding:
+                    0,
+
+                  border:
+                    0,
+
+                  borderRadius:
+                    "50%",
+
+                  background:
+                    "rgba(0,0,0,0.76)",
+
+                  color:
+                    "#fff",
+
+                  fontSize:
+                    24,
+
+                  lineHeight:
+                    1,
+
+                  cursor:
+                    "pointer",
+                }}
+              >
+                ×
+              </button>
+
+              <img
+                src={
+                  imagePreview
+                }
+                alt="Imagine personalizare"
+                style={{
+                  display:
+                    "block",
+
+                  maxWidth:
+                    "95vw",
+
+                  maxHeight:
+                    "92vh",
+
+                  objectFit:
+                    "contain",
+
+                  borderRadius:
+                    12,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* =================================================
             Footer guest

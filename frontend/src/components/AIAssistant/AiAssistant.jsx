@@ -143,7 +143,7 @@ const INITIAL_MESSAGES = [
     role: "assistant",
     type: "text",
     content:
-      "Bună! Sunt asistentul Artfest. Te pot ajuta cu produse, comenzi, personalizări și suport.",
+      "Bună! Sunt asistentul Artfest. Poți alege una dintre opțiuni sau îmi poți scrie direct ce cauți — de exemplu «vreau un cadou sub 100 lei», «unde este comanda mea?» sau «vreau să caut după o fotografie».",
   },
 ];
 
@@ -292,6 +292,115 @@ function createMessage(
     content,
     ...extra,
   };
+}
+
+function normalizeIntentText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function detectAssistantIntent(value) {
+  const text =
+    normalizeIntentText(value);
+
+  if (!text) {
+    return null;
+  }
+
+  /* =========================
+     CĂUTARE DUPĂ FOTOGRAFIE
+  ========================= */
+
+  if (
+    /(poza|fotografie|imagine)/.test(
+      text
+    ) &&
+    /(gas|caut|similar|asemanator|dupa)/.test(
+      text
+    )
+  ) {
+    return {
+      type: "action",
+      actionId: "image-search",
+    };
+  }
+
+ /* =========================
+   COMENZI - LIVRARE
+========================= */
+
+if (
+  /(awb|curier|livrare|colet|tracking)/.test(
+    text
+  )
+) {
+  return {
+    type: "action",
+    actionId: "order-delivery",
+  };
+}
+
+/* =========================
+   COMENZI - STATUS
+========================= */
+
+if (
+  /(comanda|comenzi|unde este|status comanda)/.test(
+    text
+  )
+) {
+  return {
+    type: "action",
+    actionId: "track-order",
+  };
+}
+
+/* =========================
+   CERERI OFERTĂ
+========================= */
+
+if (
+  /(oferta|personalizat|personalizare|mai multe bucati|cantitate)/.test(
+    text
+  )
+) {
+  return {
+    type: "menu",
+    menuId: "personalization",
+  };
+}
+
+/* =========================
+   SUPORT
+========================= */
+
+if (
+  /(ajutor|suport|problema|eroare|nu merge|nu functioneaza)/.test(
+    text
+  )
+) {
+  return {
+    type: "support",
+  };
+}
+  /* =========================
+     PRODUSE
+  ========================= */
+
+  if (
+    /(caut|vreau|gaseste|recomanda|cadou|produs|produse|marturie|invitatie|lumanare|bijuterie)/.test(
+      text
+    )
+  ) {
+    return {
+      type: "product-search",
+    };
+  }
+
+  return null;
 }
 
 function getChoiceLabel(choice) {
@@ -1391,8 +1500,13 @@ function closeAssistant() {
       )
   );
 
+  /*
+   * Închiderea asistentului NU mai șterge conversația.
+   * Utilizatorul poate reveni și continua de unde a rămas.
+   * Resetarea completă rămâne disponibilă prin butonul
+   * „Conversație nouă”, care apelează resetConversation().
+   */
   setIsOpen(false);
-  resetConversation();
 }
 
 function resetConversation() {
@@ -1770,6 +1884,18 @@ if (
       return;
     }
 
+    if (
+  choice ===
+  "Mergi la produse"
+) {
+  closeAssistant();
+
+  window.location.href =
+    "/produse";
+
+  return;
+}
+
     const choiceLabel =
       getChoiceLabel(choice);
 
@@ -2088,6 +2214,41 @@ if (
 
     /*
  * =====================================================
+ * FOTOGRAFIE ÎNCĂRCATĂ DIRECT
+ * =====================================================
+ *
+ * Dacă utilizatorul încarcă o fotografie fără să fi
+ * ales înainte "Caută după fotografie", pornim automat
+ * căutarea vizuală.
+ */
+
+const canStartVisualSearch =
+  !activeFlow ||
+  [
+    "product-search",
+    "gift",
+    "budget",
+  ].includes(activeFlow);
+
+if (canStartVisualSearch) {
+  setCurrentMenu("shopping");
+  setShowMenu(false);
+
+  setActiveFlow(
+    "image-search"
+  );
+
+  setVisualSearchId(null);
+
+  await runVisualSearch(
+    file
+  );
+
+  return;
+}
+
+    /*
+ * =====================================================
  * ATAȘAMENT ÎN CONVERSAȚIE CERERE OFERTĂ
  * =====================================================
  */
@@ -2248,6 +2409,25 @@ if (
       return;
     }
 
+    const protectedFlows = [
+  SUPPORT_FLOWS.CONVERSATIONS,
+  QUOTE_FLOWS.USER_QUOTE_THREAD,
+  QUOTE_FLOWS.VENDOR_QUOTE_THREAD,
+  "quote-from-store",
+  "quote-from-product",
+];
+
+const canSwitchIntent =
+  !activeFlow ||
+  !protectedFlows.includes(
+    activeFlow
+  );
+
+const directIntent =
+  canSwitchIntent
+    ? detectAssistantIntent(value)
+    : null;
+
     const shouldDelayUserMessage =
   activeFlow ===
     QUOTE_FLOWS.USER_QUOTE_THREAD ||
@@ -2274,7 +2454,225 @@ setIsSubmitting(true);
        * PRODUSE
        * ===================================================
        */
+/*
+ * ===================================================
+ * TEXT LIBER DIN MENIUL PRINCIPAL
+ * ===================================================
+ */
 
+if (directIntent) {
+  const isSwitchingFlow =
+  activeFlow &&
+  (
+    activeFlow !==
+      directIntent.actionId &&
+    activeFlow !==
+      directIntent.type
+  );
+
+if (isSwitchingFlow) {
+  setActiveFlow(null);
+  setVisualSearchId(null);
+
+  if (
+    activeFlow ===
+    "image-search"
+  ) {
+    clearUploadedImage();
+  }
+}
+  setShowMenu(false);
+
+  /* ======================================
+     ACȚIUNI DIRECTE
+     fotografie / comenzi
+  ====================================== */
+
+  if (
+    directIntent.type ===
+    "action"
+  ) {
+    const actionId =
+      directIntent.actionId;
+
+    /*
+     * Căutare după fotografie
+     */
+    if (
+      actionId === "image-search"
+    ) {
+      setCurrentMenu("shopping");
+      setActiveFlow(
+        "image-search"
+      );
+
+      await startProductFlow({
+        actionId:
+          "image-search",
+
+        addConversation: (
+          _userText,
+          assistantText,
+          extra = {}
+        ) => {
+          addMessage(
+            createMessage(
+              "assistant",
+              assistantText,
+              extra
+            )
+          );
+        },
+      });
+
+      return;
+    }
+
+    /*
+     * Comenzi
+     */
+    if (
+  actionId ===
+    "track-order" ||
+  actionId ===
+    "order-delivery"
+) {
+  closeAssistant();
+
+  const handled =
+    await startOrderFlow({
+      actionId,
+    });
+
+  if (handled) {
+    return;
+  }
+}
+  }
+
+  /* ======================================
+     SUPORT DIRECT
+  ====================================== */
+
+  if (
+    directIntent.type ===
+    "support"
+  ) {
+    setCurrentMenu("help");
+
+    await startSupportFlow({
+      actionId:
+        SUPPORT_FLOWS.NEW_REQUEST,
+
+      addConversation: (
+        _userText,
+        assistantText,
+        extra = {}
+      ) => {
+        addMessage(
+          createMessage(
+            "assistant",
+            assistantText,
+            extra
+          )
+        );
+      },
+
+      addMessage,
+      removeMessage,
+      createMessage,
+      setActiveFlow,
+    });
+
+    return;
+  }
+
+  /* ======================================
+     CERERE OFERTĂ
+  ====================================== */
+
+  if (
+    directIntent.type ===
+      "menu" &&
+    directIntent.menuId ===
+      "personalization"
+  ) {
+    setCurrentMenu(
+      "personalization"
+    );
+
+    setShowMenu(true);
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Sigur. Te ajut cu cererea de ofertă. Alege cum dorești să continuăm."
+      )
+    );
+
+    return;
+  }
+
+  /* ======================================
+     CĂUTARE PRODUS DIRECTĂ
+  ====================================== */
+
+  if (
+    directIntent.type ===
+    "product-search"
+  ) {
+    setCurrentMenu(
+      "shopping"
+    );
+
+    setActiveFlow(
+      "product-search"
+    );
+
+    setShowMenu(false);
+
+    const handled =
+      await submitProductMessage({
+        activeFlow:
+          "product-search",
+
+        value,
+
+        visualSearchId:
+          null,
+
+        addMessage,
+        removeMessage,
+        createMessage,
+      });
+
+    if (!handled) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut porni căutarea. Încearcă să descrii produsul puțin diferit."
+        )
+      );
+    }
+
+    return;
+  }
+}
+if (
+  !activeFlow &&
+  !directIntent
+) {
+  setShowMenu(false);
+
+  addMessage(
+    createMessage(
+      "assistant",
+      "Nu sunt sigur ce ai vrut să spui. Poți reformula, de exemplu: „caut un cadou sub 100 lei”, „unde este comanda mea?” sau „vreau să caut după o fotografie”."
+    )
+  );
+
+  return;
+}
       const productHandled =
         await submitProductMessage({
           activeFlow,
@@ -2363,20 +2761,24 @@ setIsSubmitting(true);
        * ===================================================
        */
 
-      const response =
-        getProductTemporaryResponse(
-          activeFlow
-        ) ||
-        getSupportTemporaryResponse(
-          activeFlow
-        ) ||
-        getPersonalizationTemporaryResponse(
-          activeFlow
-        ) ||
-        getOrderTemporaryResponse(
-          activeFlow
-        ) ||
-        "Am primit mesajul.";
+     const response =
+  getProductTemporaryResponse(
+    activeFlow
+  ) ||
+  getSupportTemporaryResponse(
+    activeFlow
+  ) ||
+  getPersonalizationTemporaryResponse(
+    activeFlow
+  ) ||
+  getOrderTemporaryResponse(
+    activeFlow
+  ) ||
+  (
+    !activeFlow
+      ? "Nu sunt sigur ce ai vrut să spui. Poți reformula sau poți alege una dintre opțiunile de mai jos."
+      : "Nu am înțeles exact mesajul. Poți încerca să îl reformulezi?"
+  );
 
       if (response) {
         window.setTimeout(
@@ -2673,12 +3075,70 @@ setIsSubmitting(true);
             </header>
 
             <div
-              className={
-                styles[
-                  "artfest-assistant-conversation"
-                ]
-              }
-            >
+  className={
+    styles[
+      "artfest-assistant-conversation"
+    ]
+  }
+  onClickCapture={(event) => {
+  const target =
+    event.target.closest?.(
+      "a[href], button"
+    );
+
+  if (!target) {
+    return;
+  }
+
+  /*
+   * Linkurile care navighează închid
+   * întotdeauna asistentul.
+   */
+  if (
+    target.matches("a[href]")
+  ) {
+    window.setTimeout(() => {
+      closeAssistant();
+    }, 0);
+
+    return;
+  }
+
+  /*
+   * Unele acțiuni din AssistantMessage
+   * sunt randate ca <button>, nu ca link.
+   */
+  const label = String(
+    target.textContent || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  const navigationButtons = [
+    "vezi produse similare",
+    "vezi produsul",
+    "vezi toate produsele",
+    "mergi la produse",
+    "descoperă produsul",
+  ];
+
+  const shouldClose =
+    navigationButtons.some(
+      (text) =>
+        label.includes(text)
+    );
+
+  if (shouldClose) {
+    /*
+     * Îl lăsăm întâi pe buton să execute
+     * propria navigare, apoi închidem AI-ul.
+     */
+    window.setTimeout(() => {
+      closeAssistant();
+    }, 0);
+  }
+}}
+>
               <div>
                 {messages.map(
                   (message) => (

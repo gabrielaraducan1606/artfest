@@ -106,8 +106,22 @@ function readableLabel(key) {
     );
 }
 
+function isCustomizationImage(value) {
+  if (typeof value !== "string") return false;
+
+  const url = value.trim();
+  if (!url) return false;
+
+  return (
+    /^(https?:\/\/|data:image\/|blob:)/i.test(url) ||
+    url.includes("/customizations/") ||
+    /\.(jpg|jpeg|png|webp|gif|heic|heif|bmp|tiff|avif)(\?.*)?$/i.test(url)
+  );
+}
+
 function ProductConfiguration({
   item,
+  onPreviewImage,
 }) {
   const optionEntries =
     getObjectEntries(
@@ -175,15 +189,74 @@ function ProductConfiguration({
           </strong>
 
           {customEntries.map(
-            ([key, value]) => (
-              <div
-                key={`custom-${key}`}
-              >
-                {readableLabel(key)}
-                :{" "}
-                {readableValue(value)}
-              </div>
-            )
+            ([key, value]) => {
+              const imageValue =
+                isCustomizationImage(value);
+
+              return (
+                <div
+                  key={`custom-${key}`}
+                  style={
+                    imageValue
+                      ? {
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          marginTop: 4,
+                        }
+                      : undefined
+                  }
+                >
+                  <span>
+                    {readableLabel(key)}:
+                  </span>
+
+                  {imageValue ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPreviewImage?.(value)
+                      }
+                      aria-label={`Deschide poza pentru ${readableLabel(
+                        key
+                      )}`}
+                      title="Deschide poza"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 0,
+                        border: 0,
+                        background: "transparent",
+                        cursor: "zoom-in",
+                        borderRadius: 8,
+                      }}
+                    >
+                      <img
+                        src={value}
+                        alt={`Personalizare ${readableLabel(
+                          key
+                        )}`}
+                        style={{
+                          width: 54,
+                          height: 54,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          border:
+                            "1px solid #e5e7eb",
+                          display: "block",
+                        }}
+                      />
+                    </button>
+                  ) : (
+                    <>
+                      {" "}
+                      {readableValue(value)}
+                    </>
+                  )}
+                </div>
+              );
+            }
           )}
         </div>
       )}
@@ -261,19 +334,95 @@ function ProductConfiguration({
                             ([
                               key,
                               value,
-                            ]) => (
-                              <div
-                                key={`${groupKey}-${memberIndex}-${key}`}
-                              >
-                                {readableLabel(
-                                  key
-                                )}
-                                :{" "}
-                                {readableValue(
+                            ]) => {
+                              const imageValue =
+                                isCustomizationImage(
                                   value
-                                )}
-                              </div>
-                            )
+                                );
+
+                              return (
+                                <div
+                                  key={`${groupKey}-${memberIndex}-${key}`}
+                                  style={
+                                    imageValue
+                                      ? {
+                                          display:
+                                            "flex",
+                                          alignItems:
+                                            "center",
+                                          gap: 8,
+                                          marginTop:
+                                            4,
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  <span>
+                                    {readableLabel(
+                                      key
+                                    )}
+                                    :
+                                  </span>
+
+                                  {imageValue ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onPreviewImage?.(
+                                          value
+                                        )
+                                      }
+                                      aria-label={`Deschide poza pentru ${readableLabel(
+                                        key
+                                      )}`}
+                                      title="Deschide poza"
+                                      style={{
+                                        display:
+                                          "inline-flex",
+                                        alignItems:
+                                          "center",
+                                        justifyContent:
+                                          "center",
+                                        padding: 0,
+                                        border: 0,
+                                        background:
+                                          "transparent",
+                                        cursor:
+                                          "zoom-in",
+                                        borderRadius:
+                                          8,
+                                      }}
+                                    >
+                                      <img
+                                        src={value}
+                                        alt={`Personalizare ${readableLabel(
+                                          key
+                                        )}`}
+                                        style={{
+                                          width: 54,
+                                          height: 54,
+                                          objectFit:
+                                            "cover",
+                                          borderRadius:
+                                            8,
+                                          border:
+                                            "1px solid #e5e7eb",
+                                          display:
+                                            "block",
+                                        }}
+                                      />
+                                    </button>
+                                  ) : (
+                                    <>
+                                      {" "}
+                                      {readableValue(
+                                        value
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            }
                           )}
                         </div>
                       );
@@ -318,6 +467,35 @@ export default function OrderDetailsPage() {
   const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
   const [cancelOrder, setCancelOrder] = useState(null);
 const [imagePreview, setImagePreview] = useState(null);
+
+useEffect(() => {
+  if (!imagePreview) return;
+
+  const previousOverflow =
+    document.body.style.overflow;
+
+  const handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      setImagePreview(null);
+    }
+  };
+
+  document.body.style.overflow = "hidden";
+  window.addEventListener(
+    "keydown",
+    handleKeyDown
+  );
+
+  return () => {
+    document.body.style.overflow =
+      previousOverflow;
+
+    window.removeEventListener(
+      "keydown",
+      handleKeyDown
+    );
+  };
+}, [imagePreview]);
 
   // 🔹 mesaje
   const [startingMessage, setStartingMessage] = useState(false);
@@ -795,6 +973,7 @@ const [imagePreview, setImagePreview] = useState(null);
 
   <ProductConfiguration
     item={it}
+    onPreviewImage={setImagePreview}
   />
 </div>
         </div>
@@ -1021,32 +1200,86 @@ const [imagePreview, setImagePreview] = useState(null);
           }}
         />
       )}
-            {imagePreview && (
+      {imagePreview && (
         <div
-          onClick={() => setImagePreview(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Previzualizare imagine"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              setImagePreview(null);
+            }
+          }}
           style={{
             position: "fixed",
             inset: 0,
             background: "rgba(0,0,0,0.9)",
-            zIndex: 9999,
+            zIndex: 999999,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             padding: 24,
-            cursor: "zoom-out",
           }}
         >
-          <img
-            src={imagePreview}
-            alt=""
-            onClick={(e) => e.stopPropagation()}
+          <div
+            onMouseDown={(event) =>
+              event.stopPropagation()
+            }
             style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               maxWidth: "95vw",
               maxHeight: "95vh",
-              objectFit: "contain",
-              borderRadius: 12,
             }}
-          />
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setImagePreview(null)
+              }
+              aria-label="Închide imaginea"
+              title="Închide"
+              style={{
+                position: "absolute",
+                top: 10,
+                right: 10,
+                zIndex: 2,
+                width: 38,
+                height: 38,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 0,
+                border: 0,
+                borderRadius: "50%",
+                background:
+                  "rgba(0,0,0,0.76)",
+                color: "#fff",
+                fontSize: 24,
+                lineHeight: 1,
+                cursor: "pointer",
+              }}
+            >
+              ×
+            </button>
+
+            <img
+              src={imagePreview}
+              alt="Imagine comandă"
+              style={{
+                maxWidth: "95vw",
+                maxHeight: "95vh",
+                objectFit: "contain",
+                borderRadius: 12,
+                display: "block",
+              }}
+            />
+          </div>
         </div>
       )}
     </main>

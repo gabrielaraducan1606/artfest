@@ -198,8 +198,14 @@ export default function ProductDetails() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
 
-  const [qty, setQty] = useState(1);
-  const [adding, setAdding] = useState(false);
+ const [qty, setQty] = useState(1);
+const [adding, setAdding] = useState(false);
+
+const [
+  uploadingCustomization,
+  setUploadingCustomization,
+] = useState({});
+
 const [selectedOptions, setSelectedOptions] = useState({});
 const [customAnswers, setCustomAnswers] = useState({});
 const [customizationOpen, setCustomizationOpen] = useState(false);
@@ -2195,7 +2201,7 @@ const seoImage =
     }
   }, [categories.length]);
 
- const uploadFile = useCallback(async (f) => {
+const uploadFile = useCallback(async (f) => {
   const fd = new FormData();
   fd.append("file", f);
 
@@ -2220,6 +2226,73 @@ const seoImage =
   const data = await res.json();
   return data.url;
 }, []);
+
+const uploadCustomizationFile = useCallback(
+  async (file, uploadKey) => {
+    if (!file) {
+      return null;
+    }
+
+    setUploadingCustomization(
+      (current) => ({
+        ...current,
+        [uploadKey]: true,
+      })
+    );
+
+    try {
+      const fd = new FormData();
+
+      fd.append("file", file);
+
+      const res = await fetch(
+        "/api/upload/customization",
+        {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        }
+      );
+
+      if (!res.ok) {
+        let message =
+          "Nu am putut încărca poza.";
+
+        try {
+          const error =
+            await res.json();
+
+          message =
+            error?.message ||
+            message;
+        } catch {
+          // ignore
+        }
+
+        throw new Error(message);
+      }
+
+      const data =
+        await res.json();
+
+      if (!data?.url) {
+        throw new Error(
+          "Upload-ul nu a returnat imaginea."
+        );
+      }
+
+      return data.url;
+    } finally {
+      setUploadingCustomization(
+        (current) => ({
+          ...current,
+          [uploadKey]: false,
+        })
+      );
+    }
+  },
+  []
+);
 
  const openEditModal = useCallback(async () => {
   if (!product?.id) {
@@ -3232,7 +3305,19 @@ const seoImage =
             {topLevelCustomSchema.map((field) => {
               const value = customAnswers[field.key] || "";
               const fieldType = field.type || "text";
+const isImageField =
+  ["image", "photo", "file"].includes(
+    String(fieldType)
+      .toLowerCase()
+  );
 
+const uploadKey =
+  `custom:${field.key}`;
+
+const isUploading =
+  !!uploadingCustomization[
+    uploadKey
+  ];
               return (
                 <div
                   key={field.key}
@@ -3264,65 +3349,227 @@ const seoImage =
                     </p>
                   )}
 
-                  {fieldType === "textarea" ? (
-                    <textarea
-                      value={value}
-                      maxLength={field.maxLength || undefined}
-                      placeholder={
-                        field.placeholder ||
-                        "Scrie aici detaliile..."
-                      }
-                      className={styles.customizationTextarea}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
+                 {isImageField ? (
+  <div>
+    <input
+      type="file"
+      accept="image/*"
+      className={
+        styles.customizationInput
+      }
+      disabled={isUploading}
+      onChange={async (event) => {
+        const file =
+          event.target.files?.[0];
 
-                        setCustomAnswers((current) => ({
-                          ...current,
-                          [field.key]: nextValue,
-                        }));
+        if (!file) {
+          return;
+        }
 
-                        if (String(nextValue).trim()) {
-                          setValidationErrors((current) => {
-                            const next = { ...current };
-                            delete next[`custom:${field.key}`];
-                            return next;
-                          });
-                        }
-                      }}
-                    />
-                  ) : (
-                    <input
-                      type={
-                        fieldType === "date"
-                          ? "date"
-                          : "text"
-                      }
-                      value={value}
-                      maxLength={field.maxLength || undefined}
-                      placeholder={
-                        field.placeholder ||
-                        "Completează aici..."
-                      }
-                      className={styles.customizationInput}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
+        try {
+          const url =
+            await uploadCustomizationFile(
+              file,
+              uploadKey
+            );
 
-                        setCustomAnswers((current) => ({
-                          ...current,
-                          [field.key]: nextValue,
-                        }));
+          if (!url) {
+            return;
+          }
 
-                        if (String(nextValue).trim()) {
-                          setValidationErrors((current) => {
-                            const next = { ...current };
-                            delete next[`custom:${field.key}`];
-                            return next;
-                          });
-                        }
-                      }}
-                    />
-                  )}
+          setCustomAnswers(
+            (current) => ({
+              ...current,
+              [field.key]: url,
+            })
+          );
 
+          setValidationErrors(
+            (current) => {
+              const next = {
+                ...current,
+              };
+
+              delete next[
+                `custom:${field.key}`
+              ];
+
+              return next;
+            }
+          );
+        } catch (error) {
+          alert(
+            error?.message ||
+              "Nu am putut încărca poza."
+          );
+        }
+      }}
+    />
+
+    {isUploading && (
+      <p
+        className={
+          styles.customizationHint
+        }
+      >
+        Se încarcă poza...
+      </p>
+    )}
+
+    {!isUploading &&
+      value && (
+        <div
+          style={{
+            marginTop: 10,
+          }}
+        >
+          <img
+            src={value}
+            alt="Poză pentru personalizare"
+            style={{
+              width: 100,
+              height: 100,
+              objectFit:
+                "cover",
+              borderRadius: 10,
+            }}
+          />
+
+          <p
+            className={
+              styles.customizationHint
+            }
+          >
+            ✓ Poza a fost
+            încărcată
+          </p>
+
+          <button
+            type="button"
+            className={
+              styles.linkBtn
+            }
+            onClick={() => {
+              setCustomAnswers(
+                (current) => {
+                  const next = {
+                    ...current,
+                  };
+
+                  delete next[
+                    field.key
+                  ];
+
+                  return next;
+                }
+              );
+            }}
+          >
+            Schimbă poza
+          </button>
+        </div>
+      )}
+  </div>
+) : fieldType === "textarea" ? (
+  <textarea
+    value={value}
+    maxLength={
+      field.maxLength ||
+      undefined
+    }
+    placeholder={
+      field.placeholder ||
+      "Scrie aici detaliile..."
+    }
+    className={
+      styles.customizationTextarea
+    }
+    onChange={(event) => {
+      const nextValue =
+        event.target.value;
+
+      setCustomAnswers(
+        (current) => ({
+          ...current,
+          [field.key]:
+            nextValue,
+        })
+      );
+
+      if (
+        String(
+          nextValue
+        ).trim()
+      ) {
+        setValidationErrors(
+          (current) => {
+            const next = {
+              ...current,
+            };
+
+            delete next[
+              `custom:${field.key}`
+            ];
+
+            return next;
+          }
+        );
+      }
+    }}
+  />
+) : (
+  <input
+    type={
+      fieldType === "date"
+        ? "date"
+        : "text"
+    }
+    value={value}
+    maxLength={
+      field.maxLength ||
+      undefined
+    }
+    placeholder={
+      field.placeholder ||
+      "Completează aici..."
+    }
+    className={
+      styles.customizationInput
+    }
+    onChange={(event) => {
+      const nextValue =
+        event.target.value;
+
+      setCustomAnswers(
+        (current) => ({
+          ...current,
+          [field.key]:
+            nextValue,
+        })
+      );
+
+      if (
+        String(
+          nextValue
+        ).trim()
+      ) {
+        setValidationErrors(
+          (current) => {
+            const next = {
+              ...current,
+            };
+
+            delete next[
+              `custom:${field.key}`
+            ];
+
+            return next;
+          }
+        );
+      }
+    }}
+  />
+)}
                   {validationErrors[`custom:${field.key}`] && (
                     <p className={styles.fieldErrorMessage}>
                       {validationErrors[`custom:${field.key}`]}
