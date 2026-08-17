@@ -2141,6 +2141,342 @@ export async function sendVendorNewOrderEmail({
   });
 }
 
+/* ============================================================
+   QUOTE REQUESTS - CERERE NOUĂ DE OFERTĂ (VENDOR)
+============================================================ */
+
+export async function sendVendorNewQuoteRequestEmail({
+  to,
+  vendorName,
+  customerName,
+  quoteId,
+  source,
+  targetTitle,
+  quantity,
+  message = null,
+}) {
+  if (!to || !quoteId) {
+    return;
+  }
+
+  const safeVendorName =
+    escapeEmailHtml(
+      vendorName ||
+      "Vânzător"
+    );
+
+  const safeCustomerName =
+    escapeEmailHtml(
+      customerName ||
+      "Un client"
+    );
+
+  const safeTargetTitle =
+    escapeEmailHtml(
+      targetTitle ||
+      (
+        source === "PRODUCT"
+          ? "produs"
+          : "magazin"
+      )
+    );
+
+  const safeMessage =
+    message
+      ? escapeEmailHtml(
+          String(message)
+        )
+      : null;
+
+  const normalizedQuantity =
+    Number.isFinite(
+      Number(quantity)
+    )
+      ? Math.max(
+          1,
+          Math.round(
+            Number(quantity)
+          )
+        )
+      : 1;
+
+  const quoteLink =
+    APP_URL
+      ? `${APP_URL}/?assistant=vendor-quote&quoteId=${encodeURIComponent(
+          quoteId
+        )}`
+      : null;
+
+  const isProduct =
+    source === "PRODUCT";
+
+  const subject =
+    isProduct
+      ? `Ai primit o cerere de ofertă pentru ${targetTitle || "un produs"} - ${BRAND_NAME}`
+      : `Ai primit o cerere nouă de ofertă - ${BRAND_NAME}`;
+
+  const html = `
+<div
+  style="
+    font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+    max-width:640px;
+    margin:auto;
+    padding:20px;
+    background:#f9fafb;
+    border-radius:12px;
+  "
+>
+  <div
+    style="
+      text-align:center;
+      margin-bottom:20px;
+    "
+  >
+    <img
+      src="${EMAIL_LOGO_URL}"
+      alt="${BRAND_NAME} logo"
+      width="120"
+      style="
+        display:block;
+        margin:0 auto;
+        border:0;
+        outline:none;
+        text-decoration:none;
+        max-width:120px;
+        height:auto;
+      "
+    >
+  </div>
+
+  <div
+    style="
+      background:#ffffff;
+      border:1px solid #e5e7eb;
+      border-radius:14px;
+      padding:22px;
+    "
+  >
+    <h2
+      style="
+        color:#111827;
+        margin:0 0 12px;
+        font-size:22px;
+      "
+    >
+      Ai primit o cerere nouă de ofertă
+    </h2>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 12px;
+        line-height:1.6;
+      "
+    >
+      Bună, <strong>${safeVendorName}</strong>!
+    </p>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 18px;
+        line-height:1.6;
+      "
+    >
+      <strong>${safeCustomerName}</strong>
+      ${
+        isProduct
+          ? `este interesat de produsul <strong>„${safeTargetTitle}”</strong> și îți solicită o ofertă.`
+          : `ți-a trimis o cerere de ofertă pentru magazinul tău.`
+      }
+    </p>
+
+    <div
+      style="
+        background:#f8f6f4;
+        border-radius:12px;
+        padding:16px;
+        margin:0 0 18px;
+      "
+    >
+      ${
+        isProduct
+          ? `
+            <p
+              style="
+                margin:0 0 8px;
+                color:#374151;
+                line-height:1.5;
+              "
+            >
+              <strong>Produs:</strong>
+              ${safeTargetTitle}
+            </p>
+          `
+          : ""
+      }
+
+      <p
+        style="
+          margin:0${
+            safeMessage
+              ? " 0 8px"
+              : ""
+          };
+          color:#374151;
+          line-height:1.5;
+        "
+      >
+        <strong>Cantitate:</strong>
+        ${normalizedQuantity}
+      </p>
+
+      ${
+        safeMessage
+          ? `
+            <div
+              style="
+                margin-top:14px;
+                padding-top:14px;
+                border-top:1px solid #e5e7eb;
+              "
+            >
+              <p
+                style="
+                  margin:0 0 6px;
+                  color:#374151;
+                  font-weight:600;
+                "
+              >
+                Mesajul clientului:
+              </p>
+
+              <p
+                style="
+                  margin:0;
+                  color:#4b5563;
+                  line-height:1.6;
+                  white-space:pre-wrap;
+                "
+              >${safeMessage}</p>
+            </div>
+          `
+          : ""
+      }
+    </div>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 18px;
+        line-height:1.6;
+      "
+    >
+      Intră în Artfest pentru a vedea toate detaliile cererii,
+      a discuta cu clientul și a trimite oferta.
+    </p>
+
+    ${
+      quoteLink
+        ? `
+          <p
+            style="
+              text-align:center;
+              margin:24px 0 8px;
+            "
+          >
+            <a
+              href="${quoteLink}"
+              style="
+                display:inline-block;
+                background:#111827;
+                color:#ffffff;
+                padding:12px 20px;
+                border-radius:8px;
+                text-decoration:none;
+                font-weight:600;
+              "
+            >
+              Vezi cererea de ofertă
+            </a>
+          </p>
+        `
+        : ""
+    }
+  </div>
+
+  <p
+    style="
+      font-size:12px;
+      color:#9ca3af;
+      text-align:center;
+      margin:20px 0 0;
+    "
+  >
+    Acest email a fost generat automat de ${BRAND_NAME}.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    "Ai primit o cerere nouă de ofertă",
+    "",
+    `Bună, ${vendorName || "Vânzător"}!`,
+    "",
+    isProduct
+      ? `${customerName || "Un client"} este interesat de produsul „${targetTitle || "Produs"}” și îți solicită o ofertă.`
+      : `${customerName || "Un client"} ți-a trimis o cerere de ofertă pentru magazinul tău.`,
+    "",
+    isProduct
+      ? `Produs: ${targetTitle || "Produs"}`
+      : "",
+    `Cantitate: ${normalizedQuantity}`,
+    message
+      ? `Mesajul clientului: ${String(message)}`
+      : "",
+    "",
+    "Intră în Artfest pentru a vedea toate detaliile cererii, a discuta cu clientul și a trimite oferta.",
+    quoteLink
+      ? `Vezi cererea de ofertă: ${quoteLink}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey:
+      "noreply",
+
+    to,
+
+    subject,
+
+    template:
+      "vendor_new_quote_request",
+
+    toName:
+      vendorName ||
+      null,
+
+    mailOptions: {
+      ...senderEnvelope(
+        "noreply"
+      ),
+
+      to,
+
+      subject,
+
+      html,
+
+      text,
+
+      headers:
+        AUTO_HEADERS,
+    },
+  });
+}
+
 export async function sendVendorCommissionInvoiceEmail({
   to,
   vendorName,

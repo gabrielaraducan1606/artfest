@@ -20,6 +20,7 @@ import {
 import {
   sendOrderConfirmationEmail,
   sendVendorNewOrderEmail,
+  sendVendorNewQuoteRequestEmail,
 } from "../../../lib/mailer.js";
 
 const router = Router();
@@ -962,7 +963,76 @@ router.post(
           notificationError
         );
       }
+/* =====================================================
+   EMAIL VENDOR - CERERE NOUĂ DE OFERTĂ
+===================================================== */
 
+try {
+  const vendor =
+    await prisma.vendor.findUnique({
+      where: {
+        id: resolvedVendorId,
+      },
+
+      select: {
+        displayName: true,
+
+        user: {
+          select: {
+            email: true,
+          },
+        },
+
+        billing: {
+          select: {
+            email: true,
+            vendorName: true,
+          },
+        },
+      },
+    });
+
+  const vendorEmail =
+    vendor?.billing?.email ||
+    vendor?.user?.email ||
+    null;
+
+  const vendorName =
+    vendor?.billing?.vendorName ||
+    vendor?.displayName ||
+    "Vânzător";
+
+  if (vendorEmail) {
+    await sendVendorNewQuoteRequestEmail({
+      to: vendorEmail,
+
+      vendorName,
+
+      customerName:
+        contactName ||
+        "Un client",
+
+      quoteId:
+        result.quoteRequestId,
+
+      source:
+        quoteSource,
+
+      targetTitle,
+
+      quantity:
+        normalizedQuantity,
+
+      message:
+        initialMessage || null,
+    });
+  }
+} catch (emailError) {
+  console.error(
+    "Quote vendor email failed:",
+    emailError
+  );
+}
       return res
         .status(201)
         .json({
