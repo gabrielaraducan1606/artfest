@@ -11,7 +11,7 @@ import {
 import styles from "./CatalogProduse.module.css";
 import CatalogImports from "./imports/CatalogImports.jsx";
 import ProductModal from "../ProfilMagazin/modals/ProductModal.jsx";
-import CampaignsTab from "./campaigns/CampaignsTab.jsx";
+import CampaignsTab from "./Campaigns/CampaignsTab.jsx";
 /* =========================================================
    LABELURI MOD COMANDĂ
 ========================================================= */
