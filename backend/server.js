@@ -103,8 +103,17 @@ import adminProductsEditRoutes
   from "./src/routes/adminProductEditRoutes.js";
 import cookiesRoutes from "./src/routes/cookiesRoutes.js";
 import metaCatalogFeedRoutes from "./src/routes/metaCatalogFeedRoutes.js";
+import vendorCatalogImportRoutes from "./src/routes/vendorCatalogImportRoutes.js";
 // 🔔 JOB: follow-up notifications
 import { runFollowUpNotificationJob } from "./src/jobs/followupChecker.js";
+import vendorCatalogProductsRoutes
+  from "./src/routes/vendorCatalogProductsRoutes.js";
+import customerRequestsRouter
+  from "./src/routes/customerRequestsRoutes.js";
+import vendorCampaignRoutes
+  from "./src/routes/vendorCampaignRoutes.js";
+  import publicCampaignRoutes
+  from "./src/routes/publicCampaignRoutes.js";
 // Încarcă .env DOAR în development
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override
@@ -494,6 +503,10 @@ app.use(
   "/api/guest/orders",
   guestOrdersRoutes
 );
+app.use(
+  "/api/customer-requests",
+  customerRequestsRouter
+);
 app.use("/api/assistant", assistantRouter);
 /* ---------------- ALTE RUTE ---------------- */
 app.use("/api", checkoutNetopiaRoutes);
@@ -521,7 +534,10 @@ app.use("/api/service-types", serviceTypesRouter);
 app.use("/api/vendors", billingRoutes);
 app.use("/api", subscriptionRoutes);
 app.use("/api", vendorProductRoutes);
-
+app.use(
+  "/api/vendor/catalog/imports",
+  vendorCatalogImportRoutes
+);
 app.use("/api/favorites", favoritesRoutes);
 mountWishlistCountAlias(app);
 
@@ -535,7 +551,18 @@ app.use("/api/vendor/support", VendorSupportRoutes);
 app.use("/api/vendor", vendorOrdersRoutes);
 app.use("/public", publicContactRoutes);
 app.use("/api", vendorSettingsRoutes);
-
+app.use(
+  "/api/vendor/catalog/products",
+  vendorCatalogProductsRoutes
+);
+app.use(
+  "/api/vendor/campaigns",
+  vendorCampaignRoutes
+);
+app.use(
+  "/api/public/campaigns",
+  publicCampaignRoutes
+);
 app.use("/api/vendors/stripe/connect", vendorsStripeConnectRoutes);
 // 👇 aici folosim authRequired din ./src/api/auth.js
 app.use("/api", accountDeleteRoutes);

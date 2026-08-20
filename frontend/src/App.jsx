@@ -100,7 +100,10 @@ import UserNotificationsPage from "./pages/User/Notification/UserNotaificationPa
 
 import AmbassadorsPage from "./pages/Home/AmbassadorPage/AmbassadorPage.jsx";
 import ServiciiDigitale from "./pages/ServiciiDigitale/ServiciiDigitale.jsx";
-
+import CustomerRequestDetailsPage
+  from "./pages/Home/CustomerRequestsSection/CustomerRequestDetailsPage.jsx";
+  import CustomerRequestsPage
+  from "./pages/Home/CustomerRequestsSection/CustomerRequestsPage.jsx";
 import {
   SEOProvider,
 } from "./components/Seo/SeoProvider";
@@ -486,6 +489,19 @@ export default function App() {
               }
             />
 
+            <Route
+  path="/cereri"
+  element={
+    <CustomerRequestsPage />
+  }
+/>
+
+<Route
+  path="/cereri/:id"
+  element={
+    <CustomerRequestDetailsPage />
+  }
+/>
             <Route
               path="/comanda-guest/:id"
               element={

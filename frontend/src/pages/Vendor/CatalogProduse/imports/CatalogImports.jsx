@@ -1,6 +1,13 @@
-import { useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
 import {
   Upload,
+  Download,
   FileSpreadsheet,
   RefreshCw,
   ShoppingBag,
@@ -11,7 +18,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Sparkles,
-  Link2,
   RotateCcw,
   Eye,
   Trash2,
@@ -24,28 +30,33 @@ const IMPORT_SOURCES = [
   {
     key: "EXCEL",
     title: "Excel / CSV",
-    subtitle: "Importă produse din fișiere .xlsx, .xls sau .csv.",
+    subtitle:
+      "Importă produse din fișiere .xlsx, .xls sau .csv.",
     icon: FileSpreadsheet,
     available: true,
+    canDownloadTemplate: true,
   },
   {
     key: "EASYSALES",
     title: "EasySales",
-    subtitle: "Conectează catalogul existent din EasySales.",
+    subtitle:
+      "Conectează catalogul existent din EasySales.",
     icon: RefreshCw,
     available: false,
   },
   {
     key: "SHOPIFY",
     title: "Shopify",
-    subtitle: "Importă produsele din magazinul tău Shopify.",
+    subtitle:
+      "Importă produsele din magazinul tău Shopify.",
     icon: ShoppingBag,
     available: false,
   },
   {
     key: "WOOCOMMERCE",
     title: "WooCommerce",
-    subtitle: "Importă produsele magazinului WooCommerce.",
+    subtitle:
+      "Importă produsele magazinului WooCommerce.",
     icon: Globe2,
     available: false,
   },
@@ -96,264 +107,467 @@ const ARTFEST_FIELDS = [
     key: "availability",
     label: "Disponibilitate",
   },
-];
-
-const MOCK_COLUMNS = [
   {
-    source: "product_name",
-    sample: "Odorizant dulap lavandă",
-    mappedTo: "title",
-    confidence: 0.99,
+    key: "orderMode",
+    label: "Mod comandă",
   },
   {
-    source: "product_description",
-    sample: "Odorizant parfumat realizat manual...",
-    mappedTo: "description",
-    confidence: 0.97,
+    key: "color",
+    label: "Culoare",
   },
   {
-    source: "price",
-    sample: "35",
-    mappedTo: "price",
-    confidence: 0.99,
+    key: "materialMain",
+    label: "Material principal",
   },
   {
-    source: "inventory",
-    sample: "12",
-    mappedTo: "stock",
-    confidence: 0.91,
+    key: "dimensions",
+    label: "Dimensiuni",
   },
   {
-    source: "category",
-    sample: "Casă",
-    mappedTo: "category",
-    confidence: 0.96,
+    key: "leadTimeDays",
+    label: "Timp producție",
   },
   {
-    source: "image_url",
-    sample: "https://...",
-    mappedTo: "image",
-    confidence: 0.94,
-  },
-  {
-    source: "aroma",
-    sample: "Lavandă",
-    mappedTo: "variants",
-    confidence: 0.78,
+    key: "isActive",
+    label: "Status activ",
   },
 ];
 
-const MOCK_PREVIEW_ROWS = [
-  {
-    id: "row-1",
-    rowNumber: 2,
-    title: "Odorizant dulap",
-    description: "Odorizant parfumat realizat manual.",
-    price: 35,
-    stock: 12,
-    category: "Casă",
-    image: "",
-    status: "READY",
-    warnings: [],
-  },
-  {
-    id: "row-2",
-    rowNumber: 3,
-    title: "Cană personalizată",
-    description: "Cană cu text și fotografie.",
-    price: 45,
-    stock: 8,
-    category: "Cadouri",
-    image: "",
-    status: "READY",
-    warnings: [],
-  },
-  {
-    id: "row-3",
-    rowNumber: 4,
-    title: "Cutie pentru botez",
-    description: "",
-    price: null,
-    stock: null,
-    category: "Botez",
-    image: "",
-    status: "WARNING",
-    warnings: [
-      "Lipsește prețul.",
-      "Descrierea este goală.",
-    ],
-  },
-  {
-    id: "row-4",
-    rowNumber: 5,
-    title: "",
-    description: "Produs fără denumire.",
-    price: 60,
-    stock: 4,
-    category: "Cadouri",
-    image: "",
-    status: "ERROR",
-    warnings: ["Titlul produsului este obligatoriu."],
-  },
-];
+async function apiRequest(
+  url,
+  options = {}
+) {
+  const response = await fetch(url, {
+    credentials: "include",
+    ...options,
+  });
 
-const MOCK_HISTORY = [
-  {
-    id: "import-1",
-    source: "EXCEL",
-    fileName: "produse-august.xlsx",
-    status: "COMPLETED",
-    totalRows: 84,
-    importedRows: 81,
-    warningRows: 3,
-    failedRows: 0,
-    createdAt: "12 august 2026, 14:20",
-  },
-  {
-    id: "import-2",
-    source: "CSV",
-    fileName: "catalog.csv",
-    status: "COMPLETED_WITH_ERRORS",
-    totalRows: 53,
-    importedRows: 49,
-    warningRows: 2,
-    failedRows: 4,
-    createdAt: "8 august 2026, 11:07",
-  },
-];
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const error = new Error(
+      data?.message ||
+        data?.error ||
+        "A apărut o eroare."
+    );
+
+    error.status =
+      response.status;
+
+    error.code =
+      data?.error || null;
+
+    throw error;
+  }
+
+  return data;
+}
+
+function formatHistoryDate(value) {
+  if (!value) return "—";
+
+  try {
+    return new Date(
+      value
+    ).toLocaleString("ro-RO");
+  } catch {
+    return String(value);
+  }
+}
 
 function sourceLabel(source) {
-  if (source === "EXCEL") return "Excel";
-  if (source === "CSV") return "CSV";
-  if (source === "SHOPIFY") return "Shopify";
-  if (source === "EASYSALES") return "EasySales";
-  if (source === "WOOCOMMERCE") return "WooCommerce";
+  if (source === "EXCEL")
+    return "Excel";
+
+  if (source === "CSV")
+    return "CSV";
+
+  if (source === "SHOPIFY")
+    return "Shopify";
+
+  if (source === "EASYSALES")
+    return "EasySales";
+
+  if (source === "WOOCOMMERCE")
+    return "WooCommerce";
+
   return source;
 }
 
 function statusLabel(status) {
-  if (status === "COMPLETED") return "Finalizat";
-  if (status === "COMPLETED_WITH_ERRORS") {
+  if (status === "UPLOADED")
+    return "Încărcat";
+
+  if (status === "MAPPING")
+    return "Potrivire coloane";
+
+  if (
+    status ===
+    "PREVIEW_READY"
+  ) {
+    return "Pregătit pentru import";
+  }
+
+  if (
+    status ===
+    "IMPORTING"
+  ) {
+    return "Se importă";
+  }
+
+  if (
+    status ===
+    "COMPLETED"
+  ) {
+    return "Finalizat";
+  }
+
+  if (
+    status ===
+    "COMPLETED_WITH_ERRORS"
+  ) {
     return "Finalizat cu erori";
   }
-  if (status === "FAILED") return "Eșuat";
-  if (status === "PROCESSING") return "În procesare";
+
+  if (status === "FAILED")
+    return "Eșuat";
+
+  if (status === "CANCELED")
+    return "Anulat";
+
   return status;
 }
 
 function getStatusIcon(status) {
   if (status === "READY") {
-    return <CheckCircle2 size={17} />;
+    return (
+      <CheckCircle2
+        size={17}
+      />
+    );
   }
 
-  if (status === "WARNING") {
-    return <AlertTriangle size={17} />;
+  if (
+    status === "WARNING"
+  ) {
+    return (
+      <AlertTriangle
+        size={17}
+      />
+    );
   }
 
   return <XCircle size={17} />;
 }
 
 export default function CatalogImports() {
-  const fileInputRef = useRef(null);
+  const fileInputRef =
+    useRef(null);
 
-  const [step, setStep] = useState("SOURCE");
+  const [step, setStep] =
+    useState("SOURCE");
 
-  const [setSelectedSource] =
-    useState(null);
+  const [,
+    setSelectedSource,
+  ] = useState(null);
 
-  const [selectedFile, setSelectedFile] =
-    useState(null);
+  const [
+    services,
+    setServices,
+  ] = useState([]);
 
-  const [isDragging, setIsDragging] =
-    useState(false);
+  const [
+    selectedServiceId,
+    setSelectedServiceId,
+  ] = useState("");
 
-  const [columns, setColumns] =
-    useState(MOCK_COLUMNS);
+  const [
+    isLoadingServices,
+    setIsLoadingServices,
+  ] = useState(false);
 
-  const [previewRows, setPreviewRows] =
-    useState(MOCK_PREVIEW_ROWS);
+  const [
+    retryingImportId,
+    setRetryingImportId,
+  ] = useState(null);
 
-  const [history, setHistory] =
-    useState(MOCK_HISTORY);
+  const [
+    downloadingReportId,
+    setDownloadingReportId,
+  ] = useState(null);
 
-  const [isAnalyzing, setIsAnalyzing] =
-    useState(false);
+  const [
+    selectedFile,
+    setSelectedFile,
+  ] = useState(null);
 
-  const [isImporting, setIsImporting] =
-    useState(false);
+  const [
+    importId,
+    setImportId,
+  ] = useState(null);
 
-  const [importResult, setImportResult] =
-    useState(null);
+  const [
+    isDragging,
+    setIsDragging,
+  ] = useState(false);
 
-  const [onlyIssues, setOnlyIssues] =
-    useState(false);
+  const [
+    columns,
+    setColumns,
+  ] = useState([]);
 
-  const summary = useMemo(() => {
-    const ready = previewRows.filter(
-      (row) => row.status === "READY"
-    ).length;
+  const [
+    previewRows,
+    setPreviewRows,
+  ] = useState([]);
 
-    const warning = previewRows.filter(
-      (row) => row.status === "WARNING"
-    ).length;
+  const [
+    history,
+    setHistory,
+  ] = useState([]);
 
-    const error = previewRows.filter(
-      (row) => row.status === "ERROR"
-    ).length;
+  const [
+    isAnalyzing,
+    setIsAnalyzing,
+  ] = useState(false);
 
-    return {
-      total: previewRows.length,
-      ready,
-      warning,
-      error,
-    };
-  }, [previewRows]);
+  const [
+    isPreviewing,
+    setIsPreviewing,
+  ] = useState(false);
 
-  const visibleRows = useMemo(() => {
-    if (!onlyIssues) return previewRows;
+  const [
+    isImporting,
+    setIsImporting,
+  ] = useState(false);
 
-    return previewRows.filter(
-      (row) => row.status !== "READY"
-    );
-  }, [previewRows, onlyIssues]);
+  const [
+    isLoadingHistory,
+    setIsLoadingHistory,
+  ] = useState(false);
+
+  const [
+    importResult,
+    setImportResult,
+  ] = useState(null);
+
+  const [
+    onlyIssues,
+    setOnlyIssues,
+  ] = useState(false);
+
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState("");
+
+  const [
+    isDownloadingTemplate,
+    setIsDownloadingTemplate,
+  ] = useState(false);
+
+  const [
+    isExportingProducts,
+    setIsExportingProducts,
+  ] = useState(false);
+
+  const summary =
+    useMemo(() => {
+      const ready =
+        previewRows.filter(
+          (row) =>
+            row.status ===
+            "READY"
+        ).length;
+
+      const warning =
+        previewRows.filter(
+          (row) =>
+            row.status ===
+            "WARNING"
+        ).length;
+
+      const error =
+        previewRows.filter(
+          (row) =>
+            row.status ===
+            "ERROR"
+        ).length;
+
+      return {
+        total:
+          previewRows.length,
+        ready,
+        warning,
+        error,
+      };
+    }, [previewRows]);
+
+  const visibleRows =
+    useMemo(() => {
+      if (!onlyIssues) {
+        return previewRows;
+      }
+
+      return previewRows.filter(
+        (row) =>
+          row.status !==
+          "READY"
+      );
+    }, [
+      previewRows,
+      onlyIssues,
+    ]);
+
+  async function loadHistory() {
+    try {
+      setIsLoadingHistory(true);
+
+      const data =
+        await apiRequest(
+          "/api/vendor/catalog/imports"
+        );
+
+      const imports =
+        Array.isArray(
+          data?.imports
+        )
+          ? data.imports
+          : [];
+
+      setHistory(
+        imports.map(
+          (item) => ({
+            ...item,
+
+            createdAt:
+              formatHistoryDate(
+                item.createdAt
+              ),
+          })
+        )
+      );
+    } catch (error) {
+      console.error(
+        "[CatalogImports] history:",
+        error
+      );
+    } finally {
+      setIsLoadingHistory(
+        false
+      );
+    }
+  }
+
+  async function loadServices() {
+    try {
+      setIsLoadingServices(true);
+
+      const data =
+        await apiRequest(
+          "/api/vendor/catalog/imports/services"
+        );
+
+      const nextServices =
+        Array.isArray(
+          data?.services
+        )
+          ? data.services
+          : [];
+
+      setServices(
+        nextServices
+      );
+
+      if (
+        data?.defaultServiceId
+      ) {
+        setSelectedServiceId(
+          data.defaultServiceId
+        );
+      } else if (
+        nextServices.length === 1
+      ) {
+        setSelectedServiceId(
+          nextServices[0].id
+        );
+      } else {
+        setSelectedServiceId("");
+      }
+    } catch (error) {
+      console.error(
+        "[CatalogImports] services:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Magazinele nu au putut fi încărcate."
+      );
+    } finally {
+      setIsLoadingServices(
+        false
+      );
+    }
+  }
+
+  useEffect(() => {
+    loadHistory();
+    loadServices();
+  }, []);
 
   function resetImportFlow() {
     setStep("SOURCE");
+
     setSelectedSource(null);
     setSelectedFile(null);
+    setImportId(null);
+
     setIsDragging(false);
-    setColumns(MOCK_COLUMNS);
-    setPreviewRows(MOCK_PREVIEW_ROWS);
+
+    setColumns([]);
+    setPreviewRows([]);
+
     setImportResult(null);
+
     setOnlyIssues(false);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    setErrorMessage("");
+
+    if (
+      fileInputRef.current
+    ) {
+      fileInputRef.current.value =
+        "";
     }
   }
 
-  function selectSource(source) {
-    if (!source.available) {
-      alert(
-        `${source.title} va fi conectat după ce finalizăm importul Excel / CSV.`
-      );
-      return;
-    }
 
-    setSelectedSource(source.key);
-    setStep("UPLOAD");
-  }
-
-  function validateFile(file) {
+  function validateFile(
+    file
+  ) {
     if (!file) return false;
 
-    const name = String(file.name || "")
-      .toLowerCase();
+    const name = String(
+      file.name || ""
+    ).toLowerCase();
 
     const accepted =
-      name.endsWith(".xlsx") ||
-      name.endsWith(".xls") ||
-      name.endsWith(".csv");
+      name.endsWith(
+        ".xlsx"
+      ) ||
+      name.endsWith(
+        ".xls"
+      ) ||
+      name.endsWith(
+        ".csv"
+      );
 
     if (!accepted) {
       alert(
@@ -366,7 +580,9 @@ export default function CatalogImports() {
     const maxSize =
       20 * 1024 * 1024;
 
-    if (file.size > maxSize) {
+    if (
+      file.size > maxSize
+    ) {
       alert(
         "Fișierul este prea mare. Limita este de 20 MB."
       );
@@ -378,36 +594,53 @@ export default function CatalogImports() {
   }
 
   function setFile(file) {
-    if (!validateFile(file)) return;
+    if (
+      !validateFile(file)
+    ) {
+      return;
+    }
 
     setSelectedFile(file);
+
+    setErrorMessage("");
   }
 
-  function handleFileInput(event) {
+  function handleFileInput(
+    event
+  ) {
     const file =
       event.target.files?.[0];
 
     setFile(file);
   }
 
-  function handleDrop(event) {
+  function handleDrop(
+    event
+  ) {
     event.preventDefault();
 
     setIsDragging(false);
 
     const file =
-      event.dataTransfer.files?.[0];
+      event.dataTransfer
+        .files?.[0];
 
     setFile(file);
   }
 
-  function handleDragOver(event) {
+  function handleDragOver(
+    event
+  ) {
     event.preventDefault();
+
     setIsDragging(true);
   }
 
-  function handleDragLeave(event) {
+  function handleDragLeave(
+    event
+  ) {
     event.preventDefault();
+
     setIsDragging(false);
   }
 
@@ -416,36 +649,84 @@ export default function CatalogImports() {
       alert(
         "Selectează un fișier pentru import."
       );
+
+      return;
+    }
+
+    if (
+      services.length > 1 &&
+      !selectedServiceId
+    ) {
+      setErrorMessage(
+        "Alege magazinul în care vrei să imporți produsele."
+      );
+
       return;
     }
 
     try {
       setIsAnalyzing(true);
 
-      /*
-       * BACKEND REAL:
-       *
-       * const formData = new FormData();
-       * formData.append("file", selectedFile);
-       *
-       * const response = await api(
-       *   "/api/vendor/catalog/imports/upload",
-       *   {
-       *     method: "POST",
-       *     body: formData,
-       *   }
-       * );
-       *
-       * setColumns(response.columns || []);
-       */
+      setErrorMessage("");
 
-      await new Promise((resolve) =>
-        setTimeout(resolve, 700)
+      const formData =
+        new FormData();
+
+      formData.append(
+        "file",
+        selectedFile
       );
 
-      setColumns(MOCK_COLUMNS);
+      if (selectedServiceId) {
+        formData.append(
+          "serviceId",
+          selectedServiceId
+        );
+      }
+
+      const response =
+        await apiRequest(
+          "/api/vendor/catalog/imports/upload",
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+      setImportId(
+        response.importId
+      );
+
+      setColumns(
+        Array.isArray(
+          response.columns
+        )
+          ? response.columns
+          : []
+      );
 
       setStep("MAPPING");
+    } catch (error) {
+      console.error(
+        "[CatalogImports] analyze:",
+        error
+      );
+
+      if (
+        error.code ===
+        "SERVICE_REQUIRED"
+      ) {
+        setErrorMessage(
+          "Ai mai multe magazine. Trebuie să alegem magazinul în care vor fi importate produsele."
+        );
+
+        return;
+      }
+
+      setErrorMessage(
+        error.message ||
+          "Fișierul nu a putut fi analizat."
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -456,162 +737,537 @@ export default function CatalogImports() {
     mappedTo
   ) {
     setColumns((prev) =>
-      prev.map((column) =>
-        column.source === sourceColumn
-          ? {
-              ...column,
-              mappedTo,
-            }
-          : column
+      prev.map(
+        (column) =>
+          column.source ===
+          sourceColumn
+            ? {
+                ...column,
+                mappedTo,
+              }
+            : column
       )
     );
   }
 
-  function goToPreview() {
+  async function goToPreview() {
     const titleMapped =
       columns.some(
         (column) =>
-          column.mappedTo === "title"
+          column.mappedTo ===
+          "title"
       );
 
     if (!titleMapped) {
       alert(
         "Trebuie să alegi o coloană pentru Titlu produs."
       );
+
       return;
     }
 
-    /*
-     * BACKEND REAL:
-     *
-     * POST /api/vendor/catalog/imports/:importId/preview
-     *
-     * body:
-     * {
-     *   mapping: {
-     *      product_name: "title",
-     *      price: "price"
-     *   }
-     * }
-     */
+    if (!importId) {
+      alert(
+        "Importul nu a fost inițializat. Încearcă din nou."
+      );
 
-    setPreviewRows(
-      MOCK_PREVIEW_ROWS
-    );
+      return;
+    }
 
-    setStep("PREVIEW");
+    const mapping =
+      Object.fromEntries(
+        columns.map(
+          (column) => [
+            column.source,
+            column.mappedTo ||
+              "ignore",
+          ]
+        )
+      );
+
+    try {
+      setIsPreviewing(true);
+
+      setErrorMessage("");
+
+      const response =
+        await apiRequest(
+          `/api/vendor/catalog/imports/${importId}/preview`,
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              mapping,
+            }),
+          }
+        );
+
+      setPreviewRows(
+        Array.isArray(
+          response.rows
+        )
+          ? response.rows
+          : []
+      );
+
+      setStep("PREVIEW");
+    } catch (error) {
+      console.error(
+        "[CatalogImports] preview:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Preview-ul nu a putut fi generat."
+      );
+    } finally {
+      setIsPreviewing(false);
+    }
   }
 
-  function removePreviewRow(id) {
-    setPreviewRows((prev) =>
-      prev.filter(
-        (row) => row.id !== id
-      )
-    );
-  }
+  async function removePreviewRow(
+    id
+  ) {
+    if (!importId) {
+      return;
+    }
 
-  function markWarningAsAccepted(id) {
-    setPreviewRows((prev) =>
-      prev.map((row) =>
-        row.id === id &&
-        row.status === "WARNING"
-          ? {
-              ...row,
-              status: "READY",
-              warnings: [],
-            }
-          : row
-      )
-    );
+    try {
+      setErrorMessage("");
+
+      await apiRequest(
+        `/api/vendor/catalog/imports/${importId}/items/${id}/skip`,
+        {
+          method: "PATCH",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify(
+            {}
+          ),
+        }
+      );
+
+      setPreviewRows(
+        (prev) =>
+          prev.filter(
+            (row) =>
+              row.id !== id
+          )
+      );
+    } catch (error) {
+      console.error(
+        "[CatalogImports] skip:",
+        error
+      );
+
+      alert(
+        error.message ||
+          "Produsul nu a putut fi eliminat din import."
+      );
+    }
   }
 
   async function executeImport() {
+    if (!importId) {
+      alert(
+        "Importul nu a fost inițializat."
+      );
+
+      return;
+    }
+
     const importableRows =
       previewRows.filter(
         (row) =>
-          row.status !== "ERROR"
+          row.status ===
+            "READY" ||
+          row.status ===
+            "WARNING"
       );
 
-    if (!importableRows.length) {
+    if (
+      !importableRows.length
+    ) {
       alert(
         "Nu există produse valide pentru import."
       );
+
       return;
     }
 
     try {
       setIsImporting(true);
 
-      /*
-       * BACKEND REAL:
-       *
-       * const response = await api(
-       *   `/api/vendor/catalog/imports/${importId}/execute`,
-       *   {
-       *     method: "POST",
-       *   }
-       * );
-       */
+      setErrorMessage("");
 
-      await new Promise((resolve) =>
-        setTimeout(resolve, 900)
-      );
+      const response =
+        await apiRequest(
+          `/api/vendor/catalog/imports/${importId}/execute`,
+          {
+            method: "POST",
 
-      const importedRows =
-        importableRows.length;
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
 
-      const failedRows =
-        previewRows.filter(
-          (row) =>
-            row.status === "ERROR"
-        ).length;
-
-      const result = {
-        importedRows,
-        failedRows,
-        totalRows:
-          previewRows.length,
-      };
-
-      setImportResult(result);
-
-      setHistory((prev) => [
-        {
-          id: `import-${Date.now()}`,
-          source:
-            selectedFile?.name
-              ?.toLowerCase()
-              .endsWith(".csv")
-              ? "CSV"
-              : "EXCEL",
-          fileName:
-            selectedFile?.name ||
-            "Import produse",
-          status:
-            failedRows > 0
-              ? "COMPLETED_WITH_ERRORS"
-              : "COMPLETED",
-          totalRows:
-            previewRows.length,
-          importedRows,
-          warningRows:
-            previewRows.filter(
-              (row) =>
-                row.status ===
-                "WARNING"
-            ).length,
-          failedRows,
-          createdAt:
-            new Date().toLocaleString(
-              "ro-RO"
+            body: JSON.stringify(
+              {}
             ),
-        },
-        ...prev,
-      ]);
+          }
+        );
+
+      setImportResult({
+        importedRows:
+          response.importedRows ||
+          0,
+
+        failedRows:
+          response.failedRows ||
+          0,
+
+        totalRows:
+          response.totalRows ||
+          0,
+
+        skippedRows:
+          response.skippedRows ||
+          0,
+      });
+
+      await loadHistory();
 
       setStep("RESULT");
+    } catch (error) {
+      console.error(
+        "[CatalogImports] execute:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Produsele nu au putut fi importate."
+      );
     } finally {
       setIsImporting(false);
+    }
+  }
+
+  async function retryFailedImport(
+    item
+  ) {
+    if (!item?.id) return;
+
+    try {
+      setRetryingImportId(
+        item.id
+      );
+
+      setErrorMessage("");
+
+      const response =
+        await apiRequest(
+          `/api/vendor/catalog/imports/${item.id}/retry-failed`,
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify(
+              {}
+            ),
+          }
+        );
+
+      await loadHistory();
+
+      alert(
+        `Reîncercare finalizată. Importate acum: ${
+          response.importedNow || 0
+        }. Eșuate: ${
+          response.failedNow || 0
+        }.`
+      );
+    } catch (error) {
+      console.error(
+        "[CatalogImports] retry:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Produsele eșuate nu au putut fi reîncercate."
+      );
+    } finally {
+      setRetryingImportId(
+        null
+      );
+    }
+  }
+
+  async function downloadImportErrors(
+    item
+  ) {
+    if (!item?.id) return;
+
+    try {
+      setDownloadingReportId(
+        item.id
+      );
+
+      setErrorMessage("");
+
+      const response =
+        await fetch(
+          `/api/vendor/catalog/imports/${item.id}/errors.xlsx`,
+          {
+            method: "GET",
+            credentials: "include",
+          }
+        );
+
+      if (!response.ok) {
+        let data = null;
+
+        try {
+          data =
+            await response.json();
+        } catch {
+          data = null;
+        }
+
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Raportul nu a putut fi descărcat."
+        );
+      }
+
+      const blob =
+        await response.blob();
+
+      const disposition =
+        response.headers.get(
+          "content-disposition"
+        );
+
+      const fileNameMatch =
+        disposition?.match(
+          /filename="?([^"]+)"?/i
+        );
+
+      const fileName =
+        fileNameMatch?.[1] ||
+        `raport-erori-${item.id}.xlsx`;
+
+      const objectUrl =
+        URL.createObjectURL(
+          blob
+        );
+
+      const link =
+        document.createElement(
+          "a"
+        );
+
+      link.href =
+        objectUrl;
+
+      link.download =
+        fileName;
+
+      document.body.appendChild(
+        link
+      );
+
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(
+        objectUrl
+      );
+    } catch (error) {
+      console.error(
+        "[CatalogImports] errors report:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Raportul de erori nu a putut fi descărcat."
+      );
+    } finally {
+      setDownloadingReportId(
+        null
+      );
+    }
+  }
+
+  async function handleDownloadTemplate() {
+    try {
+      setIsDownloadingTemplate(true);
+      setErrorMessage("");
+
+      const response = await fetch(
+        "/api/vendor/catalog/imports/template",
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        let data = null;
+
+        try {
+          data = await response.json();
+        } catch {
+          data = null;
+        }
+
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Modelul Excel nu a putut fi descărcat."
+        );
+      }
+
+      const blob = await response.blob();
+
+      const disposition =
+        response.headers.get(
+          "content-disposition"
+        );
+
+      const fileNameMatch =
+        disposition?.match(
+          /filename="?([^"]+)"?/i
+        );
+
+      const fileName =
+        fileNameMatch?.[1] ||
+        "model-import-produse-artfest.xlsx";
+
+      const objectUrl =
+        URL.createObjectURL(blob);
+
+      const link =
+        document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = fileName;
+
+      document.body.appendChild(link);
+
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error(
+        "[CatalogImports] template:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Modelul Excel nu a putut fi descărcat."
+      );
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  }
+
+  async function handleExportProducts() {
+    try {
+      setIsExportingProducts(true);
+      setErrorMessage("");
+
+      const response = await fetch(
+        "/api/vendor/catalog/imports/export",
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        let data = null;
+
+        try {
+          data = await response.json();
+        } catch {
+          data = null;
+        }
+
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Catalogul nu a putut fi descărcat."
+        );
+      }
+
+      const blob =
+        await response.blob();
+
+      const disposition =
+        response.headers.get(
+          "content-disposition"
+        );
+
+      const fileNameMatch =
+        disposition?.match(
+          /filename="?([^"]+)"?/i
+        );
+
+      const fileName =
+        fileNameMatch?.[1] ||
+        "catalog-produse-artfest.xlsx";
+
+      const objectUrl =
+        URL.createObjectURL(blob);
+
+      const link =
+        document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = fileName;
+
+      document.body.appendChild(
+        link
+      );
+
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(
+        objectUrl
+      );
+    } catch (error) {
+      console.error(
+        "[CatalogImports] export:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Catalogul nu a putut fi descărcat."
+      );
+    } finally {
+      setIsExportingProducts(false);
     }
   }
 
@@ -651,86 +1307,154 @@ export default function CatalogImports() {
             styles.sourceGrid
           }
         >
-          {IMPORT_SOURCES.map(
-            (source) => {
-              const Icon =
-                source.icon;
+          {IMPORT_SOURCES.map((source) => {
+            const Icon = source.icon;
 
-              return (
-                <button
-                  type="button"
-                  key={source.key}
-                  className={`${styles.sourceCard} ${
-                    !source.available
-                      ? styles.sourceCardDisabled
-                      : ""
-                  }`}
-                  onClick={() =>
-                    selectSource(
-                      source
-                    )
+            return (
+              <div
+                key={source.key}
+                className={`${styles.sourceCard} ${
+                  !source.available
+                    ? styles.sourceCardDisabled
+                    : ""
+                }`}
+              >
+                <div
+                  className={
+                    styles.sourceIcon
+                  }
+                >
+                  <Icon size={24} />
+                </div>
+
+                <div
+                  className={
+                    styles.sourceInfo
                   }
                 >
                   <div
                     className={
-                      styles.sourceIcon
+                      styles.sourceTitleRow
                     }
                   >
-                    <Icon
-                      size={24}
-                    />
+                    <strong>
+                      {source.title}
+                    </strong>
+
+                    {!source.available && (
+                      <span
+                        className={
+                          styles.soonBadge
+                        }
+                      >
+                        În curând
+                      </span>
+                    )}
                   </div>
 
-                  <div
-                    className={
-                      styles.sourceInfo
-                    }
-                  >
+                  <p>{source.subtitle}</p>
+
+                  {source.available && (
                     <div
                       className={
-                        styles.sourceTitleRow
+                        styles.sourceActions
                       }
                     >
-                      <strong>
-                        {
-                          source.title
-                        }
-                      </strong>
+                      <button
+  type="button"
+  className={styles.primaryBtn}
+  onClick={() => {
+    setSelectedSource(source.key);
+    setErrorMessage("");
+    setSelectedFile(null);
+    setImportId(null);
+    setStep("UPLOAD");
+  }}
+>
+  <Upload size={16} />
+  Importă produse
+</button>
 
-                      {!source.available && (
-                        <span
+                      {source.canDownloadTemplate && (
+                        <button
+                          type="button"
                           className={
-                            styles.soonBadge
+                            styles.secondaryBtn
+                          }
+                          disabled={
+                            isDownloadingTemplate
+                          }
+                          onClick={
+                            handleDownloadTemplate
                           }
                         >
-                          În curând
-                        </span>
+                          {isDownloadingTemplate ? (
+                            <>
+                              <RefreshCw
+                                size={16}
+                                className={
+                                  styles.spin
+                                }
+                              />
+                              Pregătim...
+                            </>
+                          ) : (
+                            <>
+                              <Download size={16} />
+                              Descarcă model
+                            </>
+                          )}
+                        </button>
+                        
+                      )}
+
+                      {source.key === "EXCEL" && (
+                        <button
+                          type="button"
+                          className={
+                            styles.secondaryBtn
+                          }
+                          disabled={
+                            isExportingProducts
+                          }
+                          onClick={
+                            handleExportProducts
+                          }
+                        >
+                          {isExportingProducts ? (
+                            <>
+                              <RefreshCw
+                                size={16}
+                                className={
+                                  styles.spin
+                                }
+                              />
+                              Pregătim...
+                            </>
+                          ) : (
+                            <>
+                              <Download size={16} />
+                              Descarcă produsele mele
+                            </>
+                          )}
+                        </button>
                       )}
                     </div>
-
-                    <p>
-                      {
-                        source.subtitle
-                      }
-                    </p>
-                  </div>
-
-                  <ArrowRight
-                    size={18}
-                    className={
-                      styles.sourceArrow
-                    }
-                  />
-                </button>
-              );
-            }
-          )}
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         <section
-          className={styles.aiBox}
+          className={
+            styles.aiBox
+          }
         >
-          <Sparkles size={22} />
+          <Sparkles
+            size={22}
+          />
 
           <div>
             <strong>
@@ -738,12 +1462,12 @@ export default function CatalogImports() {
             </strong>
 
             <p>
-              Artfest va putea identifica
-              automat coloanele pentru
-              titlu, descriere, preț,
-              categorie, stoc și variante.
-              Tu verifici înainte să se
-              importe ceva.
+              Artfest identifică automat
+              coloanele pentru titlu,
+              descriere, preț, categorie,
+              stoc și alte informații.
+              Tu verifici totul înainte
+              să se importe ceva.
             </p>
           </div>
         </section>
@@ -762,6 +1486,104 @@ export default function CatalogImports() {
           }
         />
 
+        {services.length > 1 && (
+          <section
+            className={
+              styles.infoCard
+            }
+          >
+            <ShoppingBag
+              size={20}
+            />
+
+            <div
+              style={{
+                width: "100%",
+              }}
+            >
+              <strong>
+                În ce magazin vrei să imporți produsele?
+              </strong>
+
+              <p>
+                Ai mai multe magazine pe Artfest. Alege destinația acestui import.
+              </p>
+
+              <select
+                className={
+                  styles.select
+                }
+                value={
+                  selectedServiceId
+                }
+                disabled={
+                  isLoadingServices ||
+                  isAnalyzing
+                }
+                onChange={(
+                  event
+                ) => {
+                  setSelectedServiceId(
+                    event.target.value
+                  );
+
+                  setErrorMessage(
+                    ""
+                  );
+                }}
+                style={{
+                  width: "100%",
+                  marginTop: 10,
+                }}
+              >
+                <option value="">
+                  Alege magazinul
+                </option>
+
+                {services.map(
+                  (service) => (
+                    <option
+                      key={
+                        service.id
+                      }
+                      value={
+                        service.id
+                      }
+                    >
+                      {service.title}
+                      {!service.isActive
+                        ? " (inactiv)"
+                        : ""}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+          </section>
+        )}
+
+        {services.length === 1 && (
+          <section
+            className={
+              styles.infoCard
+            }
+          >
+            <ShoppingBag
+              size={20}
+            />
+
+            <div>
+              <strong>
+                Magazin destinație
+              </strong>
+
+              <p>
+                {services[0].title}
+              </p>
+            </div>
+          </section>
+        )}
+
         <section
           className={
             styles.uploadCard
@@ -773,7 +1595,9 @@ export default function CatalogImports() {
                 ? styles.dropZoneActive
                 : ""
             }`}
-            onDrop={handleDrop}
+            onDrop={
+              handleDrop
+            }
             onDragOver={
               handleDragOver
             }
@@ -785,7 +1609,9 @@ export default function CatalogImports() {
             }
           >
             <input
-              ref={fileInputRef}
+              ref={
+                fileInputRef
+              }
               type="file"
               hidden
               accept=".xlsx,.xls,.csv"
@@ -799,7 +1625,9 @@ export default function CatalogImports() {
                 styles.uploadIcon
               }
             >
-              <Upload size={27} />
+              <Upload
+                size={27}
+              />
             </div>
 
             <h3>
@@ -852,7 +1680,9 @@ export default function CatalogImports() {
                   {(
                     selectedFile.size /
                     1024
-                  ).toFixed(1)}{" "}
+                  ).toFixed(
+                    1
+                  )}{" "}
                   KB
                 </span>
               </div>
@@ -862,11 +1692,17 @@ export default function CatalogImports() {
                 className={
                   styles.iconBtn
                 }
-                onClick={(event) => {
+                onClick={(
+                  event
+                ) => {
                   event.stopPropagation();
 
                   setSelectedFile(
                     null
+                  );
+
+                  setErrorMessage(
+                    ""
                   );
 
                   if (
@@ -878,16 +1714,22 @@ export default function CatalogImports() {
                 }}
                 aria-label="Șterge fișierul"
               >
-                <Trash2 size={18} />
+                <Trash2
+                  size={18}
+                />
               </button>
             </div>
           )}
         </section>
 
         <section
-          className={styles.infoCard}
+          className={
+            styles.infoCard
+          }
         >
-          <FileText size={20} />
+          <FileText
+            size={20}
+          />
 
           <div>
             <strong>
@@ -930,9 +1772,16 @@ export default function CatalogImports() {
             }
             disabled={
               !selectedFile ||
-              isAnalyzing
+              isAnalyzing ||
+              isLoadingServices ||
+              (
+                services.length > 1 &&
+                !selectedServiceId
+              )
             }
-            onClick={analyzeFile}
+            onClick={
+              analyzeFile
+            }
           >
             {isAnalyzing ? (
               <>
@@ -942,11 +1791,13 @@ export default function CatalogImports() {
                     styles.spin
                   }
                 />
+
                 Analizăm...
               </>
             ) : (
               <>
                 Analizează fișierul
+
                 <ArrowRight
                   size={17}
                 />
@@ -974,7 +1825,9 @@ export default function CatalogImports() {
             styles.mappingNotice
           }
         >
-          <Sparkles size={20} />
+          <Sparkles
+            size={20}
+          />
 
           <div>
             <strong>
@@ -1014,7 +1867,7 @@ export default function CatalogImports() {
             </div>
 
             <div>
-              Potrivire AI
+              Potrivire
             </div>
           </div>
 
@@ -1060,15 +1913,15 @@ export default function CatalogImports() {
                         styles.select
                       }
                       value={
-                        column.mappedTo
+                        column.mappedTo ||
+                        "ignore"
                       }
                       onChange={(
                         event
                       ) =>
                         updateMapping(
                           column.source,
-                          event.target
-                            .value
+                          event.target.value
                         )
                       }
                     >
@@ -1104,7 +1957,10 @@ export default function CatalogImports() {
                       }`}
                     >
                       {Math.round(
-                        column.confidence *
+                        Number(
+                          column.confidence ||
+                            0
+                        ) *
                           100
                       )}
                       %
@@ -1138,10 +1994,33 @@ export default function CatalogImports() {
             className={
               styles.primaryBtn
             }
-            onClick={goToPreview}
+            disabled={
+              isPreviewing
+            }
+            onClick={
+              goToPreview
+            }
           >
-            Previzualizează produsele
-            <ArrowRight size={17} />
+            {isPreviewing ? (
+              <>
+                <RefreshCw
+                  size={17}
+                  className={
+                    styles.spin
+                  }
+                />
+
+                Generăm preview...
+              </>
+            ) : (
+              <>
+                Previzualizează produsele
+
+                <ArrowRight
+                  size={17}
+                />
+              </>
+            )}
           </button>
         </div>
       </>
@@ -1166,24 +2045,32 @@ export default function CatalogImports() {
         >
           <SummaryCard
             label="Produse găsite"
-            value={summary.total}
+            value={
+              summary.total
+            }
           />
 
           <SummaryCard
             label="Gata de import"
-            value={summary.ready}
+            value={
+              summary.ready
+            }
             type="success"
           />
 
           <SummaryCard
             label="Avertismente"
-            value={summary.warning}
+            value={
+              summary.warning
+            }
             type="warning"
           />
 
           <SummaryCard
             label="Erori"
-            value={summary.error}
+            value={
+              summary.error
+            }
             type="error"
           />
         </section>
@@ -1218,11 +2105,14 @@ export default function CatalogImports() {
             >
               <input
                 type="checkbox"
-                checked={onlyIssues}
-                onChange={(event) =>
+                checked={
+                  onlyIssues
+                }
+                onChange={(
+                  event
+                ) =>
                   setOnlyIssues(
-                    event.target
-                      .checked
+                    event.target.checked
                   )
                 }
               />
@@ -1243,20 +2133,44 @@ export default function CatalogImports() {
             >
               <thead>
                 <tr>
-                  <th>Rând</th>
-                  <th>Produs</th>
-                  <th>Categorie</th>
-                  <th>Preț</th>
-                  <th>Stoc</th>
-                  <th>Status</th>
-                  <th>Acțiuni</th>
+                  <th>
+                    Rând
+                  </th>
+
+                  <th>
+                    Produs
+                  </th>
+
+                  <th>
+                    Categorie
+                  </th>
+
+                  <th>
+                    Preț
+                  </th>
+
+                  <th>
+                    Stoc
+                  </th>
+
+                  <th>
+                    Status
+                  </th>
+
+                  <th>
+                    Acțiuni
+                  </th>
                 </tr>
               </thead>
 
               <tbody>
                 {visibleRows.map(
                   (row) => (
-                    <tr key={row.id}>
+                    <tr
+                      key={
+                        row.id
+                      }
+                    >
                       <td>
                         {
                           row.rowNumber
@@ -1288,7 +2202,9 @@ export default function CatalogImports() {
 
                       <td>
                         {row.price !==
-                        null
+                          null &&
+                        row.price !==
+                          undefined
                           ? `${row.price} lei`
                           : "—"}
                       </td>
@@ -1325,7 +2241,8 @@ export default function CatalogImports() {
                           </span>
                         </div>
 
-                        {!!row.warnings
+                        {!!row
+                          .warnings
                           ?.length && (
                           <div
                             className={
@@ -1334,12 +2251,11 @@ export default function CatalogImports() {
                           >
                             {row.warnings.map(
                               (
-                                warning
+                                warning,
+                                index
                               ) => (
                                 <span
-                                  key={
-                                    warning
-                                  }
+                                  key={`${warning}-${index}`}
                                 >
                                   {
                                     warning
@@ -1357,23 +2273,6 @@ export default function CatalogImports() {
                             styles.rowActions
                           }
                         >
-                          {row.status ===
-                            "WARNING" && (
-                            <button
-                              type="button"
-                              className={
-                                styles.smallBtn
-                              }
-                              onClick={() =>
-                                markWarningAsAccepted(
-                                  row.id
-                                )
-                              }
-                            >
-                              Acceptă
-                            </button>
-                          )}
-
                           <button
                             type="button"
                             className={
@@ -1415,7 +2314,8 @@ export default function CatalogImports() {
           </div>
         </section>
 
-        {summary.error > 0 && (
+        {summary.error >
+          0 && (
           <section
             className={
               styles.errorNotice
@@ -1433,9 +2333,10 @@ export default function CatalogImports() {
 
               <p>
                 Poți continua cu produsele
-                valide. După import vei
-                putea corecta produsele
-                rămase.
+                valide. Produsele cu erori
+                rămân în istoricul
+                importului pentru
+                verificare.
               </p>
             </div>
           </section>
@@ -1469,7 +2370,9 @@ export default function CatalogImports() {
                 summary.warning ===
                 0
             }
-            onClick={executeImport}
+            onClick={
+              executeImport
+            }
           >
             {isImporting ? (
               <>
@@ -1479,6 +2382,7 @@ export default function CatalogImports() {
                     styles.spin
                   }
                 />
+
                 Importăm...
               </>
             ) : (
@@ -1487,6 +2391,7 @@ export default function CatalogImports() {
                 {summary.ready +
                   summary.warning}{" "}
                 produse
+
                 <ArrowRight
                   size={17}
                 />
@@ -1500,107 +2405,118 @@ export default function CatalogImports() {
 
   function renderResultStep() {
     return (
-      <>
-        <section
+      <section
+        className={
+          styles.resultCard
+        }
+      >
+        <div
           className={
-            styles.resultCard
+            styles.resultIcon
           }
         >
-          <div
+          <CheckCircle2
+            size={34}
+          />
+        </div>
+
+        <h2>
+          Import finalizat
+        </h2>
+
+        <p>
+          Produsele valide au fost
+          adăugate în catalog.
+        </p>
+
+        <div
+          className={
+            styles.resultStats
+          }
+        >
+          <div>
+            <span>
+              Importate
+            </span>
+
+            <strong>
+              {importResult
+                ?.importedRows ||
+                0}
+            </strong>
+          </div>
+
+          <div>
+            <span>
+              Neimportate
+            </span>
+
+            <strong>
+              {importResult
+                ?.failedRows ||
+                0}
+            </strong>
+          </div>
+
+          <div>
+            <span>
+              Total
+            </span>
+
+            <strong>
+              {importResult
+                ?.totalRows ||
+                0}
+            </strong>
+          </div>
+        </div>
+
+        <div
+          className={
+            styles.resultActions
+          }
+        >
+          <button
+            type="button"
             className={
-              styles.resultIcon
+              styles.secondaryBtn
+            }
+            onClick={
+              resetImportFlow
             }
           >
-            <CheckCircle2
-              size={34}
+            <RotateCcw
+              size={17}
             />
-          </div>
 
-          <h2>
-            Import finalizat
-          </h2>
+            Import nou
+          </button>
 
-          <p>
-            Produsele valide au fost
-            adăugate în catalog.
-          </p>
-
-          <div
+          <button
+            type="button"
             className={
-              styles.resultStats
+              styles.primaryBtn
             }
+            onClick={() => {
+              /*
+               * Suntem deja în Catalog.
+               * Pentru moment revenim
+               * la începutul importului.
+               * Mai târziu putem primi
+               * onGoToProducts de la
+               * CatalogProdusePage.
+               */
+              resetImportFlow();
+            }}
           >
-            <div>
-              <span>
-                Importate
-              </span>
+            <Eye
+              size={17}
+            />
 
-              <strong>
-                {importResult
-                  ?.importedRows || 0}
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Neimportate
-              </span>
-
-              <strong>
-                {importResult
-                  ?.failedRows || 0}
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Total
-              </span>
-
-              <strong>
-                {importResult
-                  ?.totalRows || 0}
-              </strong>
-            </div>
-          </div>
-
-          <div
-            className={
-              styles.resultActions
-            }
-          >
-            <button
-              type="button"
-              className={
-                styles.secondaryBtn
-              }
-              onClick={
-                resetImportFlow
-              }
-            >
-              <RotateCcw
-                size={17}
-              />
-              Import nou
-            </button>
-
-            <button
-              type="button"
-              className={
-                styles.primaryBtn
-              }
-              onClick={() =>
-                alert(
-                  "Catalogul se va actualiza cu produsele importate când conectăm backend-ul."
-                )
-              }
-            >
-              <Eye size={17} />
-              Vezi produsele
-            </button>
-          </div>
-        </section>
-      </>
+            Vezi produsele
+          </button>
+        </div>
+      </section>
     );
   }
 
@@ -1627,7 +2543,8 @@ export default function CatalogImports() {
           </p>
         </div>
 
-        {step !== "SOURCE" && (
+        {step !==
+          "SOURCE" && (
           <button
             type="button"
             className={
@@ -1640,6 +2557,7 @@ export default function CatalogImports() {
             <RotateCcw
               size={16}
             />
+
             Începe din nou
           </button>
         )}
@@ -1649,23 +2567,65 @@ export default function CatalogImports() {
         step={step}
       />
 
-      {step === "SOURCE" &&
+      {errorMessage && (
+        <section
+          className={
+            styles.errorNotice
+          }
+        >
+          <AlertTriangle
+            size={20}
+          />
+
+          <div>
+            <strong>
+              Importul nu poate continua
+            </strong>
+
+            <p>
+              {errorMessage}
+            </p>
+          </div>
+        </section>
+      )}
+
+      {step ===
+        "SOURCE" &&
         renderSourceStep()}
 
-      {step === "UPLOAD" &&
+      {step ===
+        "UPLOAD" &&
         renderUploadStep()}
 
-      {step === "MAPPING" &&
+      {step ===
+        "MAPPING" &&
         renderMappingStep()}
 
-      {step === "PREVIEW" &&
+      {step ===
+        "PREVIEW" &&
         renderPreviewStep()}
 
-      {step === "RESULT" &&
+      {step ===
+        "RESULT" &&
         renderResultStep()}
 
       <ImportHistory
         history={history}
+        isLoading={
+          isLoadingHistory
+        }
+        onRetryFailed={
+          retryFailedImport
+        }
+        onDownloadErrors={
+          downloadImportErrors
+        }
+        retryingImportId={
+          retryingImportId
+        }
+        downloadingReportId={
+          downloadingReportId
+        }
       />
     </div>
   );
@@ -1689,12 +2649,16 @@ function StepHeader({
         }
         onClick={onBack}
       >
-        <ArrowLeft size={17} />
+        <ArrowLeft
+          size={17}
+        />
+
         Înapoi
       </button>
 
       <div>
         <h3>{title}</h3>
+
         <p>{subtitle}</p>
       </div>
     </section>
@@ -1751,7 +2715,9 @@ function ImportProgress({
 
           return (
             <div
-              key={item.key}
+              key={
+                item.key
+              }
               className={`${styles.progressStep} ${
                 completed
                   ? styles.progressStepDone
@@ -1777,7 +2743,9 @@ function ImportProgress({
               </div>
 
               <span>
-                {item.label}
+                {
+                  item.label
+                }
               </span>
             </div>
           );
@@ -1795,23 +2763,36 @@ function SummaryCard({
   return (
     <div
       className={`${styles.summaryCard} ${
-        type === "success"
+        type ===
+        "success"
           ? styles.summarySuccess
-          : type === "warning"
+          : type ===
+            "warning"
           ? styles.summaryWarning
-          : type === "error"
+          : type ===
+            "error"
           ? styles.summaryError
           : ""
       }`}
     >
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <span>
+        {label}
+      </span>
+
+      <strong>
+        {value}
+      </strong>
     </div>
   );
 }
 
 function ImportHistory({
   history,
+  isLoading,
+  onRetryFailed,
+  onDownloadErrors,
+  retryingImportId,
+  downloadingReportId,
 }) {
   return (
     <section
@@ -1836,7 +2817,15 @@ function ImportHistory({
         </div>
       </div>
 
-      {!history.length ? (
+      {isLoading ? (
+        <div
+          className={
+            styles.emptyHistory
+          }
+        >
+          Se încarcă istoricul...
+        </div>
+      ) : !history.length ? (
         <div
           className={
             styles.emptyHistory
@@ -1854,7 +2843,9 @@ function ImportHistory({
           {history.map(
             (item) => (
               <div
-                key={item.id}
+                key={
+                  item.id
+                }
                 className={
                   styles.historyRow
                 }
@@ -1876,9 +2867,8 @@ function ImportHistory({
 
                   <div>
                     <strong>
-                      {
-                        item.fileName
-                      }
+                      {item.fileName ||
+                        "Import produse"}
                     </strong>
 
                     <span>
@@ -1889,6 +2879,10 @@ function ImportHistory({
                       {
                         item.createdAt
                       }
+
+                      {item.service?.title
+                        ? ` · ${item.service.title}`
+                        : ""}
                     </span>
                   </div>
                 </div>
@@ -1899,14 +2893,15 @@ function ImportHistory({
                   }
                 >
                   <span>
-                    {
-                      item.importedRows
-                    }{" "}
+                    {item.importedRows ||
+                      0}{" "}
                     importate
                   </span>
 
-                  {item.warningRows >
-                    0 && (
+                  {Number(
+                    item.warningRows ||
+                      0
+                  ) > 0 && (
                     <span
                       className={
                         styles.historyWarning
@@ -1919,8 +2914,10 @@ function ImportHistory({
                     </span>
                   )}
 
-                  {item.failedRows >
-                    0 && (
+                  {Number(
+                    item.failedRows ||
+                      0
+                  ) > 0 && (
                     <span
                       className={
                         styles.historyError
@@ -1942,7 +2939,10 @@ function ImportHistory({
                       : item.status ===
                         "COMPLETED_WITH_ERRORS"
                       ? styles.historyStatusWarning
-                      : styles.historyStatusError
+                      : item.status ===
+                          "FAILED"
+                      ? styles.historyStatusError
+                      : styles.historyStatusWarning
                   }`}
                 >
                   {statusLabel(
@@ -1950,20 +2950,120 @@ function ImportHistory({
                   )}
                 </span>
 
-                <button
-                  type="button"
+                <div
                   className={
-                    styles.iconBtn
-                  }
-                  title="Vezi detalii"
-                  onClick={() =>
-                    alert(
-                      "Detaliile importului vor fi conectate la backend."
-                    )
+                    styles.rowActions
                   }
                 >
-                  <Eye size={17} />
-                </button>
+                  {(Number(
+                    item.warningRows ||
+                      0
+                  ) > 0 ||
+                    Number(
+                      item.failedRows ||
+                        0
+                    ) > 0) && (
+                    <button
+                      type="button"
+                      className={
+                        styles.iconBtn
+                      }
+                      title="Descarcă raport erori"
+                      disabled={
+                        downloadingReportId ===
+                        item.id
+                      }
+                      onClick={() =>
+                        onDownloadErrors(
+                          item
+                        )
+                      }
+                    >
+                      {downloadingReportId ===
+                      item.id ? (
+                        <RefreshCw
+                          size={17}
+                          className={
+                            styles.spin
+                          }
+                        />
+                      ) : (
+                        <Download
+                          size={17}
+                        />
+                      )}
+                    </button>
+                  )}
+
+                  {Number(
+                    item.failedRows ||
+                      0
+                  ) > 0 && (
+                    <button
+                      type="button"
+                      className={
+                        styles.iconBtn
+                      }
+                      title="Reîncearcă produsele eșuate"
+                      disabled={
+                        retryingImportId ===
+                        item.id
+                      }
+                      onClick={() =>
+                        onRetryFailed(
+                          item
+                        )
+                      }
+                    >
+                      <RefreshCw
+                        size={17}
+                        className={
+                          retryingImportId ===
+                          item.id
+                            ? styles.spin
+                            : undefined
+                        }
+                      />
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className={
+                      styles.iconBtn
+                    }
+                    title="Vezi detalii"
+                    onClick={() => {
+                      alert(
+                        `Import: ${
+                          item.fileName ||
+                          item.id
+                        }\n\nMagazin: ${
+                          item.service?.title ||
+                          "—"
+                        }\nStatus: ${statusLabel(
+                          item.status
+                        )}\nTotal: ${
+                          item.totalRows ||
+                          0
+                        }\nImportate: ${
+                          item.importedRows ||
+                          0
+                        }\nAvertismente: ${
+                          item.warningRows ||
+                          0
+                        }\nErori: ${
+                          item.failedRows ||
+                          0
+                        }`
+                      );
+                    }}
+                  >
+                    <Eye
+                      size={17}
+                    />
+                  </button>
+                </div>
               </div>
             )
           )}

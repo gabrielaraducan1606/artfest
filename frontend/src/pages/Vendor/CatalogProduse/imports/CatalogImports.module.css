@@ -232,21 +232,25 @@
   background: var(--surface);
   color: var(--color-text);
   padding: 17px;
+
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
-  align-items: center;
+
+  align-items: flex-start;
   text-align: left;
-  cursor: pointer;
+
   transition:
-    transform 0.15s ease,
     border-color 0.15s ease,
     box-shadow 0.15s ease;
 }
 
 .sourceCard:hover:not(.sourceCardDisabled) {
-  transform: translateY(-2px);
-  border-color: var(--color-primary);
+  border-color: color-mix(
+    in srgb,
+    var(--color-border) 45%,
+    var(--color-primary) 55%
+  );
   box-shadow: var(--shadow-sm);
 }
 
@@ -291,8 +295,27 @@
   font-size: 0.84rem;
 }
 
-.sourceArrow {
-  color: var(--color-muted);
+.sourceActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.sourceActions .primaryBtn,
+.sourceActions .secondaryBtn {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.sourceActions .secondaryBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .soonBadge {
@@ -1132,8 +1155,14 @@
     grid-template-columns: auto 1fr;
   }
 
-  .sourceArrow {
-    display: none;
+  .sourceActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sourceActions .primaryBtn,
+  .sourceActions .secondaryBtn {
+    width: 100%;
   }
 
   .importIntro {

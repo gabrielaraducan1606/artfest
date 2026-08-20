@@ -351,6 +351,7 @@ model Vendor {
   services           VendorService[]
   stats              VendorStats?
   subscriptions      VendorSubscription[]
+  campaigns          VendorCampaign[]
   visitors           Visitor[]
   earningEntries     VendorEarningEntry[]
   payouts            VendorPayout[]
@@ -363,6 +364,7 @@ model Vendor {
   // Ofertele trimise de acest vendor
   // la cererile publice ale clienților.
   customerRequestOffers CustomerRequestOffer[]
+  productImports        ProductImport[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -476,6 +478,7 @@ model VendorService {
   searches           Search[] // dacă ai pus relație Search -> VendorService
   events             Event[] // ✅ adaugă
   products           Product[]
+  productImports     ProductImport[]
   shipments          Shipment[]
   ServiceFollow      ServiceFollow[]
   profile            ServiceProfile?
@@ -612,6 +615,49 @@ enum AuthProvider {
   GOOGLE
 }
 
+enum ProductImportSource {
+  EXCEL
+  CSV
+  EASYSALES
+  SHOPIFY
+  WOOCOMMERCE
+}
+
+enum ProductImportStatus {
+  UPLOADED
+  MAPPING
+  PREVIEW_READY
+  IMPORTING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELED
+}
+
+enum ProductImportItemStatus {
+  PENDING
+  READY
+  WARNING
+  ERROR
+  IMPORTED
+  SKIPPED
+  FAILED
+}
+
+enum VendorCampaignScope {
+  ALL_PRODUCTS
+  SELECTED_PRODUCTS
+}
+
+enum VendorCampaignCreativeType {
+  INSTAGRAM_POST
+  INSTAGRAM_STORY
+  FACEBOOK_POST
+  TIKTOK_CAPTION
+  WHATSAPP_MESSAGE
+  GENERIC
+}
+
 model Product {
   id          String   @id @default(uuid())
   serviceId   String
@@ -707,6 +753,8 @@ model Product {
   collectionItems          CollectionItem[]
   homepageFeatures         HomepageFeature[]
   quoteRequests            QuoteRequest[]
+  importItems              ProductImportItem[]
+  campaignProducts         VendorCampaignProduct[]
 
   @@index([serviceId, isActive, createdAt])
   @@index([category])
@@ -1283,6 +1331,13 @@ model Shipment {
   direction         ShipmentDirection @default(OUTBOUND)
   returnRequestId   String?
 
+  // ==================== Campanie vendor ====================
+  campaignId              String?
+  campaignCommissionBps   Int?
+  campaignDiscountPercent Int?
+  campaignAttributedAt    DateTime?
+
+  // ==================== Avans ====================
   depositStatus                PaymentDepositStatus @default(NOT_REQUESTED)
   depositPercent               Int?
   depositRequestedAmount       Decimal?             @db.Decimal(10, 2)
@@ -1297,15 +1352,18 @@ model Shipment {
   depositPaymentError          String?
   depositMeta                  Json?
 
+  // ==================== Relații ====================
   order                  Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendor                 Vendor              @relation(fields: [vendorId], references: [id])
   service                VendorService?      @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  campaign               VendorCampaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   handedOverBy           User?               @relation("ShipmentHandedOverBy", fields: [handedOverById], references: [id], onDelete: SetNull)
   vendorEarningEntry     VendorEarningEntry?
   items                  ShipmentItem[]
   returnRequest          ReturnRequest?      @relation(fields: [returnRequestId], references: [id], onDelete: SetNull)
   originalReturnRequests ReturnRequest[]     @relation("ReturnOriginalShipment")
 
+  // ==================== Indexuri ====================
   @@index([deliveredAt])
   @@index([refusedAt])
   @@index([returnedAt])
@@ -1326,6 +1384,8 @@ model Shipment {
   @@index([stripeDepositPaymentIntentId])
   @@index([stripeDepositChargeId])
   @@index([vendorId, depositStatus, createdAt], map: "ship_vendor_deposit_status_created_idx")
+  @@index([campaignId])
+  @@index([vendorId, campaignId, createdAt], map: "ship_vendor_campaign_created_idx")
 }
 
 enum PaymentDepositStatus {
@@ -2805,4 +2865,143 @@ model CustomerRequestOffer {
   @@index([requestId, createdAt])
   @@index([vendorId, createdAt])
   @@index([status])
+}
+
+model ProductImport {
+  id        String @id @default(cuid())
+  vendorId  String
+  serviceId String
+
+  source ProductImportSource
+  status ProductImportStatus @default(UPLOADED)
+
+  fileName String?
+  fileSize Int?
+  mimeType String?
+
+  columns Json?
+  mapping Json?
+  meta    Json?
+
+  totalRows    Int @default(0)
+  readyRows    Int @default(0)
+  warningRows  Int @default(0)
+  failedRows   Int @default(0)
+  importedRows Int @default(0)
+  skippedRows  Int @default(0)
+
+  errorMessage String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  analyzedAt  DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  vendor  Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  service VendorService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  items ProductImportItem[]
+
+  @@index([vendorId, createdAt])
+  @@index([serviceId, createdAt])
+  @@index([vendorId, status, createdAt])
+  @@index([serviceId, status, createdAt])
+}
+
+model ProductImportItem {
+  id       String @id @default(cuid())
+  importId String
+
+  rowNumber Int
+
+  rawData        Json
+  normalizedData Json?
+
+  status ProductImportItemStatus @default(PENDING)
+
+  warnings Json?
+  errors   Json?
+
+  productId String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  importedAt DateTime?
+
+  productImport ProductImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  product       Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@unique([importId, rowNumber])
+  @@index([importId, status])
+  @@index([productId])
+}
+
+model VendorCampaign {
+  id       String @id @default(uuid())
+  vendorId String
+
+  name String @db.VarChar(160)
+  slug String @unique @db.VarChar(160)
+
+  isActive Boolean @default(true)
+
+  scope VendorCampaignScope @default(ALL_PRODUCTS)
+
+  discountPercent Int @default(0)
+  commissionBps   Int @default(600)
+
+  attributionWindowHours Int @default(168)
+
+  visits                 Int @default(0)
+  attributedOrdersCount  Int @default(0)
+  attributedRevenueCents Int @default(0)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  products  VendorCampaignProduct[]
+  creatives VendorCampaignCreative[]
+  shipments Shipment[]
+
+  @@index([vendorId, createdAt])
+  @@index([vendorId, isActive])
+  @@index([isActive, startsAt, endsAt])
+}
+
+model VendorCampaignProduct {
+  campaignId String
+  productId  String
+  createdAt  DateTime @default(now())
+
+  campaign VendorCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product  Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, productId])
+  @@index([productId])
+}
+
+model VendorCampaignCreative {
+  id         String @id @default(uuid())
+  campaignId String
+
+  type VendorCampaignCreativeType
+
+  text     String?
+  imageUrl String?
+  mediaUrl String?
+  meta     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaign VendorCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, createdAt])
+  @@index([campaignId, type])
 }

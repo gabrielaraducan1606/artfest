@@ -1,344 +1,1033 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  useNavigate,
+} from "react-router-dom";
+
 import styles from "./CatalogProduse.module.css";
 import CatalogImports from "./imports/CatalogImports.jsx";
-
-const MOCK_PRODUCTS = [
-  {
-    id: "1",
-    title: "Odorizant dulap",
-    image: "",
-    price: 35,
-    stock: 12,
-    orderMode: "OPTIONS",
-    variants: "Aromă: Lavandă, Vanilie · Culoare: Alb, Roz",
-    category: "Casă",
-    active: true,
-  },
-  {
-    id: "2",
-    title: "Cană personalizată",
-    image: "",
-    price: 45,
-    stock: 8,
-    orderMode: "CUSTOMIZABLE",
-    variants: "Text, Poză",
-    category: "Cadouri",
-    active: true,
-  },
-  {
-    id: "3",
-    title: "Cutie botez personalizată",
-    image: "",
-    price: null,
-    stock: null,
-    orderMode: "QUOTE_ONLY",
-    variants: "Deadline, Buget, Poză inspirație",
-    category: "Botez",
-    active: false,
-  },
-];
-
-const MOCK_CAMPAIGNS = [
-  {
-    id: "campaign-1",
-    name: "Instagram august",
-    slug: "instagram-august",
-    active: true,
-    visits: 284,
-    ordersCount: 12,
-    revenue: 1840,
-    commissionPercent: 6,
-    normalCommissionPercent: 12,
-    discountPercent: 5,
-  },
-  {
-    id: "campaign-2",
-    name: "Clienți fideli",
-    slug: "clienti-fideli",
-    active: false,
-    visits: 91,
-    ordersCount: 4,
-    revenue: 610,
-    commissionPercent: 6,
-    normalCommissionPercent: 12,
-    discountPercent: 0,
-  },
-];
+import ProductModal from "../ProfilMagazin/modals/ProductModal.jsx";
+import CampaignsTab from "./campaigns/CampaignsTab.jsx";
+/* =========================================================
+   LABELURI MOD COMANDĂ
+========================================================= */
 
 const ORDER_MODE_LABEL = {
-  DIRECT: "Cumpărare directă",
-  READY_TO_BUY: "Cumpărare directă",
-  OPTIONS: "Opțiuni",
-  CUSTOMIZABLE: "Personalizabil",
-  QUOTE_ONLY: "Cerere ofertă",
+  DIRECT:
+    "Cumpărare directă",
+
+  READY_TO_BUY:
+    "Cumpărare directă",
+
+  OPTIONS:
+    "Opțiuni",
+
+  CUSTOMIZABLE:
+    "Personalizabil",
+
+  QUOTE_ONLY:
+    "Cerere ofertă",
 };
+
+/* =========================================================
+   SURSE IMPORT
+========================================================= */
 
 const IMPORT_SOURCES = [
   {
     key: "excel",
-    title: "Excel / CSV",
+
+    title:
+      "Excel / CSV",
+
     description:
       "Încarcă un fișier cu produsele tale și verifică datele înainte de import.",
+
     icon: "📊",
   },
+
   {
     key: "easysales",
-    title: "EasySales",
+
+    title:
+      "EasySales",
+
     description:
       "Importă produsele existente din EasySales și păstrează informațiile importante.",
+
     icon: "🔄",
   },
+
   {
     key: "shopify",
-    title: "Shopify",
+
+    title:
+      "Shopify",
+
     description:
       "Conectează magazinul Shopify și adu produsele în catalogul Artfest.",
+
     icon: "🛍️",
   },
+
   {
     key: "woocommerce",
-    title: "WooCommerce",
+
+    title:
+      "WooCommerce",
+
     description:
       "Importă produsele din magazinul tău WooCommerce.",
+
     icon: "🌐",
   },
 ];
 
+/* =========================================================
+   COMPONENTĂ
+========================================================= */
+
 export default function CatalogProdusePage() {
-  const navigate = useNavigate();
+  const navigate =
+    useNavigate();
 
-  const [activeTab, setActiveTab] = useState("products");
+  /* =======================================================
+     TAB
+  ======================================================= */
 
-  const [query, setQuery] = useState("");
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [orderModeFilter, setOrderModeFilter] = useState("all");
+  const [
+    activeTab,
+    setActiveTab,
+  ] = useState(
+    "products"
+  );
 
-  const [products, setProducts] = useState(MOCK_PRODUCTS);
-  const [campaigns, setCampaigns] = useState(MOCK_CAMPAIGNS);
+  /* =======================================================
+     FILTRE PRODUSE
+  ======================================================= */
 
-  const [showCampaignModal, setShowCampaignModal] = useState(false);
-  const [showAiModal, setShowAiModal] = useState(false);
+  const [
+    query,
+    setQuery,
+  ] = useState("");
 
-  const [aiPrompt, setAiPrompt] = useState("");
+  const [
+    selectedIds,
+    setSelectedIds,
+  ] = useState([]);
 
-  const [campaignForm, setCampaignForm] = useState({
-    name: "",
-    discountPercent: "0",
-    productsScope: "all",
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState(
+    "all"
+  );
+
+  const [
+    orderModeFilter,
+    setOrderModeFilter,
+  ] = useState(
+    "all"
+  );
+
+  /* =======================================================
+     PRODUSE REALE
+  ======================================================= */
+
+  const [
+    products,
+    setProducts,
+  ] = useState([]);
+const [
+  productStores,
+  setProductStores,
+] = useState([]);
+
+const [
+  defaultStoreSlug,
+  setDefaultStoreSlug,
+] = useState("");
+  const [
+    productsLoading,
+    setProductsLoading,
+  ] = useState(true);
+
+  const [
+    productsError,
+    setProductsError,
+  ] = useState("");
+
+
+  /* =======================================================
+     MODALE
+  ======================================================= */
+
+
+  const [
+    showAiModal,
+    setShowAiModal,
+  ] = useState(false);
+
+  const [
+    openProductMenuId,
+    setOpenProductMenuId,
+  ] = useState(null);
+
+  const [
+    editProductOpen,
+    setEditProductOpen,
+  ] = useState(false);
+
+  const [
+    editingProduct,
+    setEditingProduct,
+  ] = useState(null);
+
+  const [
+    savingProduct,
+    setSavingProduct,
+  ] = useState(false);
+
+  const [
+    productCategories,
+    setProductCategories,
+  ] = useState([]);
+
+  const [
+    prodForm,
+    setProdForm,
+  ] = useState({
+    id: "",
+    title: "",
+    description: "",
+    price: "",
+    currency: "RON",
+    images: [],
+    category: "",
+    color: "",
+    isActive: true,
+    isHidden: false,
+    availability: "READY",
+    leadTimeDays: "",
+    readyQty: "",
+    nextShipDate: "",
+    acceptsCustom: false,
+    orderMode: "READY_TO_BUY",
+    optionsSchema: [],
+    customSchema: [],
+    repeatedGroups: [],
+    quoteSchema: [],
+    materialMain: "",
+    technique: "",
+    styleTags: "",
+    occasionTags: "",
+    dimensions: "",
+    careInstructions: "",
+    specialNotes: "",
+    aiVisionAnalysis: null,
+    aiOrderAnalysis: null,
+    aiGeneratedFields: [],
+    aiSourceImages: [],
+    aiAnalysisVersion: null,
+    aiConfidence: null,
+    aiAnalyzedAt: null,
+    aiManuallyEdited: false,
   });
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      const q = query.trim().toLowerCase();
+  const [
+    aiPrompt,
+    setAiPrompt,
+  ] = useState("");
 
-      const matchesQuery =
-        !q ||
-        String(product.title || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(product.variants || "")
-          .toLowerCase()
-          .includes(q) ||
-        String(product.category || "")
-          .toLowerCase()
-          .includes(q);
 
-      const matchesStatus =
-        statusFilter === "all" ||
-        (statusFilter === "active" && product.active) ||
-        (statusFilter === "inactive" && !product.active);
+  /* =======================================================
+     ÎNCĂRCARE PRODUSE
+  ======================================================= */
 
-      const matchesOrderMode =
-        orderModeFilter === "all" ||
-        product.orderMode === orderModeFilter ||
-        (orderModeFilter === "DIRECT" &&
-          product.orderMode === "READY_TO_BUY");
-
-      return matchesQuery && matchesStatus && matchesOrderMode;
-    });
-  }, [products, query, statusFilter, orderModeFilter]);
-
-  const allVisibleSelected =
-    filteredProducts.length > 0 &&
-    filteredProducts.every((product) =>
-      selectedIds.includes(product.id)
+  async function loadProducts() {
+    setProductsLoading(
+      true
     );
 
-  function toggleSelected(id) {
-    setSelectedIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((item) => item !== id)
-        : [...prev, id]
+    setProductsError(
+      ""
+    );
+
+    try {
+      const response =
+        await fetch(
+          "/api/vendor/catalog/products",
+          {
+            method:
+              "GET",
+
+            credentials:
+              "include",
+
+            headers: {
+              Accept:
+                "application/json",
+            },
+          }
+        );
+
+      let data = null;
+
+      try {
+        data =
+          await response.json();
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data?.message ||
+            data?.error ||
+            "Nu am putut încărca produsele."
+        );
+      }
+
+      const items =
+        Array.isArray(
+          data?.items
+        )
+          ? data.items
+          : [];
+
+      setProducts(
+        items
+      );
+const stores =
+  Array.isArray(
+    data?.stores
+  )
+    ? data.stores
+    : [];
+
+setProductStores(
+  stores
+);
+
+setDefaultStoreSlug(
+  data?.defaultStoreSlug ||
+  (
+    stores.length === 1
+      ? stores[0]?.slug || ""
+      : ""
+  )
+);
+      /*
+       * Dacă reîncărcăm produsele,
+       * eliminăm selecțiile vechi.
+       */
+      setSelectedIds(
+        []
+      );
+    } catch (error) {
+      console.error(
+        "[CatalogProduse] loadProducts:",
+        error
+      );
+
+      setProducts([]);
+
+      setProductsError(
+        error?.message ||
+          "Nu am putut încărca produsele."
+      );
+    } finally {
+      setProductsLoading(
+        false
+      );
+    }
+  }
+
+  /* =======================================================
+     ÎNCĂRCARE INIȚIALĂ
+  ======================================================= */
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  /* =======================================================
+     PRODUSE FILTRATE
+  ======================================================= */
+
+  const filteredProducts =
+    useMemo(() => {
+      return products.filter(
+        (product) => {
+          const q =
+            query
+              .trim()
+              .toLowerCase();
+
+          const matchesQuery =
+            !q ||
+            String(
+              product.title ||
+                ""
+            )
+              .toLowerCase()
+              .includes(q) ||
+            String(
+              product.variants ||
+                ""
+            )
+              .toLowerCase()
+              .includes(q) ||
+            String(
+              product.category ||
+                ""
+            )
+              .toLowerCase()
+              .includes(q) ||
+            String(
+              product.store
+                ?.title ||
+                ""
+            )
+              .toLowerCase()
+              .includes(q);
+
+          const matchesStatus =
+            statusFilter ===
+              "all" ||
+            (
+              statusFilter ===
+                "active" &&
+              product.active
+            ) ||
+            (
+              statusFilter ===
+                "inactive" &&
+              !product.active
+            );
+
+          const matchesOrderMode =
+            orderModeFilter ===
+              "all" ||
+            product.orderMode ===
+              orderModeFilter ||
+            (
+              orderModeFilter ===
+                "DIRECT" &&
+              product.orderMode ===
+                "READY_TO_BUY"
+            );
+
+          return (
+            matchesQuery &&
+            matchesStatus &&
+            matchesOrderMode
+          );
+        }
+      );
+    }, [
+      products,
+      query,
+      statusFilter,
+      orderModeFilter,
+    ]);
+
+  /* =======================================================
+     SELECȚIE
+  ======================================================= */
+
+  const allVisibleSelected =
+    filteredProducts.length >
+      0 &&
+    filteredProducts.every(
+      (product) =>
+        selectedIds.includes(
+          product.id
+        )
+    );
+
+  function toggleSelected(
+    id
+  ) {
+    setSelectedIds(
+      (prev) =>
+        prev.includes(id)
+          ? prev.filter(
+              (item) =>
+                item !== id
+            )
+          : [
+              ...prev,
+              id,
+            ]
     );
   }
 
   function toggleSelectAllVisible() {
-    if (allVisibleSelected) {
-      setSelectedIds((prev) =>
-        prev.filter(
-          (id) =>
-            !filteredProducts.some(
-              (product) => product.id === id
-            )
-        )
+    if (
+      allVisibleSelected
+    ) {
+      setSelectedIds(
+        (prev) =>
+          prev.filter(
+            (id) =>
+              !filteredProducts.some(
+                (
+                  product
+                ) =>
+                  product.id ===
+                  id
+              )
+          )
       );
 
       return;
     }
 
-    setSelectedIds((prev) => [
-      ...new Set([
-        ...prev,
-        ...filteredProducts.map((product) => product.id),
-      ]),
-    ]);
+    setSelectedIds(
+      (prev) => [
+        ...new Set([
+          ...prev,
+
+          ...filteredProducts.map(
+            (
+              product
+            ) =>
+              product.id
+          ),
+        ]),
+      ]
+    );
   }
 
-  function updateSelectedProducts(active) {
-    if (!selectedIds.length) return;
+  /* =======================================================
+     BULK ACTIONS
+     Momentan doar UI/local.
+     Le conectăm la backend în pasul următor.
+  ======================================================= */
+async function catalogRequest(
+  path,
+  options = {}
+) {
+  const response =
+    await fetch(
+      `/api/vendor/catalog/products${path}`,
+      {
+        credentials:
+          "include",
 
-    setProducts((prev) =>
-      prev.map((product) =>
-        selectedIds.includes(product.id)
-          ? {
-              ...product,
-              active,
-            }
-          : product
-      )
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          ...(options.headers ||
+            {}),
+        },
+
+        ...options,
+      }
     );
 
-    setSelectedIds([]);
+  let data = null;
+
+  try {
+    data =
+      await response.json();
+  } catch {
+    data = null;
   }
 
-  function deleteSelectedProducts() {
-    if (!selectedIds.length) return;
+  if (!response.ok) {
+    const error =
+      new Error(
+        data?.message ||
+          data?.error ||
+          "Operațiunea nu a putut fi efectuată."
+      );
 
-    const confirmed = window.confirm(
-      `Sigur vrei să ștergi ${selectedIds.length} produse?`
-    );
+    error.data =
+      data;
 
-    if (!confirmed) return;
-
-    setProducts((prev) =>
-      prev.filter(
-        (product) => !selectedIds.includes(product.id)
-      )
-    );
-
-    setSelectedIds([]);
+    throw error;
   }
 
-  function handleBulkAction(action) {
-    if (!selectedIds.length) {
-      alert("Selectează cel puțin un produs.");
-      return;
-    }
+  return data;
+}
 
-    if (action === "activate") {
-      updateSelectedProducts(true);
-      return;
-    }
+async function updateSelectedProducts(
+  active
+) {
+  if (
+    !selectedIds.length
+  ) {
+    return;
+  }
 
-    if (action === "deactivate") {
-      updateSelectedProducts(false);
-      return;
-    }
+  try {
+    await catalogRequest(
+      "/bulk-status",
+      {
+        method: "PATCH",
 
-    if (action === "delete") {
-      deleteSelectedProducts();
-      return;
-    }
+        body:
+          JSON.stringify({
+            ids:
+              selectedIds,
+
+            active,
+          }),
+      }
+    );
+
+    await loadProducts();
+
+    setSelectedIds(
+      []
+    );
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] bulk status:",
+      error
+    );
 
     alert(
-      `Acțiunea "${action}" va fi conectată ulterior la backend.`
+      error?.message ||
+        "Statusul produselor nu a putut fi modificat."
     );
   }
+}
 
-  function slugify(value = "") {
-    return value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+async function deleteSelectedProducts() {
+  if (
+    !selectedIds.length
+  ) {
+    return;
   }
 
-  function createCampaign() {
-    const name = campaignForm.name.trim();
+  const confirmed =
+    window.confirm(
+      `Sigur vrei să ștergi definitiv ${selectedIds.length} produse?`
+    );
 
-    if (!name) {
-      alert("Scrie un nume pentru campanie.");
-      return;
-    }
-
-    const newCampaign = {
-      id: `campaign-${Date.now()}`,
-      name,
-      slug:
-        slugify(name) ||
-        `campanie-${Date.now()}`,
-      active: true,
-      visits: 0,
-      ordersCount: 0,
-      revenue: 0,
-      commissionPercent: 6,
-      normalCommissionPercent: 12,
-      discountPercent:
-        Number(campaignForm.discountPercent) || 0,
-    };
-
-    setCampaigns((prev) => [
-      newCampaign,
-      ...prev,
-    ]);
-
-    setCampaignForm({
-      name: "",
-      discountPercent: "0",
-      productsScope: "all",
-    });
-
-    setShowCampaignModal(false);
+  if (!confirmed) {
+    return;
   }
 
-  function toggleCampaign(campaignId) {
-    setCampaigns((prev) =>
-      prev.map((campaign) =>
-        campaign.id === campaignId
-          ? {
-              ...campaign,
-              active: !campaign.active,
-            }
-          : campaign
-      )
+  try {
+    await catalogRequest(
+      "/bulk",
+      {
+        method:
+          "DELETE",
+
+        body:
+          JSON.stringify({
+            ids:
+              selectedIds,
+          }),
+      }
+    );
+
+    await loadProducts();
+
+    setSelectedIds(
+      []
+    );
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] bulk delete:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Produsele nu au putut fi șterse."
     );
   }
+}
 
-  function copyCampaignLink(campaign) {
-    const link = `${window.location.origin}/c/${campaign.slug}`;
+async function changeSelectedPrice() {
+  const value =
+    window.prompt(
+      "Care este noul preț pentru produsele selectate? Exemplu: 45.50"
+    );
 
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard
-        .writeText(link)
-        .then(() => {
-          alert("Link copiat.");
-        })
-        .catch(() => {
-          alert(link);
-        });
-
-      return;
-    }
-
-    alert(link);
+  if (
+    value === null
+  ) {
+    return;
   }
+
+  const normalized =
+    String(value)
+      .trim()
+      .replace(
+        ",",
+        "."
+      );
+
+  const price =
+    Number(
+      normalized
+    );
+
+  if (
+    !Number.isFinite(
+      price
+    ) ||
+    price < 0
+  ) {
+    alert(
+      "Introdu un preț valid."
+    );
+
+    return;
+  }
+
+  try {
+    await catalogRequest(
+      "/bulk-price",
+      {
+        method:
+          "PATCH",
+
+        body:
+          JSON.stringify({
+            ids:
+              selectedIds,
+
+            price,
+          }),
+      }
+    );
+
+    await loadProducts();
+
+    setSelectedIds(
+      []
+    );
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] bulk price:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Prețul nu a putut fi modificat."
+    );
+  }
+}
+
+async function changeSelectedCategory() {
+  const value =
+    window.prompt(
+      "Scrie noua categorie pentru produsele selectate:"
+    );
+
+  if (
+    value === null
+  ) {
+    return;
+  }
+
+  const category =
+    value.trim();
+
+  if (!category) {
+    alert(
+      "Categoria nu poate fi goală."
+    );
+
+    return;
+  }
+
+  try {
+    await catalogRequest(
+      "/bulk-category",
+      {
+        method:
+          "PATCH",
+
+        body:
+          JSON.stringify({
+            ids:
+              selectedIds,
+
+            category,
+          }),
+      }
+    );
+
+    await loadProducts();
+
+    setSelectedIds(
+      []
+    );
+
+    alert(
+      "Categoria a fost modificată. Produsele pot intra din nou în verificare."
+    );
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] bulk category:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Categoria nu a putut fi modificată."
+    );
+  }
+}
+
+async function handleBulkAction(
+  action
+) {
+  if (
+    !selectedIds.length
+  ) {
+    alert(
+      "Selectează cel puțin un produs."
+    );
+
+    return;
+  }
+
+  if (
+    action ===
+    "activate"
+  ) {
+    await updateSelectedProducts(
+      true
+    );
+
+    return;
+  }
+
+  if (
+    action ===
+    "deactivate"
+  ) {
+    await updateSelectedProducts(
+      false
+    );
+
+    return;
+  }
+
+  if (
+    action ===
+    "delete"
+  ) {
+    await deleteSelectedProducts();
+
+    return;
+  }
+
+  if (
+    action ===
+    "price"
+  ) {
+    await changeSelectedPrice();
+
+    return;
+  }
+
+  if (
+    action ===
+    "category"
+  ) {
+    await changeSelectedCategory();
+
+    return;
+  }
+
+  if (
+    action ===
+    "variants"
+  ) {
+    alert(
+      "Variantele au o structură mai complexă. Le vom modifica prin editorul de produs sau prin AI, ca să nu stricăm opțiunile existente."
+    );
+
+    return;
+  }
+}
+
+/* =======================================================
+   ACȚIUNI INDIVIDUALE PRODUS
+======================================================= */
+
+function viewProduct(product) {
+  if (!product?.id) {
+    return;
+  }
+
+  setOpenProductMenuId(null);
+
+  navigate(
+    `/produs/${encodeURIComponent(product.id)}`
+  );
+}
+
+async function toggleProductStatus(
+  product
+) {
+  if (!product?.id) {
+    return;
+  }
+
+  try {
+    await catalogRequest(
+      "/bulk-status",
+      {
+        method: "PATCH",
+
+        body: JSON.stringify({
+          ids: [
+            product.id,
+          ],
+
+          active:
+            !product.active,
+        }),
+      }
+    );
+
+    setOpenProductMenuId(
+      null
+    );
+
+    await loadProducts();
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] product status:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Statusul produsului nu a putut fi modificat."
+    );
+  }
+}
+
+async function deleteProduct(
+  product
+) {
+  if (!product?.id) {
+    return;
+  }
+
+  const confirmed =
+    window.confirm(
+      `Sigur vrei să ștergi produsul „${product.title || "Produs"}”?`
+    );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    await catalogRequest(
+      "/bulk",
+      {
+        method: "DELETE",
+
+        body: JSON.stringify({
+          ids: [
+            product.id,
+          ],
+        }),
+      }
+    );
+
+    setOpenProductMenuId(
+      null
+    );
+
+    await loadProducts();
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] delete product:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Produsul nu a putut fi șters."
+    );
+  }
+}
+
+async function duplicateProduct(
+  product
+) {
+  if (!product?.id) {
+    return;
+  }
+
+  const confirmed =
+    window.confirm(
+      `Vrei să duplici produsul „${product.title || "Produs"}”?`
+    );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result =
+      await catalogRequest(
+        `/${encodeURIComponent(
+          product.id
+        )}/duplicate`,
+        {
+          method:
+            "POST",
+        }
+      );
+
+    setOpenProductMenuId(
+      null
+    );
+
+    await loadProducts();
+
+    alert(
+      result?.message ||
+        "Produsul a fost duplicat."
+    );
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] duplicate product:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Produsul nu a putut fi duplicat."
+    );
+  }
+}
+
+  /* =======================================================
+     AI CATALOG
+  ======================================================= */
 
   function handleAiPreview() {
-    if (!aiPrompt.trim()) {
-      alert("Scrie mai întâi ce vrei să modifici.");
+    if (
+      !aiPrompt.trim()
+    ) {
+      alert(
+        "Scrie mai întâi ce vrei să modifici."
+      );
+
       return;
     }
 
@@ -347,90 +1036,990 @@ export default function CatalogProdusePage() {
     );
   }
 
+
+  /* =======================================================
+     EDITARE PRODUS CU PRODUCT MODAL
+  ======================================================= */
+
+  async function loadProductCategories() {
+    if (productCategories.length) {
+      return productCategories;
+    }
+
+    const endpoints = [
+      "/api/public/categories/detailed",
+      "/api/public/categories",
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          continue;
+        }
+
+        const data = await response.json();
+        const items = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data?.categories)
+              ? data.categories
+              : [];
+
+        if (items.length) {
+          setProductCategories(items);
+          return items;
+        }
+      } catch (error) {
+        console.warn(
+          `[CatalogProduse] categories ${endpoint}:`,
+          error
+        );
+      }
+    }
+
+    return [];
+  }
+async function openNewProduct() {
+  try {
+    await loadProductCategories();
+
+    /*
+     * null = ProductModal știe că este produs nou,
+     * nu editare.
+     */
+    setEditingProduct(null);
+
+    setProdForm({
+      id: "",
+      title: "",
+      description: "",
+      price: "",
+      currency: "RON",
+
+      images: [],
+
+      category: "",
+      color: "",
+
+      isActive: true,
+      isHidden: false,
+
+      availability: "",
+      leadTimeDays: "",
+      readyQty: "",
+      nextShipDate: "",
+
+      acceptsCustom: null,
+
+      orderMode: "READY_TO_BUY",
+
+      optionsSchema: [],
+      customSchema: [],
+      repeatedGroups: [],
+      quoteSchema: [],
+
+      materialMain: "",
+      technique: "",
+      styleTags: "",
+      occasionTags: "",
+      dimensions: "",
+      careInstructions: "",
+      specialNotes: "",
+
+      aiVisionAnalysis: null,
+      aiOrderAnalysis: null,
+      aiGeneratedFields: [],
+      aiSourceImages: [],
+      aiAnalysisVersion: null,
+      aiConfidence: null,
+      aiAnalyzedAt: null,
+      aiManuallyEdited: false,
+    });
+
+    setEditProductOpen(true);
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] openNewProduct:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Nu am putut deschide formularul pentru produs."
+    );
+  }
+}
+
+  async function openEditProduct(product) {
+    const id = product?.id || product?._id;
+
+    if (!id) {
+      return;
+    }
+
+    try {
+      const [response] = await Promise.all([
+        fetch(
+          `/api/vendors/products/${encodeURIComponent(id)}`,
+          {
+            method: "GET",
+            credentials: "include",
+            headers: {
+              Accept: "application/json",
+            },
+          }
+        ),
+        loadProductCategories(),
+      ]);
+
+      let full = null;
+
+      try {
+        full = await response.json();
+      } catch {
+        full = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          full?.message ||
+            full?.error ||
+            "Nu am putut încărca produsul pentru editare."
+        );
+      }
+
+      setProdForm({
+        id: full.id || full._id || "",
+        title: full.title || "",
+        description: full.description || "",
+        price:
+          typeof full.price === "number"
+            ? full.price
+            : Number.isFinite(Number(full.priceCents))
+              ? Number(full.priceCents) / 100
+              : "",
+        currency: full.currency || "RON",
+        images: Array.isArray(full.images) ? full.images : [],
+        category: full.category || "",
+        color: full.color || "",
+        isActive: full.isActive !== false,
+        isHidden: !!full.isHidden,
+        availability: String(
+          full.availability || "READY"
+        ).toUpperCase(),
+        leadTimeDays: Number.isFinite(Number(full.leadTimeDays))
+          ? String(Number(full.leadTimeDays))
+          : "",
+        readyQty:
+          full.readyQty === null || full.readyQty === undefined
+            ? ""
+            : Number.isFinite(Number(full.readyQty))
+              ? String(Number(full.readyQty))
+              : "",
+        nextShipDate: full.nextShipDate
+          ? String(full.nextShipDate).slice(0, 10)
+          : "",
+        acceptsCustom: !!full.acceptsCustom,
+        orderMode:
+          full.orderMode === "DIRECT"
+            ? "READY_TO_BUY"
+            : full.orderMode === "CUSTOMIZABLE"
+              ? "OPTIONS"
+              : full.orderMode || "READY_TO_BUY",
+        optionsSchema: Array.isArray(full.optionsSchema)
+          ? full.optionsSchema
+          : Array.isArray(full.optionsSchema?.fields)
+            ? full.optionsSchema.fields
+            : [],
+        customSchema: Array.isArray(full.customSchema)
+          ? full.customSchema
+          : Array.isArray(full.customSchema?.fields)
+            ? full.customSchema.fields
+            : [],
+        repeatedGroups: Array.isArray(full.repeatedGroups)
+          ? full.repeatedGroups
+          : [],
+        quoteSchema: Array.isArray(full.quoteSchema)
+          ? full.quoteSchema
+          : Array.isArray(full.quoteSchema?.fields)
+            ? full.quoteSchema.fields
+            : [],
+        materialMain: full.materialMain || "",
+        technique: full.technique || "",
+        styleTags: Array.isArray(full.styleTags)
+          ? full.styleTags.join(", ")
+          : full.styleTags || "",
+        occasionTags: Array.isArray(full.occasionTags)
+          ? full.occasionTags.join(", ")
+          : full.occasionTags || "",
+        dimensions: full.dimensions || "",
+        careInstructions: full.careInstructions || "",
+        specialNotes: full.specialNotes || "",
+        aiVisionAnalysis: full.aiVisionAnalysis || null,
+        aiOrderAnalysis: full.aiOrderAnalysis || null,
+        aiGeneratedFields: Array.isArray(full.aiGeneratedFields)
+          ? full.aiGeneratedFields
+          : [],
+        aiSourceImages: Array.isArray(full.aiSourceImages)
+          ? full.aiSourceImages
+          : [],
+        aiAnalysisVersion: full.aiAnalysisVersion || null,
+        aiConfidence: full.aiConfidence ?? null,
+        aiAnalyzedAt: full.aiAnalyzedAt || null,
+        aiManuallyEdited: full.aiManuallyEdited === true,
+      });
+
+      setEditingProduct(full);
+      setEditProductOpen(true);
+    } catch (error) {
+      console.error(
+        "[CatalogProduse] openEditProduct:",
+        error
+      );
+
+      alert(
+        error?.message ||
+          "Nu am putut încărca produsul pentru editare."
+      );
+    }
+  }
+
+  function closeEditProduct() {
+    if (savingProduct) {
+      return;
+    }
+
+    setEditProductOpen(false);
+    setEditingProduct(null);
+  }
+
+  function splitTags(value) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    return String(value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+ async function handleSaveProduct(event) {
+  event?.preventDefault?.();
+
+  const id =
+    editingProduct?.id ||
+    editingProduct?._id ||
+    prodForm.id;
+
+  const isEditing = !!id;
+
+  if (savingProduct) {
+    return;
+  }
+
+  const title = String(
+    prodForm.title || ""
+  ).trim();
+
+  const description =
+    prodForm.description || "";
+
+  const numericPrice = Number(
+    String(
+      prodForm.price ?? ""
+    ).replace(",", ".")
+  );
+
+  if (!title) {
+    alert(
+      "Titlul produsului este obligatoriu."
+    );
+    return;
+  }
+
+  /*
+   * QUOTE_ONLY poate avea preț 0.
+   */
+  if (
+    prodForm.orderMode !== "QUOTE_ONLY" &&
+    (
+      !Number.isFinite(
+        numericPrice
+      ) ||
+      numericPrice < 0
+    )
+  ) {
+    alert(
+      "Introdu un preț valid."
+    );
+    return;
+  }
+
+  const availability = String(
+    prodForm.availability ||
+      "READY"
+  ).toUpperCase();
+
+  const payload = {
+    title,
+
+    description,
+
+    price:
+      prodForm.orderMode ===
+      "QUOTE_ONLY"
+        ? 0
+        : numericPrice,
+
+    currency:
+      prodForm.currency ||
+      "RON",
+
+    images:
+      Array.isArray(
+        prodForm.images
+      )
+        ? prodForm.images
+        : [],
+
+    category:
+      String(
+        prodForm.category ||
+          ""
+      ).trim(),
+
+    color:
+      String(
+        prodForm.color ||
+          ""
+      ).trim() ||
+      null,
+
+    materialMain:
+      String(
+        prodForm.materialMain ||
+          ""
+      ).trim() ||
+      null,
+
+    technique:
+      String(
+        prodForm.technique ||
+          ""
+      ).trim() ||
+      null,
+
+    styleTags:
+      splitTags(
+        prodForm.styleTags
+      ),
+
+    occasionTags:
+      splitTags(
+        prodForm.occasionTags
+      ),
+
+    dimensions:
+      String(
+        prodForm.dimensions ||
+          ""
+      ).trim() ||
+      null,
+
+    careInstructions:
+      String(
+        prodForm.careInstructions ||
+          ""
+      ).trim() ||
+      null,
+
+    specialNotes:
+      String(
+        prodForm.specialNotes ||
+          ""
+      ).trim() ||
+      null,
+
+    aiVisionAnalysis:
+      prodForm.aiVisionAnalysis ||
+      null,
+
+    aiOrderAnalysis:
+      prodForm.aiOrderAnalysis ||
+      null,
+
+    aiGeneratedFields:
+      Array.isArray(
+        prodForm.aiGeneratedFields
+      )
+        ? prodForm.aiGeneratedFields
+        : [],
+
+    aiSourceImages:
+      Array.isArray(
+        prodForm.aiSourceImages
+      )
+        ? prodForm.aiSourceImages
+        : [],
+
+    aiAnalysisVersion:
+      prodForm.aiAnalysisVersion ||
+      null,
+
+    aiConfidence:
+      prodForm.aiConfidence ??
+      null,
+
+    aiAnalyzedAt:
+      prodForm.aiAnalyzedAt ||
+      null,
+
+    aiManuallyEdited:
+      prodForm.aiManuallyEdited ===
+      true,
+
+    isActive:
+      prodForm.isActive !==
+      false,
+
+    isHidden:
+      !!prodForm.isHidden,
+
+    acceptsCustom:
+      !!prodForm.acceptsCustom,
+
+    availability,
+
+    orderMode:
+      prodForm.orderMode ||
+      "READY_TO_BUY",
+
+    optionsSchema:
+      prodForm.orderMode ===
+        "OPTIONS" &&
+      Array.isArray(
+        prodForm.optionsSchema
+      )
+        ? prodForm.optionsSchema
+        : [],
+
+    customSchema:
+      prodForm.orderMode ===
+        "OPTIONS" &&
+      Array.isArray(
+        prodForm.customSchema
+      )
+        ? prodForm.customSchema
+        : [],
+
+    repeatedGroups:
+      prodForm.orderMode ===
+        "OPTIONS" &&
+      Array.isArray(
+        prodForm.repeatedGroups
+      )
+        ? prodForm.repeatedGroups
+        : [],
+
+    quoteSchema:
+      prodForm.orderMode ===
+        "QUOTE_ONLY" &&
+      Array.isArray(
+        prodForm.quoteSchema
+      )
+        ? prodForm.quoteSchema
+        : [],
+  };
+
+  /*
+   * Disponibilitate
+   */
+  if (
+    availability ===
+    "READY"
+  ) {
+    payload.readyQty =
+      prodForm.readyQty ===
+        "" ||
+      prodForm.readyQty ===
+        null ||
+      prodForm.readyQty ===
+        undefined
+        ? null
+        : Math.max(
+            0,
+            Number(
+              prodForm.readyQty
+            ) || 0
+          );
+
+    payload.leadTimeDays =
+      null;
+
+    payload.nextShipDate =
+      null;
+  } else if (
+    availability ===
+    "MADE_TO_ORDER"
+  ) {
+    payload.readyQty = 0;
+
+    payload.leadTimeDays =
+      Math.max(
+        1,
+        Number(
+          prodForm.leadTimeDays
+        ) || 1
+      );
+
+    payload.nextShipDate =
+      null;
+  } else if (
+    availability ===
+    "PREORDER"
+  ) {
+    payload.readyQty = 0;
+
+    payload.leadTimeDays =
+      null;
+
+    payload.nextShipDate =
+      prodForm.nextShipDate
+        ? new Date(
+            `${prodForm.nextShipDate}T12:00:00`
+          ).toISOString()
+        : null;
+  } else if (
+    availability ===
+    "SOLD_OUT"
+  ) {
+    payload.readyQty = 0;
+
+    payload.leadTimeDays =
+      null;
+
+    payload.nextShipDate =
+      null;
+  }
+
+  try {
+    setSavingProduct(true);
+
+    let url = "";
+    let method = "";
+
+    /*
+     * EDITARE
+     */
+    if (isEditing) {
+      url =
+        `/api/vendors/products/${encodeURIComponent(
+          id
+        )}`;
+
+      method =
+        "PUT";
+    } else {
+      /*
+       * PRODUS NOU
+       */
+      let storeSlug =
+        defaultStoreSlug;
+
+      /*
+       * Fallback:
+       * dacă avem deja produse,
+       * putem lua slug-ul din ele.
+       */
+      if (!storeSlug) {
+        storeSlug =
+          products.find(
+            (product) =>
+              product?.store
+                ?.slug
+          )?.store?.slug ||
+          "";
+      }
+
+      /*
+       * Dacă există un singur store
+       * în lista returnată de backend,
+       * îl folosim.
+       */
+      if (
+        !storeSlug &&
+        productStores.length ===
+          1
+      ) {
+        storeSlug =
+          productStores[0]
+            ?.slug ||
+          "";
+      }
+
+      /*
+       * Dacă sunt mai multe magazine,
+       * momentan nu alegem unul automat.
+       */
+      if (
+        !storeSlug &&
+        productStores.length >
+          1
+      ) {
+        throw new Error(
+          "Ai mai multe magazine. Momentan trebuie să alegem magazinul în care va fi adăugat produsul."
+        );
+      }
+
+      if (!storeSlug) {
+        throw new Error(
+          "Nu am găsit magazinul în care să adăugăm produsul."
+        );
+      }
+
+      url =
+        `/api/vendors/store/${encodeURIComponent(
+          storeSlug
+        )}/products`;
+
+      method =
+        "POST";
+    }
+
+    const response =
+      await fetch(
+        url,
+        {
+          method,
+
+          credentials:
+            "include",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Accept:
+              "application/json",
+          },
+
+          body:
+            JSON.stringify(
+              payload
+            ),
+        }
+      );
+
+    let saved = null;
+
+    try {
+      saved =
+        await response.json();
+    } catch {
+      saved = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        saved?.message ||
+          saved?.error ||
+          "Nu am putut salva produsul."
+      );
+    }
+
+    /*
+     * Notificăm restul aplicației.
+     */
+    try {
+      window.dispatchEvent(
+        new CustomEvent(
+          "vendor:productUpdated",
+          {
+            detail: {
+              product:
+                saved,
+            },
+          }
+        )
+      );
+    } catch {
+      // noop
+    }
+
+    setEditProductOpen(
+      false
+    );
+
+    setEditingProduct(
+      null
+    );
+
+    await loadProducts();
+
+    return saved;
+  } catch (error) {
+    console.error(
+      "[CatalogProduse] save product:",
+      error
+    );
+
+    alert(
+      error?.message ||
+        "Nu am putut salva produsul."
+    );
+
+    /*
+     * ProductModal trebuie să știe
+     * că salvarea NU a reușit.
+     */
+    throw error;
+  } finally {
+    setSavingProduct(
+      false
+    );
+  }
+}
+  
+
+  /* =======================================================
+     TAB PRODUSE
+  ======================================================= */
+
   function renderProductsTab() {
+    if (
+      productsLoading
+    ) {
+      return (
+        <section
+          className={
+            styles.tableCard
+          }
+        >
+          <div
+            className={
+              styles.emptyState
+            }
+          >
+            <div>
+              <strong>
+                Se încarcă produsele...
+              </strong>
+
+              <p>
+                Pregătim catalogul magazinului tău.
+              </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    if (
+      productsError
+    ) {
+      return (
+        <section
+          className={
+            styles.tableCard
+          }
+        >
+          <div
+            className={
+              styles.emptyState
+            }
+          >
+            <div>
+              <strong>
+                Nu am putut încărca produsele.
+              </strong>
+
+              <p>
+                {
+                  productsError
+                }
+              </p>
+
+              <button
+                type="button"
+                className={
+                  styles.secondaryBtn
+                }
+                onClick={
+                  loadProducts
+                }
+              >
+                Încearcă din nou
+              </button>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
     return (
       <>
-        <section className={styles.toolbar}>
-          <div className={styles.searchWrap}>
+        <section
+          className={
+            styles.toolbar
+          }
+        >
+          <div
+            className={
+              styles.searchWrap
+            }
+          >
             <input
-              className={styles.searchInput}
-              value={query}
-              onChange={(event) =>
-                setQuery(event.target.value)
+              className={
+                styles.searchInput
+              }
+              value={
+                query
+              }
+              onChange={(
+                event
+              ) =>
+                setQuery(
+                  event.target
+                    .value
+                )
               }
               placeholder="Caută produs, aromă, culoare, categorie..."
             />
           </div>
 
           <select
-            className={styles.select}
-            value={statusFilter}
-            onChange={(event) =>
-              setStatusFilter(event.target.value)
+            className={
+              styles.select
+            }
+            value={
+              statusFilter
+            }
+            onChange={(
+              event
+            ) =>
+              setStatusFilter(
+                event.target
+                  .value
+              )
             }
           >
-            <option value="all">
+            <option
+              value="all"
+            >
               Toate statusurile
             </option>
-            <option value="active">
+
+            <option
+              value="active"
+            >
               Active
             </option>
-            <option value="inactive">
+
+            <option
+              value="inactive"
+            >
               Inactive
             </option>
           </select>
 
           <select
-            className={styles.select}
-            value={orderModeFilter}
-            onChange={(event) =>
-              setOrderModeFilter(event.target.value)
+            className={
+              styles.select
+            }
+            value={
+              orderModeFilter
+            }
+            onChange={(
+              event
+            ) =>
+              setOrderModeFilter(
+                event.target
+                  .value
+              )
             }
           >
-            <option value="all">
+            <option
+              value="all"
+            >
               Toate modurile
             </option>
 
-            <option value="DIRECT">
+            <option
+              value="DIRECT"
+            >
               Cumpărare directă
             </option>
 
-            <option value="OPTIONS">
+            <option
+              value="OPTIONS"
+            >
               Opțiuni
             </option>
 
-            <option value="CUSTOMIZABLE">
+            <option
+              value="CUSTOMIZABLE"
+            >
               Personalizabile
             </option>
 
-            <option value="QUOTE_ONLY">
+            <option
+              value="QUOTE_ONLY"
+            >
               Cerere ofertă
             </option>
           </select>
 
           <button
-            type="button"
-            className={styles.aiBtn}
-            onClick={() => setShowAiModal(true)}
-          >
-            ✨ Modifică prin AI
-          </button>
+  type="button"
+  className={styles.aiBtn}
+  disabled
+  title="Disponibil în curând"
+>
+  ✨ Modifică prin AI
+</button>
         </section>
 
-        {selectedIds.length > 0 && (
-          <section className={styles.bulkBar}>
-            <div className={styles.bulkCount}>
+        {selectedIds.length >
+          0 && (
+          <section
+            className={
+              styles.bulkBar
+            }
+          >
+            <div
+              className={
+                styles.bulkCount
+              }
+            >
               <strong>
-                {selectedIds.length}
+                {
+                  selectedIds.length
+                }
               </strong>{" "}
               produse selectate
             </div>
 
-            <div className={styles.bulkActions}>
+            <div
+              className={
+                styles.bulkActions
+              }
+            >
               <button
                 type="button"
                 onClick={() =>
-                  handleBulkAction("activate")
+                  handleBulkAction(
+                    "activate"
+                  )
                 }
               >
                 Activează
@@ -439,7 +2028,9 @@ export default function CatalogProdusePage() {
               <button
                 type="button"
                 onClick={() =>
-                  handleBulkAction("deactivate")
+                  handleBulkAction(
+                    "deactivate"
+                  )
                 }
               >
                 Dezactivează
@@ -448,7 +2039,9 @@ export default function CatalogProdusePage() {
               <button
                 type="button"
                 onClick={() =>
-                  handleBulkAction("price")
+                  handleBulkAction(
+                    "price"
+                  )
                 }
               >
                 Modifică preț
@@ -457,7 +2050,9 @@ export default function CatalogProdusePage() {
               <button
                 type="button"
                 onClick={() =>
-                  handleBulkAction("category")
+                  handleBulkAction(
+                    "category"
+                  )
                 }
               >
                 Schimbă categoria
@@ -466,7 +2061,9 @@ export default function CatalogProdusePage() {
               <button
                 type="button"
                 onClick={() =>
-                  handleBulkAction("variants")
+                  handleBulkAction(
+                    "variants"
+                  )
                 }
               >
                 Modifică variante
@@ -474,9 +2071,13 @@ export default function CatalogProdusePage() {
 
               <button
                 type="button"
-                className={styles.dangerBtn}
+                className={
+                  styles.dangerBtn
+                }
                 onClick={() =>
-                  handleBulkAction("delete")
+                  handleBulkAction(
+                    "delete"
+                  )
                 }
               >
                 Șterge
@@ -485,7 +2086,9 @@ export default function CatalogProdusePage() {
               <button
                 type="button"
                 onClick={() =>
-                  setSelectedIds([])
+                  setSelectedIds(
+                    []
+                  )
                 }
               >
                 Anulează
@@ -494,56 +2097,108 @@ export default function CatalogProdusePage() {
           </section>
         )}
 
-        <section className={styles.tableCard}>
-          <div className={styles.tableHeaderInfo}>
+        <section
+          className={
+            styles.tableCard
+          }
+        >
+          <div
+            className={
+              styles.tableHeaderInfo
+            }
+          >
             <div>
               <strong>
-                {filteredProducts.length}
+                {
+                  filteredProducts.length
+                }
               </strong>{" "}
               produse
             </div>
 
             <span>
-              {products.filter((p) => p.active).length} active
+              {
+                products.filter(
+                  (product) =>
+                    product.active
+                ).length
+              }{" "}
+              active
             </span>
           </div>
 
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
+          <div
+            className={
+              styles.tableScroll
+            }
+          >
+            <table
+              className={
+                styles.table
+              }
+            >
               <thead>
                 <tr>
                   <th>
                     <input
                       type="checkbox"
-                      checked={allVisibleSelected}
+                      checked={
+                        allVisibleSelected
+                      }
                       onChange={
                         toggleSelectAllVisible
                       }
                     />
                   </th>
 
-                  <th>Produs</th>
-                  <th>Preț</th>
-                  <th>Stoc</th>
-                  <th>Mod comandă</th>
+                  <th>
+                    Produs
+                  </th>
+
+                  <th>
+                    Preț
+                  </th>
+
+                  <th>
+                    Stoc
+                  </th>
+
+                  <th>
+                    Mod comandă
+                  </th>
+
                   <th>
                     Variante / câmpuri
                   </th>
-                  <th>Status</th>
-                  <th>Acțiuni</th>
+
+                  <th>
+                    Status
+                  </th>
+
+                  <th>
+                    Acțiuni
+                  </th>
                 </tr>
               </thead>
 
               <tbody>
                 {filteredProducts.map(
-                  (product) => (
-                    <tr key={product.id}>
+                  (
+                    product
+                  ) => (
+                    <tr
+                      key={
+                        product.id
+                      }
+                    >
                       <td>
                         <input
                           type="checkbox"
-                          checked={selectedIds.includes(
-                            product.id
-                          )}
+                          checked={
+                            selectedIds.includes(
+                              product.id
+                            )
+                          }
                           onChange={() =>
                             toggleSelected(
                               product.id
@@ -573,7 +2228,9 @@ export default function CatalogProdusePage() {
                                 }
                               />
                             ) : (
-                              <span>📦</span>
+                              <span>
+                                📦
+                              </span>
                             )}
                           </div>
 
@@ -583,25 +2240,48 @@ export default function CatalogProdusePage() {
                             }
                           >
                             <strong>
-                              {product.title}
+                              {
+                                product.title
+                              }
                             </strong>
 
                             <span>
-                              {product.category}
+                              {
+                                product.category ||
+                                "Fără categorie"
+                              }
                             </span>
+
+                            {product
+                              .store
+                              ?.title && (
+                              <span>
+                                Magazin:{" "}
+                                {
+                                  product
+                                    .store
+                                    .title
+                                }
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
 
                       <td>
                         {product.price !==
-                        null
+                          null &&
+                        product.price !==
+                          undefined
                           ? `${product.price} lei`
                           : "La ofertă"}
                       </td>
 
                       <td>
-                        {product.stock ?? "—"}
+                        {
+                          product.stock ??
+                          "—"
+                        }
                       </td>
 
                       <td>
@@ -614,7 +2294,8 @@ export default function CatalogProdusePage() {
                             product
                               .orderMode
                           ] ||
-                            product.orderMode}
+                            product.orderMode ||
+                            "—"}
                         </span>
                       </td>
 
@@ -624,8 +2305,10 @@ export default function CatalogProdusePage() {
                             styles.variantsText
                           }
                         >
-                          {product.variants ||
-                            "—"}
+                          {
+                            product.variants ||
+                            "—"
+                          }
                         </div>
                       </td>
 
@@ -654,28 +2337,117 @@ export default function CatalogProdusePage() {
                             className={
                               styles.linkBtn
                             }
-                            onClick={() =>
-                              alert(
-                                `Editare produs: ${product.title}`
-                              )
-                            }
+                            onClick={() => {
+                              setOpenProductMenuId(
+                                null
+                              );
+
+                              openEditProduct(
+                                product
+                              );
+                            }}
                           >
                             Editează
                           </button>
 
-                          <button
-                            type="button"
+                          <div
                             className={
-                              styles.moreBtn
-                            }
-                            onClick={() =>
-                              alert(
-                                "Aici putem pune meniul cu duplicare, dezactivare și ștergere."
-                              )
+                              styles.productMenuWrap
                             }
                           >
-                            ⋯
-                          </button>
+                            <button
+                              type="button"
+                              className={
+                                styles.moreBtn
+                              }
+                              onClick={() =>
+                                setOpenProductMenuId(
+                                  (current) =>
+                                    current ===
+                                    product.id
+                                      ? null
+                                      : product.id
+                                )
+                              }
+                              aria-label="Mai multe acțiuni"
+                              aria-expanded={
+                                openProductMenuId ===
+                                product.id
+                              }
+                            >
+                              ⋯
+                            </button>
+
+                            {openProductMenuId ===
+                              product.id && (
+                              <div
+                                className={
+                                  styles.productMenu
+                                }
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    viewProduct(
+                                      product
+                                    )
+                                  }
+                                >
+                                  👁 Vezi produsul
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    duplicateProduct(
+                                      product
+                                    )
+                                  }
+                                >
+                                  ⧉ Duplică produsul
+                                </button>
+
+                                <div
+                                  className={
+                                    styles.productMenuDivider
+                                  }
+                                />
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleProductStatus(
+                                      product
+                                    )
+                                  }
+                                >
+                                  {product.active
+                                    ? "⏸ Dezactivează"
+                                    : "▶ Activează"}
+                                </button>
+
+                                <div
+                                  className={
+                                    styles.productMenuDivider
+                                  }
+                                />
+
+                                <button
+                                  type="button"
+                                  className={
+                                    styles.productMenuDanger
+                                  }
+                                  onClick={() =>
+                                    deleteProduct(
+                                      product
+                                    )
+                                  }
+                                >
+                                  🗑 Șterge produsul
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -685,21 +2457,22 @@ export default function CatalogProdusePage() {
                 {!filteredProducts.length && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={
+                        8
+                      }
                       className={
                         styles.emptyState
                       }
                     >
                       <div>
                         <strong>
-                          Nu am găsit
-                          produse.
+                          Nu am găsit produse.
                         </strong>
 
                         <p>
-                          Încearcă alte
-                          filtre sau adaugă
-                          un produs nou.
+                          {products.length
+                            ? "Încearcă alte filtre."
+                            : "Nu ai încă produse în catalog. Poți adăuga unul nou sau poți importa produse din Excel."}
                         </p>
                       </div>
                     </td>
@@ -713,319 +2486,48 @@ export default function CatalogProdusePage() {
     );
   }
 
-  function renderCampaignsTab() {
-    return (
-      <div className={styles.tabContent}>
-        <section
-          className={styles.sectionHeader}
-        >
-          <div>
-            <h2>
-              Campanii proprii
-            </h2>
 
-            <p>
-              Adu-ți clienții pe Artfest cu
-              un link propriu și beneficiază
-              de un comision redus pentru
-              comenzile generate de tine.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            className={styles.primaryBtn}
-            onClick={() =>
-              setShowCampaignModal(true)
-            }
-          >
-            + Creează campanie
-          </button>
-        </section>
-
-        <section
-          className={styles.campaignHero}
-        >
-          <div>
-            <span
-              className={styles.eyebrow}
-            >
-              Adu-ți comunitatea
-            </span>
-
-            <h3>
-              Tu aduci clientul, plătești
-              mai puțin.
-            </h3>
-
-            <p>
-              Distribuie linkul campaniei pe
-              Instagram, Facebook, TikTok,
-              WhatsApp sau direct clienților
-              tăi.
-            </p>
-          </div>
-
-          <div
-            className={
-              styles.commissionBox
-            }
-          >
-            <span>
-              Comision standard
-            </span>
-
-            <strong>
-              12%
-            </strong>
-
-            <div
-              className={
-                styles.commissionArrow
-              }
-            >
-              →
-            </div>
-
-            <span>
-              Prin campanie
-            </span>
-
-            <strong>
-              6%
-            </strong>
-          </div>
-        </section>
-
-        {campaigns.length ? (
-          <div
-            className={
-              styles.campaignGrid
-            }
-          >
-            {campaigns.map(
-              (campaign) => {
-                const campaignUrl = `${window.location.origin}/c/${campaign.slug}`;
-
-                return (
-                  <article
-                    key={
-                      campaign.id
-                    }
-                    className={
-                      styles.campaignCard
-                    }
-                  >
-                    <div
-                      className={
-                        styles.campaignTop
-                      }
-                    >
-                      <div>
-                        <div
-                          className={
-                            styles.campaignTitleRow
-                          }
-                        >
-                          <h3>
-                            {
-                              campaign.name
-                            }
-                          </h3>
-
-                          <span
-                            className={
-                              campaign.active
-                                ? styles.activeBadge
-                                : styles.inactiveBadge
-                            }
-                          >
-                            {campaign.active
-                              ? "Activă"
-                              : "Oprită"}
-                          </span>
-                        </div>
-
-                        <p>
-                          {campaignUrl}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        className={
-                          styles.secondaryBtn
-                        }
-                        onClick={() =>
-                          toggleCampaign(
-                            campaign.id
-                          )
-                        }
-                      >
-                        {campaign.active
-                          ? "Oprește"
-                          : "Activează"}
-                      </button>
-                    </div>
-
-                    <div
-                      className={
-                        styles.campaignStats
-                      }
-                    >
-                      <div>
-                        <span>
-                          Vizite
-                        </span>
-                        <strong>
-                          {
-                            campaign.visits
-                          }
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          Comenzi
-                        </span>
-                        <strong>
-                          {
-                            campaign.ordersCount
-                          }
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          Vânzări
-                        </span>
-                        <strong>
-                          {
-                            campaign.revenue
-                          }{" "}
-                          lei
-                        </strong>
-                      </div>
-
-                      <div>
-                        <span>
-                          Comision
-                        </span>
-                        <strong>
-                          {
-                            campaign.commissionPercent
-                          }
-                          %
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div
-                      className={
-                        styles.campaignFooter
-                      }
-                    >
-                      <div>
-                        {campaign.discountPercent >
-                        0 ? (
-                          <span
-                            className={
-                              styles.discountBadge
-                            }
-                          >
-                            Clientul
-                            primește{" "}
-                            {
-                              campaign.discountPercent
-                            }
-                            % reducere
-                          </span>
-                        ) : (
-                          <span
-                            className={
-                              styles.neutralBadge
-                            }
-                          >
-                            Fără reducere
-                            client
-                          </span>
-                        )}
-                      </div>
-
-                      <div
-                        className={
-                          styles.campaignActions
-                        }
-                      >
-                        <button
-                          type="button"
-                          className={
-                            styles.secondaryBtn
-                          }
-                          onClick={() =>
-                            copyCampaignLink(
-                              campaign
-                            )
-                          }
-                        >
-                          Copiază link
-                        </button>
-
-                        <button
-                          type="button"
-                          className={
-                            styles.linkBtn
-                          }
-                          onClick={() =>
-                            alert(
-                              "Aici vom deschide analytics-ul complet al campaniei."
-                            )
-                          }
-                        >
-                          Detalii
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                );
-              }
-            )}
-          </div>
-        ) : (
-          <div
-            className={styles.emptyCard}
-          >
-            <strong>
-              Nu ai încă nicio campanie.
-            </strong>
-
-            <p>
-              Creează primul link și
-              distribuie-l clienților tăi.
-            </p>
-          </div>
-        )}
-      </div>
-    );
-  }
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
-    <div className={styles.page}>
-      <header className={styles.header}>
+    <div
+      className={
+        styles.page
+      }
+    >
+      <header
+        className={
+          styles.header
+        }
+      >
         <div>
           <button
             type="button"
-            className={styles.backBtn}
-            onClick={() => navigate(-1)}
+            className={
+              styles.backBtn
+            }
+            onClick={() =>
+              navigate(-1)
+            }
           >
             ← Înapoi
           </button>
 
-          <h1 className={styles.title}>
+          <h1
+            className={
+              styles.title
+            }
+          >
             Catalog produse
           </h1>
 
-          <p className={styles.subtitle}>
+          <p
+            className={
+              styles.subtitle
+            }
+          >
             Administrează produsele,
             importurile și campaniile
             magazinului tău dintr-un singur
@@ -1034,52 +2536,37 @@ export default function CatalogProdusePage() {
         </div>
 
         <div
-          className={styles.headerActions}
+          className={
+            styles.headerActions
+          }
         >
-          <button
+         <button
   type="button"
-  className={styles.secondaryBtn}
-  onClick={() => setActiveTab("imports")}
+  className={styles.primaryBtn}
+  onClick={openNewProduct}
 >
-  Importă produse
+  + Adaugă produs
 </button>
-
-          <button
-            type="button"
-            className={styles.secondaryBtn}
-            onClick={() =>
-              alert(
-                "Exportul Excel va fi conectat la backend."
-              )
-            }
-          >
-            Exportă
-          </button>
-
-          <button
-            type="button"
-            className={styles.primaryBtn}
-            onClick={() =>
-              alert(
-                "Aici legăm ruta existentă pentru adăugarea produsului."
-              )
-            }
-          >
-            + Adaugă produs
-          </button>
         </div>
       </header>
 
-      <nav className={styles.tabs}>
+      <nav
+        className={
+          styles.tabs
+        }
+      >
         <button
           type="button"
           className={
-            activeTab === "products"
+            activeTab ===
+            "products"
               ? styles.activeTab
               : styles.tab
           }
           onClick={() =>
-            setActiveTab("products")
+            setActiveTab(
+              "products"
+            )
           }
         >
           Produse
@@ -1088,255 +2575,66 @@ export default function CatalogProdusePage() {
         <button
           type="button"
           className={
-            activeTab === "imports"
+            activeTab ===
+            "imports"
               ? styles.activeTab
               : styles.tab
           }
           onClick={() =>
-            setActiveTab("imports")
+            setActiveTab(
+              "imports"
+            )
           }
         >
           Importuri
         </button>
 
         <button
-          type="button"
-          className={
-            activeTab === "campaigns"
-              ? styles.activeTab
-              : styles.tab
-          }
-          onClick={() =>
-            setActiveTab("campaigns")
-          }
-        >
-          Campanii
-        </button>
+  type="button"
+  className={styles.tab}
+  disabled
+  title="Disponibil în curând"
+>
+  Campanii
+</button>
       </nav>
 
-      {activeTab === "products" &&
+      {activeTab ===
+        "products" &&
         renderProductsTab()}
 
-      {activeTab === "imports" && <CatalogImports />}
-
-      {activeTab === "campaigns" &&
-        renderCampaignsTab()}
-
-      {showCampaignModal && (
-        <div
-          className={styles.modalOverlay}
-          onMouseDown={(event) => {
-            if (
-              event.target ===
-              event.currentTarget
-            ) {
-              setShowCampaignModal(false);
-            }
-          }}
-        >
-          <div
-            className={
-              styles.modalSmall
-            }
-          >
-            <div
-              className={
-                styles.modalHeader
-              }
-            >
-              <div>
-                <h2>
-                  Creează campanie
-                </h2>
-
-                <p>
-                  Vei primi un link unic pe
-                  care îl poți distribui.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className={
-                  styles.closeBtn
-                }
-                onClick={() =>
-                  setShowCampaignModal(
-                    false
-                  )
-                }
-              >
-                ×
-              </button>
-            </div>
-
-            <div
-              className={
-                styles.formGroup
-              }
-            >
-              <label>
-                Numele campaniei
-              </label>
-
-              <input
-                className={styles.input}
-                value={
-                  campaignForm.name
-                }
-                onChange={(event) =>
-                  setCampaignForm(
-                    (prev) => ({
-                      ...prev,
-                      name: event.target
-                        .value,
-                    })
-                  )
-                }
-                placeholder="Ex: Instagram august"
-              />
-            </div>
-
-            <div
-              className={
-                styles.formGroup
-              }
-            >
-              <label>
-                Produsele campaniei
-              </label>
-
-              <select
-                className={styles.select}
-                value={
-                  campaignForm.productsScope
-                }
-                onChange={(event) =>
-                  setCampaignForm(
-                    (prev) => ({
-                      ...prev,
-                      productsScope:
-                        event.target.value,
-                    })
-                  )
-                }
-              >
-                <option value="all">
-                  Toate produsele
-                </option>
-
-                <option value="selected">
-                  Produse selectate
-                </option>
-              </select>
-            </div>
-
-            <div
-              className={
-                styles.formGroup
-              }
-            >
-              <label>
-                Reducere pentru client
-              </label>
-
-              <select
-                className={styles.select}
-                value={
-                  campaignForm.discountPercent
-                }
-                onChange={(event) =>
-                  setCampaignForm(
-                    (prev) => ({
-                      ...prev,
-                      discountPercent:
-                        event.target.value,
-                    })
-                  )
-                }
-              >
-                <option value="0">
-                  Fără reducere
-                </option>
-
-                <option value="5">
-                  5%
-                </option>
-
-                <option value="10">
-                  10%
-                </option>
-
-                <option value="15">
-                  15%
-                </option>
-              </select>
-            </div>
-
-            <div
-              className={
-                styles.commissionNotice
-              }
-            >
-              <span>💡</span>
-
-              <div>
-                <strong>
-                  Comision redus
-                </strong>
-
-                <p>
-                  Pentru comenzile atribuite
-                  acestei campanii, exemplul
-                  actual folosește un
-                  comision Artfest de 6% în
-                  loc de 12%.
-                </p>
-              </div>
-            </div>
-
-            <div
-              className={
-                styles.modalActions
-              }
-            >
-              <button
-                type="button"
-                className={
-                  styles.secondaryBtn
-                }
-                onClick={() =>
-                  setShowCampaignModal(
-                    false
-                  )
-                }
-              >
-                Anulează
-              </button>
-
-              <button
-                type="button"
-                className={
-                  styles.primaryBtn
-                }
-                onClick={createCampaign}
-              >
-                Creează campania
-              </button>
-            </div>
-          </div>
-        </div>
+      {activeTab ===
+        "imports" && (
+        <CatalogImports />
       )}
+
+      {activeTab ===
+        "campaigns" && (
+        <CampaignsTab
+          products={products}
+        />
+      )}
+
+
+      {/* ===================================================
+          MODAL AI
+      =================================================== */}
 
       {showAiModal && (
         <div
-          className={styles.modalOverlay}
-          onMouseDown={(event) => {
+          className={
+            styles.modalOverlay
+          }
+          onMouseDown={(
+            event
+          ) => {
             if (
               event.target ===
               event.currentTarget
             ) {
-              setShowAiModal(false);
+              setShowAiModal(
+                false
+              );
             }
           }}
         >
@@ -1369,7 +2667,9 @@ export default function CatalogProdusePage() {
                   styles.closeBtn
                 }
                 onClick={() =>
-                  setShowAiModal(false)
+                  setShowAiModal(
+                    false
+                  )
                 }
               >
                 ×
@@ -1377,15 +2677,24 @@ export default function CatalogProdusePage() {
             </div>
 
             <textarea
-              className={styles.aiTextarea}
-              value={aiPrompt}
-              onChange={(event) =>
+              className={
+                styles.aiTextarea
+              }
+              value={
+                aiPrompt
+              }
+              onChange={(
+                event
+              ) =>
                 setAiPrompt(
-                  event.target.value
+                  event.target
+                    .value
                 )
               }
               placeholder='Ex: „Înlocuiește aroma Vanilie cu Bumbac în toate odorizantele.”'
-              rows={6}
+              rows={
+                6
+              }
             />
 
             <div
@@ -1393,7 +2702,9 @@ export default function CatalogProdusePage() {
                 styles.aiExamples
               }
             >
-              <span>Exemple:</span>
+              <span>
+                Exemple:
+              </span>
 
               <button
                 type="button"
@@ -1440,7 +2751,9 @@ export default function CatalogProdusePage() {
                   styles.secondaryBtn
                 }
                 onClick={() =>
-                  setShowAiModal(false)
+                  setShowAiModal(
+                    false
+                  )
                 }
               >
                 Anulează
@@ -1451,7 +2764,9 @@ export default function CatalogProdusePage() {
                 className={
                   styles.primaryBtn
                 }
-                onClick={handleAiPreview}
+                onClick={
+                  handleAiPreview
+                }
               >
                 Previzualizează
               </button>
@@ -1459,6 +2774,44 @@ export default function CatalogProdusePage() {
           </div>
         </div>
       )}
+     <ProductModal
+  open={
+    editProductOpen
+  }
+  onClose={
+    closeEditProduct
+  }
+  saving={
+    savingProduct
+  }
+  editingProduct={
+    editingProduct
+  }
+  form={
+    prodForm
+  }
+  setForm={
+    setProdForm
+  }
+  categories={
+    productCategories
+  }
+  onSave={
+    handleSaveProduct
+  }
+  storeSlug={
+    editingProduct
+      ?.service
+      ?.profile
+      ?.slug ||
+    editingProduct
+      ?.store
+      ?.slug ||
+    defaultStoreSlug ||
+    productStores[0]?.slug ||
+    ""
+  }
+/>
     </div>
   );
 }
