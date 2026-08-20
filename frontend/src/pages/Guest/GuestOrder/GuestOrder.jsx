@@ -613,6 +613,11 @@ export default function GuestOrderPage() {
   ] = useState(null);
 
   const [
+  busyPayment,
+  setBusyPayment,
+] = useState(false);
+
+  const [
     imagePreview,
     setImagePreview,
   ] = useState(null);
@@ -638,6 +643,15 @@ export default function GuestOrderPage() {
         "depositToken"
       ) || ""
     ).trim();
+
+    const paymentResult =
+  String(
+    searchParams.get(
+      "payment"
+    ) || ""
+  )
+    .trim()
+    .toLowerCase();
 
   const accessQuery =
     useMemo(() => {
@@ -933,6 +947,147 @@ export default function GuestOrderPage() {
           "NOT_REQUESTED"
     ) ||
     null;
+
+    const paymentMethod =
+  String(
+    order?.paymentMethod ||
+      ""
+  )
+    .trim()
+    .toUpperCase();
+
+const paymentStatus =
+  String(
+    order?.paymentStatus ||
+      ""
+  )
+    .trim()
+    .toUpperCase();
+
+const isCardPayment =
+  paymentMethod ===
+  "CARD";
+
+const isPaid =
+  paymentStatus ===
+    "PAID" ||
+  Boolean(
+    order?.paidAt
+  );
+
+const paymentPending =
+  isCardPayment &&
+  !isPaid;
+
+const canRetryPayment =
+  paymentPending &&
+  order?.canRetryPayment ===
+    true &&
+  Boolean(
+    guestToken
+  );
+
+  async function handlePayOrder() {
+  if (
+    !order?.id ||
+    busyPayment
+  ) {
+    return;
+  }
+
+  if (
+    !guestToken
+  ) {
+    window.alert(
+      "Pentru a relua plata integrală trebuie să deschizi linkul original al comenzii."
+    );
+
+    return;
+  }
+
+  if (
+    !canRetryPayment
+  ) {
+    window.alert(
+      isPaid
+        ? "Această comandă este deja achitată."
+        : "Plata nu poate fi reluată în starea actuală."
+    );
+
+    return;
+  }
+
+  try {
+    setBusyPayment(
+      true
+    );
+
+    const params =
+      new URLSearchParams();
+
+    params.set(
+      "token",
+      guestToken
+    );
+
+    const response =
+      await api(
+        `/api/guest/orders/${encodeURIComponent(
+          order.id
+        )}/payment?${params.toString()}`,
+        {
+          method:
+            "POST",
+        }
+      );
+
+    const redirectUrl =
+      response?.payment
+        ?.redirectUrl ||
+      response?.payment
+        ?.url ||
+      null;
+
+    if (!redirectUrl) {
+      throw new Error(
+        "Nu am primit linkul pentru plată."
+      );
+    }
+
+    window.location.assign(
+      redirectUrl
+    );
+  } catch (
+    paymentError
+  ) {
+    console.error(
+      "Guest order payment failed:",
+      paymentError
+    );
+
+    const message =
+      paymentError?.data
+        ?.message ||
+      paymentError?.response
+        ?.data
+        ?.message ||
+      paymentError?.message ||
+      "Nu am putut deschide plata.";
+
+    window.alert(
+      message
+    );
+
+    await loadOrder({
+      silent:
+        true,
+    });
+  } finally {
+    setBusyPayment(
+      false
+    );
+  }
+}
 
   /* =======================================================
      Plată avans
@@ -1502,6 +1657,296 @@ export default function GuestOrderPage() {
             </strong>
           </div>
         </section>
+
+{/* =================================================
+    PLATĂ INTEGRALĂ CARD
+================================================= */}
+
+{paymentResult ===
+  "cancelled" &&
+  paymentPending && (
+    <section
+      style={{
+        ...cardStyle,
+
+        border:
+          "1px solid rgba(206, 143, 27, 0.34)",
+
+        background:
+          "#fffaf0",
+      }}
+    >
+      <div
+        style={{
+          display:
+            "flex",
+          alignItems:
+            "flex-start",
+          gap:
+            12,
+        }}
+      >
+        <AlertTriangle
+          size={24}
+        />
+
+        <div>
+          <strong>
+            Plata nu a fost finalizată.
+          </strong>
+
+          <p
+            style={{
+              ...subtleStyle,
+              margin:
+                "6px 0 0",
+            }}
+          >
+            Comanda ta a fost păstrată și o poți achita folosind butonul „Achită acum”.
+          </p>
+        </div>
+      </div>
+    </section>
+  )}
+
+{paymentResult ===
+  "success" &&
+  isCardPayment && (
+    <section
+      style={{
+        ...cardStyle,
+
+        border:
+          isPaid
+            ? "1px solid rgba(42, 135, 75, 0.25)"
+            : "1px solid rgba(206, 143, 27, 0.25)",
+
+        background:
+          isPaid
+            ? "#f4fbf6"
+            : "#fffaf0",
+      }}
+    >
+      <div
+        style={{
+          display:
+            "flex",
+          alignItems:
+            "flex-start",
+          gap:
+            12,
+        }}
+      >
+        {isPaid ? (
+          <CheckCircle2
+            size={24}
+          />
+        ) : (
+          <Clock3
+            size={24}
+          />
+        )}
+
+        <div>
+          <strong>
+            {isPaid
+              ? "Plata a fost confirmată."
+              : "Verificăm plata…"}
+          </strong>
+
+          {!isPaid && (
+            <p
+              style={{
+                ...subtleStyle,
+                margin:
+                  "6px 0 0",
+              }}
+            >
+              Plata a fost trimisă spre confirmare. Poți folosi butonul „Actualizează comanda” dacă statusul nu se schimbă imediat.
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  )}
+
+{isCardPayment && (
+  <section
+    style={
+      cardStyle
+    }
+  >
+    <div
+      style={{
+        display:
+          "flex",
+
+        justifyContent:
+          "space-between",
+
+        alignItems:
+          "flex-start",
+
+        gap:
+          16,
+
+        flexWrap:
+          "wrap",
+      }}
+    >
+      <div>
+        <div
+          style={{
+            fontSize:
+              12,
+
+            textTransform:
+              "uppercase",
+
+            letterSpacing:
+              "0.04em",
+
+            fontWeight:
+              800,
+
+            color:
+              "#8a766c",
+
+            marginBottom:
+              5,
+          }}
+        >
+          Plată
+        </div>
+
+        <h2
+          style={{
+            margin:
+              "0 0 6px",
+
+            fontSize:
+              19,
+
+            color:
+              "#2f2521",
+          }}
+        >
+          Card online
+        </h2>
+
+        <div
+          style={
+            subtleStyle
+          }
+        >
+          Status:{" "}
+
+          <strong>
+            {isPaid
+              ? "Achitată"
+              : "În așteptarea plății"}
+          </strong>
+        </div>
+
+        {isPaid &&
+          order?.paidAt && (
+            <div
+              style={{
+                ...subtleStyle,
+
+                marginTop:
+                  5,
+
+                fontSize:
+                  12,
+              }}
+            >
+              Achitată la{" "}
+              {formatDate(
+                order.paidAt
+              )}
+            </div>
+          )}
+
+        {paymentPending && (
+          <p
+            style={{
+              ...subtleStyle,
+
+              margin:
+                "10px 0 0",
+
+              maxWidth:
+                560,
+            }}
+          >
+            Plata online nu a fost încă finalizată. Comanda rămâne păstrată până când finalizezi plata.
+          </p>
+        )}
+      </div>
+
+      {canRetryPayment && (
+        <button
+          type="button"
+          style={{
+            ...primaryButtonStyle,
+
+            opacity:
+              busyPayment
+                ? 0.6
+                : 1,
+
+            cursor:
+              busyPayment
+                ? "not-allowed"
+                : "pointer",
+          }}
+          disabled={
+            busyPayment
+          }
+          onClick={
+            handlePayOrder
+          }
+        >
+          {busyPayment ? (
+            <>
+              <Loader2
+                size={17}
+              />
+
+              Se deschide plata…
+            </>
+          ) : (
+            <>
+              <ShieldCheck
+                size={17}
+              />
+
+              Achită acum
+            </>
+          )}
+        </button>
+      )}
+    </div>
+
+    {paymentPending &&
+      !guestToken && (
+        <p
+          style={{
+            ...subtleStyle,
+
+            margin:
+              "12px 0 0",
+
+            fontSize:
+              12,
+          }}
+        >
+          Pentru plata integrală folosește linkul securizat original primit pentru comandă.
+        </p>
+      )}
+  </section>
+)}
 
         {/* =================================================
             AVANS

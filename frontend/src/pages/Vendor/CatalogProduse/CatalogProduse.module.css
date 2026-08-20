@@ -318,7 +318,7 @@
   border: 1px solid var(--color-border);
   border-radius: 16px;
   background: var(--surface);
-  overflow: hidden;
+  overflow: visible;
   box-shadow: var(--shadow-sm);
 }
 
@@ -470,6 +470,72 @@
   display: flex;
   align-items: center;
   gap: 7px;
+  position: relative;
+}
+
+/* =========================
+   PRODUCT ACTION MENU
+========================= */
+
+.productMenuWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.productMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  min-width: 210px;
+  padding: 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  display: grid;
+  gap: 2px;
+}
+
+.productMenu button {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text);
+  padding: 10px 11px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.productMenu button:hover {
+  background: color-mix(
+    in srgb,
+    var(--surface) 90%,
+    var(--color-primary) 10%
+  );
+}
+
+.productMenuDivider {
+  height: 1px;
+  margin: 5px 3px;
+  background: var(--color-border);
+}
+
+.productMenu .productMenuDanger {
+  color: #b91c1c;
+}
+
+.productMenu .productMenuDanger:hover {
+  background: #fff1f2;
+  color: #991b1b;
 }
 
 .emptyState {
@@ -1238,6 +1304,15 @@
     padding: 16px;
     box-sizing: border-box;
   }
+
+  .productMenu {
+    min-width: 190px;
+    right: 0;
+  }
+
+  .productMenu button {
+    padding: 11px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1284,4 +1359,11 @@
   .modalActions button {
     width: 100%;
   }
+}
+
+.aiBtn:disabled,
+.tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }

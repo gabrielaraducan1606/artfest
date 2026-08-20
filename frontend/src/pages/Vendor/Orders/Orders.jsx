@@ -79,6 +79,17 @@ async function withLockHandling(promiseFn) {
       return null;
     }
 
+    if (
+      status === 409 &&
+      data?.error === "card_payment_pending"
+    ) {
+      alert(
+        data?.message ||
+          "Clientul nu a finalizat încă plata cu cardul."
+      );
+      return null;
+    }
+
     throw e;
   }
 }
@@ -573,10 +584,43 @@ setData({
                                   "—"}
                               </span>
 {o.paymentMethod && (
-  <div className={styles.clientNote}>
-    {o.paymentMethod === "COD"
-      ? "Plată la livrare"
-      : "Card online"}
+  <div
+    className={styles.clientNote}
+    style={{
+      marginTop: 4,
+    }}
+  >
+    {o.paymentMethod === "COD" ? (
+      <>
+        Plată: <strong>Ramburs</strong>
+      </>
+    ) : (
+      <>
+        Plată: <strong>Card online</strong>
+        {" · "}
+        {o.paymentStatus === "PAID" ? (
+          <span>Achitată</span>
+        ) : o.paymentStatus === "PENDING" ? (
+          <span style={{ fontWeight: 700 }}>
+            În așteptarea plății
+          </span>
+        ) : (
+          <span>Card</span>
+        )}
+      </>
+    )}
+  </div>
+)}
+
+{o.waitingForCardPayment && (
+  <div
+    className={styles.clientNote}
+    style={{
+      marginTop: 3,
+      fontWeight: 700,
+    }}
+  >
+    ⏳ Clientul nu a finalizat încă plata
   </div>
 )}
            {o.deposit?.status === "PENDING" && (
@@ -772,8 +816,18 @@ setData({
   o.deposit?.status !== "PENDING" && (
     <button
       className={styles.secondaryBtn}
+      disabled={o.canProcess === false}
+      title={
+        o.waitingForCardPayment
+          ? "Clientul trebuie să finalizeze plata înainte să începi pregătirea comenzii."
+          : "Începe pregătirea comenzii"
+      }
       onClick={async (e) => {
         e.stopPropagation();
+
+        if (o.canProcess === false) {
+          return;
+        }
 
         try {
           const ok = await withLockHandling(() =>
@@ -806,7 +860,9 @@ setData({
         }
       }}
     >
-      În pregătire
+      {o.waitingForCardPayment
+        ? "Așteaptă plata"
+        : "În pregătire"}
     </button>
   )}
                             {(o.status === "preparing" ||
@@ -814,8 +870,15 @@ setData({
                               <button
                                 className={styles.primaryBtn}
                                 onClick={(e) => e.stopPropagation()}
-                                disabled={!COURIER_ENABLED}
-                                title="Funcționalitate temporar indisponibilă"
+                                disabled={
+                                  !COURIER_ENABLED ||
+                                  o.canProcess === false
+                                }
+                                title={
+                                  o.waitingForCardPayment
+                                    ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
+                                    : "Funcționalitate temporar indisponibilă"
+                                }
                               >
                                 <PackageCheck size={16} /> Programează curier
                               </button>
@@ -824,10 +887,21 @@ setData({
                             {["confirmed", "preparing"].includes(o.status) && (
                               <button
                                 className={styles.secondaryBtn}
-                                disabled={!canFinalize}
-                                title="Marchează drept finalizată"
+                                disabled={
+                                  !canFinalize ||
+                                  o.canProcess === false
+                                }
+                                title={
+                                  o.waitingForCardPayment
+                                    ? "Clientul trebuie să finalizeze plata înainte să predai comanda curierului."
+                                    : "Marchează drept finalizată"
+                                }
                                 onClick={async (e) => {
                                   e.stopPropagation();
+
+                                  if (o.canProcess === false) {
+                                    return;
+                                  }
                                   try {
                                     const ok = await withLockHandling(() =>
                                       api(`/api/vendor/orders/${o.id}/status`, {
@@ -861,9 +935,18 @@ setData({
                             {o.status === "shipped" && (
   <button
     className={styles.secondaryBtn}
-    title="Marchează comanda ca finalizată"
+    disabled={o.canProcess === false}
+    title={
+      o.waitingForCardPayment
+        ? "Clientul trebuie să finalizeze plata înainte să finalizezi comanda."
+        : "Marchează comanda ca finalizată"
+    }
     onClick={async (e) => {
       e.stopPropagation();
+
+      if (o.canProcess === false) {
+        return;
+      }
 
       const okConfirm = window.confirm(
         "Confirmi că această comandă a fost livrată/finalizată?"

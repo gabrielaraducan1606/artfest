@@ -716,6 +716,99 @@ function shipmentToUserUiStatus(st) {
 }
 
 /* ----------------------------------------------------
+   Helper: status plată pentru vendor
+
+   Important:
+   - comenzile manuale CARD create de vendor nu sunt
+     confundate automat cu plățile Stripe;
+   - considerăm CARD online dacă există user/guest
+     sau identificatori Stripe.
+----------------------------------------------------- */
+
+function computeVendorOrderPaymentState(
+  order
+) {
+  const paymentMethod =
+    String(
+      order?.paymentMethod ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const orderStatus =
+    String(
+      order?.status ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const isCard =
+    paymentMethod ===
+    "CARD";
+
+  const isOnlineCard =
+    isCard &&
+    (
+      Boolean(
+        order?.userId
+      ) ||
+      order?.isGuestOrder ===
+        true ||
+      Boolean(
+        order?.stripeCheckoutSessionId
+      ) ||
+      Boolean(
+        order?.stripePaymentIntentId
+      ) ||
+      Boolean(
+        order?.paidAt
+      )
+    );
+
+  const isPaid =
+    isOnlineCard &&
+    (
+      orderStatus ===
+        "PAID" ||
+      Boolean(
+        order?.paidAt
+      )
+    );
+
+  const paymentStatus =
+    paymentMethod ===
+    "COD"
+      ? "COD"
+      : !isOnlineCard
+        ? "CARD"
+        : isPaid
+          ? "PAID"
+          : "PENDING";
+
+  const waitingForCardPayment =
+    isOnlineCard &&
+    !isPaid;
+
+  return {
+    paymentMethod,
+
+    paymentStatus,
+
+    isOnlineCard,
+
+    paid:
+      isPaid,
+
+    waitingForCardPayment,
+
+    canProcess:
+      !waitingForCardPayment,
+  };
+}
+
+/* ----------------------------------------------------
    🎫 Zod schema pentru facturi
 ----------------------------------------------------- */
 const InvoiceLineInput = z.object({
@@ -884,9 +977,11 @@ async function getThreadMetaByOrderId({ vendorId, orderIds }) {
 /* ----------------------------------------------------
    GET /api/vendor/orders
 ----------------------------------------------------- */
+
 router.get(
   "/orders",
   requireVendor,
+
   async (req, res) => {
     const vendorId =
       req.user.vendorId;
@@ -1213,11 +1308,20 @@ router.get(
             pageSize,
 
           select: {
-            id: true,
-            orderId: true,
-            createdAt: true,
-            status: true,
-            price: true,
+            id:
+              true,
+
+            orderId:
+              true,
+
+            createdAt:
+              true,
+
+            status:
+              true,
+
+            price:
+              true,
 
             courierProvider:
               true,
@@ -1225,8 +1329,11 @@ router.get(
             courierService:
               true,
 
-            awb: true,
-            labelUrl: true,
+            awb:
+              true,
+
+            labelUrl:
+              true,
 
             pickupDate:
               true,
@@ -1250,42 +1357,51 @@ router.get(
               true,
 
             cancelReason:
-  true,
+              true,
 
-cancelReasonNote:
-  true,
+            cancelReasonNote:
+              true,
 
-depositStatus:
-  true,
+            depositStatus:
+              true,
 
-depositPercent:
-  true,
+            depositPercent:
+              true,
 
-depositRequestedAmount:
-  true,
+            depositRequestedAmount:
+              true,
 
-depositPaidAmount:
-  true,
+            depositPaidAmount:
+              true,
 
-remainingCodAmount:
-  true,
+            remainingCodAmount:
+              true,
 
-depositRequestedAt:
-  true,
+            depositRequestedAt:
+              true,
 
-depositPaidAt:
-  true,
+            depositPaidAt:
+              true,
 
-depositExpiresAt:
-  true,
+            depositExpiresAt:
+              true,
 
-items: {
+            items: {
               select: {
-                id: true,
-                productId: true,
-                title: true,
-                qty: true,
-                price: true,
+                id:
+                  true,
+
+                productId:
+                  true,
+
+                title:
+                  true,
+
+                qty:
+                  true,
+
+                price:
+                  true,
 
                 selectedOptions:
                   true,
@@ -1330,8 +1446,11 @@ items: {
 
             service: {
               select: {
-                id: true,
-                title: true,
+                id:
+                  true,
+
+                title:
+                  true,
 
                 profile: {
                   select: {
@@ -1357,7 +1476,31 @@ items: {
                 orderNumber:
                   true,
 
+                /*
+                 * =================================================
+                 * STATUS + PLATĂ
+                 * =================================================
+                 */
+
+                status:
+                  true,
+
                 paymentMethod:
+                  true,
+
+                paidAt:
+                  true,
+
+                stripeCheckoutSessionId:
+                  true,
+
+                stripePaymentIntentId:
+                  true,
+
+                userId:
+                  true,
+
+                isGuestOrder:
                   true,
 
                 vendorNotes:
@@ -1393,6 +1536,12 @@ items: {
             null
         ),
       ]);
+
+    /*
+     * =====================================================
+     * IMAGINI PRODUSE
+     * =====================================================
+     */
 
     const productIdSet =
       new Set();
@@ -1434,8 +1583,11 @@ items: {
           },
 
           select: {
-            id: true,
-            images: true,
+            id:
+              true,
+
+            images:
+              true,
           },
         });
 
@@ -1502,6 +1654,11 @@ items: {
           const order =
             shipment.order ||
             {};
+
+          const paymentState =
+            computeVendorOrderPaymentState(
+              order
+            );
 
           const address =
             order.shippingAddress ||
@@ -1877,59 +2034,85 @@ items: {
               order.vendorNotes ||
               "",
 
+            /*
+             * =================================================
+             * PLATĂ
+             * =================================================
+             */
+
             paymentMethod:
-  order.paymentMethod ||
-  null,
+              paymentState
+                .paymentMethod,
 
-deposit: {
-  status:
-    shipment.depositStatus ||
-    "NOT_REQUESTED",
+            paymentStatus:
+              paymentState
+                .paymentStatus,
 
-  percent:
-    shipment.depositPercent != null
-      ? Number(
-          shipment.depositPercent
-        )
-      : null,
+            paidAt:
+              order.paidAt ||
+              null,
 
-  requestedAmount:
-    shipment.depositRequestedAmount != null
-      ? Number(
-          shipment.depositRequestedAmount
-        )
-      : null,
+            waitingForCardPayment:
+              paymentState
+                .waitingForCardPayment,
 
-  paidAmount:
-    shipment.depositPaidAmount != null
-      ? Number(
-          shipment.depositPaidAmount
-        )
-      : null,
+            canProcess:
+              paymentState
+                .canProcess,
 
-  remainingCodAmount:
-    shipment.remainingCodAmount != null
-      ? Number(
-          shipment.remainingCodAmount
-        )
-      : null,
+            deposit: {
+              status:
+                shipment.depositStatus ||
+                "NOT_REQUESTED",
 
-  requestedAt:
-    shipment.depositRequestedAt ||
-    null,
+              percent:
+                shipment.depositPercent !=
+                null
+                  ? Number(
+                      shipment.depositPercent
+                    )
+                  : null,
 
-  paidAt:
-    shipment.depositPaidAt ||
-    null,
+              requestedAmount:
+                shipment.depositRequestedAmount !=
+                null
+                  ? Number(
+                      shipment.depositRequestedAmount
+                    )
+                  : null,
 
-  expiresAt:
-    shipment.depositExpiresAt ||
-    null,
-},
+              paidAmount:
+                shipment.depositPaidAmount !=
+                null
+                  ? Number(
+                      shipment.depositPaidAmount
+                    )
+                  : null,
 
-invoiceNumber:
-  order.invoiceNumber ||
-  null,
+              remainingCodAmount:
+                shipment.remainingCodAmount !=
+                null
+                  ? Number(
+                      shipment.remainingCodAmount
+                    )
+                  : null,
+
+              requestedAt:
+                shipment.depositRequestedAt ||
+                null,
+
+              paidAt:
+                shipment.depositPaidAt ||
+                null,
+
+              expiresAt:
+                shipment.depositExpiresAt ||
+                null,
+            },
+
+            invoiceNumber:
+              order.invoiceNumber ||
+              null,
 
             invoiceDate:
               order.invoiceDate ||
@@ -2111,9 +2294,11 @@ router.get("/orders/stream", requireVendor, (req, res) => {
 /* ----------------------------------------------------
    GET /api/vendor/orders/:id
 ----------------------------------------------------- */
+
 router.get(
   "/orders/:id",
   requireVendor,
+
   async (req, res) => {
     const vendorId =
       req.user.vendorId;
@@ -2133,29 +2318,29 @@ router.get(
     if (
       !billingStatus.ok
     ) {
-      return res.status(
-        423
-      ).json({
-        error:
-          "billing_required",
+      return res
+        .status(423)
+        .json({
+          error:
+            "billing_required",
 
-        title:
-          "Completează datele de facturare",
-
-        message:
-          "Nu poți vedea detaliile comenzii până nu completezi datele de facturare.",
-
-        missing:
-          billingStatus.missing,
-
-        cta: {
-          label:
+          title:
             "Completează datele de facturare",
 
-          url:
-            "/setari?tab=billing",
-        },
-      });
+          message:
+            "Nu poți vedea detaliile comenzii până nu completezi datele de facturare.",
+
+          missing:
+            billingStatus.missing,
+
+          cta: {
+            label:
+              "Completează datele de facturare",
+
+            url:
+              "/setari?tab=billing",
+          },
+        });
     }
 
     const orderId =
@@ -2179,7 +2364,9 @@ router.get(
                 },
 
                 select: {
-                  id: true,
+                  id:
+                    true,
+
                   internalNote:
                     true,
 
@@ -2199,12 +2386,16 @@ router.get(
             },
           },
 
-          items: true,
+          items:
+            true,
 
           service: {
             select: {
-              id: true,
-              title: true,
+              id:
+                true,
+
+              title:
+                true,
 
               profile: {
                 select: {
@@ -2228,16 +2419,21 @@ router.get(
       });
 
     if (!shipment) {
-      return res.status(
-        404
-      ).json({
-        error:
-          "not_found",
-      });
+      return res
+        .status(404)
+        .json({
+          error:
+            "not_found",
+        });
     }
 
     const order =
       shipment.order;
+
+    const paymentState =
+      computeVendorOrderPaymentState(
+        order
+      );
 
     const address =
       order?.shippingAddress ||
@@ -2282,14 +2478,26 @@ router.get(
       shipmentSubtotal +
       shipmentShipping;
 
-    const isCompany =
-      Boolean(
-        address.companyName ||
-          address.companyCui
-      );
-
+    /*
+     * Pentru comenzile noi PF/PJ folosim
+     * customerType din Order.
+     *
+     * Fallback-ul păstrează compatibilitatea
+     * cu comenzile vechi.
+     */
     const customerType =
-      isCompany
+      String(
+        order?.customerType ||
+          ""
+      )
+        .trim()
+        .toUpperCase() ===
+      "PJ"
+        ? "PJ"
+        : Boolean(
+            address.companyName ||
+              address.companyCui
+          )
         ? "PJ"
         : "PF";
 
@@ -2611,8 +2819,11 @@ router.get(
           },
 
           select: {
-            id: true,
-            images: true,
+            id:
+              true,
+
+            images:
+              true,
           },
         });
 
@@ -2736,6 +2947,17 @@ router.get(
 
       shippingAddress:
         address,
+
+      /*
+       * Date facturare + contact pentru PJ.
+       */
+      billingAddress:
+        order.billingAddress ||
+        null,
+
+      contactPerson:
+        order.contactPerson ||
+        null,
 
       customerType,
 
@@ -2902,49 +3124,83 @@ router.get(
         order.vendorNotes ||
         "",
 
+      /*
+       * =====================================================
+       * PLATĂ
+       * =====================================================
+       */
+
       paymentMethod:
-  order.paymentMethod ||
-  null,
+        paymentState
+          .paymentMethod,
 
-deposit: {
-  status:
-    shipment.depositStatus ||
-    "NOT_REQUESTED",
+      paymentStatus:
+        paymentState
+          .paymentStatus,
 
-  percent:
-    shipment.depositPercent != null
-      ? Number(shipment.depositPercent)
-      : null,
+      paidAt:
+        order.paidAt ||
+        null,
 
-  requestedAmount:
-    shipment.depositRequestedAmount != null
-      ? Number(shipment.depositRequestedAmount)
-      : null,
+      waitingForCardPayment:
+        paymentState
+          .waitingForCardPayment,
 
-  paidAmount:
-    shipment.depositPaidAmount != null
-      ? Number(shipment.depositPaidAmount)
-      : null,
+      canProcess:
+        paymentState
+          .canProcess,
 
-  remainingCodAmount:
-    shipment.remainingCodAmount != null
-      ? Number(shipment.remainingCodAmount)
-      : null,
+      deposit: {
+        status:
+          shipment.depositStatus ||
+          "NOT_REQUESTED",
 
-  requestedAt:
-    shipment.depositRequestedAt ||
-    null,
+        percent:
+          shipment.depositPercent !=
+          null
+            ? Number(
+                shipment.depositPercent
+              )
+            : null,
 
-  paidAt:
-    shipment.depositPaidAt ||
-    null,
+        requestedAmount:
+          shipment.depositRequestedAmount !=
+          null
+            ? Number(
+                shipment.depositRequestedAmount
+              )
+            : null,
 
-  expiresAt:
-    shipment.depositExpiresAt ||
-    null,
-},
+        paidAmount:
+          shipment.depositPaidAmount !=
+          null
+            ? Number(
+                shipment.depositPaidAmount
+              )
+            : null,
 
-shipment: {
+        remainingCodAmount:
+          shipment.remainingCodAmount !=
+          null
+            ? Number(
+                shipment.remainingCodAmount
+              )
+            : null,
+
+        requestedAt:
+          shipment.depositRequestedAt ||
+          null,
+
+        paidAt:
+          shipment.depositPaidAt ||
+          null,
+
+        expiresAt:
+          shipment.depositExpiresAt ||
+          null,
+      },
+
+      shipment: {
         id:
           shipment.id,
 
@@ -3683,332 +3939,648 @@ if (order?.userId) {
 /* ----------------------------------------------------
    PATCH /api/vendor/orders/:id/status
 ----------------------------------------------------- */
-router.patch("/orders/:id/status", requireVendor, async (req, res) => {
-  const vendorId = req.user.vendorId;
-  const orderId = String(req.params.id);
 
-  const nextUi = String(req.body?.status || "");
+router.patch(
+  "/orders/:id/status",
+  requireVendor,
 
-  let next = null;
-  switch (nextUi) {
-    case "new":
-      next = "PENDING";
-      break;
-    case "preparing":
-      next = "PREPARING";
-      break;
-    case "confirmed":
-      next = "READY_FOR_PICKUP";
-      break;
-    case "shipped":
-      next = "IN_TRANSIT";
-      break;
-    case "fulfilled":
-      next = "DELIVERED";
-      break;
-    case "cancelled":
-      next = "REFUSED";
-      break;
-    default:
-      next = null;
-  }
+  async (req, res) => {
+    const vendorId =
+      req.user.vendorId;
 
-  if (!next) return res.status(400).json({ error: "bad_status" });
+    const orderId =
+      String(
+        req.params.id
+      );
 
-  const cancelReason = req.body?.cancelReason || null;
-  const cancelReasonNote = req.body?.cancelReasonNote || null;
+    const nextUi =
+      String(
+        req.body?.status ||
+        ""
+      );
 
-  const s = await findShipmentByOrderRef({
-    vendorId,
-    orderRef: orderId,
-    include: { order: true },
-  });
+    let next =
+      null;
 
-  if (!s) return res.status(404).json({ error: "not_found" });
+    switch (
+      nextUi
+    ) {
+      case "new":
+        next =
+          "PENDING";
+        break;
+
+      case "preparing":
+        next =
+          "PREPARING";
+        break;
+
+      case "confirmed":
+        next =
+          "READY_FOR_PICKUP";
+        break;
+
+      case "shipped":
+        next =
+          "IN_TRANSIT";
+        break;
+
+      case "fulfilled":
+        next =
+          "DELIVERED";
+        break;
+
+      case "cancelled":
+        next =
+          "REFUSED";
+        break;
+
+      default:
+        next =
+          null;
+    }
+
+    if (!next) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "bad_status",
+        });
+    }
+
+    const cancelReason =
+      req.body?.cancelReason ||
+      null;
+
+    const cancelReasonNote =
+      req.body?.cancelReasonNote ||
+      null;
+
+    const s =
+      await findShipmentByOrderRef({
+        vendorId,
+
+        orderRef:
+          orderId,
+
+        include: {
+          order:
+            true,
+        },
+      });
+
+    if (!s) {
+      return res
+        .status(404)
+        .json({
+          error:
+            "not_found",
+        });
+    }
+
+const paymentState =
+  computeVendorOrderPaymentState(
+    s.order
+  );
+
+/*
+ * =====================================================
+ * CARD ONLINE NEPLĂTIT
+ * =====================================================
+ *
+ * Blocăm doar procesarea comenzii.
+ * Anularea trebuie să rămână posibilă.
+ */
+
 if (
-  nextUi === "preparing" &&
-  s.depositStatus === "PENDING"
+  [
+    "preparing",
+    "confirmed",
+    "shipped",
+    "fulfilled",
+  ].includes(
+    nextUi
+  ) &&
+  paymentState
+    .waitingForCardPayment
 ) {
-  return res.status(409).json({
-    error: "deposit_payment_pending",
-    message:
-      "Nu poți începe comanda până când clientul nu plătește avansul.",
-  });
-}
-  if (isAwaitingAwbLock(s)) {
-    return lock409(res);
-  }
-if (
-  nextUi === "cancelled" &&
-  ![
-    "PENDING",
-    "PREPARING",
-    "READY_FOR_PICKUP",
-  ].includes(s.status)
-) {
-  return res.status(409).json({
-    error: "order_cannot_be_cancelled",
-    message:
-      s.status === "REFUSED" ||
-      s.status === "RETURNED"
-        ? "Comanda este deja anulată."
-        : "Comanda nu mai poate fi anulată în această etapă.",
-  });
-}
-let updatedShipment;
+  return res
+    .status(409)
+    .json({
+      error:
+        "card_payment_pending",
 
-try {
-  updatedShipment =
-    await prisma.$transaction(
-      async (tx) => {
-        if (
-          nextUi === "cancelled"
-        ) {
-          /*
-           * Actualizarea este condiționată.
-           * Doar prima cerere de anulare
-           * poate modifica shipment-ul.
-           */
-          const statusUpdate =
-            await tx.shipment.updateMany({
-              where: {
-                id: s.id,
+      message:
+        "Clientul nu a finalizat încă plata cu cardul. Comanda poate fi procesată după confirmarea plății.",
 
-                status: {
-                  in: [
-                    "PENDING",
-                    "PREPARING",
-                    "READY_FOR_PICKUP",
-                  ],
+      paymentMethod:
+        paymentState
+          .paymentMethod,
+
+      paymentStatus:
+        paymentState
+          .paymentStatus,
+
+      waitingForCardPayment:
+        true,
+    });
+}
+
+
+    /*
+     * =====================================================
+     * CARD ONLINE NEPLĂTIT
+     * =====================================================
+     */
+
+    
+
+    /*
+     * =====================================================
+     * AVANS COD NEPLĂTIT
+     * =====================================================
+     */
+
+    if (
+      nextUi ===
+        "preparing" &&
+      s.depositStatus ===
+        "PENDING"
+    ) {
+      return res
+        .status(409)
+        .json({
+          error:
+            "deposit_payment_pending",
+
+          message:
+            "Nu poți începe comanda până când clientul nu plătește avansul.",
+        });
+    }
+
+    /*
+     * Lock AWB.
+     */
+    if (
+      isAwaitingAwbLock(
+        s
+      )
+    ) {
+      return lock409(
+        res
+      );
+    }
+
+    /*
+     * =====================================================
+     * ANULARE
+     * =====================================================
+     */
+
+    if (
+      nextUi ===
+        "cancelled" &&
+      ![
+        "PENDING",
+        "PREPARING",
+        "READY_FOR_PICKUP",
+      ].includes(
+        s.status
+      )
+    ) {
+      return res
+        .status(409)
+        .json({
+          error:
+            "order_cannot_be_cancelled",
+
+          message:
+            s.status ===
+              "REFUSED" ||
+            s.status ===
+              "RETURNED"
+              ? "Comanda este deja anulată."
+              : "Comanda nu mai poate fi anulată în această etapă.",
+        });
+    }
+
+    let updatedShipment;
+
+    try {
+      updatedShipment =
+        await prisma.$transaction(
+          async (
+            tx
+          ) => {
+            if (
+              nextUi ===
+              "cancelled"
+            ) {
+              /*
+               * Actualizarea este condiționată.
+               * Doar prima cerere de anulare
+               * poate modifica shipment-ul.
+               */
+              const statusUpdate =
+                await tx.shipment.updateMany({
+                  where: {
+                    id:
+                      s.id,
+
+                    status: {
+                      in: [
+                        "PENDING",
+                        "PREPARING",
+                        "READY_FOR_PICKUP",
+                      ],
+                    },
+                  },
+
+                  data: {
+                    status:
+                      "REFUSED",
+
+                    cancelReason,
+
+                    cancelReasonNote,
+
+                    refusedAt:
+                      new Date(),
+                  },
+                });
+
+              if (
+                statusUpdate.count !==
+                1
+              ) {
+                throw new Error(
+                  "shipment_already_cancelled_or_locked"
+                );
+              }
+
+              /*
+               * Stocul este restaurat numai
+               * după actualizarea reușită.
+               */
+              await restoreShipmentStockAfterStatusChange(
+                tx,
+                s.id
+              );
+            } else {
+              await tx.shipment.update({
+                where: {
+                  id:
+                    s.id,
                 },
-              },
 
-              data: {
-                status: "REFUSED",
-                cancelReason,
-                cancelReasonNote,
-                refusedAt: new Date(),
-              },
-            });
+                data: {
+                  status:
+                    next,
+                },
+              });
+            }
 
-          if (
-            statusUpdate.count !== 1
-          ) {
-            throw new Error(
-              "shipment_already_cancelled_or_locked"
-            );
+            const updated =
+              await tx.shipment.findUnique({
+                where: {
+                  id:
+                    s.id,
+                },
+
+                include: {
+                  order:
+                    true,
+                },
+              });
+
+            if (!updated) {
+              throw new Error(
+                "shipment_not_found"
+              );
+            }
+
+            /*
+             * Dacă toate shipment-urile sunt
+             * anulate, anulăm și Order.
+             */
+            if (
+              nextUi ===
+              "cancelled"
+            ) {
+              const all =
+                await tx.shipment.findMany({
+                  where: {
+                    orderId:
+                      updated.orderId,
+                  },
+
+                  select: {
+                    status:
+                      true,
+                  },
+                });
+
+              const allCancelled =
+                all.every(
+                  (
+                    shipment
+                  ) =>
+                    [
+                      "REFUSED",
+                      "RETURNED",
+                    ].includes(
+                      shipment.status
+                    )
+                );
+
+              if (
+                allCancelled
+              ) {
+                await tx.order.update({
+                  where: {
+                    id:
+                      updated.orderId,
+                  },
+
+                  data: {
+                    status:
+                      "CANCELLED",
+                  },
+                });
+              }
+            }
+
+            return updated;
           }
+        );
+    } catch (
+      error
+    ) {
+      console.error(
+        "Order status update failed:",
+        error
+      );
 
-          /*
-           * Stocul este restaurat numai
-           * după actualizarea reușită.
-           */
-          await restoreShipmentStockAfterStatusChange(
-            tx,
+      if (
+        error?.message ===
+        "shipment_already_cancelled_or_locked"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "shipment_already_cancelled_or_locked",
+
+            message:
+              "Comanda este deja anulată sau nu mai poate fi modificată.",
+          });
+      }
+
+      if (
+        error?.message ===
+        "shipment_not_found"
+      ) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "shipment_not_found",
+
+            message:
+              "Livrarea nu a fost găsită.",
+          });
+      }
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "order_status_update_failed",
+
+          message:
+            "Statusul comenzii nu a putut fi actualizat.",
+        });
+    }
+
+    /*
+     * =====================================================
+     * LEDGER
+     * =====================================================
+     */
+
+    try {
+      if (
+        updatedShipment.status ===
+          "DELIVERED" ||
+        updatedShipment.status ===
+          "IN_TRANSIT"
+      ) {
+        await ensureSaleLedgerEntry({
+          vendorId,
+
+          shipmentId:
+            updatedShipment.id,
+        });
+      }
+
+      if (
+        updatedShipment.status ===
+          "REFUSED" ||
+        updatedShipment.status ===
+          "RETURNED"
+      ) {
+        await ensureRefundLedgerEntry({
+          vendorId,
+
+          shipmentId:
+            updatedShipment.id,
+        });
+      }
+    } catch (
+      e
+    ) {
+      console.error(
+        "Ledger update failed:",
+        e
+      );
+    }
+
+    /*
+     * =====================================================
+     * MESAJ ANULARE
+     * =====================================================
+     */
+
+    if (
+      nextUi ===
+      "cancelled"
+    ) {
+      try {
+        const o =
+          updatedShipment.order ||
+          s.order;
+
+        const shippingAddress =
+          o?.shippingAddress ||
+          {};
+
+        await sendOrderCancelledMessage({
+          orderId:
+            o.id,
+
+          shipmentId:
+            s.id,
+
+          shortShipmentId:
             s.id
+              .slice(
+                -6
+              )
+              .toUpperCase(),
+
+          userId:
+            o.userId,
+
+          vendorId,
+
+          shippingAddress,
+
+          cancelReason,
+
+          cancelReasonNote,
+        });
+      } catch (
+        e
+      ) {
+        console.error(
+          "Eroare la sendOrderCancelledMessage:",
+          e
+        );
+      }
+    }
+
+    /*
+     * =====================================================
+     * NOTIFICARE USER + EMAIL CURIER
+     * =====================================================
+     */
+
+    try {
+      const o =
+        updatedShipment.order ||
+        s.order;
+
+      if (
+        o?.userId
+      ) {
+        const userUiStatus =
+          shipmentToUserUiStatus(
+            updatedShipment.status
           );
-        } else {
-          await tx.shipment.update({
-            where: {
-              id: s.id,
-            },
 
-            data: {
-              status: next,
-            },
-          });
-        }
+        await notifyUserOnOrderStatusChange(
+          o.id,
+          userUiStatus
+        );
+      }
 
-        const updated =
-          await tx.shipment.findUnique({
-            where: {
-              id: s.id,
-            },
+      if (
+        updatedShipment.status ===
+        "IN_TRANSIT"
+      ) {
+        const shippingAddress =
+          o?.shippingAddress ||
+          {};
 
-            include: {
-              order: true,
-            },
-          });
-
-        if (!updated) {
-          throw new Error(
-            "shipment_not_found"
-          );
-        }
+        let to =
+          shippingAddress.email ||
+          null;
 
         if (
-          nextUi === "cancelled"
+          !to &&
+          o?.userId
         ) {
-          const all =
-            await tx.shipment.findMany({
+          const user =
+            await prisma.user.findUnique({
               where: {
-                orderId:
-                  updated.orderId,
+                id:
+                  o.userId,
               },
 
               select: {
-                status: true,
+                email:
+                  true,
               },
             });
 
-          const allCancelled =
-            all.every(
-              (shipment) =>
-                [
-                  "REFUSED",
-                  "RETURNED",
-                ].includes(
-                  shipment.status
-                )
-            );
-
-          if (allCancelled) {
-            await tx.order.update({
-              where: {
-                id:
-                  updated.orderId,
-              },
-
-              data: {
-                status:
-                  "CANCELLED",
-              },
-            });
-          }
+          to =
+            user?.email ||
+            null;
         }
 
-        return updated;
+        if (to) {
+          await sendShipmentPickupEmail({
+            to,
+
+            orderId:
+              o.id,
+
+            awb:
+              updatedShipment.awb ||
+              null,
+
+            trackingUrl:
+              updatedShipment.trackingUrl ||
+              null,
+
+            etaLabel:
+              updatedShipment.pickupDate
+                ? "azi/mâine"
+                : null,
+
+            slotLabel:
+              updatedShipment.pickupSlotStart &&
+              updatedShipment.pickupSlotEnd
+                ? `${updatedShipment.pickupSlotStart
+                    .toISOString()
+                    .slice(
+                      11,
+                      16
+                    )}-${updatedShipment.pickupSlotEnd
+                    .toISOString()
+                    .slice(
+                      11,
+                      16
+                    )}`
+                : null,
+
+            userId:
+              o.userId ||
+              null,
+          });
+        }
       }
-    );
-} catch (error) {
-  console.error(
-    "Order status update failed:",
-    error
-  );
-
-  if (
-    error?.message ===
-    "shipment_already_cancelled_or_locked"
-  ) {
-    return res.status(409).json({
-      error:
-        "shipment_already_cancelled_or_locked",
-
-      message:
-        "Comanda este deja anulată sau nu mai poate fi modificată.",
-    });
-  }
-
-  if (
-    error?.message ===
-    "shipment_not_found"
-  ) {
-    return res.status(404).json({
-      error:
-        "shipment_not_found",
-
-      message:
-        "Livrarea nu a fost găsită.",
-    });
-  }
-
-  return res.status(500).json({
-    error:
-      "order_status_update_failed",
-
-    message:
-      "Statusul comenzii nu a putut fi actualizat.",
-  });
-}
-
-  try {
-    if (updatedShipment.status === "DELIVERED" || updatedShipment.status === "IN_TRANSIT") {
-      await ensureSaleLedgerEntry({
-        vendorId,
-        shipmentId: updatedShipment.id,
-      });
-    }
-
-    if (
-      updatedShipment.status === "REFUSED" ||
-      updatedShipment.status === "RETURNED"
+    } catch (
+      e
     ) {
-      await ensureRefundLedgerEntry({
-        vendorId,
-        shipmentId: updatedShipment.id,
-      });
+      console.error(
+        "notify/email user on order status failed:",
+        e
+      );
     }
-  } catch (e) {
-    console.error("Ledger update failed:", e);
+
+    ordersCache.clear();
+
+    return res.json({
+      ok:
+        true,
+
+      shipment:
+        updatedShipment,
+    });
   }
-
-  if (nextUi === "cancelled") {
-    try {
-      const o = updatedShipment.order || s.order;
-      const shippingAddress = o?.shippingAddress || {};
-
-      await sendOrderCancelledMessage({
-        orderId: o.id,
-        shipmentId: s.id,
-        shortShipmentId: s.id.slice(-6).toUpperCase(),
-        userId: o.userId,
-        vendorId,
-        shippingAddress,
-        cancelReason,
-        cancelReasonNote,
-      });
-    } catch (e) {
-      console.error("Eroare la sendOrderCancelledMessage:", e);
-    }
-  }
-
-  try {
-    const o = updatedShipment.order || s.order;
-
-    if (o?.userId) {
-      const userUiStatus = shipmentToUserUiStatus(updatedShipment.status);
-      await notifyUserOnOrderStatusChange(o.id, userUiStatus);
-    }
-
-    if (updatedShipment.status === "IN_TRANSIT") {
-      const shippingAddress = o?.shippingAddress || {};
-      let to = shippingAddress.email || null;
-
-      if (!to && o?.userId) {
-        const user = await prisma.user.findUnique({
-          where: { id: o.userId },
-          select: { email: true },
-        });
-
-        to = user?.email || null;
-      }
-
-      if (to) {
-        await sendShipmentPickupEmail({
-          to,
-          orderId: o.id,
-          awb: updatedShipment.awb || null,
-          trackingUrl: updatedShipment.trackingUrl || null,
-          etaLabel: updatedShipment.pickupDate ? "azi/mâine" : null,
-          slotLabel:
-            updatedShipment.pickupSlotStart && updatedShipment.pickupSlotEnd
-              ? `${updatedShipment.pickupSlotStart
-                  .toISOString()
-                  .slice(11, 16)}-${updatedShipment.pickupSlotEnd
-                  .toISOString()
-                  .slice(11, 16)}`
-              : null,
-          userId: o.userId || null,
-        });
-      }
-    }
-  } catch (e) {
-    console.error("notify/email user on order status failed:", e);
-  }
-
-  ordersCache.clear();
-  res.json({ ok: true, shipment: updatedShipment });
-});
+);
 
 /* ----------------------------------------------------
    PATCH /api/vendor/orders/:id/notes
@@ -4049,14 +4621,63 @@ router.post("/shipments/:id/schedule-pickup", requireVendor, async (req, res) =>
 
   const { consents = {}, pickup = {}, dimensions = {} } = req.body || {};
 
-  const s = await prisma.shipment.findFirst({
-    where: { id, vendorId },
-    include: { order: true },
-  });
+const s = await prisma.shipment.findFirst({
+  where: {
+    id,
+    vendorId,
+  },
 
-  if (!s) return res.status(404).json({ error: "not_found" });
+  include: {
+    order:
+      true,
+  },
+});
 
-  const policy = await prisma.vendorPolicy.findFirst({
+if (!s) {
+  return res
+    .status(404)
+    .json({
+      error:
+        "not_found",
+    });
+}
+
+/*
+ * =====================================================
+ * CARD ONLINE NEPLĂTIT
+ * =====================================================
+ */
+
+const paymentState =
+  computeVendorOrderPaymentState(
+    s.order
+  );
+
+if (
+  paymentState
+    .waitingForCardPayment
+) {
+  return res
+    .status(409)
+    .json({
+      error:
+        "card_payment_pending",
+
+      message:
+        "Clientul nu a finalizat încă plata cu cardul. Curierul poate fi programat după confirmarea plății.",
+
+      paymentMethod:
+        paymentState
+          .paymentMethod,
+
+      paymentStatus:
+        paymentState
+          .paymentStatus,
+    });
+}
+
+const policy =
+  await prisma.vendorPolicy.findFirst({
     where: { document: "SHIPPING_ADDENDUM", isActive: true },
   });
 

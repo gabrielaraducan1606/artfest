@@ -3284,7 +3284,7 @@ configurationKey:
       );
     }
 
-   try {
+  try {
   const frontendUrl = (
     process.env.APP_URL ||
     process.env.FRONTEND_URL ||
@@ -3300,22 +3300,51 @@ configurationKey:
     )}`;
 
   await sendOrderConfirmationEmail({
-    to: customerEmail,
+    to:
+      customerEmail,
 
-    order: created,
+    order:
+      created,
 
-    items: checkoutItems,
+    items:
+      checkoutItems,
 
     storeAddresses,
 
-    // Guest-ul nu are userId.
-    userId: null,
+    /*
+     * Guest-ul nu are userId.
+     */
+    userId:
+      null,
 
-    // Spunem explicit mailerului că este comandă guest.
-    isGuest: true,
+    /*
+     * Spunem explicit mailerului
+     * că este comandă guest.
+     */
+    isGuest:
+      true,
 
-    // Link direct către pagina publică a comenzii guest.
-    actionUrl: guestOrderUrl,
+    /*
+     * Link securizat către pagina
+     * publică a comenzii.
+     */
+    actionUrl:
+      guestOrderUrl,
+
+    /*
+     * =================================================
+     * PLATĂ GUEST
+     * =================================================
+     *
+     * Pentru CARD, emailul îi explică
+     * faptul că poate reveni în pagină
+     * și relua plata.
+     */
+    paymentMethod:
+      pm,
+
+    paymentPending:
+      pm === "CARD",
   });
 } catch (err) {
   console.error(

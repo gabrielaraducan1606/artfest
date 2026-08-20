@@ -1245,3 +1245,98 @@ export async function notifyUserDepositRequested({
   );
 }
 
+/* ============================================================
+   🔔 NOTIFICĂRI – CERERI CLIENȚI / OFERTE
+============================================================ */
+
+export async function notifyUserOnCustomerRequestOfferCreated(
+  requestId,
+  offerId
+) {
+  if (!requestId || !offerId) {
+    return null;
+  }
+
+  const request =
+    await prisma.customerRequest.findUnique({
+      where: {
+        id: requestId,
+      },
+
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+      },
+    });
+
+  if (!request?.userId) {
+    return null;
+  }
+
+  const offer =
+    await prisma.customerRequestOffer.findUnique({
+      where: {
+        id: offerId,
+      },
+
+      select: {
+        id: true,
+        vendorId: true,
+
+        vendor: {
+          select: {
+            displayName: true,
+          },
+        },
+      },
+    });
+
+  if (!offer) {
+    return null;
+  }
+
+  const vendorName =
+    offer.vendor?.displayName ||
+    "Un creator Artfest";
+
+  const requestTitle =
+    request.title ||
+    "cererea ta";
+
+  const dedupeKey =
+    `customer_request_offer:${request.userId}:${offer.id}`;
+
+  return createUserNotification(
+    request.userId,
+    {
+      dedupeKey,
+
+      type: "message",
+
+      title:
+        "Ai primit o ofertă nouă 🎉",
+
+      body:
+        `${vendorName} a răspuns la cererea „${requestTitle}”. ` +
+        `Intră pentru a vedea oferta și detaliile propuse.`,
+
+      link:
+        `/cereri/${request.id}`,
+
+      meta: {
+        kind:
+          "customer_request_offer_created",
+
+        requestId:
+          request.id,
+
+        offerId:
+          offer.id,
+
+        vendorId:
+          offer.vendorId,
+      },
+    }
+  );
+}

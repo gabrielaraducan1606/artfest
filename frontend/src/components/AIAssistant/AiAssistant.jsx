@@ -9,7 +9,9 @@ import styles from "./AiAssistant.module.css";
 
 import AssistantMessage from "./components/AssistantMessage.jsx";
 import ActionMenu from "./components/ActionMenu.jsx";
-
+import {
+  askVendorPlatform,
+} from "./VendorAIAssistant/vendorPlatformApi.js";
 /* =========================================================
    Produse
 ========================================================= */
@@ -53,7 +55,6 @@ import {
 import {
   PERSONALIZATION_ACTIONS,
   startPersonalizationFlow,
-  handlePersonalizationChoice,
   getPersonalizationTemporaryResponse,
   getPersonalizationImageUploadResponse,
   getPersonalizationInputPlaceholder,
@@ -66,7 +67,9 @@ import {
 /* =========================================================
    Suport
 ========================================================= */
-
+import {
+  submitProductPersonalizationMessage,
+} from "./Personalization/productPersonalizationFlow.js";
 import {
   HELP_ACTIONS,
   SUPPORT_FLOWS,
@@ -302,13 +305,31 @@ function normalizeIntentText(value) {
     .trim();
 }
 
-function detectAssistantIntent(value) {
+function detectAssistantIntent(
+  value,
+  isVendor = false
+) {
   const text =
     normalizeIntentText(value);
 
   if (!text) {
     return null;
   }
+
+/* =========================
+   VENDOR - AJUTOR PLATFORMĂ
+========================= */
+
+if (
+  isVendor &&
+  /(catalog|import|importa|importare|excel|xlsx|xls|csv|mapping|mapare|coloana|coloane|easysales|easy sales|shopify|woocommerce|export|exporta|descarca model|model excel|imagine in excel|imagini in excel|poza in excel|poze in excel|raport erori|retry|reincerc|sincronizare)/.test(
+    text
+  )
+) {
+  return {
+    type: "vendor-platform",
+  };
+}
 
   /* =========================
      CĂUTARE DUPĂ FOTOGRAFIE
@@ -644,6 +665,27 @@ const [
 });
 
 const [
+  personalizationContext,
+  setPersonalizationContext,
+] = useState(null);
+
+const [
+  personalizationDraft,
+  setPersonalizationDraft,
+] = useState({
+  step: null,
+  currentFieldIndex: 0,
+
+  selectedOptions: {},
+  customAnswers: {},
+  repeatedGroupAnswers: {},
+
+  currentGroupIndex: 0,
+  currentMemberIndex: 0,
+  currentRepeatedFieldIndex: 0,
+});
+
+const [
   currentMenu,
   setCurrentMenu,
 ] = useState("root");
@@ -784,6 +826,221 @@ Pentru început, de câte bucăți ai nevoie?`
     window.removeEventListener(
       "artfest:quote-request",
       handleQuoteRequest
+    );
+  };
+}, []);
+
+useEffect(() => {
+  function handlePersonalizationStart(
+    event
+  ) {
+    const detail =
+      event?.detail || {};
+
+    if (!detail.productId) {
+      return;
+    }
+
+    /*
+     * Panoul poate avea încă poziția
+     * calculată pentru bula mică.
+     */
+    const currentPanelSize =
+      getPanelSize();
+
+    setPosition((current) =>
+      clampPosition(
+        current,
+        currentPanelSize.width,
+        currentPanelSize.height
+      )
+    );
+
+    const optionsSchema =
+      Array.isArray(
+        detail.optionsSchema
+      )
+        ? detail.optionsSchema
+        : [];
+
+    const customSchema =
+      Array.isArray(
+        detail.customSchema
+      )
+        ? detail.customSchema
+        : [];
+
+    const repeatedGroups =
+      Array.isArray(
+        detail.repeatedGroups
+      )
+        ? detail.repeatedGroups
+        : [];
+
+    const currentAnswers =
+      detail.currentAnswers &&
+      typeof detail.currentAnswers ===
+        "object"
+        ? detail.currentAnswers
+        : {};
+
+    const selectedOptions =
+      currentAnswers
+        .selectedOptions &&
+      typeof currentAnswers
+        .selectedOptions ===
+        "object"
+        ? currentAnswers
+            .selectedOptions
+        : {};
+
+    const customAnswers =
+      currentAnswers
+        .customAnswers &&
+      typeof currentAnswers
+        .customAnswers ===
+        "object"
+        ? currentAnswers
+            .customAnswers
+        : {};
+
+    const repeatedGroupAnswers =
+      currentAnswers
+        .repeatedGroupAnswers &&
+      typeof currentAnswers
+        .repeatedGroupAnswers ===
+        "object"
+        ? currentAnswers
+            .repeatedGroupAnswers
+        : {};
+
+    setPersonalizationContext({
+      ...detail,
+
+      optionsSchema,
+      customSchema,
+      repeatedGroups,
+    });
+
+    setPersonalizationDraft({
+      step: "fields",
+
+      currentFieldIndex: 0,
+
+      selectedOptions,
+      customAnswers,
+      repeatedGroupAnswers,
+
+      currentGroupIndex: 0,
+      currentMemberIndex: 0,
+      currentRepeatedFieldIndex: 0,
+    });
+
+    /*
+     * Este un flow separat de
+     * cererea de ofertă.
+     */
+    setActiveFlow(
+      "product-personalization"
+    );
+
+    setCurrentMenu(
+      "personalization"
+    );
+
+    setShowMenu(false);
+
+    /*
+     * Identificăm prima întrebare.
+     */
+    const firstOption =
+      optionsSchema[0] || null;
+
+    const firstCustom =
+      customSchema[0] || null;
+
+    const firstGroup =
+      repeatedGroups[0] || null;
+
+    let firstQuestion = "";
+
+    if (firstOption) {
+      const values =
+        Array.isArray(
+          firstOption.options
+        )
+          ? firstOption.options
+          : Array.isArray(
+                firstOption.values
+              )
+            ? firstOption.values
+            : [];
+
+      firstQuestion = [
+        firstOption.label ||
+          "Ce variantă dorești?",
+
+        values.length
+          ? `Poți alege: ${values
+              .map((item) =>
+                typeof item ===
+                "string"
+                  ? item
+                  : item?.label ||
+                    item?.value ||
+                    item?.key ||
+                    ""
+              )
+              .filter(Boolean)
+              .join(", ")}.`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    } else if (firstCustom) {
+      firstQuestion =
+        firstCustom.label ||
+        "Spune-mi detaliile de personalizare.";
+    } else if (firstGroup) {
+      firstQuestion =
+        `Pentru câte persoane dorești ${
+          firstGroup.label ||
+          "acest set"
+        }?`;
+    }
+
+    const intro =
+      detail.productTitle
+        ? `Te ajut să personalizezi „${detail.productTitle}”. 💛`
+        : "Te ajut să personalizezi produsul. 💛";
+
+    setMessages([
+      createMessage(
+        "assistant",
+        firstQuestion
+          ? `${intro}
+
+Îți voi pune câteva întrebări, iar la final voi completa automat formularul produsului.
+
+${firstQuestion}`
+          : `${intro}
+
+Produsul nu are momentan informații de personalizare de completat.`
+      ),
+    ]);
+
+    setIsOpen(true);
+  }
+
+  window.addEventListener(
+    "artfest:personalization-start",
+    handlePersonalizationStart
+  );
+
+  return () => {
+    window.removeEventListener(
+      "artfest:personalization-start",
+      handlePersonalizationStart
     );
   };
 }, []);
@@ -1518,7 +1775,22 @@ function resetConversation() {
 
   setInputValue("");
   setActiveFlow(null);
-  setQuoteContext(null);
+setQuoteContext(null);
+
+setPersonalizationContext(null);
+
+setPersonalizationDraft({
+  step: null,
+  currentFieldIndex: 0,
+
+  selectedOptions: {},
+  customAnswers: {},
+  repeatedGroupAnswers: {},
+
+  currentGroupIndex: 0,
+  currentMemberIndex: 0,
+  currentRepeatedFieldIndex: 0,
+});
   setCurrentMenu("root");
   setQuoteDraft({
   step: null,
@@ -1955,17 +2227,6 @@ if (
         return;
       }
 
-      const personalizationHandled =
-        await handlePersonalizationChoice(
-          context
-        );
-
-      if (
-        personalizationHandled
-      ) {
-        return;
-      }
-
       const orderHandled =
         await handleOrderChoice(
           context
@@ -2114,280 +2375,479 @@ if (
      Încărcare imagine
   ======================================================= */
 
-  async function handleImageChange(
-    event
+ async function handleImageChange(event) {
+  const file =
+    event.target.files?.[0];
+
+  if (!file) {
+    return;
+  }
+
+  /*
+   * =====================================================
+   * VALIDARE FIȘIER
+   * =====================================================
+   */
+
+  if (
+    !file.type.startsWith(
+      "image/"
+    )
   ) {
-    const file =
-      event.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    if (
-      !file.type.startsWith(
-        "image/"
+    addMessage(
+      createMessage(
+        "assistant",
+        "Fișierul selectat nu este o imagine validă."
       )
-    ) {
-      addMessage(
-        createMessage(
-          "assistant",
-          "Fișierul selectat nu este o imagine validă."
-        )
-      );
-
-      event.target.value = "";
-      return;
-    }
-
-    if (
-      file.size >
-      10 * 1024 * 1024
-    ) {
-      addMessage(
-        createMessage(
-          "assistant",
-          "Imaginea este prea mare. Te rog să alegi un fișier de maximum 10 MB."
-        )
-      );
-
-      event.target.value = "";
-      return;
-    }
-
-    clearUploadedImage();
-
-    const previewUrl =
-      URL.createObjectURL(file);
-
-    setUploadedImage({
-      file,
-      previewUrl,
-    });
-
-   const isQuoteConversation =
-  activeFlow ===
-    QUOTE_FLOWS
-      .USER_QUOTE_THREAD ||
-  activeFlow ===
-    QUOTE_FLOWS
-      .VENDOR_QUOTE_THREAD;
-
-if (
-  !isQuoteConversation
-) {
-  addMessage({
-    id:
-      `${Date.now()}-image`,
-
-    role:
-      "user",
-
-    type:
-      "image",
-
-    content:
-      "Fotografie încărcată",
-
-    imageUrl:
-      previewUrl,
-
-    filename:
-      file.name,
-  });
-}
+    );
 
     event.target.value = "";
+    return;
+  }
 
-    if (
-      activeFlow ===
-      "image-search"
-    ) {
-      setVisualSearchId(null);
+  if (
+    file.size >
+    10 * 1024 * 1024
+  ) {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Imaginea este prea mare. Te rog să alegi un fișier de maximum 10 MB."
+      )
+    );
 
-      await runVisualSearch(
-        file
+    event.target.value = "";
+    return;
+  }
+
+  /*
+   * Curățăm imaginea veche.
+   */
+  clearUploadedImage();
+
+  const previewUrl =
+    URL.createObjectURL(file);
+
+  const nextUploadedImage = {
+    file,
+    previewUrl,
+  };
+
+  setUploadedImage(
+    nextUploadedImage
+  );
+
+  /*
+   * =====================================================
+   * AFIȘARE POZĂ ÎN CHAT
+   * =====================================================
+   */
+
+  const isQuoteConversation =
+    activeFlow ===
+      QUOTE_FLOWS
+        .USER_QUOTE_THREAD ||
+    activeFlow ===
+      QUOTE_FLOWS
+        .VENDOR_QUOTE_THREAD;
+
+  /*
+   * Pentru quote thread fotografia
+   * va veni din server/polling.
+   *
+   * Pentru celelalte flow-uri o
+   * afișăm imediat.
+   */
+  if (!isQuoteConversation) {
+    addMessage({
+      id:
+        `${Date.now()}-image`,
+
+      role: "user",
+
+      type: "image",
+
+      content:
+        "Fotografie încărcată",
+
+      imageUrl:
+        previewUrl,
+
+      filename:
+        file.name,
+    });
+  }
+
+  /*
+   * =====================================================
+   * PERSONALIZARE PRODUS
+   * =====================================================
+   *
+   * Dacă utilizatorul se află în
+   * configurarea unui produs, fotografia
+   * este răspunsul pentru câmpul curent.
+   *
+   * Nu mai trebuie să scrie
+   * „gata” sau „mai departe”.
+   */
+
+  if (
+    activeFlow ===
+    "product-personalization"
+  ) {
+    try {
+      setIsSubmitting(true);
+
+      const handled =
+        await submitProductPersonalizationMessage({
+          activeFlow,
+
+          /*
+           * Nu avem mesaj text.
+           * Fișierul este răspunsul.
+           */
+          value: "",
+
+          personalizationContext,
+          personalizationDraft,
+
+          uploadedImage:
+            nextUploadedImage,
+
+          addMessage,
+          createMessage,
+
+          setActiveFlow,
+          setPersonalizationDraft,
+
+          clearUploadedImage,
+        });
+
+      event.target.value = "";
+
+      if (handled) {
+        return;
+      }
+    } catch (error) {
+      event.target.value = "";
+
+      addMessage(
+        createMessage(
+          "assistant",
+          error?.message ||
+            "Nu am putut prelua fotografia pentru personalizare."
+        )
       );
 
       return;
+    } finally {
+      setIsSubmitting(false);
     }
+  }
 
-    /*
- * =====================================================
- * FOTOGRAFIE ÎNCĂRCATĂ DIRECT
- * =====================================================
- *
- * Dacă utilizatorul încarcă o fotografie fără să fi
- * ales înainte "Caută după fotografie", pornim automat
- * căutarea vizuală.
- */
+  /*
+   * Resetăm input-ul pentru ca aceeași
+   * fotografie să poată fi selectată
+   * din nou ulterior.
+   */
+  event.target.value = "";
 
-const canStartVisualSearch =
-  !activeFlow ||
-  [
-    "product-search",
-    "gift",
-    "budget",
-  ].includes(activeFlow);
+  /*
+   * =====================================================
+   * CĂUTARE VIZUALĂ ACTIVĂ
+   * =====================================================
+   */
 
-if (canStartVisualSearch) {
-  setCurrentMenu("shopping");
-  setShowMenu(false);
-
-  setActiveFlow(
+  if (
+    activeFlow ===
     "image-search"
-  );
+  ) {
+    setVisualSearchId(null);
 
-  setVisualSearchId(null);
+    await runVisualSearch(
+      file
+    );
 
-  await runVisualSearch(
-    file
-  );
+    return;
+  }
 
-  return;
-}
+  /*
+   * =====================================================
+   * FOTOGRAFIE ÎNCĂRCATĂ DIRECT
+   * =====================================================
+   *
+   * Dacă utilizatorul încarcă o fotografie
+   * fără să fi pornit explicit un flow,
+   * pornim căutarea vizuală.
+   */
 
-    /*
- * =====================================================
- * ATAȘAMENT ÎN CONVERSAȚIE CERERE OFERTĂ
- * =====================================================
- */
+  const canStartVisualSearch =
+    !activeFlow ||
+    [
+      "product-search",
+      "gift",
+      "budget",
+    ].includes(
+      activeFlow
+    );
 
-const isUserQuoteThread =
-  activeFlow ===
+  if (canStartVisualSearch) {
+    setCurrentMenu(
+      "shopping"
+    );
+
+    setShowMenu(false);
+
+    setActiveFlow(
+      "image-search"
+    );
+
+    setVisualSearchId(null);
+
+    await runVisualSearch(
+      file
+    );
+
+    return;
+  }
+
+  /*
+   * =====================================================
+   * ATAȘAMENT ÎN CONVERSAȚIE CERERE OFERTĂ
+   * =====================================================
+   */
+
+  const isUserQuoteThread =
+    activeFlow ===
     QUOTE_FLOWS
       .USER_QUOTE_THREAD;
 
-const isVendorQuoteThread =
-  activeFlow ===
+  const isVendorQuoteThread =
+    activeFlow ===
     QUOTE_FLOWS
       .VENDOR_QUOTE_THREAD;
 
-if (
-  (
-    isUserQuoteThread ||
-    isVendorQuoteThread
-  ) &&
-  quoteContext?.threadId
-) {
-  try {
-    setIsSubmitting(
-      true
+  if (
+    (
+      isUserQuoteThread ||
+      isVendorQuoteThread
+    ) &&
+    quoteContext?.threadId
+  ) {
+    try {
+      setIsSubmitting(
+        true
+      );
+
+      /*
+       * Vendorul și clientul folosesc
+       * endpoint-uri diferite.
+       */
+      if (
+        isVendorQuoteThread
+      ) {
+        await sendVendorQuoteAttachment(
+          quoteContext.threadId,
+          file
+        );
+      } else {
+        await sendQuoteAttachment(
+          quoteContext.threadId,
+          file
+        );
+      }
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Fotografia a fost verificată și trimisă în conversație."
+        )
+      );
+
+      clearUploadedImage();
+
+      /*
+       * Mesajul real cu fotografia
+       * va apărea prin polling.
+       */
+      return;
+    } catch (error) {
+      addMessage(
+        createMessage(
+          "assistant",
+          error?.data?.message ||
+            error?.message ||
+            "Fotografia nu a putut fi trimisă."
+        )
+      );
+
+      clearUploadedImage();
+
+      return;
+    } finally {
+      setIsSubmitting(
+        false
+      );
+    }
+  }
+
+  /*
+   * =====================================================
+   * CERERE OFERTĂ DIN MAGAZIN
+   * =====================================================
+   *
+   * Păstrăm comportamentul existent
+   * pentru fotografia inițială din
+   * quote-from-store.
+   */
+
+  if (
+    activeFlow ===
+    "quote-from-store"
+  ) {
+    const response =
+      getPersonalizationImageUploadResponse?.(
+        {
+          activeFlow,
+          uploadedImage:
+            nextUploadedImage,
+        }
+      );
+
+    if (response) {
+      if (
+        typeof response ===
+        "string"
+      ) {
+        addMessage(
+          createMessage(
+            "assistant",
+            response
+          )
+        );
+      } else {
+        addMessage(
+          createMessage(
+            "assistant",
+            response.content ||
+              "Fotografia a fost adăugată.",
+            response.extra || {}
+          )
+        );
+      }
+    }
+
+    return;
+  }
+
+  /*
+   * =====================================================
+   * RĂSPUNSURI GENERICE PENTRU CELELALTE FLOW-URI
+   * =====================================================
+   */
+
+  const productResponse =
+    getProductImageUploadResponse?.(
+      {
+        activeFlow,
+        uploadedImage:
+          nextUploadedImage,
+      }
     );
 
-    /*
-     * Trimitem efectiv fotografia
-     * către backend.
-     *
-     * Backend-ul o va trece prin
-     * moderateMarketplaceImage()
-     * înainte să fie salvată.
-     */
+  if (productResponse) {
     if (
-      isVendorQuoteThread
+      typeof productResponse ===
+      "string"
     ) {
-      await sendVendorQuoteAttachment(
-        quoteContext.threadId,
-        file
+      addMessage(
+        createMessage(
+          "assistant",
+          productResponse
+        )
       );
     } else {
-      await sendQuoteAttachment(
-        quoteContext.threadId,
-        file
+      addMessage(
+        createMessage(
+          "assistant",
+          productResponse.content ||
+            "Fotografia a fost încărcată.",
+          productResponse.extra || {}
+        )
       );
     }
 
-    /*
-     * Ajungem aici numai dacă
-     * backend-ul a acceptat fotografia.
-     */
-    addMessage(
-      createMessage(
-        "assistant",
-        "Fotografia a fost verificată și trimisă în conversație."
-      )
-    );
-
-    clearUploadedImage();
-
-    /*
-     * Mesajul cu atașamentul va apărea
-     * în conversație prin actualizarea
-     * thread-ului / polling.
-     */
     return;
-  } catch (
-    error
-  ) {
-    /*
-     * Aici ajung:
-     *
-     * 422 -> fotografia a fost blocată
-     * 503 -> moderarea AI nu este disponibilă
-     * alte erori -> upload/server etc.
-     */
-    addMessage(
-      createMessage(
-        "assistant",
-        error?.data?.message ||
-          error?.message ||
-          "Fotografia nu a putut fi trimisă."
-      )
-    );
-
-    /*
-     * Fotografia respinsă nu trebuie
-     * să rămână în preview.
-     */
-    clearUploadedImage();
-
-    return;
-  } finally {
-    setIsSubmitting(
-      false
-    );
   }
-} 
 
-    const uploadResponse =
-      getSupportImageUploadResponse(
-        activeFlow
-      ) ||
-      getPersonalizationImageUploadResponse(
-        activeFlow
-      ) ||
-      getOrderImageUploadResponse(
-        activeFlow
-      ) ||
-      getProductImageUploadResponse(
-        activeFlow
-      ) ||
-      "Am primit fotografia.";
-
-    addMessage(
-      createMessage(
-        "assistant",
-        uploadResponse
-      )
+  const supportResponse =
+    getSupportImageUploadResponse?.(
+      {
+        activeFlow,
+        uploadedImage:
+          nextUploadedImage,
+      }
     );
+
+  if (supportResponse) {
     if (
-  activeFlow === "quote-from-store"
-) {
-  addMessage(
-    createMessage(
-      "assistant",
-      "Perfect! Acum spune-mi de câte bucăți ai nevoie."
-    )
-  );
+      typeof supportResponse ===
+      "string"
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          supportResponse
+        )
+      );
+    } else {
+      addMessage(
+        createMessage(
+          "assistant",
+          supportResponse.content ||
+            "Fotografia a fost încărcată.",
+          supportResponse.extra || {}
+        )
+      );
+    }
 
-  setQuoteDraft((current) => ({
-    ...current,
-    step: "quantity",
-  }));
-
-  return;
-}
+    return;
   }
+
+  const orderResponse =
+    getOrderImageUploadResponse?.(
+      {
+        activeFlow,
+        uploadedImage:
+          nextUploadedImage,
+      }
+    );
+
+  if (orderResponse) {
+    if (
+      typeof orderResponse ===
+      "string"
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          orderResponse
+        )
+      );
+    } else {
+      addMessage(
+        createMessage(
+          "assistant",
+          orderResponse.content ||
+            "Fotografia a fost încărcată.",
+          orderResponse.extra || {}
+        )
+      );
+    }
+
+    return;
+  }
+}
 
     /* =======================================================
      Trimitere mesaj
@@ -2409,12 +2869,13 @@ if (
       return;
     }
 
-    const protectedFlows = [
+   const protectedFlows = [
   SUPPORT_FLOWS.CONVERSATIONS,
   QUOTE_FLOWS.USER_QUOTE_THREAD,
   QUOTE_FLOWS.VENDOR_QUOTE_THREAD,
   "quote-from-store",
   "quote-from-product",
+  "product-personalization",
 ];
 
 const canSwitchIntent =
@@ -2425,7 +2886,10 @@ const canSwitchIntent =
 
 const directIntent =
   canSwitchIntent
-    ? detectAssistantIntent(value)
+    ? detectAssistantIntent(
+        value,
+        isVendor
+      )
     : null;
 
     const shouldDelayUserMessage =
@@ -2482,6 +2946,101 @@ if (isSwitchingFlow) {
   }
 }
   setShowMenu(false);
+
+  if (
+  directIntent.type ===
+    "vendor-platform" &&
+  isVendor
+) {
+  const loadingMessageId =
+    `${Date.now()}-vendor-platform-loading`;
+
+  addMessage({
+    id: loadingMessageId,
+    role: "assistant",
+    type: "loading",
+    content:
+      "Verific informațiile despre platformă...",
+  });
+
+  try {
+    const history =
+      messagesRef.current
+        .filter(
+          (message) =>
+            message?.type ===
+              "text" &&
+            (
+              message?.role ===
+                "user" ||
+              message?.role ===
+                "assistant"
+            )
+        )
+        .slice(-10)
+        .map(
+          (message) => ({
+            role:
+              message.role,
+
+            content:
+              String(
+                message.content ||
+                  ""
+              ),
+          })
+        );
+
+    const result =
+      await askVendorPlatform({
+        message: value,
+
+        history,
+
+        pageContext: {
+          page:
+            location.pathname,
+
+          route:
+            location.pathname,
+
+          tab:
+            new URLSearchParams(
+              location.search
+            ).get("tab") || "",
+        },
+      });
+
+    removeMessage(
+      loadingMessageId
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        result?.message ||
+          "Nu am suficiente informații pentru a răspunde."
+      )
+    );
+
+    return;
+  } catch (error) {
+    removeMessage(
+      loadingMessageId
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        error?.data?.message ||
+          error?.message ||
+          "Nu am putut verifica informațiile despre platformă."
+      )
+    );
+
+    return;
+  }
+}
 
   /* ======================================
      ACȚIUNI DIRECTE
@@ -2664,6 +3223,109 @@ if (
 ) {
   setShowMenu(false);
 
+  /*
+   * Dacă este vendor, trimitem întrebarea
+   * către asistentul general al platformei.
+   */
+  if (isVendor) {
+    const loadingMessageId =
+      `${Date.now()}-vendor-platform-loading`;
+
+    addMessage({
+      id: loadingMessageId,
+      role: "assistant",
+      type: "loading",
+      content:
+        "Verific informațiile despre platformă...",
+    });
+
+    try {
+      const history =
+        messagesRef.current
+          .filter(
+            (message) =>
+              message?.type ===
+                "text" &&
+              (
+                message?.role ===
+                  "user" ||
+                message?.role ===
+                  "assistant"
+              )
+          )
+          .slice(-10)
+          .map(
+            (message) => ({
+              role:
+                message.role,
+
+              content:
+                String(
+                  message.content ||
+                    ""
+                ),
+            })
+          );
+
+      const result =
+        await askVendorPlatform({
+          message: value,
+
+          history,
+
+          pageContext: {
+            page:
+              location.pathname,
+
+            route:
+              location.pathname,
+
+            tab:
+              new URLSearchParams(
+                location.search
+              ).get("tab") || "",
+          },
+        });
+
+      removeMessage(
+        loadingMessageId
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          result?.message ||
+            "Nu am suficiente informații pentru a răspunde."
+        )
+      );
+
+      return;
+    } catch (error) {
+      removeMessage(
+        loadingMessageId
+      );
+
+      console.error(
+        "[AiAssistant] vendor platform:",
+        error
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          error?.data?.message ||
+            error?.message ||
+            "Nu am putut verifica informațiile despre platformă."
+        )
+      );
+
+      return;
+    }
+  }
+
+  /*
+   * Pentru client păstrăm comportamentul actual.
+   */
   addMessage(
     createMessage(
       "assistant",
@@ -2719,6 +3381,32 @@ if (
 
         return;
       }
+
+      /*
+ * ===================================================
+ * PERSONALIZARE PRODUS
+ * ===================================================
+ */
+
+const personalizationHandled =
+  await submitProductPersonalizationMessage({
+    activeFlow,
+    value,
+
+    personalizationContext,
+    personalizationDraft,
+
+    addMessage,
+    createMessage,
+
+    setActiveFlow,
+    setPersonalizationDraft,
+  });
+
+if (personalizationHandled) {
+  removeLoadingMessages();
+  return;
+}
 
       /*
        * ===================================================

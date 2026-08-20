@@ -6,6 +6,7 @@ import { sendOrderCancelledByUserNotifications } from "../services/orderMessagin
 import { sendOrderCancelledByUserEmail } from "../lib/mailer.js";
 import {
   createDepositPaymentForShipment,
+  createPaymentForOrder,
 } from "../payments/orchestrator.js";
 
 const router = Router();
@@ -19,46 +20,182 @@ router.use(authRequired);
    Helper: map OrderStatus + ShipmentStatus -> UI status
    UI: PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELED | RETURNED
 ----------------------------------------------------- */
-function computeUiStatus(order, shipments = []) {
-  const orderStatus = order?.status || null; // PENDING / PAID / CANCELLED / FULFILLED
-  const shipmentStatuses = shipments.map((s) => s.status);
-
-  // 1) dacă avem shipments, derivăm din ele (au prioritate)
-  if (shipmentStatuses.length) {
-    // retur real are prioritate
-    if (shipmentStatuses.some((st) => st === "RETURNED")) return "RETURNED";
-
-    // anulare vendor / colet neexpediat
-    if (shipmentStatuses.some((st) => st === "REFUSED")) return "CANCELED";
-
-    // livrat doar dacă toate sunt livrate
-    if (shipmentStatuses.every((st) => st === "DELIVERED")) return "DELIVERED";
-
-    // SHIPPED doar când chiar există AWB / ridicat / în tranzit
-    if (shipmentStatuses.some((st) => ["AWB", "IN_TRANSIT"].includes(st))) return "SHIPPED";
-
-    // PROCESSING include și “pickup cerut”
-    if (
-      shipmentStatuses.some((st) =>
-        ["PREPARING", "READY_FOR_PICKUP", "PICKUP_SCHEDULED"].includes(st)
-      )
+function computeUiStatus(
+  order,
+  shipments = []
+) {
+  const orderStatus =
+    String(
+      order?.status || ""
     )
-      return "PROCESSING";
+      .trim()
+      .toUpperCase();
 
-    if (shipmentStatuses.some((st) => st === "PENDING")) return "PENDING";
+  const paymentMethod =
+    String(
+      order?.paymentMethod || ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const shipmentStatuses =
+    shipments.map(
+      (shipment) =>
+        String(
+          shipment?.status || ""
+        )
+          .trim()
+          .toUpperCase()
+    );
+
+  /*
+   * 1. Anulare / retur au prioritate.
+   */
+
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        status ===
+        "RETURNED"
+    )
+  ) {
+    return "RETURNED";
   }
 
-  // 2) dacă order e CANCELLED și NU avem shipments relevante, override UI
-  if (orderStatus === "CANCELLED") return "CANCELED";
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        status ===
+        "REFUSED"
+    )
+  ) {
+    return "CANCELED";
+  }
 
-  // 3) fallback din OrderStatus
-  switch (orderStatus) {
-    case "PENDING":
-      return "PENDING";
+  if (
+    orderStatus ===
+    "CANCELLED"
+  ) {
+    return "CANCELED";
+  }
+
+  /*
+   * 2. Livrat.
+   */
+
+  if (
+    shipmentStatuses.length >
+      0 &&
+    shipmentStatuses.every(
+      (status) =>
+        status ===
+        "DELIVERED"
+    )
+  ) {
+    return "DELIVERED";
+  }
+
+  if (
+    orderStatus ===
+    "FULFILLED"
+  ) {
+    return "DELIVERED";
+  }
+
+  /*
+   * 3. Expediere.
+   */
+
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        [
+          "AWB",
+          "IN_TRANSIT",
+        ].includes(
+          status
+        )
+    )
+  ) {
+    return "SHIPPED";
+  }
+
+  /*
+   * 4. Vendorul a început procesarea.
+   */
+
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        [
+          "PREPARING",
+          "READY_FOR_PICKUP",
+          "PICKUP_SCHEDULED",
+        ].includes(
+          status
+        )
+    )
+  ) {
+    return "PROCESSING";
+  }
+
+  /*
+   * 5. CARD plătit.
+   *
+   * Chiar dacă Shipment este încă PENDING,
+   * comanda este confirmată și trebuie
+   * afișată ca PROCESSING.
+   */
+
+  if (
+    paymentMethod ===
+      "CARD" &&
+    (
+      orderStatus ===
+        "PAID" ||
+      Boolean(
+        order?.paidAt
+      )
+    )
+  ) {
+    return "PROCESSING";
+  }
+
+  /*
+   * 6. Shipment încă PENDING.
+   *
+   * Pentru:
+   * - COD nou
+   * - CARD încă neplătit
+   */
+
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        status ===
+        "PENDING"
+    )
+  ) {
+    return "PENDING";
+  }
+
+  /*
+   * 7. Fallback.
+   */
+
+  switch (
+    orderStatus
+  ) {
     case "PAID":
       return "PROCESSING";
+
     case "FULFILLED":
       return "DELIVERED";
+
+    case "CANCELLED":
+      return "CANCELED";
+
+    case "PENDING":
     default:
       return "PENDING";
   }
@@ -136,6 +273,73 @@ function computeTotalsCents(order) {
   const shippingTotal = Number(order.shippingTotal || 0);
   const total = Number(order.total || subtotal + shippingTotal);
   return { currency, totalCents: Math.round(total * 100) };
+}
+
+/* ----------------------------------------------------
+   Helper: status plată comandă
+----------------------------------------------------- */
+
+function computeOrderPaymentState(
+  order
+) {
+  const paymentMethod =
+    String(
+      order?.paymentMethod ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const orderStatus =
+    String(
+      order?.status ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const isCard =
+    paymentMethod ===
+    "CARD";
+
+  const isPaid =
+    isCard &&
+    (
+      orderStatus ===
+        "PAID" ||
+      Boolean(
+        order?.paidAt
+      )
+    );
+
+  /*
+   * COD nu are o "plată online"
+   * care trebuie confirmată.
+   */
+  const paymentStatus =
+    paymentMethod ===
+    "COD"
+      ? "COD"
+      : isPaid
+        ? "PAID"
+        : "PENDING";
+
+  const canRetryPayment =
+    isCard &&
+    !isPaid &&
+    orderStatus ===
+      "PENDING";
+
+  return {
+    paymentMethod,
+
+    paymentStatus,
+
+    paid:
+      isPaid,
+
+    canRetryPayment,
+  };
 }
 
 function serializeShipmentDeposit(
@@ -261,383 +465,743 @@ function getActiveOrderDeposit(
 
 /* ----------------------------------------------------
    GET /api/user/orders/my
-   Optimized:
-   - query + paginare în DB (skip/take)
-   - select minimal (nu include tot)
-   - filtrare UI status în memorie cu "overfetch" ca să umple pagina
+
+   Lista comenzilor utilizatorului.
+   Include și statusul plății pentru CARD.
 ----------------------------------------------------- */
-router.get("/my", async (req, res) => {
-  const userId = req.user.sub;
 
-  const q = String(req.query.q || "").trim();
-  const statusParam = String(req.query.status || ""); // ex: "PENDING,PROCESSING,SHIPPED"
-  const page = Math.max(1, parseInt(req.query.page || "1", 10));
-  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+router.get(
+  "/my",
 
-  const statusList = parseStatusList(statusParam);
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.sub;
 
-  // where în DB (cât se poate)
-  const where = {
-    userId,
-    ...(q
-      ? {
-          OR: [
-            { orderNumber: toInsensitiveContains(q) },
-            // id e cuid, de obicei nu e căutat, dar păstrăm funcțional
-            { id: toInsensitiveContains(q) },
-            {
-              shipments: {
-                some: {
-                  items: {
+      const q =
+        String(
+          req.query.q ||
+            ""
+        ).trim();
+
+      const statusParam =
+        String(
+          req.query.status ||
+            ""
+        );
+
+      const page =
+        Math.max(
+          1,
+          parseInt(
+            req.query.page ||
+              "1",
+            10
+          )
+        );
+
+      const limit =
+        Math.min(
+          50,
+          Math.max(
+            1,
+            parseInt(
+              req.query.limit ||
+                "10",
+              10
+            )
+          )
+        );
+
+      const statusList =
+        parseStatusList(
+          statusParam
+        );
+
+      /*
+       * =====================================================
+       * FILTRARE DB
+       * =====================================================
+       */
+
+      const where = {
+        userId,
+
+        ...(q
+          ? {
+              OR: [
+                {
+                  orderNumber:
+                    toInsensitiveContains(
+                      q
+                    ),
+                },
+
+                {
+                  id:
+                    toInsensitiveContains(
+                      q
+                    ),
+                },
+
+                {
+                  shipments: {
                     some: {
-                      title: toInsensitiveContains(q),
+                      items: {
+                        some: {
+                          title:
+                            toInsensitiveContains(
+                              q
+                            ),
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            }
+          : {}),
+      };
+
+      const totalDb =
+        await prisma.order.count({
+          where,
+        });
+
+      /*
+       * =====================================================
+       * OVERFETCH
+       *
+       * uiStatus este calculat din Order + Shipment,
+       * deci filtrarea finală se face în memorie.
+       * =====================================================
+       */
+
+      const INTERNAL_CHUNK =
+        Math.min(
+          200,
+          limit * 8
+        );
+
+      const startIndexWanted =
+        (page - 1) *
+        limit;
+
+      let collected =
+        [];
+
+      let scanned =
+        0;
+
+      let skip =
+        0;
+
+      let filteredOffsetToSkip =
+        startIndexWanted;
+
+      const MAX_LOOPS =
+        25;
+
+      for (
+        let loop = 0;
+        loop < MAX_LOOPS;
+        loop++
+      ) {
+        const rows =
+          await prisma.order.findMany({
+            where,
+
+            orderBy: {
+              createdAt:
+                "desc",
+            },
+
+            skip,
+
+            take:
+              INTERNAL_CHUNK,
+
+            select: {
+              id:
+                true,
+
+              orderNumber:
+                true,
+
+              createdAt:
+                true,
+
+              /*
+               * Status real:
+               * PENDING | PAID | CANCELLED | FULFILLED
+               */
+              status:
+                true,
+
+              /*
+               * =================================================
+               * PLATĂ
+               * =================================================
+               */
+              paymentMethod:
+                true,
+
+              paidAt:
+                true,
+
+              stripeCheckoutSessionId:
+                true,
+
+              stripePaymentIntentId:
+                true,
+
+              currency:
+                true,
+
+              subtotal:
+                true,
+
+              shippingTotal:
+                true,
+
+              total:
+                true,
+
+              shippingAddress:
+                true,
+
+              shipments: {
+                select: {
+                  id:
+                    true,
+
+                  status:
+                    true,
+
+                  depositStatus:
+                    true,
+
+                  depositPercent:
+                    true,
+
+                  depositRequestedAmount:
+                    true,
+
+                  depositPaidAmount:
+                    true,
+
+                  remainingCodAmount:
+                    true,
+
+                  depositRequestedAt:
+                    true,
+
+                  depositPaidAt:
+                    true,
+
+                  depositExpiresAt:
+                    true,
+
+                  items: {
+                    select: {
+                      id:
+                        true,
+
+                      productId:
+                        true,
+
+                      title:
+                        true,
+
+                      qty:
+                        true,
+
+                      price:
+                        true,
+
+                      originalPrice:
+                        true,
+
+                      discountAmount:
+                        true,
+
+                      promoCollectionId:
+                        true,
+
+                      promoFundingSource:
+                        true,
+
+                      selectedOptions:
+                        true,
+
+                      customAnswers:
+                        true,
+
+                      repeatedGroupAnswers:
+                        true,
+
+                      configurationKey:
+                        true,
                     },
                   },
                 },
               },
             },
-          ],
+          });
+
+        if (
+          !rows.length
+        ) {
+          break;
         }
-      : {}),
-  };
 
-  // total rapid (pentru paginare UI). Atenție: acest total NU ține cont de uiStatus derivat.
-  // Dacă vrei total exact per tab, ai nevoie de denormalizare uiStatus sau de logică de numărare (scump).
-  // Practic, front-ul tău calculează totalPages din total; ca să nu “mintă” prea tare, îl facem "best-effort":
-  // - dacă nu ai statusList => total e exact
-  // - dacă ai statusList => total e aproximativ (maxim), dar hasMore îl controlăm din fetch real
-  const totalDb = await prisma.order.count({ where });
+        skip +=
+          rows.length;
 
-  // OVERFETCH ca să putem filtra pe uiStatus (derivat din shipments) dar să nu citim tot
-  const INTERNAL_CHUNK = Math.min(200, limit * 8); // ex: limit 10 => 80
-  const startIndexWanted = (page - 1) * limit;
+        scanned +=
+          rows.length;
 
-  let collected = [];
-  let scanned = 0;
-  let skip = 0;
+        /*
+         * ===================================================
+         * IMAGINI PRODUSE
+         * ===================================================
+         */
 
-  // ca să ajungem la "pagina N" după filtrare, trebuie să sărim primele startIndexWanted rezultate filtrate
-  let filteredOffsetToSkip = startIndexWanted;
+        const productIdSet =
+          new Set();
 
-  // limităm bucla ca să nu fie infinită dacă filtrele sunt foarte restrictive
-  const MAX_LOOPS = 25;
-
-  for (let loop = 0; loop < MAX_LOOPS; loop++) {
-    const rows = await prisma.order.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: INTERNAL_CHUNK,
-      select: {
-        id: true,
-        orderNumber: true,
-        createdAt: true,
-        status: true,
-        currency: true,
-        subtotal: true,
-        shippingTotal: true,
-        total: true,
-        shippingAddress: true,
-       shipments: {
-  select: {
-    id:
-      true,
-
-    status:
-      true,
-
-    depositStatus:
-      true,
-
-    depositPercent:
-      true,
-
-    depositRequestedAmount:
-      true,
-
-    depositPaidAmount:
-      true,
-
-    remainingCodAmount:
-      true,
-
-    depositRequestedAt:
-      true,
-
-    depositPaidAt:
-      true,
-
-    depositExpiresAt:
-      true,
-
-         items: {
-  select: {
-    id: true,
-
-    productId: true,
-
-    title: true,
-
-    qty: true,
-
-    price: true,
-
-    originalPrice: true,
-
-    discountAmount: true,
-
-    promoCollectionId: true,
-
-    promoFundingSource: true,
-
-   selectedOptions: true,
-customAnswers: true,
-repeatedGroupAnswers: true,
-configurationKey: true,
-  },
-},
-          },
-        },
-      },
-    });
-
-    if (!rows.length) break;
-
-    skip += rows.length;
-    scanned += rows.length;
-
-    // colectăm productIds doar din chunk-ul curent (și doar dacă avem nevoie)
-    const productIdSet = new Set();
-    for (const o of rows) {
-      for (const s of o.shipments) {
-        for (const it of s.items) {
-          if (it.productId) productIdSet.add(it.productId);
+        for (
+          const order of
+          rows
+        ) {
+          for (
+            const shipment of
+            order.shipments
+          ) {
+            for (
+              const item of
+              shipment.items
+            ) {
+              if (
+                item.productId
+              ) {
+                productIdSet.add(
+                  item.productId
+                );
+              }
+            }
+          }
         }
-      }
-    }
 
-    let imageMap = new Map();
-    if (productIdSet.size) {
-      const products = await prisma.product.findMany({
-        where: { id: { in: Array.from(productIdSet) } },
-        select: { id: true, images: true },
-      });
+        let imageMap =
+          new Map();
 
-      imageMap = new Map(
-        products.map((p) => [p.id, Array.isArray(p.images) && p.images[0] ? p.images[0] : null])
-      );
-    }
+        if (
+          productIdSet.size
+        ) {
+          const products =
+            await prisma.product.findMany({
+              where: {
+                id: {
+                  in:
+                    Array.from(
+                      productIdSet
+                    ),
+                },
+              },
 
-    // map + filtrare uiStatus în memorie
-    for (const o of rows) {
-      const uiStatus = computeUiStatus(o, o.shipments);
-      if (statusList.length && !statusList.includes(uiStatus)) continue;
+              select: {
+                id:
+                  true,
 
-      // "skip" pentru pagina cerută după filtrare
-      if (filteredOffsetToSkip > 0) {
-        filteredOffsetToSkip--;
-        continue;
-      }
+                images:
+                  true,
+              },
+            });
 
-      const shippingStage = computeShippingStage(o.shipments);
-      const returnEligible = uiStatus === "DELIVERED";
+          imageMap =
+            new Map(
+              products.map(
+                (
+                  product
+                ) => [
+                  product.id,
 
-      const { currency, totalCents } = computeTotalsCents(o);
+                  Array.isArray(
+                    product.images
+                  ) &&
+                  product.images[0]
+                    ? product.images[0]
+                    : null,
+                ]
+              )
+            );
+        }
 
-      const addr = o.shippingAddress || {};
-      const isCompany = !!(addr.companyName || addr.companyCui);
-      const customerType = isCompany ? "PJ" : "PF";
+        /*
+         * ===================================================
+         * MAPARE UI
+         * ===================================================
+         */
 
-   const flatItems =
-  o.shipments.flatMap(
-    (shipment) =>
-      shipment.items.map(
-        (item) => {
-          const price =
-            Number(
-              item.price || 0
+        for (
+          const order of
+          rows
+        ) {
+          const uiStatus =
+            computeUiStatus(
+              order,
+              order.shipments
             );
 
-          const originalPrice =
-            item.originalPrice != null
-              ? Number(
-                  item.originalPrice
-                )
-              : null;
+          if (
+            statusList.length &&
+            !statusList.includes(
+              uiStatus
+            )
+          ) {
+            continue;
+          }
 
-          const hasDiscount =
-            originalPrice != null &&
-            originalPrice > price;
+          if (
+            filteredOffsetToSkip >
+            0
+          ) {
+            filteredOffsetToSkip--;
 
-          const discountPercent =
-            hasDiscount &&
-            originalPrice > 0
-              ? Math.round(
+            continue;
+          }
+
+          const shippingStage =
+            computeShippingStage(
+              order.shipments
+            );
+
+          const returnEligible =
+            uiStatus ===
+            "DELIVERED";
+
+          const {
+            currency,
+            totalCents,
+          } =
+            computeTotalsCents(
+              order
+            );
+
+          const address =
+            order.shippingAddress ||
+            {};
+
+          const isCompany =
+            Boolean(
+              address.companyName ||
+                address.companyCui
+            );
+
+          const customerType =
+            isCompany
+              ? "PJ"
+              : "PF";
+
+          /*
+           * =================================================
+           * STATUS PLATĂ
+           * =================================================
+           */
+
+          const paymentState =
+            computeOrderPaymentState(
+              order
+            );
+
+          /*
+           * =================================================
+           * PRODUSE
+           * =================================================
+           */
+
+          const flatItems =
+            order.shipments.flatMap(
+              (
+                shipment
+              ) =>
+                shipment.items.map(
                   (
-                    (
-                      originalPrice -
-                      price
-                    ) /
-                    originalPrice
-                  ) * 100
+                    item
+                  ) => {
+                    const price =
+                      Number(
+                        item.price ||
+                          0
+                      );
+
+                    const originalPrice =
+                      item.originalPrice !=
+                      null
+                        ? Number(
+                            item.originalPrice
+                          )
+                        : null;
+
+                    const hasDiscount =
+                      originalPrice !=
+                        null &&
+                      originalPrice >
+                        price;
+
+                    const discountPercent =
+                      hasDiscount &&
+                      originalPrice >
+                        0
+                        ? Math.round(
+                            (
+                              (
+                                originalPrice -
+                                price
+                              ) /
+                              originalPrice
+                            ) *
+                              100
+                          )
+                        : 0;
+
+                    return {
+                      id:
+                        item.id,
+
+                      productId:
+                        item.productId,
+
+                      title:
+                        item.title,
+
+                      qty:
+                        item.qty,
+
+                      price,
+
+                      priceCents:
+                        Math.round(
+                          price *
+                            100
+                        ),
+
+                      originalPrice:
+                        hasDiscount
+                          ? originalPrice
+                          : null,
+
+                      originalPriceCents:
+                        hasDiscount
+                          ? Math.round(
+                              originalPrice *
+                                100
+                            )
+                          : null,
+
+                      hasDiscount,
+
+                      discountPercent,
+
+                      discountAmount:
+                        Number(
+                          item.discountAmount ||
+                            0
+                        ),
+
+                      promoCollectionId:
+                        item.promoCollectionId ||
+                        null,
+
+                      promoFundingSource:
+                        item.promoFundingSource ||
+                        null,
+
+                      selectedOptions:
+                        item.selectedOptions ||
+                        {},
+
+                      customAnswers:
+                        item.customAnswers ||
+                        {},
+
+                      repeatedGroupAnswers:
+                        item.repeatedGroupAnswers ||
+                        {},
+
+                      configurationKey:
+                        item.configurationKey ||
+                        null,
+
+                      image:
+                        item.productId
+                          ? imageMap.get(
+                              item.productId
+                            ) ||
+                            null
+                          : null,
+
+                      shipmentId:
+                        shipment.id,
+                    };
+                  }
                 )
-              : 0;
+            );
 
-          return {
+          const deposits =
+            getOrderDeposits(
+              order.shipments
+            );
+
+          const activeDeposit =
+            getActiveOrderDeposit(
+              order.shipments
+            );
+
+          collected.push({
             id:
-              item.id,
+              order.id,
 
-            productId:
-              item.productId,
+            orderNumber:
+              order.orderNumber ||
+              null,
 
-            title:
-              item.title,
+            createdAt:
+              order.createdAt,
 
-            qty:
-              item.qty,
+            /*
+             * Status pentru UI:
+             * PENDING / PROCESSING / etc.
+             */
+            status:
+              uiStatus,
 
-            price,
+            /*
+             * Status real din Order.
+             */
+            orderStatus:
+              order.status,
 
-            priceCents:
-              Math.round(
-                price * 100
+            /*
+             * =================================================
+             * PLATĂ
+             * =================================================
+             */
+
+            paymentMethod:
+              paymentState
+                .paymentMethod,
+
+            /*
+             * COD | PENDING | PAID
+             */
+            paymentStatus:
+              paymentState
+                .paymentStatus,
+
+            paidAt:
+              order.paidAt ||
+              null,
+
+            canRetryPayment:
+              paymentState
+                .canRetryPayment,
+
+            stripeCheckoutSessionId:
+              order
+                .stripeCheckoutSessionId ||
+              null,
+
+            totalCents,
+
+            currency,
+
+            items:
+              flatItems,
+
+            cancellable:
+              isOrderCancellable(
+                order,
+                order.shipments
               ),
 
-            originalPrice:
-              hasDiscount
-                ? originalPrice
-                : null,
+            customerType,
 
-            originalPriceCents:
-              hasDiscount
-                ? Math.round(
-                    originalPrice *
-                      100
-                  )
-                : null,
+            shippingAddress:
+              address,
 
-            hasDiscount,
+            shippingStage,
 
-            discountPercent,
+            returnEligible,
 
-            discountAmount:
-              Number(
-                item.discountAmount ||
-                  0
-              ),
+            deposits,
 
-            promoCollectionId:
-              item.promoCollectionId ||
-              null,
+            deposit:
+              activeDeposit,
+          });
 
-            promoFundingSource:
-              item.promoFundingSource ||
-              null,
-
-            selectedOptions:
-              item.selectedOptions ||
-              {},
-
-            customAnswers:
-              item.customAnswers ||
-              {},
-
-              repeatedGroupAnswers:
-  item.repeatedGroupAnswers || {},
-
-            configurationKey:
-              item.configurationKey ||
-              null,
-
-            image:
-              item.productId
-                ? imageMap.get(
-                    item.productId
-                  ) || null
-                : null,
-
-            shipmentId:
-              shipment.id,
-          };
+          if (
+            collected.length >=
+            limit
+          ) {
+            break;
+          }
         }
-      )
-  );
-const deposits =
-  getOrderDeposits(
-    o.shipments
-  );
 
-const activeDeposit =
-  getActiveOrderDeposit(
-    o.shipments
-  );
+        if (
+          collected.length >=
+          limit
+        ) {
+          break;
+        }
+      }
 
-collected.push({
-  id:
-    o.id,
+      const hasMore =
+        collected.length ===
+          limit &&
+        scanned <
+          totalDb;
 
-  orderNumber:
-    o.orderNumber ||
-    null,
+      return res.json({
+        total:
+          totalDb,
 
-  createdAt:
-    o.createdAt,
+        items:
+          collected,
 
-  status:
-    uiStatus,
+        hasMore,
+      });
+    } catch (
+      error
+    ) {
+      console.error(
+        "GET /api/user/orders/my failed:",
+        error
+      );
 
-  totalCents,
+      return res
+        .status(500)
+        .json({
+          error:
+            "orders_read_failed",
 
-  currency,
-
-  items:
-    flatItems,
-
-  cancellable:
-    isOrderCancellable(
-      o,
-      o.shipments
-    ),
-
-  customerType,
-
-  shippingAddress:
-    addr,
-
-  shippingStage,
-
-  returnEligible,
-
-  deposits,
-
-  deposit:
-    activeDeposit,
-});
-
-      if (collected.length >= limit) break;
+          message:
+            "Nu am putut încărca comenzile.",
+        });
     }
-
-    if (collected.length >= limit) break;
   }
-
-  // hasMore “real” pentru pagina curentă: dacă am reușit să umplem pagina și încă mai există date în DB,
-  // e probabil că există next. Mai corect: mai încercăm să vedem dacă există încă măcar 1 rezultat filtrat după colectare.
-  // (nu facem extra query; folosim un heuristic ok)
-  const hasMore = collected.length === limit && scanned < totalDb;
-
-  res.json({
-    // total: exact doar când nu ai statusList; altfel e best-effort (maxim posibil din DB)
-    total: statusList.length ? totalDb : totalDb,
-    items: collected,
-    hasMore, // extra (front-ul tău nu-l folosește acum, dar e util)
-  });
-});
-
+);
 /* ----------------------------------------------------
    GET /api/user/orders/:id
+
+   Detalii comandă.
+   Include statusul real al plății.
 ----------------------------------------------------- */
+
 router.get(
   "/:id",
+
   async (req, res) => {
     try {
       const userId =
@@ -648,6 +1212,18 @@ router.get(
           req.params.id ||
             ""
         ).trim();
+
+      if (!ref) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "order_id_missing",
+
+            message:
+              "Comanda nu a putut fi identificată.",
+          });
+      }
 
       const order =
         await prisma.order.findFirst({
@@ -694,14 +1270,22 @@ router.get(
         });
 
       if (!order) {
-        return res.status(404).json({
-          error:
-            "not_found",
+        return res
+          .status(404)
+          .json({
+            error:
+              "not_found",
 
-          message:
-            "Comanda nu a fost găsită.",
-        });
+            message:
+              "Comanda nu a fost găsită.",
+          });
       }
+
+      /*
+       * =====================================================
+       * STATUS COMANDĂ
+       * =====================================================
+       */
 
       const status =
         computeUiStatus(
@@ -717,6 +1301,23 @@ router.get(
       const returnEligible =
         status ===
         "DELIVERED";
+
+      /*
+       * =====================================================
+       * STATUS PLATĂ
+       * =====================================================
+       */
+
+      const paymentState =
+        computeOrderPaymentState(
+          order
+        );
+
+      /*
+       * =====================================================
+       * TOTALURI
+       * =====================================================
+       */
 
       const currency =
         order.currency ||
@@ -759,20 +1360,34 @@ router.get(
             100
         );
 
+      /*
+       * =====================================================
+       * ADRESĂ / CLIENT
+       * =====================================================
+       */
+
       const address =
         order.shippingAddress ||
         {};
 
       const isCompany =
         Boolean(
+          order.customerType ===
+            "PJ" ||
           address.companyName ||
-            address.companyCui
+          address.companyCui
         );
 
       const customerType =
         isCompany
           ? "PJ"
           : "PF";
+
+      /*
+       * =====================================================
+       * IMAGINI PRODUSE
+       * =====================================================
+       */
 
       const productIdSet =
         new Set();
@@ -824,7 +1439,9 @@ router.get(
         imageMap =
           new Map(
             products.map(
-              (product) => [
+              (
+                product
+              ) => [
                 product.id,
 
                 Array.isArray(
@@ -838,11 +1455,21 @@ router.get(
           );
       }
 
+      /*
+       * =====================================================
+       * PRODUSE
+       * =====================================================
+       */
+
       const flatItems =
         order.shipments.flatMap(
-          (shipment) =>
+          (
+            shipment
+          ) =>
             shipment.items.map(
-              (item) => {
+              (
+                item
+              ) => {
                 const price =
                   Number(
                     item.price ||
@@ -939,6 +1566,10 @@ router.get(
                     item.customAnswers ||
                     {},
 
+                  repeatedGroupAnswers:
+                    item.repeatedGroupAnswers ||
+                    {},
+
                   configurationKey:
                     item.configurationKey ||
                     null,
@@ -958,6 +1589,12 @@ router.get(
             )
         );
 
+      /*
+       * =====================================================
+       * AVANSURI
+       * =====================================================
+       */
+
       const deposits =
         getOrderDeposits(
           order.shipments
@@ -968,51 +1605,80 @@ router.get(
           order.shipments
         );
 
-     return res.json({
-  id:
-    order.id,
+      /*
+       * =====================================================
+       * RESPONSE
+       * =====================================================
+       */
 
-  orderNumber:
-    order.orderNumber ||
-    null,
+      return res.json({
+        id:
+          order.id,
 
-  createdAt:
-    order.createdAt,
+        orderNumber:
+          order.orderNumber ||
+          null,
 
-  /*
-   * Status calculat pentru UI.
-   */
-  status,
+        createdAt:
+          order.createdAt,
 
-  /*
-   * Status real din Order:
-   * PENDING | PAID | CANCELLED | FULFILLED
-   */
-  orderStatus:
-    order.status,
+        /*
+         * Status calculat pentru UI.
+         */
+        status,
 
-  /*
-   * COD | CARD
-   */
-  paymentMethod:
-    order.paymentMethod,
+        /*
+         * Status real:
+         * PENDING | PAID | CANCELLED | FULFILLED
+         */
+        orderStatus:
+          order.status,
 
-  /*
-   * Pentru plata cu cardul.
-   */
-  paidAt:
-    order.paidAt ||
-    null,
+        /*
+         * ===================================================
+         * PLATĂ
+         * ===================================================
+         */
 
-  stripeCheckoutSessionId:
-    order.stripeCheckoutSessionId ||
-    null,
+        paymentMethod:
+          paymentState
+            .paymentMethod,
 
-  stripePaymentIntentId:
-    order.stripePaymentIntentId ||
-    null,
+        /*
+         * COD | PENDING | PAID
+         */
+        paymentStatus:
+          paymentState
+            .paymentStatus,
 
-  shippingStage,
+        /*
+         * true doar pentru:
+         * CARD + PENDING + neplătită
+         */
+        canRetryPayment:
+          paymentState
+            .canRetryPayment,
+
+        paidAt:
+          order.paidAt ||
+          null,
+
+        stripeCheckoutSessionId:
+          order
+            .stripeCheckoutSessionId ||
+          null,
+
+        stripePaymentIntentId:
+          order
+            .stripePaymentIntentId ||
+          null,
+
+        stripeChargeId:
+          order
+            .stripeChargeId ||
+          null,
+
+        shippingStage,
 
         returnEligible,
 
@@ -1033,7 +1699,20 @@ router.get(
         shippingAddress:
           address,
 
+        billingAddress:
+          order.billingAddress ||
+          null,
+
+        contactPerson:
+          order.contactPerson ||
+          null,
+
         customerType,
+
+        shipToDifferentAddress:
+          order
+            .shipToDifferentAddress ===
+          true,
 
         items:
           flatItems,
@@ -1045,21 +1724,26 @@ router.get(
 
         shipments:
           order.shipments.map(
-            (shipment) => ({
+            (
+              shipment
+            ) => ({
               id:
                 shipment.id,
 
               provider:
-                shipment.courierProvider,
+                shipment
+                  .courierProvider,
 
               service:
-                shipment.courierService,
+                shipment
+                  .courierService,
 
               status:
                 shipment.status,
 
               trackingUrl:
-                shipment.trackingUrl,
+                shipment
+                  .trackingUrl,
 
               awb:
                 shipment.awb,
@@ -1074,8 +1758,8 @@ router.get(
                       .displayName ||
                     "Artizan"
                   : shipment.vendorId
-                  ? "Artizan"
-                  : null,
+                    ? "Artizan"
+                    : null,
 
               deposit:
                 serializeShipmentDeposit(
@@ -1121,19 +1805,231 @@ router.get(
             order.shipments
           ),
       });
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "GET /api/user/orders/:id failed:",
         error
       );
 
-      return res.status(500).json({
-        error:
-          "order_read_failed",
+      return res
+        .status(500)
+        .json({
+          error:
+            "order_read_failed",
 
-        message:
-          "Nu am putut încărca această comandă.",
+          message:
+            "Nu am putut încărca această comandă.",
+        });
+    }
+  }
+);
+/* ----------------------------------------------------
+   POST /api/user/orders/:id/payment
+
+   Reia plata unei comenzi cu CARD.
+----------------------------------------------------- */
+
+router.post(
+  "/:id/payment",
+
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.sub;
+
+      const orderId =
+        String(
+          req.params.id ||
+            ""
+        ).trim();
+
+      if (!orderId) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "order_id_missing",
+
+            message:
+              "Comanda nu a putut fi identificată.",
+          });
+      }
+
+      /*
+       * Comanda trebuie să aparțină
+       * utilizatorului autentificat.
+       */
+      const order =
+        await prisma.order.findFirst({
+          where: {
+            userId,
+
+            OR: [
+              {
+                id:
+                  orderId,
+              },
+
+              {
+                orderNumber:
+                  orderId,
+              },
+            ],
+          },
+        });
+
+      if (!order) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "order_not_found",
+
+            message:
+              "Comanda nu a fost găsită.",
+          });
+      }
+
+      const paymentState =
+        computeOrderPaymentState(
+          order
+        );
+
+      /*
+       * Doar CARD.
+       */
+      if (
+        paymentState
+          .paymentMethod !==
+        "CARD"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "order_not_card",
+
+            message:
+              "Această comandă nu necesită plată online.",
+          });
+      }
+
+      /*
+       * Deja achitată.
+       */
+      if (
+        paymentState
+          .paid
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "order_already_paid",
+
+            message:
+              "Această comandă este deja plătită.",
+
+            orderId:
+              order.id,
+          });
+      }
+
+      /*
+       * Doar o comandă încă PENDING
+       * poate fi achitată.
+       */
+      if (
+        String(
+          order.status ||
+            ""
+        )
+          .trim()
+          .toUpperCase() !==
+        "PENDING"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "order_not_payable",
+
+            message:
+              "Această comandă nu mai poate fi achitată în starea actuală.",
+          });
+      }
+
+      /*
+       * Cream o sesiune Stripe nouă.
+       *
+       * createPaymentForOrder()
+       * actualizează și
+       * stripeCheckoutSessionId.
+       */
+      const payment =
+        await createPaymentForOrder(
+          order
+        );
+
+      const redirectUrl =
+        payment?.redirectUrl ||
+        payment?.url ||
+        null;
+
+      if (!redirectUrl) {
+        return res
+          .status(500)
+          .json({
+            error:
+              "payment_url_missing",
+
+            message:
+              "Plata a fost inițiată, dar nu am primit linkul de plată.",
+          });
+      }
+
+      return res.json({
+        ok:
+          true,
+
+        orderId:
+          order.id,
+
+        orderNumber:
+          order.orderNumber,
+
+        orderStatus:
+          order.status,
+
+        paymentMethod:
+          order.paymentMethod,
+
+        paymentStatus:
+          "PENDING",
+
+        payment: {
+          ...payment,
+
+          redirectUrl,
+        },
       });
+    } catch (error) {
+      console.error(
+        "POST /api/user/orders/:id/payment failed:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "payment_restart_failed",
+
+          message:
+            "Plata nu a putut fi reluată. Te rugăm să încerci din nou.",
+        });
     }
   }
 );

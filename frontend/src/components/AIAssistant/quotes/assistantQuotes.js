@@ -17,6 +17,7 @@ import {
   markQuoteRead,
   markVendorQuoteRead,
 } from "./quoteApi.js";
+
 /* =========================================================
    Flow IDs
 ========================================================= */
@@ -53,7 +54,6 @@ const ACTIVE_QUOTE_STATUSES =
     "IN_DISCUSSIONS",
     "OFFER_SENT",
   ]);
-
 
 /* =========================================================
    Helpers
@@ -270,24 +270,36 @@ function isOwnQuoteMessage({
       .trim()
       .toUpperCase();
 
-  if (from === "ME") {
+  if (
+    from ===
+    "ME"
+  ) {
     return true;
   }
 
-  if (isVendorThread) {
-    return senderRole === "VENDOR";
+  if (
+    isVendorThread
+  ) {
+    return (
+      senderRole ===
+      "VENDOR"
+    );
   }
 
   return (
-    senderRole === "USER" ||
-    senderRole === "CUSTOMER"
+    senderRole ===
+      "USER" ||
+    senderRole ===
+      "CUSTOMER"
   );
 }
 
 function getQuoteFieldQuestion(
   field
 ) {
-  if (!field) {
+  if (
+    !field
+  ) {
     return "";
   }
 
@@ -297,11 +309,14 @@ function getQuoteFieldQuestion(
     ).trim();
 
   const optionalText =
-    field.required === false
+    field.required ===
+    false
       ? "\n\nAcest câmp este opțional. Poți scrie „sari” dacă nu dorești să răspunzi."
       : "";
 
-  if (!label) {
+  if (
+    !label
+  ) {
     return (
       "Completează următoarea informație:" +
       optionalText
@@ -309,11 +324,13 @@ function getQuoteFieldQuestion(
   }
 
   if (
-    field.type === "select" &&
+    field.type ===
+      "select" &&
     Array.isArray(
       field.options
     ) &&
-    field.options.length > 0
+    field.options.length >
+      0
   ) {
     return `${label}\n\nPoți alege: ${field.options.join(
       ", "
@@ -321,7 +338,8 @@ function getQuoteFieldQuestion(
   }
 
   if (
-    field.type === "date"
+    field.type ===
+    "date"
   ) {
     return `${label}\n\nPoți scrie data în formatul 15.08.2026.${optionalText}`;
   }
@@ -360,7 +378,9 @@ function normalizeQuoteDate(
       value || ""
     ).trim();
 
-  if (!raw) {
+  if (
+    !raw
+  ) {
     return null;
   }
 
@@ -372,7 +392,9 @@ function normalizeQuoteDate(
       /^(\d{4})-(\d{2})-(\d{2})$/
     );
 
-  if (isoMatch) {
+  if (
+    isoMatch
+  ) {
     const [
       ,
       year,
@@ -391,11 +413,18 @@ function normalizeQuoteDate(
         date.getTime()
       ) &&
       date.getFullYear() ===
-        Number(year) &&
-      date.getMonth() + 1 ===
-        Number(month) &&
+        Number(
+          year
+        ) &&
+      date.getMonth() +
+        1 ===
+        Number(
+          month
+        ) &&
       date.getDate() ===
-        Number(day)
+        Number(
+          day
+        )
     ) {
       return `${year}-${month}-${day}`;
     }
@@ -462,11 +491,18 @@ function normalizeQuoteDate(
       date.getTime()
     ) ||
     date.getFullYear() !==
-      Number(year) ||
-    date.getMonth() + 1 !==
-      Number(month) ||
+      Number(
+        year
+      ) ||
+    date.getMonth() +
+      1 !==
+      Number(
+        month
+      ) ||
     date.getDate() !==
-      Number(day)
+      Number(
+        day
+      )
   ) {
     return null;
   }
@@ -487,7 +523,9 @@ function createUserQuoteMessage({
       message
     );
 
-  if (!content) {
+  if (
+    !content
+  ) {
     return null;
   }
 
@@ -541,7 +579,9 @@ function createVendorQuoteMessage({
       message
     );
 
-  if (!content) {
+  if (
+    !content
+  ) {
     return null;
   }
 
@@ -590,7 +630,9 @@ function buildUserQuoteChoice(
       quote
     );
 
-  if (!id) {
+  if (
+    !id
+  ) {
     return null;
   }
 
@@ -630,9 +672,11 @@ function buildUserQuoteChoice(
       Number.isFinite(
         quantity
       ) &&
-      quantity > 0
+      quantity >
+        0
         ? `${quantity} ${
-            quantity === 1
+            quantity ===
+            1
               ? "bucată"
               : "bucăți"
           }`
@@ -665,7 +709,9 @@ function buildVendorQuoteChoice(
       quote
     );
 
-  if (!id) {
+  if (
+    !id
+  ) {
     return null;
   }
 
@@ -707,9 +753,11 @@ function buildVendorQuoteChoice(
       Number.isFinite(
         quantity
       ) &&
-      quantity > 0
+      quantity >
+        0
         ? `${quantity} ${
-            quantity === 1
+            quantity ===
+            1
               ? "bucată"
               : "bucăți"
           }`
@@ -819,10 +867,10 @@ export async function openMyQuotes({
     const result =
       await fetchMyQuotes();
 
- const quotes =
-  normalizeQuoteList(
-    result
-  );
+    const quotes =
+      normalizeQuoteList(
+        result
+      );
 
     if (
       !quotes.length
@@ -835,7 +883,8 @@ export async function openMyQuotes({
       );
 
       setActiveFlow(
-        QUOTE_FLOWS.MY_QUOTES
+        QUOTE_FLOWS
+          .MY_QUOTES
       );
 
       return true;
@@ -867,7 +916,8 @@ export async function openMyQuotes({
     );
 
     setActiveFlow(
-      QUOTE_FLOWS.MY_QUOTES
+      QUOTE_FLOWS
+        .MY_QUOTES
     );
 
     return true;
@@ -916,9 +966,10 @@ export async function openVendorQuotes({
       await fetchVendorQuotes();
 
     const quotes =
-  normalizeQuoteList(
-    result
-  );
+      normalizeQuoteList(
+        result
+      );
+
     if (
       !quotes.length
     ) {
@@ -930,7 +981,8 @@ export async function openVendorQuotes({
       );
 
       setActiveFlow(
-        QUOTE_FLOWS.VENDOR_QUOTES
+        QUOTE_FLOWS
+          .VENDOR_QUOTES
       );
 
       return true;
@@ -962,7 +1014,8 @@ export async function openVendorQuotes({
     );
 
     setActiveFlow(
-      QUOTE_FLOWS.VENDOR_QUOTES
+      QUOTE_FLOWS
+        .VENDOR_QUOTES
     );
 
     return true;
@@ -1003,19 +1056,19 @@ export async function openUserQuote({
   }
 
   try {
-   const [
-  quoteResult,
-  messagesResult,
-] =
-  await Promise.all([
-    fetchQuote(
-      quoteId
-    ),
+    const [
+      quoteResult,
+      messagesResult,
+    ] =
+      await Promise.all([
+        fetchQuote(
+          quoteId
+        ),
 
-    fetchQuoteMessages(
-      quoteId
-    ),
-  ]);
+        fetchQuoteMessages(
+          quoteId
+        ),
+      ]);
 
     const quote =
       quoteResult?.quote ||
@@ -1068,9 +1121,6 @@ export async function openUserQuote({
         .USER_QUOTE_THREAD
     );
 
-    /*
-     * Marcăm conversația citită.
-     */
     await markQuoteRead(
       quoteId
     ).catch(
@@ -1090,7 +1140,8 @@ export async function openUserQuote({
           Number.isFinite(
             quantity
           ) &&
-          quantity > 0
+          quantity >
+            0
             ? `Cantitate: ${quantity}`
             : null,
 
@@ -1128,54 +1179,70 @@ export async function openUserQuote({
       addMessage,
       createMessage,
     });
-const offers =
-  normalizeOfferList(
-    quote
-  );
 
-offers.forEach(
-  (
-    offer
-  ) => {
-    const status =
-      String(
-        offer?.status ||
-          ""
-      )
-        .trim()
-        .toUpperCase();
+    const offers =
+      normalizeOfferList(
+        quote
+      );
 
-    if (
-      status ===
-      "SUPERSEDED"
-    ) {
-      return;
-    }
+    offers.forEach(
+      (
+        offer
+      ) => {
+        const offerStatus =
+          String(
+            offer?.status ||
+              ""
+          )
+            .trim()
+            .toUpperCase();
 
-    addMessage(
-      createMessage(
-        "assistant",
-        "",
-        {
-          type:
-            "quote-offer-card",
-
-          quoteId:
-            getQuoteId(
-              quote
-            ) ||
-            quoteId,
-
-          offerId:
-            offer?.id ||
-            null,
-
-          offer,
+        if (
+          offerStatus ===
+          "SUPERSEDED"
+        ) {
+          return;
         }
-      )
+
+        const offerId =
+          offer?.id ||
+          null;
+
+        if (
+          !offerId
+        ) {
+          return;
+        }
+
+        const offerMessage =
+          createMessage(
+            "assistant",
+            "",
+            {
+              type:
+                "quote-offer-card",
+
+              quoteId:
+                getQuoteId(
+                  quote
+                ) ||
+                quoteId,
+
+              offerId,
+
+              offer,
+            }
+          );
+
+        offerMessage.id =
+          `quote-offer-${offerId}`;
+
+        addMessage(
+          offerMessage
+        );
+      }
     );
-  }
-);
+
     return true;
   } catch (
     error
@@ -1227,8 +1294,7 @@ export async function openVendorQuote({
           quoteId
         ).catch(
           () => ({
-            items:
-              [],
+            items: [],
           })
         ),
       ]);
@@ -1282,9 +1348,9 @@ export async function openVendorQuote({
             .requestData
             .quoteSchemaSnapshot
         : Array.isArray(
-              quote
-                ?.quoteSchemaSnapshot
-            )
+            quote
+              ?.quoteSchemaSnapshot
+          )
           ? quote
               .quoteSchemaSnapshot
           : [];
@@ -1340,10 +1406,6 @@ export async function openVendorQuote({
         .VENDOR_QUOTE_THREAD
     );
 
-    /*
-     * Marcăm conversația citită
-     * de vendor.
-     */
     await markVendorQuoteRead(
       quoteId
     ).catch(
@@ -1361,7 +1423,8 @@ export async function openVendorQuote({
           Number.isFinite(
             quantity
           ) &&
-          quantity > 0
+          quantity >
+            0
             ? `Cantitate: ${quantity}`
             : null,
 
@@ -1426,15 +1489,6 @@ export async function openVendorQuote({
 
 /* =========================================================
    Refresh conversație activă
-
-   Folosit de polling-ul din AiAssistant.
-
-   IMPORTANT:
-   - adaugă doar mesaje noi venite
-     de la cealaltă parte;
-   - nu readaugă propriile mesaje;
-   - verifică persistedId pentru
-     a evita duplicatele.
 ========================================================= */
 
 export async function refreshQuoteThread({
@@ -1444,7 +1498,9 @@ export async function refreshQuoteThread({
   addMessage,
   createMessage,
 }) {
-  if (!quoteId) {
+  if (
+    !quoteId
+  ) {
     return false;
   }
 
@@ -1515,67 +1571,78 @@ export async function refreshQuoteThread({
             String
           )
       );
-for (
-  const serverMessage
-  of serverMessages
-) {
-  const serverId =
-    serverMessage?.id;
 
-  if (!serverId) {
-    continue;
-  }
+    for (
+      const serverMessage
+      of serverMessages
+    ) {
+      const serverId =
+        serverMessage?.id;
 
-  /*
-   * Nu readăugăm mesajele
-   * trimise chiar de utilizatorul
-   * curent.
-   */
-  if (
-    isOwnQuoteMessage({
-      message:
-        serverMessage,
-      isVendorThread,
-    })
-  ) {
-    existingMessageIds.add(
-      String(serverId)
-    );
+      if (
+        !serverId
+      ) {
+        continue;
+      }
 
-    continue;
-  }
-
-  if (
-    existingMessageIds.has(
-      String(serverId)
-    )
-  ) {
-    continue;
-  }
-
-  const uiMessage =
-    isVendorThread
-      ? createVendorQuoteMessage({
+      if (
+        isOwnQuoteMessage({
           message:
             serverMessage,
-          createMessage,
+
+          isVendorThread,
         })
-      : createUserQuoteMessage({
-          message:
-            serverMessage,
-          createMessage,
-        });
+      ) {
+        existingMessageIds.add(
+          String(
+            serverId
+          )
+        );
 
-  if (!uiMessage) {
-    continue;
-  }
+        continue;
+      }
 
-  addMessage(uiMessage);
+      if (
+        existingMessageIds.has(
+          String(
+            serverId
+          )
+        )
+      ) {
+        continue;
+      }
 
-  existingMessageIds.add(
-    String(serverId)
-  );
-}
+      const uiMessage =
+        isVendorThread
+          ? createVendorQuoteMessage({
+              message:
+                serverMessage,
+
+              createMessage,
+            })
+          : createUserQuoteMessage({
+              message:
+                serverMessage,
+
+              createMessage,
+            });
+
+      if (
+        !uiMessage
+      ) {
+        continue;
+      }
+
+      addMessage(
+        uiMessage
+      );
+
+      existingMessageIds.add(
+        String(
+          serverId
+        )
+      );
+    }
 
     if (
       isUserThread &&
@@ -1618,7 +1685,9 @@ for (
         const offerId =
           offer?.id;
 
-        if (!offerId) {
+        if (
+          !offerId
+        ) {
           continue;
         }
 
@@ -1647,7 +1716,7 @@ for (
           continue;
         }
 
-        addMessage(
+        const offerMessage =
           createMessage(
             "assistant",
             "",
@@ -1661,7 +1730,13 @@ for (
 
               offer,
             }
-          )
+          );
+
+        offerMessage.id =
+          `quote-offer-${offerId}`;
+
+        addMessage(
+          offerMessage
         );
 
         existingOfferIds.add(
@@ -1724,134 +1799,39 @@ export async function handleQuoteChoice({
   }
 
   /*
- * ============================================
- * CLIENT — acceptă oferta
- * ============================================
- */
-/*
- * ============================================
- * CLIENT — începe acceptarea ofertei
- * ============================================
- */
-
-if (
-  choice.action ===
-  "accept-quote-offer"
-) {
-  const quoteId =
-    choice.quoteId ||
-    choice?.offer?.quoteRequestId ||
-    null;
-
-  const offerId =
-    choice.offerId ||
-    choice?.offer?.id ||
-    null;
+   * ============================================
+   * CLIENT — acceptă oferta
+   * ============================================
+   */
 
   if (
-    !quoteId ||
-    !offerId
+    choice.action ===
+    "accept-quote-offer"
   ) {
-    addMessage(
-      createMessage(
-        "assistant",
-        "Nu am putut identifica oferta."
-      )
-    );
+    const quoteId =
+      choice.quoteId ||
+      choice?.offer
+        ?.quoteRequestId ||
+      null;
 
-    return true;
-  }
+    const offerId =
+      choice.offerId ||
+      choice?.offer?.id ||
+      null;
 
-  setQuoteContext(
-    (
-      current
-    ) => ({
-      ...current,
+    if (
+      !quoteId ||
+      !offerId
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut identifica oferta."
+        )
+      );
 
-      quoteRequestId:
-        quoteId,
-
-      acceptedOfferId:
-        offerId,
-
-      checkoutDraft: {
-        step:
-          "recipientName",
-
-        recipientName:
-          "",
-
-        phone:
-          "",
-
-        addressLine1:
-          "",
-
-        city:
-          "",
-
-        county:
-          "",
-
-        postalCode:
-          "",
-      },
-    })
-  );
-
-  setActiveFlow(
-    QUOTE_FLOWS
-      .USER_ACCEPT_OFFER
-  );
-
-  addMessage(
-    createMessage(
-      "assistant",
-      "Perfect. Pentru a înregistra comanda, am nevoie de datele de livrare.\n\nCare este numele complet al persoanei care va primi coletul?"
-    )
-  );
-
-  return true;
-}
-/*
- * ============================================
- * CLIENT — refuză definitiv oferta
- * ============================================
- */
-
-if (
-  choice.action ===
-  "reject-quote-offer"
-) {
-  const quoteId =
-    choice.quoteId ||
-    choice?.offer?.quoteRequestId ||
-    null;
-
-  const offerId =
-    choice.offerId ||
-    choice?.offer?.id ||
-    null;
-
-  if (
-    !quoteId ||
-    !offerId
-  ) {
-    addMessage(
-      createMessage(
-        "assistant",
-        "Nu am putut identifica oferta."
-      )
-    );
-
-    return true;
-  }
-
-  try {
-    await rejectQuoteOffer(
-      quoteId,
-      offerId
-    );
+      return true;
+    }
 
     setQuoteContext(
       (
@@ -1859,142 +1839,1152 @@ if (
       ) => ({
         ...current,
 
-        status:
-          "REJECTED",
+        quoteRequestId:
+          quoteId,
+
+        acceptedOfferId:
+          offerId,
+
+        checkoutDraft:
+          null,
       })
     );
 
     setActiveFlow(
       QUOTE_FLOWS
-        .USER_QUOTE_THREAD
+        .USER_ACCEPT_OFFER
     );
 
     addMessage(
       createMessage(
         "assistant",
-        "Oferta a fost refuzată definitiv."
-      )
-    );
+        "Cum dorești să continui cu această comandă?",
+        {
+          type:
+            "choices",
 
-    return true;
-  } catch (
-    error
-  ) {
-    addMessage(
-      createMessage(
-        "assistant",
-        error?.data
-          ?.message ||
-          error?.message ||
-          "Oferta nu a putut fi refuzată."
+          choiceStep:
+            "quote-accept-method",
+
+          choices: [
+            {
+              id:
+                "continue-in-assistant",
+
+              action:
+                "continue-quote-checkout-assistant",
+
+              title:
+                "Continuă în asistent",
+
+              description:
+                "Completezi aici datele necesare pentru înregistrarea comenzii.",
+
+              quoteId,
+              offerId,
+            },
+
+            {
+              id:
+                "continue-in-checkout",
+
+              action:
+                "continue-quote-checkout-page",
+
+              title:
+                "Completează în checkout",
+
+              description:
+                "Deschizi formularul complet și completezi manual datele comenzii.",
+
+              quoteId,
+              offerId,
+            },
+          ],
+        }
       )
     );
 
     return true;
   }
-}
 
   /*
    * ============================================
-   * VENDOR — începe flow-ul de creare ofertă
+   * CLIENT — continuă în asistent
    * ============================================
    */
-if (
-  choice.action ===
-  "request-new-quote-offer"
-) {
-  const quoteId =
-    choice.quoteId ||
-    choice?.offer?.quoteRequestId ||
-    null;
 
-  if (!quoteId) {
+  if (
+    choice.action ===
+    "continue-quote-checkout-assistant"
+  ) {
+    const quoteId =
+      choice.quoteId ||
+      null;
+
+    const offerId =
+      choice.offerId ||
+      null;
+
+    if (
+      !quoteId ||
+      !offerId
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut identifica oferta."
+        )
+      );
+
+      return true;
+    }
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        quoteRequestId:
+          quoteId,
+
+        acceptedOfferId:
+          offerId,
+
+        checkoutDraft: {
+          quoteId,
+          offerId,
+
+          step:
+            "customerType",
+
+          customerType:
+            "",
+
+          paymentMethod:
+            "",
+
+          recipientName:
+            "",
+
+          email:
+            "",
+
+          phone:
+            "",
+
+          addressLine1:
+            "",
+
+          city:
+            "",
+
+          county:
+            "",
+
+          postalCode:
+            "",
+
+          companyName:
+            "",
+
+          companyCui:
+            "",
+
+          companyRegCom:
+            "",
+
+          companyCounty:
+            "",
+
+          companyCity:
+            "",
+
+          companyStreet:
+            "",
+
+          companyPostalCode:
+            "",
+
+          contactName:
+            "",
+
+          contactEmail:
+            "",
+
+          contactPhone:
+            "",
+
+          shipToDifferentAddress:
+            false,
+        },
+      })
+    );
+
+    setActiveFlow(
+      QUOTE_FLOWS
+        .USER_ACCEPT_OFFER
+    );
+
     addMessage(
       createMessage(
         "assistant",
-        "Nu am putut identifica cererea de ofertă."
+        "Perfect. Pentru început, comanda este pentru o persoană fizică sau pentru o firmă?",
+        {
+          type:
+            "choices",
+
+          choiceStep:
+            "quote-customer-type",
+
+          choices: [
+            {
+              id:
+                "quote-customer-pf",
+
+              action:
+                "quote-customer-pf",
+
+              title:
+                "Persoană fizică",
+
+              description:
+                "Comanda va fi înregistrată pe persoană fizică.",
+
+              quoteId,
+              offerId,
+            },
+
+            {
+              id:
+                "quote-customer-pj",
+
+              action:
+                "quote-customer-pj",
+
+              title:
+                "Persoană juridică",
+
+              description:
+                "Comanda va conține datele firmei.",
+
+              quoteId,
+              offerId,
+            },
+          ],
+        }
       )
     );
 
     return true;
   }
 
-  setQuoteContext(
-    (
-      current
-    ) => ({
-      ...current,
+  /*
+   * ============================================
+   * CLIENT — tip client PF
+   * ============================================
+   */
 
-      quoteRequestId:
-        quoteId,
-    })
-  );
+  if (
+    choice.action ===
+    "quote-customer-pf"
+  ) {
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
 
-  setActiveFlow(
-    QUOTE_FLOWS
-      .USER_QUOTE_THREAD
-  );
+        checkoutDraft: {
+          ...current.checkoutDraft,
 
-  addMessage(
-    createMessage(
-      "assistant",
-      "Sigur. Scrie ce ai dori să fie modificat în ofertă — de exemplu prețul, cantitatea, termenul de producție sau costul transportului. Mesajul va ajunge direct la vânzător."
-    )
-  );
+          customerType:
+            "PF",
 
-  return true;
-}
+          shipToDifferentAddress:
+            false,
 
-if (
-  choice.action ===
-  "continue-quote-discussion"
-) {
-  const quoteId =
-    choice.quoteId ||
-    choice?.offer?.quoteRequestId ||
-    null;
+          step:
+            "recipientName",
+        },
+      })
+    );
 
-  if (!quoteId) {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Perfect. Care este numele complet al persoanei care va primi coletul?"
+      )
+    );
+
     return true;
   }
 
-  setQuoteContext(
-    (
-      current
-    ) => ({
-      ...current,
+  /*
+   * ============================================
+   * CLIENT — tip client PJ
+   * ============================================
+   */
 
-      quoteRequestId:
-        quoteId,
-    })
-  );
-
-  setActiveFlow(
-    QUOTE_FLOWS
-      .USER_QUOTE_THREAD
-  );
-
-  addMessage(
-    createMessage(
-      "assistant",
-      "Poți continua conversația aici. Scrie mesajul tău pentru vânzător."
-    )
-  );
-
-  return true;
-}
   if (
     choice.action ===
-    "start-quote-offer"
+    "quote-customer-pj"
   ) {
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
 
+        checkoutDraft: {
+          ...current.checkoutDraft,
+
+          customerType:
+            "PJ",
+
+          step:
+            "companyName",
+        },
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Perfect. Care este denumirea firmei?"
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT PJ — livrare la sediul firmei
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-company-shipping-same"
+  ) {
+    const draft =
+      choice.checkoutDraft ||
+      {};
+
+    const nextDraft = {
+      ...draft,
+
+      shipToDifferentAddress:
+        false,
+
+      recipientName:
+        draft.contactName ||
+        "",
+
+      email:
+        draft.contactEmail ||
+        "",
+
+      phone:
+        draft.contactPhone ||
+        "",
+
+      addressLine1:
+        draft.companyStreet ||
+        "",
+
+      city:
+        draft.companyCity ||
+        "",
+
+      county:
+        draft.companyCounty ||
+        "",
+
+      postalCode:
+        draft.companyPostalCode ||
+        "",
+
+      step:
+        "paymentMethod",
+    };
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft:
+          nextDraft,
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Cum dorești să achiți comanda?",
+        {
+          type:
+            "choices",
+
+          choiceStep:
+            "quote-payment-method",
+
+          choices: [
+            {
+              id:
+                "quote-payment-cod",
+
+              action:
+                "quote-payment-cod",
+
+              title:
+                "Ramburs",
+
+              description:
+                "Plătești la livrare.",
+
+              checkoutDraft:
+                nextDraft,
+            },
+
+            {
+              id:
+                "quote-payment-card",
+
+              action:
+                "quote-payment-card",
+
+              title:
+                "Card online",
+
+              description:
+                "Vei fi redirecționat către plata securizată.",
+
+              checkoutDraft:
+                nextDraft,
+            },
+          ],
+        }
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT PJ — livrare la altă adresă
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-company-shipping-different"
+  ) {
+    const draft =
+      choice.checkoutDraft ||
+      {};
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft: {
+          ...draft,
+
+          shipToDifferentAddress:
+            true,
+
+          recipientName:
+            "",
+
+          email:
+            "",
+
+          phone:
+            "",
+
+          addressLine1:
+            "",
+
+          city:
+            "",
+
+          county:
+            "",
+
+          postalCode:
+            "",
+
+          step:
+            "recipientName",
+        },
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Sigur. Care este numele complet al persoanei care va primi coletul?"
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — metodă plată
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+      "quote-payment-cod" ||
+    choice.action ===
+      "quote-payment-card"
+  ) {
+    const paymentMethod =
+      choice.action ===
+      "quote-payment-card"
+        ? "CARD"
+        : "COD";
+
+    const draft = {
+      ...(
+        choice.checkoutDraft ||
+        {}
+      ),
+
+      paymentMethod,
+
+      step:
+        "confirmOrder",
+    };
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft:
+          draft,
+      })
+    );
+
+    const customerLabel =
+      draft.customerType ===
+      "PJ"
+        ? "Persoană juridică"
+        : "Persoană fizică";
+
+    const paymentLabel =
+      paymentMethod ===
+      "CARD"
+        ? "Card online"
+        : "Ramburs";
+
+    const summaryLines = [
+      "Verifică datele înainte să înregistrez comanda:",
+      "",
+
+      `Tip client: ${customerLabel}`,
+
+      draft.customerType ===
+      "PJ"
+        ? `Firmă: ${draft.companyName || "-"}`
+        : `Destinatar: ${draft.recipientName || "-"}`,
+
+      draft.customerType ===
+      "PJ"
+        ? `CUI: ${draft.companyCui || "-"}`
+        : null,
+
+      draft.customerType ===
+      "PJ"
+        ? `Persoană de contact: ${draft.contactName || "-"}`
+        : null,
+
+      `Livrare: ${[
+        draft.addressLine1,
+        draft.city,
+        draft.county,
+      ]
+        .filter(
+          Boolean
+        )
+        .join(
+          ", "
+        )}`,
+
+      `Plată: ${paymentLabel}`,
+    ]
+      .filter(
+        (
+          line
+        ) =>
+          line !==
+          null
+      )
+      .join(
+        "\n"
+      );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        summaryLines,
+        {
+          type:
+            "choices",
+
+          choiceStep:
+            "quote-order-confirm",
+
+          choices: [
+            {
+              id:
+                "quote-confirm-order",
+
+              action:
+                "quote-confirm-order",
+
+              title:
+                "Confirmă comanda",
+
+              description:
+                "Înregistrează comanda cu aceste date.",
+
+              checkoutDraft:
+                draft,
+            },
+
+            {
+              id:
+                "quote-restart-order",
+
+              action:
+                "quote-restart-order",
+
+              title:
+                "Modifică datele",
+
+              description:
+                "Reiau completarea datelor comenzii.",
+            },
+          ],
+        }
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — reia datele
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-restart-order"
+  ) {
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        checkoutDraft: {
+          quoteId:
+            current.quoteRequestId ||
+            null,
+
+          offerId:
+            current.acceptedOfferId ||
+            null,
+
+          step:
+            "customerType",
+
+          customerType:
+            "",
+
+          paymentMethod:
+            "",
+
+          recipientName:
+            "",
+
+          email:
+            "",
+
+          phone:
+            "",
+
+          addressLine1:
+            "",
+
+          city:
+            "",
+
+          county:
+            "",
+
+          postalCode:
+            "",
+
+          companyName:
+            "",
+
+          companyCui:
+            "",
+
+          companyRegCom:
+            "",
+
+          companyCounty:
+            "",
+
+          companyCity:
+            "",
+
+          companyStreet:
+            "",
+
+          companyPostalCode:
+            "",
+
+          contactName:
+            "",
+
+          contactEmail:
+            "",
+
+          contactPhone:
+            "",
+
+          shipToDifferentAddress:
+            false,
+        },
+      })
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Sigur. Comanda este pentru o persoană fizică sau pentru o firmă?",
+        {
+          type:
+            "choices",
+
+          choices: [
+            {
+              id:
+                "quote-customer-pf-restart",
+
+              action:
+                "quote-customer-pf",
+
+              title:
+                "Persoană fizică",
+            },
+
+            {
+              id:
+                "quote-customer-pj-restart",
+
+              action:
+                "quote-customer-pj",
+
+              title:
+                "Persoană juridică",
+            },
+          ],
+        }
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — confirmă și creează comanda
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "quote-confirm-order"
+  ) {
+    const draft =
+      choice.checkoutDraft ||
+      {};
+
+    const customerType =
+      draft.customerType ===
+      "PJ"
+        ? "PJ"
+        : "PF";
+
+    const paymentMethod =
+      draft.paymentMethod ===
+      "CARD"
+        ? "CARD"
+        : "COD";
+
+    const shippingAddress = {
+      recipientName:
+        draft.recipientName ||
+        draft.contactName ||
+        "",
+
+      name:
+        draft.recipientName ||
+        draft.contactName ||
+        "",
+
+      email:
+        draft.email ||
+        draft.contactEmail ||
+        "",
+
+      phone:
+        draft.phone ||
+        draft.contactPhone ||
+        "",
+
+      addressLine1:
+        draft.addressLine1 ||
+        "",
+
+      street:
+        draft.addressLine1 ||
+        "",
+
+      city:
+        draft.city ||
+        "",
+
+      county:
+        draft.county ||
+        "",
+
+      postalCode:
+        draft.postalCode ||
+        "",
+    };
+
+    const billingAddress =
+      customerType ===
+      "PJ"
+        ? {
+            companyName:
+              draft.companyName ||
+              "",
+
+            companyCui:
+              draft.companyCui ||
+              "",
+
+            companyRegCom:
+              draft.companyRegCom ||
+              "",
+
+            county:
+              draft.companyCounty ||
+              "",
+
+            city:
+              draft.companyCity ||
+              "",
+
+            street:
+              draft.companyStreet ||
+              "",
+
+            postalCode:
+              draft.companyPostalCode ||
+              "",
+          }
+        : null;
+
+    const contactPerson =
+      customerType ===
+      "PJ"
+        ? {
+            name:
+              draft.contactName ||
+              "",
+
+            email:
+              draft.contactEmail ||
+              "",
+
+            phone:
+              draft.contactPhone ||
+              "",
+          }
+        : null;
+addMessage({
+  id:
+    `${Date.now()}-quote-order-creating`,
+
+  role:
+    "assistant",
+
+  type:
+    "loading",
+
+  content:
+    paymentMethod ===
+    "CARD"
+      ? "Creez comanda și pregătesc plata securizată..."
+      : "Creez comanda și verific datele...",
+});
+    try {
+      const result =
+        await acceptQuoteOffer(
+          draft.quoteId ||
+            null,
+
+          draft.offerId ||
+            null,
+
+          {
+            shippingAddress,
+            billingAddress,
+            contactPerson,
+            customerType,
+            paymentMethod,
+
+            shipToDifferentAddress:
+              customerType ===
+              "PJ"
+                ? Boolean(
+                    draft.shipToDifferentAddress
+                  )
+                : false,
+          }
+        );
+
+      if (
+        paymentMethod ===
+          "CARD" &&
+        result?.payment
+          ?.redirectUrl
+      ) {
+        window.location.href =
+          result.payment
+            .redirectUrl;
+
+        return true;
+      }
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          status:
+            "ACCEPTED",
+
+          orderId:
+            result?.orderId ||
+            result?.order?.id ||
+            null,
+
+          acceptedOfferId:
+            null,
+
+          checkoutDraft:
+            null,
+        })
+      );
+
+      setActiveFlow(
+        QUOTE_FLOWS
+          .USER_QUOTE_THREAD
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Comanda a fost înregistrată cu succes în platformă, iar oferta a fost acceptată."
+        )
+      );
+
+      return true;
+    } catch (
+      error
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          error?.data
+            ?.message ||
+            error?.message ||
+            "Comanda nu a putut fi înregistrată. Oferta nu a fost acceptată."
+        )
+      );
+
+      return true;
+    }
+  }
+
+  /*
+   * ============================================
+   * CLIENT — continuă în checkout
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "continue-quote-checkout-page"
+  ) {
     const quoteId =
       choice.quoteId ||
-      choice.id ||
-      choice?.quote?.id ||
       null;
 
-    if (!quoteId) {
+    const offerId =
+      choice.offerId ||
+      null;
+
+    if (
+      !quoteId ||
+      !offerId
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut identifica oferta."
+        )
+      );
+
+      return true;
+    }
+
+    window.location.href =
+      `/checkout?quoteId=${encodeURIComponent(
+        quoteId
+      )}&offerId=${encodeURIComponent(
+        offerId
+      )}`;
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * CLIENT — refuză definitiv oferta
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "reject-quote-offer"
+  ) {
+    const quoteId =
+      choice.quoteId ||
+      choice?.offer
+        ?.quoteRequestId ||
+      null;
+
+    const offerId =
+      choice.offerId ||
+      choice?.offer?.id ||
+      null;
+
+    if (
+      !quoteId ||
+      !offerId
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut identifica oferta."
+        )
+      );
+
+      return true;
+    }
+
+    try {
+      await rejectQuoteOffer(
+        quoteId,
+        offerId
+      );
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          status:
+            "REJECTED",
+        })
+      );
+
+      setActiveFlow(
+        QUOTE_FLOWS
+          .USER_QUOTE_THREAD
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Oferta a fost refuzată definitiv."
+        )
+      );
+
+      return true;
+    } catch (
+      error
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          error?.data
+            ?.message ||
+            error?.message ||
+            "Oferta nu a putut fi refuzată."
+        )
+      );
+
+      return true;
+    }
+  }
+
+  /*
+   * ============================================
+   * CLIENT — solicită ofertă nouă
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "request-new-quote-offer"
+  ) {
+    const quoteId =
+      choice.quoteId ||
+      choice?.offer
+        ?.quoteRequestId ||
+      null;
+
+    if (
+      !quoteId
+    ) {
       addMessage(
         createMessage(
           "assistant",
@@ -2011,8 +3001,107 @@ if (
       ) => ({
         ...current,
 
-        ...(choice.quote ||
-          {}),
+        quoteRequestId:
+          quoteId,
+      })
+    );
+
+    setActiveFlow(
+      QUOTE_FLOWS
+        .USER_QUOTE_THREAD
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Sigur. Scrie ce ai dori să fie modificat în ofertă — de exemplu prețul, cantitatea, termenul de producție sau costul transportului. Mesajul va ajunge direct la vânzător."
+      )
+    );
+
+    return true;
+  }
+
+  if (
+    choice.action ===
+    "continue-quote-discussion"
+  ) {
+    const quoteId =
+      choice.quoteId ||
+      choice?.offer
+        ?.quoteRequestId ||
+      null;
+
+    if (
+      !quoteId
+    ) {
+      return true;
+    }
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        quoteRequestId:
+          quoteId,
+      })
+    );
+
+    setActiveFlow(
+      QUOTE_FLOWS
+        .USER_QUOTE_THREAD
+    );
+
+    addMessage(
+      createMessage(
+        "assistant",
+        "Poți continua conversația aici. Scrie mesajul tău pentru vânzător."
+      )
+    );
+
+    return true;
+  }
+
+  /*
+   * ============================================
+   * VENDOR — începe flow ofertă
+   * ============================================
+   */
+
+  if (
+    choice.action ===
+    "start-quote-offer"
+  ) {
+    const quoteId =
+      choice.quoteId ||
+      choice.id ||
+      choice?.quote?.id ||
+      null;
+
+    if (
+      !quoteId
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am putut identifica cererea de ofertă."
+        )
+      );
+
+      return true;
+    }
+
+    setQuoteContext(
+      (
+        current
+      ) => ({
+        ...current,
+
+        ...(
+          choice.quote ||
+          {}
+        ),
 
         quoteRequestId:
           quoteId,
@@ -2074,13 +3163,16 @@ if (
     choice?.quote?.id ||
     null;
 
-  if (!quoteId) {
+  if (
+    !quoteId
+  ) {
     return false;
   }
 
   if (
     activeFlow ===
-    QUOTE_FLOWS.MY_QUOTES
+    QUOTE_FLOWS
+      .MY_QUOTES
   ) {
     return openUserQuote({
       quoteId,
@@ -2095,7 +3187,8 @@ if (
 
   if (
     activeFlow ===
-    QUOTE_FLOWS.VENDOR_QUOTES
+    QUOTE_FLOWS
+      .VENDOR_QUOTES
   ) {
     return openVendorQuote({
       quoteId,
@@ -2113,11 +3206,6 @@ if (
 
 /* =========================================================
    Submit mesaj / flow cerere ofertă
-
-   Gestionează:
-   - mesaj client -> vendor
-   - mesaj vendor -> client
-   - crearea unei cereri noi din produs
 ========================================================= */
 
 export async function submitQuoteMessage({
@@ -2138,35 +3226,39 @@ export async function submitQuoteMessage({
   clearUploadedImage,
 }) {
   async function sendInspirationImage(
-  threadId
-) {
-  if (
-    !threadId ||
-    !uploadedImage?.file
+    threadId
   ) {
-    return false;
+    if (
+      !threadId ||
+      !uploadedImage?.file
+    ) {
+      return false;
+    }
+
+    try {
+      await sendQuoteAttachment(
+        threadId,
+        uploadedImage.file
+      );
+
+      return true;
+    } catch (
+      error
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          error?.data
+            ?.message ||
+            error?.message ||
+            "Cererea a fost creată, dar fotografia de inspirație nu a putut fi trimisă."
+        )
+      );
+
+      return false;
+    }
   }
 
-  try {
-    await sendQuoteAttachment(
-      threadId,
-      uploadedImage.file
-    );
-
-    return true;
-  } catch (error) {
-    addMessage(
-      createMessage(
-        "assistant",
-        error?.data?.message ||
-          error?.message ||
-          "Cererea a fost creată, dar fotografia de inspirație nu a putut fi trimisă."
-      )
-    );
-
-    return false;
-  }
-}
   /*
    * =====================================================
    * MESAJ CLIENT -> VENDOR
@@ -2181,383 +3273,34 @@ export async function submitQuoteMessage({
       ?.quoteRequestId
   ) {
     try {
-  const result =
-    await sendQuoteMessage(
-      quoteContext
-        .quoteRequestId,
-      value
-    );
-
-  addMessage(
-    createMessage(
-      "user",
-      value,
-      {
-        type:
-          "quote-message",
-
-        persistedId:
-          result?.id ||
-          null,
-
-        createdAt:
-          result?.createdAt ||
-          new Date()
-            .toISOString(),
-      }
-    )
-  );
-
-  clearUploadedImage?.();
-
-  return true;
-} catch (
-  error
-) {
-      addMessage(
-        createMessage(
-          "assistant",
-
-          error?.data
-            ?.message ||
-            error?.message ||
-            "Mesajul nu a putut fi trimis."
-        )
-      );
-
-      return true;
-    }
-  }
-/*
- * =====================================================
- * CLIENT — DATE LIVRARE PENTRU ACCEPTAREA OFERTEI
- * =====================================================
- */
-
-if (
-  activeFlow ===
-    QUOTE_FLOWS
-      .USER_ACCEPT_OFFER &&
-  quoteContext
-    ?.quoteRequestId &&
-  quoteContext
-    ?.acceptedOfferId
-) {
-  const checkoutDraft =
-    quoteContext
-      ?.checkoutDraft ||
-    {
-      step:
-        "recipientName",
-    };
-
-  const normalizedValue =
-    String(
-      value || ""
-    ).trim();
-
-  if (!normalizedValue) {
-    addMessage(
-      createMessage(
-        "assistant",
-        "Te rog să completezi informația solicitată."
-      )
-    );
-
-    return true;
-  }
-
-  /*
-   * PASUL 1 — NUME
-   */
-
-  if (
-    checkoutDraft.step ===
-    "recipientName"
-  ) {
-    setQuoteContext(
-      (
-        current
-      ) => ({
-        ...current,
-
-        checkoutDraft: {
-          ...current.checkoutDraft,
-
-          recipientName:
-            normalizedValue,
-
-          step:
-            "phone",
-        },
-      })
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        "Care este numărul de telefon pentru livrare? Acesta va fi folosit doar pentru procesarea comenzii și livrare."
-      )
-    );
-
-    return true;
-  }
-
-  /*
-   * PASUL 2 — TELEFON
-   */
-
-  if (
-    checkoutDraft.step ===
-    "phone"
-  ) {
-    const normalizedPhone =
-      normalizedValue.replace(
-        /[^\d+]/g,
-        ""
-      );
-
-    if (
-      normalizedPhone.length <
-      8
-    ) {
-      addMessage(
-        createMessage(
-          "assistant",
-          "Numărul de telefon nu pare valid. Te rog să îl introduci din nou."
-        )
-      );
-
-      return true;
-    }
-
-    setQuoteContext(
-      (
-        current
-      ) => ({
-        ...current,
-
-        checkoutDraft: {
-          ...current.checkoutDraft,
-
-          phone:
-            normalizedPhone,
-
-          step:
-            "addressLine1",
-        },
-      })
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        "Care este adresa completă de livrare? Include strada, numărul și, dacă este cazul, blocul și apartamentul."
-      )
-    );
-
-    return true;
-  }
-
-  /*
-   * PASUL 3 — ADRESĂ
-   */
-
-  if (
-    checkoutDraft.step ===
-    "addressLine1"
-  ) {
-    setQuoteContext(
-      (
-        current
-      ) => ({
-        ...current,
-
-        checkoutDraft: {
-          ...current.checkoutDraft,
-
-          addressLine1:
-            normalizedValue,
-
-          step:
-            "city",
-        },
-      })
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        "În ce localitate trebuie livrată comanda?"
-      )
-    );
-
-    return true;
-  }
-
-  /*
-   * PASUL 4 — LOCALITATE
-   */
-
-  if (
-    checkoutDraft.step ===
-    "city"
-  ) {
-    setQuoteContext(
-      (
-        current
-      ) => ({
-        ...current,
-
-        checkoutDraft: {
-          ...current.checkoutDraft,
-
-          city:
-            normalizedValue,
-
-          step:
-            "county",
-        },
-      })
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        "În ce județ?"
-      )
-    );
-
-    return true;
-  }
-
-  /*
-   * PASUL 5 — JUDEȚ
-   */
-
-  if (
-    checkoutDraft.step ===
-    "county"
-  ) {
-    setQuoteContext(
-      (
-        current
-      ) => ({
-        ...current,
-
-        checkoutDraft: {
-          ...current.checkoutDraft,
-
-          county:
-            normalizedValue,
-
-          step:
-            "postalCode",
-        },
-      })
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        "Care este codul poștal? Dacă nu îl cunoști, scrie „sari”."
-      )
-    );
-
-    return true;
-  }
-
-  /*
-   * PASUL 6 — COD POȘTAL ȘI CREARE COMANDĂ
-   */
-
-  if (
-    checkoutDraft.step ===
-    "postalCode"
-  ) {
-    const postalCode =
-      [
-        "sari",
-        "skip",
-        "-",
-      ].includes(
-        normalizedValue
-          .toLowerCase()
-      )
-        ? ""
-        : normalizedValue;
-
-    const shippingAddress = {
-      recipientName:
-        checkoutDraft
-          .recipientName,
-
-      phone:
-        checkoutDraft
-          .phone,
-
-      addressLine1:
-        checkoutDraft
-          .addressLine1,
-
-      city:
-        checkoutDraft
-          .city,
-
-      county:
-        checkoutDraft
-          .county,
-
-      postalCode,
-    };
-
-    try {
       const result =
-        await acceptQuoteOffer(
+        await sendQuoteMessage(
           quoteContext
             .quoteRequestId,
-
-          quoteContext
-            .acceptedOfferId,
-
-          {
-            shippingAddress,
-          }
+          value
         );
-
-      setQuoteContext(
-        (
-          current
-        ) => ({
-          ...current,
-
-          status:
-            "ACCEPTED",
-
-          orderId:
-            result?.orderId ||
-            result?.order?.id ||
-            null,
-
-          acceptedOfferId:
-            null,
-
-          checkoutDraft:
-            null,
-        })
-      );
-
-      setActiveFlow(
-        QUOTE_FLOWS
-          .USER_QUOTE_THREAD
-      );
 
       addMessage(
         createMessage(
-          "assistant",
-          "Comanda a fost înregistrată cu succes în platformă, iar oferta a fost acceptată."
+          "user",
+          value,
+          {
+            type:
+              "quote-message",
+
+            persistedId:
+              result?.id ||
+              null,
+
+            createdAt:
+              result?.createdAt ||
+              new Date()
+                .toISOString(),
+          }
         )
       );
+
+      clearUploadedImage?.();
 
       return true;
     } catch (
@@ -2568,8 +3311,8 @@ if (
           "assistant",
           error?.data
             ?.message ||
-          error?.message ||
-          "Comanda nu a putut fi înregistrată. Oferta nu a fost acceptată."
+            error?.message ||
+            "Mesajul nu a putut fi trimis."
         )
       );
 
@@ -2577,8 +3320,901 @@ if (
     }
   }
 
-  return true;
-}
+  /*
+   * =====================================================
+   * CLIENT — DATE COMANDĂ PENTRU ACCEPTAREA OFERTEI
+   * =====================================================
+   */
+
+  if (
+    activeFlow ===
+      QUOTE_FLOWS
+        .USER_ACCEPT_OFFER &&
+    quoteContext
+      ?.quoteRequestId &&
+    quoteContext
+      ?.acceptedOfferId
+  ) {
+    const checkoutDraft =
+      quoteContext
+        ?.checkoutDraft ||
+      {
+        quoteId:
+          quoteContext
+            ?.quoteRequestId ||
+          null,
+
+        offerId:
+          quoteContext
+            ?.acceptedOfferId ||
+          null,
+
+        step:
+          "customerType",
+      };
+
+    const normalizedValue =
+      String(
+        value || ""
+      ).trim();
+
+    if (
+      !normalizedValue
+    ) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Te rog să completezi informația solicitată."
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — DENUMIRE FIRMĂ
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "companyName"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            companyName:
+              normalizedValue,
+
+            step:
+              "companyCui",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este CUI-ul firmei?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — CUI
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "companyCui"
+    ) {
+      const companyCui =
+        normalizedValue
+          .toUpperCase()
+          .replace(
+            /\s+/g,
+            ""
+          );
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            companyCui,
+
+            step:
+              "companyRegCom",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este numărul de la Registrul Comerțului? Dacă nu vrei să îl completezi acum, scrie „sari”."
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — REGISTRUL COMERȚULUI
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "companyRegCom"
+    ) {
+      const companyRegCom =
+        [
+          "sari",
+          "skip",
+          "-",
+        ].includes(
+          normalizedValue
+            .toLowerCase()
+        )
+          ? ""
+          : normalizedValue;
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            companyRegCom,
+
+            step:
+              "companyCounty",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "În ce județ este sediul firmei?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — JUDEȚ FIRMĂ
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "companyCounty"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            companyCounty:
+              normalizedValue,
+
+            step:
+              "companyCity",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "În ce localitate este sediul firmei?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — LOCALITATE FIRMĂ
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "companyCity"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            companyCity:
+              normalizedValue,
+
+            step:
+              "companyStreet",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este adresa sediului firmei? Include strada și numărul."
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — STRADĂ FIRMĂ
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "companyStreet"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            companyStreet:
+              normalizedValue,
+
+            step:
+              "companyPostalCode",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este codul poștal al sediului? Dacă nu îl cunoști, scrie „sari”."
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — COD POȘTAL FIRMĂ
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "companyPostalCode"
+    ) {
+      const companyPostalCode =
+        [
+          "sari",
+          "skip",
+          "-",
+        ].includes(
+          normalizedValue
+            .toLowerCase()
+        )
+          ? ""
+          : normalizedValue;
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            companyPostalCode,
+
+            step:
+              "contactName",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este numele complet al persoanei de contact?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — PERSOANĂ CONTACT
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "contactName"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            contactName:
+              normalizedValue,
+
+            step:
+              "contactEmail",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este adresa de email a persoanei de contact?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — EMAIL CONTACT
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "contactEmail"
+    ) {
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          normalizedValue
+        )
+      ) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Adresa de email nu pare validă. Te rog să o introduci din nou."
+          )
+        );
+
+        return true;
+      }
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            contactEmail:
+              normalizedValue,
+
+            step:
+              "contactPhone",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este numărul de telefon al persoanei de contact?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * PJ — TELEFON CONTACT
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "contactPhone"
+    ) {
+      const contactPhone =
+        normalizedValue.replace(
+          /[^\d+]/g,
+          ""
+        );
+
+      if (
+        contactPhone.length <
+        8
+      ) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Numărul de telefon nu pare valid. Te rog să îl introduci din nou."
+          )
+        );
+
+        return true;
+      }
+
+      const nextDraft = {
+        ...checkoutDraft,
+
+        contactPhone,
+
+        step:
+          "companyShippingChoice",
+      };
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft:
+            nextDraft,
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Livrarea se face la sediul firmei?",
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "quote-company-shipping",
+
+            choices: [
+              {
+                id:
+                  "quote-company-shipping-same",
+
+                action:
+                  "quote-company-shipping-same",
+
+                title:
+                  "Da, la sediul firmei",
+
+                checkoutDraft:
+                  nextDraft,
+              },
+
+              {
+                id:
+                  "quote-company-shipping-different",
+
+                action:
+                  "quote-company-shipping-different",
+
+                title:
+                  "Nu, la altă adresă",
+
+                checkoutDraft:
+                  nextDraft,
+              },
+            ],
+          }
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * NUME DESTINATAR
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "recipientName"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            recipientName:
+              normalizedValue,
+
+            step:
+              "phone",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este numărul de telefon pentru livrare?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * TELEFON LIVRARE
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "phone"
+    ) {
+      const normalizedPhone =
+        normalizedValue.replace(
+          /[^\d+]/g,
+          ""
+        );
+
+      if (
+        normalizedPhone.length <
+        8
+      ) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Numărul de telefon nu pare valid. Te rog să îl introduci din nou."
+          )
+        );
+
+        return true;
+      }
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            phone:
+              normalizedPhone,
+
+            step:
+              "email",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este adresa de email?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * EMAIL LIVRARE
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "email"
+    ) {
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          normalizedValue
+        )
+      ) {
+        addMessage(
+          createMessage(
+            "assistant",
+            "Adresa de email nu pare validă. Te rog să o introduci din nou."
+          )
+        );
+
+        return true;
+      }
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            email:
+              normalizedValue,
+
+            step:
+              "addressLine1",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este adresa completă de livrare? Include strada, numărul și, dacă este cazul, blocul și apartamentul."
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * ADRESĂ
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "addressLine1"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            addressLine1:
+              normalizedValue,
+
+            step:
+              "city",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "În ce localitate trebuie livrată comanda?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * LOCALITATE
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "city"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            city:
+              normalizedValue,
+
+            step:
+              "county",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "În ce județ?"
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * JUDEȚ
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "county"
+    ) {
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft: {
+            ...current.checkoutDraft,
+
+            county:
+              normalizedValue,
+
+            step:
+              "postalCode",
+          },
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Care este codul poștal? Dacă nu îl cunoști, scrie „sari”."
+        )
+      );
+
+      return true;
+    }
+
+    /*
+     * ============================================
+     * COD POȘTAL
+     * ============================================
+     */
+
+    if (
+      checkoutDraft.step ===
+      "postalCode"
+    ) {
+      const postalCode =
+        [
+          "sari",
+          "skip",
+          "-",
+        ].includes(
+          normalizedValue
+            .toLowerCase()
+        )
+          ? ""
+          : normalizedValue;
+
+      const nextDraft = {
+        ...checkoutDraft,
+
+        postalCode,
+
+        step:
+          "paymentMethod",
+      };
+
+      setQuoteContext(
+        (
+          current
+        ) => ({
+          ...current,
+
+          checkoutDraft:
+            nextDraft,
+        })
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          "Cum dorești să achiți comanda?",
+          {
+            type:
+              "choices",
+
+            choiceStep:
+              "quote-payment-method",
+
+            choices: [
+              {
+                id:
+                  "quote-payment-cod",
+
+                action:
+                  "quote-payment-cod",
+
+                title:
+                  "Ramburs",
+
+                description:
+                  "Plătești la livrare.",
+
+                checkoutDraft:
+                  nextDraft,
+              },
+
+              {
+                id:
+                  "quote-payment-card",
+
+                action:
+                  "quote-payment-card",
+
+                title:
+                  "Card online",
+
+                description:
+                  "Vei fi redirecționat către plata securizată.",
+
+                checkoutDraft:
+                  nextDraft,
+              },
+            ],
+          }
+        )
+      );
+
+      return true;
+    }
+
+    return true;
+  }
+
   /*
    * =====================================================
    * MESAJ VENDOR -> CLIENT
@@ -2608,7 +4244,6 @@ if (
       addMessage(
         createMessage(
           "assistant",
-
           error?.data
             ?.message ||
             error?.message ||
@@ -2621,12 +4256,6 @@ if (
   }
 
   /*
-   * Dacă nu suntem în flow-ul
-   * de creare cerere din produs,
-   * acest handler nu procesează mesajul.
-   */
-
-    /*
    * =====================================================
    * VENDOR — CREARE OFERTĂ
    * =====================================================
@@ -2674,7 +4303,8 @@ if (
         !Number.isFinite(
           unitPrice
         ) ||
-        unitPrice < 0
+        unitPrice <
+          0
       ) {
         addMessage(
           createMessage(
@@ -2741,7 +4371,8 @@ if (
         !Number.isFinite(
           shippingPrice
         ) ||
-        shippingPrice < 0
+        shippingPrice <
+          0
       ) {
         addMessage(
           createMessage(
@@ -2799,7 +4430,8 @@ if (
         !Number.isFinite(
           productionDays
         ) ||
-        productionDays <= 0
+        productionDays <=
+          0
       ) {
         addMessage(
           createMessage(
@@ -2876,8 +4508,8 @@ if (
                 Number(
                   offerDraft
                     .quantity ||
-                    quoteContext
-                      .quantity
+                  quoteContext
+                    .quantity
                 ),
 
               unitPrice:
@@ -2890,7 +4522,7 @@ if (
                 Number(
                   offerDraft
                     .shippingPrice ||
-                    0
+                  0
                 ),
 
               currency:
@@ -2929,10 +4561,12 @@ if (
           createMessage(
             "assistant",
             `Oferta a fost trimisă clientului cu succes.${
-              result
-                ?.offer
+              result?.offer
                 ?.total
-                ? `\n\nTotal ofertă: ${result.offer.total} ${result.offer.currency || "RON"}`
+                ? `\n\nTotal ofertă: ${result.offer.total} ${
+                    result.offer.currency ||
+                    "RON"
+                  }`
                 : ""
             }`
           )
@@ -2959,39 +4593,41 @@ if (
     return true;
   }
 
- const isProductQuote =
-  activeFlow ===
-  "quote-from-product";
+  const isProductQuote =
+    activeFlow ===
+    "quote-from-product";
 
-const isStoreQuote =
-  activeFlow ===
-  "quote-from-store";
+  const isStoreQuote =
+    activeFlow ===
+    "quote-from-store";
 
-if (
-  !isProductQuote &&
-  !isStoreQuote
-) {
-  return false;
-}
+  if (
+    !isProductQuote &&
+    !isStoreQuote
+  ) {
+    return false;
+  }
 
   /*
    * =====================================================
    * VALIDARE CONTEXT PRODUS
    * =====================================================
    */
-if (
-  isProductQuote &&
-  !quoteContext?.productId
-) {
-  addMessage(
-    createMessage(
-      "assistant",
-      "Nu am putut identifica produsul pentru această cerere de ofertă."
-    )
-  );
 
-  return true;
-}
+  if (
+    isProductQuote &&
+    !quoteContext
+      ?.productId
+  ) {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Nu am putut identifica produsul pentru această cerere de ofertă."
+      )
+    );
+
+    return true;
+  }
 
   const quoteFields =
     getQuoteFields(
@@ -3032,12 +4668,12 @@ if (
       !Number.isFinite(
         quantity
       ) ||
-      quantity <= 0
+      quantity <=
+        0
     ) {
       addMessage(
         createMessage(
           "assistant",
-
           "Te rog să-mi spui numărul de bucăți dorit. De exemplu: „30”."
         )
       );
@@ -3045,17 +4681,14 @@ if (
       return true;
     }
 
-    /*
-     * Dacă există întrebări
-     * configurate pentru produs.
-     */
-
     if (
       quoteFields.length >
       0
     ) {
       const firstField =
-        quoteFields[0];
+        quoteFields[
+          0
+        ];
 
       setQuoteDraft({
         step:
@@ -3072,9 +4705,9 @@ if (
       addMessage(
         createMessage(
           "assistant",
-
           `Perfect, am notat ${quantity} ${
-            quantity === 1
+            quantity ===
+            1
               ? "bucată"
               : "bucăți"
           }.\n\n${getQuoteFieldQuestion(
@@ -3086,27 +4719,26 @@ if (
       return true;
     }
 
-    /*
-     * Produsul nu are întrebări.
-     * Creăm cererea direct.
-     */
-
     try {
       const result =
         await createQuoteRequest({
           productId:
             quoteContext
               .productId,
-vendorId:
-    isStoreQuote
-      ? quoteContext?.vendorId
-      : null,
+
+          vendorId:
+            isStoreQuote
+              ? quoteContext
+                  ?.vendorId
+              : null,
+
           quantity,
 
           requestData: {
             message:
               `Cerere de ofertă pentru ${quantity} ${
-                quantity === 1
+                quantity ===
+                1
                   ? "bucată"
                   : "bucăți"
               }.`,
@@ -3129,23 +4761,27 @@ vendorId:
         result
           ?.quoteRequestId ||
         result?.id;
-const createdThreadId =
-  result?.threadId ||
-  null;
 
-await sendInspirationImage(
-  createdThreadId
-);
+      const createdThreadId =
+        result?.threadId ||
+        null;
+
+      await sendInspirationImage(
+        createdThreadId
+      );
+
       setQuoteContext(
-  (current) => ({
-    ...current,
+        (
+          current
+        ) => ({
+          ...current,
 
-    quoteRequestId,
+          quoteRequestId,
 
-    threadId:
-      createdThreadId,
-  })
-);
+          threadId:
+            createdThreadId,
+        })
+      );
 
       setQuoteDraft({
         step:
@@ -3167,9 +4803,9 @@ await sendInspirationImage(
       addMessage(
         createMessage(
           "assistant",
-
           `Cererea ta pentru ${quantity} ${
-            quantity === 1
+            quantity ===
+            1
               ? "bucată"
               : "bucăți"
           } a fost înregistrată și trimisă vânzătorului.\n\nDe acum puteți continua discuția aici. Când vânzătorul trimite oferta finală, o vei putea verifica și accepta direct în platformă.`
@@ -3185,7 +4821,6 @@ await sendInspirationImage(
       addMessage(
         createMessage(
           "assistant",
-
           error?.data
             ?.message ||
             error?.message ||
@@ -3212,7 +4847,8 @@ await sendInspirationImage(
       Number(
         quoteDraft
           .currentFieldIndex
-      ) || 0;
+      ) ||
+      0;
 
     const currentField =
       quoteFields[
@@ -3225,7 +4861,6 @@ await sendInspirationImage(
       addMessage(
         createMessage(
           "assistant",
-
           "Nu am putut identifica următoarea informație necesară. Te rog să reîncepi cererea."
         )
       );
@@ -3255,10 +4890,6 @@ await sendInspirationImage(
         normalizedAnswer
       );
 
-    /*
-     * Câmp opțional.
-     */
-
     if (
       wantsToSkip &&
       currentField
@@ -3268,17 +4899,12 @@ await sendInspirationImage(
       addMessage(
         createMessage(
           "assistant",
-
           `„${currentField.label}” este un câmp obligatoriu. Te rog să completezi această informație.`
         )
       );
 
       return true;
     }
-
-    /*
-     * Validare NUMBER
-     */
 
     if (
       !wantsToSkip &&
@@ -3302,7 +4928,6 @@ await sendInspirationImage(
         addMessage(
           createMessage(
             "assistant",
-
             `Pentru „${currentField.label}” am nevoie de o valoare numerică.`
           )
         );
@@ -3313,10 +4938,6 @@ await sendInspirationImage(
       answer =
         numericValue;
     }
-
-    /*
-     * Validare DATE
-     */
 
     if (
       !wantsToSkip &&
@@ -3335,7 +4956,6 @@ await sendInspirationImage(
         addMessage(
           createMessage(
             "assistant",
-
             `Data pentru „${currentField.label}” nu este validă. Te rog să folosești formatul 15.08.2026.`
           )
         );
@@ -3346,10 +4966,6 @@ await sendInspirationImage(
       answer =
         normalizedDate;
     }
-
-    /*
-     * Validare SELECT
-     */
 
     if (
       !wantsToSkip &&
@@ -3390,7 +5006,6 @@ await sendInspirationImage(
         addMessage(
           createMessage(
             "assistant",
-
             `Te rog să alegi una dintre variantele disponibile: ${currentField.options.join(
               ", "
             )}.`
@@ -3404,29 +5019,20 @@ await sendInspirationImage(
         selectedOption;
     }
 
-    /*
-     * Salvăm răspunsul.
-     */
+    const nextAnswers = {
+      ...quoteDraft
+        .answers,
 
-    const nextAnswers =
-      {
-        ...quoteDraft
-          .answers,
-
-        [currentField
-          .key]:
-          wantsToSkip
-            ? null
-            : answer,
-      };
+      [currentField
+        .key]:
+        wantsToSkip
+          ? null
+          : answer,
+    };
 
     const nextIndex =
       currentIndex +
       1;
-
-    /*
-     * Mai avem întrebări.
-     */
 
     if (
       nextIndex <
@@ -3453,7 +5059,6 @@ await sendInspirationImage(
       addMessage(
         createMessage(
           "assistant",
-
           getQuoteFieldQuestion(
             nextField
           )
@@ -3462,12 +5067,6 @@ await sendInspirationImage(
 
       return true;
     }
-
-    /*
-     * =====================================================
-     * TOATE RĂSPUNSURILE SUNT COMPLETE
-     * =====================================================
-     */
 
     try {
       const summaryLines =
@@ -3519,10 +5118,13 @@ await sendInspirationImage(
           productId:
             quoteContext
               .productId,
-vendorId:
-    isStoreQuote
-      ? quoteContext?.vendorId
-      : null,
+
+          vendorId:
+            isStoreQuote
+              ? quoteContext
+                  ?.vendorId
+              : null,
+
           quantity,
 
           requestData: {
@@ -3547,23 +5149,28 @@ vendorId:
         result
           ?.quoteRequestId ||
         result?.id;
-const createdThreadId =
-  result?.threadId ||
-  null;
 
-await sendInspirationImage(
-  createdThreadId
-);
+      const createdThreadId =
+        result?.threadId ||
+        null;
+
+      await sendInspirationImage(
+        createdThreadId
+      );
+
       setQuoteContext(
-  (current) => ({
-    ...current,
+        (
+          current
+        ) => ({
+          ...current,
 
-    quoteRequestId,
+          quoteRequestId,
 
-    threadId:
-      createdThreadId,
-  })
-);
+          threadId:
+            createdThreadId,
+        })
+      );
+
       setQuoteDraft({
         step:
           "submitted",
@@ -3586,7 +5193,6 @@ await sendInspirationImage(
       addMessage(
         createMessage(
           "assistant",
-
           `Perfect. Cererea ta de ofertă pentru „${
             quoteContext
               .productTitle ||
@@ -3604,7 +5210,6 @@ await sendInspirationImage(
       addMessage(
         createMessage(
           "assistant",
-
           error?.data
             ?.message ||
             error?.message ||

@@ -677,10 +677,15 @@ export async function sendOrderConfirmationEmail({
   actionUrl = null,
 
   /*
-   * Folosit pentru textul butonului
-   * și mesajele din email.
+   * Guest / user normal.
    */
   isGuest = false,
+
+  /*
+   * Pentru flow-ul de plată guest.
+   */
+  paymentMethod = null,
+  paymentPending = false,
 }) {
   if (!to || !order) {
     return;
@@ -745,8 +750,25 @@ export async function sendOrderConfirmationEmail({
         : null
     );
 
-  const orderButtonLabel =
-    isGuest
+const normalizedPaymentMethod =
+  String(
+    paymentMethod ||
+      order?.paymentMethod ||
+      ""
+  )
+    .trim()
+    .toUpperCase();
+
+const isGuestCardPending =
+  isGuest === true &&
+  normalizedPaymentMethod === "CARD" &&
+  paymentPending === true &&
+  Boolean(orderLink);
+
+const orderButtonLabel =
+  isGuestCardPending
+    ? "Vezi comanda / Finalizează plata"
+    : isGuest
       ? "Vezi comanda"
       : "Vezi comanda în contul tău";
 
@@ -1227,7 +1249,45 @@ export async function sendOrderConfirmationEmail({
     </p>
 
     ${storeAddressesHtml}
+${
+  isGuestCardPending
+    ? `
+      <div
+        style="
+          margin:20px 0;
+          padding:16px;
+          border-radius:12px;
+          background:#fff8eb;
+          border:1px solid #ead6ad;
+        "
+      >
+        <div
+          style="
+            color:#4d3c32;
+            font-weight:700;
+            margin-bottom:6px;
+          "
+        >
+          Plata comenzii
+        </div>
 
+        <div
+          style="
+            color:#5f5149;
+            font-size:14px;
+            line-height:1.6;
+          "
+        >
+          Ai ales plata cu cardul.
+
+          Dacă nu ai finalizat plata, comanda ta este păstrată.
+          Poți reveni oricând în pagina comenzii și poți apăsa
+          <strong>„Achită acum”</strong>.
+        </div>
+      </div>
+    `
+    : ""
+}
     ${
       orderLink
         ? `

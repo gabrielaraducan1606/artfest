@@ -588,12 +588,60 @@ useEffect(() => {
   const ship = order.shipment || {};
   const addr = order.shippingAddress || {};
   const items = order.items || [];
+  const billingAddress =
+  order.billingAddress || {};
+
+const contactPerson =
+  order.contactPerson || {};
   const priceBreakdown = order.priceBreakdown || null;
   const vf = order.vendorFinancials || priceBreakdown?.vendorFinancials || null;
 
-  const isCompany =
-    order.customerType === "PJ" ||
-    (!order.customerType && (addr.companyName || addr.companyCui));
+ const isCompany =
+  order.customerType === "PJ" ||
+  (
+    !order.customerType &&
+    (
+      billingAddress.companyName ||
+      billingAddress.companyCui ||
+      addr.companyName ||
+      addr.companyCui
+    )
+  );
+
+  const paymentMethod =
+    String(
+      order?.paymentMethod ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const paymentStatus =
+    String(
+      order?.paymentStatus ||
+        ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const isCardPayment =
+    paymentMethod ===
+    "CARD";
+
+  const isPaid =
+    paymentStatus ===
+      "PAID" ||
+    Boolean(
+      order?.paidAt
+    );
+
+  const waitingForCardPayment =
+    order?.waitingForCardPayment ===
+    true;
+
+  const canProcess =
+    order?.canProcess !==
+    false;
 
   const primaryThread =
     (order.messageThreads && order.messageThreads[0]) || null;
@@ -601,7 +649,20 @@ useEffect(() => {
   /* ===== Handlere acțiuni ===== */
 
   function openCourierModal() {
-    if (!COURIER_ENABLED) return;
+    if (
+      waitingForCardPayment
+    ) {
+      alert(
+        "Clientul nu a finalizat încă plata cu cardul."
+      );
+
+      return;
+    }
+
+    if (!COURIER_ENABLED) {
+      return;
+    }
+
     setCourierOrder({
       id: order.id,
       shipmentId: ship.id,
@@ -697,8 +758,15 @@ useEffect(() => {
               className={styles.primaryBtn}
               type="button"
               onClick={openCourierModal}
-              disabled={!COURIER_ENABLED}
-              title="Funcționalitate temporar indisponibilă"
+              disabled={
+                !COURIER_ENABLED ||
+                !canProcess
+              }
+              title={
+                waitingForCardPayment
+                  ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
+                  : "Funcționalitate temporar indisponibilă"
+              }
             >
               <PackageCheck size={16} /> Curier
             </button>
@@ -821,6 +889,64 @@ useEffect(() => {
             </div>
           </div>
 
+          <div className={styles.kv}>
+            <span>Plată</span>
+
+            <div>
+              {paymentMethod === "COD" ? (
+                <strong>
+                  Ramburs
+                </strong>
+              ) : isCardPayment ? (
+                <>
+                  <strong>
+                    Card online
+                  </strong>
+
+                  <div
+                    className={styles.muted}
+                    style={{
+                      marginTop: 4,
+                    }}
+                  >
+                    {isPaid
+                      ? "Achitată"
+                      : "În așteptarea plății"}
+                  </div>
+                </>
+              ) : (
+                "—"
+              )}
+            </div>
+          </div>
+
+          {waitingForCardPayment && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "10px 12px",
+                borderRadius: 10,
+                background:
+                  "rgba(190, 140, 40, 0.08)",
+                border:
+                  "1px solid rgba(170, 120, 30, 0.24)",
+              }}
+            >
+              <strong>
+                Plata nu a fost încă finalizată.
+              </strong>
+
+              <div
+                className={styles.muted}
+                style={{
+                  marginTop: 4,
+                }}
+              >
+                Clientul trebuie să finalizeze plata cu cardul înainte să începi procesarea comenzii.
+              </div>
+            </div>
+          )}
+
           {primaryThread && primaryThread.internalNote && (
             <div className={styles.kv}>
               <span>
@@ -834,35 +960,130 @@ useEffect(() => {
           )}
 
           {isCompany && (
-            <>
-              <div
-                style={{
-                  marginTop: 12,
-                  marginBottom: 4,
-                  fontWeight: 600,
-                }}
-              >
-                Facturare pe firmă
-              </div>
+  <>
+    <div
+      style={{
+        marginTop: 12,
+        marginBottom: 4,
+        fontWeight: 600,
+      }}
+    >
+      Facturare pe firmă
+    </div>
 
-              <div className={styles.kv}>
-                <span>Denumire firmă</span>
-                <strong>{addr.companyName || "—"}</strong>
-              </div>
+    <div className={styles.kv}>
+      <span>Denumire firmă</span>
+      <strong>
+        {billingAddress.companyName ||
+          addr.companyName ||
+          "—"}
+      </strong>
+    </div>
 
-              <div className={styles.kv}>
-                <span>CUI</span>
-                <strong>{addr.companyCui || "—"}</strong>
-              </div>
+    <div className={styles.kv}>
+      <span>CUI</span>
+      <strong>
+        {billingAddress.companyCui ||
+          addr.companyCui ||
+          "—"}
+      </strong>
+    </div>
 
-              {addr.companyRegCom && (
-                <div className={styles.kv}>
-                  <span>Nr. Reg. Comerțului</span>
-                  <strong>{addr.companyRegCom}</strong>
-                </div>
-              )}
-            </>
+    {(
+      billingAddress.companyRegCom ||
+      addr.companyRegCom
+    ) && (
+      <div className={styles.kv}>
+        <span>Nr. Reg. Comerțului</span>
+        <strong>
+          {billingAddress.companyRegCom ||
+            addr.companyRegCom}
+        </strong>
+      </div>
+    )}
+
+    {(billingAddress.street ||
+      billingAddress.city ||
+      billingAddress.county) && (
+      <div className={styles.kv}>
+        <span>Adresă facturare</span>
+
+        <div>
+          {billingAddress.street && (
+            <div>
+              {billingAddress.street}
+            </div>
           )}
+
+          <div>
+            {billingAddress.city}
+
+            {billingAddress.postalCode
+              ? ` (${billingAddress.postalCode})`
+              : ""}
+          </div>
+
+          {billingAddress.county && (
+            <div>
+              {billingAddress.county}
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    {(
+      contactPerson.name ||
+      contactPerson.email ||
+      contactPerson.phone
+    ) && (
+      <>
+        <div
+          style={{
+            marginTop: 12,
+            marginBottom: 4,
+            fontWeight: 600,
+          }}
+        >
+          Persoană de contact
+        </div>
+
+        {contactPerson.name && (
+          <div className={styles.kv}>
+            <span>Nume</span>
+            <strong>
+              {contactPerson.name}
+            </strong>
+          </div>
+        )}
+
+        {contactPerson.phone && (
+          <div className={styles.kv}>
+            <span>Telefon</span>
+
+            <a
+              href={`tel:${contactPerson.phone}`}
+            >
+              {contactPerson.phone}
+            </a>
+          </div>
+        )}
+
+        {contactPerson.email && (
+          <div className={styles.kv}>
+            <span>Email</span>
+
+            <a
+              href={`mailto:${contactPerson.email}`}
+            >
+              {contactPerson.email}
+            </a>
+          </div>
+        )}
+      </>
+    )}
+  </>
+)}
 
           {billingError && !billingLoading && (
             <p className={styles.muted} style={{ marginTop: 8 }}>

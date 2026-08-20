@@ -8,6 +8,7 @@ import { prisma } from "../db.js";
 
 import {
   createDepositPaymentForShipment,
+  createPaymentForOrder,
 } from "../payments/orchestrator.js";
 
 const router = Router();
@@ -94,114 +95,189 @@ function verifyDepositAccessToken(
 /* =========================================================
    Status comandă
 ========================================================= */
-
 function computeUiStatus(
   order,
   shipments = []
 ) {
   const orderStatus =
-    order?.status ||
-    null;
+    String(
+      order?.status || ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const paymentMethod =
+    String(
+      order?.paymentMethod || ""
+    )
+      .trim()
+      .toUpperCase();
 
   const shipmentStatuses =
     shipments.map(
       (shipment) =>
-        shipment.status
+        String(
+          shipment?.status || ""
+        )
+          .trim()
+          .toUpperCase()
     );
 
   if (
-    shipmentStatuses.length
+    shipmentStatuses.some(
+      (status) =>
+        status === "RETURNED"
+    )
   ) {
-    if (
-      shipmentStatuses.some(
-        (status) =>
-          status ===
-          "RETURNED"
-      )
-    ) {
-      return "RETURNED";
-    }
-
-    if (
-      shipmentStatuses.some(
-        (status) =>
-          status ===
-          "REFUSED"
-      )
-    ) {
-      return "CANCELED";
-    }
-
-    if (
-      shipmentStatuses.every(
-        (status) =>
-          status ===
-          "DELIVERED"
-      )
-    ) {
-      return "DELIVERED";
-    }
-
-    if (
-      shipmentStatuses.some(
-        (status) =>
-          [
-            "AWB",
-            "IN_TRANSIT",
-          ].includes(
-            status
-          )
-      )
-    ) {
-      return "SHIPPED";
-    }
-
-    if (
-      shipmentStatuses.some(
-        (status) =>
-          [
-            "PREPARING",
-            "READY_FOR_PICKUP",
-            "PICKUP_SCHEDULED",
-          ].includes(
-            status
-          )
-      )
-    ) {
-      return "PROCESSING";
-    }
-
-    if (
-      shipmentStatuses.some(
-        (status) =>
-          status ===
-          "PENDING"
-      )
-    ) {
-      return "PENDING";
-    }
+    return "RETURNED";
   }
 
   if (
-    orderStatus ===
-    "CANCELLED"
+    shipmentStatuses.some(
+      (status) =>
+        status === "REFUSED"
+    )
   ) {
     return "CANCELED";
   }
 
-  switch (
-    orderStatus
+  if (
+    orderStatus === "CANCELLED"
   ) {
+    return "CANCELED";
+  }
+
+  if (
+    shipmentStatuses.length > 0 &&
+    shipmentStatuses.every(
+      (status) =>
+        status === "DELIVERED"
+    )
+  ) {
+    return "DELIVERED";
+  }
+
+  if (
+    orderStatus === "FULFILLED"
+  ) {
+    return "DELIVERED";
+  }
+
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        [
+          "AWB",
+          "IN_TRANSIT",
+        ].includes(status)
+    )
+  ) {
+    return "SHIPPED";
+  }
+
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        [
+          "PREPARING",
+          "READY_FOR_PICKUP",
+          "PICKUP_SCHEDULED",
+        ].includes(status)
+    )
+  ) {
+    return "PROCESSING";
+  }
+
+  /*
+   * CARD plătit.
+   * Chiar dacă shipment-ul este încă PENDING,
+   * comanda trebuie afișată ca PROCESSING.
+   */
+  if (
+    paymentMethod === "CARD" &&
+    (
+      orderStatus === "PAID" ||
+      Boolean(
+        order?.paidAt
+      )
+    )
+  ) {
+    return "PROCESSING";
+  }
+
+  if (
+    shipmentStatuses.some(
+      (status) =>
+        status === "PENDING"
+    )
+  ) {
+    return "PENDING";
+  }
+
+  switch (orderStatus) {
     case "PAID":
       return "PROCESSING";
 
     case "FULFILLED":
       return "DELIVERED";
 
+    case "CANCELLED":
+      return "CANCELED";
+
     case "PENDING":
     default:
       return "PENDING";
   }
+}
+
+function computeGuestOrderPaymentState(
+  order
+) {
+  const paymentMethod =
+    String(
+      order?.paymentMethod || ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const orderStatus =
+    String(
+      order?.status || ""
+    )
+      .trim()
+      .toUpperCase();
+
+  const isCard =
+    paymentMethod === "CARD";
+
+  const isPaid =
+    isCard &&
+    (
+      orderStatus === "PAID" ||
+      Boolean(
+        order?.paidAt
+      )
+    );
+
+  const paymentStatus =
+    paymentMethod === "COD"
+      ? "COD"
+      : isPaid
+        ? "PAID"
+        : "PENDING";
+
+  const canRetryPayment =
+    isCard &&
+    !isPaid &&
+    orderStatus === "PENDING";
+
+  return {
+    paymentMethod,
+    paymentStatus,
+    paid:
+      isPaid,
+    canRetryPayment,
+  };
 }
 
 /* =========================================================
@@ -631,6 +707,7 @@ async function resolveGuestOrderAccess({
 
 router.get(
   "/:id",
+
   async (
     req,
     res
@@ -655,10 +732,17 @@ router.get(
             ""
         ).trim();
 
+      /*
+       * Trebuie să avem:
+       * - ID / orderNumber
+       * - și cel puțin un token de acces.
+       */
       if (
         !orderReference ||
-        (!token &&
-          !depositToken)
+        (
+          !token &&
+          !depositToken
+        )
       ) {
         return res
           .status(400)
@@ -671,6 +755,11 @@ router.get(
           });
       }
 
+      /*
+       * Poate fi accesată fie cu:
+       * - guestAccessToken normal
+       * - depositToken temporar.
+       */
       const access =
         await resolveGuestOrderAccess({
           orderReference,
@@ -693,6 +782,23 @@ router.get(
       const order =
         access.order;
 
+      /*
+       * =====================================================
+       * STATUS PLATĂ
+       * =====================================================
+       */
+
+      const paymentState =
+        computeGuestOrderPaymentState(
+          order
+        );
+
+      /*
+       * =====================================================
+       * STATUS COMANDĂ
+       * =====================================================
+       */
+
       const status =
         computeUiStatus(
           order,
@@ -704,17 +810,27 @@ router.get(
           order.shipments
         );
 
+      /*
+       * =====================================================
+       * PRODUSE / IMAGINI
+       * =====================================================
+       */
+
       const productIds =
         Array.from(
           new Set(
             order.shipments
               .flatMap(
-                (shipment) =>
+                (
+                  shipment
+                ) =>
                   shipment.items ||
                   []
               )
               .map(
-                (item) =>
+                (
+                  item
+                ) =>
                   item.productId
               )
               .filter(
@@ -746,25 +862,36 @@ router.get(
       const imageByProductId =
         new Map(
           products.map(
-            (product) => [
+            (
+              product
+            ) => [
               product.id,
 
               Array.isArray(
                 product.images
               ) &&
               product.images[0]
-                ? product
-                    .images[0]
+                ? product.images[0]
                 : null,
             ]
           )
         );
 
+      /*
+       * =====================================================
+       * ITEMS
+       * =====================================================
+       */
+
       const items =
         order.shipments.flatMap(
-          (shipment) =>
+          (
+            shipment
+          ) =>
             shipment.items.map(
-              (item) => {
+              (
+                item
+              ) => {
                 const price =
                   Number(
                     item.price ||
@@ -892,6 +1019,12 @@ router.get(
             )
         );
 
+      /*
+       * =====================================================
+       * TOTALURI
+       * =====================================================
+       */
+
       const subtotal =
         Number(
           order.subtotal ||
@@ -911,9 +1044,17 @@ router.get(
               shippingTotal
         );
 
+      /*
+       * =====================================================
+       * SHIPMENTS
+       * =====================================================
+       */
+
       const shipments =
         order.shipments.map(
-          (shipment) => ({
+          (
+            shipment
+          ) => ({
             id:
               shipment.id,
 
@@ -952,16 +1093,20 @@ router.get(
 
       /*
        * Avansul activ, util și pentru
-       * un warning general în frontend.
+       * warning-ul general din frontend.
        */
       const activeDeposit =
         shipments
           .map(
-            (shipment) =>
+            (
+              shipment
+            ) =>
               shipment.deposit
           )
           .find(
-            (deposit) =>
+            (
+              deposit
+            ) =>
               deposit?.status ===
                 "PENDING" ||
               deposit?.status ===
@@ -969,51 +1114,81 @@ router.get(
           ) ||
         null;
 
+      /*
+       * =====================================================
+       * RESPONSE
+       * =====================================================
+       */
+
       return res.json({
-  id:
-    order.id,
+        id:
+          order.id,
 
-  orderNumber:
-    order.orderNumber ||
-    null,
+        orderNumber:
+          order.orderNumber ||
+          null,
 
-  createdAt:
-    order.createdAt,
+        createdAt:
+          order.createdAt,
 
-  /*
-   * Status calculat pentru UI.
-   */
-  status,
+        /*
+         * Status calculat pentru UI:
+         * PENDING / PROCESSING / SHIPPED...
+         */
+        status,
 
-  /*
-   * Status real din Order:
-   * PENDING | PAID | CANCELLED | FULFILLED
-   */
-  orderStatus:
-    order.status,
+        /*
+         * Status real:
+         * PENDING | PAID | CANCELLED | FULFILLED
+         */
+        orderStatus:
+          order.status,
 
-  /*
-   * COD | CARD
-   */
-  paymentMethod:
-    order.paymentMethod,
+        /*
+         * =================================================
+         * PLATĂ
+         * =================================================
+         */
 
-  /*
-   * Pentru plata cu cardul.
-   */
-  paidAt:
-    order.paidAt ||
-    null,
+        paymentMethod:
+          paymentState
+            .paymentMethod,
 
-  stripeCheckoutSessionId:
-    order.stripeCheckoutSessionId ||
-    null,
+        paymentStatus:
+          paymentState
+            .paymentStatus,
 
-  stripePaymentIntentId:
-    order.stripePaymentIntentId ||
-    null,
+        canRetryPayment:
+          paymentState
+            .canRetryPayment,
 
-  shippingStage,
+        paidAt:
+          order.paidAt ||
+          null,
+
+        stripeCheckoutSessionId:
+          order
+            .stripeCheckoutSessionId ||
+          null,
+
+        stripePaymentIntentId:
+          order
+            .stripePaymentIntentId ||
+          null,
+
+        /*
+         * =================================================
+         * LIVRARE
+         * =================================================
+         */
+
+        shippingStage,
+
+        /*
+         * =================================================
+         * SUME
+         * =================================================
+         */
 
         currency:
           order.currency ||
@@ -1043,6 +1218,12 @@ router.get(
               100
           ),
 
+        /*
+         * =================================================
+         * CLIENT
+         * =================================================
+         */
+
         customerName:
           order.customerName ||
           null,
@@ -1059,9 +1240,23 @@ router.get(
           order.shippingAddress ||
           {},
 
+        billingAddress:
+          order.billingAddress ||
+          null,
+
+        contactPerson:
+          order.contactPerson ||
+          null,
+
         customerType:
           order.customerType ||
           "PF",
+
+        /*
+         * =================================================
+         * PRODUSE / PACHETE
+         * =================================================
+         */
 
         items,
 
@@ -1070,6 +1265,13 @@ router.get(
         deposit:
           activeDeposit,
 
+        /*
+         * Tipul accesului.
+         *
+         * Frontend-ul poate ști astfel dacă pagina
+         * a fost deschisă din linkul guest normal
+         * sau din linkul special de avans.
+         */
         access: {
           type:
             access.accessType,
@@ -1081,7 +1283,9 @@ router.get(
             null,
         },
       });
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "Guest order read failed:",
         error
@@ -1099,7 +1303,199 @@ router.get(
     }
   }
 );
+/* =========================================================
+   POST /api/guest/orders/:id/payment
 
+   Reia plata integrală CARD pentru guest.
+========================================================= */
+
+router.post(
+  "/:id/payment",
+
+  async (req, res) => {
+    try {
+      const orderReference =
+        String(
+          req.params.id || ""
+        ).trim();
+
+      const token =
+        String(
+          req.query.token ||
+          req.body?.token ||
+          ""
+        ).trim();
+
+      if (
+        !orderReference ||
+        !token
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "guest_order_access_invalid",
+
+            message:
+              "Linkul comenzii nu este valid.",
+          });
+      }
+
+      /*
+       * Pentru plata integrală folosim
+       * DOAR guestAccessToken-ul original.
+       */
+      const order =
+        await findGuestOrder({
+          orderReference,
+          token,
+        });
+
+      if (!order) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "guest_order_not_found",
+
+            message:
+              "Comanda nu a fost găsită sau linkul nu mai este valid.",
+          });
+      }
+
+      const paymentState =
+        computeGuestOrderPaymentState(
+          order
+        );
+
+      /*
+       * Doar CARD.
+       */
+      if (
+        paymentState
+          .paymentMethod !== "CARD"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "order_not_card",
+
+            message:
+              "Această comandă nu necesită plată online.",
+          });
+      }
+
+      /*
+       * Deja achitată.
+       */
+      if (
+        paymentState.paid
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "order_already_paid",
+
+            message:
+              "Această comandă este deja plătită.",
+          });
+      }
+
+      /*
+       * Doar PENDING poate relua plata.
+       */
+      if (
+        !paymentState
+          .canRetryPayment
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "order_not_payable",
+
+            message:
+              "Această comandă nu mai poate fi achitată în starea actuală.",
+          });
+      }
+
+      /*
+       * IMPORTANT:
+       *
+       * În DB există doar hash-ul tokenului.
+       * Tokenul original îl avem aici din URL.
+       *
+       * Îl atașăm temporar obiectului trimis
+       * către orchestrator.
+       */
+      const payment =
+        await createPaymentForOrder({
+          ...order,
+
+          guestAccessToken:
+            token,
+        });
+
+      const redirectUrl =
+        payment?.redirectUrl ||
+        payment?.url ||
+        null;
+
+      if (!redirectUrl) {
+        return res
+          .status(500)
+          .json({
+            error:
+              "payment_url_missing",
+
+            message:
+              "Nu am primit linkul pentru plată.",
+          });
+      }
+
+      return res.json({
+        ok:
+          true,
+
+        orderId:
+          order.id,
+
+        orderNumber:
+          order.orderNumber ||
+          null,
+
+        paymentMethod:
+          paymentState
+            .paymentMethod,
+
+        paymentStatus:
+          "PENDING",
+
+        payment: {
+          ...payment,
+          redirectUrl,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Guest retry payment failed:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          error:
+            "guest_payment_restart_failed",
+
+          message:
+            "Plata nu a putut fi reluată. Te rugăm să încerci din nou.",
+        });
+    }
+  }
+);
 /* =========================================================
    POST
    /api/guest/orders/:orderId/shipments/:shipmentId/pay-deposit

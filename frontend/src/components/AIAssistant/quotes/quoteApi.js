@@ -3,6 +3,7 @@
 /* =========================================================
    Configurare
 ========================================================= */
+
 const RAW_API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   "";
@@ -12,6 +13,7 @@ const API_BASE_URL =
     /\/api\/?$/,
     ""
   );
+
 /* =========================================================
    Request helper
 ========================================================= */
@@ -163,7 +165,9 @@ function requireId(
       value || ""
     ).trim();
 
-  if (!normalized) {
+  if (
+    !normalized
+  ) {
     throw new Error(
       `${label} lipsește.`
     );
@@ -182,7 +186,9 @@ function requireMessage(
       value || ""
     ).trim();
 
-  if (!normalized) {
+  if (
+    !normalized
+  ) {
     throw new Error(
       "Mesajul nu poate fi gol."
     );
@@ -276,6 +282,7 @@ export async function createQuoteRequest({
     }
   );
 }
+
 /* =========================================================
    CLIENT — lista cererilor
 ========================================================= */
@@ -495,6 +502,11 @@ export async function acceptQuoteOffer(
   offerId,
   {
     shippingAddress = {},
+    billingAddress = null,
+    contactPerson = null,
+    customerType = "PF",
+    paymentMethod = "COD",
+    shipToDifferentAddress = false,
   } = {}
 ) {
   const normalizedQuoteId =
@@ -508,6 +520,28 @@ export async function acceptQuoteOffer(
       offerId,
       "ID-ul ofertei"
     );
+
+  const normalizedCustomerType =
+    String(
+      customerType ||
+        "PF"
+    )
+      .trim()
+      .toUpperCase() ===
+    "PJ"
+      ? "PJ"
+      : "PF";
+
+  const normalizedPaymentMethod =
+    String(
+      paymentMethod ||
+        "COD"
+    )
+      .trim()
+      .toUpperCase() ===
+    "CARD"
+      ? "CARD"
+      : "COD";
 
   return apiRequest(
     `/api/assistant/quotes/${normalizedQuoteId}/offers/${normalizedOfferId}/accept`,
@@ -525,6 +559,40 @@ export async function acceptQuoteOffer(
           )
             ? shippingAddress
             : {},
+
+        billingAddress:
+          billingAddress &&
+          typeof billingAddress ===
+            "object" &&
+          !Array.isArray(
+            billingAddress
+          )
+            ? billingAddress
+            : null,
+
+        contactPerson:
+          contactPerson &&
+          typeof contactPerson ===
+            "object" &&
+          !Array.isArray(
+            contactPerson
+          )
+            ? contactPerson
+            : null,
+
+        customerType:
+          normalizedCustomerType,
+
+        paymentMethod:
+          normalizedPaymentMethod,
+
+        shipToDifferentAddress:
+          normalizedCustomerType ===
+          "PJ"
+            ? Boolean(
+                shipToDifferentAddress
+              )
+            : false,
       },
     }
   );
@@ -784,14 +852,16 @@ export async function createVendorQuoteOffer(
 
   const normalizedShippingPrice =
     Number(
-      shippingPrice || 0
+      shippingPrice ||
+        0
     );
 
   if (
     !Number.isFinite(
       normalizedQuantity
     ) ||
-    normalizedQuantity <= 0
+    normalizedQuantity <=
+      0
   ) {
     throw new Error(
       "Cantitatea ofertei trebuie să fie mai mare decât 0."
@@ -802,7 +872,8 @@ export async function createVendorQuoteOffer(
     !Number.isFinite(
       normalizedUnitPrice
     ) ||
-    normalizedUnitPrice < 0
+    normalizedUnitPrice <
+      0
   ) {
     throw new Error(
       "Prețul unitar nu este valid."
@@ -813,7 +884,8 @@ export async function createVendorQuoteOffer(
     !Number.isFinite(
       normalizedShippingPrice
     ) ||
-    normalizedShippingPrice < 0
+    normalizedShippingPrice <
+      0
   ) {
     throw new Error(
       "Costul transportului nu este valid."
@@ -821,9 +893,12 @@ export async function createVendorQuoteOffer(
   }
 
   const normalizedProductionDays =
-    productionDays === null ||
-    productionDays === undefined ||
-    productionDays === ""
+    productionDays ===
+      null ||
+    productionDays ===
+      undefined ||
+    productionDays ===
+      ""
       ? null
       : Number(
           productionDays
@@ -990,7 +1065,10 @@ export async function sendQuoteAttachment(
 
   if (
     !file ||
-    !(file instanceof File)
+    !(
+      file instanceof
+      File
+    )
   ) {
     throw new Error(
       "Fotografia lipsește."
@@ -1033,7 +1111,10 @@ export async function sendVendorQuoteAttachment(
 
   if (
     !file ||
-    !(file instanceof File)
+    !(
+      file instanceof
+      File
+    )
   ) {
     throw new Error(
       "Fotografia lipsește."

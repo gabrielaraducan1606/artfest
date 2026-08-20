@@ -948,14 +948,47 @@ useEffect(() => {
 
   const ACHIZITII_LABEL = "Achiziții";
 
-  const loginRedirect = (() => {
-    try {
-      const sp = new URLSearchParams(window.location.search);
-      return sp.get("redirect") || "/desktop";
-    } catch {
-      return "/desktop";
+ const loginRedirect = (() => {
+  try {
+    const sp =
+      new URLSearchParams(
+        location.search
+      );
+
+    const requestedRedirect =
+      sp.get(
+        "redirect"
+      );
+
+    /*
+     * Acceptăm doar redirect-uri interne.
+     *
+     * Ex:
+     * /
+     * /cereri/123
+     * /produs/abc#recenzii
+     */
+    if (
+      requestedRedirect &&
+      requestedRedirect.startsWith("/") &&
+      !requestedRedirect.startsWith("//")
+    ) {
+      return requestedRedirect;
     }
-  })();
+
+    /*
+     * Dacă autentificarea este deschisă
+     * direct din Navbar, nu avem redirect
+     * contextual.
+     *
+     * Login.jsx va decide desktop-ul
+     * în funcție de rol.
+     */
+    return null;
+  } catch {
+    return null;
+  }
+})();
 
   const isAdmin = me?.role === "ADMIN";
   const isAdminRoute = location.pathname.startsWith("/admin");

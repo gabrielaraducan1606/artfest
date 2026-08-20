@@ -159,11 +159,63 @@ export default function OrdersTable({
                           {STATUS_OPTIONS.find((s) => s.value === o.status)?.label || o.status || "—"}
                         </span>
 
-                        {o.paymentMethod && (
-                          <div className={styles.clientNote}>
-                            {o.paymentMethod === "COD" ? "Plată la livrare" : "Card online"}
-                          </div>
-                        )}
+                       {o.paymentMethod && (
+  <div
+    className={styles.clientNote}
+    style={{
+      marginTop: 4,
+    }}
+  >
+    {o.paymentMethod === "COD" ? (
+      <>
+        Plată:{" "}
+        <strong>
+          Ramburs
+        </strong>
+      </>
+    ) : (
+      <>
+        Plată:{" "}
+        <strong>
+          Card online
+        </strong>
+
+        {" · "}
+
+        {o.paymentStatus === "PAID" ? (
+          <span>
+            Achitată
+          </span>
+        ) : o.paymentStatus === "PENDING" ? (
+          <span
+            style={{
+              fontWeight: 700,
+            }}
+          >
+            În așteptarea plății
+          </span>
+        ) : (
+          <span>
+            Card
+          </span>
+        )}
+      </>
+    )}
+  </div>
+)}
+
+{o.waitingForCardPayment && (
+  <div
+    className={styles.clientNote}
+    style={{
+      marginTop: 3,
+      fontWeight: 700,
+    }}
+  >
+    ⏳ Clientul nu a finalizat încă plata
+  </div>
+)}
+
 
                         {o.invoiceNumber && (
                           <div className={styles.clientNote}>
@@ -203,16 +255,33 @@ export default function OrdersTable({
                       </button>
 
                       {o.status === "new" && (
-                        <button
-                          className={styles.secondaryBtn}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onMarkPreparing(o);
-                          }}
-                        >
-                          În pregătire
-                        </button>
-                      )}
+  <button
+    className={styles.secondaryBtn}
+    onClick={(e) => {
+      e.stopPropagation();
+
+      if (
+        o.canProcess === false
+      ) {
+        return;
+      }
+
+      onMarkPreparing(o);
+    }}
+    disabled={
+      o.canProcess === false
+    }
+    title={
+      o.waitingForCardPayment
+        ? "Clientul trebuie să finalizeze plata înainte să începi pregătirea comenzii."
+        : "Începe pregătirea comenzii"
+    }
+  >
+    {o.waitingForCardPayment
+      ? "Așteaptă plata"
+      : "În pregătire"}
+  </button>
+)}
 
                       {(o.status === "preparing" || o.status === "confirmed") && (
                         <button
@@ -221,8 +290,17 @@ export default function OrdersTable({
                             e.stopPropagation();
                             onOpenCourier(o);
                           }}
-                          disabled={courierScheduled}
-                          title={courierScheduled ? "Curierul este deja programat" : "Programează curier"}
+                          disabled={
+  courierScheduled ||
+  o.canProcess === false
+}
+title={
+  o.waitingForCardPayment
+    ? "Clientul trebuie să finalizeze plata înainte să programezi curierul."
+    : courierScheduled
+      ? "Curierul este deja programat"
+      : "Programează curier"
+}
                         >
                           <PackageCheck size={16} /> {courierScheduled ? "Curier programat" : "Programează curier"}
                         </button>
@@ -231,10 +309,20 @@ export default function OrdersTable({
                       {o.status === "confirmed" && (
                         <button
                           className={styles.secondaryBtn}
+                          disabled={
+  o.canProcess === false
+}
                           onClick={(e) => {
-                            e.stopPropagation();
-                            onMarkFulfilled(o);
-                          }}
+  e.stopPropagation();
+
+  if (
+    o.canProcess === false
+  ) {
+    return;
+  }
+
+  onMarkFulfilled(o);
+}}
                         >
                           Marchează finalizată
                           <br />

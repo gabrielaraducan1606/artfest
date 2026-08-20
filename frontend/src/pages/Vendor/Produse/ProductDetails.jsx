@@ -214,6 +214,69 @@ const [
   repeatedGroupAnswers,
   setRepeatedGroupAnswers,
 ] = useState({});
+useEffect(() => {
+  const handlePersonalizationComplete = (event) => {
+    const detail = event?.detail || {};
+
+    /*
+     * Ignorăm eventuale rezultate pentru
+     * alt produs.
+     */
+    if (
+      !detail.productId ||
+      detail.productId !== product?.id
+    ) {
+      return;
+    }
+
+    if (
+      detail.selectedOptions &&
+      typeof detail.selectedOptions === "object"
+    ) {
+      setSelectedOptions(
+        detail.selectedOptions
+      );
+    }
+
+    if (
+      detail.customAnswers &&
+      typeof detail.customAnswers === "object"
+    ) {
+      setCustomAnswers(
+        detail.customAnswers
+      );
+    }
+
+    if (
+      detail.repeatedGroupAnswers &&
+      typeof detail.repeatedGroupAnswers === "object"
+    ) {
+      setRepeatedGroupAnswers(
+        detail.repeatedGroupAnswers
+      );
+    }
+
+    /*
+     * Ștergem eventualele erori vechi
+     * și deschidem formularul pentru
+     * verificare.
+     */
+    setValidationErrors({});
+    setCustomizationOpen(true);
+  };
+
+  window.addEventListener(
+    "artfest:personalization-complete",
+    handlePersonalizationComplete
+  );
+
+  return () => {
+    window.removeEventListener(
+      "artfest:personalization-complete",
+      handlePersonalizationComplete
+    );
+  };
+}, [product?.id]);
   const [revRating, setRevRating] = useState(0);
   const [revText, setRevText] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -1130,6 +1193,80 @@ const onRequestQuote = useCallback(() => {
   me,
   navigate,
 ]);
+
+const onStartPersonalizationAssistant =
+  useCallback(() => {
+    if (
+      !product ||
+      isOwner ||
+      !hasOrderOptions
+    ) {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "artfest:personalization-start",
+        {
+          detail: {
+            productId:
+              product.id,
+
+            productTitle:
+              product.title,
+
+            image:
+              Array.isArray(
+                product.images
+              )
+                ? product.images[0] ||
+                  null
+                : null,
+
+            /*
+             * Variante normale:
+             * culoare, mărime etc.
+             */
+            optionsSchema:
+              topLevelOptionsSchema,
+
+            /*
+             * Personalizare:
+             * nume, text etc.
+             */
+            customSchema:
+              topLevelCustomSchema,
+
+            /*
+             * Seturi / persoane multiple.
+             */
+            repeatedGroups,
+
+            /*
+             * Dacă utilizatorul a completat
+             * deja ceva manual, AI-ul pornește
+             * de la valorile existente.
+             */
+            currentAnswers: {
+              selectedOptions,
+              customAnswers,
+              repeatedGroupAnswers,
+            },
+          },
+        }
+      )
+    );
+  }, [
+    product,
+    isOwner,
+    hasOrderOptions,
+    topLevelOptionsSchema,
+    topLevelCustomSchema,
+    repeatedGroups,
+    selectedOptions,
+    customAnswers,
+    repeatedGroupAnswers,
+  ]);
 
 const onAddToCart = useCallback(async () => {
   if (
@@ -3265,8 +3402,80 @@ const uploadCustomizationFile = useCallback(
       </div>
     )}
 
-    {topLevelCustomSchema.length > 0 && (
-      <div className={styles.customizationCard}>
+   {hasOrderOptions && (
+  <div className={styles.customizationCard}>
+
+    <div
+      style={{
+        padding: "16px 16px 4px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "flex-start",
+          marginBottom: 12,
+        }}
+      >
+        <span
+          className={
+            styles.customizationIcon
+          }
+        >
+          <MagicIcon />
+        </span>
+
+        <div>
+          <strong
+            style={{
+              display: "block",
+              marginBottom: 4,
+            }}
+          >
+            Acest produs este personalizabil
+          </strong>
+
+          <span
+            style={{
+              fontSize: 13,
+              opacity: 0.75,
+              lineHeight: 1.45,
+            }}
+          >
+            Te putem ajuta să alegi și să
+            completezi toate detaliile
+            necesare pentru comandă.
+          </span>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        className={styles.primaryBtn}
+        onClick={
+          onStartPersonalizationAssistant
+        }
+        style={{
+          width: "100%",
+          marginBottom: 10,
+        }}
+      >
+        <MagicIcon />
+        Ajută-mă să personalizez
+      </button>
+
+      <div
+        style={{
+          textAlign: "center",
+          fontSize: 12,
+          opacity: 0.65,
+          marginBottom: 4,
+        }}
+      >
+        sau completează manual
+      </div>
+    </div>
         <button
           type="button"
           className={styles.customizationToggle}
@@ -3281,10 +3490,13 @@ const uploadCustomizationFile = useCallback(
             </span>
 
             <span className={styles.customizationToggleText}>
-              <strong>Personalizează produsul</strong>
-              <small>
-                Adaugă detalii speciale pentru comanda ta
-              </small>
+             <strong>
+  Completează manual
+</strong>
+
+<small>
+  Vezi toate opțiunile de personalizare
+</small>
             </span>
           </span>
 

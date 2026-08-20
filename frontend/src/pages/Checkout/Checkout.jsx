@@ -550,6 +550,64 @@ function formatConfigLabel(key) {
 
 export default function Checkout() {
   const nav = useNavigate();
+    /*
+   * =========================================================
+   * CHECKOUT DIN OFERTĂ
+   * =========================================================
+   */
+
+  const quoteCheckoutParams =
+    useMemo(() => {
+      if (
+        typeof window ===
+        "undefined"
+      ) {
+        return {
+          quoteId: "",
+          offerId: "",
+        };
+      }
+
+      const params =
+        new URLSearchParams(
+          window.location.search
+        );
+
+      return {
+        quoteId:
+          String(
+            params.get(
+              "quoteId"
+            ) || ""
+          ).trim(),
+
+        offerId:
+          String(
+            params.get(
+              "offerId"
+            ) || ""
+          ).trim(),
+      };
+    }, []);
+
+  const quoteId =
+    quoteCheckoutParams
+      .quoteId;
+
+  const offerId =
+    quoteCheckoutParams
+      .offerId;
+
+  const isQuoteCheckout =
+    Boolean(
+      quoteId &&
+      offerId
+    );
+
+  const [
+    quoteCheckout,
+    setQuoteCheckout,
+  ] = useState(null);
 const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
@@ -782,19 +840,80 @@ const checkoutTrackedRef =
   }, [items]);
 
 
-  const shippingTotal = useMemo(() => {
+  const shippingTotal =
+  useMemo(() => {
+    /*
+     * Pentru oferta negociată folosim
+     * EXACT transportul stabilit de vendor.
+     */
+    if (
+      isQuoteCheckout
+    ) {
+      return round2(
+        Number(
+          quoteCheckout
+            ?.offer
+            ?.shippingTotal ||
+          0
+        )
+      );
+    }
+
+    /*
+     * Checkout normal.
+     */
     return round2(
       serviceGroups.reduce(
-        (sum, group) => sum + getGroupShipping(group).finalShipping,
+        (
+          sum,
+          group
+        ) =>
+          sum +
+          getGroupShipping(
+            group
+          )
+            .finalShipping,
         0
       )
     );
-  }, [serviceGroups]);
+  }, [
+    isQuoteCheckout,
+    quoteCheckout,
+    serviceGroups,
+  ]);
 
-  const grandTotal = useMemo(
-    () => round2(vatTotals.totalGross + shippingTotal),
-    [vatTotals.totalGross, shippingTotal]
-  );
+ const grandTotal =
+  useMemo(() => {
+    if (
+      isQuoteCheckout &&
+      Number.isFinite(
+        Number(
+          quoteCheckout
+            ?.offer
+            ?.total
+        )
+      )
+    ) {
+      return round2(
+        Number(
+          quoteCheckout
+            .offer
+            .total
+        )
+      );
+    }
+
+    return round2(
+      vatTotals
+        .totalGross +
+      shippingTotal
+    );
+  }, [
+    isQuoteCheckout,
+    quoteCheckout,
+    vatTotals.totalGross,
+    shippingTotal,
+  ]);
 
   useEffect(() => {
   /*
@@ -988,156 +1107,696 @@ const checkoutTrackedRef =
   }
 
  useEffect(() => {
-  let cancelled = false;
+  let cancelled =
+    false;
 
   (async () => {
     setLoading(true);
     setError("");
 
     try {
-      const authData = await api("/api/auth/me").catch(() => null);
-      const currentUser = authData?.user || null;
+      /*
+       * =====================================================
+       * UTILIZATOR CURENT
+       * =====================================================
+       */
+
+      const authData =
+        await api(
+          "/api/auth/me"
+        ).catch(
+          () => null
+        );
+
+      const currentUser =
+        authData?.user ||
+        null;
 
       if (cancelled) {
         return;
       }
 
-      setMe(currentUser);
+      setMe(
+        currentUser
+      );
 
-      let summary;
+      /*
+       * =====================================================
+       * CHECKOUT DIN OFERTĂ
+       * =====================================================
+       */
 
-      if (currentUser) {
+      if (
+        isQuoteCheckout
+      ) {
         /*
-         * Checkout pentru utilizator autentificat.
+         * Cererile de ofertă aparțin unui
+         * utilizator autentificat.
          */
-        const localItems = getGuestCart();
+        if (
+          !currentUser
+        ) {
+          setItems([]);
+          setGroups([]);
 
-        if (localItems.length) {
-          try {
-            const mergeResult = await api("/api/cart/merge", {
-              method: "POST",
-              body: {
-                items: localItems,
-              },
-            });
-
-            if (cancelled) {
-              return;
-            }
-
-            clearGuestCart();
-
-            if (mergeResult?.skipped > 0) {
-              alert(
-                mergeResult.merged > 0
-                  ? `Am adăugat ${mergeResult.merged} produse în coșul tău. ${mergeResult.skipped} produse au fost omise.`
-                  : `${mergeResult.skipped} produse din coșul de vizitator au fost omise.`
-              );
-            }
-          } catch (error) {
-            console.error(
-              "Nu am putut sincroniza coșul guest:",
-              error
-            );
-          }
-        }
-
-        summary = await api("/api/checkout/summary");
-      } else {
-        /*
-         * Checkout fără cont.
-         */
-        const guestItems = getGuestCart();
-
-        if (!guestItems.length) {
-          if (!cancelled) {
-            setItems([]);
-            setGroups([]);
-          }
+          setError(
+            "Trebuie să fii autentificat pentru a finaliza această ofertă."
+          );
 
           return;
         }
 
-        summary = await api("/api/checkout/guest/summary", {
-          method: "POST",
-          body: {
-            items: guestItems,
+        /*
+         * Încărcăm separat:
+         * - cererea
+         * - oferta selectată
+         */
+        const quoteResult =
+  await api(
+    `/api/assistant/quotes/${encodeURIComponent(
+      quoteId
+    )}`
+  );
+
+if (cancelled) {
+  return;
+}
+
+const quote =
+  quoteResult?.quote ||
+  quoteResult ||
+  null;
+
+const offers =
+  Array.isArray(
+    quote?.offers
+  )
+    ? quote.offers
+    : [];
+
+const offer =
+  offers.find(
+    (item) =>
+      String(
+        item?.id || ""
+      ) ===
+      String(
+        offerId || ""
+      )
+  ) ||
+  null;
+
+        if (
+          !quote ||
+          !offer
+        ) {
+          throw new Error(
+            "Oferta nu a putut fi încărcată."
+          );
+        }
+
+        const quoteStatus =
+          String(
+            quote?.status ||
+            ""
+          )
+            .trim()
+            .toUpperCase();
+
+        const offerStatus =
+          String(
+            offer?.status ||
+            ""
+          )
+            .trim()
+            .toUpperCase();
+
+        /*
+         * Dacă este deja acceptată și
+         * avem comanda, nu mai permitem
+         * crearea alteia.
+         */
+        if (
+          quote?.orderId ||
+          quoteStatus ===
+            "ACCEPTED" ||
+          offerStatus ===
+            "ACCEPTED"
+        ) {
+          const existingOrderId =
+            quote?.orderId ||
+            null;
+
+          if (
+            existingOrderId
+          ) {
+            nav(
+              `/multumim?order=${encodeURIComponent(
+                existingOrderId
+              )}`,
+              {
+                replace: true,
+              }
+            );
+
+            return;
+          }
+
+          throw new Error(
+            "Această ofertă a fost deja acceptată."
+          );
+        }
+
+        if (
+          offerStatus !==
+          "SENT"
+        ) {
+          throw new Error(
+            "Această ofertă nu mai poate fi acceptată."
+          );
+        }
+
+        /*
+         * ===================================================
+         * TRANSFORMĂM OFERTA ÎN ITEMS PENTRU UI-UL CHECKOUT
+         * ===================================================
+         */
+
+        const rawOfferItems =
+          Array.isArray(
+            offer?.items
+          )
+            ? offer.items
+            : [];
+
+        const quoteQuantity =
+          Math.max(
+            1,
+            Number(
+              quote?.quantity ||
+              1
+            ) || 1
+          );
+
+        /*
+         * În mod normal oferta are items.
+         *
+         * Păstrăm și fallback pentru cereri
+         * mai vechi.
+         */
+        const sourceItems =
+          rawOfferItems.length
+            ? rawOfferItems
+            : [
+                {
+                  productId:
+                    quote?.product
+                      ?.id ||
+                    null,
+
+                  title:
+                    quote?.product
+                      ?.title ||
+                    "Produs personalizat",
+
+                  quantity:
+                    quoteQuantity,
+
+                  unitPrice:
+                    quoteQuantity >
+                    0
+                      ? Number(
+                          offer
+                            ?.subtotal ||
+                          0
+                        ) /
+                        quoteQuantity
+                      : Number(
+                          offer
+                            ?.subtotal ||
+                          0
+                        ),
+
+                  selectedOptions:
+                    {},
+
+                  customAnswers:
+                    quote
+                      ?.quoteSchemaAnswers ||
+                    {},
+                },
+              ];
+
+        const productImages =
+          Array.isArray(
+            quote?.product
+              ?.images
+          )
+            ? quote.product
+                .images
+            : [];
+
+        const productImage =
+          productImages[0] ||
+          "";
+
+        const normalizedItems =
+          sourceItems.map(
+            (
+              item,
+              index
+            ) => {
+              const qty =
+                Math.max(
+                  1,
+                  Number(
+                    item
+                      ?.quantity ||
+                    1
+                  ) || 1
+                );
+
+              const price =
+                Number(
+                  item
+                    ?.unitPrice ??
+                  item
+                    ?.finalUnitPrice ??
+                  0
+                ) || 0;
+
+              return {
+                productId:
+                  item
+                    ?.productId ||
+                  quote?.product
+                    ?.id ||
+                  `quote-product-${index}`,
+
+                title:
+                  item?.title ||
+                  quote?.product
+                    ?.title ||
+                  "Produs personalizat",
+
+                qty,
+
+                price,
+
+                originalPrice:
+                  Number(
+                    item
+                      ?.originalUnitPrice ??
+                    price
+                  ),
+
+                currency:
+                  offer?.currency ||
+                  "RON",
+
+                image:
+                  item?.image ||
+                  productImage,
+
+                selectedOptions:
+                  item
+                    ?.selectedOptions &&
+                  typeof item
+                    .selectedOptions ===
+                    "object"
+                    ? item.selectedOptions
+                    : {},
+
+                customAnswers:
+                  item
+                    ?.customAnswers &&
+                  typeof item
+                    .customAnswers ===
+                    "object"
+                    ? item.customAnswers
+                    : quote
+                        ?.quoteSchemaAnswers ||
+                      {},
+
+                repeatedGroupAnswers:
+                  item
+                    ?.repeatedGroupAnswers &&
+                  typeof item
+                    .repeatedGroupAnswers ===
+                    "object"
+                    ? item
+                        .repeatedGroupAnswers
+                    : {},
+
+                configurationKey:
+                  item
+                    ?.configurationKey ||
+                  `quote-offer-${offerId}-${index}`,
+
+                serviceId:
+                  quote?.store
+                    ?.id ||
+                  quote
+                    ?.serviceId ||
+                  null,
+
+                vendorId:
+                  quote
+                    ?.vendorId ||
+                  null,
+
+                /*
+                 * Transportul NU îl punem aici.
+                 * El este deja stabilit în ofertă
+                 * prin offer.shippingTotal.
+                 */
+                estimatedShippingFee:
+                  0,
+
+                freeShippingThreshold:
+                  null,
+
+                shippingNotes:
+                  offer?.notes ||
+                  null,
+
+                vendorBilling:
+                  item
+                    ?.vendorBilling ||
+                  null,
+
+                /*
+                 * Marcaj util dacă vrem ulterior
+                 * stil separat pentru produse
+                 * venite din ofertă.
+                 */
+                fromQuoteOffer:
+                  true,
+              };
+            }
+          );
+
+        const storeName =
+          quote?.store
+            ?.displayName ||
+          quote?.store
+            ?.title ||
+          "Magazin";
+
+        const quoteGroups = [
+          {
+            serviceId:
+              quote?.store
+                ?.id ||
+              quote
+                ?.serviceId ||
+              null,
+
+            vendorId:
+              quote
+                ?.vendorId ||
+              null,
+
+            serviceTitle:
+              storeName,
+
+            /*
+             * Transportul ofertei este afișat
+             * separat prin shippingTotal.
+             */
+            estimatedShippingFee:
+              0,
+
+            freeShippingThreshold:
+              null,
+
+            shippingNotes:
+              offer?.notes ||
+              null,
+
+            items:
+              normalizedItems,
           },
+        ];
+
+        setQuoteCheckout({
+          quote,
+          offer,
         });
+
+        setItems(
+          normalizedItems
+        );
+
+        setGroups(
+          quoteGroups
+        );
+
+        setCurrency(
+          offer?.currency ||
+          "RON"
+        );
+
+        /*
+         * Nu atingem coșul normal.
+         * Oferta este independentă de coș.
+         */
+      } else {
+        /*
+         * ===================================================
+         * CHECKOUT NORMAL
+         * ===================================================
+         */
+
+        let summary;
+
+        if (
+          currentUser
+        ) {
+          /*
+           * Checkout pentru utilizator autentificat.
+           */
+          const localItems =
+            getGuestCart();
+
+          if (
+            localItems.length
+          ) {
+            try {
+              const mergeResult =
+                await api(
+                  "/api/cart/merge",
+                  {
+                    method:
+                      "POST",
+
+                    body: {
+                      items:
+                        localItems,
+                    },
+                  }
+                );
+
+              if (
+                cancelled
+              ) {
+                return;
+              }
+
+              clearGuestCart();
+
+              if (
+                mergeResult
+                  ?.skipped >
+                0
+              ) {
+                alert(
+                  mergeResult
+                    .merged >
+                    0
+                    ? `Am adăugat ${mergeResult.merged} produse în coșul tău. ${mergeResult.skipped} produse au fost omise.`
+                    : `${mergeResult.skipped} produse din coșul de vizitator au fost omise.`
+                );
+              }
+            } catch (
+              error
+            ) {
+              console.error(
+                "Nu am putut sincroniza coșul guest:",
+                error
+              );
+            }
+          }
+
+          summary =
+            await api(
+              "/api/checkout/summary"
+            );
+        } else {
+          /*
+           * Checkout fără cont.
+           */
+          const guestItems =
+            getGuestCart();
+
+          if (
+            !guestItems.length
+          ) {
+            if (
+              !cancelled
+            ) {
+              setItems([]);
+              setGroups([]);
+            }
+
+            return;
+          }
+
+          summary =
+            await api(
+              "/api/checkout/guest/summary",
+              {
+                method:
+                  "POST",
+
+                body: {
+                  items:
+                    guestItems,
+                },
+              }
+            );
+        }
+
+        if (
+          cancelled
+        ) {
+          return;
+        }
+
+        setItems(
+          Array.isArray(
+            summary?.items
+          )
+            ? summary.items
+            : []
+        );
+
+        setGroups(
+          Array.isArray(
+            summary?.groups
+          )
+            ? summary.groups
+            : []
+        );
+
+        setCurrency(
+          summary?.currency ||
+          "RON"
+        );
       }
 
-      if (cancelled) {
-        return;
-      }
-
-      setItems(
-        Array.isArray(summary?.items)
-          ? summary.items
-          : []
-      );
-
-      setGroups(
-        Array.isArray(summary?.groups)
-          ? summary.groups
-          : []
-      );
-
-      setCurrency(summary?.currency || "RON");
+      /*
+       * =====================================================
+       * DATE SALVATE DE CHECKOUT
+       * =====================================================
+       */
 
       try {
-        const saved = localStorage.getItem("checkoutAddress");
+        const saved =
+          localStorage.getItem(
+            "checkoutAddress"
+          );
 
         if (saved) {
-          const parsed = JSON.parse(saved);
+          const parsed =
+            JSON.parse(
+              saved
+            );
 
-          if (parsed && typeof parsed === "object") {
+          if (
+            parsed &&
+            typeof parsed ===
+              "object"
+          ) {
             const {
-              customerType: savedType,
+              customerType:
+                savedType,
+
               shipToDifferentAddress:
                 savedShipToDifferentAddress,
+
               shippingAddress:
                 savedShippingAddress,
+
               billingCompany:
                 savedBillingCompany,
+
               contactPerson:
                 savedContactPerson,
             } = parsed;
 
-            if (savedShippingAddress) {
-              setShippingAddress((previous) => ({
-                ...previous,
-                ...savedShippingAddress,
-              }));
-            }
-
-            if (savedBillingCompany) {
-              setBillingCompany((previous) => ({
-                ...previous,
-                ...savedBillingCompany,
-              }));
-            }
-
-            if (savedContactPerson) {
-              setContactPerson((previous) => ({
-                ...previous,
-                ...savedContactPerson,
-              }));
+            if (
+              savedShippingAddress
+            ) {
+              setShippingAddress(
+                (
+                  previous
+                ) => ({
+                  ...previous,
+                  ...savedShippingAddress,
+                })
+              );
             }
 
             if (
-              savedType === "PF" ||
-              savedType === "PJ"
+              savedBillingCompany
             ) {
-              setCustomerType(savedType);
+              setBillingCompany(
+                (
+                  previous
+                ) => ({
+                  ...previous,
+                  ...savedBillingCompany,
+                })
+              );
+            }
+
+            if (
+              savedContactPerson
+            ) {
+              setContactPerson(
+                (
+                  previous
+                ) => ({
+                  ...previous,
+                  ...savedContactPerson,
+                })
+              );
+            }
+
+            if (
+              savedType ===
+                "PF" ||
+              savedType ===
+                "PJ"
+            ) {
+              setCustomerType(
+                savedType
+              );
             }
 
             setShipToDifferentAddress(
-              Boolean(savedShipToDifferentAddress)
+              Boolean(
+                savedShipToDifferentAddress
+              )
             );
           }
         }
       } catch {
-        // Datele salvate local sunt opționale.
+        /*
+         * Datele salvate local
+         * sunt opționale.
+         */
       }
     } catch (error) {
       console.error(
@@ -1145,23 +1804,40 @@ const checkoutTrackedRef =
         error
       );
 
-      if (!cancelled) {
+      if (
+        !cancelled
+      ) {
+        setItems([]);
+        setGroups([]);
+
         setError(
-          getReadableApiError(error) ||
+          getReadableApiError(
+            error
+          ) ||
             "Nu am putut încărca checkout-ul."
         );
       }
     } finally {
-      if (!cancelled) {
-        setLoading(false);
+      if (
+        !cancelled
+      ) {
+        setLoading(
+          false
+        );
       }
     }
   })();
 
   return () => {
-    cancelled = true;
+    cancelled =
+      true;
   };
-}, []);
+}, [
+  isQuoteCheckout,
+  quoteId,
+  offerId,
+  nav,
+]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1398,7 +2074,134 @@ const checkoutTrackedRef =
         shipToDifferentAddress:
           customerType === "PJ" ? shipToDifferentAddress : false,
       };
+/*
+ * =========================================================
+ * COMANDĂ DIN OFERTĂ
+ * =========================================================
+ */
 
+if (
+  isQuoteCheckout
+) {
+  if (
+    !me
+  ) {
+    throw new Error(
+      "Trebuie să fii autentificat pentru a finaliza această ofertă."
+    );
+  }
+
+  /*
+   * Backend-ul quotes folosește
+   * shippingAddress, nu address.
+   *
+   * Trimitem și ambele denumiri
+   * ale străzii pentru compatibilitate.
+   */
+  const quoteShippingAddress = {
+    ...finalShippingAddress,
+
+    recipientName:
+      finalShippingAddress
+        .name ||
+      buildFullName(
+        finalShippingAddress
+      ),
+
+    addressLine1:
+      finalShippingAddress
+        .street,
+
+    street:
+      finalShippingAddress
+        .street,
+  };
+
+  const quoteBody = {
+    shippingAddress:
+      quoteShippingAddress,
+
+    billingAddress:
+      body.billingAddress,
+
+    contactPerson:
+      body.contactPerson,
+
+    customerType:
+      body.customerType,
+
+    paymentMethod:
+      body.paymentMethod,
+
+    shipToDifferentAddress:
+      body.shipToDifferentAddress,
+  };
+
+  const result =
+    await api(
+      `/api/assistant/quotes/${encodeURIComponent(
+        quoteId
+      )}/offers/${encodeURIComponent(
+        offerId
+      )}/accept`,
+      {
+        method:
+          "POST",
+
+        body:
+          quoteBody,
+      }
+    );
+
+  /*
+   * Plata online funcționează la fel
+   * ca în checkout-ul normal.
+   */
+  if (
+    paymentMethod ===
+      "CARD" &&
+    result?.payment
+      ?.redirectUrl
+  ) {
+    window.location.href =
+      result.payment
+        .redirectUrl;
+
+    return;
+  }
+
+  const orderId =
+    result?.orderId ||
+    result?.order?.id ||
+    null;
+
+  if (
+    orderId
+  ) {
+    const params =
+      new URLSearchParams({
+        order:
+          orderId,
+      });
+
+    nav(
+      `/multumim?${params.toString()}`
+    );
+
+    return;
+  }
+
+  /*
+   * Fallback foarte rar:
+   * acceptarea a mers, dar API-ul
+   * nu a întors orderId.
+   */
+  nav(
+    "/comenzile-mele"
+  );
+
+  return;
+}
       const checkoutBody = me
   ? body
   : {
@@ -1529,11 +2332,16 @@ if (me) {
         <div className={styles.layout}>
           <div className={styles.left}>
             <section className={styles.card}>
-              <h3 className={styles.cardTitle}>Produsele tale</h3>
+              <h3 className={styles.cardTitle}>
+  {isQuoteCheckout
+    ? "Oferta acceptată"
+    : "Produsele tale"}
+</h3>
               <p className={styles.muted}>
-                Produsele sunt realizate de artizani independenți, special pentru
-                evenimentul tău.
-              </p>
+  {isQuoteCheckout
+    ? "Detaliile și prețurile de mai jos sunt cele stabilite în oferta trimisă de creator."
+    : "Produsele sunt realizate de artizani independenți, special pentru evenimentul tău."}
+</p>
 
               <ul className={styles.itemsList}>
                 {items.map((it) => {
@@ -2777,67 +3585,139 @@ if (me) {
 
             <section className={styles.card}>
               <h3 className={styles.cardTitle}>Metodă de livrare</h3>
-              <p className={styles.muted}>
-                Costul de transport se calculează separat pentru fiecare
-                magazin, pe baza tarifelor configurate de vendor.
-              </p>
+             <p className={styles.muted}>
+  {isQuoteCheckout
+    ? "Costul de transport este cel stabilit de creator în oferta acceptată."
+    : "Costul de transport se calculează separat pentru fiecare magazin, pe baza tarifelor configurate de vendor."}
+</p>
+           <div className={styles.shipGrid}>
+  {serviceGroups.map((group) => {
+    const shipping = getGroupShipping(group);
 
-              <div className={styles.shipGrid}>
-                {serviceGroups.map((group) => {
-                  const shipping = getGroupShipping(group);
-                  const key = String(group.serviceId || group.vendorId || "unknown");
-                  const label =
-                    group.serviceTitle?.trim() ||
-                    (group.serviceId
-                      ? `Magazin #${String(group.serviceId).slice(0, 6)}…`
-                      : "Magazin");
+    const key = String(
+      group.serviceId ||
+      group.vendorId ||
+      "unknown"
+    );
 
-                  return (
-                    <div key={key} className={styles.vendorBox}>
-                      <div className={styles.vendorHead}>
-                        <strong>{label}</strong>
-                        <span>{group.items?.length || 0} produse</span>
-                      </div>
+    const label =
+      group.serviceTitle?.trim() ||
+      (group.serviceId
+        ? `Magazin #${String(group.serviceId).slice(0, 6)}…`
+        : "Magazin");
 
-                      <div className={styles.summaryRow}>
-                        <span>Subtotal magazin</span>
-                        <strong>{money(shipping.subtotal, currency)}</strong>
-                      </div>
+    const groupItemCount =
+      group.items?.length || 0;
 
-                      <div className={styles.summaryRow}>
-                        <span>Transport estimativ</span>
-                        <strong>
-                          {money(shipping.estimatedShippingFee, currency)}
-                        </strong>
-                      </div>
+    return (
+      <div
+        key={key}
+        className={styles.vendorBox}
+      >
+        <div className={styles.vendorHead}>
+          <strong>{label}</strong>
 
-                      {shipping.freeShippingThreshold !== null && (
-                        <div className={styles.summaryRow}>
-                          <span>Transport gratuit de la</span>
-                          <strong>
-                            {money(shipping.freeShippingThreshold, currency)}
-                          </strong>
-                        </div>
-                      )}
+          <span>
+            {groupItemCount}{" "}
+            {groupItemCount === 1
+              ? "produs"
+              : "produse"}
+          </span>
+        </div>
 
-                      <div className={styles.summaryRow}>
-                        <span>Transport aplicat</span>
-                        <strong>
-                          {shipping.qualifiesFreeShipping
-                            ? "Gratuit"
-                            : money(shipping.finalShipping, currency)}
-                        </strong>
-                      </div>
+        <div className={styles.summaryRow}>
+          <span>Subtotal magazin</span>
 
-                      {group.shippingNotes && (
-                        <p className={styles.muted} style={{ marginTop: 8 }}>
-                          {group.shippingNotes}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+          <strong>
+            {money(
+              isQuoteCheckout
+                ? Number(
+                    quoteCheckout?.offer?.subtotal ||
+                    0
+                  )
+                : shipping.subtotal,
+              currency
+            )}
+          </strong>
+        </div>
+
+        {isQuoteCheckout ? (
+          <div className={styles.summaryRow}>
+            <span>Transport stabilit în ofertă</span>
+
+            <strong>
+              {shippingTotal > 0
+                ? money(
+                    shippingTotal,
+                    currency
+                  )
+                : "Gratuit"}
+            </strong>
+          </div>
+        ) : (
+          <>
+            <div className={styles.summaryRow}>
+              <span>
+                Transport estimativ
+              </span>
+
+              <strong>
+                {money(
+                  shipping.estimatedShippingFee,
+                  currency
+                )}
+              </strong>
+            </div>
+
+            {shipping.freeShippingThreshold !==
+              null && (
+              <div
+                className={
+                  styles.summaryRow
+                }
+              >
+                <span>
+                  Transport gratuit de la
+                </span>
+
+                <strong>
+                  {money(
+                    shipping.freeShippingThreshold,
+                    currency
+                  )}
+                </strong>
               </div>
+            )}
+
+            <div className={styles.summaryRow}>
+              <span>
+                Transport aplicat
+              </span>
+
+              <strong>
+                {shipping.qualifiesFreeShipping
+                  ? "Gratuit"
+                  : money(
+                      shipping.finalShipping,
+                      currency
+                    )}
+              </strong>
+            </div>
+          </>
+        )}
+
+        {group.shippingNotes && (
+          <p
+            className={styles.muted}
+            style={{ marginTop: 8 }}
+          >
+            {group.shippingNotes}
+          </p>
+        )}
+      </div>
+    );
+  })}
+</div>
 
               <div className={styles.divider} />
               <div className={styles.summaryRow}>
@@ -2852,12 +3732,25 @@ if (me) {
               <h3 className={styles.cardTitle}>Sumar comandă</h3>
 
               <p className={styles.muted}>
-                Ai produse de la <strong>{serviceGroups.length}</strong>{" "}
-                {serviceGroups.length === 1
-                  ? "magazin (artizan)."
-                  : "magazine (artizani)."}{" "}
-                Fiecare pregătește și trimite produsele separat.
-              </p>
+  {isQuoteCheckout ? (
+    <>
+      Finalizezi o comandă pe baza unei
+      oferte personalizate primite de la creator.
+    </>
+  ) : (
+    <>
+      Ai produse de la{" "}
+      <strong>
+        {serviceGroups.length}
+      </strong>{" "}
+      {serviceGroups.length === 1
+        ? "magazin (artizan)."
+        : "magazine (artizani)."}{" "}
+      Fiecare pregătește și trimite
+      produsele separat.
+    </>
+  )}
+</p>
 
               {customerType === "PJ" ? (
                 <>

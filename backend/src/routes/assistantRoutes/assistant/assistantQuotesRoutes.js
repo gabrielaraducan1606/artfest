@@ -23,6 +23,10 @@ import {
   sendVendorNewQuoteRequestEmail,
 } from "../../../lib/mailer.js";
 
+import {
+  createPaymentForOrder,
+} from "../../../payments/orchestrator.js";
+
 const router = Router();
 
 /*
@@ -1796,12 +1800,19 @@ router.patch(
    POST /api/assistant/quotes/:id/offers/:offerId/accept
 
    Clientul acceptă oferta.
+
    Se creează atomic:
    - Order
    - Shipment
    - ShipmentItem
    - QuoteOffer ACCEPTED
    - QuoteRequest ACCEPTED + orderId
+
+   Suportă:
+   - PF
+   - PJ
+   - COD
+   - CARD
 ========================================================= */
 
 router.post(
@@ -1819,19 +1830,56 @@ router.post(
 
       const offerId =
         String(
-          req.params.offerId ||
-            ""
+          req.params.offerId || ""
         ).trim();
+
+      /*
+       * =====================================================
+       * DATE CHECKOUT
+       * =====================================================
+       */
 
       const shippingAddressInput =
         normalizeObject(
-          req.body
-            ?.shippingAddress
+          req.body?.shippingAddress
         );
 
-      /* =====================================================
-         VALIDARE ID-URI
-      ===================================================== */
+      const billingAddressInput =
+        normalizeObject(
+          req.body?.billingAddress
+        );
+
+      const contactPersonInput =
+        normalizeObject(
+          req.body?.contactPerson
+        );
+
+      const customerType =
+        String(
+          req.body?.customerType ||
+            "PF"
+        )
+          .trim()
+          .toUpperCase();
+
+      const paymentMethod =
+        String(
+          req.body?.paymentMethod ||
+            "COD"
+        )
+          .trim()
+          .toUpperCase();
+
+      const shipToDifferentAddress =
+        req.body
+          ?.shipToDifferentAddress ===
+        true;
+
+      /*
+       * =====================================================
+       * VALIDARE DATE GENERALE
+       * =====================================================
+       */
 
       if (
         !quoteId ||
@@ -1848,9 +1896,49 @@ router.post(
           });
       }
 
-      /* =====================================================
-         VALIDARE DATE LIVRARE
-      ===================================================== */
+      if (
+        ![
+          "PF",
+          "PJ",
+        ].includes(
+          customerType
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "invalid_customer_type",
+
+            message:
+              "Tipul clientului nu este valid.",
+          });
+      }
+
+      if (
+        ![
+          "COD",
+          "CARD",
+        ].includes(
+          paymentMethod
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "invalid_payment_method",
+
+            message:
+              "Metoda de plată nu este validă.",
+          });
+      }
+
+      /*
+       * =====================================================
+       * DATE LIVRARE
+       * =====================================================
+       */
 
       const recipientName =
         String(
@@ -1898,27 +1986,216 @@ router.post(
             ""
         ).trim();
 
-      if (
-        !recipientName ||
-        !phone ||
-        !street ||
-        !city ||
-        !county
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "shipping_address_incomplete",
+      /*
+       * =====================================================
+       * VALIDARE PF
+       * =====================================================
+       */
 
-            message:
-              "Datele de livrare sunt incomplete.",
-          });
+      if (
+        customerType ===
+        "PF"
+      ) {
+        if (
+          !recipientName ||
+          !phone ||
+          !street ||
+          !city ||
+          !county
+        ) {
+          return res
+            .status(400)
+            .json({
+              error:
+                "shipping_address_incomplete",
+
+              message:
+                "Datele de livrare sunt incomplete.",
+            });
+        }
       }
 
-      /* =====================================================
-         CEREREA DE OFERTĂ
-      ===================================================== */
+      /*
+       * =====================================================
+       * DATE PJ
+       * =====================================================
+       */
+
+      let companyName =
+        "";
+
+      let companyCui =
+        "";
+
+      let companyRegCom =
+        "";
+
+      let billingCounty =
+        "";
+
+      let billingCity =
+        "";
+
+      let billingStreet =
+        "";
+
+      let billingPostalCode =
+        "";
+
+      let contactName =
+        "";
+
+      let contactEmail =
+        "";
+
+      let contactPhone =
+        "";
+
+      if (
+        customerType ===
+        "PJ"
+      ) {
+        companyName =
+          String(
+            billingAddressInput
+              ?.companyName ||
+              ""
+          ).trim();
+
+        companyCui =
+          String(
+            billingAddressInput
+              ?.companyCui ||
+              ""
+          )
+            .trim()
+            .toUpperCase();
+
+        companyRegCom =
+          String(
+            billingAddressInput
+              ?.companyRegCom ||
+              ""
+          ).trim();
+
+        billingCounty =
+          String(
+            billingAddressInput
+              ?.county ||
+              ""
+          ).trim();
+
+        billingCity =
+          String(
+            billingAddressInput
+              ?.city ||
+              ""
+          ).trim();
+
+        billingStreet =
+          String(
+            billingAddressInput
+              ?.street ||
+              ""
+          ).trim();
+
+        billingPostalCode =
+          String(
+            billingAddressInput
+              ?.postalCode ||
+              ""
+          ).trim();
+
+        contactName =
+          String(
+            contactPersonInput
+              ?.name ||
+              [
+                contactPersonInput
+                  ?.lastName,
+
+                contactPersonInput
+                  ?.firstName,
+              ]
+                .filter(
+                  Boolean
+                )
+                .join(
+                  " "
+                ) ||
+              ""
+          ).trim();
+
+        contactEmail =
+          String(
+            contactPersonInput
+              ?.email ||
+              ""
+          ).trim();
+
+        contactPhone =
+          String(
+            contactPersonInput
+              ?.phone ||
+              ""
+          ).trim();
+
+        /*
+         * Datele firmei și persoana
+         * de contact sunt obligatorii.
+         */
+        if (
+          !companyName ||
+          !companyCui ||
+          !billingCounty ||
+          !billingCity ||
+          !billingStreet ||
+          !contactName ||
+          !contactEmail ||
+          !contactPhone
+        ) {
+          return res
+            .status(400)
+            .json({
+              error:
+                "company_invalid",
+
+              message:
+                "Datele firmei sau ale persoanei de contact sunt incomplete.",
+            });
+        }
+
+        /*
+         * Dacă livrarea este la altă adresă,
+         * trebuie completată separat.
+         */
+        if (
+          shipToDifferentAddress &&
+          (
+            !recipientName ||
+            !phone ||
+            !street ||
+            !city ||
+            !county
+          )
+        ) {
+          return res
+            .status(400)
+            .json({
+              error:
+                "shipping_address_incomplete",
+
+              message:
+                "Adresa separată de livrare este incompletă.",
+            });
+        }
+      }
+
+      /*
+       * =====================================================
+       * CEREREA DE OFERTĂ
+       * =====================================================
+       */
 
       const quote =
         await prisma.quoteRequest.findFirst({
@@ -1959,7 +2236,9 @@ router.post(
           },
         });
 
-      if (!quote) {
+      if (
+        !quote
+      ) {
         return res
           .status(404)
           .json({
@@ -1973,7 +2252,7 @@ router.post(
 
       /*
        * Dacă există deja o comandă,
-       * nu mai creăm încă una.
+       * nu mai creăm una nouă.
        */
       if (
         quote.orderId
@@ -2017,7 +2296,9 @@ router.post(
           ? quote.offers[0]
           : null;
 
-      if (!offer) {
+      if (
+        !offer
+      ) {
         return res
           .status(404)
           .json({
@@ -2045,7 +2326,8 @@ router.post(
       }
 
       /*
-       * Oferta expirată nu mai poate fi acceptată.
+       * Oferta expirată nu mai
+       * poate fi acceptată.
        */
       if (
         offer.validUntil &&
@@ -2065,9 +2347,11 @@ router.post(
           });
       }
 
-      /* =====================================================
-         DATE OFERTĂ + SNAPSHOT PROMOȚIE
-      ===================================================== */
+      /*
+       * =====================================================
+       * DATE OFERTĂ + SNAPSHOT PROMOȚIE
+       * =====================================================
+       */
 
       const rawOfferItems =
         Array.isArray(
@@ -2107,8 +2391,8 @@ router.post(
           );
 
         /*
-         * unitPrice este prețul final
-         * calculat când vendorul a trimis oferta.
+         * Prețul final stabilit
+         * în ofertă.
          */
         const finalUnitPrice =
           Number(
@@ -2117,11 +2401,7 @@ router.post(
           );
 
         /*
-         * Pentru ofertele noi există
-         * originalUnitPrice.
-         *
-         * Pentru ofertele vechi folosim
-         * unitPrice ca fallback.
+         * Preț înainte de promoție.
          */
         const originalUnitPrice =
           Number(
@@ -2134,7 +2414,8 @@ router.post(
           !Number.isInteger(
             quantity
           ) ||
-          quantity <= 0
+          quantity <=
+            0
         ) {
           return res
             .status(409)
@@ -2151,7 +2432,8 @@ router.post(
           !Number.isFinite(
             finalUnitPrice
           ) ||
-          finalUnitPrice <= 0 ||
+          finalUnitPrice <=
+            0 ||
           !Number.isFinite(
             originalUnitPrice
           ) ||
@@ -2202,6 +2484,7 @@ router.post(
         const calculatedDiscountAmount =
           Math.max(
             0,
+
             Math.round(
               (
                 originalLineTotal -
@@ -2221,8 +2504,10 @@ router.post(
           )
             ? Math.max(
                 0,
+
                 Math.min(
                   50,
+
                   Math.round(
                     Number(
                       rawItem
@@ -2242,8 +2527,10 @@ router.post(
           )
             ? Math.max(
                 0,
+
                 Math.min(
                   50,
+
                   Math.round(
                     Number(
                       rawItem
@@ -2263,6 +2550,7 @@ router.post(
           )
             ? Math.max(
                 0,
+
                 Math.round(
                   Number(
                     rawItem
@@ -2283,6 +2571,7 @@ router.post(
           )
             ? Math.max(
                 0,
+
                 Math.round(
                   Number(
                     rawItem
@@ -2296,7 +2585,8 @@ router.post(
 
         /*
          * Partea Artfest + partea vendorului
-         * trebuie să coincidă cu reducerea totală.
+         * trebuie să coincidă cu reducerea
+         * totală din ofertă.
          */
         const splitDiscountTotal =
           Math.round(
@@ -2329,6 +2619,7 @@ router.post(
             platformDiscountAmount =
               Math.max(
                 0,
+
                 Math.round(
                   (
                     platformDiscountAmount +
@@ -2342,6 +2633,7 @@ router.post(
             vendorDiscountAmount =
               Math.max(
                 0,
+
                 Math.round(
                   (
                     vendorDiscountAmount +
@@ -2441,6 +2733,12 @@ router.post(
         });
       }
 
+      /*
+       * =====================================================
+       * TOTALURI
+       * =====================================================
+       */
+
       const subtotal =
         Math.round(
           offerItems.reduce(
@@ -2467,7 +2765,8 @@ router.post(
         !Number.isFinite(
           shippingTotal
         ) ||
-        shippingTotal < 0
+        shippingTotal <
+          0
       ) {
         return res
           .status(409)
@@ -2521,9 +2820,11 @@ router.post(
           .toUpperCase();
 
       /*
-       * Adăugăm emailul utilizatorului
-       * strict în datele comenzii.
+       * =====================================================
+       * UTILIZATOR
+       * =====================================================
        */
+
       const user =
         await prisma.user.findUnique({
           where: {
@@ -2537,24 +2838,101 @@ router.post(
           },
         });
 
-      const shippingAddress = {
-        name:
-          recipientName,
+      /*
+       * =====================================================
+       * ADRESA FINALĂ DE LIVRARE
+       * =====================================================
+       */
 
-        email:
-          user?.email ||
-          "",
+      const shippingAddress =
+        customerType ===
+          "PJ" &&
+        !shipToDifferentAddress
+          ? {
+              name:
+                contactName,
 
-        phone,
+              email:
+                contactEmail ||
+                user?.email ||
+                "",
 
-        street,
+              phone:
+                contactPhone,
 
-        city,
+              street:
+                billingStreet,
 
-        county,
+              city:
+                billingCity,
 
-        postalCode,
-      };
+              county:
+                billingCounty,
+
+              postalCode:
+                billingPostalCode,
+
+              companyName,
+            }
+          : {
+              name:
+                recipientName,
+
+              email:
+                shippingAddressInput
+                  ?.email ||
+                user?.email ||
+                "",
+
+              phone,
+
+              street,
+
+              city,
+
+              county,
+
+              postalCode,
+            };
+
+      const billingAddress =
+        customerType ===
+        "PJ"
+          ? {
+              companyName,
+
+              companyCui,
+
+              companyRegCom,
+
+              county:
+                billingCounty,
+
+              city:
+                billingCity,
+
+              street:
+                billingStreet,
+
+              postalCode:
+                billingPostalCode,
+            }
+          : null;
+
+      const contactPerson =
+        customerType ===
+        "PJ"
+          ? {
+              name:
+                contactName,
+
+              email:
+                contactEmail,
+
+              phone:
+                contactPhone,
+            }
+          : null;
 
       function generateOrderNumber() {
         const timestamp =
@@ -2565,7 +2943,10 @@ router.post(
         const random =
           Math.random()
             .toString(36)
-            .slice(2, 8)
+            .slice(
+              2,
+              8
+            )
             .toUpperCase();
 
         return `AF-${timestamp}-${random}`
@@ -2575,13 +2956,17 @@ router.post(
           );
       }
 
-      /* =====================================================
-         TRANZACȚIE ATOMICĂ
-      ===================================================== */
+      /*
+       * =====================================================
+       * TRANZACȚIE ATOMICĂ
+       * =====================================================
+       */
 
       const result =
         await prisma.$transaction(
-          async (tx) => {
+          async (
+            tx
+          ) => {
             const lockedQuote =
               await tx.quoteRequest.findUnique({
                 where: {
@@ -2601,12 +2986,18 @@ router.post(
                 },
               });
 
-            if (!lockedQuote) {
+            if (
+              !lockedQuote
+            ) {
               throw new Error(
                 "quote_not_found"
               );
             }
 
+            /*
+             * Protecție împotriva dublei
+             * acceptări.
+             */
             if (
               lockedQuote.orderId
             ) {
@@ -2620,6 +3011,10 @@ router.post(
               };
             }
 
+            /*
+             * Oferta poate trece din SENT
+             * în ACCEPTED o singură dată.
+             */
             const acceptedOffer =
               await tx.quoteOffer.updateMany({
                 where: {
@@ -2648,6 +3043,12 @@ router.post(
               );
             }
 
+            /*
+             * =================================================
+             * ORDER
+             * =================================================
+             */
+
             const order =
               await tx.order.create({
                 data: {
@@ -2666,10 +3067,15 @@ router.post(
 
                   total,
 
-                  paymentMethod:
-                    "COD",
+                  paymentMethod,
 
                   shippingAddress,
+
+                  billingAddress,
+
+                  customerType,
+
+                  contactPerson,
 
                   vendorNotes:
                     offer.notes ||
@@ -2678,19 +3084,35 @@ router.post(
                   userId,
 
                   customerName:
-                    recipientName,
+                    shippingAddress
+                      ?.name ||
+                    recipientName ||
+                    contactName ||
+                    null,
 
                   customerEmail:
+                    shippingAddress
+                      ?.email ||
                     user?.email ||
                     null,
 
                   customerPhone:
-                    phone,
+                    shippingAddress
+                      ?.phone ||
+                    phone ||
+                    contactPhone ||
+                    null,
 
                   isGuestOrder:
                     false,
                 },
               });
+
+            /*
+             * =================================================
+             * SHIPMENT + ITEMS
+             * =================================================
+             */
 
             const shipment =
               await tx.shipment.create({
@@ -2714,7 +3136,9 @@ router.post(
                   items: {
                     create:
                       offerItems.map(
-                        (item) => ({
+                        (
+                          item
+                        ) => ({
                           productId:
                             item.productId,
 
@@ -2724,24 +3148,15 @@ router.post(
                           qty:
                             item.quantity,
 
-                          /*
-                           * Preț final unitar.
-                           */
                           price:
                             item.finalUnitPrice,
 
-                          /*
-                           * Preț înainte de promoție.
-                           */
                           originalPrice:
                             item.discountAmount >
                             0
                               ? item.originalUnitPrice
                               : null,
 
-                          /*
-                           * Sume pentru întreaga linie.
-                           */
                           discountAmount:
                             item.discountAmount,
 
@@ -2788,6 +3203,12 @@ router.post(
                 },
               });
 
+            /*
+             * =================================================
+             * QUOTE ACCEPTED
+             * =================================================
+             */
+
             await tx.quoteRequest.update({
               where: {
                 id:
@@ -2802,6 +3223,161 @@ router.post(
                   order.id,
               },
             });
+
+            /*
+             * =================================================
+             * SINCRONIZARE CERERE PUBLICĂ
+             *
+             * Pentru QuoteRequest provenit din:
+             * CustomerRequest -> CustomerRequestOffer
+             * =================================================
+             */
+
+            const bridgeCustomerRequestId =
+              String(
+                quote.requestData
+                  ?.customerRequestId ||
+                  ""
+              ).trim();
+
+            const bridgeCustomerRequestOfferId =
+              String(
+                quote.requestData
+                  ?.customerRequestOfferId ||
+                  ""
+              ).trim();
+
+            if (
+              quote.source ===
+                "CUSTOM" &&
+              bridgeCustomerRequestId &&
+              bridgeCustomerRequestOfferId
+            ) {
+              const publicRequest =
+                await tx.customerRequest.findFirst({
+                  where: {
+                    id:
+                      bridgeCustomerRequestId,
+
+                    userId,
+                  },
+
+                  select: {
+                    id:
+                      true,
+
+                    status:
+                      true,
+
+                    acceptedOfferId:
+                      true,
+                  },
+                });
+
+              const publicOffer =
+                await tx.customerRequestOffer.findFirst({
+                  where: {
+                    id:
+                      bridgeCustomerRequestOfferId,
+
+                    requestId:
+                      bridgeCustomerRequestId,
+
+                    vendorId:
+                      quote.vendorId,
+                  },
+
+                  select: {
+                    id:
+                      true,
+
+                    status:
+                      true,
+                  },
+                });
+
+              if (
+                !publicRequest ||
+                !publicOffer
+              ) {
+                throw new Error(
+                  "customer_request_bridge_not_found"
+                );
+              }
+
+              if (
+                publicOffer.status !==
+                  "SENT" &&
+                publicOffer.status !==
+                  "ACCEPTED"
+              ) {
+                throw new Error(
+                  "customer_request_offer_not_acceptable"
+                );
+              }
+
+              /*
+               * Oferta publică aleasă.
+               */
+              await tx.customerRequestOffer.update({
+                where: {
+                  id:
+                    publicOffer.id,
+                },
+
+                data: {
+                  status:
+                    "ACCEPTED",
+                },
+              });
+
+              /*
+               * Cererea publică.
+               */
+              await tx.customerRequest.update({
+                where: {
+                  id:
+                    publicRequest.id,
+                },
+
+                data: {
+                  status:
+                    "ACCEPTED",
+
+                  acceptedOfferId:
+                    publicOffer.id,
+                },
+              });
+
+              /*
+               * Restul ofertelor publice.
+               */
+              await tx.customerRequestOffer.updateMany({
+                where: {
+                  requestId:
+                    publicRequest.id,
+
+                  id: {
+                    not:
+                      publicOffer.id,
+                  },
+
+                  status:
+                    "SENT",
+                },
+
+                data: {
+                  status:
+                    "REJECTED",
+                },
+              });
+            }
+
+            /*
+             * =================================================
+             * RESTUL OFERTELOR DIN QUOTE
+             * =================================================
+             */
 
             await tx.quoteOffer.updateMany({
               where: {
@@ -2823,6 +3399,9 @@ router.post(
               },
             });
 
+            /*
+             * Legăm conversația de comandă.
+             */
             if (
               quote.threadId
             ) {
@@ -2855,16 +3434,20 @@ router.post(
           }
         );
 
-      /* =====================================================
-         EMAILURI COMANDĂ
-      ===================================================== */
+      /*
+       * =====================================================
+       * EMAILURI COMANDĂ
+       * =====================================================
+       */
 
       if (
         !result.alreadyAccepted
       ) {
         const emailItems =
           offerItems.map(
-            (item) => ({
+            (
+              item
+            ) => ({
               title:
                 item.title,
 
@@ -2891,6 +3474,9 @@ router.post(
             })
           );
 
+        /*
+         * EMAIL CLIENT
+         */
         try {
           if (
             user?.email
@@ -2917,10 +3503,19 @@ router.post(
 
                 total,
 
-                paymentMethod:
-                  "COD",
+                /*
+                 * IMPORTANT:
+                 * nu mai este hardcodat COD.
+                 */
+                paymentMethod,
 
                 shippingAddress,
+
+                billingAddress,
+
+                customerType,
+
+                contactPerson,
               },
 
               items:
@@ -2936,6 +3531,9 @@ router.post(
           );
         }
 
+        /*
+         * EMAIL VENDOR
+         */
         try {
           const vendor =
             await prisma.vendor.findUnique({
@@ -2995,13 +3593,19 @@ router.post(
 
                 orderNumber:
                   result.orderNumber,
+
+                paymentMethod,
               },
 
               items:
                 emailItems,
 
               customerName:
-                recipientName,
+                shippingAddress
+                  ?.name ||
+                recipientName ||
+                contactName ||
+                "Client",
 
               total,
 
@@ -3018,9 +3622,11 @@ router.post(
         }
       }
 
-      /* =====================================================
-         NOTIFICARE VENDOR
-      ===================================================== */
+      /*
+       * =====================================================
+       * NOTIFICARE VENDOR
+       * =====================================================
+       */
 
       if (
         !result.alreadyAccepted
@@ -3052,6 +3658,132 @@ router.post(
         }
       }
 
+      /*
+       * =====================================================
+       * CARD — INIȚIERE PLATĂ
+       * =====================================================
+       */
+
+      if (
+        paymentMethod ===
+          "CARD" &&
+        !result.alreadyAccepted
+      ) {
+        try {
+          /*
+           * createPaymentForOrder() are nevoie
+           * de comanda completă.
+           */
+          const createdOrder =
+            await prisma.order.findUnique({
+              where: {
+                id:
+                  result.orderId,
+              },
+            });
+
+          if (
+            !createdOrder
+          ) {
+            throw new Error(
+              "created_order_not_found"
+            );
+          }
+
+          const payment =
+            await createPaymentForOrder(
+              createdOrder
+            );
+
+          /*
+           * Frontend-ul citește:
+           *
+           * result.payment.redirectUrl
+           */
+          return res.json({
+            ok:
+              true,
+
+            quoteId:
+              quote.id,
+
+            offerId:
+              offer.id,
+
+            orderId:
+              result.orderId,
+
+            orderNumber:
+              result.orderNumber,
+
+            shipmentId:
+              result.shipmentId ||
+              null,
+
+            status:
+              "ACCEPTED",
+
+            alreadyAccepted:
+              false,
+
+            total:
+              Number(
+                createdOrder.total
+              ),
+
+            subtotal:
+              Number(
+                createdOrder.subtotal
+              ),
+
+            shippingTotal:
+              Number(
+                createdOrder.shippingTotal
+              ),
+
+            currency:
+              createdOrder.currency ||
+              currency,
+
+            payment,
+          });
+        } catch (
+          paymentError
+        ) {
+          console.error(
+            "Eroare la inițierea plății pentru comanda din ofertă:",
+            paymentError
+          );
+
+          /*
+           * Comanda există deja.
+           * Nu spunem că acceptarea a eșuat,
+           * ci doar inițierea plății.
+           */
+          return res
+            .status(500)
+            .json({
+              error:
+                "payment_init_failed",
+
+              message:
+                "Comanda a fost creată, dar inițierea plății a eșuat.",
+
+              orderId:
+                result.orderId,
+
+              orderNumber:
+                result.orderNumber,
+            });
+        }
+      }
+
+      /*
+       * =====================================================
+       * COD — RĂSPUNS NORMAL
+       * =====================================================
+       */
+
       return res.json({
         ok:
           true,
@@ -3065,6 +3797,10 @@ router.post(
         orderId:
           result.orderId,
 
+        orderNumber:
+          result.orderNumber ||
+          null,
+
         shipmentId:
           result.shipmentId ||
           null,
@@ -3074,8 +3810,21 @@ router.post(
 
         alreadyAccepted:
           result.alreadyAccepted,
+
+        paymentMethod,
+
+        total,
+
+        subtotal,
+
+        shippingTotal:
+          normalizedShippingTotal,
+
+        currency,
       });
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
         "POST /api/assistant/quotes/:id/offers/:offerId/accept failed:",
         error
@@ -3093,6 +3842,51 @@ router.post(
 
             message:
               "Oferta a fost deja acceptată, refuzată sau înlocuită.",
+          });
+      }
+
+      if (
+        error?.message ===
+        "quote_not_found"
+      ) {
+        return res
+          .status(404)
+          .json({
+            error:
+              "quote_not_found",
+
+            message:
+              "Cererea de ofertă nu mai există.",
+          });
+      }
+
+      if (
+        error?.message ===
+        "customer_request_bridge_not_found"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "customer_request_bridge_not_found",
+
+            message:
+              "Cererea asociată ofertei nu a mai putut fi identificată.",
+          });
+      }
+
+      if (
+        error?.message ===
+        "customer_request_offer_not_acceptable"
+      ) {
+        return res
+          .status(409)
+          .json({
+            error:
+              "customer_request_offer_not_acceptable",
+
+            message:
+              "Oferta asociată cererii nu mai poate fi acceptată.",
           });
       }
 

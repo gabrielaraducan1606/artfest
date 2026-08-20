@@ -249,7 +249,7 @@ function suggestEmailTypos(value) {
 export default function Login({
   inModal = false,
   onLoggedIn,
-  redirectTo = "/desktop",
+  redirectTo = null,
   onSwitchToRegister,
 }) {
   const { refresh } = useAuth();
@@ -449,26 +449,53 @@ export default function Login({
     }
 
     let next =
-      response?.next || "";
+  response?.next || "";
 
-    if (!next) {
-      const role =
-        user?.role;
+/*
+ * Dacă autentificarea a fost pornită
+ * dintr-o acțiune din platformă,
+ * respectăm redirect-ul contextual.
+ *
+ * Exemple:
+ * - cerere publică
+ * - recenzie
+ * - wishlist
+ * - mesaj
+ * - cerere de ofertă
+ */
+if (redirectTo) {
+  next =
+    redirectTo;
+}
 
-      if (role === "ADMIN") {
-        next = "/admin";
-      } else if (
-        role === "VENDOR"
-      ) {
-        next = "/desktop";
-      } else {
-        next =
-          redirectTo ||
-          "/desktop-user";
-      }
-    }
+/*
+ * Dacă login-ul a fost deschis direct
+ * din Navbar și NU avem redirect contextual,
+ * mergem în dashboard în funcție de rol.
+ */
+if (!next) {
+  const role =
+    user?.role;
 
-    window.location.assign(next);
+  if (
+    role === "ADMIN"
+  ) {
+    next =
+      "/admin";
+  } else if (
+    role === "VENDOR"
+  ) {
+    next =
+      "/desktop";
+  } else {
+    next =
+      "/desktop-user";
+  }
+}
+
+window.location.assign(
+      next
+    );
   }
 
   /* =========================================================
