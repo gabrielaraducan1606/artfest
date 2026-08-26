@@ -14,8 +14,20 @@ const router = Router();
  * - necesită user logat
  * - necesită rol VENDOR
  * - verifică tokenVersion dacă există
+ *
+ * BUGFIX: router.use() era nescopat, deși routerul e montat la
+ * bare "/api" în server.js - asta bloca (401) orice altă rută
+ * publică montată DUPĂ acest router (ex. GET /api/public/campaigns/:slug),
+ * indiferent dacă acea rută aparținea acestui fișier sau nu.
+ * Scopat explicit la /vendor/notifications, calea reală a
+ * tuturor rutelor de mai jos - comportamentul lor rămâne identic.
  */
-router.use(authRequired, enforceTokenVersion, requireRole("VENDOR"));
+router.use(
+  "/vendor/notifications",
+  authRequired,
+  enforceTokenVersion,
+  requireRole("VENDOR")
+);
 
 /**
  * helper: obține vendorId pentru userul logat

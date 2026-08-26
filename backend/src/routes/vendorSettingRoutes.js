@@ -153,8 +153,19 @@ router.get("/vendor/settings/account/change-email/confirm", async (req, res) => 
 
 /* =========================
    Totul de mai jos: doar vendor logat
+
+   BUGFIX: router.use() era nescopat, deși routerul e montat la
+   bare "/api" în server.js - asta bloca (401) orice altă rută
+   publică montată DUPĂ acest router. Scopat explicit la
+   /vendor/settings, prefixul comun al tuturor rutelor de mai
+   jos - comportamentul lor rămâne identic.
 ========================= */
-router.use(authRequired, enforceTokenVersion, requireRole("VENDOR"));
+router.use(
+  "/vendor/settings",
+  authRequired,
+  enforceTokenVersion,
+  requireRole("VENDOR")
+);
 
 /* =========================
    GET /api/vendor/settings/notifications

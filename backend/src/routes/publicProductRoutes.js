@@ -9,7 +9,29 @@ import {
   getPromotionPricingForProduct,
   applyPromotionsToProducts,
 } from "../services/productPromotionPrice.js";
+import {
+  resolveVendorCampaignAttributions,
+  buildCampaignPromotionsByProductId,
+} from "../services/campaignAttribution.js";
 const router = Router();
+
+/*
+ * Atribuirea de campanie vine ca query string (JSON encodat),
+ * la fel ca la GET /cart și GET /checkout/summary - GET nu
+ * poate trimite body JSON. Parsare defensivă - orice eșec =>
+ * fără atribuire, niciodată eroare (pagina trebuie să se
+ * încarce oricum).
+ */
+function parseCampaignAttributionQuery(raw) {
+  if (!raw || typeof raw !== "string") return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 /* -----------------------------------------
    Micro cache in-memory pentru browsing public
@@ -172,6 +194,7 @@ occasionTags: true,
   service: {
     select: {
       id: true,
+      vendorId: true,
       profile: {
         select: {
           displayName: true,
@@ -295,7 +318,6 @@ function getViewerId(req) {
 }
 function mapPublicProduct(
   p,
-  promoCollection = null,
   viewerState = null
 ) {
   const storeName =
@@ -620,169 +642,6 @@ discount:
   };
 }
 
- function isCollectionPromoActive(collection, now = new Date()) {
-  if (!collection?.promoEnabled) return false;
-
-  const percent = Number(collection.promoPercent || 0);
-  if (!Number.isFinite(percent) || percent <= 0) return false;
-
-  if (collection.promoStartsAt && new Date(collection.promoStartsAt) > now) {
-    return false;
-  }
-
-  if (collection.promoEndsAt && new Date(collection.promoEndsAt) < now) {
-    return false;
-  }
-
-  return true;
-}
-
-function productMatchesCollectionRules(product, rules = {}) {
-  if (!product) return false;
-
-  if (Array.isArray(rules.categories) && rules.categories.length) {
-    const categories = rules.categories
-      .map((x) => String(x || "").trim())
-      .filter(Boolean);
-
-    if (categories.length && !categories.includes(product.category)) {
-      return false;
-    }
-  }
-
-  if (rules.acceptsCustom === true && product.acceptsCustom !== true) {
-    return false;
-  }
-
-  const minPriceCents = Number(rules.minPriceCents);
-  const maxPriceCents = Number(rules.maxPriceCents);
-
-  if (Number.isFinite(minPriceCents) && product.priceCents < minPriceCents) {
-    return false;
-  }
-
-  if (Number.isFinite(maxPriceCents) && product.priceCents > maxPriceCents) {
-    return false;
-  }
-
-  if (Array.isArray(rules.occasionTags) && rules.occasionTags.length) {
-    const productTags = Array.isArray(product.occasionTags)
-      ? product.occasionTags
-      : [];
-
-    const hasAny = rules.occasionTags.some((tag) =>
-      productTags.includes(String(tag))
-    );
-
-    if (!hasAny) return false;
-  }
-
-  if (Array.isArray(rules.styleTags) && rules.styleTags.length) {
-    const productTags = Array.isArray(product.styleTags)
-      ? product.styleTags
-      : [];
-
-    const hasAny = rules.styleTags.some((tag) =>
-      productTags.includes(String(tag))
-    );
-
-    if (!hasAny) return false;
-  }
-
-  return true;
-}
-
-function getPromoPrice(priceCents, promo = null) {
-  const originalPriceCents = Math.round(Number(priceCents || 0));
-
-  if (!promo || !isCollectionPromoActive(promo)) {
-    return {
-      originalPriceCents,
-      finalPriceCents: originalPriceCents,
-      hasDiscount: false,
-      discountPercent: 0,
-      promoLabel: null,
-      promoFundingSource: null,
-      promoCollectionId: null,
-    };
-  }
-
-  const discountPercent = Number(promo.promoPercent || 0);
-
-  const finalPriceCents = Math.max(
-    0,
-    Math.round(originalPriceCents * (1 - discountPercent / 100))
-  );
-
-  return {
-    originalPriceCents,
-    finalPriceCents,
-    hasDiscount: true,
-    discountPercent,
-    promoLabel: promo.promoLabel || "Promoție Artfest",
-    promoFundingSource: promo.promoFundingSource || "PLATFORM_COMMISSION",
-    promoCollectionId: promo.id || null,
-  };
-}
-
-async function getActiveCollectionPromosForProducts(products = []) {
-  if (!products.length) return new Map();
-
-  const now = new Date();
-
-  const collections = await prisma.collection.findMany({
-    where: {
-      isActive: true,
-      promoEnabled: true,
-      OR: [
-        { promoStartsAt: null },
-        { promoStartsAt: { lte: now } },
-      ],
-      AND: [
-        {
-          OR: [
-            { promoEndsAt: null },
-            { promoEndsAt: { gte: now } },
-          ],
-        },
-      ],
-    },
-    select: {
-      id: true,
-      title: true,
-      slug: true,
-      rules: true,
-      promoEnabled: true,
-      promoPercent: true,
-      promoLabel: true,
-      promoFundingSource: true,
-      promoStartsAt: true,
-      promoEndsAt: true,
-    },
-  });
-
-  const activePromos = collections.filter((c) =>
-    isCollectionPromoActive(c, now)
-  );
-
-  const promoByProductId = new Map();
-
-  for (const product of products) {
-    const matchingPromos = activePromos.filter((collection) =>
-      productMatchesCollectionRules(product, collection.rules || {})
-    );
-
-    if (!matchingPromos.length) continue;
-
-    matchingPromos.sort(
-      (a, b) => Number(b.promoPercent || 0) - Number(a.promoPercent || 0)
-    );
-
-    promoByProductId.set(product.id, matchingPromos[0]);
-  }
-
-  return promoByProductId;
-}
 /* -----------------------------------------
    SEARCH BY IMAGE (similaritate vizuală)
 ------------------------------------------*/
@@ -975,6 +834,17 @@ router.get("/products", async (req, res, next) => {
       if (acceptsCustomParam) whereObj.acceptsCustom = true;
     };
 
+  /*
+   * Reducerea de campanie e una dintre cele 4 surse comparate de
+   * motorul comun de pricing. Coșul de guest citește produsele
+   * prin acest endpoint (?ids=...) - fără atribuirea de campanie
+   * aici, reducerea de campanie dispare între ProductDetails și
+   * coș. Tokenul e doar un HINT - revalidat fresh din DB mai jos.
+   */
+  const listCampaignAttributionQuery = parseCampaignAttributionQuery(
+    req.query?.campaignAttribution
+  );
+
   const finalizePaged = async (rows) => {
   const hasMore =
     rows.length > limit;
@@ -988,9 +858,31 @@ router.get("/products", async (req, res, next) => {
     slice;
 
   try {
+    const sliceVendorIds = Array.from(
+      new Set(
+        slice
+          .map((product) => product?.service?.vendorId)
+          .filter(Boolean)
+          .map(String)
+      )
+    );
+
+    const campaignAttributionsByVendorId =
+      await resolveVendorCampaignAttributions({
+        vendorIds: sliceVendorIds,
+        tokensByVendorId: listCampaignAttributionQuery,
+      });
+
+    const campaignPromotionsByProductId =
+      buildCampaignPromotionsByProductId(
+        slice,
+        campaignAttributionsByVendorId
+      );
+
     promotedSlice =
       await applyPromotionsToProducts(
-        slice
+        slice,
+        { campaignPromotionsByProductId }
       );
   } catch (promotionError) {
     console.error(
@@ -1486,9 +1378,22 @@ router.get("/collections/:slug", async (req, res, next) => {
     const hasMore = autoProductsRaw.length > limit;
     const sliced = uniqueProducts.slice(0, limit);
 
-    const promoCollection = isCollectionPromoActive(collection)
-      ? collection
-      : null;
+    /*
+     * Nu cumulăm reducerile: folosim motorul comun de pricing
+     * (Collection / Product of the Day / Artisan of the Week /
+     * Campaign) în loc să aplicăm doar reducerea acestei colecții.
+     * Un produs poate avea o reducere mai mare din altă sursă.
+     */
+    let promotedSliced = sliced;
+
+    try {
+      promotedSliced = await applyPromotionsToProducts(sliced);
+    } catch (promotionError) {
+      console.error(
+        "[public collections] promotion pricing failed:",
+        promotionError
+      );
+    }
 
     res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
 res.set("Pragma", "no-cache");
@@ -1513,8 +1418,8 @@ res.set("Expires", "0");
         promoStartsAt: collection.promoStartsAt || null,
         promoEndsAt: collection.promoEndsAt || null,
       },
-      items: sliced.map((product) =>
-        mapPublicProduct(product, promoCollection)
+      items: promotedSliced.map((product) =>
+        mapPublicProduct(product)
       ),
       page,
       limit,
@@ -1646,7 +1551,6 @@ const items =
     (product) =>
       mapPublicProduct(
         product,
-        null,
         {
           favorited:
             favoriteIds.has(
@@ -1873,6 +1777,7 @@ router.get(
             service: {
               select: {
                 id: true,
+                vendorId: true,
                 isActive: true,
                 status: true,
 
@@ -1940,9 +1845,46 @@ router.get(
         p?.service?.profile?.slug ||
         null;
 
+      /*
+       * Reducerea de campanie e una dintre cele 4 surse comparate
+       * de motorul comun (Collection / Product of the Day /
+       * Artisan of the Week / Campaign) - trebuie luată în calcul
+       * și aici, nu doar la coș/checkout, altfel un vizitator
+       * care intră prin /c/:slug vede reducerea de campanie pe
+       * cardul campaniei dar NU și pe pagina produsului.
+       *
+       * Tokenul din query e doar un HINT - revalidăm mereu
+       * campania fresh din DB (isActive/expirare/vendor activ)
+       * prin resolveVendorCampaignAttributions, la fel ca la
+       * coș/checkout.
+       */
+      const vendorId =
+        p?.service?.vendor?.id ||
+        null;
+
+      const campaignAttributionQuery =
+        parseCampaignAttributionQuery(
+          req.query?.campaignAttribution
+        );
+
+      const campaignAttributionsByVendorId =
+        vendorId
+          ? await resolveVendorCampaignAttributions({
+              vendorIds: [vendorId],
+              tokensByVendorId: campaignAttributionQuery,
+            })
+          : new Map();
+
+      const campaignPromotionsByProductId =
+        buildCampaignPromotionsByProductId(
+          [p],
+          campaignAttributionsByVendorId
+        );
+
       const promotionPricing =
   await getPromotionPricingForProduct(
-    p
+    p,
+    { campaignPromotionsByProductId }
   );
 
 const unitPrice =
@@ -2343,19 +2285,24 @@ router.get(
             baseProductSelect,
         });
 
-      const promoByProductId =
-        await getActiveCollectionPromosForProducts(
-          items
-        );
+      /*
+       * Nu cumulăm reducerile: folosim motorul comun de pricing
+       * (Collection / Product of the Day / Artisan of the Week /
+       * Campaign), nu doar reducerea de colecție.
+       */
+      let promotedItems = items;
 
-      const products = items.map(
-        (product) =>
-          mapPublicProduct(
-            product,
-            promoByProductId.get(
-              product.id
-            ) || null
-          )
+      try {
+        promotedItems = await applyPromotionsToProducts(items);
+      } catch (promotionError) {
+        console.error(
+          "[public store products] promotion pricing failed:",
+          promotionError
+        );
+      }
+
+      const products = promotedItems.map((product) =>
+        mapPublicProduct(product)
       );
 
       res.set(

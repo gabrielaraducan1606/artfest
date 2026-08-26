@@ -20,6 +20,9 @@ import {
 import {
   createDepositPaymentForShipment,
 } from "../payments/orchestrator.js";
+import {
+  computeCommissionBreakdown,
+} from "../services/commissionCalc.js";
 
 const prisma = new PrismaClient();
 const router = express.Router();
@@ -284,48 +287,6 @@ async function computeVendorEarningForShipment({
         vendorDiscountGross
     );
 
-  /*
-   * Valoarea netă plătită efectiv
-   * de client pentru produse.
-   */
-  const itemsNet =
-    vatRate > 0
-      ? subtotalGross /
-        (
-          1 +
-          vatRate /
-            100
-        )
-      : subtotalGross;
-
-  /*
-   * Baza netă inițială pe care se
-   * calculează comisionul standard.
-   */
-  const commissionBaseNet =
-    vatRate > 0
-      ? commissionBaseGross /
-        (
-          1 +
-          vatRate /
-            100
-        )
-      : commissionBaseGross;
-
-  /*
-   * Partea Artfest exprimată net,
-   * pentru scăderea din comision.
-   */
-  const platformDiscountNet =
-    vatRate > 0
-      ? platformDiscountGross /
-        (
-          1 +
-          vatRate /
-            100
-        )
-      : platformDiscountGross;
-
   const plan =
     await getActivePlanForVendor(
       vendorId
@@ -347,46 +308,49 @@ async function computeVendorEarningForShipment({
       0;
   }
 
+  /*
+   * Comision de campanie (override) - setat exclusiv
+   * server-side la checkout, pe shipment-ul curent, dacă
+   * atribuirea a fost validă în acel moment. Are prioritate
+   * față de planul curent al vendorului.
+   */
+  const hasCampaignCommission =
+    shipment.campaignCommissionBps !==
+      null &&
+    shipment.campaignCommissionBps !==
+      undefined;
+
   const commissionBps =
-    baseCommissionBps;
+    hasCampaignCommission
+      ? Number(
+          shipment.campaignCommissionBps
+        )
+      : baseCommissionBps;
+
+  const vatFraction =
+    vatRate > 0
+      ? vatRate / 100
+      : 0;
 
   /*
-   * Comisionul standard înainte
-   * de reducerea oferită de Artfest.
+   * Sursă unică pentru comision - identică cu CARD
+   * (computeOrderSplits) și cu Order Details vendor.
    */
-  const commissionBeforePromoNet =
-    round2(
-      (
-        commissionBaseNet *
-        commissionBps
-      ) /
-        10000
-    );
+  const breakdown =
+    computeCommissionBreakdown({
+      itemsOriginalGross:
+        commissionBaseGross,
 
-  /*
-   * Reducerea Artfest se suportă
-   * din comisionul platformei.
-   */
-  const commissionNet =
-    round2(
-      Math.max(
-        0,
-        commissionBeforePromoNet -
-          platformDiscountNet
-      )
-    );
+      itemsAfterDiscountGross:
+        subtotalGross,
 
-  /*
-   * Suma vendorului:
-   *
-   * suma plătită efectiv pe produse
-   * minus comisionul final Artfest.
-   */
-  const vendorNet =
-    round2(
-      itemsNet -
-        commissionNet
-    );
+      platformDiscountAmount:
+        platformDiscountGross,
+
+      commissionBps,
+
+      vatFraction,
+    });
 
   return {
     currency:
@@ -398,17 +362,32 @@ async function computeVendorEarningForShipment({
       shipment.orderId,
 
     itemsNet:
-      round2(
-        itemsNet
-      ),
+      breakdown.itemsAfterDiscount,
 
-    commissionNet,
+    /*
+     * IMPORTANT: commissionNet reprezintă acum platformNet -
+     * cât reține EFECTIV Artfest (după subvenția platformei),
+     * nu comisionul brut. Asta e cifra corectă de facturat
+     * vendorului (adminInvoicesRoutes.js sumează acest câmp).
+     */
+    commissionNet:
+      breakdown.platformNet,
 
-    vendorNet,
+    vendorNet:
+      breakdown.vendorNet,
 
     vatStatus,
     vatRate,
     commissionBps,
+
+    commissionSource:
+      hasCampaignCommission
+        ? "campaign"
+        : "plan",
+
+    campaignId:
+      shipment.campaignId ||
+      null,
 
     platformDiscountGross:
       round2(
@@ -420,25 +399,25 @@ async function computeVendorEarningForShipment({
         vendorDiscountGross
       ),
 
-    platformDiscountNet:
-      round2(
-        platformDiscountNet
-      ),
-
     commissionBaseGross:
       round2(
         commissionBaseGross
       ),
 
-    commissionBaseNet:
-      round2(
-        commissionBaseNet
-      ),
+    itemsAfterDiscount:
+      breakdown.itemsAfterDiscount,
 
-    commissionBeforePromoNet:
-      round2(
-        commissionBeforePromoNet
-      ),
+    commissionBase:
+      breakdown.commissionBase,
+
+    commissionAmount:
+      breakdown.commissionAmount,
+
+    platformSubsidyAmount:
+      breakdown.platformSubsidyAmount,
+
+    platformNet:
+      breakdown.platformNet,
   };
 }
 
@@ -497,23 +476,35 @@ async function ensureSaleLedgerEntry({
         commissionBps:
           earning.commissionBps,
 
+        commissionSource:
+          earning.commissionSource,
+
+        campaignId:
+          earning.campaignId,
+
         platformDiscountGross:
           earning.platformDiscountGross,
 
         vendorDiscountGross:
           earning.vendorDiscountGross,
 
-        platformDiscountNet:
-          earning.platformDiscountNet,
-
         commissionBaseGross:
           earning.commissionBaseGross,
 
-        commissionBaseNet:
-          earning.commissionBaseNet,
+        itemsAfterDiscount:
+          earning.itemsAfterDiscount,
 
-        commissionBeforePromoNet:
-          earning.commissionBeforePromoNet,
+        commissionBase:
+          earning.commissionBase,
+
+        commissionAmount:
+          earning.commissionAmount,
+
+        platformSubsidyAmount:
+          earning.platformSubsidyAmount,
+
+        platformNet:
+          earning.platformNet,
       },
     },
   });
@@ -1362,6 +1353,18 @@ router.get(
             cancelReasonNote:
               true,
 
+            campaignId:
+              true,
+
+            campaignCommissionBps:
+              true,
+
+            campaignDiscountPercent:
+              true,
+
+            campaignAttributedAt:
+              true,
+
             depositStatus:
               true,
 
@@ -1643,14 +1646,32 @@ router.get(
         0;
     }
 
-    const commissionBps =
-      baseCommissionBps;
-
     let items =
       rows.map(
         (
           shipment
         ) => {
+          /*
+           * Comision de campanie (override) - per shipment,
+           * nu per vendor. Fiecare comandă din listă poate
+           * avea o atribuire de campanie diferită (sau
+           * niciuna), deci nu putem refolosi un singur
+           * commissionBps calculat o singură dată din plan
+           * pentru toate rândurile.
+           */
+          const hasCampaignCommission =
+            shipment.campaignCommissionBps !==
+              null &&
+            shipment.campaignCommissionBps !==
+              undefined;
+
+          const commissionBps =
+            hasCampaignCommission
+              ? Number(
+                  shipment.campaignCommissionBps
+                )
+              : baseCommissionBps;
+
           const order =
             shipment.order ||
             {};
@@ -1710,59 +1731,46 @@ router.get(
                 vendorDiscountGross
             );
 
+          const vatFraction =
+            vatRate > 0
+              ? vatRate / 100
+              : 0;
+
+          /*
+           * Sursă unică pentru comision - identică cu COD
+           * (computeVendorEarningForShipment), CARD
+           * (computeOrderSplits) și detaliul comenzii.
+           */
+          const rowBreakdown =
+            computeCommissionBreakdown({
+              itemsOriginalGross:
+                commissionBaseGross,
+
+              itemsAfterDiscountGross:
+                shipmentSubtotal,
+
+              platformDiscountAmount:
+                platformDiscountGross,
+
+              commissionBps,
+
+              vatFraction,
+            });
+
           const itemsNet =
-            vatRate > 0
-              ? shipmentSubtotal /
-                (
-                  1 +
-                  vatRate /
-                    100
-                )
-              : shipmentSubtotal;
+            rowBreakdown.itemsAfterDiscount;
 
-          const commissionBaseNet =
-            vatRate > 0
-              ? commissionBaseGross /
-                (
-                  1 +
-                  vatRate /
-                    100
-                )
-              : commissionBaseGross;
-
-          const platformDiscountNet =
-            vatRate > 0
-              ? platformDiscountGross /
-                (
-                  1 +
-                  vatRate /
-                    100
-                )
-              : platformDiscountGross;
-
-          const commissionBeforePromoNet =
-            round2(
-              (
-                commissionBaseNet *
-                commissionBps
-              ) /
-                10000
-            );
-
+          /*
+           * IMPORTANT: commissionNet afișat = platformNet
+           * (ce reține efectiv Artfest, după subvenția
+           * platformei pentru discounturile Collection /
+           * Product of the Day / Artisan of the Week).
+           */
           const commissionNet =
-            round2(
-              Math.max(
-                0,
-                commissionBeforePromoNet -
-                  platformDiscountNet
-              )
-            );
+            rowBreakdown.platformNet;
 
           const vendorNetBeforeShipping =
-            round2(
-              itemsNet -
-                commissionNet
-            );
+            rowBreakdown.vendorNet;
 
           return {
             id:
@@ -2134,6 +2142,11 @@ router.get(
 
               commissionBps,
 
+              commissionSource:
+                hasCampaignCommission
+                  ? "campaign"
+                  : "plan",
+
               commissionPercent:
                 round2(
                   commissionBps /
@@ -2167,25 +2180,25 @@ router.get(
                   vendorDiscountGross
                 ),
 
-              platformDiscountNet:
-                round2(
-                  platformDiscountNet
-                ),
-
               commissionBaseGross:
                 round2(
                   commissionBaseGross
                 ),
 
-              commissionBaseNet:
-                round2(
-                  commissionBaseNet
-                ),
+              itemsAfterDiscount:
+                rowBreakdown.itemsAfterDiscount,
 
-              commissionBeforePromoNet:
-                round2(
-                  commissionBeforePromoNet
-                ),
+              commissionBase:
+                rowBreakdown.commissionBase,
+
+              commissionAmount:
+                rowBreakdown.commissionAmount,
+
+              platformSubsidyAmount:
+                rowBreakdown.platformSubsidyAmount,
+
+              platformNet:
+                rowBreakdown.platformNet,
             },
 
             messageThreadId:
@@ -2661,12 +2674,25 @@ router.get(
         0;
     }
 
-    const itemsNet =
-      Number(
-        itemsBreakdown
-          ?.net ||
-          0
-      );
+    /*
+     * Comision de campanie (override) - dacă shipment-ul a
+     * fost creat cu o atribuire de campanie validă la
+     * checkout, are prioritate față de planul curent al
+     * vendorului. Nu recalculăm din plan dacă shipment-ul
+     * are deja acest snapshot.
+     */
+    const hasCampaignCommission =
+      shipment.campaignCommissionBps !==
+        null &&
+      shipment.campaignCommissionBps !==
+        undefined;
+
+    if (hasCampaignCommission) {
+      commissionBps =
+        Number(
+          shipment.campaignCommissionBps
+        );
+    }
 
     const commissionBaseGross =
       round2(
@@ -2675,49 +2701,45 @@ router.get(
           vendorDiscountGross
       );
 
-    const commissionBaseNet =
+    const detailVatFraction =
       vatRate > 0
-        ? commissionBaseGross /
-          (
-            1 +
-            vatRate /
-              100
-          )
-        : commissionBaseGross;
+        ? vatRate / 100
+        : 0;
 
-    const platformDiscountNet =
-      vatRate > 0
-        ? platformDiscountGross /
-          (
-            1 +
-            vatRate /
-              100
-          )
-        : platformDiscountGross;
+    /*
+     * Sursă unică pentru comision - identică cu COD
+     * (computeVendorEarningForShipment), CARD
+     * (computeOrderSplits) și lista de comenzi.
+     */
+    const detailBreakdown =
+      computeCommissionBreakdown({
+        itemsOriginalGross:
+          commissionBaseGross,
 
-    const commissionBeforePromoNet =
-      round2(
-        (
-          commissionBaseNet *
-          commissionBps
-        ) /
-          10000
-      );
+        itemsAfterDiscountGross:
+          shipmentSubtotal,
 
+        platformDiscountAmount:
+          platformDiscountGross,
+
+        commissionBps,
+
+        vatFraction:
+          detailVatFraction,
+      });
+
+    const itemsNet =
+      detailBreakdown.itemsAfterDiscount;
+
+    /*
+     * IMPORTANT: commissionNet afișat = platformNet (ce
+     * reține efectiv Artfest, după subvenția platformei).
+     */
     const commissionNet =
-      round2(
-        Math.max(
-          0,
-          commissionBeforePromoNet -
-            platformDiscountNet
-        )
-      );
+      detailBreakdown.platformNet;
 
     const vendorNetBeforeShipping =
-      round2(
-        itemsNet -
-          commissionNet
-      );
+      detailBreakdown.vendorNet;
 
     const vendorFinancials = {
       planCode:
@@ -2729,6 +2751,11 @@ router.get(
         null,
 
       commissionBps,
+
+      commissionSource:
+        hasCampaignCommission
+          ? "campaign"
+          : "plan",
 
       commissionPercent:
         round2(
@@ -2763,25 +2790,25 @@ router.get(
           vendorDiscountGross
         ),
 
-      platformDiscountNet:
-        round2(
-          platformDiscountNet
-        ),
-
       commissionBaseGross:
         round2(
           commissionBaseGross
         ),
 
-      commissionBaseNet:
-        round2(
-          commissionBaseNet
-        ),
+      itemsAfterDiscount:
+        detailBreakdown.itemsAfterDiscount,
 
-      commissionBeforePromoNet:
-        round2(
-          commissionBeforePromoNet
-        ),
+      commissionBase:
+        detailBreakdown.commissionBase,
+
+      commissionAmount:
+        detailBreakdown.commissionAmount,
+
+      platformSubsidyAmount:
+        detailBreakdown.platformSubsidyAmount,
+
+      platformNet:
+        detailBreakdown.platformNet,
     };
 
     const productIdSet =

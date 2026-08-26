@@ -9,6 +9,7 @@ import {
   getGuestCart,
   clearGuestCart,
 } from "../../utils/guestCart";
+import { getAttributionsForCheckout } from "../../utils/campaignAttribution.js";
 import styles from "./Checkout.module.css";
 
 const BACKEND_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
@@ -1630,7 +1631,9 @@ const offer =
 
           summary =
             await api(
-              "/api/checkout/summary"
+              `/api/checkout/summary?campaignAttribution=${encodeURIComponent(
+                JSON.stringify(getAttributionsForCheckout())
+              )}`
             );
         } else {
           /*
@@ -1662,6 +1665,9 @@ const offer =
                 body: {
                   items:
                     guestItems,
+
+                  campaignAttribution:
+                    getAttributionsForCheckout(),
                 },
               }
             );
@@ -2073,6 +2079,7 @@ const offer =
         paymentMethod,
         shipToDifferentAddress:
           customerType === "PJ" ? shipToDifferentAddress : false,
+        campaignAttribution: getAttributionsForCheckout(),
       };
 /*
  * =========================================================

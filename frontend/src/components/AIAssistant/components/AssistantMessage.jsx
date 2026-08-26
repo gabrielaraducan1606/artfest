@@ -945,6 +945,66 @@ export default function AssistantMessage({
   }
 
   /* =======================================================
+     Separator "Subiect nou" - marcator vizual, nu un mesaj
+     propriu-zis. Contextul operațional a fost deja resetat
+     (vezi startNewTopic în AiAssistant.jsx) - istoricul rămâne,
+     doar semnalăm clar unde s-a schimbat subiectul.
+  ======================================================= */
+
+  if (
+    message?.role ===
+    "separator"
+  ) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          margin: "14px 0",
+          opacity: 0.65,
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            height: 1,
+            background:
+              "currentColor",
+            opacity: 0.25,
+          }}
+        />
+
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            textTransform:
+              "uppercase",
+            letterSpacing:
+              "0.04em",
+            whiteSpace:
+              "nowrap",
+          }}
+        >
+          {message.content ||
+            "Subiect nou"}
+        </span>
+
+        <div
+          style={{
+            flex: 1,
+            height: 1,
+            background:
+              "currentColor",
+            opacity: 0.25,
+          }}
+        />
+      </div>
+    );
+  }
+
+  /* =======================================================
      Imagine încărcată
   ======================================================= */
 

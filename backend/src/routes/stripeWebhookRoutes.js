@@ -1542,6 +1542,15 @@ async function handleOrderPaymentIntentSucceeded(
             kind:
               "online_order_vendor_transfer",
 
+            commissionSource:
+              payout
+                .commissionSource ||
+              "plan",
+
+            campaignId:
+              payout.campaignId ||
+              null,
+
             paymentIntentId:
               String(
                 pi.id
@@ -1626,6 +1635,34 @@ async function handleOrderPaymentIntentSucceeded(
               payout
                 .planName ||
                 null,
+
+            commissionBase:
+              Number(
+                payout
+                  .commissionBase ||
+                  0
+              ),
+
+            commissionAmount:
+              Number(
+                payout
+                  .commissionAmount ||
+                  0
+              ),
+
+            platformSubsidyAmount:
+              Number(
+                payout
+                  .platformSubsidyAmount ||
+                  0
+              ),
+
+            platformNet:
+              Number(
+                payout
+                  .platformNet ||
+                  0
+              ),
           },
         },
       });

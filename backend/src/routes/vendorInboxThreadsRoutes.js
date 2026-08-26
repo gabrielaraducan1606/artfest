@@ -13,8 +13,20 @@ import {
 
 const router = Router();
 
-router.use(authRequired, enforceTokenVersion, requireRole("VENDOR"));
-router.use(attachSubscription());
+/*
+ * BUGFIX: router.use() era nescopat, deși routerul e montat la
+ * bare "/api" în server.js - asta bloca (401) orice altă rută
+ * publică montată DUPĂ acest router. Scopat explicit la
+ * /inbox/threads, calea reală a rutei de mai jos - comportamentul
+ * ei rămâne identic.
+ */
+router.use(
+  "/inbox/threads",
+  authRequired,
+  enforceTokenVersion,
+  requireRole("VENDOR")
+);
+router.use("/inbox/threads", attachSubscription());
 
 async function getVendorIdForUser(req) {
   if (req.user.vendorId) return req.user.vendorId;

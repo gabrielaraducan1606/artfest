@@ -33,6 +33,7 @@ import DetailsContent from "./components/DetailsContent.jsx";
 import { getHasStructuredDetails } from "./hooks/detailsUtils.js";
 import { resolveFileUrl, withCache } from "./hooks/urlUtils.js";
 import { addToGuestCart } from "../../../utils/guestCart";
+import { getAttributionsForCheckout } from "../../../utils/campaignAttribution.js";
 import {
   trackViewContent,
   trackAddToCart,
@@ -1874,8 +1875,23 @@ const loadProduct = useCallback(async () => {
         `/api/vendors/products/${encodeURIComponent(id)}`
       );
     } else {
+      /*
+       * Reducerea de campanie e una dintre cele 4 surse comparate
+       * de motorul comun de pricing - trebuie trimisă și aici,
+       * la fel ca la coș/checkout, altfel un vizitator care intră
+       * prin /c/:slug vede reducerea de campanie pe cardul
+       * campaniei dar nu și pe pagina produsului.
+       */
+      const attributions = getAttributionsForCheckout();
+      const attributionQuery =
+        attributions && Object.keys(attributions).length
+          ? `?campaignAttribution=${encodeURIComponent(
+              JSON.stringify(attributions)
+            )}`
+          : "";
+
       productData = await api(
-        `/api/public/products/${encodeURIComponent(id)}`
+        `/api/public/products/${encodeURIComponent(id)}${attributionQuery}`
       );
     }
 

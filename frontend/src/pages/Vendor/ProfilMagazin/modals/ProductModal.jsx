@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
 } from "react";
+import { useNavigate } from "react-router-dom";
 
 import Modal from "../ui/Modal";
 import styles from "../components/css/ProductModal.module.css";
@@ -77,13 +78,84 @@ const [
     setAiImageVariant,
   ] = useState(1);
 
-  const [, setPriceSuggestion] =
-    useState(null);
+  const navigate = useNavigate();
+
+  const [
+    priceSuggestion,
+    setPriceSuggestion,
+  ] = useState(null);
 
   const [
     priceWarningConfirmed,
     setPriceWarningConfirmed,
   ] = useState(false);
+
+  /*
+   * Avertizare de preț vs Costuri & Profit - STRICT informativă,
+   * nu blochează salvarea/publicarea (vezi disabled-ul butonului
+   * Salvează din ProductModalWizard.jsx, care NU mai include
+   * această condiție).
+   *
+   * Reutilizează EXACT costingul deja calculat pentru acest produs
+   * (GET /api/vendor/products/:id/costing, aceeași sursă ca pagina
+   * Costuri & Profit) - nu recalculează nimic aici. Disponibilă
+   * doar la EDITARE (un produs nou nu are încă un costing asociat).
+   */
+  useEffect(() => {
+    let alive = true;
+
+    if (!open || !editingProduct?.id) {
+      setPriceSuggestion(null);
+      return;
+    }
+
+    api(
+      `/api/vendor/products/${encodeURIComponent(
+        editingProduct.id
+      )}/costing`
+    )
+      .then((data) => {
+        if (!alive) return;
+
+        const pricing = data?.costing?.pricing;
+
+        setPriceSuggestion(
+          pricing?.minPrice > 0
+            ? {
+                minPrice: pricing.minPrice,
+                recommendedPrice:
+                  pricing.recommendedPrice || null,
+              }
+            : null
+        );
+      })
+      .catch(() => {
+        if (alive) setPriceSuggestion(null);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [open, editingProduct?.id]);
+
+  const hasPriceWarning = Boolean(
+    priceSuggestion?.minPrice > 0 &&
+      Number.isFinite(Number(form.price)) &&
+      Number(form.price) > 0 &&
+      Number(form.price) < priceSuggestion.minPrice
+  );
+
+  const goToCostsProfit = useCallback(() => {
+    if (!editingProduct?.id) return;
+
+    onClose();
+
+    navigate(
+      `/vendor/costs-profit/${encodeURIComponent(
+        editingProduct.id
+      )}`
+    );
+  }, [editingProduct?.id, navigate, onClose]);
 
   const [
     uploadingImages,
@@ -91,10 +163,8 @@ const [
   ] = useState(0);
 
   const [uploadInfo] = useState(
-    "Niciun fișier ales"
+    "Poți alege până la 12 poze deodată, fiecare de maximum 100MB."
   );
-
-  const hasPriceWarning = false;
 
   const draftKey = useMemo(() => {
     return `artfest-product-draft-${
@@ -2118,8 +2188,14 @@ removeQuoteFieldOption={
           hasPriceWarning={
             hasPriceWarning
           }
+          priceSuggestion={
+            priceSuggestion
+          }
           priceWarningConfirmed={
             priceWarningConfirmed
+          }
+          onGoToCostsProfit={
+            goToCostsProfit
           }
           setAiImagePreview={
             setAiImagePreview

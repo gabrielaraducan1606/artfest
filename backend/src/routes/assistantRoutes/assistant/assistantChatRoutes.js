@@ -381,8 +381,16 @@ Utilizatorul cere ajutor/suport sau descrie o problemă
 tehnică, de cont, plată, funcționare etc.
 
 6. quote
-Utilizatorul vrea ofertă, personalizare, cantitate mai mare,
-produs la comandă sau discuție cu un creator despre o comandă specială.
+Utilizatorul CERE efectiv o ofertă/preț personalizat, o cantitate
+mai mare sau un produs la comandă specială - o intenție de
+CUMPĂRARE, nu o întrebare despre CUM funcționează personalizarea.
+Exemple reale: "vreau o ofertă pentru un produs personalizat",
+"cât ar costa 50 de bucăți la comandă", "aș vrea un produs făcut
+special pentru mine". NU alege "quote" doar pentru că mesajul
+conține cuvântul "personalizare"/"personalizat" - o întrebare
+explicativă ("care e diferența dintre variantă și personalizare?",
+"cum funcționează personalizarea?") e "chat" sau "clarify", nu
+"quote".
 
 7. chat
 Mesaj conversațional simplu care poate primi un răspuns scurt:

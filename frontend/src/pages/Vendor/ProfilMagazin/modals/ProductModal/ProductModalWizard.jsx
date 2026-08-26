@@ -93,7 +93,9 @@ export default function ProductModalWizard({
 
   uploadingImages,
   hasPriceWarning,
+  priceSuggestion,
   priceWarningConfirmed,
+  onGoToCostsProfit,
 
   setAiImagePreview,
   setPriceSuggestion,
@@ -929,11 +931,7 @@ quoteSchema: [],
               saving ||
               uploadingImages >
                 0 ||
-              !sectionStatus.review ||
-              (
-                hasPriceWarning &&
-                !priceWarningConfirmed
-              )
+              !sectionStatus.review
             }
           >
             {uploadingImages >
@@ -945,6 +943,71 @@ quoteSchema: [],
           </button>
         )}
       </div>
+
+      {isLastStep &&
+        hasPriceWarning &&
+        !priceWarningConfirmed && (
+          <div
+            className={
+              styles.tip
+            }
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 10,
+              margin: "0 20px 16px",
+              padding: "10px 14px",
+              borderRadius: 10,
+              background:
+                "rgba(217, 119, 6, 0.1)",
+              color: "#92400e",
+            }}
+          >
+            <span
+              style={{
+                flex: "1 1 260px",
+              }}
+            >
+              Prețul actual (
+              {form.price || 0} lei) e
+              sub minimul recomandat
+              din Costuri &amp; Profit
+              {priceSuggestion?.minPrice
+                ? ` (${priceSuggestion.minPrice} lei)`
+                : ""}
+              . Poți salva oricum -
+              e doar o informare, nu
+              o blocare.
+            </span>
+
+            <button
+              type="button"
+              className={
+                styles.linkBtn
+              }
+              onClick={
+                onGoToCostsProfit
+              }
+            >
+              Verifică în Costuri &amp; Profit
+            </button>
+
+            <button
+              type="button"
+              className={
+                styles.linkBtn
+              }
+              onClick={() =>
+                setPriceWarningConfirmed(
+                  true
+                )
+              }
+            >
+              Am înțeles
+            </button>
+          </div>
+        )}
     </form>
   );
 }

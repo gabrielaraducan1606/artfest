@@ -28,6 +28,7 @@ import {
   removeFromGuestCart,
   clearGuestCart,
 } from "../../utils/guestCart";
+import { getAttributionsForCheckout } from "../../utils/campaignAttribution.js";
 import {
   trackAddToCart,
   trackBeginCheckout,
@@ -259,8 +260,11 @@ const [rows, setRows] =
     }
 
     const ids = list.map((x) => x.productId).join(",");
+    const attributionQuery = encodeURIComponent(
+      JSON.stringify(getAttributionsForCheckout())
+    );
     const res = await api(
-      `/api/public/products?ids=${encodeURIComponent(ids)}&limit=${list.length}`,
+      `/api/public/products?ids=${encodeURIComponent(ids)}&limit=${list.length}&campaignAttribution=${attributionQuery}`,
       { signal }
     );
 
@@ -517,7 +521,12 @@ configurationKey:
   }, []);
 
   const loadServer = useCallback(async (signal) => {
-    const c = await api("/api/cart", { signal });
+    const c = await api(
+      `/api/cart?campaignAttribution=${encodeURIComponent(
+        JSON.stringify(getAttributionsForCheckout())
+      )}`,
+      { signal }
+    );
     const items = Array.isArray(c?.items) ? c.items : [];
 
     const mapped = items.map((it) => {
@@ -723,7 +732,10 @@ availabilityMessage:
       try {
         await api("/api/cart/merge", {
           method: "POST",
-          body: { items: local },
+          body: {
+            items: local,
+            campaignAttribution: getAttributionsForCheckout(),
+          },
         });
 
         clearGuestCart();

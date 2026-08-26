@@ -1998,7 +1998,7 @@ return (
                       event.target.value
                     )
                   }
-                  placeholder="Număr de zile"
+                  placeholder="Ex: 7"
                 />
 
                 <div
@@ -2293,6 +2293,28 @@ return (
                                 Alegerea este
                                 obligatorie
                               </label>
+
+                              {!!(
+                                Array.isArray(
+                                  field.options
+                                ) &&
+                                field.options.length
+                              ) && (
+                                <div
+                                  className={
+                                    styles.tip
+                                  }
+                                >
+                                  Clientul va vedea:{" "}
+                                  {field.label ||
+                                    "Variantă"}{" "}
+                                  (
+                                  {field.options.join(
+                                    ", "
+                                  )}
+                                  )
+                                </div>
+                              )}
                             </div>
                           )
                         )}
