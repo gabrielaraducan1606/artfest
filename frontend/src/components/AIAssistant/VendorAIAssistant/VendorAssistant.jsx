@@ -53,7 +53,7 @@ import {
   analyzeVendorProduct,
   analyzeVendorProductOrder,
   uploadVendorProductImages,
-} from "./services/vendorProductAI.js";
+} from "./services/vendorProductAi.js";
 
 import { sendPriceCalculatorTurn } from "./services/vendorPriceCalculatorApi.js";
 
