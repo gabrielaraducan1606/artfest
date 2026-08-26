@@ -418,7 +418,7 @@ useEffect(() => {
   setCampaignsError("");
 
   try {
-    const data = await api("/api/vendor/campaigns/", {
+    const data = await api("/api/vendor/campaigns", {
       method: "GET",
     });
 

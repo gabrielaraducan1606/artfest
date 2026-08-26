@@ -111,7 +111,7 @@ export default function CampaignsTab({ products = [] }) {
     setError("");
 
     try {
-      const data = await campaignRequest("/", {
+      const data = await campaignRequest("", {
         method: "GET",
       });
 
@@ -296,7 +296,7 @@ export default function CampaignsTab({ products = [] }) {
           }
         );
       } else {
-        await campaignRequest("/", {
+        await campaignRequest("", {
           method: "POST",
           body: JSON.stringify({
             name,
@@ -626,6 +626,7 @@ export default function CampaignsTab({ products = [] }) {
               </button>
             </div>
 
+            <div className={styles.modalBody}>
             <div className={styles.formGrid}>
               <label className={styles.formGroup}>
                 <span>Numele campaniei</span>
@@ -792,6 +793,7 @@ export default function CampaignsTab({ products = [] }) {
                   12%. Vendorul nu poate modifica acest procent.
                 </p>
               </div>
+            </div>
             </div>
 
             <div className={styles.modalActions}>
