@@ -16,10 +16,14 @@ import ProfilMagazinSkeleton from "./components/ProfilMagazinSkeleton";
 import StoreHero from "./components/StoreHero";
 import StoreSections from "./components/StoreSections";
 import StoreModals from "./modals/StoreModals";
-
+import StoreCampaignsModal from "./modals/StoreCampaignsModal.jsx";
+import StoreCampaignCollections from "./components/StoreCampaignCollections";
+import PublicCampaignModal from "./modals/PublicCampaignModal";
 import { api } from "../../../lib/api";
 import { buildProductPayload } from "./utils/productPayload";
 import { extractCode, extractHttpStatus } from "./utils/activationErrors";
+
+import { useAnnounceCurrentEntity } from "../../../components/AIAssistant/CurrentEntityContext.jsx";
 
 export default function ProfilMagazinPage() {
   const { slug } = useParams();
@@ -62,6 +66,26 @@ const heroActionsRef = useRef(null);
     openNewProduct,
   } = useProfilMagazin(slug, { me });
 
+  /*
+   * PAGE-AWARE / ENTITY-AWARE: pe /magazin/:slug, entitatea relevantă
+   * e produsul DOAR cât timp modalul de editare e deschis (prodModalOpen
+   * + editingProduct - id-ul nu vine din URL aici), altfel e chiar
+   * magazinul (STORE), DOAR pentru owner - un vizitator oarecare pe
+   * magazinul altcuiva nu trebuie să "anunțe" acel magazin ca
+   * entitate curentă (nici n-ar avea vreo acțiune disponibilă pe el).
+   */
+  useAnnounceCurrentEntity(
+    prodModalOpen && editingProduct
+      ? {
+          type: "PRODUCT",
+          id: editingProduct.id || editingProduct._id,
+          name: editingProduct.title || "",
+        }
+      : isOwner
+        ? { type: "STORE", id: slug, name: slug }
+        : null
+  );
+
   useEffect(() => {
     if (!onboardingProducts) return;
     if (!isOwner) return;
@@ -102,7 +126,15 @@ const heroActionsRef = useRef(null);
   const [profilePatch, setProfilePatch] = useState({});
   const [editingOverride, setEditingOverride] = useState(null);
   const saveProductLockRef = useRef(false);
+const [campaignsModalOpen, setCampaignsModalOpen] = useState(false);
+const [campaigns, setCampaigns] = useState([]);
+const [campaignsLoading, setCampaignsLoading] = useState(false);
+const [campaignsError, setCampaignsError] = useState("");
+const [publicCampaignOpen, setPublicCampaignOpen] =
+  useState(false);
 
+const [selectedPublicCampaign, setSelectedPublicCampaign] =
+  useState(null);
   const sellerData = useMemo(
     () => ({ ...(_sellerData || {}), ...profilePatch }),
     [_sellerData, profilePatch]
@@ -380,6 +412,58 @@ useEffect(() => {
       setSavingAbout(false);
     }
   }
+
+  async function loadCampaignsForModal() {
+  setCampaignsLoading(true);
+  setCampaignsError("");
+
+  try {
+    const data = await api("/api/vendor/campaigns/", {
+      method: "GET",
+    });
+
+    setCampaigns(
+      Array.isArray(data?.items)
+        ? data.items
+        : []
+    );
+  } catch (error) {
+    console.error(
+      "[ProfilMagazin] load campaigns:",
+      error
+    );
+
+    setCampaigns([]);
+
+    setCampaignsError(
+      error?.message ||
+        "Campaniile nu au putut fi încărcate."
+    );
+  } finally {
+    setCampaignsLoading(false);
+  }
+}
+
+function handleOpenPublicCampaign(campaign) {
+  if (!campaign?.slug) {
+    return;
+  }
+
+  setSelectedPublicCampaign(campaign);
+  setPublicCampaignOpen(true);
+}
+
+function handleClosePublicCampaign() {
+  setPublicCampaignOpen(false);
+
+  /*
+   * Îl curățăm puțin mai târziu ca modalul
+   * să nu piardă conținutul instant la închidere.
+   */
+  window.setTimeout(() => {
+    setSelectedPublicCampaign(null);
+  }, 150);
+}
 
  function handleVendorMessage() {
   if (isOwner) {
@@ -866,52 +950,60 @@ quoteSchema: Array.isArray(full.quoteSchema)
       />
 
       <div className={styles.wrapper}>
-        <StoreHero
-          isOwner={isOwner}
-          isUser={isUser}
-          shopName={shopName}
-          shortText={shortText}
-          artisanWeekPromotion={
-  artisanWeekPromotion
-}
-          origin={origin}
-          sdSlug={sdSlug || slug}
-          coverUrl={coverUrl}
-          avatarUrl={avatarUrl}
-          coverInputRef={coverInputRef}
-          avatarInputRef={avatarInputRef}
-          onCoverChange={onCoverChange}
-          onAvatarChange={onAvatarChange}
-          ownerStores={owner.ownerStores}
-          ownerStoresLoading={owner.ownerStoresLoading}
-          handleGoToOwnerStore={owner.handleGoToOwnerStore}
-          handleCreateNewStoreFromProfile={owner.handleCreateNewStoreFromProfile}
-          sellerType={sellerData?.sellerType}
-          sellerTypeLabel={sellerData?.sellerTypeLabel}
-          serviceIsActive={owner.serviceIsActive}
-          activationBusy={owner.activationBusy}
-          ownerChecksLoading={owner.ownerChecksLoading}
-          handleToggleActive={owner.handleToggleActive}
-          activationError={owner.activationError}
-          serviceId={serviceId}
-          followersCount={follow.followersCount}
-          canAddProduct={owner.canAddProduct}
-          prodLimits={owner.prodLimits}
-          handleAddProduct={handleAddProduct}
-          showAddProductHint={showAddProductHint}
-heroActionsRef={heroActionsRef}
-onDismissAddProductHint={dismissAddProductHint}
-          handleContactVendor={
-  handleVendorMessage
-}
-          ambassador={ambassador}
-          following={follow.following}
-          followLoading={follow.followLoading}
-          toggleFollow={follow.toggleFollow}
-          trackCTA={trackCTA}
-        />
+      <StoreHero
+  isOwner={isOwner}
+  isUser={isUser}
+  shopName={shopName}
+  shortText={shortText}
+  artisanWeekPromotion={artisanWeekPromotion}
+  origin={origin}
+  sdSlug={sdSlug || slug}
+  coverUrl={coverUrl}
+  avatarUrl={avatarUrl}
+  coverInputRef={coverInputRef}
+  avatarInputRef={avatarInputRef}
+  onCoverChange={onCoverChange}
+  onAvatarChange={onAvatarChange}
+  ownerStores={owner.ownerStores}
+  ownerStoresLoading={owner.ownerStoresLoading}
+  handleGoToOwnerStore={owner.handleGoToOwnerStore}
+  handleCreateNewStoreFromProfile={
+    owner.handleCreateNewStoreFromProfile
+  }
+  sellerType={sellerData?.sellerType}
+  sellerTypeLabel={sellerData?.sellerTypeLabel}
+  serviceIsActive={owner.serviceIsActive}
+  activationBusy={owner.activationBusy}
+  ownerChecksLoading={owner.ownerChecksLoading}
+  handleToggleActive={owner.handleToggleActive}
+  activationError={owner.activationError}
+  serviceId={serviceId}
+  followersCount={follow.followersCount}
+  canAddProduct={owner.canAddProduct}
+  prodLimits={owner.prodLimits}
+  handleAddProduct={handleAddProduct}
+  onOpenCampaigns={async () => {
+    setCampaignsModalOpen(true);
+    await loadCampaignsForModal();
+  }}
+  showAddProductHint={showAddProductHint}
+  heroActionsRef={heroActionsRef}
+  onDismissAddProductHint={dismissAddProductHint}
+  handleContactVendor={handleVendorMessage}
+  ambassador={ambassador}
+  following={follow.following}
+  followLoading={follow.followLoading}
+  toggleFollow={follow.toggleFollow}
+  trackCTA={trackCTA}
+/>
 
-        <div className={styles.card}>
+<StoreCampaignCollections
+  storeSlug={storeSlug}
+  isOwner={isOwner}
+  onOpenCampaign={handleOpenPublicCampaign}
+/>
+<div className={styles.card}>
+
           <StoreSections
             tabs={tabs.tabs}
             activeTab={tabs.activeTab}
@@ -981,6 +1073,25 @@ onDismissAddProductHint={dismissAddProductHint}
         handleSaveProduct={handleSaveProduct}
         storeSlug={storeSlug}
       />
+<StoreCampaignsModal
+  open={campaignsModalOpen}
+  onClose={() => setCampaignsModalOpen(false)}
+  shopName={shopName}
+  campaigns={campaigns}
+  loading={campaignsLoading}
+  error={campaignsError}
+  onGoToCampaignsPage={() => {
+    setCampaignsModalOpen(false);
+    navigate("/vendor/catalog?tab=campaigns");
+  }}
+/>
+
+<PublicCampaignModal
+  open={publicCampaignOpen}
+  campaign={selectedPublicCampaign}
+  onClose={handleClosePublicCampaign}
+  navigate={navigate}
+/>
     </>
   );
 }

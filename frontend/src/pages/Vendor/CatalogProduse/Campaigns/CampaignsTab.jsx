@@ -466,7 +466,7 @@ export default function CampaignsTab({ products = [] }) {
           <div className={styles.commissionArrow}>→</div>
           <div>
             <span>Prin campanie</span>
-            <strong>6%</strong>
+            <strong>5%</strong>
           </div>
         </div>
       </section>
@@ -524,7 +524,7 @@ export default function CampaignsTab({ products = [] }) {
                   </div>
                   <div>
                     <span>Comision</span>
-                    <strong>{campaign.commissionPercent ?? 6}%</strong>
+                    <strong>{campaign.commissionPercent ?? 5}%</strong>
                   </div>
                 </div>
 
@@ -788,7 +788,7 @@ export default function CampaignsTab({ products = [] }) {
               <div>
                 <strong>Comision Artfest redus</strong>
                 <p>
-                  Pentru comenzile atribuite campaniei se aplică 6% în loc de
+                  Pentru comenzile atribuite campaniei se aplică 5% în loc de
                   12%. Vendorul nu poate modifica acest procent.
                 </p>
               </div>

@@ -1,0 +1,226 @@
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 16px 64px;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--color-primary);
+}
+
+.productHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.productImage,
+.productImagePlaceholder {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  flex-shrink: 0;
+}
+
+.title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.subtitle {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.badge_danger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+/* ================== Layout 2 coloane ================== */
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.summaryColumn {
+  min-width: 0;
+}
+
+.itemsCard {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.itemsTitle {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.itemsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.itemRow {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.itemRow:last-child {
+  border-bottom: none;
+}
+
+.itemKind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+}
+
+.itemLabel {
+  color: var(--color-text);
+}
+
+.itemCost {
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.subtle {
+  color: var(--color-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.actionsRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.btnPrimary,
+.btnGhost {
+  border-radius: var(--radius);
+  padding: 9px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btnPrimary {
+  border: 1px solid transparent;
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.btnPrimary:hover {
+  background: var(--color-hover);
+}
+
+.btnGhost {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+}
+
+.btnPrimary:disabled,
+.btnGhost:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ================== Chat încorporat ================== */
+
+.chatColumn {
+  min-width: 0;
+}
+
+.chatWrapper {
+  height: 560px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  position: sticky;
+  top: 16px;
+}
+
+@media (max-width: 900px) {
+  .chatWrapper {
+    height: 480px;
+    position: static;
+  }
+}
+
+/* ================== Stări goale / erori ================== */
+
+.emptyState {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+
+.errorBar {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}

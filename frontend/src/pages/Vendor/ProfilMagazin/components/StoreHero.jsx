@@ -41,6 +41,10 @@ export default function StoreHero({
   canAddProduct,
   prodLimits,
   handleAddProduct,
+
+  // CAMPANII
+  onOpenCampaigns,
+
   showAddProductHint = false,
   heroActionsRef,
   onDismissAddProductHint,
@@ -66,7 +70,9 @@ export default function StoreHero({
 
     try {
       await navigator.clipboard.writeText(url);
+
       trackCTA?.("Copy profile link");
+
       setCopied(true);
 
       setTimeout(() => {
@@ -138,6 +144,14 @@ Hai să ajungem împreună la 1000 de creatori!
     onDismissAddProductHint?.();
 
     handleAddProduct?.();
+  }
+
+  function onCampaignsClick() {
+    setShowActivationHint(false);
+
+    if (typeof onOpenCampaigns === "function") {
+      onOpenCampaigns();
+    }
   }
 
   function onSkipAddProductHint() {
@@ -350,32 +364,32 @@ Hai să ajungem împreună la 1000 de creatori!
 
           <div>
             <div
-  className={
-    styles.storeTitleRow
-  }
->
-  <h1 className={styles.title}>
-    {shopName}
-  </h1>
+              className={
+                styles.storeTitleRow
+              }
+            >
+              <h1 className={styles.title}>
+                {shopName}
+              </h1>
 
-  {artisanWeekPromotion
-    ?.totalDiscountPercent >
-    0 && (
-    <span
-      className={
-        styles.artisanWeekBadge
-      }
-      title="Reducere valabilă pentru produsele eligibile ale Artizanului săptămânii"
-    >
-      ⭐ Artizanul săptămânii · -
-      {
-        artisanWeekPromotion
-          .totalDiscountPercent
-      }
-      %
-    </span>
-  )}
-</div>
+              {artisanWeekPromotion
+                ?.totalDiscountPercent >
+                0 && (
+                <span
+                  className={
+                    styles.artisanWeekBadge
+                  }
+                  title="Reducere valabilă pentru produsele eligibile ale Artizanului săptămânii"
+                >
+                  ⭐ Artizanul săptămânii · -
+                  {
+                    artisanWeekPromotion
+                      .totalDiscountPercent
+                  }
+                  %
+                </span>
+              )}
+            </div>
 
             {sellerTypeLabel && (
               <div
@@ -500,6 +514,7 @@ Hai să ajungem împreună la 1000 de creatori!
                 alignItems: "center",
                 justifyContent:
                   "flex-end",
+                flexWrap: "wrap",
               }}
             >
               <div
@@ -601,6 +616,41 @@ Hai să ajungem împreună la 1000 de creatori!
                       </div>
                     )}
                   </div>
+
+                  {/* CAMPANII */}
+                  <button
+                    className={
+                      styles.followBtn
+                    }
+                    type="button"
+                    onClick={
+                      onCampaignsClick
+                    }
+                    disabled={
+                      typeof onOpenCampaigns !==
+                      "function"
+                    }
+                    title="Vezi campaniile magazinului"
+                    style={{
+                      display:
+                        "inline-flex",
+                      alignItems:
+                        "center",
+                      gap: 6,
+                      opacity:
+                        typeof onOpenCampaigns ===
+                        "function"
+                          ? 1
+                          : 0.6,
+                      cursor:
+                        typeof onOpenCampaigns ===
+                        "function"
+                          ? "pointer"
+                          : "not-allowed",
+                    }}
+                  >
+                    ✨ Campanii
+                  </button>
 
                   <div
                     className={

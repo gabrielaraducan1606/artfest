@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ConsentDoc" ADD VALUE 'INFLUENCER_TERMS';

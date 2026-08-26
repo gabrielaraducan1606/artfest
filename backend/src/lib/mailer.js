@@ -3440,3 +3440,369 @@ export async function sendVendorDepositPaidEmail({
     },
   });
 }
+
+/* ============================================================
+   INFLUENCER INVITATION (sender: no-reply@)
+============================================================ */
+
+export async function sendInfluencerInviteEmail({
+  to,
+  name,
+  inviteUrl,
+  referralCode,
+  commissionPercent,
+  expiresAt,
+}) {
+  if (!to || !inviteUrl) {
+    return;
+  }
+
+  function escapeHtml(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  const safeName =
+    escapeHtml(
+      name ||
+        "creator"
+    );
+
+  const safeInviteUrl =
+    escapeHtml(
+      inviteUrl
+    );
+
+  const safeReferralCode =
+    escapeHtml(
+      referralCode ||
+        ""
+    );
+
+  const safeCommission =
+    Number(
+      commissionPercent ||
+        0
+    ).toLocaleString(
+      "ro-RO",
+      {
+        maximumFractionDigits: 2,
+      }
+    );
+
+  let expiresLabel =
+    "";
+
+  if (expiresAt) {
+    try {
+      expiresLabel =
+        new Intl.DateTimeFormat(
+          "ro-RO",
+          {
+            dateStyle:
+              "long",
+            timeStyle:
+              "short",
+          }
+        ).format(
+          new Date(
+            expiresAt
+          )
+        );
+    } catch {
+      expiresLabel =
+        "";
+    }
+  }
+
+  const subject =
+    `Invitația ta în programul de influenceri ${BRAND_NAME}`;
+
+  const html = `
+<div
+  style="
+    font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+    max-width:640px;
+    margin:auto;
+    padding:20px;
+    background:#f9fafb;
+    border-radius:12px;
+  "
+>
+  <div
+    style="
+      text-align:center;
+      margin-bottom:20px;
+    "
+  >
+    <img
+      src="${EMAIL_LOGO_URL}"
+      alt="${BRAND_NAME} logo"
+      width="120"
+      style="
+        display:block;
+        margin:0 auto;
+        border:0;
+        outline:none;
+        text-decoration:none;
+        max-width:120px;
+        height:auto;
+      "
+    >
+  </div>
+
+  <div
+    style="
+      background:#ffffff;
+      border-radius:14px;
+      padding:24px;
+      border:1px solid #e5e7eb;
+    "
+  >
+    <div
+      style="
+        display:inline-block;
+        padding:6px 10px;
+        margin-bottom:16px;
+        border-radius:999px;
+        background:#f5f1ef;
+        color:#6f4e43;
+        font-size:12px;
+        font-weight:700;
+      "
+    >
+      Invitație privată ${BRAND_NAME}
+    </div>
+
+    <h2
+      style="
+        color:#111827;
+        margin:0 0 14px;
+        font-size:22px;
+      "
+    >
+      Bună, ${safeName}! 👋
+    </h2>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 14px;
+        line-height:1.65;
+      "
+    >
+      Ai fost invitată să faci parte din
+      <strong> programul de influenceri ${BRAND_NAME}</strong>.
+    </p>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 18px;
+        line-height:1.65;
+      "
+    >
+      Prin contul tău vei putea urmări linkul de recomandare,
+      clickurile, comenzile generate și comisioanele tale.
+    </p>
+
+    <div
+      style="
+        background:#f8f6f4;
+        border:1px solid #eadfd9;
+        border-radius:12px;
+        padding:16px;
+        margin:18px 0;
+      "
+    >
+      ${
+        safeReferralCode
+          ? `
+            <p
+              style="
+                margin:0 0 8px;
+                color:#374151;
+              "
+            >
+              <strong>Codul tău:</strong>
+              ${safeReferralCode}
+            </p>
+          `
+          : ""
+      }
+
+      <p
+        style="
+          margin:0;
+          color:#374151;
+        "
+      >
+        <strong>Comision inițial:</strong>
+        ${safeCommission}% din vânzările atribuite contului tău
+      </p>
+    </div>
+
+    <p
+      style="
+        color:#374151;
+        margin:0 0 18px;
+        line-height:1.65;
+      "
+    >
+      Pentru a începe, creează-ți contul folosind invitația privată de mai jos.
+    </p>
+
+    <p
+      style="
+        text-align:center;
+        margin:26px 0 18px;
+      "
+    >
+      <a
+        href="${safeInviteUrl}"
+        style="
+          display:inline-block;
+          background:#6f4e43;
+          color:#ffffff;
+          padding:13px 22px;
+          border-radius:10px;
+          text-decoration:none;
+          font-weight:700;
+        "
+      >
+        Acceptă invitația
+      </a>
+    </p>
+
+    ${
+      expiresLabel
+        ? `
+          <p
+            style="
+              margin:0 0 12px;
+              color:#6b7280;
+              text-align:center;
+              font-size:13px;
+            "
+          >
+            Invitația este valabilă până la
+            <strong>${escapeHtml(expiresLabel)}</strong>.
+          </p>
+        `
+        : ""
+    }
+
+    <p
+      style="
+        margin:18px 0 4px;
+        color:#6b7280;
+        font-size:12px;
+        line-height:1.5;
+        text-align:center;
+      "
+    >
+      Dacă butonul nu funcționează, copiază linkul:
+    </p>
+
+    <p
+      style="
+        margin:0;
+        text-align:center;
+        word-break:break-all;
+        font-size:12px;
+      "
+    >
+      <a
+        href="${safeInviteUrl}"
+        style="
+          color:#6f4e43;
+        "
+      >
+        ${safeInviteUrl}
+      </a>
+    </p>
+  </div>
+
+  <p
+    style="
+      margin:20px 0 0;
+      color:#9ca3af;
+      text-align:center;
+      font-size:12px;
+      line-height:1.5;
+    "
+  >
+    Ai primit acest email deoarece ai fost invitată
+    direct în programul de influenceri ${BRAND_NAME}.
+  </p>
+
+  <p
+    style="
+      margin:6px 0 0;
+      color:#9ca3af;
+      text-align:center;
+      font-size:12px;
+    "
+  >
+    Acest mesaj a fost generat automat.
+  </p>
+</div>
+`.trim();
+
+  const text = [
+    `Bună, ${name || "creator"}!`,
+    "",
+    `Ai fost invitată să faci parte din programul de influenceri ${BRAND_NAME}.`,
+    "",
+    referralCode
+      ? `Codul tău: ${referralCode}`
+      : "",
+    `Comision inițial: ${safeCommission}% din vânzările atribuite contului tău.`,
+    "",
+    "Creează-ți contul folosind invitația privată:",
+    inviteUrl,
+    "",
+    expiresLabel
+      ? `Invitația este valabilă până la ${expiresLabel}.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sendMailLogged({
+    senderKey:
+      "noreply",
+
+    to,
+
+    subject,
+
+    template:
+      "influencer_invitation",
+
+    toName:
+      name ||
+      null,
+
+    mailOptions: {
+      ...senderEnvelope(
+        "noreply"
+      ),
+
+      to,
+
+      subject,
+
+      html,
+
+      text,
+
+      headers:
+        AUTO_HEADERS,
+    },
+  });
+}

@@ -13,6 +13,55 @@ export const CATALOG_PRODUCTS_MANIFEST = {
 
   available: true,
 
+  status: "ACTIVE",
+
+  tags: [
+    "catalog",
+    "produse",
+    "bulk",
+    "activare",
+    "dezactivare",
+    "pret",
+    "categorie",
+    "duplicare produs",
+  ],
+
+  aliases: [
+    "cum administrez produsele",
+    "schimb pretul la mai multe produse",
+    "activez mai multe produse odata",
+    "duplic un produs",
+  ],
+
+  uiLocations: [
+    {
+      audience: "VENDOR",
+      path: "/vendor/catalog",
+    },
+  ],
+
+  capabilities: {
+    bulkActivateDeactivate: { available: true },
+    bulkDelete: { available: true },
+    bulkPrice: { available: true },
+    bulkCategory: { available: true },
+    duplicateProduct: { available: true },
+    bulkVariants: { available: false, status: "PLANNED" },
+  },
+
+  limitations: [
+    "Modificarea în masă a variantelor nu este disponibilă încă - variantele se editează per produs.",
+  ],
+
+  unavailableFeatures: [
+    "Editare în masă a variantelor de produs",
+  ],
+
+  faq: [],
+
+  notes:
+    "Sursă: vendorCatalogProductsRoutes.js + acest manifest. Verificat 2026-08-24.",
+
   basePath:
     "/api/vendor/catalog/products",
 

@@ -1,0 +1,339 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 560px;
+  font-size: 14px;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+/* ================== Filtre ================== */
+
+.filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.typeTabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.typeTab,
+.typeTabActive {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.typeTabActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.filtersRight {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.searchInput,
+.select {
+  border: 1px solid var(--color-border);
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.searchInput {
+  min-width: 200px;
+}
+
+/* ================== Grupuri / Tabel ================== */
+
+.groupBlock {
+  margin-bottom: 24px;
+}
+
+.groupTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 8px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  vertical-align: top;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.rowArchived td {
+  opacity: 0.55;
+}
+
+.notesCell {
+  max-width: 260px;
+  white-space: pre-wrap;
+  color: var(--color-muted);
+}
+
+.actionsCell {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.aiPill,
+.archivedPill {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+  vertical-align: middle;
+}
+
+.aiPill {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
+}
+
+.archivedPill {
+  background: color-mix(in srgb, var(--color-muted) 16%, transparent);
+  color: var(--color-muted);
+}
+
+/* ================== Stări goale / erori ================== */
+
+.emptyState {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--color-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.errorBar {
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 25%, transparent);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+/* ================== Butoane ================== */
+
+.btnPrimary,
+.btnGhost,
+.btnDanger {
+  border-radius: var(--radius);
+  padding: 9px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.btnPrimary:hover {
+  background: var(--color-hover);
+}
+
+.btnGhost {
+  background: var(--surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.btnDanger {
+  background: var(--surface);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.btnPrimary:disabled,
+.btnGhost:disabled,
+.btnDanger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.iconBtn {
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+/* ================== Modal formular ================== */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--surface);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.modalHeader h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.field input,
+.field select,
+.field textarea {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  font-size: 14px;
+  font-weight: 400;
+  font-family: inherit;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .fieldRow {
+    grid-template-columns: 1fr;
+  }
+
+  .header {
+    flex-direction: column;
+  }
+
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

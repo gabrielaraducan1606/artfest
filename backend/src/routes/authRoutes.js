@@ -1135,23 +1135,28 @@ router.post(
           )
         );
 
-        let next =
-          "/desktop-user";
+       let next =
+  "/desktop-user";
 
-        if (
-          user.role ===
-          "ADMIN"
-        ) {
-          next =
-            "/admin";
-        } else if (
-          user.role ===
-          "VENDOR"
-        ) {
-          next =
-            "/desktop";
-        }
-
+if (
+  user.role ===
+  "ADMIN"
+) {
+  next =
+    "/admin";
+} else if (
+  user.role ===
+  "VENDOR"
+) {
+  next =
+    "/desktop";
+} else if (
+  user.role ===
+  "INFLUENCER"
+) {
+  next =
+    "/influencer";
+}
         return res.json({
           ok: true,
           next,
@@ -1327,29 +1332,34 @@ router.post(
         );
       }
 
-      let next =
-        "/desktop-user";
+   let next =
+  "/desktop-user";
 
-      if (
-        updatedUser?.role ===
-        "ADMIN"
-      ) {
-        next =
-          "/admin";
-      } else if (
-        record.intent ===
-        "VENDOR"
-      ) {
-        next =
-          "/onboarding";
-      } else if (
-        updatedUser?.role ===
-        "VENDOR"
-      ) {
-        next =
-          "/desktop";
-      }
-
+if (
+  updatedUser?.role ===
+  "ADMIN"
+) {
+  next =
+    "/admin";
+} else if (
+  record.intent ===
+  "VENDOR"
+) {
+  next =
+    "/onboarding";
+} else if (
+  updatedUser?.role ===
+  "VENDOR"
+) {
+  next =
+    "/desktop";
+} else if (
+  updatedUser?.role ===
+  "INFLUENCER"
+) {
+  next =
+    "/influencer";
+}
       return res.json({
         ok: true,
         next,
@@ -1896,23 +1906,28 @@ router.post(
           .join(" ") ||
         "";
 
-      let next =
-        "/desktop-user";
+    let next =
+  "/desktop-user";
 
-      if (
-        user.role ===
-        "ADMIN"
-      ) {
-        next =
-          "/admin";
-      } else if (
-        user.role ===
-        "VENDOR"
-      ) {
-        next =
-          "/desktop";
-      }
-
+if (
+  user.role ===
+  "ADMIN"
+) {
+  next =
+    "/admin";
+} else if (
+  user.role ===
+  "VENDOR"
+) {
+  next =
+    "/desktop";
+} else if (
+  user.role ===
+  "INFLUENCER"
+) {
+  next =
+    "/influencer";
+}
       return res.json({
         ok: true,
         next,

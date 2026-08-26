@@ -23,6 +23,8 @@ import {
   CheckCircle2,
   ShoppingCart,
   Receipt,
+  Calculator,
+  TrendingUp,
   ScrollText,
   Paperclip,
   ArrowLeft,
@@ -1943,6 +1945,22 @@ function VendorLinksCard({ unreadMsgs, supportUnread }) {
 
         <Link className={`${styles.btn} ${styles.btnGhost}`} to="/magazine">
           <Store size={18} style={{ marginRight: 6 }} /> Magazine / Produse
+        </Link>
+
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/vendor/costs-profit"
+        >
+          <TrendingUp size={18} style={{ marginRight: 6 }} /> Costuri &amp;
+          Profit
+        </Link>
+
+        <Link
+          className={`${styles.btn} ${styles.btnGhost}`}
+          to="/vendor/costs-profit/library"
+        >
+          <Calculator size={18} style={{ marginRight: 6 }} /> Biblioteca de
+          costuri
         </Link>
 
         <Link

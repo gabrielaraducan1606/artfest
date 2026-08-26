@@ -5,6 +5,7 @@ import assistantSupportRouter from "./assistant/assistantSupportRoutes.js";
 import assistantQuotesRouter from "./assistant/assistantQuotesRoutes.js";
 import assistantChatRouter from "./assistant/assistantChatRoutes.js";
 import assistantVendorPlatformRouter from "./assistant/assistantVendorPlatformRoutes.js";
+import assistantCopilotRouter from "./assistant/assistantCopilotRoutes.js";
 
 const router = Router();
 
@@ -35,6 +36,22 @@ router.use(
 router.use(
   "/vendor-platform",
   assistantVendorPlatformRouter
+);
+
+/*
+ * Routerul general nou (FAZA 4) - strat DEASUPRA clasificatorului
+ * din assistantChatRoutes.js, nu îl înlocuiește.
+ *
+ * În assistantCopilotRoutes.js avem:
+ * POST /ask
+ * GET /test
+ *
+ * Ruta finală:
+ * POST /api/assistant/copilot/ask
+ */
+router.use(
+  "/copilot",
+  assistantCopilotRouter
 );
 
 /*

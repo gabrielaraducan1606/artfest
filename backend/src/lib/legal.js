@@ -33,6 +33,8 @@ const PUBLIC_URLS = {
   privacy: "/confidentialitate",
   cookies: "/cookies",
 
+  influencer_terms: "/acord-influenceri",
+
   vendor_terms: "/acord-vanzatori",
   shipping_addendum: "/anexa-expediere",
   returns_policy_ack: "/politica-retur",

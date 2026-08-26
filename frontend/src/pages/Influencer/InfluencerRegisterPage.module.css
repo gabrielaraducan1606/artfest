@@ -1,0 +1,347 @@
+.page {
+  min-height: calc(100vh - var(--appbar-h));
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 20px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.card {
+  width: 100%;
+  max-width: 620px;
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-primary);
+  border-radius: 999px;
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.iconCircle {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  border: 1px solid var(--color-danger);
+  border-radius: 999px;
+  color: var(--color-danger);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-title);
+  font-size: 28px;
+  line-height: 1.25;
+  color: var(--color-text);
+}
+
+.subtitle {
+  margin: 10px 0 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.inviteSummary {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.summaryRow + .summaryRow {
+  border-top: 1px solid var(--color-border);
+}
+
+.summaryLabel {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.summaryValue {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  word-break: break-word;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 24px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.label {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.input {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+}
+
+.input:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+  background: var(--color-bg);
+}
+
+.hint {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.passwordWrap {
+  position: relative;
+}
+
+.passwordWrap .input {
+  padding-right: 82px;
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.passwordToggle:hover {
+  color: var(--color-hover);
+}
+
+.passwordStrength {
+  margin-top: 3px;
+}
+
+.strengthBars {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.strengthBar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.strengthBarActive {
+  background: var(--color-primary);
+}
+
+.strengthLabel {
+  margin-top: 5px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.consents {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.checkboxRow input {
+  margin-top: 2px;
+  accent-color: var(--color-primary);
+}
+
+.primaryButton {
+  min-height: 44px;
+  padding: 11px 16px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--color-primary);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.primaryButton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 18px;
+  padding: 11px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secondaryButton:hover {
+  border-color: var(--color-primary);
+}
+
+.errorBox {
+  padding: 11px 12px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  color: var(--color-danger);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.successBox {
+  padding: 11px 12px;
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius);
+  color: var(--color-success);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.fieldError {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.fieldSuccess {
+  color: var(--color-success);
+  font-size: 12px;
+}
+
+.existingAccountBox {
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.existingAccountTitle {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.existingAccountText {
+  margin: 7px 0 16px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 24px 12px;
+  }
+
+  .card {
+    padding: 20px 16px;
+    border-radius: 14px;
+  }
+
+  .title {
+    font-size: 23px;
+  }
+
+  .summaryRow {
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .summaryValue {
+    text-align: left;
+  }
+}

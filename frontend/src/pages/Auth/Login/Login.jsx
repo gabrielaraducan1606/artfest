@@ -253,6 +253,24 @@ export default function Login({
   onSwitchToRegister,
 }) {
   const { refresh } = useAuth();
+const influencerInviteToken = (() => {
+  if (inModal) return "";
+
+  try {
+    const params =
+      new URLSearchParams(
+        window.location.search
+      );
+
+    return (
+      params.get(
+        "influencerInvite"
+      ) || ""
+    ).trim();
+  } catch {
+    return "";
+  }
+})();
 
   /* ---------------- Tab login / register ---------------- */
 
@@ -424,80 +442,202 @@ export default function Login({
    * Redirect comun după login clasic sau Google.
    * ========================================================= */
   async function finishLogin(
-    response
-  ) {
-    const user =
-      response?.user || null;
+  response
+) {
+  let user =
+    response?.user || null;
 
+  try {
+    await refresh();
+  } catch {
+    // Loginul poate fi reușit chiar dacă /me
+    // are temporar o eroare.
+  }
+
+  /*
+   * Dacă utilizatorul a venit dintr-o
+   * invitație de influencer și loginul
+   * a reușit, acceptăm invitația pe
+   * contul existent.
+   */
+  if (influencerInviteToken) {
     try {
-      await refresh();
-    } catch {
-      // Loginul poate fi reușit chiar dacă /me
-      // are temporar o eroare.
-    }
+      const accepted =
+        await api(
+          "/api/influencer/accept-existing",
+          {
+            method: "POST",
 
-    onLoggedIn?.(user);
+            body: {
+              token:
+                influencerInviteToken,
+            },
+          }
+        );
 
-    try {
-      window.dispatchEvent(
-        new CustomEvent(
-          "auth:login"
-        )
+      if (accepted?.ok) {
+        user = {
+          ...(user || {}),
+          ...(accepted?.user || {}),
+          role: "INFLUENCER",
+        };
+
+        /*
+         * Backendul tocmai a emis JWT
+         * nou cu role=INFLUENCER.
+         * Reîmprospătăm contextul Auth.
+         */
+        try {
+          await refresh();
+        } catch {
+          // Cookie-ul este deja actualizat.
+        }
+
+        onLoggedIn?.(user);
+
+        try {
+          window.dispatchEvent(
+            new CustomEvent(
+              "auth:login"
+            )
+          );
+        } catch {
+          // ignore
+        }
+
+        window.location.assign(
+          accepted?.next ||
+            "/influencer"
+        );
+
+        return;
+      }
+    } catch (error) {
+      console.error(
+        "Accept influencer invite error:",
+        error
       );
-    } catch {
-      // ignore
+
+      const code =
+        error?.data?.error ||
+        error?.error ||
+        "";
+
+      if (
+        code ===
+        "invitation_email_mismatch"
+      ) {
+        setErr(
+          "Invitația de influencer aparține unui alt cont. Conectează-te cu emailul pe care ai primit invitația."
+        );
+
+        return;
+      }
+
+      if (
+        code ===
+        "invitation_expired" ||
+        code ===
+        "invitation_unavailable" ||
+        code ===
+        "invitation_already_used"
+      ) {
+        setErr(
+          "Invitația de influencer nu mai este disponibilă. Cere administratorului un link nou."
+        );
+
+        return;
+      }
+
+      if (
+        code ===
+        "role_incompatible"
+      ) {
+        setErr(
+          "Acest cont are deja un alt tip de profil Artfest și nu poate fi transformat automat în cont de influencer."
+        );
+
+        return;
+      }
+
+      if (
+        code ===
+        "already_influencer"
+      ) {
+        try {
+          await refresh();
+        } catch {
+          // ignore
+        }
+
+        window.location.assign(
+          "/influencer"
+        );
+
+        return;
+      }
+
+      setErr(
+        error?.data?.message ||
+          error?.message ||
+          "Autentificarea a reușit, dar invitația de influencer nu a putut fi acceptată."
+      );
+
+      return;
     }
-
-    let next =
-  response?.next || "";
-
-/*
- * Dacă autentificarea a fost pornită
- * dintr-o acțiune din platformă,
- * respectăm redirect-ul contextual.
- *
- * Exemple:
- * - cerere publică
- * - recenzie
- * - wishlist
- * - mesaj
- * - cerere de ofertă
- */
-if (redirectTo) {
-  next =
-    redirectTo;
-}
-
-/*
- * Dacă login-ul a fost deschis direct
- * din Navbar și NU avem redirect contextual,
- * mergem în dashboard în funcție de rol.
- */
-if (!next) {
-  const role =
-    user?.role;
-
-  if (
-    role === "ADMIN"
-  ) {
-    next =
-      "/admin";
-  } else if (
-    role === "VENDOR"
-  ) {
-    next =
-      "/desktop";
-  } else {
-    next =
-      "/desktop-user";
   }
-}
 
-window.location.assign(
-      next
+  onLoggedIn?.(user);
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent(
+        "auth:login"
+      )
     );
+  } catch {
+    // ignore
   }
 
+  let next =
+    response?.next || "";
+
+  /*
+   * Dacă autentificarea a fost pornită
+   * dintr-o acțiune din platformă,
+   * respectăm redirect-ul contextual.
+   */
+  if (redirectTo) {
+    next = redirectTo;
+  }
+
+  /*
+   * Dacă nu avem redirect contextual,
+   * mergem în dashboard în funcție de rol.
+   */
+  if (!next) {
+    const role =
+      user?.role;
+
+    if (role === "ADMIN") {
+      next = "/admin";
+    } else if (
+      role === "VENDOR"
+    ) {
+      next = "/desktop";
+    } else if (
+      role === "INFLUENCER"
+    ) {
+      next = "/influencer";
+    } else {
+      next = "/desktop-user";
+    }
+  }
+
+  window.location.assign(
+    next
+  );
+}
   /* =========================================================
    * Răspunsul primit de la Google.
    * ========================================================= */

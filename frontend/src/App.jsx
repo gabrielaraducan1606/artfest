@@ -30,6 +30,7 @@ import CookiePreferences from "./pages/CookieBanner/CookiePreferences";
 import CookieBanner from "./pages/CookieBanner/CookieBanner";
 
 import PublicCollectionPage from "./pages/Collections/PublicCollections.jsx";
+import PublicCampaignPage from "./pages/Campaigns/PublicCampaignPage.jsx";
 
 import Login from "./pages/Auth/Login/Login";
 import Register from "./pages/Auth/Register/Register";
@@ -81,6 +82,9 @@ import VendorHomepagePromotions from "./pages/Vendor/Promotions/VendorPromotions
 import CatalogProdusePage from "./pages/Vendor/CatalogProduse/CatalogProduse.jsx";
 
 import VendorInvoicesPage from "./pages/Vendor/Invoices/InvoicePage.jsx";
+import CostLibraryPage from "./pages/Vendor/CostsProfit/CostLibraryPage.jsx";
+import ProfitabilityPage from "./pages/Vendor/CostsProfit/ProfitabilityPage.jsx";
+import ProductCostingDetailPage from "./pages/Vendor/CostsProfit/ProductCostingDetailPage.jsx";
 import UserInvoicesPage from "./pages/User/Invoices/UserInvoicesPage";
 
 import UserDesktop from "./pages/User/UserDesktop/UserDesktop.jsx";
@@ -104,6 +108,9 @@ import CustomerRequestDetailsPage
   from "./pages/Home/CustomerRequestsSection/CustomerRequestDetailsPage.jsx";
   import CustomerRequestsPage
   from "./pages/Home/CustomerRequestsSection/CustomerRequestsPage.jsx";
+
+  import InfluencerRegisterPage from "./pages/Influencer/InfluencerRegisterPage.jsx";
+import InfluencerDashboardPage from "./pages/Influencer/InfluencerDashboardPage/InfluencerDashboardPage.jsx";
 import {
   SEOProvider,
 } from "./components/Seo/SeoProvider";
@@ -556,6 +563,13 @@ export default function App() {
             />
 
             <Route
+              path="/c/:slug"
+              element={
+                <PublicCampaignPage />
+              }
+            />
+
+            <Route
               path="/confidentialitate"
               element={
                 <LegalHtmlRoute
@@ -650,6 +664,14 @@ export default function App() {
               }
             />
 
+<Route
+  path="/influencer/register"
+  element={<InfluencerRegisterPage />}
+/>
+<Route
+  path="/influencer"
+  element={<InfluencerDashboardPage />}
+/>
             <Route
               path="/verify-email"
               element={
@@ -758,6 +780,33 @@ export default function App() {
               element={
                 <RequireVendor>
                   <CatalogProdusePage />
+                </RequireVendor>
+              }
+            />
+
+            <Route
+              path="/vendor/costs-profit"
+              element={
+                <RequireVendor>
+                  <ProfitabilityPage />
+                </RequireVendor>
+              }
+            />
+
+            <Route
+              path="/vendor/costs-profit/library"
+              element={
+                <RequireVendor>
+                  <CostLibraryPage />
+                </RequireVendor>
+              }
+            />
+
+            <Route
+              path="/vendor/costs-profit/:productId"
+              element={
+                <RequireVendor>
+                  <ProductCostingDetailPage />
                 </RequireVendor>
               }
             />

@@ -6,12 +6,18 @@ import {
 
 import {
   useNavigate,
+  useSearchParams,
 } from "react-router-dom";
 
 import styles from "./CatalogProduse.module.css";
 import CatalogImports from "./imports/CatalogImports.jsx";
 import ProductModal from "../ProfilMagazin/modals/ProductModal.jsx";
 import CampaignsTab from "./Campaigns/CampaignsTab.jsx";
+
+import {
+  useAnnounceCurrentEntity,
+  useAnnouncePageType,
+} from "../../../components/AIAssistant/CurrentEntityContext.jsx";
 /* =========================================================
    LABELURI MOD COMANDĂ
 ========================================================= */
@@ -98,12 +104,61 @@ export default function CatalogProdusePage() {
   /* =======================================================
      TAB
   ======================================================= */
+const [searchParams, setSearchParams] =
+  useSearchParams();
+  const tabFromUrl =
+  searchParams.get("tab");
 
-  const [
-    activeTab,
-    setActiveTab,
-  ] = useState(
-    "products"
+const [
+  activeTab,
+  setActiveTab,
+] = useState(
+  tabFromUrl === "campaigns" ||
+  tabFromUrl === "imports"
+    ? tabFromUrl
+    : "products"
+);
+
+useEffect(() => {
+  const tab =
+    searchParams.get("tab");
+
+  if (
+    tab === "products" ||
+    tab === "imports" ||
+    tab === "campaigns"
+  ) {
+    setActiveTab(tab);
+  }
+}, [searchParams]);
+
+function changeTab(tab) {
+  setActiveTab(tab);
+
+  setSearchParams(
+    (current) => {
+      const next =
+        new URLSearchParams(current);
+
+      next.set("tab", tab);
+
+      return next;
+    },
+    {
+      replace: true,
+    }
+  );
+}
+  /*
+   * /vendor/catalog e O SINGURĂ rută cu tab-uri ținute în state
+   * React (NU în URL) - vezi derivePageContext.js, care nu poate
+   * distinge tab-urile din pathname. Anunțăm explicit pageType-ul
+   * DOAR pentru tab-ul Importuri (singurul cu manifest propriu,
+   * catalog-imports); pe "products"/"campaigns" lăsăm pageType-ul
+   * derivat din URL (PRODUCT_CATALOG) să rămână.
+   */
+  useAnnouncePageType(
+    activeTab === "imports" ? "CATALOG_IMPORT" : null
   );
 
   /* =======================================================
@@ -186,6 +241,26 @@ const [
     editingProduct,
     setEditingProduct,
   ] = useState(null);
+
+  /*
+   * /vendor/catalog nu are id de produs în URL (produsul se
+   * editează într-un modal) - anunțăm entitatea DOAR cât timp
+   * modalul de editare e deschis, ca un mesaj precum "schimbă
+   * prețul la 45 lei" să rezolve produsul fără să-l mai numească.
+   */
+  useAnnounceCurrentEntity(
+    editProductOpen && editingProduct
+      ? {
+          type: "PRODUCT",
+
+          id:
+            editingProduct.id ||
+            editingProduct._id,
+
+          name: editingProduct.title || "",
+        }
+      : null
+  );
 
   const [
     savingProduct,
@@ -2535,19 +2610,17 @@ async function openNewProduct() {
           </p>
         </div>
 
-        <div
-          className={
-            styles.headerActions
-          }
-        >
-         <button
-  type="button"
-  className={styles.primaryBtn}
-  onClick={openNewProduct}
->
-  + Adaugă produs
-</button>
-        </div>
+       <div className={styles.headerActions}>
+  {activeTab === "products" && (
+    <button
+      type="button"
+      className={styles.primaryBtn}
+      onClick={openNewProduct}
+    >
+      + Adaugă produs
+    </button>
+  )}
+</div>
       </header>
 
       <nav
@@ -2564,10 +2637,8 @@ async function openNewProduct() {
               : styles.tab
           }
           onClick={() =>
-            setActiveTab(
-              "products"
-            )
-          }
+  changeTab("imports")
+}
         >
           Produse
         </button>
@@ -2591,9 +2662,14 @@ async function openNewProduct() {
 
         <button
   type="button"
-  className={styles.tab}
-  disabled
-  title="Disponibil în curând"
+  className={
+    activeTab === "campaigns"
+      ? styles.activeTab
+      : styles.tab
+  }
+  onClick={() =>
+  changeTab("campaigns")
+}
 >
   Campanii
 </button>
@@ -2608,12 +2684,9 @@ async function openNewProduct() {
         <CatalogImports />
       )}
 
-      {activeTab ===
-        "campaigns" && (
-        <CampaignsTab
-          products={products}
-        />
-      )}
+      {activeTab === "campaigns" && (
+  <CampaignsTab products={products} />
+)}
 
 
       {/* ===================================================

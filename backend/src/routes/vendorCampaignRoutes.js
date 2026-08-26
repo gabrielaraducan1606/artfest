@@ -35,10 +35,10 @@ const ALLOWED_DISCOUNTS = [
  * Comisionul redus este controlat
  * exclusiv de Artfest.
  *
- * 600 = 6%
+ * 500 = 5%
  */
-const CAMPAIGN_COMMISSION_BPS =
-  600;
+export const CAMPAIGN_COMMISSION_BPS =
+  500;
 
 /*
  * 168 ore = 7 zile

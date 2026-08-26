@@ -83,6 +83,7 @@ import adminSubscriptions from "./src/routes/adminSubscriptionRoutes.js";
 import adminPickupsRoutes from "./src/routes/adminPickupsRoutes.js";
 import platformBillingRouter from "./src/routes/platformBillingRoutes.js";
 import adminInvoicesRoutes from "./src/routes/adminInvoicesRoutes.js";
+import adminInfluencersRoutes from "./src/routes/adminInfluencersRoutes.js";
 import vendorsStripeConnectRoutes from "./src/routes/vendors.stripeConnect.js";
 import adminProductsRoutes from "./src/routes/adminProducts.js";
 import newsletterRoutes from "./src/routes/newsletterRoutes.js";
@@ -91,6 +92,10 @@ import sitemapRoutes from "./src/routes/sitemap.js";
 import googleShoppingFeedRoutes from "./src/routes/googleShoppingFeed.js";
 import adminCollectionsRoutes from "./src/routes/adminCollectionsroutes.js";
 import aiRoutes from "./src/routes/aiRoutes.js";
+import vendorCostProfitRoutes from "./src/routes/vendorCostProfitRoutes.js";
+import vendorCostProfitAiRoutes from "./src/routes/vendorCostProfitAiRoutes.js";
+import vendorProductManagementRoutes from "./src/routes/vendorProductManagementRoutes.js";
+import vendorAssistantCommandsRoutes from "./src/routes/vendorAssistantCommandsRoutes.js";
 import ambassadorRoutes from "./src/routes/ambassadorRoutes.js"
 import assistantRouter from "./src/routes/assistantRoutes/assistantRoutes.js";
 import guestOrdersRoutes from "./src/routes/guestOrderRoutes.js";
@@ -114,6 +119,7 @@ import vendorCampaignRoutes
   from "./src/routes/vendorCampaignRoutes.js";
   import publicCampaignRoutes
   from "./src/routes/publicCampaignRoutes.js";
+  import influencerRoutes from "./src/routes/influencerRoutes.js";
 // Încarcă .env DOAR în development
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // fără override
@@ -417,17 +423,36 @@ app.post("/api/admin/monitor/incidents/:id/ack", requireAdminMonitorToken, async
   }
 });
 
-/* ---------------- RUTE ADMIN (existente) ---------------- */
-// ✅ PUBLIC – înainte de auth
-app.use("/api/public", publicAdsRoutes);
-app.use("/api/public", publicCategories);
+/* ---------------- RUTE PUBLICE ---------------- */
 
-app.use("/api", metaCatalogFeedRoutes);
+// Publicitate / categorii
+app.use(
+  "/api/public",
+  publicAdsRoutes
+);
+
+app.use(
+  "/api/public",
+  publicCategories
+);
+
+// ✅ CAMPANII PUBLICE
+// IMPORTANT: trebuie montate înainte de routerele /api
+// care pot aplica autentificare.
+app.use(
+  "/api/public/campaigns",
+  publicCampaignRoutes
+);
+
+app.use(
+  "/api",
+  metaCatalogFeedRoutes
+);
+
 app.use(
   "/api/cookies",
   cookiesRoutes
 );
-
 
 app.use(adminEmailLogsRoutes);
 app.use("/api/ambassadors", ambassadorRoutes);
@@ -449,8 +474,12 @@ app.use("/api/admin", adminPickupsRoutes);
 app.use("/api/admin", adminInvoicesRoutes);
 app.use("/api/admin", adminProductsRoutes);
 app.use("/api/admin", adminCollectionsRoutes);
+app.use("/api/admin/influencers", adminInfluencersRoutes);
+app.use("/api/influencer", influencerRoutes);
 app.use("/api", platformBillingRouter);
 app.use("/api/ai", aiRoutes);
+app.use("/api/ai", vendorCostProfitAiRoutes);
+app.use("/api/ai", vendorAssistantCommandsRoutes);
 app.use(
   "/api/public/homepage",
   publicHomepageRoutes
@@ -533,6 +562,25 @@ app.use("/api/vendors", vendorsRouter);
 app.use("/api/service-types", serviceTypesRouter);
 app.use("/api/vendors", billingRoutes);
 app.use("/api", subscriptionRoutes);
+
+/*
+ * IMPORTANT: trebuie montate ÎNAINTE de vendorProductRoutes.
+ * Acela definește GET /api/vendor/products/:id, care ar
+ * "înghiți" /api/vendor/products/profitability sau
+ * /api/vendor/products/search dacă ar fi înregistrat primul
+ * (Express potrivește rutele în ordinea înregistrării, iar
+ * :id se potrivește cu orice segment).
+ */
+app.use(
+  "/api/vendor",
+  vendorCostProfitRoutes
+);
+
+app.use(
+  "/api/vendor",
+  vendorProductManagementRoutes
+);
+
 app.use("/api", vendorProductRoutes);
 app.use(
   "/api/vendor/catalog/imports",
@@ -558,10 +606,6 @@ app.use(
 app.use(
   "/api/vendor/campaigns",
   vendorCampaignRoutes
-);
-app.use(
-  "/api/public/campaigns",
-  publicCampaignRoutes
 );
 app.use("/api/vendors/stripe/connect", vendorsStripeConnectRoutes);
 // 👇 aici folosim authRequired din ./src/api/auth.js

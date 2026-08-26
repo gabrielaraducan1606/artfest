@@ -1,6 +1,11 @@
 // src/components/AiAssistant/quotes/assistantQuotes.js
 
 import {
+  normalizeForIntentDetection,
+  isExplainIntentMessage,
+} from "../explainIntent.js";
+
+import {
   createQuoteRequest,
   createVendorQuoteOffer,
   acceptQuoteOffer,
@@ -41,6 +46,93 @@ export const QUOTE_FLOWS = {
   USER_ACCEPT_OFFER:
     "user-accept-offer",
 };
+
+/* =========================================================
+   Distincție semantică: cerere PUBLICĂ vs cerere DIRECTĂ la vendor
+
+   BUGFIX (audit) - în Artfest există DOUĂ concepte diferite de
+   "cerere de ofertă", pe care asistentul le confunda:
+
+   1. CREATE_PUBLIC_REQUEST - o cerere publică (pagina /cereri,
+      vizibilă și pe homepage), la care pot răspunde MAI MULȚI
+      vânzători cu oferte. Endpoint real: POST /api/customer-
+      requests. NU are (încă) un flow conversațional de CREARE în
+      acest widget - doar pagina dedicată (buton real: "Publică o
+      cerere") - ghidăm către ea, nu inventăm un flow nou.
+
+   2. REQUEST_VENDOR_QUOTE - o cerere DIRECTĂ către UN vânzător
+      anume (de obicei din pagina unui produs/magazin). Flow
+      conversațional care EXISTĂ deja și funcționează (activeFlow
+      "quote-from-product"/"quote-from-store", vezi mai jos în acest
+      fișier + createQuoteRequest -> POST /api/assistant/quotes) -
+      momentan pornit doar de un eveniment DOM dedicat
+      ("artfest:quote-request", declanșat de un buton pe pagina de
+      produs/magazin), nu și din text liber.
+
+   Regulă GENERALĂ (nu fraze hardcodate) - distincția e semantică,
+   pe formă: "public"/"mai mulți vânzători"/"caut vânzători" =
+   PUBLIC; "acest(a)/de la [vânzător/magazin/produs]" sau "cer
+   ofertă pentru [produs/magazin]" = DIRECT; orice altă formulare
+   generică de "vreau o ofertă" fără niciun semnal clar = AMBIGUU,
+   caz în care contextul paginii curente decide (vezi
+   hasCurrentEntity) - dacă nu există context, întrebăm.
+========================================================= */
+
+const MY_QUOTES_RE =
+  /\bcereril?e? mele\b|\bofertele mele\b|\bcereri(le)? trimise\b/;
+
+const PUBLIC_REQUEST_RE =
+  /\bpublic\w*.{0,15}\bcerer|\bmai mult\w*.{0,15}\bv[aâ]nz[aă]tor|\bcaut\w*.{0,15}\bv[aâ]nz[aă]tor/i;
+
+const DIRECT_VENDOR_QUOTE_RE =
+  /\bofert\w*.{0,20}\b(acest\w*|de la)\b|\bcer\w*.{0,15}\bofert\w*.{0,15}\b(produs\w*|magazin\w*|v[aâ]nz[aă]tor\w*)|\b[iî]ntreb\w*.{0,15}\bv[aâ]nz[aă]tor\w*.{0,15}\bc[aâ]t\s+cost/i;
+
+const GENERIC_QUOTE_INTENT_RE =
+  /\bcerer\w*.{0,10}\bofert|\bofert\w*.{0,10}\bpersonalizat|\bvreau\w*.{0,10}\bofert|\bcer\b.{0,10}\bpre[tț]\b/i;
+
+export function detectQuoteRequestIntent(
+  text = "",
+  { hasCurrentEntity = false } = {}
+) {
+  const normalized = normalizeForIntentDetection(text);
+
+  if (!normalized) return null;
+
+  if (MY_QUOTES_RE.test(normalized)) {
+    return { type: "my-quotes" };
+  }
+
+  /*
+   * "Cum funcționează cererile de ofertă?" trebuie să rămână
+   * PLATFORM_KNOWLEDGE (explică AMBELE flow-uri) - nu o cerere de
+   * pornire a vreunui flow.
+   */
+  if (isExplainIntentMessage(normalized)) {
+    return null;
+  }
+
+  if (PUBLIC_REQUEST_RE.test(normalized)) {
+    return { type: "public-request" };
+  }
+
+  if (DIRECT_VENDOR_QUOTE_RE.test(normalized)) {
+    return { type: "direct-vendor-quote" };
+  }
+
+  if (GENERIC_QUOTE_INTENT_RE.test(normalized)) {
+    /*
+     * Context contextual (audit, punctul 7): dacă userul e deja pe
+     * pagina unui produs/magazin, o formulare generică ("vreau o
+     * ofertă") înseamnă aproape sigur cerere DIRECTĂ pentru acea
+     * entitate - nu mai întrebăm inutil.
+     */
+    return hasCurrentEntity
+      ? { type: "direct-vendor-quote" }
+      : { type: "quote-disambiguation" };
+  }
+
+  return null;
+}
 
 /* =========================================================
    Statusuri afișate în asistent

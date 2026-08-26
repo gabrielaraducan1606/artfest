@@ -20,7 +20,7 @@ router.use(authRequired);
    Helper: map OrderStatus + ShipmentStatus -> UI status
    UI: PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELED | RETURNED
 ----------------------------------------------------- */
-function computeUiStatus(
+export function computeUiStatus(
   order,
   shipments = []
 ) {
@@ -229,7 +229,7 @@ function computeShippingStage(shipments = []) {
    - nu e deja CANCELLED/FULFILLED
    - niciun shipment nu a depășit PENDING
 ----------------------------------------------------- */
-function isOrderCancellable(order, shipments = []) {
+export function isOrderCancellable(order, shipments = []) {
   const orderStatus = order?.status || null;
 
   // dacă e deja CANCELLED sau FULFILLED, clar nu
@@ -2234,9 +2234,18 @@ return res.json({
 /* ----------------------------------------------------
    POST /api/user/orders/:id/cancel
 ----------------------------------------------------- */
-router.post("/:id/cancel", async (req, res) => {
-  const userId = req.user.sub;
-  const id = String(req.params.id);
+/*
+ * Logica reală de anulare, extrasă ca funcție reutilizabilă -
+ * ACEEAȘI logică folosită de ruta HTTP de mai jos ȘI de action
+ * registry-ul copilotului (vezi userOrderActions.js), ca să nu
+ * existe două implementări care pot diverge. Nu face nimic diferit
+ * de ce făcea ruta înainte de extragere - doar mutat, neschimbat.
+ */
+export async function cancelOwnOrder({
+  userId,
+  orderId,
+}) {
+  const id = String(orderId);
 
   const o = await prisma.order.findFirst({
     where: {
@@ -2261,10 +2270,12 @@ router.post("/:id/cancel", async (req, res) => {
   });
 
   if (!o) {
-    return res.status(404).json({
+    return {
+      ok: false,
+      status: 404,
       error: "not_found",
       message: "Comanda nu a fost găsită.",
-    });
+    };
   }
 
   const uiStatus = computeUiStatus(
@@ -2281,11 +2292,13 @@ router.post("/:id/cancel", async (req, res) => {
       o.shipments
     )
   ) {
-    return res.status(409).json({
+    return {
+      ok: false,
+      status: 409,
       error: "not_cancellable",
       message:
         "Comanda nu mai poate fi anulată în această etapă.",
-    });
+    };
   }
 
   try {
@@ -2408,20 +2421,22 @@ router.post("/:id/cancel", async (req, res) => {
       error?.message ===
       "order_already_changed"
     ) {
-      return res.status(409).json({
-        error:
-          "order_already_changed",
+      return {
+        ok: false,
+        status: 409,
+        error: "order_already_changed",
         message:
           "Comanda a fost deja modificată și nu mai poate fi anulată.",
-      });
+      };
     }
 
-    return res.status(500).json({
-      error:
-        "order_cancel_failed",
+    return {
+      ok: false,
+      status: 500,
+      error: "order_cancel_failed",
       message:
         "Comanda nu a putut fi anulată.",
-    });
+    };
   }
 
   try {
@@ -2455,9 +2470,23 @@ router.post("/:id/cancel", async (req, res) => {
     );
   }
 
-  return res.json({
-    ok: true,
+  return { ok: true, orderId: o.id };
+}
+
+router.post("/:id/cancel", async (req, res) => {
+  const result = await cancelOwnOrder({
+    userId: req.user.sub,
+    orderId: req.params.id,
   });
+
+  if (!result.ok) {
+    return res.status(result.status).json({
+      error: result.error,
+      message: result.message,
+    });
+  }
+
+  return res.json({ ok: true });
 });
 
 /* ----------------------------------------------------

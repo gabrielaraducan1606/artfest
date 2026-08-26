@@ -17,6 +17,9 @@ export const PROMOTION_SOURCES = {
 
   COLLECTION:
     "COLLECTION",
+
+  CAMPAIGN:
+    "CAMPAIGN",
 };
 
 /*
@@ -25,6 +28,7 @@ export const PROMOTION_SOURCES = {
  * 1. Produsul zilei
  * 2. Artizanul săptămânii
  * 3. Colecție
+ * 4. Campanie vendor
  */
 const PROMOTION_PRIORITY = {
   [PROMOTION_SOURCES.PRODUCT_OF_DAY]:
@@ -35,6 +39,9 @@ const PROMOTION_PRIORITY = {
 
   [PROMOTION_SOURCES.COLLECTION]:
     1,
+
+  [PROMOTION_SOURCES.CAMPAIGN]:
+    0,
 };
 
 /* =========================================================
@@ -833,6 +840,46 @@ export async function getActiveHomepagePromotionsForProducts(
 }
 
 /* =========================================================
+   CAMPANII VENDOR
+
+   Discountul de campanie e considerat integral suportat de
+   vendor (a fost setat voluntar de el la creare, alături de
+   comisionul redus 5% pe care îl acceptă pentru acel canal) -
+   nu se separă platformă/vendor ca la HomepageFeature.
+========================================================= */
+
+export function campaignToPromotion({
+  discountPercent,
+  campaignName,
+} = {}) {
+  const totalDiscountPercent =
+    clampPercent(discountPercent);
+
+  if (totalDiscountPercent <= 0) {
+    return null;
+  }
+
+  return {
+    active: true,
+    source: PROMOTION_SOURCES.CAMPAIGN,
+    label: campaignName || "Campanie vendor",
+
+    totalDiscountPercent,
+    platformDiscountPercent: 0,
+    vendorDiscountPercent: totalDiscountPercent,
+
+    startsAt: null,
+    endsAt: null,
+
+    collectionId: null,
+    collectionSlug: null,
+    homepageFeatureId: null,
+
+    fundingSource: "VENDOR_CAMPAIGN",
+  };
+}
+
+/* =========================================================
    ALEGEREA PROMOȚIEI
 ========================================================= */
 
@@ -1108,6 +1155,13 @@ export async function getPromotionPricingForProducts(
   {
     db = prisma,
     now = new Date(),
+    /*
+     * Map<productId, promotionCandidate> - candidat de
+     * campanie deja rezolvat (atribuire revalidată server-side
+     * la checkout). Opțional - lipsește complet în afara
+     * fluxului de checkout (ex. listare produse normală).
+     */
+    campaignPromotionsByProductId = null,
   } = {}
 ) {
   const pricingByProductId =
@@ -1152,6 +1206,13 @@ export async function getPromotionPricingForProducts(
         product.id
       ) || null;
 
+    const campaignPromotion =
+      campaignPromotionsByProductId
+        ? campaignPromotionsByProductId.get(
+            product.id
+          ) || null
+        : null;
+
     /*
      * Nu cumulăm promoțiile.
      * Alegem promoția cu procentul cel mai mare.
@@ -1160,6 +1221,7 @@ export async function getPromotionPricingForProducts(
       chooseBestPromotion([
         collectionPromotion,
         homepagePromotion,
+        campaignPromotion,
       ]);
 
     const pricing =

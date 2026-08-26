@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../lib/api";
 import styles from "./AdminMarketingPage.module.css";
+
 import AdminDigitalWaitlistTab from "./AdminDigitalWaitListTab";
 import AdminMarketplaceWaitlistTab from "./AdminMarketplaceWaitlistTab";
 import AdminNewsletterSubscribersTab from "./AdminNewsletterTab";
 import AdminAccountEmailTab from "./AdminAccountEmailTab";
 import AdminAmbassadorsTab from "./AdminAmbassadorsTab";
+import AdminInfluencersTab from "./AdminInfluencersTab.jsx";
 
 function cx(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -40,6 +42,7 @@ export default function AdminMarketingTab() {
     (async () => {
       try {
         const d = await api("/api/admin/marketing/stats").catch(() => null);
+
         if (!alive || !d) return;
 
         setStats({
@@ -49,7 +52,7 @@ export default function AdminMarketingTab() {
           unsubscribedTotal: d.unsubscribedTotal ?? 0,
         });
       } catch {
-        // nu blocăm UI
+        // Nu blocăm interfața dacă statisticile nu se încarcă.
       }
     })();
 
@@ -64,6 +67,7 @@ export default function AdminMarketingTab() {
 
     try {
       const params = new URLSearchParams();
+
       params.set("page", String(page));
       params.set("pageSize", String(prefsPageSize));
 
@@ -71,14 +75,18 @@ export default function AdminMarketingTab() {
         params.set("q", q.trim());
       }
 
-      const d = await api(`/api/admin/marketing/prefs?${params.toString()}`);
+      const d = await api(
+        `/api/admin/marketing/prefs?${params.toString()}`
+      );
 
       if (!d?.ok) {
         setPrefsError(
           d?.error || "Nu am putut încărca preferințele de marketing."
         );
+
         setPrefs([]);
         setPrefsTotal(0);
+
         return;
       }
 
@@ -89,6 +97,7 @@ export default function AdminMarketingTab() {
       setPrefsError(
         e?.message || "Nu am putut încărca preferințele de marketing."
       );
+
       setPrefs([]);
       setPrefsTotal(0);
     } finally {
@@ -100,6 +109,7 @@ export default function AdminMarketingTab() {
     if (tab === "prefs") {
       loadPrefs(1);
     }
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -108,28 +118,40 @@ export default function AdminMarketingTab() {
       <div className={styles.marketingRoot}>
         <div className={styles.marketingStats}>
           <div className={styles.marketingStatItem}>
-            <span className={styles.marketingStatLabel}>Abonați total</span>
+            <span className={styles.marketingStatLabel}>
+              Abonați total
+            </span>
+
             <span className={styles.marketingStatVal}>
               {stats.subscribersTotal}
             </span>
           </div>
 
           <div className={styles.marketingStatItem}>
-            <span className={styles.marketingStatLabel}>Useri (clienți)</span>
+            <span className={styles.marketingStatLabel}>
+              Useri (clienți)
+            </span>
+
             <span className={styles.marketingStatVal}>
               {stats.subscribersUsers}
             </span>
           </div>
 
           <div className={styles.marketingStatItem}>
-            <span className={styles.marketingStatLabel}>Vendori</span>
+            <span className={styles.marketingStatLabel}>
+              Vendori
+            </span>
+
             <span className={styles.marketingStatVal}>
               {stats.subscribersVendors}
             </span>
           </div>
 
           <div className={styles.marketingStatItem}>
-            <span className={styles.marketingStatLabel}>Dezabonați</span>
+            <span className={styles.marketingStatLabel}>
+              Dezabonați
+            </span>
+
             <span className={styles.marketingStatVal}>
               {stats.unsubscribedTotal}
             </span>
@@ -150,7 +172,10 @@ export default function AdminMarketingTab() {
 
           <button
             type="button"
-            className={cx(styles.tabBtn, tab === "prefs" && styles.tabBtnActive)}
+            className={cx(
+              styles.tabBtn,
+              tab === "prefs" && styles.tabBtnActive
+            )}
             onClick={() => setTab("prefs")}
           >
             Preferințe utilizatori
@@ -188,36 +213,62 @@ export default function AdminMarketingTab() {
           >
             Waitlist marketplace
           </button>
+
           <button
-  type="button"
-  className={cx(
-    styles.tabBtn,
-    tab === "ambassadors" && styles.tabBtnActive
-  )}
-  onClick={() => setTab("ambassadors")}
->
-  Ambasadori
-</button>
+            type="button"
+            className={cx(
+              styles.tabBtn,
+              tab === "ambassadors" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("ambassadors")}
+          >
+            Ambasadori
+          </button>
+
+          <button
+            type="button"
+            className={cx(
+              styles.tabBtn,
+              tab === "influencers" && styles.tabBtnActive
+            )}
+            onClick={() => setTab("influencers")}
+          >
+            Influenceri
+          </button>
         </div>
 
         {tab === "campaign" && <AdminAccountEmailTab />}
 
-        {tab === "newsletter" && <AdminNewsletterSubscribersTab />}
+        {tab === "newsletter" && (
+          <AdminNewsletterSubscribersTab />
+        )}
 
-        {tab === "digitalWaitlist" && <AdminDigitalWaitlistTab />}
+        {tab === "digitalWaitlist" && (
+          <AdminDigitalWaitlistTab />
+        )}
 
-        {tab === "marketplaceWaitlist" && <AdminMarketplaceWaitlistTab />}
+        {tab === "marketplaceWaitlist" && (
+          <AdminMarketplaceWaitlistTab />
+        )}
 
-{tab === "ambassadors" && <AdminAmbassadorsTab />}
+        {tab === "ambassadors" && (
+          <AdminAmbassadorsTab />
+        )}
+
+        {tab === "influencers" && (
+          <AdminInfluencersTab />
+        )}
 
         {tab === "prefs" && (
           <div className={styles.cardMuted}>
             <div className={styles.prefsHead}>
               <div>
                 <h4>Preferințe marketing utilizatori</h4>
+
                 <p className={styles.subtle}>
-                  Vizualizează cine este abonat, ce sursă și ce topicuri a ales
-                  din <code>UserMarketingPrefs</code>.
+                  Vizualizează cine este abonat, ce sursă și ce
+                  topicuri a ales din{" "}
+                  <code>UserMarketingPrefs</code>.
                 </p>
               </div>
 
@@ -226,11 +277,17 @@ export default function AdminMarketingTab() {
                   type="search"
                   placeholder="Caută după email…"
                   value={prefsQuery}
-                  onChange={(e) => setPrefsQuery(e.target.value)}
+                  onChange={(e) =>
+                    setPrefsQuery(e.target.value)
+                  }
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      loadPrefs(1, e.currentTarget.value);
+
+                      loadPrefs(
+                        1,
+                        e.currentTarget.value
+                      );
                     }
                   }}
                 />
@@ -246,13 +303,18 @@ export default function AdminMarketingTab() {
             </div>
 
             {prefsError && (
-              <div className={styles.error} style={{ marginBottom: 8 }}>
+              <div
+                className={styles.error}
+                style={{ marginBottom: 8 }}
+              >
                 {prefsError}
               </div>
             )}
 
             {prefsLoading ? (
-              <div className={styles.subtle}>Se încarcă preferințele…</div>
+              <div className={styles.subtle}>
+                Se încarcă preferințele…
+              </div>
             ) : prefs.length === 0 ? (
               <div className={styles.subtle}>
                 Nu am găsit preferințe de marketing.
@@ -277,26 +339,49 @@ export default function AdminMarketingTab() {
                       {prefs.map((row) => (
                         <tr key={row.id}>
                           <td>{row.email}</td>
+
                           <td>{row.role}</td>
-                          <td>{row.marketingOptIn ? "✔" : "–"}</td>
-                          <td>{row.sourcePreference}</td>
+
                           <td>
-                            {row.topics && row.topics.length
+                            {row.marketingOptIn
+                              ? "✔"
+                              : "–"}
+                          </td>
+
+                          <td>
+                            {row.sourcePreference}
+                          </td>
+
+                          <td>
+                            {row.topics &&
+                            row.topics.length
                               ? row.topics.join(", ")
                               : "—"}
                           </td>
+
                           <td>
                             {[
-                              row.emailEnabled ? "Email" : null,
-                              row.smsEnabled ? "SMS" : null,
-                              row.pushEnabled ? "Push" : null,
+                              row.emailEnabled
+                                ? "Email"
+                                : null,
+
+                              row.smsEnabled
+                                ? "SMS"
+                                : null,
+
+                              row.pushEnabled
+                                ? "Push"
+                                : null,
                             ]
                               .filter(Boolean)
                               .join(", ") || "—"}
                           </td>
+
                           <td>
                             {row.updatedAt
-                              ? new Date(row.updatedAt).toLocaleString()
+                              ? new Date(
+                                  row.updatedAt
+                                ).toLocaleString()
                               : "—"}
                           </td>
                         </tr>
@@ -305,25 +390,38 @@ export default function AdminMarketingTab() {
                   </table>
                 </div>
 
-                <div className={styles.prefsPagination}>
+                <div
+                  className={styles.prefsPagination}
+                >
                   <span>
-                    Pagina {prefsPage} din {totalPages} total {prefsTotal}{" "}
-                    rânduri
+                    Pagina {prefsPage} din{" "}
+                    {totalPages} total{" "}
+                    {prefsTotal} rânduri
                   </span>
 
-                  <div className={styles.prefsPaginationBtns}>
+                  <div
+                    className={
+                      styles.prefsPaginationBtns
+                    }
+                  >
                     <button
                       type="button"
                       disabled={prefsPage <= 1}
-                      onClick={() => loadPrefs(prefsPage - 1)}
+                      onClick={() =>
+                        loadPrefs(prefsPage - 1)
+                      }
                     >
                       &larr; Anterioară
                     </button>
 
                     <button
                       type="button"
-                      disabled={prefsPage >= totalPages}
-                      onClick={() => loadPrefs(prefsPage + 1)}
+                      disabled={
+                        prefsPage >= totalPages
+                      }
+                      onClick={() =>
+                        loadPrefs(prefsPage + 1)
+                      }
                     >
                       Următoarea &rarr;
                     </button>

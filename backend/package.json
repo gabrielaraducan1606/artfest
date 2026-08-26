@@ -17,7 +17,8 @@
     "db:seed": "prisma db seed",
     "seed": "node prisma/seed.mjs",
     "test": "echo \"No tests\" && exit 0",
-    "embeddings:backfill": "node ./server/scripts/backfillImageEmbeddings.js"
+    "embeddings:backfill": "node ./server/scripts/backfillImageEmbeddings.js",
+    "ai:knowledge-check": "node src/scripts/aiKnowledgeCheck.mjs"
   },
   "prisma": {
     "seed": "node prisma/seed.mjs"

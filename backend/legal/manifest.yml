@@ -1,6 +1,7 @@
 version: 1
 
 documents:
+
   tos:
     title: "Termeni și Condiții"
     scope: "USER"
@@ -24,6 +25,14 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/cookies/v1.md", vars: 1 }
+
+  influencer_terms:
+    title: "Acord privind Programul de Influenceri Artfest"
+    scope: "USER"
+    required: true
+    current: 1
+    files:
+      1: { path: "legal/docs/influencer_terms/v1.md", vars: 1 }
 
   vendor_terms:
     title: "Acordul Marketplace pentru Vânzători"
@@ -56,3 +65,4 @@ documents:
     current: 1
     files:
       1: { path: "legal/docs/products_addendum/v1.md", vars: 1 }
+      

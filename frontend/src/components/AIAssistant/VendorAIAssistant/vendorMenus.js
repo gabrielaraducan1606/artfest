@@ -54,6 +54,9 @@ export const VENDOR_ACTION_IDS = {
   PRICE_STOCK:
     "vendor-product-price-stock",
 
+  PRICE_CALCULATOR:
+    "vendor-price-calculator",
+
   PRODUCT_HELP:
     "vendor-product-help",
 
@@ -217,6 +220,20 @@ export const VENDOR_PRODUCT_ACTIONS = [
 
     description:
       "Actualizează rapid prețul sau disponibilitatea.",
+
+    icon:
+      VendorPriceIcon,
+  },
+
+  {
+    id:
+      VENDOR_ACTION_IDS.PRICE_CALCULATOR,
+
+    title:
+      "Calculează prețul unui produs",
+
+    description:
+      "Descrie costurile produsului și primești un preț recomandat, pe baza comisionului tău real.",
 
     icon:
       VendorPriceIcon,

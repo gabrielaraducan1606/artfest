@@ -7,6 +7,11 @@ import {
   WalletIcon,
 } from "./ProductsIcons.jsx";
 
+import {
+  normalizeForIntentDetection,
+  isExplainIntentMessage,
+} from "../explainIntent.js";
+
 /* =========================================================
    Configurare
 ========================================================= */
@@ -27,6 +32,187 @@ const VISUAL_REFINEMENT_CHOICES =
     "Păstrează stilul",
     "Păstrează categoria",
   ]);
+
+/*
+ * BUGFIX (audit): regresie găsită doar pentru VENDOR - "caut un
+ * cadou pentru mama"/"idei cadou mama" răspundeau "Nu am suficiente
+ * informații sigure" în loc să caute produse. Cauza reală: NU e
+ * specifică rolului VENDOR - clasificatorul general
+ * (copilotRouter.js) poate clasifica greșit astfel de cereri ca
+ * PLATFORM_KNOWLEDGE sau chiar PLATFORM_ACTION pentru ORICE
+ * audiență, dar bug-ul era mascat pentru USER/GUEST pentru că
+ * AiAssistant.jsx avea un detector local de cuvinte-cheie
+ * (detectAssistantIntent) care intercepta aceste mesaje ÎNAINTE să
+ * ajungă la backend. VendorAssistant.jsx (widget-ul complet
+ * separat, montat DOAR pentru role==="VENDOR" - vezi AppLayout.jsx)
+ * nu avea niciun echivalent, deci orice mesaj de-al vendorului
+ * ajungea direct la backend și lovea bug-ul de clasificare.
+ *
+ * Fix pe două planuri: (1) acest detector, extras aici ca să poată
+ * fi folosit IDENTIC de ambele widget-uri - capabilities(VENDOR) =
+ * capabilities(USER) + vendorCapabilities, nu un search separat;
+ * (2) clasificatorul backend a fost întărit separat (vezi
+ * copilotRouter.js) ca plasă de siguranță pentru orice formulare pe
+ * care acest detector determinist n-o prinde.
+ *
+ * Aceleași tipare ca detectAssistantIntent din AiAssistant.jsx
+ * (căutare/cadou/imagine), verificate DUPĂ EXPLAIN-guard, ca
+ * "Cum comand un produs personalizat?" să rămână PLATFORM_KNOWLEDGE,
+ * nu product-search.
+ *
+ * includeGenericProductWords: "produs"/"produse" ca substring
+ * singur e sigur pentru AiAssistant.jsx (un client nu are comenzi
+ * de gestiune produs care să se confunde), dar e riscant pentru
+ * VendorAssistant.jsx - "Ascunde produsul X"/"Arată produsul X" ar
+ * fi interceptate greșit ca product-search în loc să ajungă la
+ * PLATFORM_ACTION. VendorAssistant.jsx apelează cu false; toate
+ * cele 6 formulări de test cerute pentru VENDOR se potrivesc oricum
+ * prin alte cuvinte (caut/vreau/gaseste/cadou/lumanare), fără să
+ * aibă nevoie de "produs"/"produse".
+ */
+/*
+ * BUGFIX (audit, verificare independentă): "vreau"/"caut" ca
+ * declanșator singur e prea larg pentru VendorAssistant.jsx -
+ * "Vreau să schimb prețul produsului X" / "Vreau să modific
+ * stocul" conțin "vreau" și erau interceptate greșit ca
+ * product-search, în loc să ajungă la PLATFORM_ACTION. Forma cu
+ * articol hotărât ("produsul"/"produsului"/"prețul"/"stocul") e un
+ * semnal puternic că vendorul se referă la o entitate PROPRIE
+ * deja deținută, nu la ceva generic de cumpărat - excludem acest
+ * caz înainte de a verifica tiparele de căutare, DOAR când
+ * includeGenericProductWords===false (contextul vendor; pe
+ * widget-ul de client, unde acest parametru rămâne true, cuvintele
+ * astea n-ar apărea într-o cerere de cumpărare oricum).
+ */
+const OWN_ENTITY_ACTION_RE =
+  /\b(produsul|produsului|pretul|pretului|stocul|stocului|comanda mea|comenzii mele|costul|costului)\b/;
+
+/*
+ * BUGFIX (audit) - două confuzii semantice GENERALE, nu specifice
+ * unei fraze, valabile pentru ORICE audiență (nu doar VENDOR):
+ *
+ * 1. CREATION_INTENT_RE: "adaug/creez/listez UN produs" e o
+ *    intenție de CREARE (vendor creation intent), niciodată o
+ *    căutare de cumpărat - "Mă poți ajuta să adaug un produs cu
+ *    variante?" conținea cuvântul "produs" și era interceptat
+ *    greșit ca product-search. Verificat ÎNAINTEA tiparelor de
+ *    căutare, indiferent de includeGenericProductWords (un client
+ *    care scrie asta nu caută de cumpărat, ci vrea să înceapă să
+ *    vândă - trebuie tratat ca PLATFORM_KNOWLEDGE, care explică
+ *    apoi corect că e o funcție de vânzător).
+ * 2. OWN_VENDOR_DATA_RE: întrebări despre datele PROPRII ale unui
+ *    vânzător ("produsele mele", "produse sub cost", "produse fără
+ *    costing", "de recalculat", "comenzile mele") NU sunt căutare
+ *    de cumpărat - sunt live data despre magazinul cuiva. Pentru un
+ *    VENDOR, acestea au deja un flow dedicat (EXISTING_FLOW, prin
+ *    backend); pentru un USER/GUEST, mesajul trebuie să ajungă tot
+ *    la backend, ca să răspundă corect "funcția e doar pentru
+ *    vânzători" - în niciun caz nu trebuie arătate rezultate de
+ *    marketplace pentru "Ce produse am sub cost?".
+ */
+const CREATION_INTENT_RE =
+  /\b(adaug|adauga|creez|creeaza|creaza|listez|listeaza|public|publica)\b[\s\w]{0,25}\bprodus/;
+
+const OWN_VENDOR_DATA_RE =
+  /(produsele mele|produsul meu|produse[\s\w]{0,15}\b(sub|peste|fara)\b|comenzile mele|comand[aă]\s+(mea|mele)|comenzi\s+(care|ce)\s+necesit|recalcul|biblioteca de costuri|costuri\s+si\s+profit)/;
+
+/*
+ * BUGFIX (raportat manual, doar VENDOR): "Ce recomandări ai pentru
+ * mine azi?" era interceptat ca product-search - productSearchRe de
+ * mai jos conține "recomanda" ca substring, care se potrivește și
+ * cu "recomandari"/"recomand"/"recomanzi" (după diacritice), deci
+ * ORICE mesaj cu un cuvânt din familia recomandare/sugestie era
+ * tratat ca shopping, indiferent de context.
+ *
+ * Diferența reală, generalizată (NU pe fraze exacte):
+ * recommendationTarget = STORE_OPERATIONS (contul/magazinul propriu
+ * al vânzătorului - "ce recomandări ai pentru mine", "ce ar trebui
+ * să verific", "cum stă magazinul") vs SHOPPING_ITEM (ceva de
+ * CUMPĂRAT - un obiect/cadou/ocazie/destinatar concret, "recomandă-mi
+ * un cadou", "ce îmi recomanzi pentru mama", "ce produse îmi
+ * recomanzi"). Diferența: SHOPPING_ITEM numește mereu un OBIECT de
+ * cumpărat (cadou/produs/ocazie) sau un DESTINATAR concret ("pentru
+ * mama"/"pentru nașa" - dar NU "pentru mine", care se referă la
+ * vânzătorul însuși, nu la un cadou). Fără niciun obiect de cumpărat
+ * numit, un cuvânt de recomandare rămâne STORE_OPERATIONS - lăsăm
+ * mesajul să treacă la copilotul server-side (VENDOR_INSIGHTS decide
+ * acolo, cu context complet, nu aici cu regex).
+ */
+const RECOMMENDATION_WORD_RE = /\b(recoman\w*|suger\w*)\b/;
+
+const SHOPPING_OBJECT_RE =
+  /\b(cadou\w*|idei\b|ocazi\w*|eveniment|nunta|botez|aniversar\w*|pentru\s+(?!mine\b)\w+|produs\w*)\b/;
+
+export function detectMarketplaceIntent(
+  text = "",
+  { includeGenericProductWords = true } = {}
+) {
+  const normalized = normalizeForIntentDetection(text);
+
+  if (!normalized) return null;
+
+  if (isExplainIntentMessage(normalized)) {
+    return null;
+  }
+
+  if (
+    CREATION_INTENT_RE.test(normalized) ||
+    OWN_VENDOR_DATA_RE.test(normalized)
+  ) {
+    return null;
+  }
+
+  if (
+    !includeGenericProductWords &&
+    OWN_ENTITY_ACTION_RE.test(normalized)
+  ) {
+    return null;
+  }
+
+  /*
+   * recommendationTarget: doar pentru VENDOR (includeGenericProductWords
+   * === false) - un cuvânt de recomandare/sugestie FĂRĂ niciun obiect
+   * de cumpărat numit e despre magazinul/contul propriu (STORE_OPERATIONS),
+   * nu shopping. Nu schimbăm comportamentul pentru widget-ul de client
+   * (AiAssistant.jsx), unde "recomandă-mi ceva" e oricum shopping valid.
+   */
+  if (!includeGenericProductWords && RECOMMENDATION_WORD_RE.test(normalized)) {
+    if (!SHOPPING_OBJECT_RE.test(normalized)) {
+      return null;
+    }
+
+    /*
+     * Are un obiect de cumpărat clar (cadou/ocazie/"produse", ca
+     * generic PLURAL de shopping, nu "produsul"/"produsului" definit -
+     * acela e deja exclus mai sus de OWN_ENTITY_ACTION_RE) - e
+     * shopping real ("ce produse îmi recomanzi?"), chiar dacă
+     * productSearchRe de mai jos exclude cuvintele generice de produs
+     * pentru vendor (ca să nu confunde "arată produsul X").
+     */
+    return { type: "product-search" };
+  }
+
+  if (
+    /(poza|fotografie|imagine)/.test(normalized) &&
+    /(gas|caut|similar|asemanator|dupa)/.test(normalized)
+  ) {
+    return { type: "image-search" };
+  }
+
+  const genericWords = includeGenericProductWords
+    ? "|produs|produse"
+    : "";
+
+  const productSearchRe = new RegExp(
+    `(caut|vreau|gaseste|recomanda|cadou|marturie|invitatie|lumanare|bijuterie${genericWords})`
+  );
+
+  if (productSearchRe.test(normalized)) {
+    return { type: "product-search" };
+  }
+
+  return null;
+}
 
 export const SHOPPING_ACTIONS = [
   {
@@ -731,6 +917,109 @@ export async function searchProductsByImage(
   return normalizeProductSearchResponse(
     data
   );
+}
+
+/*
+ * BUGFIX (audit): extras din AiAssistant.jsx (era funcția locală
+ * runVisualSearch, coupled la closures) ca să poată fi refolosit
+ * IDENTIC de orice widget - VendorAssistant.jsx nu avea deloc acces
+ * la image-search-ul de marketplace, doar la Vendor Assistant nu
+ * avea (vendorii pierdeau complet capacitatea de căutare vizuală ca
+ * buyer). Nu duplicăm search-ul - același searchProductsByImage,
+ * același format de mesaj "product-results", un singur loc de
+ * întreținut.
+ */
+export async function runImageSearchFlow({
+  file,
+  addMessage,
+  removeMessage,
+  createMessage,
+  setVisualSearchId,
+}) {
+  const loadingId = createLoadingMessage({
+    addMessage,
+    content:
+      "Analizez fotografia și caut produse similare...",
+  });
+
+  try {
+    const result = await searchProductsByImage(file);
+
+    if (typeof setVisualSearchId === "function") {
+      setVisualSearchId(result?.searchId || null);
+    }
+
+    removeMessage?.(loadingId);
+
+    if (!result?.products?.length) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Nu am găsit produse suficient de asemănătoare. Poți încerca o altă fotografie sau poți descrie elementele pe care dorești să le păstrăm.",
+          {
+            type: "choices",
+            choiceStep: "visual-search-empty",
+
+            choices: [
+              "Păstrează culorile",
+              "Păstrează stilul",
+              "Păstrează categoria",
+              "Încarcă altă fotografie",
+            ],
+          }
+        )
+      );
+
+      return;
+    }
+
+    const total = Number.isFinite(result.total)
+      ? result.total
+      : result.products.length;
+
+    addMessage(
+      createMessage(
+        "assistant",
+
+        `Am găsit ${total} ${
+          total === 1
+            ? "produs asemănător"
+            : "produse asemănătoare"
+        }.`,
+
+        {
+          type: "product-results",
+          searchId: result.searchId || null,
+          total,
+          products: result.products.slice(0, 3),
+          analysis: result.analysis || null,
+          filters: result.filters || null,
+        }
+      )
+    );
+  } catch (error) {
+    removeMessage?.(loadingId);
+
+    addMessage(
+      createMessage(
+        "assistant",
+
+        error instanceof Error
+          ? error.message
+          : "A apărut o problemă la analizarea fotografiei.",
+
+        {
+          type: "choices",
+          choiceStep: "visual-search-error",
+
+          choices: [
+            "Încearcă din nou",
+            "Încarcă altă fotografie",
+          ],
+        }
+      )
+    );
+  }
 }
 
 /* =========================================================

@@ -1,6 +1,7 @@
 // src/components/AiAssistant/AiAssistant.jsx
 import React, {
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -12,6 +13,10 @@ import ActionMenu from "./components/ActionMenu.jsx";
 import {
   askVendorPlatform,
 } from "./VendorAIAssistant/vendorPlatformApi.js";
+
+import {
+  sendCopilotAsk,
+} from "./copilotApi.js";
 /* =========================================================
    Produse
 ========================================================= */
@@ -24,7 +29,7 @@ import {
   getProductTemporaryResponse,
   getProductImageUploadResponse,
   getProductInputPlaceholder,
-  searchProductsByImage,
+  runImageSearchFlow,
 } from "./Products/assistantProducts.js";
 
 import {
@@ -86,6 +91,7 @@ import {
   fetchSupportMessages,
   fetchSupportUnreadCount,
   markSupportTicketRead,
+  createSupportTicket,
 } from "./Support/supportApi.js";
 import {
   SupportIcon,
@@ -116,6 +122,7 @@ import {
   handleQuoteChoice,
   refreshQuoteThread,
   submitQuoteMessage,
+  detectQuoteRequestIntent,
 } from "./quotes/assistantQuotes.js";
 import {
   sendQuoteAttachment,
@@ -125,6 +132,13 @@ import {
 import {
   useLocation,
 } from "react-router-dom";
+
+import { derivePageContext } from "./derivePageContext.js";
+
+import {
+  normalizeForIntentDetection,
+  isExplainIntentMessage,
+} from "./explainIntent.js";
 /* =========================================================
    Configurare
 ========================================================= */
@@ -313,6 +327,28 @@ function detectAssistantIntent(
     normalizeIntentText(value);
 
   if (!text) {
+    return null;
+  }
+
+  /*
+   * EXPLAIN-guard (comun cu vendorIntent.js, vezi explainIntent.js):
+   * o întrebare explicativă ("cum funcționează AWB-ul?", "ce înseamnă
+   * comanda finalizată?", "cum contactez suportul dacă am o
+   * problemă?") NU trebuie să deschidă direct un flow determinist
+   * de suport/tracking/căutare/ofertă doar pentru că menționează un
+   * cuvânt din regexurile de mai jos - trebuie deferată la
+   * copilotul general (knowledge retrieval + clasificare LLM), care
+   * distinge EXPLAIN de EXECUTE/QUERY_LIVE_DATA la nivel semantic.
+   * Fără acest guard, "Cum contactez suportul dacă am o problemă?"
+   * deschidea direct fluxul de suport, fără nicio încercare de
+   * răspuns din knowledge (încalcă regula "nu deschide tichet
+   * înainte să încerci rezolvare").
+   */
+  if (
+    isExplainIntentMessage(
+      normalizeForIntentDetection(value)
+    )
+  ) {
     return null;
   }
 
@@ -591,6 +627,19 @@ export default function AiAssistant({
 }) {
   const location =
   useLocation();
+
+  /*
+   * PAGE-AWARE: doar pentru boost de knowledge retrieval (vezi
+   * knowledgeRetrieval.js) - widget-ul de client nu execută
+   * PLATFORM_ACTION, deci nu are nevoie de rezolvare de entitate
+   * pentru scriere, doar de pageType pentru "Ce înseamnă asta?"
+   * pe o pagină cunoscută (ex. /cereri/:id).
+   */
+  const { currentPage: derivedCurrentPage, entityFromUrl } = useMemo(
+    () => derivePageContext(location.pathname),
+    [location.pathname]
+  );
+
   const fileInputRef =
     useRef(null);
 
@@ -694,6 +743,35 @@ const [
   showMenu,
   setShowMenu,
 ] = useState(true);
+
+/*
+ * FAZA 8-10: triaj de suport activ (clarificare sau confirmare de
+ * ticket în curs) - { activeIntent, currentFlow, collectedParams }
+ * sau null. Widget-ul de client nu are conversationContext generic
+ * ca VendorAssistant.jsx, deci ținem doar acest piece de stare
+ * dedicat, populat/golit din result.supportContext întors de
+ * copilotRouter.js.
+ */
+const [
+  supportTroubleshootContext,
+  setSupportTroubleshootContext,
+] = useState(null);
+
+/*
+ * Urmărire ieftină a schimbărilor de subiect (vezi
+ * computeTopicSuggestion în assistantCopilotRoutes.js) - doar
+ * lastCategory + un contor, primite/retrimise la fiecare tură ca să
+ * backend-ul poată sugera discret "Vrei să începem un subiect nou?"
+ * după mai multe schimbări consecutive, fără niciun apel LLM
+ * suplimentar aici.
+ */
+const [
+  topicTracking,
+  setTopicTracking,
+] = useState({
+  lastCategory: null,
+  topicChangeStreak: 0,
+});
 
   const [
     uploadedImage,
@@ -1801,6 +1879,70 @@ setPersonalizationDraft({
   setShowMenu(true);
   setVisualSearchId(null);
   setIsSubmitting(false);
+  setSupportTroubleshootContext(null);
+
+  setTopicTracking({
+    lastCategory: null,
+    topicChangeStreak: 0,
+  });
+
+  supportRefreshRef.current = false;
+  quoteRefreshRef.current = false;
+}
+
+/*
+ * "Subiect nou" != "Șterge conversația" (resetConversation, mai sus).
+ * Reseteaza EXACT aceleași stări operaționale (flow-ul activ, draft-uri
+ * de ofertă/personalizare, contextul de suport) - ca AI-ul să nu mai
+ * fie influențat de conversația veche - dar PĂSTREAZĂ istoricul vizual,
+ * doar cu un separator clar în listă.
+ */
+function startNewTopic() {
+  clearUploadedImage();
+
+  addMessage(
+    createMessage(
+      "separator",
+      "Subiect nou"
+    )
+  );
+
+  setInputValue("");
+  setActiveFlow(null);
+  setQuoteContext(null);
+
+  setPersonalizationContext(null);
+
+  setPersonalizationDraft({
+    step: null,
+    currentFieldIndex: 0,
+
+    selectedOptions: {},
+    customAnswers: {},
+    repeatedGroupAnswers: {},
+
+    currentGroupIndex: 0,
+    currentMemberIndex: 0,
+    currentRepeatedFieldIndex: 0,
+  });
+
+  setCurrentMenu("root");
+  setQuoteDraft({
+    step: null,
+    quantity: null,
+    currentFieldIndex: 0,
+    answers: {},
+  });
+
+  setShowMenu(true);
+  setVisualSearchId(null);
+  setIsSubmitting(false);
+  setSupportTroubleshootContext(null);
+
+  setTopicTracking({
+    lastCategory: null,
+    topicChangeStreak: 0,
+  });
 
   supportRefreshRef.current = false;
   quoteRefreshRef.current = false;
@@ -1983,6 +2125,89 @@ if (
     }
   }
 
+  /*
+   * BUGFIX (audit) - "cere ofertă pentru produsul acesta" / "vreau
+   * ofertă de la vânzătorul acesta" pornite din TEXT LIBER, nu doar
+   * din butonul dedicat de pe pagina de produs/magazin (care
+   * declanșează "artfest:quote-request", vezi useEffect mai sus).
+   * Reutilizează ACELAȘI flow real (activeFlow "quote-from-product"/
+   * "quote-from-store" + createQuoteRequest, în submitQuoteMessage),
+   * NU un flow nou - doar un al doilea punct de pornire, cu
+   * addMessage (nu setMessages, ca să nu șteargă conversația
+   * existentă) și fără să deschidă/repoziționeze widget-ul (e deja
+   * deschis, userul tocmai a scris în el).
+   *
+   * quoteSchema rămâne [] aici (spre deosebire de butonul dedicat,
+   * care are acces la produsul complet încărcat) - flow-ul
+   * funcționează oricum cu schema goală (doar cantitate), doar fără
+   * întrebările custom ale vendorului pentru acel produs.
+   */
+  async function startDirectVendorQuoteFlow({
+    productId = null,
+    productTitle = null,
+    vendorId = null,
+    vendorName = null,
+    fromStore = false,
+  }) {
+    setQuoteContext({
+      productId,
+      productTitle,
+      vendorId,
+      vendorName,
+      fromStore,
+      quoteSchema: [],
+    });
+
+    setCurrentMenu("personalization");
+    setShowMenu(false);
+
+    if (fromStore) {
+      setQuoteDraft({
+        step: "photo",
+        quantity: null,
+        currentFieldIndex: 0,
+        answers: {},
+      });
+
+      setActiveFlow("quote-from-store");
+
+      addMessage(
+        createMessage(
+          "assistant",
+          `Te ajut să pregătești cererea de ofertă pentru ${vendorName || "acest magazin"}.
+
+Înainte să începem, te rog să încarci o fotografie cu produsul sau modelul pe care îl dorești.
+
+Dacă nu ai o fotografie, poți continua și fără ea.`
+        )
+      );
+
+      return;
+    }
+
+    setQuoteDraft({
+      step: "quantity",
+      quantity: null,
+      currentFieldIndex: 0,
+      answers: {},
+    });
+
+    setActiveFlow("quote-from-product");
+
+    addMessage(
+      createMessage(
+        "assistant",
+        productTitle
+          ? `Te ajut să pregătești cererea de ofertă pentru „${productTitle}”.
+
+Pentru început, de câte bucăți ai nevoie?`
+          : `Te ajut să pregătești cererea de ofertă direct către vânzător.
+
+Pentru început, de câte bucăți ai nevoie?`
+      )
+    );
+  }
+
   /* =======================================================
      Alegeri din mesaje
   ======================================================= */
@@ -1991,6 +2216,122 @@ if (
     choice,
     sourceMessage = null
   ) {
+    /*
+     * FAZA 8-10: click pe Confirmă/Renunță al ofertei de ticket
+     * propuse de copilot (vezi askCopilot).
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep ===
+        "copilot-ticket-offer"
+    ) {
+      addMessage(
+        createMessage("user", choice)
+      );
+
+      if (choice === "Confirmă") {
+        await submitCopilotSupportTicket(
+          sourceMessage.ticketDraft
+        );
+      } else {
+        addMessage(
+          createMessage(
+            "assistant",
+
+            "Am înțeles, nu trimit solicitarea către suport. Dacă te răzgândești, scrie-mi din nou."
+          )
+        );
+
+        setSupportTroubleshootContext(null);
+      }
+
+      return;
+    }
+
+    /*
+     * Sugestie discretă de schimbare de subiect (vezi askCopilot ->
+     * result.suggestTopicReset). "Subiect nou" reutilizează EXACT
+     * startNewTopic() - același reset ca la butonul din header,
+     * păstrează istoricul, adaugă separatorul vizual.
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "topic-suggestion"
+    ) {
+      addMessage(
+        createMessage("user", choice)
+      );
+
+      if (choice === "Subiect nou") {
+        startNewTopic();
+      }
+
+      return;
+    }
+
+    /*
+     * BUGFIX (audit) - click pe cardul de dezambiguizare "Publică o
+     * cerere" vs "Cere ofertă unui vânzător" (vezi
+     * detectQuoteRequestIntent -> type "quote-disambiguation").
+     */
+    if (
+      sourceMessage?.type === "choices" &&
+      sourceMessage?.choiceStep === "quote-type"
+    ) {
+      addMessage(
+        createMessage("user", choice)
+      );
+
+      if (choice === "Publică o cerere") {
+        addMessage(
+          createMessage(
+            "assistant",
+            `O cerere publică e vizibilă tuturor vânzătorilor, care pot trimite oferte - se creează din pagina „Cereri” (buton „Publică o cerere”), nu de aici, din conversație.
+
+Poți ajunge acolo din meniul principal, secțiunea Cereri, sau direct la /cereri.`
+          )
+        );
+
+        return;
+      }
+
+      if (choice === "Cere ofertă unui vânzător") {
+        if (!entityFromUrl) {
+          addMessage(
+            createMessage(
+              "assistant",
+              "Sigur - pentru care produs sau vânzător vrei să ceri ofertă? Deschide pagina produsului/magazinului respectiv, sau spune-mi numele lui."
+            )
+          );
+
+          return;
+        }
+
+        const isStoreEntity =
+          entityFromUrl.type === "STORE";
+
+        await startDirectVendorQuoteFlow({
+          productId:
+            entityFromUrl.type === "PRODUCT"
+              ? entityFromUrl.id
+              : null,
+
+          productTitle:
+            entityFromUrl.type === "PRODUCT"
+              ? entityFromUrl.name || null
+              : null,
+
+          vendorId: isStoreEntity ? entityFromUrl.id : null,
+          vendorName: isStoreEntity ? entityFromUrl.name || null : null,
+          fromStore: isStoreEntity,
+        });
+
+        return;
+      }
+
+      return;
+    }
+
     /*
      * Acțiuni speciale pentru căutarea vizuală.
      */
@@ -2255,120 +2596,22 @@ if (
      Căutare vizuală
   ======================================================= */
 
+  /*
+   * BUGFIX (audit): logica a fost extrasă în assistantProducts.js
+   * (runImageSearchFlow) ca să poată fi refolosită IDENTIC de
+   * VendorAssistant.jsx - un singur loc care caută produse după
+   * fotografie, nu două sisteme paralele.
+   */
   async function runVisualSearch(
     file
   ) {
-    const loadingMessageId =
-      `${Date.now()}-visual-search-loading`;
-
-    addMessage({
-      id: loadingMessageId,
-      role: "assistant",
-      type: "loading",
-      content:
-        "Analizez fotografia și caut produse similare...",
+    return runImageSearchFlow({
+      file,
+      addMessage,
+      removeMessage,
+      createMessage,
+      setVisualSearchId,
     });
-
-    try {
-      const result =
-        await searchProductsByImage(
-          file
-        );
-
-      setVisualSearchId(
-        result?.searchId ||
-          null
-      );
-
-      removeMessage(
-        loadingMessageId
-      );
-
-      if (
-        !result?.products
-          ?.length
-      ) {
-        addMessage(
-          createMessage(
-            "assistant",
-            "Nu am găsit produse suficient de asemănătoare. Poți încerca o altă fotografie sau poți descrie elementele pe care dorești să le păstrăm.",
-            {
-              type: "choices",
-              choiceStep:
-                "visual-search-empty",
-              choices: [
-                "Păstrează culorile",
-                "Păstrează stilul",
-                "Păstrează categoria",
-                "Încarcă altă fotografie",
-              ],
-            }
-          )
-        );
-
-        return;
-      }
-
-      const total =
-        Number.isFinite(
-          result.total
-        )
-          ? result.total
-          : result.products
-              .length;
-
-      addMessage(
-        createMessage(
-          "assistant",
-          `Am găsit ${total} ${
-            total === 1
-              ? "produs asemănător"
-              : "produse asemănătoare"
-          }.`,
-          {
-            type:
-              "product-results",
-            searchId:
-              result.searchId ||
-              null,
-            total,
-            products:
-              result.products.slice(
-                0,
-                3
-              ),
-            analysis:
-              result.analysis ||
-              null,
-            filters:
-              result.filters ||
-              null,
-          }
-        )
-      );
-    } catch (error) {
-      removeMessage(
-        loadingMessageId
-      );
-
-      addMessage(
-        createMessage(
-          "assistant",
-          error instanceof Error
-            ? error.message
-            : "A apărut o problemă la analizarea fotografiei.",
-          {
-            type: "choices",
-            choiceStep:
-              "visual-search-error",
-            choices: [
-              "Încearcă din nou",
-              "Încarcă altă fotografie",
-            ],
-          }
-        )
-      );
-    }
   }
 
   /* =======================================================
@@ -2850,6 +3093,224 @@ if (
 }
 
     /* =======================================================
+     Copilot general (FAZA 5) - orice mesaj liber care nu se
+     potrivește cu niciun flow local (product/order/support/quote/
+     personalizare - vezi detectAssistantIntent) trece prin
+     routerul general înainte de fallback-ul generic vechi.
+     Înlocuiește vechiul askVendorPlatform (care trimitea TOATE
+     manifestele, doar pentru vendor) cu noul copilot, disponibil
+     pentru orice audiență (USER/VENDOR/GUEST), cu retrieval
+     selectiv - nu mai trimitem tot knowledge-ul la fiecare mesaj.
+  ======================================================= */
+
+  /*
+   * FAZA 8-10: execută crearea tichetului de suport propus de
+   * copilot - reutilizează EXACT createSupportTicket() deja
+   * existent (POST /api/assistant/support/tickets), nu duplicăm
+   * logica de creare. ticketDraft vine gata construit
+   * (subject/category/priority/message) din
+   * supportEscalationService.js pe backend.
+   */
+  async function submitCopilotSupportTicket(
+    ticketDraft
+  ) {
+    try {
+      await createSupportTicket({
+        subject: ticketDraft.subject,
+        category: ticketDraft.category,
+        priority: String(
+          ticketDraft.priority || "medium"
+        ).toLowerCase(),
+        message: ticketDraft.message,
+      });
+
+      addMessage(
+        createMessage(
+          "assistant",
+
+          "Am trimis solicitarea către echipa de suport. Vei fi contactat cât mai curând."
+        )
+      );
+    } catch (error) {
+      addMessage(
+        createMessage(
+          "assistant",
+
+          error instanceof Error
+            ? error.message
+            : "Nu am putut trimite solicitarea către suport."
+        )
+      );
+    } finally {
+      setSupportTroubleshootContext(null);
+    }
+  }
+
+  async function askCopilot(value) {
+    const loadingMessageId = `${Date.now()}-copilot-loading`;
+
+    addMessage({
+      id: loadingMessageId,
+      role: "assistant",
+      type: "loading",
+      content: "Verific informațiile despre platformă...",
+    });
+
+    try {
+      const history = messagesRef.current
+        .filter(
+          (message) =>
+            message?.type === "text" &&
+            (message?.role === "user" ||
+              message?.role === "assistant")
+        )
+        .slice(-10)
+        .map((message) => ({
+          role: message.role,
+          content: String(message.content || ""),
+        }));
+
+      const result = await sendCopilotAsk({
+        message: value,
+        history,
+
+        currentPage: derivedCurrentPage,
+        currentEntity: entityFromUrl,
+
+        conversationContext: {
+          ...(supportTroubleshootContext || {}),
+          lastCategory: topicTracking.lastCategory,
+          topicChangeStreak:
+            topicTracking.topicChangeStreak,
+        },
+      });
+
+      removeMessage(loadingMessageId);
+
+      setTopicTracking({
+        lastCategory: result?.lastCategory ?? null,
+        topicChangeStreak:
+          result?.topicChangeStreak ?? 0,
+      });
+
+      if (result?.handled) {
+        /*
+         * FAZA 8-10: sincronizează triajul de suport - prezent
+         * DOAR pe rezultate din SUPPORT_TROUBLESHOOT (obiect sau
+         * explicit null pentru resetare); pe orice alt rezultat
+         * cheia lipsește complet, nu atingem starea de suport.
+         */
+        if (result && "supportContext" in result) {
+          setSupportTroubleshootContext(
+            result.supportContext || null
+          );
+        }
+
+        /*
+         * Userul a TASTAT "da" la întrebarea de trimitere a
+         * ticketului - executăm direct.
+         */
+        if (
+          result.autoConfirm &&
+          result.pendingAction?.kind ===
+            "CREATE_SUPPORT_TICKET"
+        ) {
+          await submitCopilotSupportTicket(
+            result.pendingAction
+          );
+
+          return true;
+        }
+
+        /*
+         * Ofertă de ticket (prima tură) - mesaj + card cu
+         * Confirmă/Renunță, reutilizând pattern-ul deja existent
+         * de mesaje "choices" (vezi handleChoice).
+         */
+        if (
+          result.resultType === "pending_action" &&
+          result.pendingAction?.kind ===
+            "CREATE_SUPPORT_TICKET"
+        ) {
+          addMessage(
+            createMessage(
+              "assistant",
+
+              result.message ||
+                "Vrei să trimit solicitarea către suport?",
+
+              {
+                type: "choices",
+                choiceStep: "copilot-ticket-offer",
+                ticketDraft: result.pendingAction,
+                choices: ["Confirmă", "Renunță"],
+              }
+            )
+          );
+
+          return true;
+        }
+
+        addMessage(
+          createMessage(
+            "assistant",
+
+            result.message ||
+              "Nu am suficiente informații pentru a răspunde."
+          )
+        );
+
+        /*
+         * Sugestie discretă, separată de răspunsul propriu-zis -
+         * doar dacă backend-ul a confirmat (schimbări reale
+         * repetate, nimic în așteptare de confirmare).
+         */
+        if (result.suggestTopicReset) {
+          addMessage(
+            createMessage(
+              "assistant",
+
+              "Vrei să începem un subiect nou?",
+
+              {
+                type: "choices",
+                choiceStep: "topic-suggestion",
+                choices: [
+                  "Subiect nou",
+                  "Nu, continuă",
+                ],
+              }
+            )
+          );
+        }
+
+        return true;
+      }
+
+      /*
+       * handled:false - mesajul nu e o categorie tratată de
+       * copilot (flow existent) - apelantul trebuie să continue
+       * EXACT cu comportamentul vechi, neschimbat.
+       */
+      return false;
+    } catch (error) {
+      removeMessage(loadingMessageId);
+
+      console.error(
+        "[AiAssistant] copilot:",
+        error
+      );
+
+      /*
+       * Copilotul e un strat ADIȚIONAL - dacă eșuează (rețea/
+       * server), nu blocăm conversația, lăsăm apelantul să
+       * continue cu fallback-ul vechi.
+       */
+      return false;
+    }
+  }
+
+    /* =======================================================
      Trimitere mesaj
   ======================================================= */
 
@@ -2884,9 +3345,18 @@ const canSwitchIntent =
     activeFlow
   );
 
+/*
+ * BUGFIX (audit) - detectQuoteRequestIntent verificat ÎNAINTEA
+ * detectorului general: e mai specific pentru mesaje despre cereri
+ * de ofertă (distinge public vs direct-la-vendor vs listare), ceea
+ * ce detectAssistantIntent nu face - vezi assistantQuotes.js.
+ */
 const directIntent =
   canSwitchIntent
-    ? detectAssistantIntent(
+    ? detectQuoteRequestIntent(value, {
+        hasCurrentEntity: Boolean(entityFromUrl),
+      }) ||
+      detectAssistantIntent(
         value,
         isVendor
       )
@@ -2949,96 +3419,109 @@ if (isSwitchingFlow) {
 
   if (
   directIntent.type ===
-    "vendor-platform" &&
-  isVendor
+    "vendor-platform"
 ) {
-  const loadingMessageId =
-    `${Date.now()}-vendor-platform-loading`;
+  const wasHandled = await askCopilot(value);
 
-  addMessage({
-    id: loadingMessageId,
-    role: "assistant",
-    type: "loading",
-    content:
-      "Verific informațiile despre platformă...",
-  });
+  if (wasHandled) {
+    return;
+  }
 
-  try {
-    const history =
-      messagesRef.current
-        .filter(
-          (message) =>
-            message?.type ===
-              "text" &&
-            (
-              message?.role ===
-                "user" ||
-              message?.role ===
-                "assistant"
-            )
+  /*
+   * Fallback determinist: dacă noul copilot nu a putut răspunde
+   * (handled:false sau eroare de rețea), păstrăm EXACT
+   * comportamentul vechi pentru vendor (askVendorPlatform, care
+   * cunoaște doar manifestele vechi, dar tot răspunde ceva util).
+   */
+  if (isVendor) {
+    const loadingMessageId =
+      `${Date.now()}-vendor-platform-loading`;
+
+    addMessage({
+      id: loadingMessageId,
+      role: "assistant",
+      type: "loading",
+      content:
+        "Verific informațiile despre platformă...",
+    });
+
+    try {
+      const history =
+        messagesRef.current
+          .filter(
+            (message) =>
+              message?.type ===
+                "text" &&
+              (
+                message?.role ===
+                  "user" ||
+                message?.role ===
+                  "assistant"
+              )
+          )
+          .slice(-10)
+          .map(
+            (message) => ({
+              role:
+                message.role,
+
+              content:
+                String(
+                  message.content ||
+                    ""
+                ),
+            })
+          );
+
+      const result =
+        await askVendorPlatform({
+          message: value,
+
+          history,
+
+          pageContext: {
+            page:
+              location.pathname,
+
+            route:
+              location.pathname,
+
+            tab:
+              new URLSearchParams(
+                location.search
+              ).get("tab") || "",
+          },
+        });
+
+      removeMessage(
+        loadingMessageId
+      );
+
+      addMessage(
+        createMessage(
+          "assistant",
+          result?.message ||
+            "Nu am suficiente informații pentru a răspunde."
         )
-        .slice(-10)
-        .map(
-          (message) => ({
-            role:
-              message.role,
+      );
 
-            content:
-              String(
-                message.content ||
-                  ""
-              ),
-          })
-        );
+      return;
+    } catch (error) {
+      removeMessage(
+        loadingMessageId
+      );
 
-    const result =
-      await askVendorPlatform({
-        message: value,
+      addMessage(
+        createMessage(
+          "assistant",
+          error?.data?.message ||
+            error?.message ||
+            "Nu am putut verifica informațiile despre platformă."
+        )
+      );
 
-        history,
-
-        pageContext: {
-          page:
-            location.pathname,
-
-          route:
-            location.pathname,
-
-          tab:
-            new URLSearchParams(
-              location.search
-            ).get("tab") || "",
-        },
-      });
-
-    removeMessage(
-      loadingMessageId
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        result?.message ||
-          "Nu am suficiente informații pentru a răspunde."
-      )
-    );
-
-    return;
-  } catch (error) {
-    removeMessage(
-      loadingMessageId
-    );
-
-    addMessage(
-      createMessage(
-        "assistant",
-        error?.data?.message ||
-          error?.message ||
-          "Nu am putut verifica informațiile despre platformă."
-      )
-    );
-
-    return;
+      return;
+    }
   }
 }
 
@@ -3147,8 +3630,98 @@ if (isSwitchingFlow) {
   }
 
   /* ======================================
-     CERERE OFERTĂ
+     CERERE OFERTĂ - PUBLICĂ vs DIRECTĂ LA VENDOR
+     (vezi detectQuoteRequestIntent, assistantQuotes.js)
   ====================================== */
+
+  if (directIntent.type === "my-quotes") {
+    setShowMenu(false);
+
+    await handleAction(
+      QUOTE_FLOWS.MY_QUOTES
+    );
+
+    return;
+  }
+
+  if (directIntent.type === "direct-vendor-quote") {
+    /*
+     * BUGFIX: fără un produs/magazin cunoscut din pagina curentă,
+     * NU pornim flow-ul (ar cere cantitatea înainte să știm pentru
+     * CE) - cerem întâi să identifice produsul/vânzătorul.
+     */
+    if (!entityFromUrl) {
+      addMessage(
+        createMessage(
+          "assistant",
+          "Sigur - pentru care produs sau vânzător vrei să ceri ofertă? Deschide pagina produsului/magazinului respectiv, sau spune-mi numele lui."
+        )
+      );
+
+      return;
+    }
+
+    const isStoreEntity =
+      entityFromUrl.type === "STORE";
+
+    await startDirectVendorQuoteFlow({
+      productId:
+        entityFromUrl.type === "PRODUCT"
+          ? entityFromUrl.id
+          : null,
+
+      productTitle:
+        entityFromUrl.type === "PRODUCT"
+          ? entityFromUrl.name || null
+          : null,
+
+      vendorId: isStoreEntity ? entityFromUrl.id : null,
+      vendorName: isStoreEntity ? entityFromUrl.name || null : null,
+      fromStore: isStoreEntity,
+    });
+
+    return;
+  }
+
+  /*
+   * BUGFIX (audit): cerere PUBLICĂ (homepage/pagina /cereri, la care
+   * pot răspunde mai mulți vânzători) NU are un flow conversațional
+   * de creare aici - doar pagina reală, cu butonul "Publică o
+   * cerere" (CreateCustomerRequestModal.jsx). Ghidăm către ea, nu
+   * inventăm un flow nou.
+   */
+  if (directIntent.type === "public-request") {
+    addMessage(
+      createMessage(
+        "assistant",
+        `O cerere publică e vizibilă tuturor vânzătorilor, care pot trimite oferte - se creează din pagina „Cereri” (buton „Publică o cerere”), nu de aici, din conversație.
+
+Poți ajunge acolo din meniul principal, secțiunea Cereri, sau direct la /cereri.`
+      )
+    );
+
+    return;
+  }
+
+  if (directIntent.type === "quote-disambiguation") {
+    addMessage(
+      createMessage(
+        "assistant",
+        "Vrei:\n1. să publici o cerere la care pot răspunde mai mulți vânzători\nsau\n2. să ceri ofertă direct unui anumit vânzător?",
+        {
+          type: "choices",
+          choiceStep: "quote-type",
+
+          choices: [
+            "Publică o cerere",
+            "Cere ofertă unui vânzător",
+          ],
+        }
+      )
+    );
+
+    return;
+  }
 
   if (
     directIntent.type ===
@@ -3224,8 +3797,19 @@ if (
   setShowMenu(false);
 
   /*
-   * Dacă este vendor, trimitem întrebarea
-   * către asistentul general al platformei.
+   * FAZA 5: orice mesaj liber care nu se potrivește cu niciun
+   * flow local trece ÎNTÂI prin copilotul general, pentru orice
+   * audiență (nu doar vendor).
+   */
+  const wasHandled = await askCopilot(value);
+
+  if (wasHandled) {
+    return;
+  }
+
+  /*
+   * handled:false sau eroare - dacă e vendor, păstrăm EXACT
+   * fallback-ul vechi (askVendorPlatform, manifestele vechi).
    */
   if (isVendor) {
     const loadingMessageId =
@@ -3324,7 +3908,8 @@ if (
   }
 
   /*
-   * Pentru client păstrăm comportamentul actual.
+   * Pentru client păstrăm comportamentul actual (fallback final,
+   * neschimbat).
    */
   addMessage(
     createMessage(
@@ -3741,10 +4326,27 @@ if (personalizationHandled) {
                 <button
                   type="button"
                   onClick={
+                    startNewTopic
+                  }
+                  aria-label="Subiect nou - păstrează istoricul, dar nu mai ține cont de discuția anterioară"
+                  title="Subiect nou"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                    padding: "0 8px",
+                  }}
+                >
+                  Subiect nou
+                </button>
+
+                <button
+                  type="button"
+                  onClick={
                     resetConversation
                   }
-                  aria-label="Resetează conversația"
-                  title="Conversație nouă"
+                  aria-label="Șterge toată conversația"
+                  title="Șterge conversația"
                 >
                   <RefreshIcon />
                 </button>
@@ -3967,6 +4569,17 @@ if (personalizationHandled) {
                           event
                         );
                       }
+
+                      return;
+                    }
+
+                    /*
+                     * HARDENING: Escape închide widget-ul, la fel
+                     * ca orice alt panou/overlay.
+                     */
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      closeAssistant();
                     }
                   }}
                   rows={1}

@@ -17,8 +17,6 @@ model User {
 
   passwordHash String?
 
-  // Îl păstrăm momentan pentru compatibilitate cu ruta existentă.
-  // După migrarea datelor îl putem elimina.
   googleId String? @unique
 
   tokenVersion Int @default(0)
@@ -85,31 +83,33 @@ model User {
   supportReads            SupportRead[]
   supportTickets          SupportTicket[]
 
-  // Consimțăminte pentru documente juridice:
-  // TOS, Privacy etc.
   UserConsent UserConsent[]
 
-  // Istoricul deciziilor privind cookies.
   cookieConsents CookieConsent[]
 
-  // Preferințe de comunicare:
-  // email / SMS / push.
   marketingPrefs UserMarketingPrefs?
 
-  vendorBlocks            UserVendorBlock[]
-  vendor                  Vendor?
-  orders                  Order[]
-  handedOverShipments     Shipment[]             @relation("ShipmentHandedOverBy")
-  returnRequests          ReturnRequest[]
-  supportTicketsDeleted   SupportTicket[]        @relation("SupportTicketDeletedBy")
-  newsletterSubscriptions NewsletterSubscriber[]
-  VendorAcceptance        VendorAcceptance[]
+  vendorBlocks UserVendorBlock[]
 
-  // Cereri de ofertă trimise direct unui vendor.
+  vendor Vendor?
+
+  influencerProfile InfluencerProfile?
+
+  acceptedInfluencerInvites InfluencerInvite[] @relation("InfluencerInviteAcceptedUser")
+  createdInfluencerInvites  InfluencerInvite[] @relation("InfluencerInviteCreatedBy")
+
+  orders              Order[]
+  handedOverShipments Shipment[]      @relation("ShipmentHandedOverBy")
+  returnRequests      ReturnRequest[]
+
+  supportTicketsDeleted SupportTicket[] @relation("SupportTicketDeletedBy")
+
+  newsletterSubscriptions NewsletterSubscriber[]
+
+  VendorAcceptance VendorAcceptance[]
+
   quoteRequests QuoteRequest[]
 
-  // Cereri publice create de client,
-  // la care pot răspunde mai mulți vendori.
   customerRequests CustomerRequest[]
 
   @@index([vendorDeactivateToken])
@@ -365,6 +365,9 @@ model Vendor {
   // la cererile publice ale clienților.
   customerRequestOffers CustomerRequestOffer[]
   productImports        ProductImport[]
+
+  // ==================== Costuri & Profit ====================
+  costItems VendorCostItem[]
 
   @@index([isActive], map: "vendor_isActive_idx")
   @@index([citySlug], map: "vendor_citySlug_idx")
@@ -756,6 +759,9 @@ model Product {
   importItems              ProductImportItem[]
   campaignProducts         VendorCampaignProduct[]
 
+  // ==================== Costuri & Profit ====================
+  costing ProductCosting?
+
   @@index([serviceId, isActive, createdAt])
   @@index([category])
   @@index([isHidden, isActive, availability, createdAt])
@@ -772,6 +778,142 @@ model Product {
   @@index([moderationStatus, createdAt], map: "product_moderation_created_idx")
   @@index([serviceId, moderationStatus, isActive, isHidden], map: "product_service_moderation_visibility_idx")
   @@index([reviewedByUserId], map: "product_reviewedByUser_idx")
+}
+
+/**
+ * =========================================================
+ * Costuri & Profit
+ * Bibliotecă de costuri reutilizabile per vendor +
+ * costing-ul (materiale, manoperă, profit dorit) salvat
+ * per produs. Sursa de adevăr pentru sumele finale rămâne
+ * calculul determinist din backend (vendorPriceCalculatorService) -
+ * câmpurile *Cents de pe ProductCosting sunt doar cache-ul
+ * ultimului calcul, recalculabil oricând din items.
+ * =========================================================
+ */
+
+model VendorCostItem {
+  id       String @id @default(uuid())
+  vendorId String
+
+  type          VendorCostItemType
+  name          String
+  unit          String?
+  unitCostCents Int
+  currency      String             @default("RON")
+
+  notes    String?
+  isActive Boolean @default(true)
+
+  // MANUAL = introdus de vendor.
+  // AI_SUGGESTED = propus din analiza foto, fără preț - vezi ProductCosting.aiDraft.
+  source VendorCostItemSource @default(MANUAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor       Vendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  costingItems ProductCostingItem[]
+
+  @@index([vendorId, type, isActive])
+  @@index([vendorId, name])
+}
+
+model ProductCosting {
+  id        String @id @default(uuid())
+  productId String @unique
+
+  laborHours      Float?
+  hourlyRateCents Int?
+
+  // Un singur mod activ per costing, la alegerea vendorului:
+  // fie markup procentual pe cost, fie sumă fixă în bani.
+  // Suma fixă e păstrată în cenți (Int), niciodată ca Float,
+  // ca să nu introducem erori de rotunjire pe bani - la fel
+  // ca toate celelalte câmpuri monetare de mai jos.
+  desiredProfitPercent Float?
+  desiredProfitCents   Int?
+
+  // ==================== Cache calcul determinist ====================
+  // Recalculabil oricând din `items` + parametrii de mai sus.
+  // Nu este niciodată scris de LLM - doar de calculul din backend.
+
+  materialsCostCents    Int @default(0)
+  laborCostCents        Int @default(0)
+  packagingCostCents    Int @default(0)
+  otherCostsCents       Int @default(0)
+  totalRealCostCents    Int @default(0)
+  minPriceCents         Int @default(0)
+  recommendedPriceCents Int @default(0)
+  estimatedProfitCents  Int @default(0)
+  vendorNetCents        Int @default(0)
+  commissionBpsUsed     Int @default(0)
+
+  status ProductCostingStatus @default(DRAFT)
+
+  // Devine true când un VendorCostItem folosit aici își schimbă
+  // prețul, până la o recalculare explicită cerută de vendor.
+  needsRecalculation Boolean @default(false)
+
+  // Draftul neconfirmat produs de analiza foto (componente/cantități
+  // probabile, fără costuri inventate) - vezi regula din promptul AI.
+  aiDraft        Json?
+  aiSourceImages String[]  @default([])
+  aiAnalyzedAt   DateTime?
+  aiConfidence   Float?
+
+  lastCalculatedAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  product Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  items   ProductCostingItem[]
+
+  // Fără @@index([productId]) separat - @unique de mai sus
+  // creează deja un index unic pe această coloană.
+  @@index([needsRecalculation])
+}
+
+model ProductCostingItem {
+  id        String @id @default(uuid())
+  costingId String
+
+  kind     VendorCostItemType
+  label    String
+  quantity Float
+  unit     String?
+
+  // Preț "înghețat" la momentul adăugării/ultimei recalculări -
+  // schimbarea prețului din bibliotecă nu modifică automat
+  // costing-uri deja calculate, vezi ProductCosting.needsRecalculation.
+  unitCostCentsSnapshot Int
+
+  costItemId String?
+  costItem   VendorCostItem? @relation(fields: [costItemId], references: [id], onDelete: SetNull)
+
+  costing ProductCosting @relation(fields: [costingId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([costingId])
+  @@index([costItemId])
+}
+
+enum VendorCostItemType {
+  MATERIAL
+  PACKAGING
+  OTHER
+}
+
+enum VendorCostItemSource {
+  MANUAL
+  AI_SUGGESTED
+}
+
+enum ProductCostingStatus {
+  DRAFT
+  CONFIRMED
 }
 
 model Favorite {
@@ -1253,6 +1395,10 @@ model Order {
   guestAccessTokenHash String?   @unique @db.VarChar(64)
   guestAccessExpiresAt DateTime?
 
+  // Momentul în care s-a trimis reminderul
+  // pentru o plată CARD guest nefinalizată.
+  guestPaymentReminderSentAt DateTime?
+
   // Snapshot al acordurilor acceptate în checkout.
   checkoutConsents Json?
 
@@ -1293,6 +1439,8 @@ model Order {
   @@index([customerPhone])
   @@index([isGuestOrder, createdAt])
   @@index([guestAccessExpiresAt])
+  @@index([guestPaymentReminderSentAt])
+  @@index([isGuestOrder, paymentMethod, status, createdAt])
 }
 
 model Shipment {
@@ -2039,6 +2187,7 @@ enum CommentStatus {
 enum Role {
   USER
   VENDOR
+  INFLUENCER
   ADMIN
 }
 
@@ -2175,6 +2324,7 @@ enum ConsentDoc {
   COOKIES_ACK
   RETURNS_POLICY_ACK
   MARKETING_EMAIL_OPTIN
+  INFLUENCER_TERMS
 }
 
 enum VendorDoc {
@@ -3004,4 +3154,95 @@ model VendorCampaignCreative {
 
   @@index([campaignId, createdAt])
   @@index([campaignId, type])
+}
+
+/// ==================== Influencers ====================
+model InfluencerProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  displayName  String?
+  referralCode String @unique
+
+  // 300 = 3%
+  commissionBps Int @default(300)
+
+  status InfluencerStatus @default(ACTIVE)
+
+  instagramUrl String?
+  tiktokUrl    String?
+  facebookUrl  String?
+  websiteUrl   String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  clicks InfluencerClick[]
+
+  @@index([referralCode])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model InfluencerInvite {
+  id String @id @default(cuid())
+
+  name  String?
+  email String
+
+  referralCode String @unique
+
+  commissionBps Int @default(300)
+
+  tokenHash String @unique
+
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  acceptedUserId  String?
+  createdByUserId String?
+
+  acceptedUser  User? @relation("InfluencerInviteAcceptedUser", fields: [acceptedUserId], references: [id], onDelete: SetNull)
+  createdByUser User? @relation("InfluencerInviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([expiresAt])
+  @@index([usedAt])
+  @@index([acceptedUserId])
+  @@index([createdByUserId])
+  @@index([createdAt])
+}
+model InfluencerClick {
+  id String @id @default(cuid())
+
+  influencerId String
+
+  sessionId String?
+
+  pageUrl  String?
+  referrer String?
+
+  ipHash String?
+
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  influencer InfluencerProfile @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+
+  @@index([influencerId, createdAt])
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+enum InfluencerStatus {
+  ACTIVE
+  DISABLED
 }

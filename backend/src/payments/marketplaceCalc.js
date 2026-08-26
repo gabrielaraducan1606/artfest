@@ -3,6 +3,9 @@
 import {
   prisma,
 } from "../db.js";
+import {
+  computeCommissionBreakdown,
+} from "../services/commissionCalc.js";
 
 /* =========================================================
    Helpers
@@ -100,7 +103,7 @@ function parseVatRateToFraction(
    are comision 0 doar pentru că nu găsește un plan "starter".
 ========================================================= */
 
-async function getActivePlanForVendor(
+export async function getActivePlanForVendor(
   vendorId
 ) {
   const now =
@@ -474,6 +477,40 @@ export async function computeOrderSplits(
           itemsNetExVat
       );
 
+    /*
+     * Reducerile pe surse - aceleași câmpuri ShipmentItem
+     * folosite deja de COD (computeVendorEarningForShipment).
+     * Prețul original se reconstituie din prețul plătit +
+     * ambele reduceri, la fel ca în COD - evită orice
+     * discrepanță de rotunjire față de originalPrice per-unit.
+     */
+    const platformDiscountGross =
+      dec2(
+        shipmentItems.reduce(
+          (total, item) =>
+            total +
+            safeNumber(item?.platformDiscountAmount, 0),
+          0
+        )
+      );
+
+    const vendorDiscountGross =
+      dec2(
+        shipmentItems.reduce(
+          (total, item) =>
+            total +
+            safeNumber(item?.vendorDiscountAmount, 0),
+          0
+        )
+      );
+
+    const itemsOriginalGross =
+      dec2(
+        itemsGross +
+          platformDiscountGross +
+          vendorDiscountGross
+      );
+
     /* -----------------------------------------------------
        Transport
 
@@ -540,6 +577,15 @@ export async function computeOrderSplits(
           itemsVat:
             0,
 
+          itemsOriginalGross:
+            0,
+
+          platformDiscountGross:
+            0,
+
+          vendorDiscountGross:
+            0,
+
           /*
            * Transport
            */
@@ -551,6 +597,22 @@ export async function computeOrderSplits(
 
           shippingVat:
             0,
+
+          /*
+           * Comision de campanie (override), dacă
+           * shipment-urile acestui vendor din comandă
+           * au fost create cu o atribuire de campanie
+           * validă. Toate shipment-urile aceluiași
+           * vendor dintr-o comandă primesc aceeași
+           * atribuire (per vendor, nu per serviciu) -
+           * așa că e sigur să reținem prima valoare
+           * nenulă întâlnită.
+           */
+          campaignCommissionBps:
+            null,
+
+          campaignId:
+            null,
         }
       );
     }
@@ -559,6 +621,24 @@ export async function computeOrderSplits(
       byVendor.get(
         vendorId
       );
+
+    if (
+      vendorRow.campaignCommissionBps ===
+        null &&
+      shipment.campaignCommissionBps !==
+        null &&
+      shipment.campaignCommissionBps !==
+        undefined
+    ) {
+      vendorRow.campaignCommissionBps =
+        Number(
+          shipment.campaignCommissionBps
+        );
+
+      vendorRow.campaignId =
+        shipment.campaignId ||
+        null;
+    }
 
     vendorRow.itemsGross =
       dec2(
@@ -579,6 +659,27 @@ export async function computeOrderSplits(
         vendorRow
           .itemsVat +
           itemsVat
+      );
+
+    vendorRow.itemsOriginalGross =
+      dec2(
+        vendorRow
+          .itemsOriginalGross +
+          itemsOriginalGross
+      );
+
+    vendorRow.platformDiscountGross =
+      dec2(
+        vendorRow
+          .platformDiscountGross +
+          platformDiscountGross
+      );
+
+    vendorRow.vendorDiscountGross =
+      dec2(
+        vendorRow
+          .vendorDiscountGross +
+          vendorDiscountGross
       );
 
     vendorRow.shippingGross =
@@ -644,27 +745,83 @@ export async function computeOrderSplits(
       plan?.name ||
       "Basic";
 
+    /*
+     * Comision de campanie (5%, decis exclusiv server-side
+     * la checkout) - are prioritate față de planul curent al
+     * vendorului, dar NUMAI dacă shipment-ul chiar a fost
+     * creat cu o atribuire validă.
+     */
+    const hasCampaignCommission =
+      vendor.campaignCommissionBps !==
+        null &&
+      vendor.campaignCommissionBps !==
+        undefined;
+
+    if (hasCampaignCommission) {
+      commissionBps =
+        vendor.campaignCommissionBps;
+    }
+
+    vendor.commissionSource =
+      hasCampaignCommission
+        ? "campaign"
+        : "plan";
+
     vendor.commissionBps =
       commissionBps;
 
     /*
      * IMPORTANT:
      *
-     * Comision Artfest:
+     * Comision Artfest - sursă unică (commissionCalc.js),
+     * identică cu COD (computeVendorEarningForShipment) și
+     * cu Order Details vendor:
      *
-     * doar produse
-     * x net fără TVA
-     * x procentul planului
+     * doar produse, fără transport
+     * x preț NET după discount, fără TVA
+     * x comisionul efectiv (plan sau campanie)
+     *
+     * Pentru discounturi finanțate de Artfest (Collection /
+     * Product of the Day / Artisan of the Week) se adaugă
+     * separat platformSubsidyAmount, astfel încât vendorul să
+     * nu piardă suma pe care Artfest o subvenționează.
+     * commissionNet = platformNet (ce reține EFECTIV Artfest,
+     * după subvenție) - asta e cifra corectă de facturat.
      */
+    const breakdown =
+      computeCommissionBreakdown({
+        itemsOriginalGross:
+          vendor.itemsOriginalGross,
+
+        itemsAfterDiscountGross:
+          vendor.itemsGross,
+
+        platformDiscountAmount:
+          vendor.platformDiscountGross,
+
+        commissionBps,
+
+        vatFraction:
+          vendor.vatFraction,
+      });
+
+    vendor.commissionBase =
+      breakdown.commissionBase;
+
+    vendor.commissionAmount =
+      breakdown.commissionAmount;
+
+    vendor.platformSubsidyAmount =
+      breakdown.platformSubsidyAmount;
+
+    vendor.platformNet =
+      breakdown.platformNet;
+
+    vendor.vendorNet =
+      breakdown.vendorNet;
+
     vendor.commissionNet =
-      dec2(
-        (
-          vendor
-            .itemsNetExVat *
-          commissionBps
-        ) /
-          10000
-      );
+      breakdown.platformNet;
   }
 
   /* =======================================================

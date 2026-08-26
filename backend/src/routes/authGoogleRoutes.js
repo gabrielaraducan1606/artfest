@@ -1330,15 +1330,6 @@ if (
 if (result.user.role === "ADMIN") {
   next = "/admin";
 } else if (result.user.role === "VENDOR") {
-  /*
-   * Vendor existent:
-   * - are deja magazin;
-   * - merge direct în dashboard.
-   *
-   * Vendor nou:
-   * - tocmai i-am creat magazinul;
-   * - trebuie să continue onboardingul.
-   */
   const alreadyHadVendor =
     !!existingUser?.vendor?.id;
 
@@ -1346,6 +1337,10 @@ if (result.user.role === "ADMIN") {
     isNewUser || !alreadyHadVendor
       ? "/onboarding"
       : "/desktop";
+} else if (
+  result.user.role === "INFLUENCER"
+) {
+  next = "/influencer";
 }
 
       return res.json({

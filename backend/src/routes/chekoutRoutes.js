@@ -14,7 +14,32 @@ import {
 import {
   getPromotionPricingForProducts,
 } from "../services/productPromotionPrice.js";
+import {
+  resolveVendorCampaignAttributions,
+  buildCampaignPromotionsByProductId,
+} from "../services/campaignAttribution.js";
+import {
+  CAMPAIGN_COMMISSION_BPS,
+} from "./vendorCampaignRoutes.js";
 const router = Router();
+
+/*
+ * GET /checkout/summary nu poate trimite un body JSON, așa
+ * că atribuirile de campanie vin ca query string (JSON
+ * encodat). Parsare defensivă - orice eșec => fără atribuire,
+ * niciodată eroare (summary trebuie să se încarce oricum).
+ */
+function parseCampaignAttributionQuery(raw) {
+  if (!raw || typeof raw !== "string") return {};
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 const dec = (n) => Number.parseFloat((Number(n || 0)).toFixed(2));
 
 function mapCartItemForCheckout(
@@ -853,9 +878,39 @@ router.get(
           )
           .filter(Boolean);
 
+      const summaryVendorIds = [
+        ...new Set(
+          items
+            .map((item) => item.product?.service?.vendorId)
+            .filter(Boolean)
+            .map(String)
+        ),
+      ];
+
+      const summaryCampaignAttribution =
+        parseCampaignAttributionQuery(
+          req.query?.campaignAttribution
+        );
+
+      const summaryCampaignAttributionsByVendorId =
+        await resolveVendorCampaignAttributions({
+          vendorIds: summaryVendorIds,
+          tokensByVendorId: summaryCampaignAttribution,
+        });
+
+      const summaryCampaignPromotionsByProductId =
+        buildCampaignPromotionsByProductId(
+          products,
+          summaryCampaignAttributionsByVendorId
+        );
+
       const pricingByProductId =
         await getPromotionPricingForProducts(
-          products
+          products,
+          {
+            campaignPromotionsByProductId:
+              summaryCampaignPromotionsByProductId,
+          }
         );
 
       const currency =
@@ -1253,9 +1308,34 @@ router.post(
           )
           .filter(Boolean);
 
+      const guestSummaryVendorIds = [
+        ...new Set(
+          cart
+            .map((item) => item.product?.service?.vendorId)
+            .filter(Boolean)
+            .map(String)
+        ),
+      ];
+
+      const guestSummaryCampaignAttributionsByVendorId =
+        await resolveVendorCampaignAttributions({
+          vendorIds: guestSummaryVendorIds,
+          tokensByVendorId: req.body?.campaignAttribution || {},
+        });
+
+      const guestSummaryCampaignPromotionsByProductId =
+        buildCampaignPromotionsByProductId(
+          products,
+          guestSummaryCampaignAttributionsByVendorId
+        );
+
       const pricingByProductId =
         await getPromotionPricingForProducts(
-          products
+          products,
+          {
+            campaignPromotionsByProductId:
+              guestSummaryCampaignPromotionsByProductId,
+          }
         );
 
       const currency =
@@ -1904,6 +1984,7 @@ router.post("/checkout/place", authRequired, async (req, res) => {
       paymentMethod,
       customerType,
       shipToDifferentAddress,
+      campaignAttribution,
     } = req.body || {};
 
     const ctRaw = String(customerType || "").toUpperCase();
@@ -1970,14 +2051,36 @@ occasionTags: true,
     }
 
     const currency = cart[0]?.product?.currency || "RON";
+
+const cartVendorIds = [
+  ...new Set(
+    cart
+      .map((item) => item.product?.service?.vendorId)
+      .filter(Boolean)
+      .map(String)
+  ),
+];
+
+const campaignAttributionsByVendorId =
+  await resolveVendorCampaignAttributions({
+    vendorIds: cartVendorIds,
+    tokensByVendorId: campaignAttribution || {},
+  });
+
+const cartProducts = cart
+  .map((item) => item.product)
+  .filter(Boolean);
+
+const campaignPromotionsByProductId =
+  buildCampaignPromotionsByProductId(
+    cartProducts,
+    campaignAttributionsByVendorId
+  );
+
 const pricingByProductId =
   await getPromotionPricingForProducts(
-    cart
-      .map(
-        (item) =>
-          item.product
-      )
-      .filter(Boolean)
+    cartProducts,
+    { campaignPromotionsByProductId }
   );
 
 const items =
@@ -2246,6 +2349,9 @@ for (const item of cart) {
       for (const s of quote.shipments) {
         if (!s.vendorId) continue;
 
+        const shipmentAttribution =
+          campaignAttributionsByVendorId.get(String(s.vendorId)) || null;
+
         const sh = await tx.shipment.create({
           data: {
             orderId: order.id,
@@ -2255,6 +2361,15 @@ for (const item of cart) {
             lockerId: s.lockerId || null,
             price: dec(s.price),
             status: "PENDING",
+
+            campaignId: shipmentAttribution?.campaignId || null,
+            campaignCommissionBps: shipmentAttribution
+              ? CAMPAIGN_COMMISSION_BPS
+              : null,
+            campaignDiscountPercent: shipmentAttribution
+              ? shipmentAttribution.discountPercent
+              : null,
+            campaignAttributedAt: shipmentAttribution ? new Date() : null,
           },
         });
 
@@ -2578,6 +2693,7 @@ router.post("/checkout/guest/place", async (req, res) => {
       customerType,
       shipToDifferentAddress,
       consents,
+      campaignAttribution,
     } = req.body || {};
 
     const ctRaw = String(customerType || "").toUpperCase();
@@ -2633,14 +2749,35 @@ router.post("/checkout/guest/place", async (req, res) => {
 
     const currency = cart[0]?.product?.currency || "RON";
 
+const guestCartVendorIds = [
+  ...new Set(
+    cart
+      .map((item) => item.product?.service?.vendorId)
+      .filter(Boolean)
+      .map(String)
+  ),
+];
+
+const campaignAttributionsByVendorId =
+  await resolveVendorCampaignAttributions({
+    vendorIds: guestCartVendorIds,
+    tokensByVendorId: campaignAttribution || {},
+  });
+
+const guestCartProducts = cart
+  .map((item) => item.product)
+  .filter(Boolean);
+
+const campaignPromotionsByProductId =
+  buildCampaignPromotionsByProductId(
+    guestCartProducts,
+    campaignAttributionsByVendorId
+  );
+
   const pricingByProductId =
   await getPromotionPricingForProducts(
-    cart
-      .map(
-        (item) =>
-          item.product
-      )
-      .filter(Boolean)
+    guestCartProducts,
+    { campaignPromotionsByProductId }
   );
 
 const checkoutItems =
@@ -3004,6 +3141,11 @@ const storeAddresses = {};
             continue;
           }
 
+          const guestShipmentAttribution =
+            campaignAttributionsByVendorId.get(
+              String(shipmentQuote.vendorId)
+            ) || null;
+
           const shipment = await tx.shipment.create({
             data: {
               orderId: order.id,
@@ -3025,6 +3167,18 @@ const storeAddresses = {};
 
               price: dec(shipmentQuote.price),
               status: "PENDING",
+
+              campaignId:
+                guestShipmentAttribution?.campaignId || null,
+              campaignCommissionBps: guestShipmentAttribution
+                ? CAMPAIGN_COMMISSION_BPS
+                : null,
+              campaignDiscountPercent: guestShipmentAttribution
+                ? guestShipmentAttribution.discountPercent
+                : null,
+              campaignAttributedAt: guestShipmentAttribution
+                ? new Date()
+                : null,
             },
           });
 

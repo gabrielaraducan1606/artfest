@@ -452,6 +452,7 @@
 /* >=1440px – aerisire pe ecrane mari */
 @media (min-width: 1440px) {
   .card { max-width: 1200px; }
+  .storeCollections { max-width: 1200px; }
 }
 
 /* Contrast mai puternic */
@@ -875,4 +876,602 @@
   font-size: 0.88rem;
   font-weight: 700;
   line-height: 1.4;
+}
+
+.campaignModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.campaignModal {
+  width: min(620px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 22px;
+  box-shadow:
+    0 24px 80px rgba(15, 23, 42, 0.22),
+    0 4px 16px rgba(15, 23, 42, 0.08);
+}
+
+.campaignModalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid #eee;
+}
+
+.campaignModalEyebrow {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.55;
+}
+
+.campaignModalTitle {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.campaignModalSubtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  opacity: 0.65;
+}
+
+.campaignModalClose {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+}
+
+.campaignModalBody {
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+.campaignModalState {
+  padding: 32px 12px;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.campaignModalError {
+  color: #b91c1c;
+  opacity: 1;
+}
+
+.campaignModalEmpty {
+  padding: 28px 18px;
+  text-align: center;
+  border: 1px dashed #d6d6d6;
+  border-radius: 18px;
+  background: #fafafa;
+}
+
+.campaignModalEmptyIcon {
+  margin-bottom: 10px;
+  font-size: 30px;
+}
+
+.campaignModalEmpty strong {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 17px;
+}
+
+.campaignModalEmpty p {
+  max-width: 450px;
+  margin: 0 auto;
+  font-size: 14px;
+  line-height: 1.55;
+  opacity: 0.68;
+}
+
+.campaignModalList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.campaignModalItem {
+  padding: 15px 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 15px;
+  background: #fff;
+}
+
+.campaignModalItemMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.campaignModalItemMain strong {
+  font-size: 15px;
+}
+
+.campaignModalItemMain span {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.campaignModalProductCount {
+  margin-top: 6px;
+  font-size: 13px;
+  opacity: 0.6;
+}
+
+.campaignModalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid #eee;
+}
+
+.campaignModalSecondary,
+.campaignModalPrimary {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.campaignModalSecondary {
+  border: 1px solid #ddd;
+  background: #fff;
+}
+
+.campaignModalPrimary {
+  border: 0;
+  background: #1f2937;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .campaignModalBackdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .campaignModal {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 22px 22px 0 0;
+  }
+
+  .campaignModalHeader {
+    padding: 20px 18px 16px;
+  }
+
+  .campaignModalBody {
+    padding: 18px;
+  }
+
+  .campaignModalFooter {
+    padding: 14px 18px 18px;
+    flex-direction: column-reverse;
+  }
+
+  .campaignModalSecondary,
+  .campaignModalPrimary {
+    width: 100%;
+  }
+}
+
+/* =========================================================
+   COLECȚII PUBLICE MAGAZIN
+========================================================= */
+
+.storeCollections {
+  position: relative;
+  z-index: 2;
+  max-width: min(1080px, 94vw);
+  margin: 0 auto 24px;
+  padding: 18px 20px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.05);
+}
+
+/*
+ * Cardul principal de conținut are în mod normal margin-top negativ
+ * pentru suprapunerea peste copertă. După colecții nu mai vrem acea
+ * suprapunere, altfel cardul Produse/Recenzii acoperă colecțiile.
+ */
+.storeCollections + .card {
+  margin-top: 0;
+}
+
+.storeCollectionsHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.storeCollectionsEyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.storeCollectionsTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-title);
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  font-weight: 800;
+}
+
+.storeCollectionsCount {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.storeCollectionsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.storeCollectionCard {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  text-align: left;
+  color: var(--color-text);
+  background: color-mix(
+    in oklab,
+    var(--surface, #fff),
+    var(--color-primary) 3%
+  );
+  border: 1px solid var(--color-border);
+  border-radius: 15px;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.storeCollectionCard:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(
+    in oklab,
+    var(--color-primary),
+    var(--color-border) 55%
+  );
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.06);
+}
+
+.storeCollectionIcon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: color-mix(
+    in oklab,
+    var(--color-primary),
+    white 90%
+  );
+  font-size: 20px;
+}
+
+.storeCollectionContent {
+  min-width: 0;
+  flex: 1;
+}
+
+.storeCollectionTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.storeCollectionTop strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.96rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storeCollectionDiscount {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(
+    in oklab,
+    var(--color-primary),
+    white 90%
+  );
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.storeCollectionMeta {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+.storeCollectionAction {
+  margin-top: 7px;
+  color: var(--color-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* =========================================================
+   MODAL COLECȚIE PUBLICĂ
+========================================================= */
+
+.publicCampaignBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.publicCampaignModal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  box-shadow:
+    0 28px 90px rgba(0, 0, 0, 0.2),
+    0 4px 18px rgba(0, 0, 0, 0.08);
+}
+
+.publicCampaignHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 17px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.publicCampaignEyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.publicCampaignTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-title);
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+.publicCampaignDiscount {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--color-primary);
+  background: color-mix(
+    in oklab,
+    var(--color-primary),
+    white 90%
+  );
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.publicCampaignClose {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text);
+  background: var(--surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.publicCampaignBody {
+  padding: 18px 22px;
+  overflow-y: auto;
+}
+
+.publicCampaignState {
+  padding: 40px 15px;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.publicCampaignError {
+  color: #b91c1c;
+}
+
+.publicCampaignProducts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.publicCampaignProduct {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+}
+
+.publicCampaignProductImageWrap {
+  width: 88px;
+  height: 88px;
+  overflow: hidden;
+  background: #f3f4f6;
+  border-radius: 11px;
+}
+
+.publicCampaignProductImage {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.publicCampaignProductPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+
+.publicCampaignProductBody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.publicCampaignProductBody strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.publicCampaignProductCategory {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.publicCampaignProductPrice {
+  margin-top: 7px;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.publicCampaignFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (max-width: 720px) {
+  .storeCollections {
+    padding: 15px;
+  }
+
+  .storeCollectionsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .storeCollectionCard {
+    padding: 12px;
+  }
+
+  .publicCampaignBackdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .publicCampaignModal {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 22px 22px 0 0;
+  }
+
+  .publicCampaignHeader {
+    padding: 18px 17px 15px;
+  }
+
+  .publicCampaignBody {
+    padding: 15px 17px;
+  }
+
+  .publicCampaignProducts {
+    grid-template-columns: 1fr;
+  }
+
+  .publicCampaignFooter {
+    padding: 13px 17px 18px;
+    flex-direction: column-reverse;
+  }
+
+  .publicCampaignFooter button {
+    width: 100%;
+  }
 }

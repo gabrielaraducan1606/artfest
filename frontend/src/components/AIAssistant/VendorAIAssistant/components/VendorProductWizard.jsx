@@ -350,6 +350,17 @@ export default function VendorProductWizard({
 
   analyzing = false,
   analyzingOrder = false,
+
+  /*
+   * Publicare reală a produsului - opțional. Dacă lipsește,
+   * comportamentul vechi (fără publicare) rămâne identic, doar
+   * fără buton funcțional (evită o eroare dacă vreodată acest
+   * wizard e montat fără apelantul care știe să publice).
+   */
+  onPublish,
+  publishing = false,
+  publishError = "",
+  publishSuccess = null,
 }) {
   const safeDraft =
     useMemo(
@@ -502,6 +513,37 @@ export default function VendorProductWizard({
     background:
       "#fcfaf8",
     marginBottom: 12,
+  };
+
+  /*
+   * Feedback pentru "Salvează produsul" (loading/succes/eroare) -
+   * folosesc STRICT variabilele globale Artfest, nu paleta maro
+   * folosită în restul acestui fișier (pre-existentă, neatinsă
+   * aici - vezi raportul final).
+   */
+  const successCardStyle = {
+    border:
+      "1px solid var(--color-success, #16a34a)",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+
+    background:
+      "color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent)",
+
+    color: "var(--color-text, #2d2d2d)",
+  };
+
+  const errorTextStyle = {
+    color: "var(--color-danger, #dc2626)",
+    fontSize: 12.5,
+    margin: "8px 0 0",
+  };
+
+  const warningTextStyle = {
+    color: "var(--color-warning, #f59e0b)",
+    fontSize: 12.5,
+    margin: "6px 0 0",
   };
 
   const labelStyle = {
@@ -1889,53 +1931,151 @@ export default function VendorProductWizard({
               </div>
             </div>
 
-            <div
-              style={
-                buttonGroupStyle
-              }
-            >
-              <button
-                type="button"
-                style={
-                  primaryButtonStyle
-                }
-                onClick={() => {
-                  window.alert(
-                    "Publicarea produsului va fi conectată în etapa următoare."
-                  );
-                }}
-              >
-                Salvează produsul
-              </button>
+            {publishSuccess ? (
+              <div style={successCardStyle}>
+                <strong>
+                  Produsul „
+                  {publishSuccess.title}
+                  ” a fost salvat.
+                </strong>
 
-              <button
-                type="button"
-                style={
-                  secondaryButtonStyle
-                }
-                onClick={() =>
-                  goToStep(
-                    "details"
-                  )
-                }
-              >
-                Modifică informațiile
-              </button>
+                <p
+                  style={{
+                    margin: "6px 0 0",
+                    fontSize: 13,
+                  }}
+                >
+                  E în așteptarea
+                  moderării Artfest
+                  înainte să apară
+                  public.
+                  {publishSuccess.costingWarning
+                    ? ""
+                    : " Am salvat și costingul calculat pentru el."}
+                </p>
 
-              <button
-                type="button"
+                {publishSuccess.costingWarning && (
+                  <p
+                    style={
+                      warningTextStyle
+                    }
+                  >
+                    Nu am putut salva
+                    costingul calculat:{" "}
+                    {
+                      publishSuccess.costingWarning
+                    }
+                  </p>
+                )}
+
+                <div
+                  style={
+                    buttonGroupStyle
+                  }
+                >
+                  <a
+                    href={`/produs/${publishSuccess.productId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={
+                      secondaryButtonStyle
+                    }
+                  >
+                    Vezi produsul
+                  </a>
+
+                  <a
+                    href="/vendor/catalog"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={
+                      secondaryButtonStyle
+                    }
+                  >
+                    Vezi în catalog
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div
                 style={
-                  secondaryButtonStyle
-                }
-                onClick={() =>
-                  goToStep(
-                    "order"
-                  )
+                  buttonGroupStyle
                 }
               >
-                Modifică modul de comandă
-              </button>
-            </div>
+                <button
+                  type="button"
+                  style={{
+                    ...primaryButtonStyle,
+
+                    ...(publishing
+                      ? disabledButtonStyle
+                      : {}),
+                  }}
+                  disabled={
+                    publishing
+                  }
+                  onClick={() =>
+                    onPublish?.()
+                  }
+                >
+                  {publishing
+                    ? "Se salvează..."
+                    : "Salvează produsul"}
+                </button>
+
+                {publishError && (
+                  <p
+                    style={
+                      errorTextStyle
+                    }
+                  >
+                    {publishError}
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  style={{
+                    ...secondaryButtonStyle,
+
+                    ...(publishing
+                      ? disabledButtonStyle
+                      : {}),
+                  }}
+                  disabled={
+                    publishing
+                  }
+                  onClick={() =>
+                    goToStep(
+                      "details"
+                    )
+                  }
+                >
+                  Modifică informațiile
+                </button>
+
+                <button
+                  type="button"
+                  style={{
+                    ...secondaryButtonStyle,
+
+                    ...(publishing
+                      ? disabledButtonStyle
+                      : {}),
+                  }}
+                  disabled={
+                    publishing
+                  }
+                  onClick={() =>
+                    goToStep(
+                      "order"
+                    )
+                  }
+                >
+                  Modifică modul de comandă
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

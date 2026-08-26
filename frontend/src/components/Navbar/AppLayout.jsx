@@ -6,6 +6,8 @@ import Navbar from "./Navbar";
 import Footer from "../Footer/Footer";
 
 import AiAssistant from "../AIAssistant/AiAssistant.jsx";
+import VendorAssistant from "../AIAssistant/VendorAIAssistant/VendorAssistant.jsx";
+import { CurrentEntityProvider } from "../AIAssistant/CurrentEntityContext.jsx";
 
 import {
   useAuth,
@@ -21,7 +23,7 @@ export default function AppLayout() {
     "VENDOR";
 
   return (
-    <>
+    <CurrentEntityProvider>
       <Navbar />
 
       <main>
@@ -30,11 +32,13 @@ export default function AppLayout() {
 
       <Footer />
 
-      <AiAssistant
-        isVendor={
-          isVendor
-        }
-      />
-    </>
+      {isVendor ? (
+        <VendorAssistant />
+      ) : (
+        <AiAssistant
+          isVendor={false}
+        />
+      )}
+    </CurrentEntityProvider>
   );
 }
