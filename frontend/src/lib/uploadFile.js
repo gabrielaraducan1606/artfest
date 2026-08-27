@@ -1,6 +1,28 @@
 // client/src/lib/uploadFile.js
 
-const API_URL = import.meta.env.VITE_API_URL || "";
+/*
+ * Normalizare rezistentă la /api dublat/lipsă - aceeași strategie ca
+ * lib/api.js. VITE_API_URL poate fi gol (local, proxy vite), un domeniu
+ * fără /api, sau un domeniu/path CU /api la final (ex. Vercel: "/api") -
+ * indiferent de formă, endpoint-urile primite aici ("/api/upload", ...)
+ * nu trebuie să ducă la un "/api/api/...".
+ */
+const RAW_BASE = import.meta.env.VITE_API_URL || "";
+const DOMAIN = RAW_BASE.replace(/\/+$/, "");
+const API_BASE = DOMAIN
+  ? /\/api$/i.test(DOMAIN)
+    ? DOMAIN
+    : `${DOMAIN}/api`
+  : "";
+
+function buildUploadUrl(endpoint) {
+  if (/^https?:\/\//i.test(endpoint)) return endpoint;
+
+  let path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  path = path.replace(/^\/api(\/|$)/i, "/");
+
+  return API_BASE ? `${API_BASE}${path}` : `/api${path}`;
+}
 
 /**
  * Upload generic de fișier
@@ -17,9 +39,7 @@ export async function uploadFile(file, endpoint = "/api/upload") {
     fd.append("file", file);
   }
 
-  const url = endpoint.startsWith("http")
-    ? endpoint
-    : `${API_URL}${endpoint}`;
+  const url = buildUploadUrl(endpoint);
 
   const res = await fetch(url, {
     method: "POST",
