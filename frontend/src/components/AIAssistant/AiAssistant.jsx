@@ -4313,54 +4313,31 @@ if (personalizationHandled) {
                 }
               >
                 <button
-                  type="button"
-                  onClick={
-                    returnToMainMenu
-                  }
-                  aria-label="Meniu principal"
-                  title="Meniu principal"
-                >
-                  <HomeIcon />
-                </button>
+  type="button"
+  onClick={returnToMainMenu}
+  aria-label="Meniu principal"
+  title="Meniu principal"
+>
+  <HomeIcon />
+</button>
 
-                <button
-                  type="button"
-                  onClick={
-                    startNewTopic
-                  }
-                  aria-label="Subiect nou - păstrează istoricul, dar nu mai ține cont de discuția anterioară"
-                  title="Subiect nou"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                    padding: "0 8px",
-                  }}
-                >
-                  Subiect nou
-                </button>
+<button
+  type="button"
+  onClick={resetConversation}
+  aria-label="Subiect nou"
+  title="Subiect nou"
+>
+  <RefreshIcon />
+</button>
 
-                <button
-                  type="button"
-                  onClick={
-                    resetConversation
-                  }
-                  aria-label="Șterge toată conversația"
-                  title="Șterge conversația"
-                >
-                  <RefreshIcon />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={
-                    closeAssistant
-                  }
-                  aria-label="Închide asistentul"
-                  title="Închide"
-                >
-                  <CloseIcon />
-                </button>
+<button
+  type="button"
+  onClick={closeAssistant}
+  aria-label="Închide"
+  title="Închide"
+>
+  <CloseIcon />
+</button>
               </div>
             </header>
 
