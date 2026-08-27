@@ -3,7 +3,7 @@ import { prisma } from "../db.js";
 
 const router = express.Router();
 
-const BASE_URL = "https://artfest.ro";
+const BASE_URL = "https://www.artfest.ro";
 
 function escapeXml(value = "") {
   return String(value || "")

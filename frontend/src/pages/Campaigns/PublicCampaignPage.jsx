@@ -96,7 +96,7 @@ export default function PublicCampaignPage() {
     ));
   }, [data, viewMode]);
 
-  const canonical = `https://artfest.ro/c/${slug || ""}`;
+  const canonical = `https://www.artfest.ro/c/${slug || ""}`;
 
   if (loading) {
     return <section className={styles.page}>Se încarcă campania…</section>;

@@ -1818,7 +1818,7 @@ Hai să ajungem împreună la 1000 de creatori!
                 "WebSite",
 
               url:
-                "https://artfest.ro/",
+                "https://www.artfest.ro/",
 
               publisher: {
                 "@type":
@@ -1828,7 +1828,7 @@ Hai să ajungem împreună la 1000 de creatori!
                   "Artfest",
 
                 url:
-                  "https://artfest.ro/",
+                  "https://www.artfest.ro/",
               },
             }),
         }}

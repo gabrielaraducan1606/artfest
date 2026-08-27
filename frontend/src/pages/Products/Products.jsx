@@ -1735,13 +1735,13 @@ const clearImageSearch =
     }
     canonical={
       currentSeoCategory
-        ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
-        : "https://artfest.ro/produse"
+        ? `https://www.artfest.ro/categorii/${currentSeoCategory.slug}`
+        : "https://www.artfest.ro/produse"
     }
     url={
       currentSeoCategory
-        ? `https://artfest.ro/categorii/${currentSeoCategory.slug}`
-        : "https://artfest.ro/produse"
+        ? `https://www.artfest.ro/categorii/${currentSeoCategory.slug}`
+        : "https://www.artfest.ro/produse"
     }
   />
 )}
@@ -2517,7 +2517,7 @@ const clearImageSearch =
 function CategoryJsonLd({ category }) {
   if (!category) return null;
 
-  const url = `https://artfest.ro/categorii/${category.slug}`;
+  const url = `https://www.artfest.ro/categorii/${category.slug}`;
 
   const schema = {
     "@context": "https://schema.org",

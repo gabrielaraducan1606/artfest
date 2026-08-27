@@ -3,7 +3,7 @@ import React, { createContext, useContext } from "react";
 /** Valori implicite SEO (site-wide) */
 export const DEFAULTS = {
   siteName: "Artfest",
-  baseUrl: "https://artfest.ro",
+  baseUrl: "https://www.artfest.ro",
   titleTemplate: "%s • Artfest",
   defaultTitle: "Artfest — cadouri și produse artizanale",
   defaultDescription: "Descoperă produse unicat create de artizani români pe Artfest.",

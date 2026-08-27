@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://artfest.ro/sitemap.xml
+Sitemap: https://www.artfest.ro/sitemap.xml

@@ -2190,8 +2190,8 @@ useEffect(() => {
   "Artfest";
 
 const productUrl = product?.id
-  ? `https://artfest.ro/produs/${product.id}`
-  : "https://artfest.ro/produse";
+  ? `https://www.artfest.ro/produs/${product.id}`
+  : "https://www.artfest.ro/produse";
 
 const seoTitle = useMemo(() => {
   if (!product?.title) {

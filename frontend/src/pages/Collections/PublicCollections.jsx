@@ -94,7 +94,7 @@ export default function PublicCollectionPage() {
     collection?.subtitle ||
     "Descoperă produse handmade și cadouri personalizate pe Artfest.";
 
-  const canonical = `https://artfest.ro/colectii/${slug || ""}`;
+  const canonical = `https://www.artfest.ro/colectii/${slug || ""}`;
 
   const productCards = useMemo(() => {
     return items.map((p) => (

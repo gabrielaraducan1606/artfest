@@ -4,7 +4,7 @@ import { CATEGORIES_DETAILED } from "../constants/categories.js";
 
 const router = express.Router();
 
-const BASE_URL = "https://artfest.ro";
+const BASE_URL = "https://www.artfest.ro";
 
 function escapeXml(value) {
   return String(value || "")
@@ -55,15 +55,24 @@ router.get("/sitemap.xml", async (req, res) => {
       { loc: "/preferinte-cookie" },
     ];
 
+    const seenCategorySlugs = new Set();
+
     const categoryUrls = CATEGORIES_DETAILED
       .filter((c) => c.key !== "alte")
-      .map((c) => {
-        const slug = categoryKeyToSlug(c.key);
+      .map((c) => ({
+        slug: categoryKeyToSlug(c.key),
+      }))
+      .filter((c) => {
+        if (!c.slug || seenCategorySlugs.has(c.slug)) {
+          return false;
+        }
 
-        return {
-          loc: `/categorii/${slug}`,
-        };
-      });
+        seenCategorySlugs.add(c.slug);
+        return true;
+      })
+      .map((c) => ({
+        loc: `/categorii/${c.slug}`,
+      }));
 
     const collections = await prisma.collection.findMany({
       where: {
