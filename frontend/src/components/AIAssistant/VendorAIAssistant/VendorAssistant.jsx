@@ -332,6 +332,7 @@ const INITIAL_MESSAGES = [
 
 const EMPTY_PRODUCT_DRAFT = {
   images: [],
+  videoUrl: null,
 
   title: "",
   description: "",
@@ -4756,6 +4757,7 @@ async function handlePublishProductFromWizard() {
           : Number(draft.price || 0),
 
       images: imageUrls,
+      videoUrl: draft.videoUrl || null,
       currency: draft.currency || "RON",
       category: draft.category || null,
       color: draft.color || null,
@@ -5166,7 +5168,7 @@ async function handleAnalyzeBatchGroups() {
       addMessage(
         createMessage(
           "assistant",
-          "Sigur. Te ajut să adaugi produsul pas cu pas."
+          "Sigur. Te ajut să adaugi produsul pas cu pas. Poți începe direct cu fotografiile - AI-ul propune singur titlul și descrierea - sau, dacă nu ai poze acum, poți completa totul manual."
         )
       );
 

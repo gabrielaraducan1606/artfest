@@ -60,6 +60,41 @@ function ProductRow({ item, busyId, onApprove, onReject, onHideAgain }) {
         )}
       </div>
 
+      {item.videoUrl && (
+        <div
+          style={{
+            width: 150,
+            flex: "0 0 auto",
+          }}
+        >
+          <video
+            src={item.videoUrl}
+            poster={firstImage || undefined}
+            controls
+            playsInline
+            preload="metadata"
+            style={{
+              width: "100%",
+              maxHeight: 110,
+              borderRadius: 12,
+              background: "#000",
+              display: "block",
+            }}
+          />
+
+          <div
+            className={styles.subtle}
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              textAlign: "center",
+            }}
+          >
+            Video produs
+          </div>
+        </div>
+      )}
+
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{

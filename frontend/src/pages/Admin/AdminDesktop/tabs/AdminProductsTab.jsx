@@ -1107,6 +1107,38 @@ function ProductReviewModal({
                     are poze.
                   </div>
                 )}
+
+                {product.videoUrl ? (
+                  <div
+                    className={
+                      styles.videoSection
+                    }
+                  >
+                    <p
+                      className={
+                        styles.videoSectionLabel
+                      }
+                    >
+                      Video produs
+                    </p>
+
+                    <video
+                      src={
+                        product.videoUrl
+                      }
+                      poster={
+                        images[0] ||
+                        undefined
+                      }
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className={
+                        styles.videoPlayer
+                      }
+                    />
+                  </div>
+                ) : null}
               </div>
 
               <div

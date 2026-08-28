@@ -380,6 +380,7 @@ const EMPTY_PROD_FORM = {
   description: "",
   price: "",
   images: [],
+  videoUrl: null,
   category: "",
   color: "",
 

@@ -1011,6 +1011,7 @@ router.post("/store/:slug/products", async (req, res) => {
     description,
     price,
     images,
+    videoUrl,
     category,
     availability = "READY",
     leadTimeDays,
@@ -1055,6 +1056,11 @@ router.post("/store/:slug/products", async (req, res) => {
     ? images.filter((u) => typeof u === "string" && u.trim())
     : [];
 
+  const normalizedVideoUrl =
+    typeof videoUrl === "string" && /^https?:\/\//i.test(videoUrl.trim())
+      ? videoUrl.trim()
+      : null;
+
   const avail = normalizeAvailabilityPayload(
     { availability, leadTimeDays, readyQty, nextShipDate },
     null
@@ -1069,6 +1075,7 @@ router.post("/store/:slug/products", async (req, res) => {
       description: (description || "").trim(),
       priceCents: Math.round(priceNum * 100),
       images: imgs,
+      videoUrl: normalizedVideoUrl,
       currency: currency || "RON",
       isActive: !!isActive,
       isHidden: !!isHidden,
@@ -1087,6 +1094,7 @@ router.post("/store/:slug/products", async (req, res) => {
     description: created.description || "",
     price: created.priceCents / 100,
     images: created.images || [],
+    videoUrl: created.videoUrl || null,
     currency: created.currency,
     category: created.category || null,
     isActive: created.isActive,
@@ -1110,6 +1118,7 @@ router.put("/products/:id", async (req, res) => {
     description,
     price,
     images,
+    videoUrl,
     isActive,
     category,
     isHidden,
@@ -1157,6 +1166,13 @@ router.put("/products/:id", async (req, res) => {
     data.images = images.filter((u) => typeof u === "string" && u.trim());
   }
 
+  if (videoUrl !== undefined) {
+    data.videoUrl =
+      typeof videoUrl === "string" && /^https?:\/\//i.test(videoUrl.trim())
+        ? videoUrl.trim()
+        : null;
+  }
+
   if (isActive !== undefined) data.isActive = !!isActive;
   if (isHidden !== undefined) data.isHidden = !!isHidden;
 
@@ -1192,6 +1208,7 @@ router.put("/products/:id", async (req, res) => {
     description: updated.description || "",
     price: updated.priceCents / 100,
     images: updated.images || [],
+    videoUrl: updated.videoUrl || null,
     currency: updated.currency,
     isActive: updated.isActive,
     isHidden: !!updated.isHidden,
@@ -1284,6 +1301,7 @@ router.get("/products/:id", async (req, res) => {
     description: p.description || "",
     price: Math.round(p.priceCents) / 100,
     images: Array.isArray(p.images) ? p.images : [],
+    videoUrl: p.videoUrl || null,
     currency: p.currency || "RON",
     category: p.category || null,
     isActive: p.isActive,

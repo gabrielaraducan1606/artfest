@@ -1,9 +1,11 @@
 import { useState } from "react";
 
 import styles from "../../../components/css/ProductModal.module.css";
+import ProductVideoField from "../../../../../../components/ProductVideoField";
 
 export default function ProductImagesSection({
   form,
+  setForm,
   aiImagePreview,
   aiImageLoading,
   aiLoading,
@@ -593,6 +595,23 @@ pentru a completa automat detaliile.
 Poza marcată cu ★ este folosită
 pentru editarea imaginii cu AI.
         </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <ProductVideoField
+          videoUrl={form.videoUrl || null}
+          posterUrl={
+            form.images?.[0]
+              ? resolveProductImageUrl(form.images[0])
+              : null
+          }
+          onChange={(url) =>
+            setForm?.((current) => ({
+              ...current,
+              videoUrl: url,
+            }))
+          }
+        />
       </div>
     </>
   );

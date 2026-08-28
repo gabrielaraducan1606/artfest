@@ -22,6 +22,7 @@ import React, {
 import Modal from "../ui/Modal";
 import { api } from "../../../../lib/api";
 import { uploadFile } from "../../../../lib/uploadFile";
+import ProductVideoField from "../../../../components/ProductVideoField";
 import styles from "../components/css/ProductModal.module.css";
 
 // IMPORTURI CONSTANTE – la fel ca în ProductModal
@@ -581,6 +582,7 @@ const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
     price: "",
     currency: "RON",
     images: [],
+    videoUrl: null,
     isActive: true,
     isHidden: false,
     category: "",
@@ -780,6 +782,7 @@ const onFilesPicked = useCallback(async (files) => {
           price: String(price),
           currency: p?.currency || "RON",
           images: Array.isArray(p?.images) ? p.images : [],
+          videoUrl: p?.videoUrl || null,
           isActive: !!p?.isActive,
           isHidden: !!p?.isHidden,
           category: p?.category || "",
@@ -894,6 +897,7 @@ const onFilesPicked = useCallback(async (files) => {
       price: toNum(form.price),
       currency: form.currency,
       images: form.images,
+      videoUrl: form.videoUrl || null,
       isActive: !!form.isActive,
       isHidden: !!form.isHidden,
       category: form.category || null,
@@ -950,6 +954,7 @@ const onFilesPicked = useCallback(async (files) => {
           : 0,
       currency: initial?.currency || "RON",
       images: Array.isArray(initial?.images) ? initial.images : [],
+      videoUrl: initial?.videoUrl || null,
       isActive: !!initial?.isActive,
       isHidden: !!initial?.isHidden,
       category: initial?.category || null,
@@ -1065,6 +1070,7 @@ const onFilesPicked = useCallback(async (files) => {
         description: form.description,
         price: toNum(form.price),
         images: form.images,
+        videoUrl: form.videoUrl || null,
         isActive: !!form.isActive,
         isHidden: !!form.isHidden,
         category: form.category || null,
@@ -1750,6 +1756,16 @@ const onFilesPicked = useCallback(async (files) => {
                   • Poți lipi (paste) un URL de imagine direct aici.<br />
                   • Reordonează cu drag &amp; drop. ★ marchează imaginea
                   principală (prima în listă).
+                </div>
+
+                <div style={{ marginTop: 18 }}>
+                  <ProductVideoField
+                    videoUrl={form.videoUrl || null}
+                    posterUrl={form.images?.[0] || null}
+                    onChange={(url) =>
+                      setForm((f) => ({ ...f, videoUrl: url }))
+                    }
+                  />
                 </div>
               </div>
             </AccordionSection>

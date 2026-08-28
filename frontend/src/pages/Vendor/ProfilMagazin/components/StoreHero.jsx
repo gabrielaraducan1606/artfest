@@ -43,7 +43,7 @@ export default function StoreHero({
   handleAddProduct,
 
   // CAMPANII
-  //onOpenCampaigns,
+  onOpenCampaigns,
 
   showAddProductHint = false,
   heroActionsRef,
@@ -146,13 +146,13 @@ Hai să ajungem împreună la 1000 de creatori!
     handleAddProduct?.();
   }
 
- /* function onCampaignsClick() {
+  function onCampaignsClick() {
     setShowActivationHint(false);
 
     if (typeof onOpenCampaigns === "function") {
       onOpenCampaigns();
     }
-  }*/
+  }
 
   function onSkipAddProductHint() {
     onDismissAddProductHint?.();
@@ -617,22 +617,40 @@ Hai să ajungem împreună la 1000 de creatori!
                     )}
                   </div>
 
-                  {/* CAMPANII — dezactivat temporar */}
-<button
-  className={styles.followBtn}
-  type="button"
-  disabled
-  title="Campaniile sunt temporar indisponibile"
-  style={{
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    opacity: 0.55,
-    cursor: "not-allowed",
-  }}
->
-  ✨ Campanii
-</button>
+                  {/* CAMPANII */}
+                  <button
+                    className={
+                      styles.followBtn
+                    }
+                    type="button"
+                    onClick={
+                      onCampaignsClick
+                    }
+                    disabled={
+                      typeof onOpenCampaigns !==
+                      "function"
+                    }
+                    title="Vezi campaniile magazinului"
+                    style={{
+                      display:
+                        "inline-flex",
+                      alignItems:
+                        "center",
+                      gap: 6,
+                      opacity:
+                        typeof onOpenCampaigns ===
+                        "function"
+                          ? 1
+                          : 0.6,
+                      cursor:
+                        typeof onOpenCampaigns ===
+                        "function"
+                          ? "pointer"
+                          : "not-allowed",
+                    }}
+                  >
+                    ✨ Campanii
+                  </button>
 
                   <div
                     className={

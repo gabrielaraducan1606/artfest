@@ -4,8 +4,11 @@ import React, {
   useMemo,
 } from "react";
 
+import ProductVideoField from "../../../../components/ProductVideoField";
+
 const EMPTY_DRAFT = {
   images: [],
+  videoUrl: null,
 
   title: "",
   description: "",
@@ -765,6 +768,56 @@ export default function VendorProductWizard({
                 </button>
               )}
             </div>
+
+            <button
+              type="button"
+              style={{
+                ...secondaryButtonStyle,
+                marginTop: 8,
+              }}
+              onClick={() =>
+                goToStep(
+                  "details"
+                )
+              }
+            >
+              Nu am poze acum, continui fără AI
+            </button>
+
+            <small
+              style={{
+                display: "block",
+                marginTop: 6,
+                color: "#8a6f62",
+                lineHeight: 1.4,
+              }}
+            >
+              Poți completa titlul,
+              descrierea și restul
+              informațiilor manual, la
+              pasul următor.
+            </small>
+
+            <div style={{ marginTop: 16 }}>
+              <ProductVideoField
+                videoUrl={
+                  safeDraft.videoUrl ||
+                  null
+                }
+                posterUrl={
+                  images[0]
+                    ? getImageUrl(
+                        images[0]
+                      )
+                    : null
+                }
+                onChange={(url) =>
+                  updateDraft({
+                    videoUrl: url,
+                  })
+                }
+              />
+            </div>
           </>
         )}
 
@@ -1114,6 +1167,55 @@ export default function VendorProductWizard({
             <div
               style={{
                 ...cardStyle,
+                background: "#eef2ff",
+                borderColor:
+                  "rgba(67, 56, 202, 0.18)",
+              }}
+            >
+              <strong
+                style={{
+                  display: "block",
+                  marginBottom: 6,
+                }}
+              >
+                Variantă vs. personalizare
+              </strong>
+
+              <p
+                style={{
+                  margin: "0 0 6px",
+                  color: "#3730a3",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong>Variantă</strong> =
+                clientul alege dintre opțiuni
+                deja definite de tine. Ex:
+                Culoare → Alb / Roz / Verde.
+              </p>
+
+              <p
+                style={{
+                  margin: 0,
+                  color: "#3730a3",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong>
+                  Personalizare
+                </strong>{" "}
+                = clientul introduce
+                propria informație. Ex:
+                Nume, text, dată eveniment
+                sau o fotografie.
+              </p>
+            </div>
+
+            <div
+              style={{
+                ...cardStyle,
 
                 background:
                   "#f8f4f1",
@@ -1350,7 +1452,32 @@ export default function VendorProductWizard({
                       1.5,
                   }}
                 >
-                  AI-ul a detectat că produsul conține mai multe elemente sau persoane care trebuie configurate separat.
+                  AI-ul a detectat că produsul conține mai multe elemente sau persoane care trebuie configurate separat. Clientul va putea adăuga mai mulți membri și, pentru fiecare, va completa:
+                </p>
+
+                <p
+                  style={{
+                    margin:
+                      "6px 0 0",
+                    color:
+                      "#493932",
+                    fontSize:
+                      13,
+                    fontWeight: 700,
+                  }}
+                >
+                  {(
+                    safeDraft
+                      .repeatedGroups[0]
+                      ?.fields || []
+                  )
+                    .map(
+                      (field) =>
+                        field.label
+                    )
+                    .filter(Boolean)
+                    .join(", ") ||
+                    "(niciun câmp identificat încă)"}
                 </p>
               </div>
             )}
@@ -1926,6 +2053,12 @@ export default function VendorProductWizard({
                           .length
                       }
                     </strong>
+                  </span>
+                )}
+
+                {safeDraft.videoUrl && (
+                  <span>
+                    Video: <strong>Da</strong>
                   </span>
                 )}
               </div>

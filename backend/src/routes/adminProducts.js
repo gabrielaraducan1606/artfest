@@ -121,6 +121,7 @@ function mapProduct(p) {
     description: p.description || "",
     price: Math.round(p.priceCents) / 100,
     images: Array.isArray(p.images) ? p.images : [],
+    videoUrl: p.videoUrl || null,
     currency: p.currency || "RON",
     isActive: p.isActive,
     isHidden: !!p.isHidden,

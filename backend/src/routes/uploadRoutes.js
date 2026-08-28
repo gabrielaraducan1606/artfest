@@ -3,7 +3,7 @@ import { Router } from "express";
 import multer from "multer";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import sharp from "sharp";
-import { authRequired } from "../api/auth.js";
+import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
 
 const router = Router();
 
@@ -141,6 +141,29 @@ const uploadSupport = multer({
   fileFilter: supportFileFilter,
 });
 
+const ALLOWED_VIDEO_MIME_TYPES = ["video/mp4", "video/webm"];
+
+function videoFileFilter(req, file, cb) {
+  const mime = String(file.mimetype || "").toLowerCase();
+
+  if (!ALLOWED_VIDEO_MIME_TYPES.includes(mime)) {
+    console.warn("[UPLOAD] Format video respins:", {
+      mimetype: file.mimetype,
+      originalname: file.originalname,
+    });
+
+    return cb(new Error("INVALID_VIDEO_TYPE"));
+  }
+
+  cb(null, true);
+}
+
+const uploadVideo = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: videoFileFilter,
+});
+
 function buildPublicUrl(key) {
   if (R2_PUBLIC_BASE_URL) {
     return `${R2_PUBLIC_BASE_URL.replace(/\/+$/, "")}/${key}`;
@@ -172,6 +195,8 @@ function handleUploadError(err, res, context = "upload") {
           ? "Fișierul este prea mare (max 20MB)."
           : context === "products"
           ? "Imaginea este prea mare (max 100MB)."
+          : context === "video"
+          ? "Videoul este prea mare (max 50MB)."
           : "Fișierul este prea mare (max 10MB).",
     });
   }
@@ -189,6 +214,13 @@ function handleUploadError(err, res, context = "upload") {
       error: "invalid_file_type",
       message:
         "Format invalid. Acceptăm imagini JPG, PNG, WEBP, GIF, HEIC, HEIF, PDF, TXT, DOC sau DOCX.",
+    });
+  }
+
+  if (err?.message === "INVALID_VIDEO_TYPE") {
+    return res.status(415).json({
+      error: "invalid_file_type",
+      message: "Format invalid. Acceptăm doar video MP4 sau WebM.",
     });
   }
 
@@ -286,6 +318,52 @@ async function uploadToR2({ file, folder, userId, index = null }) {
     key,
     name: safeOriginalName,
     size: body.length,
+    mimeType: mime,
+  };
+}
+
+/**
+ * Upload video direct pe R2, FĂRĂ sharp (sharp nu procesează video).
+ * Reutilizează r2Client / buildPublicUrl / sanitizeFileName, la fel
+ * ca uploadToR2, dar fără nicio conversie a conținutului.
+ */
+async function uploadVideoToR2({ file, folder, userId }) {
+  const mime = file.mimetype || "application/octet-stream";
+  const safeOriginalName = sanitizeFileName(file.originalname || "video");
+
+  const timestamp = Date.now();
+  const key = `${folder}/${userId}/${timestamp}-${safeOriginalName}`;
+
+  const putCommand = new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: key,
+    Body: file.buffer,
+    ContentType: mime,
+    CacheControl: "public, max-age=31536000, immutable",
+  });
+
+  console.info("[UPLOAD] Start R2 video upload:", {
+    folder,
+    userId,
+    key,
+    mime,
+    size: file.size,
+    originalname: file.originalname,
+  });
+
+  await r2Client.send(putCommand);
+
+  console.info("[UPLOAD] R2 video upload success:", {
+    folder,
+    userId,
+    key,
+  });
+
+  return {
+    url: buildPublicUrl(key),
+    key,
+    name: safeOriginalName,
+    size: file.size,
     mimeType: mime,
   };
 }
@@ -404,6 +482,60 @@ router.post("/products", authRequired, (req, res) => {
     }
   });
 });
+
+/**
+ * POST /api/upload/products/video
+ * Video de produs - maxim 1 per produs (impus de câmpul unic
+ * Product.videoUrl, nu de acest endpoint - fiecare upload nou
+ * înlocuiește pur și simplu URL-ul salvat pe produs).
+ * FormData: file=<binary>
+ */
+router.post(
+  "/products/video",
+  authRequired,
+  enforceTokenVersion,
+  requireRole("VENDOR", "ADMIN"),
+  (req, res) => {
+    uploadVideo.single("file")(req, res, async (err) => {
+      if (err) return handleUploadError(err, res, "video");
+
+      try {
+        const userId = getUserId(req);
+
+        if (!userId) {
+          return res.status(403).json({
+            error: "unauthorized",
+            message: "Trebuie să fii autentificat pentru upload.",
+          });
+        }
+
+        if (!req.file) {
+          return res.status(400).json({
+            error: "no_file",
+            message: "Nu ai trimis niciun fișier.",
+          });
+        }
+
+        const uploaded = await uploadVideoToR2({
+          file: req.file,
+          folder: "products-video",
+          userId,
+        });
+
+        return res.json({
+          ok: true,
+          url: uploaded.url,
+          key: uploaded.key,
+          name: uploaded.name,
+          size: uploaded.size,
+          mimeType: uploaded.mimeType,
+        });
+      } catch (err) {
+        return handleUploadError(err, res, "video");
+      }
+    });
+  }
+);
 
 /**
  * POST /api/upload/support

@@ -1,21 +1,75 @@
 // src/pages/ProductDetails/components/ProductGallery.jsx
-import React, { useMemo } from "react";
-import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { FaChevronLeft, FaChevronRight, FaPlay, FaVideo } from "react-icons/fa";
 import styles from "../ProductDetails.module.css";
 import { withCache, resolveFileUrl } from "../hooks/urlUtils.js";
 import { onImgError } from "../../../../components/utils/imageFallback.js";
 
 /**
- * Galerie de imagini pentru produs.
+ * Frame real din video (nu poza produsului), folosit ca thumbnail
+ * în galerie. Cât timp frame-ul nu s-a putut încă genera (sau
+ * browserul nu poate), rămâne vizibil fallback-ul neutru.
+ */
+function VideoFrameThumb({ src }) {
+  const [ready, setReady] = useState(false);
+
+  const handleLoadedMetadata = (e) => {
+    const el = e.currentTarget;
+    const duration =
+      Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+    const target = duration > 0 ? Math.min(0.1, Math.max(0, duration - 0.05)) : 0.1;
+
+    try {
+      el.currentTime = target;
+    } catch {
+      /* fallback-ul rămâne vizibil */
+    }
+  };
+
+  return (
+    <span className={styles.videoThumbFrame}>
+      <video
+        src={src}
+        muted
+        playsInline
+        preload="metadata"
+        tabIndex={-1}
+        aria-hidden="true"
+        className={styles.videoThumbVideo}
+        onLoadedMetadata={handleLoadedMetadata}
+        onSeeked={() => setReady(true)}
+        onLoadedData={() => setReady(true)}
+      />
+
+      {!ready && (
+        <span className={styles.videoThumbFallback} aria-hidden="true">
+          <FaVideo />
+        </span>
+      )}
+
+      <span className={styles.videoThumbPlayIcon} aria-hidden="true">
+        <FaPlay />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Galerie de imagini + video pentru produs.
  * Optimizări:
  * - imaginea principală are prioritate mare
  * - thumbnails sunt lazy
  * - URL-urile sunt memoizate corect
  * - width/height pentru stabilitate layout
+ *
+ * Ordinea slide-urilor (când există video): poza principală,
+ * apoi videoul, apoi restul pozelor. Videoul nu e niciodată
+ * amestecat în images[].
  */
 function ProductGalleryBase({
   productTitle,
   images,
+  videoUrl,
   activeIdx,
   setActiveIdx,
   activeSrc,
@@ -30,29 +84,112 @@ function ProductGalleryBase({
     return safeImages.map((img) => withCache(resolveFileUrl(img), cacheT));
   }, [images, cacheT]);
 
-  const activeImageSrc =
-    activeSrc || resolvedImages[activeIdx] || resolvedImages[0] || "";
+  const hasVideo = !!videoUrl;
+  const slideCount = resolvedImages.length + (hasVideo ? 1 : 0);
 
-  const canNavigate = resolvedImages.length > 1;
+  // Videoul ocupă slot-ul 1 (după poza principală) dacă există poze,
+  // altfel slot-ul 0. Trebuie ținut în sincron cu ProductDetails.jsx
+  // (slideIndexForImage / imageIndexForSlide).
+  const videoSlideIndex = hasVideo ? (resolvedImages.length ? 1 : 0) : -1;
+  const isVideoActive = hasVideo && activeIdx === videoSlideIndex;
+  const imageIdx = !hasVideo
+    ? activeIdx
+    : activeIdx <= 0
+    ? 0
+    : Math.max(0, activeIdx - 1);
+
+  const videoRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [frameReady, setFrameReady] = useState(false);
+
+  // La schimbarea slide-ului de pe video: oprim redarea (unmount-ul
+  // <video> de mai jos o face oricum) și resetăm starea la
+  // preview/play, nu redare automată la revenire.
+  useEffect(() => {
+    if (!isVideoActive) {
+      setIsPlaying(false);
+      setFrameReady(false);
+    }
+  }, [isVideoActive]);
+
+  const playVideo = (e) => {
+    e.stopPropagation();
+    videoRef.current?.play();
+    setIsPlaying(true);
+  };
+
+  const handleVideoLoadedMetadata = (e) => {
+    const el = e.currentTarget;
+    const duration =
+      Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+    const target = duration > 0 ? Math.min(0.1, Math.max(0, duration - 0.05)) : 0.1;
+
+    try {
+      el.currentTime = target;
+    } catch {
+      /* fallback-ul neutru rămâne vizibil */
+    }
+  };
+
+  const activeImageSrc =
+    activeSrc || resolvedImages[imageIdx] || resolvedImages[0] || "";
+
+  const canNavigate = slideCount > 1;
 
   const goPrev = () => {
-    setActiveIdx((i) => (i - 1 + resolvedImages.length) % resolvedImages.length);
+    setActiveIdx((i) => (i - 1 + slideCount) % slideCount);
   };
 
   const goNext = () => {
-    setActiveIdx((i) => (i + 1) % resolvedImages.length);
+    setActiveIdx((i) => (i + 1) % slideCount);
   };
+
+  const thumbItems = useMemo(() => {
+    const items = [];
+
+    if (hasVideo && resolvedImages.length === 0) {
+      items.push({ type: "video", slideIdx: videoSlideIndex });
+    }
+
+    resolvedImages.forEach((src, i) => {
+      if (i === 0) {
+        items.push({ type: "image", slideIdx: 0, src, imgIndex: 0 });
+        if (hasVideo) {
+          items.push({ type: "video", slideIdx: videoSlideIndex });
+        }
+        return;
+      }
+
+      items.push({
+        type: "image",
+        slideIdx: hasVideo ? i + 1 : i,
+        src,
+        imgIndex: i,
+      });
+    });
+
+    return items;
+  }, [resolvedImages, hasVideo, videoSlideIndex]);
 
   return (
     <div className={styles.gallery}>
       <div
         className={styles.mainImgWrap}
-        onClick={() => setZoomOpen(true)}
+        onClick={() => {
+          if (!isVideoActive) setZoomOpen(true);
+        }}
         role="button"
         tabIndex={0}
-        aria-label="Deschide imaginea la dimensiune mare"
+        aria-label={
+          isVideoActive
+            ? "Video produs"
+            : "Deschide imaginea la dimensiune mare"
+        }
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+          if (
+            (e.key === "Enter" || e.key === " ") &&
+            !isVideoActive
+          ) {
             e.preventDefault();
             setZoomOpen(true);
           }
@@ -73,18 +210,60 @@ function ProductGalleryBase({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        <img
-          src={activeImageSrc}
-          alt={productTitle || "Produs"}
-          className={styles.mainImg}
-          decoding="async"
-          loading="eager"
-          fetchPriority="high"
-          width={1000}
-          height={750}
-          sizes="(max-width: 768px) 100vw, (max-width: 980px) 92vw, 58vw"
-          onError={(e) => onImgError(e, 1000, 750, "Produs")}
-        />
+        {isVideoActive ? (
+          <div className={styles.videoSlide}>
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              controls={isPlaying}
+              playsInline
+              preload="metadata"
+              muted={!isPlaying}
+              className={styles.mainImg}
+              style={{ background: "#000" }}
+              onLoadedMetadata={handleVideoLoadedMetadata}
+              onSeeked={() => setFrameReady(true)}
+              onLoadedData={() => setFrameReady(true)}
+              onPlay={() => setIsPlaying(true)}
+            />
+
+            {!isPlaying && !frameReady && (
+              <div className={styles.videoFrameFallback} aria-hidden="true">
+                <FaVideo className={styles.videoFrameFallbackIcon} />
+                <span className={styles.videoFrameFallbackLabel}>Video</span>
+              </div>
+            )}
+
+            {!isPlaying && (
+              <button
+                type="button"
+                className={styles.videoPlayOverlay}
+                aria-label="Redă videoul"
+                onClick={playVideo}
+              >
+                <span className={styles.videoPlayButton}>
+                  <FaPlay
+                    className={styles.videoPlayIcon}
+                    aria-hidden="true"
+                  />
+                </span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <img
+            src={activeImageSrc}
+            alt={productTitle || "Produs"}
+            className={styles.mainImg}
+            decoding="async"
+            loading="eager"
+            fetchPriority="high"
+            width={1000}
+            height={750}
+            sizes="(max-width: 768px) 100vw, (max-width: 980px) 92vw, 58vw"
+            onError={(e) => onImgError(e, 1000, 750, "Produs")}
+          />
+        )}
 
         {canNavigate && (
           <>
@@ -117,32 +296,45 @@ function ProductGalleryBase({
 
       {canNavigate && (
         <div className={styles.thumbs}>
-          {resolvedImages.map((src, i) => {
-            const isActive = i === activeIdx;
-
-            return (
+          {thumbItems.map((item) =>
+            item.type === "video" ? (
               <button
-                key={`${src}-${i}`}
+                key="video-thumb"
                 className={`${styles.thumb} ${
-                  isActive ? styles.thumbActive : ""
+                  isVideoActive ? styles.thumbActive : ""
                 }`}
-                onClick={() => setActiveIdx(i)}
-                aria-label={`Selectează imaginea ${i + 1}`}
-                aria-pressed={isActive}
+                onClick={() => setActiveIdx(item.slideIdx)}
+                aria-label="Selectează videoul"
+                aria-pressed={isVideoActive}
+                type="button"
+              >
+                <VideoFrameThumb src={videoUrl} />
+              </button>
+            ) : (
+              <button
+                key={`${item.src}-${item.imgIndex}`}
+                className={`${styles.thumb} ${
+                  item.slideIdx === activeIdx ? styles.thumbActive : ""
+                }`}
+                onClick={() => setActiveIdx(item.slideIdx)}
+                aria-label={`Selectează imaginea ${item.imgIndex + 1}`}
+                aria-pressed={item.slideIdx === activeIdx}
                 type="button"
               >
                 <img
-                  src={src}
-                  loading={i <= 3 ? "eager" : "lazy"}
+                  src={item.src}
+                  loading={item.imgIndex <= 3 ? "eager" : "lazy"}
                   decoding="async"
                   width={160}
                   height={120}
-                  alt={`${productTitle || "Produs"} - imagine ${i + 1}`}
+                  alt={`${productTitle || "Produs"} - imagine ${
+                    item.imgIndex + 1
+                  }`}
                   onError={(e) => onImgError(e, 160, 120, "Produs")}
                 />
               </button>
-            );
-          })}
+            )
+          )}
         </div>
       )}
     </div>

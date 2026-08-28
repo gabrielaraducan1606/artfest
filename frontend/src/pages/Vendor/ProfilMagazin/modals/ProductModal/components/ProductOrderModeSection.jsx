@@ -181,6 +181,67 @@ function hasSchemaField(schema, key) {
   );
 }
 
+/*
+ * Ce vede clientul, în cuvinte simple, pentru
+ * fiecare tip de câmp de personalizare - vendorul
+ * trebuie să înțeleagă asta fără să publice produsul.
+ */
+function describeCustomFieldPreview(field) {
+  const label =
+    field.label || "acest câmp";
+
+  const type = field.type || "text";
+
+  if (type === "file") {
+    return `Clientul va vedea un buton „Încarcă fotografie” pentru „${label}”.`;
+  }
+
+  if (type === "date") {
+    return `Clientul va alege o dată dintr-un calendar pentru „${label}”.`;
+  }
+
+  if (type === "textarea") {
+    return `Clientul va scrie un text (mai lung) la „${label}”.`;
+  }
+
+  return `Clientul va scrie un text scurt la „${label}”.`;
+}
+
+function describeQuoteFieldPreview(field) {
+  const label =
+    field.label || "această întrebare";
+
+  const type = field.type || "text";
+
+  if (type === "select") {
+    const options = Array.isArray(
+      field.options
+    )
+      ? field.options.filter(Boolean)
+      : [];
+
+    return options.length
+      ? `Clientul va alege una din: ${options.join(
+          ", "
+        )}.`
+      : `Clientul va alege dintr-o listă de opțiuni la „${label}” (adaugă opțiunile mai jos).`;
+  }
+
+  if (type === "number") {
+    return `Clientul va introduce un număr la „${label}”.`;
+  }
+
+  if (type === "date") {
+    return `Clientul va alege o dată dintr-un calendar pentru „${label}”.`;
+  }
+
+  if (type === "textarea") {
+    return `Clientul va scrie un răspuns (mai lung) la „${label}”.`;
+  }
+
+  return `Clientul va scrie un răspuns scurt la „${label}”.`;
+}
+
 function normalizeOptionField(field) {
   return {
     key:
@@ -2614,6 +2675,16 @@ return (
 
                                 Câmp obligatoriu
                               </label>
+
+                              <div
+                                className={
+                                  styles.tip
+                                }
+                              >
+                                {describeCustomFieldPreview(
+                                  field
+                                )}
+                              </div>
                             </div>
                           )
                         )}
@@ -3112,6 +3183,16 @@ return (
 
                         Câmp obligatoriu
                       </label>
+
+                      <div
+                        className={
+                          styles.tip
+                        }
+                      >
+                        {describeQuoteFieldPreview(
+                          field
+                        )}
+                      </div>
 
                       {field.type ===
                         "select" && (

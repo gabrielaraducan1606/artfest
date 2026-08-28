@@ -351,6 +351,28 @@
   color: #6b7787;
 }
 
+.videoSection {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed #d8dbe2;
+}
+
+.videoSectionLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7787;
+  margin: 0 0 8px;
+}
+
+.videoPlayer {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 14px;
+  border: 1px solid #eceef3;
+  background: #000;
+  display: block;
+}
+
 .detailsPanel,
 .descriptionBox {
   border: 1px solid #eceef3;

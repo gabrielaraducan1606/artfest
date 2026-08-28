@@ -365,13 +365,35 @@ setRepeatedGroupAnswers({});
     return list.length ? list : [productPlaceholder(1000, 750, "Produs")];
   }, [product?.images]);
 
+  /*
+   * Când există video, el ocupă slot-ul 1 în galerie (după poza
+   * principală), separat de images[] - imageIdx e poziția reală
+   * în images[]. slideIndexForImage/imageIndexForSlide traduc
+   * între cele două spații de indexare (trebuie să rămână în
+   * sincron cu ordinea de slide-uri din ProductGallery.jsx).
+   */
+  const hasVideoSlide = !!product?.videoUrl;
+
+  const slideIndexForImage = useCallback(
+    (imgIdx) => (hasVideoSlide ? (imgIdx <= 0 ? 0 : imgIdx + 1) : imgIdx),
+    [hasVideoSlide]
+  );
+
+  const imageIndexForSlide = useCallback(
+    (slideIdx) =>
+      hasVideoSlide ? (slideIdx <= 0 ? 0 : Math.max(0, slideIdx - 1)) : slideIdx,
+    [hasVideoSlide]
+  );
+
   useEffect(() => {
-    setActiveIdx((i) => (images[i] ? i : 0));
-  }, [images]);
+    setActiveIdx((i) => (images[imageIndexForSlide(i)] ? i : 0));
+  }, [images, imageIndexForSlide]);
+
+  const imageIdx = imageIndexForSlide(activeIdx);
 
   const activeSrc = useMemo(
-    () => withCache(resolveFileUrl(images[activeIdx] || images[0]), cacheT),
-    [images, activeIdx, cacheT]
+    () => withCache(resolveFileUrl(images[imageIdx] || images[0]), cacheT),
+    [images, imageIdx, cacheT]
   );
 
   useEffect(() => {
@@ -393,13 +415,15 @@ setRepeatedGroupAnswers({});
   }, [activeSrc]);
 
   useEffect(() => {
-    const next = images[(activeIdx + 1) % images.length];
+    if (!images.length) return;
+
+    const next = images[(imageIdx + 1) % images.length];
     if (!next) return;
 
     const img = new Image();
     img.decoding = "async";
     img.src = withCache(resolveFileUrl(next), cacheT);
-  }, [activeIdx, images, cacheT]);
+  }, [imageIdx, images, cacheT]);
 
 const priceDisplay = useMemo(() => {
   if (!product) {
@@ -3070,6 +3094,7 @@ const uploadCustomizationFile = useCallback(
         <ProductGallery
           productTitle={product.title}
           images={images}
+          videoUrl={product.videoUrl || null}
           activeIdx={activeIdx}
           setActiveIdx={setActiveIdx}
           activeSrc={activeSrc}
@@ -4678,8 +4703,20 @@ const isUploading =
           <ImageZoom
             open={zoomOpen}
             images={images}
-            activeIdx={activeIdx}
-            setActiveIdx={setActiveIdx}
+            activeIdx={imageIdx}
+            setActiveIdx={
+              hasVideoSlide
+                ? (updater) =>
+                    setActiveIdx((current) => {
+                      const zoomIdx = imageIndexForSlide(current);
+                      const nextZoomIdx =
+                        typeof updater === "function"
+                          ? updater(zoomIdx)
+                          : updater;
+                      return slideIndexForImage(nextZoomIdx);
+                    })
+                : setActiveIdx
+            }
             activeSrc={activeSrc}
             onClose={() => setZoomOpen(false)}
           />

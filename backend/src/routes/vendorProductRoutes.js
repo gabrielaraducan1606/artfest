@@ -171,6 +171,9 @@ function mapProduct(p) {
         ? p.images
         : [],
 
+    videoUrl:
+      p.videoUrl || null,
+
     currency:
       p.currency || "RON",
 
@@ -1142,6 +1145,7 @@ async function createProduct(req, res) {
       description = "",
       price,
       images = [],
+      videoUrl = null,
       currency = "RON",
       category = null,
       color = null,
@@ -1169,6 +1173,11 @@ quoteSchema = [],
     }
 
     const imgs = normalizeProductImages(images);
+
+    const normalizedVideoUrl =
+      typeof videoUrl === "string" && /^https?:\/\//i.test(videoUrl.trim())
+        ? videoUrl.trim()
+        : null;
 
     let cat = null;
     if (category != null && String(category).trim() !== "") {
@@ -1247,6 +1256,7 @@ console.info("[PRODUCT CREATE]", {
         priceCents,
         currency: String(currency || "RON"),
         images: imgs,
+        videoUrl: normalizedVideoUrl,
 
         isActive: req.body.isActive !== false, // default true
 isHidden: !!req.body.isHidden,         // default false
@@ -1379,6 +1389,14 @@ if (
     message: "Produsul trebuie să aibă cel puțin o imagine validă.",
   });
 }
+
+    if (req.body.videoUrl !== undefined) {
+      const v = req.body.videoUrl;
+      patch.videoUrl =
+        typeof v === "string" && /^https?:\/\//i.test(v.trim())
+          ? v.trim()
+          : null;
+    }
 
     if (req.body.category !== undefined) {
       const v = req.body.category;

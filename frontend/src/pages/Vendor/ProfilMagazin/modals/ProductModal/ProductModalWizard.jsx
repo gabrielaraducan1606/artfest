@@ -1,9 +1,12 @@
+import { useState } from "react";
+
 import styles from "../../components/css/ProductModal.module.css";
 
 import ProductImagesSection from "./components/ProductImagesSection";
 import ProductDetailsSection from "./components/ProductDetailsSection";
 import ProductOrderModeSection from "./components/ProductOrderModeSection";
 import ProductWizardNav from "./components/ProductWizardNav";
+import ProductClientPreviewModal from "./components/ProductClientPreviewModal";
 
 const PRODUCT_STEPS = [
   { key: "images", label: "Poze" },
@@ -101,6 +104,11 @@ export default function ProductModalWizard({
   setPriceSuggestion,
   setPriceWarningConfirmed,
 }) {
+  const [
+    clientPreviewOpen,
+    setClientPreviewOpen,
+  ] = useState(false);
+
   const normalizedOrderMode =
     normalizeOrderMode(
       form.orderMode
@@ -222,6 +230,78 @@ const hasOrderFields =
       !!form.category &&
       isOrderConfigurationComplete,
   };
+
+  /*
+   * Ce anume lipsește, în cuvinte simple, pentru
+   * fiecare pas - vendorul trebuie să vadă exact
+   * ce are de completat, nu doar un buton dezactivat.
+   * Reutilizează flag-urile deja calculate mai sus,
+   * nu introduce nicio regulă nouă de validare.
+   */
+  const missingItemsByStep = {
+    images: hasImages
+      ? []
+      : [
+          "Adaugă cel puțin o fotografie a produsului.",
+        ],
+
+    details: [
+      !form.title?.trim() &&
+        "Completează titlul produsului.",
+      !form.description?.trim() &&
+        "Completează descrierea produsului.",
+      !form.category &&
+        "Alege o categorie pentru produs.",
+    ].filter(Boolean),
+
+    customization: (() => {
+      if (
+        normalizedOrderMode ===
+        "READY_TO_BUY"
+      ) {
+        return [
+          !hasValidPrice &&
+            "Completează prețul produsului.",
+          !hasValidStock &&
+            "Completează stocul disponibil.",
+        ].filter(Boolean);
+      }
+
+      if (
+        normalizedOrderMode ===
+        "OPTIONS"
+      ) {
+        return [
+          !hasValidPrice &&
+            "Completează prețul produsului.",
+          !hasValidLeadTime &&
+            "Completează timpul estimat de realizare.",
+          !hasOrderFields &&
+            "Adaugă cel puțin o variantă sau un câmp de personalizare.",
+        ].filter(Boolean);
+      }
+
+      if (
+        normalizedOrderMode ===
+        "QUOTE_ONLY"
+      ) {
+        return [
+          !hasValidLeadTime &&
+            "Completează timpul estimat de realizare.",
+          !hasQuoteFields &&
+            "Adaugă cel puțin o întrebare pentru formularul de ofertă.",
+        ].filter(Boolean);
+      }
+
+      return [];
+    })(),
+  };
+
+  const allMissingItems = [
+    ...missingItemsByStep.images,
+    ...missingItemsByStep.details,
+    ...missingItemsByStep.customization,
+  ];
 
   const activeStepIndex =
     PRODUCT_STEPS.findIndex(
@@ -368,6 +448,7 @@ quoteSchema: [],
   };
 
   return (
+    <>
     <form
       onSubmit={
         handleSubmit
@@ -396,6 +477,9 @@ quoteSchema: [],
         <ProductImagesSection
           form={
             form
+          }
+          setForm={
+            setForm
           }
           aiImagePreview={
             aiImagePreview
@@ -873,6 +957,24 @@ quoteSchema: [],
           className={
             styles.linkBtn
           }
+          onClick={() =>
+            setClientPreviewOpen(
+              true
+            )
+          }
+          disabled={
+            !hasImages &&
+            !form.title?.trim()
+          }
+        >
+          👀 Vezi cum va arăta pentru client
+        </button>
+
+        <button
+          type="button"
+          className={
+            styles.linkBtn
+          }
           onClick={
             goToPrevStep
           }
@@ -944,6 +1046,72 @@ quoteSchema: [],
         )}
       </div>
 
+      {!isLastStep &&
+        !!missingItemsByStep[
+          activeStep
+        ]?.length && (
+          <div
+            className={
+              styles.tip
+            }
+            style={{
+              margin: "0 20px 16px",
+            }}
+          >
+            <strong>
+              Mai ai de completat:
+            </strong>
+
+            <ul
+              style={{
+                margin: "6px 0 0",
+                paddingLeft: 18,
+              }}
+            >
+              {missingItemsByStep[
+                activeStep
+              ].map((item) => (
+                <li key={item}>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+      {isLastStep &&
+        !sectionStatus.review &&
+        !!allMissingItems.length && (
+          <div
+            className={
+              styles.tip
+            }
+            style={{
+              margin: "0 20px 16px",
+            }}
+          >
+            <strong>
+              Înainte să publici, mai
+              ai de completat:
+            </strong>
+
+            <ul
+              style={{
+                margin: "6px 0 0",
+                paddingLeft: 18,
+              }}
+            >
+              {allMissingItems.map(
+                (item) => (
+                  <li key={item}>
+                    {item}
+                  </li>
+                )
+              )}
+            </ul>
+          </div>
+        )}
+
       {isLastStep &&
         hasPriceWarning &&
         !priceWarningConfirmed && (
@@ -1009,5 +1177,17 @@ quoteSchema: [],
           </div>
         )}
     </form>
+
+    <ProductClientPreviewModal
+      open={clientPreviewOpen}
+      onClose={() =>
+        setClientPreviewOpen(false)
+      }
+      form={form}
+      resolveProductImageUrl={
+        resolveProductImageUrl
+      }
+    />
+    </>
   );
 }

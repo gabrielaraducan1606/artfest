@@ -5,6 +5,10 @@ export function buildProductPayload(prodForm) {
   const description = prodForm.description || "";
   const price = Number(prodForm.price);
   const images = Array.isArray(prodForm.images) ? prodForm.images : [];
+  const videoUrl =
+    typeof prodForm.videoUrl === "string" && prodForm.videoUrl.trim()
+      ? prodForm.videoUrl.trim()
+      : null;
   const category = (prodForm.category || "").trim();
 const orderMode = String(
   prodForm.orderMode || "READY_TO_BUY"
@@ -49,6 +53,7 @@ const quoteSchema = Array.isArray(prodForm.quoteSchema)
   description,
   price,
   images,
+  videoUrl,
   category,
   currency: prodForm.currency || "RON",
   isActive: prodForm.isActive !== false,

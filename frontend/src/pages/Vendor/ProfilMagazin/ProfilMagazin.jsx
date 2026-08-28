@@ -730,6 +730,7 @@ async function handleAcceptGate() {
             ? full.priceCents / 100
             : 0,
         images: Array.isArray(full.images) ? full.images : [],
+        videoUrl: full.videoUrl || null,
         category: full.category || "",
         currency: full.currency || "RON",
         isActive: full.isActive !== false,
