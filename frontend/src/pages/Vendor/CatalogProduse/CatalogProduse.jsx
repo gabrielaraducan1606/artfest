@@ -282,6 +282,7 @@ const [
     currency: "RON",
     images: [],
     videoUrl: null,
+    videoMuted: false,
     category: "",
     color: "",
     isActive: true,
@@ -1182,6 +1183,7 @@ async function openNewProduct() {
 
       images: [],
       videoUrl: null,
+      videoMuted: false,
 
       category: "",
       color: "",
@@ -1286,6 +1288,7 @@ async function openNewProduct() {
         currency: full.currency || "RON",
         images: Array.isArray(full.images) ? full.images : [],
         videoUrl: full.videoUrl || null,
+        videoMuted: !!full.videoMuted,
         category: full.category || "",
         color: full.color || "",
         isActive: full.isActive !== false,
@@ -1471,6 +1474,11 @@ async function openNewProduct() {
 
     videoUrl:
       prodForm.videoUrl || null,
+
+    videoMuted:
+      prodForm.videoUrl
+        ? !!prodForm.videoMuted
+        : false,
 
     category:
       String(

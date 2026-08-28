@@ -70,6 +70,7 @@ function ProductGalleryBase({
   productTitle,
   images,
   videoUrl,
+  videoMuted,
   activeIdx,
   setActiveIdx,
   activeSrc,
@@ -116,6 +117,16 @@ function ProductGalleryBase({
     e.stopPropagation();
     videoRef.current?.play();
     setIsPlaying(true);
+  };
+
+  // Plasă de siguranță suplimentară: dacă `videoMuted` e true (fișier
+  // fără pistă audio, sau produse mai vechi marcate muted înainte de
+  // eliminarea fizică a audio), forțăm mut la orice încercare a
+  // clientului de a da unmute din controalele native.
+  const enforceMuted = (e) => {
+    if (videoMuted && !e.currentTarget.muted) {
+      e.currentTarget.muted = true;
+    }
   };
 
   const handleVideoLoadedMetadata = (e) => {
@@ -218,13 +229,14 @@ function ProductGalleryBase({
               controls={isPlaying}
               playsInline
               preload="metadata"
-              muted={!isPlaying}
+              muted={!isPlaying || !!videoMuted}
               className={styles.mainImg}
               style={{ background: "#000" }}
               onLoadedMetadata={handleVideoLoadedMetadata}
               onSeeked={() => setFrameReady(true)}
               onLoadedData={() => setFrameReady(true)}
               onPlay={() => setIsPlaying(true)}
+              onVolumeChange={enforceMuted}
             />
 
             {!isPlaying && !frameReady && (

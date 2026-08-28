@@ -1237,7 +1237,16 @@ and (
       0
       14px;
   }
+.emptyCreateButton {
+  width: min(100%, 320px);
+  min-height: 48px;
 
+  padding:
+    0
+    18px;
+
+  font-size: 13px;
+}
   .postActions {
     padding:
       4px
@@ -1476,4 +1485,81 @@ and (
 
     font-size: 12px;
   }
+}
+
+/* =========================================================
+   EMPTY STATE
+========================================================= */
+
+.emptyCreateButton {
+  min-height: 46px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 9px;
+
+  margin-top: 8px;
+
+  padding:
+    0
+    22px;
+
+  border:
+    1px solid
+    rgba(139, 92, 246, 0.25);
+
+  border-radius: 13px;
+
+  background:
+    linear-gradient(
+      135deg,
+      var(--color-primary, #8b5cf6),
+      #a78bfa
+    );
+
+  color: #ffffff;
+
+  font-family:
+    var(
+      --font-body,
+      inherit
+    );
+
+  font-size: 13px;
+  font-weight: 800;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 7px 18px
+    rgba(139, 92, 246, 0.18);
+
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
+}
+
+.emptyCreateButton:hover {
+  transform: translateY(-1px);
+
+  box-shadow:
+    0 10px 24px
+    rgba(139, 92, 246, 0.26);
+
+  filter: brightness(1.03);
+}
+
+.emptyCreateButton:active {
+  transform: translateY(0);
+}
+
+.emptyCreateButton:focus-visible {
+  outline:
+    3px solid
+    rgba(139, 92, 246, 0.22);
+
+  outline-offset: 3px;
 }

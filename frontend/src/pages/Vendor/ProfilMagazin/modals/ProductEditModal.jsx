@@ -583,6 +583,7 @@ const [uploadInfo, setUploadInfo] = useState("Niciun fișier ales");
     currency: "RON",
     images: [],
     videoUrl: null,
+    videoMuted: false,
     isActive: true,
     isHidden: false,
     category: "",
@@ -783,6 +784,7 @@ const onFilesPicked = useCallback(async (files) => {
           currency: p?.currency || "RON",
           images: Array.isArray(p?.images) ? p.images : [],
           videoUrl: p?.videoUrl || null,
+          videoMuted: !!p?.videoMuted,
           isActive: !!p?.isActive,
           isHidden: !!p?.isHidden,
           category: p?.category || "",
@@ -898,6 +900,7 @@ const onFilesPicked = useCallback(async (files) => {
       currency: form.currency,
       images: form.images,
       videoUrl: form.videoUrl || null,
+      videoMuted: form.videoUrl ? !!form.videoMuted : false,
       isActive: !!form.isActive,
       isHidden: !!form.isHidden,
       category: form.category || null,
@@ -955,6 +958,7 @@ const onFilesPicked = useCallback(async (files) => {
       currency: initial?.currency || "RON",
       images: Array.isArray(initial?.images) ? initial.images : [],
       videoUrl: initial?.videoUrl || null,
+      videoMuted: initial?.videoUrl ? !!initial?.videoMuted : false,
       isActive: !!initial?.isActive,
       isHidden: !!initial?.isHidden,
       category: initial?.category || null,
@@ -1071,6 +1075,7 @@ const onFilesPicked = useCallback(async (files) => {
         price: toNum(form.price),
         images: form.images,
         videoUrl: form.videoUrl || null,
+        videoMuted: form.videoUrl ? !!form.videoMuted : false,
         isActive: !!form.isActive,
         isHidden: !!form.isHidden,
         category: form.category || null,
@@ -1761,9 +1766,12 @@ const onFilesPicked = useCallback(async (files) => {
                 <div style={{ marginTop: 18 }}>
                   <ProductVideoField
                     videoUrl={form.videoUrl || null}
-                    posterUrl={form.images?.[0] || null}
+                    videoMuted={!!form.videoMuted}
                     onChange={(url) =>
                       setForm((f) => ({ ...f, videoUrl: url }))
+                    }
+                    onMutedChange={(muted) =>
+                      setForm((f) => ({ ...f, videoMuted: muted }))
                     }
                   />
                 </div>

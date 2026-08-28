@@ -731,6 +731,7 @@ async function handleAcceptGate() {
             : 0,
         images: Array.isArray(full.images) ? full.images : [],
         videoUrl: full.videoUrl || null,
+        videoMuted: !!full.videoMuted,
         category: full.category || "",
         currency: full.currency || "RON",
         isActive: full.isActive !== false,

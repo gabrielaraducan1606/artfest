@@ -670,6 +670,7 @@ model Product {
   currency    String   @default("RON")
   images      String[]
   videoUrl    String?
+  videoMuted  Boolean  @default(false)
   isActive    Boolean  @default(true)
   category    String?  @db.VarChar(64)
   color       String?  @db.VarChar(32)

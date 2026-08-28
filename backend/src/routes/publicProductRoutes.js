@@ -1729,6 +1729,7 @@ router.get(
   currency: true,
   images: true,
   videoUrl: true,
+  videoMuted: true,
   category: true,
   color: true,
   colorVariants: true,

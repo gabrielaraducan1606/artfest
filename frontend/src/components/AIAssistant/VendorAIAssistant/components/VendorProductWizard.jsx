@@ -9,6 +9,7 @@ import ProductVideoField from "../../../../components/ProductVideoField";
 const EMPTY_DRAFT = {
   images: [],
   videoUrl: null,
+  videoMuted: false,
 
   title: "",
   description: "",
@@ -804,16 +805,17 @@ export default function VendorProductWizard({
                   safeDraft.videoUrl ||
                   null
                 }
-                posterUrl={
-                  images[0]
-                    ? getImageUrl(
-                        images[0]
-                      )
-                    : null
+                videoMuted={
+                  !!safeDraft.videoMuted
                 }
                 onChange={(url) =>
                   updateDraft({
                     videoUrl: url,
+                  })
+                }
+                onMutedChange={(muted) =>
+                  updateDraft({
+                    videoMuted: muted,
                   })
                 }
               />
@@ -2058,7 +2060,12 @@ export default function VendorProductWizard({
 
                 {safeDraft.videoUrl && (
                   <span>
-                    Video: <strong>Da</strong>
+                    Video:{" "}
+                    <strong>
+                      {safeDraft.videoMuted
+                        ? "Da (fără sunet)"
+                        : "Da (cu sunet)"}
+                    </strong>
                   </span>
                 )}
               </div>

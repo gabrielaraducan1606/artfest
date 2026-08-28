@@ -3095,6 +3095,7 @@ const uploadCustomizationFile = useCallback(
           productTitle={product.title}
           images={images}
           videoUrl={product.videoUrl || null}
+          videoMuted={Boolean(product.videoMuted)}
           activeIdx={activeIdx}
           setActiveIdx={setActiveIdx}
           activeSrc={activeSrc}

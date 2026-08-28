@@ -1255,13 +1255,13 @@ useEffect(() => {
                 </p>
 
                 <button
-                  type="button"
-                  onClick={
-                    handleCreateRequest
-                  }
-                >
-                  Publică prima cerere
-                </button>
+  type="button"
+  className={styles.emptyCreateButton}
+  onClick={handleCreateRequest}
+>
+  <span>✨</span>
+  Publică prima cerere
+</button>
               </div>
             )}
 

@@ -333,6 +333,7 @@ const INITIAL_MESSAGES = [
 const EMPTY_PRODUCT_DRAFT = {
   images: [],
   videoUrl: null,
+  videoMuted: false,
 
   title: "",
   description: "",
@@ -4758,6 +4759,7 @@ async function handlePublishProductFromWizard() {
 
       images: imageUrls,
       videoUrl: draft.videoUrl || null,
+      videoMuted: draft.videoUrl ? !!draft.videoMuted : false,
       currency: draft.currency || "RON",
       category: draft.category || null,
       color: draft.color || null,

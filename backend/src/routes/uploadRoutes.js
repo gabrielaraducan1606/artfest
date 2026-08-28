@@ -1,9 +1,15 @@
 // src/api/upload.js
 import { Router } from "express";
 import multer from "multer";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import { authRequired, enforceTokenVersion, requireRole } from "../api/auth.js";
+import { stripVideoAudio } from "../lib/videoAudio.js";
 
 const router = Router();
 
@@ -327,9 +333,15 @@ async function uploadToR2({ file, folder, userId, index = null }) {
  * Reutilizează r2Client / buildPublicUrl / sanitizeFileName, la fel
  * ca uploadToR2, dar fără nicio conversie a conținutului.
  */
-async function uploadVideoToR2({ file, folder, userId }) {
-  const mime = file.mimetype || "application/octet-stream";
-  const safeOriginalName = sanitizeFileName(file.originalname || "video");
+async function uploadVideoToR2({
+  buffer,
+  mimeType,
+  originalname,
+  folder,
+  userId,
+}) {
+  const mime = mimeType || "application/octet-stream";
+  const safeOriginalName = sanitizeFileName(originalname || "video");
 
   const timestamp = Date.now();
   const key = `${folder}/${userId}/${timestamp}-${safeOriginalName}`;
@@ -337,7 +349,7 @@ async function uploadVideoToR2({ file, folder, userId }) {
   const putCommand = new PutObjectCommand({
     Bucket: R2_BUCKET_NAME,
     Key: key,
-    Body: file.buffer,
+    Body: buffer,
     ContentType: mime,
     CacheControl: "public, max-age=31536000, immutable",
   });
@@ -347,8 +359,8 @@ async function uploadVideoToR2({ file, folder, userId }) {
     userId,
     key,
     mime,
-    size: file.size,
-    originalname: file.originalname,
+    size: buffer.length,
+    originalname,
   });
 
   await r2Client.send(putCommand);
@@ -363,7 +375,7 @@ async function uploadVideoToR2({ file, folder, userId }) {
     url: buildPublicUrl(key),
     key,
     name: safeOriginalName,
-    size: file.size,
+    size: buffer.length,
     mimeType: mime,
   };
 }
@@ -516,8 +528,29 @@ router.post(
           });
         }
 
+        const wantsMuted = String(req.body?.muted || "") === "true";
+
+        let buffer = req.file.buffer;
+        let muted = false;
+
+        if (wantsMuted) {
+          try {
+            buffer = await stripVideoAudio(buffer, req.file.mimetype);
+            muted = true;
+          } catch (stripErr) {
+            console.error("[UPLOAD] Audio strip failed:", stripErr);
+            return res.status(500).json({
+              error: "audio_strip_failed",
+              message:
+                "Nu am putut elimina sunetul din acest video. Încearcă alt fișier.",
+            });
+          }
+        }
+
         const uploaded = await uploadVideoToR2({
-          file: req.file,
+          buffer,
+          mimeType: req.file.mimetype,
+          originalname: req.file.originalname,
           folder: "products-video",
           userId,
         });
@@ -529,11 +562,138 @@ router.post(
           name: uploaded.name,
           size: uploaded.size,
           mimeType: uploaded.mimeType,
+          videoMuted: muted,
         });
       } catch (err) {
         return handleUploadError(err, res, "video");
       }
     });
+  }
+);
+
+function keyFromPublicUrl(url) {
+  const base = R2_PUBLIC_BASE_URL
+    ? R2_PUBLIC_BASE_URL.replace(/\/+$/, "")
+    : `https://${R2_BUCKET_NAME}.${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+
+  if (!url.startsWith(`${base}/`)) return null;
+
+  return url.slice(base.length + 1);
+}
+
+async function streamToBuffer(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * POST /api/upload/products/video/mute
+ * Reprocesează un video DEJA urcat: elimină fizic pista audio,
+ * urcă rezultatul ca obiect nou pe R2, șterge originalul (cu
+ * sunet) ca să nu rămână accesibil pe vechiul URL. Se folosește
+ * când vendorul activează "Fără sunet" pe un video existent, fără
+ * să-l reîncarce.
+ * Body JSON: { videoUrl: string }
+ */
+router.post(
+  "/products/video/mute",
+  authRequired,
+  enforceTokenVersion,
+  requireRole("VENDOR", "ADMIN"),
+  async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const videoUrl = String(req.body?.videoUrl || "").trim();
+
+      if (!videoUrl) {
+        return res.status(400).json({
+          error: "video_url_required",
+          message: "Lipsește URL-ul videoului.",
+        });
+      }
+
+      const key = keyFromPublicUrl(videoUrl);
+
+      if (!key || !key.startsWith("products-video/")) {
+        return res.status(400).json({
+          error: "invalid_video_url",
+          message: "URL de video invalid.",
+        });
+      }
+
+      // Vendorii pot reprocesa doar propriile videouri (cheia
+      // conține userId-ul de la upload-ul inițial). Adminii pot
+      // reprocesa orice video.
+      if (
+        req.user?.role !== "ADMIN" &&
+        !key.startsWith(`products-video/${userId}/`)
+      ) {
+        return res.status(403).json({
+          error: "forbidden",
+          message: "Nu ai acces la acest video.",
+        });
+      }
+
+      let getResult;
+      try {
+        getResult = await r2Client.send(
+          new GetObjectCommand({ Bucket: R2_BUCKET_NAME, Key: key })
+        );
+      } catch (getErr) {
+        if (getErr?.name === "NoSuchKey" || getErr?.Code === "NoSuchKey") {
+          // Cel mai probabil videoul a fost deja procesat (ex. dublu
+          // request) - nu e o eroare de server reală.
+          return res.status(404).json({
+            error: "video_not_found",
+            message:
+              "Acest video a fost deja procesat sau nu mai există. Reîncarcă pagina.",
+          });
+        }
+        throw getErr;
+      }
+
+      const originalBuffer = await streamToBuffer(getResult.Body);
+      const mimeType = getResult.ContentType || "video/mp4";
+
+      let stripped;
+      try {
+        stripped = await stripVideoAudio(originalBuffer, mimeType);
+      } catch (stripErr) {
+        console.error("[UPLOAD] Audio strip (reprocess) failed:", stripErr);
+        return res.status(500).json({
+          error: "audio_strip_failed",
+          message:
+            "Nu am putut elimina sunetul din acest video. Încearcă să încarci din nou fișierul.",
+        });
+      }
+
+      const originalName = key.split("/").pop() || "video";
+
+      const uploaded = await uploadVideoToR2({
+        buffer: stripped,
+        mimeType,
+        originalname: originalName,
+        folder: "products-video",
+        userId: key.split("/")[1] || userId,
+      });
+
+      await r2Client
+        .send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: key }))
+        .catch((delErr) => {
+          console.error("[UPLOAD] Failed to delete original video:", delErr);
+        });
+
+      return res.json({ ok: true, url: uploaded.url });
+    } catch (err) {
+      console.error("[UPLOAD] /products/video/mute error:", err);
+      return res.status(500).json({
+        error: "server_error",
+        message: "Nu am putut procesa videoul. Încearcă din nou.",
+      });
+    }
   }
 );
 

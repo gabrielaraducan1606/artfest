@@ -600,15 +600,17 @@ pentru editarea imaginii cu AI.
       <div style={{ marginTop: 18 }}>
         <ProductVideoField
           videoUrl={form.videoUrl || null}
-          posterUrl={
-            form.images?.[0]
-              ? resolveProductImageUrl(form.images[0])
-              : null
-          }
+          videoMuted={!!form.videoMuted}
           onChange={(url) =>
             setForm?.((current) => ({
               ...current,
               videoUrl: url,
+            }))
+          }
+          onMutedChange={(muted) =>
+            setForm?.((current) => ({
+              ...current,
+              videoMuted: muted,
             }))
           }
         />

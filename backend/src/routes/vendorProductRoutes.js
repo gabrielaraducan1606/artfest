@@ -174,6 +174,9 @@ function mapProduct(p) {
     videoUrl:
       p.videoUrl || null,
 
+    videoMuted:
+      !!p.videoMuted,
+
     currency:
       p.currency || "RON",
 
@@ -1146,6 +1149,7 @@ async function createProduct(req, res) {
       price,
       images = [],
       videoUrl = null,
+      videoMuted = false,
       currency = "RON",
       category = null,
       color = null,
@@ -1178,6 +1182,9 @@ quoteSchema = [],
       typeof videoUrl === "string" && /^https?:\/\//i.test(videoUrl.trim())
         ? videoUrl.trim()
         : null;
+
+    // Fără video, preferința de sunet nu are sens - rămâne default.
+    const normalizedVideoMuted = normalizedVideoUrl ? !!videoMuted : false;
 
     let cat = null;
     if (category != null && String(category).trim() !== "") {
@@ -1257,6 +1264,7 @@ console.info("[PRODUCT CREATE]", {
         currency: String(currency || "RON"),
         images: imgs,
         videoUrl: normalizedVideoUrl,
+        videoMuted: normalizedVideoMuted,
 
         isActive: req.body.isActive !== false, // default true
 isHidden: !!req.body.isHidden,         // default false
@@ -1396,6 +1404,15 @@ if (
         typeof v === "string" && /^https?:\/\//i.test(v.trim())
           ? v.trim()
           : null;
+
+      // Ștergerea video-ului resetează implicit preferința de sunet.
+      if (patch.videoUrl === null) {
+        patch.videoMuted = false;
+      }
+    }
+
+    if (req.body.videoMuted !== undefined && patch.videoUrl !== null) {
+      patch.videoMuted = !!req.body.videoMuted;
     }
 
     if (req.body.category !== undefined) {

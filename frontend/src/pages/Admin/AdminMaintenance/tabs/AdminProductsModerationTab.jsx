@@ -92,6 +92,18 @@ function ProductRow({ item, busyId, onApprove, onReject, onHideAgain }) {
           >
             Video produs
           </div>
+
+          <div
+            className={styles.subtle}
+            style={{
+              fontSize: 11,
+              textAlign: "center",
+            }}
+          >
+            {item.videoMuted
+              ? "🔇 Pornește fără sunet"
+              : "🔊 Sunet activ implicit"}
+          </div>
         </div>
       )}
 

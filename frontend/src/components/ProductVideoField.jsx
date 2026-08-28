@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FaVideo, FaSync, FaTrash } from "react-icons/fa";
 
 import styles from "../pages/Vendor/ProfilMagazin/components/css/ProductModal.module.css";
@@ -13,19 +13,49 @@ const AUTH_ERROR_MESSAGE =
  * Câmp reutilizabil pentru videoul (opțional) al unui produs.
  * Se folosește DOAR de `videoUrl`, nu atinge `images[]`.
  *
+ * `videoMuted: true` înseamnă că fișierul de la `videoUrl` NU mai
+ * are fizic pistă audio (eliminată prin remux pe server) - nu doar
+ * "pornește mut". Odată eliminată, pista audio nu se poate reface
+ * fără reîncărcarea originalului, de asta switch-ul se blochează
+ * (disabled) cât timp `videoMuted` e true.
+ *
  * Folosit în: ProductModal (formular manual), ProductEditModal,
  * VendorProductWizard (AI assistant).
  */
 export default function ProductVideoField({
   videoUrl,
   onChange,
-  posterUrl,
+  videoMuted = false,
+  onMutedChange,
   disabled = false,
 }) {
   const inputRef = useRef(null);
   const uploadingRef = useRef(false);
   const [uploading, setUploading] = useState(false);
+  const [muting, setMuting] = useState(false);
   const [error, setError] = useState("");
+  const [previewFrameReady, setPreviewFrameReady] = useState(false);
+
+  // Orice eroare veche nu mai are ce căuta lângă un video nou/diferit
+  // - fiecare `videoUrl` primit din afară pornește "curat": fără
+  // eroare afișată și cu preview-ul de frame resetat.
+  useEffect(() => {
+    setError("");
+    setPreviewFrameReady(false);
+  }, [videoUrl]);
+
+  const handlePreviewLoadedMetadata = (e) => {
+    const el = e.currentTarget;
+    const duration =
+      Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+    const target = duration > 0 ? Math.min(0.1, Math.max(0, duration - 0.05)) : 0.1;
+
+    try {
+      el.currentTime = target;
+    } catch {
+      /* fallback-ul neutru rămâne vizibil */
+    }
+  };
 
   async function handleFile(file) {
     if (!file) return;
@@ -47,6 +77,7 @@ export default function ProductVideoField({
           body: (() => {
             const fd = new FormData();
             fd.append("file", file);
+            fd.append("muted", videoMuted ? "true" : "false");
             return fd;
           })(),
           credentials: "include",
@@ -91,7 +122,55 @@ export default function ProductVideoField({
     }
   }
 
-  const isDisabled = disabled || uploading;
+  async function handleMuteToggle(nextChecked) {
+    // Nu se poate reveni la "cu sunet" din switch - pista audio a
+    // fost deja eliminată fizic. Butonul e oricum disabled în acest
+    // caz, dar păstrăm garda și aici.
+    if (!nextChecked || !videoUrl || muting) return;
+
+    setError("");
+    setMuting(true);
+
+    try {
+      let res;
+
+      try {
+        res = await fetch("/api/upload/products/video/mute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ videoUrl }),
+        });
+      } catch {
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        if (!data?.message && (res.status === 401 || res.status === 403)) {
+          throw new Error(AUTH_ERROR_MESSAGE);
+        }
+
+        throw new Error(data?.message || NETWORK_ERROR_MESSAGE);
+      }
+
+      if (!data?.url) {
+        throw new Error(NETWORK_ERROR_MESSAGE);
+      }
+
+      // videoUrl-ul vechi (cu sunet) a fost deja șters pe server -
+      // comutăm pe cel nou abia acum, la succes.
+      onChange?.(data.url);
+      onMutedChange?.(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : NETWORK_ERROR_MESSAGE);
+    } finally {
+      setMuting(false);
+    }
+  }
+
+  const isDisabled = disabled || uploading || muting;
 
   return (
     <div className={styles.videoFieldWrap}>
@@ -118,15 +197,57 @@ export default function ProductVideoField({
 
       {videoUrl ? (
         <div className={styles.videoPreviewCard}>
-          <video
-            src={videoUrl}
-            poster={posterUrl || undefined}
-            controls
-            playsInline
-            preload="metadata"
-            muted
-            className={styles.videoPreviewPlayer}
-          />
+          <div className={styles.videoPreviewMediaWrap}>
+            <video
+              src={videoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              muted
+              className={styles.videoPreviewPlayer}
+              onLoadedMetadata={handlePreviewLoadedMetadata}
+              onSeeked={() => setPreviewFrameReady(true)}
+              onLoadedData={() => setPreviewFrameReady(true)}
+            />
+
+            {!previewFrameReady && (
+              <div className={styles.videoPreviewFallback} aria-hidden="true">
+                <FaVideo className={styles.videoPreviewFallbackIcon} />
+                <span className={styles.videoPreviewFallbackLabel}>
+                  Video
+                </span>
+              </div>
+            )}
+          </div>
+
+          <label className={styles.muteSwitchRow}>
+            <span className={styles.muteSwitch}>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={!!videoMuted}
+                disabled={isDisabled || !!videoMuted}
+                onChange={(e) => handleMuteToggle(e.target.checked)}
+                className={styles.muteSwitchInput}
+              />
+              <span className={styles.muteSwitchTrack}>
+                <span className={styles.muteSwitchThumb} />
+              </span>
+            </span>
+
+            <span className={styles.muteSwitchText}>
+              <span className={styles.muteSwitchLabel}>
+                Redă video fără sunet
+              </span>
+              <span className={styles.muteSwitchHint}>
+                {videoMuted
+                  ? "Acest video nu mai are pistă audio. Pentru a reactiva sunetul, încarcă din nou fișierul original (Înlocuiește)."
+                  : muting
+                  ? "Se elimină sunetul din video..."
+                  : "Odată activat, sunetul este eliminat definitiv din fișier - clientul nu îl va putea reactiva."}
+              </span>
+            </span>
+          </label>
 
           <div className={styles.videoPreviewActions}>
             <button
@@ -146,6 +267,7 @@ export default function ProductVideoField({
               onClick={() => {
                 setError("");
                 onChange?.(null);
+                onMutedChange?.(false);
               }}
             >
               <FaTrash aria-hidden="true" /> Șterge videoul

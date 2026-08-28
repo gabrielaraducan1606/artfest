@@ -1120,6 +1120,10 @@ function ProductReviewModal({
                       }
                     >
                       Video produs
+                      {" · "}
+                      {product.videoMuted
+                        ? "🔇 Pornește fără sunet"
+                        : "🔊 Sunet activ implicit"}
                     </p>
 
                     <video

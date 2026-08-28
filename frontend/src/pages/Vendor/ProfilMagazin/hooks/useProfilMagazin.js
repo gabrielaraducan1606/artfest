@@ -381,6 +381,7 @@ const EMPTY_PROD_FORM = {
   price: "",
   images: [],
   videoUrl: null,
+  videoMuted: false,
   category: "",
   color: "",
 

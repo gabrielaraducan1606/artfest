@@ -519,10 +519,122 @@
   display: block;
 }
 
+.videoPreviewMediaWrap {
+  position: relative;
+}
+
+.videoPreviewFallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  background: #14161a;
+  color: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+.videoPreviewFallbackIcon {
+  font-size: 28px;
+}
+
+.videoPreviewFallbackLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .videoPreviewActions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* ===== Switch „Redă video fără sunet” ===== */
+.muteSwitchRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.muteSwitch {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 24px;
+  margin-top: 1px;
+}
+
+.muteSwitchInput {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.muteSwitchTrack {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--color-border);
+  transition: background-color 0.15s ease;
+}
+
+.muteSwitchThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease;
+}
+
+.muteSwitchInput:checked + .muteSwitchTrack {
+  background: var(--color-primary);
+}
+
+.muteSwitchInput:checked + .muteSwitchTrack .muteSwitchThumb {
+  transform: translateX(18px);
+}
+
+.muteSwitchInput:focus-visible + .muteSwitchTrack {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.muteSwitchInput:disabled {
+  cursor: not-allowed;
+}
+
+.muteSwitchInput:disabled + .muteSwitchTrack {
+  opacity: 0.5;
+}
+
+.muteSwitchText {
+  display: grid;
+  gap: 2px;
+}
+
+.muteSwitchLabel {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.muteSwitchHint {
+  font-size: 0.76rem;
+  color: var(--color-muted);
+  line-height: 1.4;
 }
 
 .videoError {
